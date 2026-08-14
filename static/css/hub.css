@@ -5052,6 +5052,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
   user-select: none;
   -webkit-user-drag: none;
 }
+/* Mobile: give the map viewport a fixed window so a wide floor's short (unscaled)
+   aspect-ratio height doesn't collapse the frame to a sliver once space_map.js opens
+   it at MOBILE_BASE_SCALE. Keep this breakpoint in sync with space_map.js. */
+@media (max-width: 768px) {
+  .pl-map-viewport {
+    height: min(60vh, 480px);
+  }
+}
 /* Legend — the colour key, with live counts */
 .pl-map-legend {
   display: flex;
