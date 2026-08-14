@@ -445,7 +445,7 @@
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                         <circle cx="12" cy="12" r="3"/>
                     </svg>
-                    Viewing as: {{ request.view_as.current_label }}
+                    <span class="pl-view-switcher__label">Viewing as: {{ request.view_as.current_label }}</span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px;"><path d="m6 9 6 6 6-6"/></svg>
                 </button>
                 <div class="pl-view-as-popover__menu" x-show="open" x-transition @click.away="open = false" role="menu">
@@ -471,25 +471,13 @@
                 ${{ tab_balance }}
             </a>
             {% endif %}
-            {% if help_page_enabled %}
-            {# Info View toggle — no Alpine: static/js/info_view.js owns it via data-help-toggle delegation. #}
-            <button class="pl-topbar__help-toggle" data-help-toggle aria-pressed="false"
-                    aria-label="Toggle help mode" title="What does this do? (?)">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                    <path d="M12 17h.01"/>
-                </svg>
-            </button>
-            {% endif %}
             <button class="pl-topbar__theme-toggle"
-                    x-data="{ light: window.__plTheme === 'light' }"
-                    @click="light = !light; window.__plSetTheme(light)"
+                    @click="$store.theme.light = !$store.theme.light; window.__plSetTheme($store.theme.light)"
                     aria-label="Toggle theme">
-                <svg x-show="!light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg x-show="!$store.theme.light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/>
                 </svg>
-                <svg x-show="light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg x-show="$store.theme.light" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                 </svg>
             </button>
@@ -508,6 +496,7 @@
                         <div class="pl-profile__dropdown-email">{{ user.email }}</div>
                     </div>
                     <a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>
+                    <button type="button" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item" @click="$store.theme.light = !$store.theme.light; window.__plSetTheme($store.theme.light)" role="menuitem"><span x-text="$store.theme.light ? 'Switch to Dark Mode' : 'Switch to Light Mode'"></span></button>
                     <div class="pl-profile__dropdown-divider"></div>
                     <a href="{% url 'account_logout' %}" class="pl-profile__dropdown-item pl-profile__dropdown-item--danger" role="menuitem" hx-boost="false">Log Out</a>
                 </div>
@@ -562,12 +551,6 @@
 
     {% include "includes/changelog_modal.html" %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
-    {% if user.is_authenticated and not request.GET.public and not is_guest_surface and help_page_enabled %}
-    {% comment %}Info View (Spec B): panel + script share ONE guard — the module never loads where
-       the feature is off, and its init() additionally no-ops when the panel node is absent.{% endcomment %}
-    {% include "hub/_info_view_panel.html" %}
-    <script src="{% static 'js/info_view.js' %}"></script>
-    {% endif %}
     <script src="{% static 'js/htmx.min.js' %}"></script>
     {% comment %}
         head-support: makes hx-boost merge <head> contents (per-page styles, link tags) — without it,
@@ -591,6 +574,11 @@
         });
     </script>
     <script defer src="{% static 'js/alpine.min.js' %}"></script>
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('theme', { light: window.__plTheme === 'light' });
+        });
+    </script>
     <script>
         document.addEventListener('htmx:afterSettle', function(event) {
             if (window.Alpine) {

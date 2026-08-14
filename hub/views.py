@@ -24,8 +24,7 @@ from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadReque
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
-from django.utils.cache import patch_cache_control
-from django.views.decorators.http import condition, require_GET, require_POST, require_http_methods
+from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
@@ -2614,45 +2613,6 @@ def help_search(request: HttpRequest) -> HttpResponse:
             "categories": HelpCategory.objects.with_published_counts().nonempty().landing_ranked(),
         },
     )
-
-
-def _help_topics_etag(request: HttpRequest) -> str | None:
-    """ETag for ``help_topics_json`` — keyed on (app VERSION, registry contents).
-
-    Every PR bumps VERSION, so deploys bust the browser cache and unchanged
-    deploys 304. ``None`` when the feature is off, so the 404 is never cached.
-    """
-    import hashlib
-
-    from core.help_registry import HELP_KEYS
-    from plfog.version import VERSION
-
-    if not SiteConfiguration.load().help_page_enabled:
-        return None
-    return '"' + hashlib.sha256(f"{VERSION}:{HELP_KEYS!r}".encode()).hexdigest()[:32] + '"'
-
-
-@require_GET
-@condition(etag_func=_help_topics_etag)
-def help_topics_json(request: HttpRequest) -> JsonResponse:
-    """Serve the in-code help-key registry for the Info View overlay (Spec B §5).
-
-    Public-read for the same reason ``help_page`` is: org-wide reference
-    content, no PII. The client gets a finished ``url`` per key (``url_for``
-    resolves article + anchor, degrading to ``/help/``) and needs zero URL
-    logic of its own.
-    """
-    from core.help_registry import HELP_KEYS, url_for
-    from plfog.version import VERSION
-
-    if not SiteConfiguration.load().help_page_enabled:
-        return JsonResponse({"detail": "Not found."}, status=404)
-    topics = {
-        key: {"title": t["title"], "short_text": t["short_text"], "url": url_for(key)} for key, t in HELP_KEYS.items()
-    }
-    response = JsonResponse({"version": VERSION, "topics": topics})
-    patch_cache_control(response, public=True, max_age=3600)
-    return response
 
 
 def _org_info_edit_context(

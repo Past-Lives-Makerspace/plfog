@@ -17,7 +17,10 @@
 (function () {
     'use strict';
 
-    var MIN_SCALE = 1;
+    // Keep in sync with hub.css's mobile breakpoint (max-width: 768px).
+    var MOBILE_BREAKPOINT = '(max-width: 768px)';
+    var DESKTOP_BASE_SCALE = 1;
+    var MOBILE_BASE_SCALE = 2;   // "opens enlarged" — ~2x room size on first paint, headroom to MAX_SCALE
     var MAX_SCALE = 4;
     // How many list rows a "page" is — the first read, and each Show-more step.
     var LIST_PAGE = 20;
@@ -53,6 +56,15 @@
             listMatched: 0,
             listShown: 0,
 
+            init: function () {
+                this.scale = this.baseScale();
+                if (!window.matchMedia) return;
+                var mq = window.matchMedia(MOBILE_BREAKPOINT);
+                var onChange = this.reset.bind(this);
+                if (mq.addEventListener) { mq.addEventListener('change', onChange); }
+                else if (mq.addListener) { mq.addListener(onChange); }
+            },
+
             setPane: function (name) {
                 this.pane = name;
                 // Keep the tab in the URL so a Listings link can be shared and a reload,
@@ -82,19 +94,26 @@
                 return 'transform: translate(' + this.tx + 'px, ' + this.ty + 'px) scale(' + this.scale + ');';
             },
 
+            // The scale the map opens (and resets) to: enlarged on phones so rooms are
+            // legible, 1:1 on desktop. Read live so a rotation across the breakpoint re-baselines.
+            baseScale: function () {
+                var mobile = window.matchMedia && window.matchMedia(MOBILE_BREAKPOINT).matches;
+                return mobile ? MOBILE_BASE_SCALE : DESKTOP_BASE_SCALE;
+            },
+
             reset: function () {
-                this.scale = 1;
+                this.scale = this.baseScale();
                 this.tx = 0;
                 this.ty = 0;
             },
 
             zoomIn: function () {
-                this.scale = clamp(this.scale * 1.25, MIN_SCALE, MAX_SCALE);
+                this.scale = clamp(this.scale * 1.25, this.baseScale(), MAX_SCALE);
                 this.clampPan();
             },
 
             zoomOut: function () {
-                this.scale = clamp(this.scale / 1.25, MIN_SCALE, MAX_SCALE);
+                this.scale = clamp(this.scale / 1.25, this.baseScale(), MAX_SCALE);
                 this.clampPan();
             },
 
@@ -169,7 +188,7 @@
                 if (this.pointerList().length === 2) {
                     var distance = this.pinchDistance();
                     if (this.pinchStart > 0 && distance > 0) {
-                        this.scale = clamp((distance / this.pinchStart) * this.pinchScale, MIN_SCALE, MAX_SCALE);
+                        this.scale = clamp((distance / this.pinchStart) * this.pinchScale, this.baseScale(), MAX_SCALE);
                     }
                     var mid = this.pinchCentroid();
                     this.tx += mid.x - this.pinchX;
