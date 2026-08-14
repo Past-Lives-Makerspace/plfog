@@ -32,7 +32,11 @@ def describe_info_view():
         login_via_code(MEMBER_EMAIL)
         page.goto(f"{live_server.url}{reverse('hub_guild_voting')}")
 
-        page.click("[data-help-toggle]")
+        # Scoped to the topbar: the profile dropdown now renders a second
+        # data-help-toggle (the mobile Help Mode row), so the bare selector
+        # matches two elements. These specs run at desktop width, where the
+        # topbar toggle is the one under test.
+        page.locator(".pl-topbar [data-help-toggle]").click()
         expect(page.locator("html")).to_have_class(HELP_MODE)
         panel = page.locator("[data-infoview-panel]")
         expect(panel).to_be_visible()
@@ -49,7 +53,7 @@ def describe_info_view():
         login_via_code(MEMBER_EMAIL)
         page.goto(f"{live_server.url}{reverse('hub_guild_voting')}")
 
-        page.click("[data-help-toggle]")
+        page.locator(".pl-topbar [data-help-toggle]").click()
         # Scoped to the page content: Spec C also stamps voting.rank-guilds on the
         # sidebar's Guild Voting link (the member tour's step-5 target), so the bare
         # selector matches two elements. The ballot card in <main> is the one under test.
@@ -82,7 +86,7 @@ def describe_info_view():
         login_via_code(MEMBER_EMAIL)
         page.goto(f"{live_server.url}{reverse('hub_guild_voting')}")
 
-        page.click("[data-help-toggle]")
+        page.locator(".pl-topbar [data-help-toggle]").click()
         expect(page.locator("html")).to_have_class(HELP_MODE)
 
         # The sidebar nav opts out of hx-boost; the profile dropdown's Settings
@@ -101,7 +105,7 @@ def describe_info_view():
         page.goto(f"{live_server.url}{reverse('hub_guild_voting')}")
         page.route("**/help/topics.json", lambda route: route.abort())
 
-        page.click("[data-help-toggle]")
+        page.locator(".pl-topbar [data-help-toggle]").click()
         panel = page.locator("[data-infoview-panel]")
         expect(panel).to_contain_text("Help topics couldn’t load.")
         expect(panel.locator("[data-infoview-retry]")).to_be_visible()
