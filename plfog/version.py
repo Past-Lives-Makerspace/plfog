@@ -11,7 +11,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "A smoother hub on your phone",
         "changes": [
             "On phones, the top bar no longer runs past the edge of the screen or lets the whole page slide sideways.",
-            "Tap your profile photo in the top right to find your notifications, settings, dark mode, and help mode, all in one menu.",
+            "On phones, your notification bell now sits right in the top bar, and tapping your profile photo opens settings, dark mode, and log out.",
             "The space map opens larger and easier to read on phones now. Drag to move around it, and pinch to zoom.",
         ],
     },

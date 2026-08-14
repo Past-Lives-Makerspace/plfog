@@ -471,17 +471,6 @@
                 ${{ tab_balance }}
             </a>
             {% endif %}
-            {% if help_page_enabled %}
-            {# Info View toggle — no Alpine: static/js/info_view.js owns it via data-help-toggle delegation. #}
-            <button class="pl-topbar__help-toggle" data-help-toggle aria-pressed="false"
-                    aria-label="Toggle help mode" title="What does this do? (?)">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                    <path d="M12 17h.01"/>
-                </svg>
-            </button>
-            {% endif %}
             <button class="pl-topbar__theme-toggle"
                     @click="$store.theme.light = !$store.theme.light; window.__plSetTheme($store.theme.light)"
                     aria-label="Toggle theme">
@@ -501,18 +490,13 @@
                     {{ user_initials }}
                     {% endif %}
                 </button>
-                {% if unread_notification_count %}<span class="pl-profile__avatar-dot" aria-hidden="true"></span>{% endif %}
                 <div class="pl-profile__dropdown" x-show="open" x-transition @click.away="open = false" role="menu">
                     <div class="pl-profile__dropdown-header">
                         <div class="pl-profile__dropdown-name">{{ user.get_full_name|default:user.email }}</div>
                         <div class="pl-profile__dropdown-email">{{ user.email }}</div>
                     </div>
-                    <a href="{% url 'notification_list' %}" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item pl-profile__dropdown-item--bell" role="menuitem">Notifications {% if unread_notification_count %}<span class="pl-profile__dropdown-badge">{{ unread_notification_count }}</span>{% endif %}</a>
                     <a href="{% url 'hub_user_settings' %}" class="pl-profile__dropdown-item" role="menuitem">Settings</a>
                     <button type="button" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item" @click="$store.theme.light = !$store.theme.light; window.__plSetTheme($store.theme.light)" role="menuitem"><span x-text="$store.theme.light ? 'Switch to Dark Mode' : 'Switch to Light Mode'"></span></button>
-                    {% if help_page_enabled %}
-                    <button type="button" class="pl-profile__dropdown-item pl-profile__dropdown-mobile-item" data-help-toggle aria-pressed="false" role="menuitem">Help Mode</button>
-                    {% endif %}
                     <div class="pl-profile__dropdown-divider"></div>
                     <a href="{% url 'account_logout' %}" class="pl-profile__dropdown-item pl-profile__dropdown-item--danger" role="menuitem" hx-boost="false">Log Out</a>
                 </div>
@@ -567,12 +551,6 @@
 
     {% include "includes/changelog_modal.html" %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
-    {% if user.is_authenticated and not request.GET.public and not is_guest_surface and help_page_enabled %}
-    {% comment %}Info View (Spec B): panel + script share ONE guard — the module never loads where
-       the feature is off, and its init() additionally no-ops when the panel node is absent.{% endcomment %}
-    {% include "hub/_info_view_panel.html" %}
-    <script src="{% static 'js/info_view.js' %}"></script>
-    {% endif %}
     <script src="{% static 'js/htmx.min.js' %}"></script>
     {% comment %}
         head-support: makes hx-boost merge <head> contents (per-page styles, link tags) — without it,

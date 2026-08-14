@@ -1,12 +1,13 @@
 """End-to-end: the mobile top bar folds its actions into the avatar menu.
 
-On a narrow (phone) viewport the topbar no longer runs its bell, help, theme,
-and settings controls off the edge of the screen — they collapse into the
-profile-avatar dropdown, and nothing lets the page scroll sideways. These drive
-the real browser at a 393px viewport to prove the fold works from its new home:
-the page never scrolls horizontally, the unread dot tracks real notifications,
-and Notifications / Dark Mode / Help Mode each still work from the menu. Run with
-``pytest -m e2e``.
+On a narrow (phone) viewport the topbar no longer runs its theme and settings
+controls off the edge of the screen — they collapse into the profile-avatar
+dropdown, and nothing lets the page scroll sideways. The notification bell now
+stays directly visible in the topbar rather than folding into the menu. These
+drive the real browser at a 393px viewport to prove the fold works from its new
+home: the page never scrolls horizontally, the bell badge tracks real
+notifications, Dark Mode still works from the menu, and Notifications opens from
+the topbar bell. Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ from playwright.sync_api import expect
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
 PHONE = {"width": 393, "height": 852}
-HELP_MODE = re.compile(r"(^|\s)pl-help-mode(\s|$)")
 DARK = re.compile(r"(^|\s)dark(\s|$)")
 NO_H_SCROLL = "() => document.documentElement.scrollWidth === document.documentElement.clientWidth"
 MEMBER_EMAIL = "mobile-topbar-member@example.com"
@@ -43,7 +43,7 @@ def describe_mobile_topbar():
             page.goto(f"{live_server.url}{reverse(name)}")
             assert page.evaluate(NO_H_SCROLL), f"{name} scrolls sideways at {PHONE['width']}px"
 
-    def it_shows_the_avatar_dot_only_while_a_notification_is_unread(live_server, page, login_via_code):
+    def it_shows_the_bell_badge_only_while_a_notification_is_unread(live_server, page, login_via_code):
         _seed_member_world()
         page.set_viewport_size(PHONE)
         login_via_code(MEMBER_EMAIL)
@@ -59,14 +59,14 @@ def describe_mobile_topbar():
         )
 
         page.goto(f"{live_server.url}{reverse('hub_home')}")
-        expect(page.locator(".pl-profile__avatar-dot")).to_be_visible()
+        expect(page.locator(".pl-bell__badge")).to_be_visible()
 
-        # Once every notification is read, the dot is gone.
+        # Once every notification is read, the badge is gone.
         Notification.objects.filter(user=user).update(read_at=timezone.now())
         page.goto(f"{live_server.url}{reverse('hub_home')}")
-        expect(page.locator(".pl-profile__avatar-dot")).to_have_count(0)
+        expect(page.locator(".pl-bell__badge")).to_have_count(0)
 
-    def it_folds_theme_and_help_into_the_avatar_menu(live_server, page, login_via_code):
+    def it_folds_theme_into_the_avatar_menu(live_server, page, login_via_code):
         _seed_member_world()
         page.set_viewport_size(PHONE)
         login_via_code(MEMBER_EMAIL)
@@ -87,17 +87,12 @@ def describe_mobile_topbar():
         assert theme_cookie["value"] == "light"
         expect(dropdown).to_be_visible()
 
-        # Help Mode row turns on hover-help from its new home in the menu.
-        dropdown.locator("[data-help-toggle]").click()
-        expect(html).to_have_class(HELP_MODE)
-
-    def it_opens_notifications_from_the_avatar_menu(live_server, page, login_via_code):
+    def it_opens_notifications_from_the_topbar_bell(live_server, page, login_via_code):
         _seed_member_world()
         page.set_viewport_size(PHONE)
         login_via_code(MEMBER_EMAIL)
         page.goto(f"{live_server.url}{reverse('hub_home')}")
 
-        page.click(".pl-profile__avatar")
         notifications_path = reverse("notification_list")
-        page.locator(f'.pl-profile__dropdown a[href="{notifications_path}"]').click()
+        page.locator(".pl-bell__btn").click()
         page.wait_for_url(f"**{notifications_path}")
