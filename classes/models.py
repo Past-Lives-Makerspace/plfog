@@ -1482,16 +1482,15 @@ DEFAULT_CLASS_FAQS: list[dict] = [
         "question": "What's your cancellation policy?",
         "answer": (
             "We know plans change, but late cancellations and no-shows leave empty seats that could've "
-            "gone to someone on the waitlist, and instructors still prep and hold space for every "
-            "registered student.\n\n"
-            "Canceling with 48+ hours' notice: No fee. Please cancel by emailing studios@pastlives.space "
+            "gone to someone on the waitlist, and instructors still prep materials and hold space for "
+            "every registered student. Here's how we handle it:\n\n"
+            "Canceling with 48+ hours' notice: No fee. Please cancel by emailing classes@pastlives.space "
             "as early as possible so we can offer your spot to someone on the waitlist.\n\n"
-            "Canceling with less than 48 hours' notice, or no-shows: A $50 fee applies. Of this, $35 goes "
-            "to the instructor for their held time and prep, and $15 goes to Past Lives Makerspace for "
-            "administrative processing.\n\n"
+            "Canceling with less than 48 hours' notice, or no-shows: We do not offer refunds for late "
+            "cancellations and no-shows.\n\n"
             "Emergencies: We understand things come up. Emergency exceptions are handled case-by-case. "
             "Please reach out to us directly, and we'll work with you.\n\n"
-            "How to cancel: Email studios@pastlives.space"
+            "How to cancel: Email classes@pastlives.space"
         ),
     },
     {

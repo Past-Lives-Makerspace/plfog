@@ -46,6 +46,13 @@
       </div>
       {% include "components/form_field.html" with field=form.show_members %}
     </div>
+
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Wishlist</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Tools, materials, or equipment the guild is hoping to receive as donations. Shown on a Wishlist tab on your guild page. Add a donate link and members get a Donate button too.</p>
+      {% include "components/form_field.html" with field=form.wishlist %}
+      {% include "components/form_field.html" with field=form.donate_url %}
+    </div>
   </div>
 
   {# ── Meetings (+ Calendar Integration) ───────────────────────────── #}

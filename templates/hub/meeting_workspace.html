@@ -394,10 +394,13 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     </div>
     <div class="pl-modal__body">
       {# Create + own: rides schedule_or_go_live — announce + Google + Discord + reminders. #}
-      <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none">
+      <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none" hx-disabled-elt="find button">
         {% csrf_token %}
         {% if can_add_to_calendar %}
-        <button type="submit" class="pl-btn pl-btn--primary pl-meeting-calendar-create">Create calendar event</button>
+        {# Google + Discord sync runs server-side and takes a beat; the spinner + disabled state give the click an immediate reaction. #}
+        <button type="submit" class="pl-btn pl-btn--primary pl-meeting-calendar-create">
+          <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Create calendar event
+        </button>
         {% else %}
         <button type="submit" class="pl-btn pl-btn--primary pl-meeting-calendar-create" disabled>Create calendar event</button>
         <p class="pl-field-hint">Set a date and time first.</p>
@@ -405,7 +408,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
       </form>
       {% if linkable_events %}
       <div class="pl-meeting-calendar-or hub-text-muted">or link an existing event</div>
-      <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none">
+      <form hx-post="{% url 'hub_meeting_event' meeting.pk %}" hx-swap="none" hx-disabled-elt="find button">
         {% csrf_token %}
         <div class="hub-form-group">
           <label for="link-event-select">Event</label>
@@ -430,7 +433,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
         {% endif %}
         {% endfor %}
         <div class="pl-modal__actions">
-          <button type="submit" class="pl-btn pl-btn--secondary" style="flex:1;" :disabled="!eventPk">Link this event</button>
+          <button type="submit" class="pl-btn pl-btn--secondary" style="flex:1;" :disabled="!eventPk"><span class="htmx-indicator pl-spin" aria-hidden="true"></span> Link this event</button>
           <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
         </div>
       </form>

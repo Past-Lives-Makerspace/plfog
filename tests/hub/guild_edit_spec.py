@@ -323,6 +323,26 @@ def describe_guild_edit():
         assert guild.name == "New Name"
         assert guild.about == "New about"
 
+    def it_saves_the_wishlist_and_donate_url(client: Client):
+        _user_with_role("admin_w", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Ceramics")
+        client.login(username="admin_w", password="pass")
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        response = client.post(
+            url,
+            data={
+                "name": "Ceramics",
+                "about": "",
+                "wishlist": "A pug mill and kiln shelves",
+                "donate_url": "https://example.com/give",
+                **_empty_guild_formsets(),
+            },
+        )
+        assert response.status_code == 302
+        guild.refresh_from_db()
+        assert guild.wishlist == "A pug mill and kiln shelves"
+        assert guild.donate_url == "https://example.com/give"
+
     def it_guild_lead_can_edit_their_guild(client: Client):
         user = _user_with_role("lead_e", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member, name="Old")

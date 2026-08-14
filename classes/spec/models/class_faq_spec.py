@@ -53,6 +53,18 @@ def describe_display_faqs():
         assert DEFAULT_CLASS_FAQS[0]["question"] not in questions
 
 
+def describe_default_cancellation_policy():
+    def it_points_cancellations_to_the_classes_inbox_with_no_late_fee(db):
+        offering = ClassOfferingFactory()
+        answer = next(
+            faq["answer"] for faq in offering.display_faqs if faq["question"] == "What's your cancellation policy?"
+        )
+        assert "classes@pastlives.space" in answer
+        assert "studios@pastlives.space" not in answer
+        assert "$50" not in answer
+        assert "We do not offer refunds for late cancellations and no-shows." in answer
+
+
 def describe_gallery_display_images():
     def it_lists_only_gallery_rows(db):
         offering = ClassOfferingFactory()  # factory supplies a hero image
