@@ -1393,6 +1393,7 @@ a:hover { color: var(--hub-link-hover); }
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9375rem;
+    overflow-x: hidden;
 }
 .pl-members-table th,
 .pl-members-table td {
@@ -1414,7 +1415,7 @@ a:hover { color: var(--hub-link-hover); }
     border-bottom: 1px solid var(--hub-border);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
     .pl-members-table thead {
         display: none;
     }
@@ -1426,17 +1427,19 @@ a:hover { color: var(--hub-link-hover); }
         padding: 0.25rem 0.75rem;
     }
     .pl-members-table td[data-label] {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        text-align: right;
+        display: block;
         padding: 0.4rem 0;
+        overflow-wrap: anywhere;
     }
     .pl-members-table td[data-label]::before {
         content: attr(data-label);
+        display: block;
         color: var(--hub-text-muted);
         font-weight: 500;
-        text-align: left;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.15rem;
     }
 }
 
