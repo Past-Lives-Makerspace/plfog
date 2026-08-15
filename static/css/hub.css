@@ -1025,6 +1025,17 @@ a:hover { color: var(--hub-link-hover); }
     max-width: 1320px;
     margin-inline: auto;
     width: 100%;
+    /* Systemic horizontal-overflow guard. A hidden-but-laid-out absolute child
+       (e.g. a .pl-help__bubble tooltip anchored left:0 near the right edge, or a
+       nowrap widget) still contributes to document scroll width, so the whole
+       page scrolls sideways on a phone. html{overflow-x:hidden} does NOT contain
+       it — the root's overflow propagates to the viewport (its own box computes
+       to visible) and mobile Safari ignores it for panning anyway. `clip` here
+       is the reliable stop: it trims horizontal overflow at the content column
+       without creating a scroll container, keeps overflow-y visible so tooltips
+       and menus still open downward, and never clips position:fixed modals
+       (.hub-content isn't their containing block). */
+    overflow-x: clip;
 }
 
 /* ========================================
@@ -1890,6 +1901,32 @@ a:hover { color: var(--hub-link-hover); }
 .pl-help--right .pl-help__bubble {
     left: auto;
     right: 0;
+}
+
+/* Phone: the bubble is up to 320px and anchored to a tiny icon that can sit
+   anywhere in a narrow column, so left/right:0 always pokes one edge off-screen
+   (the page-scroll bug this component drove). Neither anchor fits a 320px bubble
+   on a 393px screen. Pin it to the viewport gutters instead so it is always fully
+   readable, regardless of where the icon sits. Fixed (not absolute) so it escapes
+   the .hub-content clip and is measured against the viewport; it stays hidden until
+   hover/focus, so it never contributes to page width. Anchored just under the
+   sticky topbar (not the bottom, which the floating chat button owns). */
+@media (max-width: 768px) {
+    .pl-help__bubble,
+    .pl-help--right .pl-help__bubble {
+        position: fixed;
+        left: 1rem;
+        right: 1rem;
+        top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px) + 0.5rem);
+        bottom: auto;
+        width: auto;
+        max-width: none;
+        transform: translateY(-6px);
+    }
+    .pl-help:hover .pl-help__bubble,
+    .pl-help:focus-within .pl-help__bubble {
+        transform: translateY(0);
+    }
 }
 
 .tab-history-link {

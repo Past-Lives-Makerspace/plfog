@@ -22,10 +22,12 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "1.0.3",
         "date": "2026-08-14",
-        "title": "Manage Members fits your phone",
+        "title": "Pages fit your phone better",
         "changes": [
-            "For leads and admins: the Manage Members page no longer runs off the side of the screen on "
-            "phones. Each member's details stack and wrap so you can read them without scrolling sideways.",
+            "Some pages (guild pages and a few others) could slide sideways on a phone. They now fit the "
+            "width of your screen, no more accidental horizontal scrolling.",
+            "For leads and admins: the Manage Members page also stacks and wraps cleanly on phones instead "
+            "of running off the edge.",
         ],
     },
     {
