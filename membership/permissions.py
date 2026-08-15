@@ -139,12 +139,19 @@ def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
     return guilds, bool(guilds)
 
 
-def can_propose_to_meeting(request: HttpRequest, meeting: Meeting) -> bool:
+def can_propose_to_meeting(request: HttpRequest, meeting: Meeting, *, member_guild_ids: set[int] | None = None) -> bool:
     """True when this request may propose an agenda item for the meeting.
 
     Guild meeting: any active member of that guild (its leadership and admins
     trivially). Council: guild leads/staff/admins only. Always ``False`` once the
     meeting is locked or its date has passed.
+
+    ``member_guild_ids`` is the bulk optimization for a caller checking many meetings at
+    once (the Meetings home §6.2): pass the viewer's joined-guild pks (see
+    :func:`viewer_guild_membership_ids`). An active member of the meeting's guild is then
+    answered straight from the set — skipping both the per-meeting roster ``.exists()`` AND
+    the ``can_edit_meeting`` staff-roster query a plain member would otherwise trigger per
+    card. Omit it and every check runs per call, as the single-meeting call sites do.
     """
     from membership.models import Member
 
@@ -152,14 +159,35 @@ def can_propose_to_meeting(request: HttpRequest, meeting: Meeting) -> bool:
         return False
     if meeting.scheduled_date is not None and meeting.scheduled_date < timezone.localdate():
         return False
+    member = _editing_member(request)
+    active_member_of_scope = (
+        member_guild_ids is not None
+        and meeting.guild_id is not None
+        and member is not None
+        and member.status == Member.Status.ACTIVE
+        and meeting.guild_id in member_guild_ids
+    )
+    if active_member_of_scope:
+        return True
     if can_edit_meeting(request, meeting):
         return True
     if meeting.guild is None:
         return False
-    member = _editing_member(request)
     if member is None or member.status != Member.Status.ACTIVE:
         return False
+    if member_guild_ids is not None:
+        return meeting.guild_id in member_guild_ids
     return meeting.guild.memberships.filter(member=member).exists()
+
+
+def viewer_guild_membership_ids(request: HttpRequest) -> set[int]:
+    """The signed-in member's joined-guild pks, for a bulk caller checking
+    :func:`can_propose_to_meeting` for many meetings without a per-meeting ``.exists()``.
+    Empty for a request with no linked, active-preview member."""
+    member = _editing_member(request)
+    if member is None:
+        return set()
+    return set(member.guild_memberships.values_list("guild_id", flat=True))
 
 
 def can_edit_category(request: HttpRequest, category: Category) -> bool:

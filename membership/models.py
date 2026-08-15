@@ -5171,6 +5171,17 @@ class MeetingQuerySet(models.QuerySet):
             return self.filter(guild__isnull=True)
         return self.filter(guild=guild)
 
+    def next_in_scope_after(self, meeting: Meeting) -> MeetingQuerySet:
+        """The scope's next DATED meeting after ``meeting`` — ``carry_over``'s immediate-link
+        target. Undated drafts never qualify (mirrors ``carryover_for``). Filters by
+        ``guild_id`` (local field) rather than ``for_scope(meeting.guild)``, avoiding a
+        Guild fetch."""
+        if meeting.scheduled_date is None:
+            return self.none()
+        qs = self.filter(scheduled_date__gt=meeting.scheduled_date)
+        qs = qs.filter(guild_id=meeting.guild_id) if meeting.guild_id is not None else qs.filter(guild__isnull=True)
+        return qs.order_by("scheduled_date", "pk")
+
     def approved(self) -> MeetingQuerySet:
         return self.filter(status=Meeting.Status.APPROVED)
 
@@ -5203,6 +5214,7 @@ class Meeting(models.Model):
     topic_count: int
     pending_count: int
     viewer_can_edit: bool
+    viewer_can_propose: bool
 
     guild = models.ForeignKey(
         Guild,
@@ -5430,23 +5442,47 @@ class Meeting(models.Model):
         self.status = self.Status.PUBLISHED
         self.save(update_fields=["status"])
 
-    def approve(self, *, by: User) -> None:
-        """Approve and lock the minutes: stamp, auto-decline pending proposals, notify.
+    def attach_carried_over_proposals(self) -> list[MeetingItemProposal]:
+        """Materialize proposals carried forward while this scope had no next meeting yet
+        (the deferred half of :meth:`MeetingItemProposal.carry_over`). No-op on a locked
+        meeting. Idempotent: each waiting proposal claims exactly one target via
+        ``carried_to``, so a re-run finds nothing left to attach."""
+        if self.is_locked:
+            return []
+        waiting = MeetingItemProposal.objects.awaiting_carryover_for(self)
+        return [source.attach_carryover_to(self) for source in waiting]
 
-        Still-pending proposals are declined first (each proposer notified — no proposal
-        silently dies; withdrawn ones are skipped by the PENDING filter). The approval
-        emit's period is timestamped so a re-approval after an admin unlock announces the
-        corrected minutes again; the spine writes the ``meeting_approved`` activity row.
+    def approve(self, *, by: User, dispositions: dict[int, str] | None = None) -> None:
+        """Approve and lock: apply each pending proposal's disposition, stamp, notify.
+
+        ``dispositions`` maps a still-pending proposal's pk to
+        :attr:`MeetingItemProposal.Disposition.CARRY` or ``.SET_ASIDE`` (the lock-time
+        modal POST). Any pending proposal NOT present defaults to CARRY — non-destructive,
+        so the zero-pending fast path (or an old client) never silently drops a member's
+        idea like the old blanket auto-decline. Withdrawn / declined / already-decided
+        proposals are untouched (the PENDING filter skips them) — which also makes carry /
+        table idempotent across an admin unlock + re-approve. The approval emit's period is
+        timestamped so a re-approval after an admin unlock announces the corrected minutes
+        again; the spine writes the ``meeting_approved`` activity row.
 
         Raises:
             MeetingLockedError: If already approved.
-            ValueError: If no ``scheduled_date`` is set.
+            ValueError: If no ``scheduled_date`` is set, or ``dispositions`` names an
+                unknown token.
         """
         self.assert_editable()
         if self.scheduled_date is None:
             raise ValueError("Set the meeting date before approving.")
+        dispositions = dispositions or {}
         for proposal in self.proposals.filter(state=MeetingItemProposal.State.PENDING):
-            proposal.decline(reviewer=by, note="The meeting was closed before this was reviewed.")
+            proposal.meeting = self  # reuse — avoids re-fetching the row we already are
+            disposition = dispositions.get(proposal.pk, MeetingItemProposal.Disposition.CARRY)
+            if disposition == MeetingItemProposal.Disposition.SET_ASIDE:
+                proposal.table(reviewer=by)
+            elif disposition == MeetingItemProposal.Disposition.CARRY:
+                proposal.carry_over(reviewer=by)
+            else:
+                raise ValueError(f"Unknown disposition '{disposition}' for proposal {proposal.pk}.")
         self.status = self.Status.APPROVED
         self.approved_by = by
         self.approved_at = timezone.now()
@@ -6007,6 +6043,26 @@ class MeetingAttachment(models.Model):
         return self.url
 
 
+class MeetingItemProposalQuerySet(models.QuerySet):
+    """Carryover-attach query for proposals whose scope had no next meeting at lock time."""
+
+    def awaiting_carryover_for(self, meeting: Meeting) -> MeetingItemProposalQuerySet:
+        """CARRIED_OVER proposals in the same scope with no target yet — waiting for
+        'the next agenda' to start.
+
+        NOT date-scoped (unlike :meth:`MeetingActionItemQuerySet.carryover_for`): the
+        target only needs to be the next Meeting row created for the scope. Each waiting
+        proposal claims exactly one target via ``carried_to``, so anything already claimed
+        is excluded.
+        """
+        qs = self.filter(state=MeetingItemProposal.State.CARRIED_OVER, carried_to__isnull=True)
+        if meeting.guild_id is None:
+            qs = qs.filter(meeting__guild__isnull=True)
+        else:
+            qs = qs.filter(meeting__guild_id=meeting.guild_id)
+        return qs.select_related("meeting", "proposed_by__member").order_by("meeting__scheduled_date", "pk")
+
+
 class MeetingItemProposal(models.Model):
     """A member's proposed agenda item for an upcoming meeting, awaiting a decision."""
 
@@ -6015,6 +6071,12 @@ class MeetingItemProposal(models.Model):
         APPROVED = "approved", "Approved"
         DECLINED = "declined", "Declined"
         WITHDRAWN = "withdrawn", "Withdrawn"
+        CARRIED_OVER = "carried_over", "Carried Over"
+        TABLED = "tabled", "Tabled"
+
+    class Disposition(models.TextChoices):
+        CARRY = "carry", "Carry over"
+        SET_ASIDE = "set_aside", "Set aside"
 
     meeting = models.ForeignKey(
         Meeting,
@@ -6062,12 +6124,23 @@ class MeetingItemProposal(models.Model):
         related_name="source_proposal",
         help_text="The agenda item an approval created.",
     )
+    carried_to = models.OneToOneField(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="carried_from",
+        help_text="The fresh proposal this was carried forward into, once the scope's next agenda exists.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = MeetingItemProposalQuerySet.as_manager()
 
     class Meta:
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["state"], name="idx_meetingproposal_pending", condition=Q(state="pending")),
+            models.Index(fields=["state"], name="idx_meetingproposal_carried_over", condition=Q(state="carried_over")),
         ]
 
     def __str__(self) -> str:
@@ -6120,8 +6193,8 @@ class MeetingItemProposal(models.Model):
 
     def withdraw(self, *, by: User) -> None:
         """The proposer pulls back their own pending proposal. Silent — no emit; the
-        reviewer queue simply loses the row, and ``Meeting.approve``'s auto-decline
-        skips withdrawn proposals.
+        reviewer queue simply loses the row, and ``Meeting.approve``'s per-proposal
+        disposition skips withdrawn proposals (the PENDING filter never sees them).
 
         Raises:
             InvalidProposalTransition: If not currently pending.
@@ -6134,14 +6207,103 @@ class MeetingItemProposal(models.Model):
         self.state = self.State.WITHDRAWN
         self.save(update_fields=["state"])
 
+    def carry_over(self, *, reviewer: User) -> MeetingItemProposal | None:
+        """Move to next month's agenda instead of declining — the default outcome for a
+        still-pending proposal when the meeting locks.
+
+        When the scope's next DATED meeting exists, a fresh PENDING proposal is created
+        there now, crediting the same proposer, linked via ``carried_to``; this proposal is
+        stamped CARRIED_OVER and stays on THIS (now locked) meeting as the permanent
+        record. When none exists, ``carried_to`` stays null and it waits — see
+        :meth:`Meeting.attach_carried_over_proposals`.
+
+        Raises:
+            InvalidProposalTransition: If not currently pending.
+            MeetingLockedError: If the meeting's minutes are locked.
+
+        Returns:
+            The new proposal, or ``None`` when deferred.
+        """
+        if self.state != self.State.PENDING:
+            raise InvalidProposalTransition(f"Cannot carry over a proposal in state '{self.state}'.")
+        self.meeting.assert_editable()
+        target = Meeting.objects.next_in_scope_after(self.meeting).first()
+        update_fields = ["state", "reviewed_by", "reviewed_at"]
+        new_proposal = None
+        if target is not None:
+            new_proposal = self._spawn_carryover(target)
+            self.carried_to = new_proposal
+            update_fields.append("carried_to")
+        self.state = self.State.CARRIED_OVER
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.save(update_fields=update_fields)
+        self._emit_decided(period=f"meeting-proposal:{self.pk}:carried_over")
+        return new_proposal
+
+    def table(self, *, reviewer: User, note: str = "") -> None:
+        """Set aside for now instead of declining — the disposition modal's other option.
+
+        Raises:
+            InvalidProposalTransition: If not currently pending.
+            MeetingLockedError: If the meeting's minutes are locked.
+        """
+        if self.state != self.State.PENDING:
+            raise InvalidProposalTransition(f"Cannot table a proposal in state '{self.state}'.")
+        self.meeting.assert_editable()
+        self.state = self.State.TABLED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.review_note = note
+        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_note"])
+        self._emit_decided(period=f"meeting-proposal:{self.pk}:tabled")
+
+    def attach_carryover_to(self, target: Meeting) -> MeetingItemProposal:
+        """Materialize this waiting carryover as a fresh PENDING proposal on ``target`` —
+        the deferred half of :meth:`carry_over`.
+
+        Raises:
+            InvalidProposalTransition: If not currently CARRIED_OVER, or already attached.
+        """
+        if self.state != self.State.CARRIED_OVER:
+            raise InvalidProposalTransition(f"Cannot attach a carryover from state '{self.state}'.")
+        if self.carried_to_id is not None:
+            raise InvalidProposalTransition("This proposal was already carried forward.")
+        new_proposal = self._spawn_carryover(target)
+        self.carried_to = new_proposal
+        self.save(update_fields=["carried_to"])
+        return new_proposal
+
+    def _spawn_carryover(self, target: Meeting) -> MeetingItemProposal:
+        """The fresh PENDING row a carry-forward creates on ``target`` — shared by the
+        immediate (:meth:`carry_over`) and deferred (:meth:`attach_carryover_to`) paths."""
+        return MeetingItemProposal.objects.create(
+            meeting=target, title=self.title, why=self.why, proposed_by_id=self.proposed_by_id
+        )
+
+    @property
+    def carried_from_label(self) -> str:
+        """'Carried over from {month}' badge for the decide strip when this proposal is
+        itself the materialized carry-forward of an earlier one. Blank for an original."""
+        source = getattr(self, "carried_from", None)
+        if source is None:
+            return ""
+        return f"Carried over from {source.meeting.scheduled_date:%B %Y}"
+
     def _emit_decided(self, *, period: str) -> None:
-        """Notify the proposer of the outcome (added to the agenda / declined + note)."""
+        """Notify the proposer: added, declined, carried over, or tabled."""
         from core.events.emit import emit
 
-        if self.state == self.State.APPROVED:
-            outcome = f"'{self.title}' was added to the agenda for {self.meeting.display_title}."
-        else:
-            outcome = f"'{self.title}' wasn't added to the agenda for {self.meeting.display_title}."
+        outcome_by_state: dict[str, str] = {
+            self.State.APPROVED: f"'{self.title}' was added to the agenda for {self.meeting.display_title}.",
+            self.State.DECLINED: f"'{self.title}' wasn't added to the agenda for {self.meeting.display_title}.",
+            self.State.CARRIED_OVER: (
+                f"'{self.title}' was not reached this time. It has been carried over to "
+                f"next month's {self.meeting.scope_label} meeting."
+            ),
+            self.State.TABLED: f"'{self.title}' was not added this time. It has been set aside for now.",
+        }
+        outcome = outcome_by_state[self.state]
         emit(
             "meeting.item_decided",
             actor=self.reviewed_by,

@@ -35,6 +35,7 @@ from membership.models import (
     HelpCategory,
     MapHotspot,
     MeetingAttachment,
+    MeetingItemProposal,
     Member,
     MemberContact,
     MemberSkill,
@@ -1382,6 +1383,26 @@ class MeetingProposalDecisionForm(forms.Form):
         if cleaned.get("decision") == "approve" and not cleaned.get("title"):
             raise forms.ValidationError("Give the agenda item a topic.")
         return cleaned
+
+
+class MeetingLockDispositionForm(forms.Form):
+    """The lock-time disposition modal POST (Meetings spec §6.3) — one Carry / Set-aside
+    choice per still-pending proposal. ``Meeting.approve()`` owns the default-to-carry
+    rule; this form only parses / validates what WAS submitted."""
+
+    def __init__(self, *args: Any, proposal_ids: list[int], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._proposal_ids = proposal_ids
+        for pk in proposal_ids:
+            self.fields[f"disposition_{pk}"] = forms.ChoiceField(
+                choices=MeetingItemProposal.Disposition.choices, required=False
+            )
+
+    def dispositions(self) -> dict[int, str]:
+        """Cleaned per-proposal map for ``Meeting.approve(dispositions=...)``. A proposal
+        whose radio wasn't submitted (or whose field didn't exist at render time) is
+        omitted, which ``approve()`` reads as default-to-carry."""
+        return {pk: value for pk in self._proposal_ids if (value := self.cleaned_data[f"disposition_{pk}"])}
 
 
 class MeetingAttachmentForm(forms.ModelForm):

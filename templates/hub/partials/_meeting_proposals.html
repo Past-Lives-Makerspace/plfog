@@ -14,6 +14,7 @@ Context: meeting, pending_proposals.
       <span class="pl-meeting-proposal__title">{{ proposal.title }}</span>
       <span class="hub-text-muted pl-meeting-proposal__by">{% firstof proposal.proposed_by.member.display_name proposal.proposed_by.username %}</span>
       {% if proposal.why %}<p class="hub-text-muted pl-meeting-proposal__why">{{ proposal.why }}</p>{% endif %}
+      {% if proposal.carried_from_label %}<p class="hub-text-muted pl-meeting-proposal__carried">{{ proposal.carried_from_label }}</p>{% endif %}
     </div>
     <div class="pl-meeting-proposal__actions">
       <button type="button" class="pl-btn pl-btn--sm"

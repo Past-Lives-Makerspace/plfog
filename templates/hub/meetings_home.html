@@ -42,6 +42,14 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
             {% if meeting.scheduled_time %}{{ meeting.scheduled_time|time:"g:i A" }}{% else %}Time TBD{% endif %}
             · {{ meeting.topic_count }} topic{{ meeting.topic_count|pluralize }}{% if meeting.viewer_can_edit %} · {{ meeting.pending_count }} proposal{{ meeting.pending_count|pluralize }} pending{% endif %}
         </div>
+        {% if meeting.viewer_can_propose %}
+        {% with mkid=meeting.pk|stringformat:"s" %}
+        <div class="pl-meeting-up__actions">
+            <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('open-modal', 'propose-item-{{ meeting.pk }}')">Propose an agenda item</button>
+        </div>
+        {% include "hub/partials/_propose_modal.html" with meeting=meeting modal_key="propose-item-"|add:mkid %}
+        {% endwith %}
+        {% endif %}
     </div>
     {% empty %}
     <p class="hub-text-muted pl-meeting-zone__empty">No meetings scheduled. Guild leadership can create one.</p>
@@ -52,9 +60,24 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
 </div>
 
 {# ── Editor strip — "Needs attention" (editors only, their scopes only, hidden when clean) ── #}
-{% if attention_meetings %}
+{% if attention_meetings or start_agenda_rows %}
 <div class="hub-card pl-meeting-zone pl-meeting-attention">
     <h2 class="hub-detail-label">Needs attention</h2>
+    {% for row in start_agenda_rows %}
+    <div class="pl-meeting-attention__row pl-meeting-attention__row--start">
+        <span class="pl-meeting-attention__title">{{ row.label }}</span>
+        <span class="hub-text-muted">Next per schedule: {{ row.cadence.when|date:"D, M j" }}{% if row.cadence.has_time %} · {{ row.cadence.when|time:"g:i A" }}{% endif %}</span>
+        {# §6.2 Start-the-agenda contract: POST scope+date+time to hub_meeting_create; an existing scope+date meeting redirects into it. #}
+        <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-meeting-attention__start">
+            {% csrf_token %}
+            <input type="hidden" name="scope" value="{% if row.guild %}{{ row.guild.pk }}{% else %}council{% endif %}">
+            <input type="hidden" name="kind" value="monthly">
+            <input type="hidden" name="date" value="{{ row.cadence.when|date:'Y-m-d' }}">
+            <input type="hidden" name="time" value="{% if row.cadence.has_time %}{{ row.cadence.when|time:'H:i' }}{% endif %}">
+            <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Start the agenda</button>
+        </form>
+    </div>
+    {% endfor %}
     {% for meeting in attention_meetings %}
     <a href="{% url 'hub_meeting' meeting.pk %}" class="pl-meeting-attention__row">
         <span class="pl-meeting-attention__title">{{ meeting.display_title }}</span>

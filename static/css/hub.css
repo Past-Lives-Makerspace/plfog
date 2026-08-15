@@ -6393,6 +6393,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-meeting-attention__row:hover .pl-meeting-attention__title { color: var(--hub-link); }
 .pl-meeting-attention__title { font-weight: 600; }
 .pl-meeting-attention__flag { color: var(--hub-link); font-weight: 600; font-size: 0.8125rem; }
+.pl-meeting-attention__start { display: inline-block; }
+
+/* Zone 1 card — the member's list-page "Propose an agenda item" affordance (§6.2 Part 2a). */
+.pl-meeting-up__actions { margin-top: 0.5rem; }
+
+/* Lock-time disposition modal — one Carry/Set-aside choice per pending proposal (§6.3). */
+.pl-lock-disposition__row { border: none; padding: 0.5rem 0; }
+.pl-lock-disposition__title { font-weight: 600; display: block; }
+.pl-lock-disposition__option { margin-right: 1rem; font-weight: 400; }
 
 /* Coordinator table — stacks into labeled per-guild cards under 720px (§6.2). */
 .pl-meeting-dash { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

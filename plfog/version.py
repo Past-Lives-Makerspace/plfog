@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.0.3",
+        "date": "2026-08-14",
+        "title": "Suggest agenda items right from the meetings list",
+        "changes": [
+            "Every upcoming meeting on the Meetings page now lets that guild's members add a suggested topic "
+            "in a quick popup. You no longer have to open the draft agenda to put something forward.",
+            "Guild leads can now kick off next month's agenda in one click, right from the meetings area, "
+            "instead of hunting for where to begin.",
+            "When a lead locks a meeting, any suggestions that were not discussed are no longer quietly "
+            "dropped. The lead chooses to carry each one over to next month or set it aside, and you are told "
+            "which happened to yours.",
+        ],
+    },
+    {
+        "version": "1.0.3",
+        "date": "2026-08-14",
+        "title": "Manage Members fits your phone",
+        "changes": [
+            "For leads and admins: the Manage Members page no longer runs off the side of the screen on "
+            "phones. Each member's details stack and wrap so you can read them without scrolling sideways.",
+        ],
+    },
     {
         "version": "1.0.2",
         "date": "2026-08-14",
