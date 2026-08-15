@@ -33,6 +33,14 @@ pending rows anyway). Context: meeting, my_proposals, is_editable.
     {% if proposal.review_note %}
     <p class="hub-text-muted pl-meeting-myprop__note"><strong>Reviewer note:</strong> {{ proposal.review_note }}</p>
     {% endif %}
+    {% elif proposal.state == "carried_over" %}
+    <span class="hub-pill hub-pill--neutral">Carried over to next month</span>
+    {% if proposal.carried_to %}<a href="{% url 'hub_meeting' proposal.carried_to.meeting_id %}" class="pl-meeting-myprop__link">See the new proposal</a>{% endif %}
+    {% elif proposal.state == "tabled" %}
+    <span class="hub-pill hub-pill--warn">Set aside for now</span>
+    {% if proposal.review_note %}
+    <p class="hub-text-muted pl-meeting-myprop__note"><strong>Note:</strong> {{ proposal.review_note }}</p>
+    {% endif %}
     {% endif %}
   </div>
   {% endwith %}

@@ -651,16 +651,102 @@ def describe_approve():
         assert meeting.approved_by == user
         assert meeting.approved_at is not None
 
-    def it_auto_declines_pending_proposals_and_notifies_each_proposer(client: Client):
+    def it_carries_over_pending_proposals_by_default_and_notifies_each_proposer(client: Client):
         guild = GuildFactory()
         _lead_client(client, guild)
         meeting = MeetingFactory(guild=guild)
         proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
-        client.post(reverse("hub_meeting_approve", args=[meeting.pk]))
+        client.post(reverse("hub_meeting_approve", args=[meeting.pk]))  # no disposition posted → default carry
         proposal.refresh_from_db()
-        assert proposal.state == MeetingItemProposal.State.DECLINED
-        assert proposal.review_note == "The meeting was closed before this was reviewed."
+        assert proposal.state == MeetingItemProposal.State.CARRIED_OVER
+        assert proposal.review_note == ""
         assert EventDelivery.objects.filter(event_key="meeting.item_decided", channel="in_app").count() == 1
+
+    def it_loads_the_disposition_modal_when_proposals_are_pending(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        proposal = MeetingItemProposalFactory(meeting=meeting, title="New sander", proposed_by=UserFactory())
+        resp = client.get(reverse("hub_meeting_approve", args=[meeting.pk]))
+        assert resp.status_code == 200
+        content = resp.content.decode()
+        assert f'name="disposition_{proposal.pk}"' in content
+        assert 'value="carry"' in content
+        assert 'value="set_aside"' in content
+        assert "New sander" in content
+
+    def it_loads_an_empty_body_when_a_race_cleared_the_last_pending(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.get(reverse("hub_meeting_approve", args=[meeting.pk]))
+        assert resp.status_code == 200
+        assert "Nothing waiting for a decision." in resp.content.decode()
+
+    def it_applies_a_mixed_disposition_map(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        carry = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        aside = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        resp = client.post(
+            reverse("hub_meeting_approve", args=[meeting.pk]),
+            {f"disposition_{carry.pk}": "carry", f"disposition_{aside.pk}": "set_aside"},
+        )
+        assert resp.status_code == 204
+        carry.refresh_from_db()
+        aside.refresh_from_db()
+        assert carry.state == MeetingItemProposal.State.CARRIED_OVER
+        assert aside.state == MeetingItemProposal.State.TABLED
+
+    def it_defaults_an_omitted_pk_to_carry(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        named = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        omitted = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        resp = client.post(
+            reverse("hub_meeting_approve", args=[meeting.pk]),
+            {f"disposition_{named.pk}": "set_aside"},  # omitted's radio is not submitted
+        )
+        assert resp.status_code == 204
+        named.refresh_from_db()
+        omitted.refresh_from_db()
+        assert named.state == MeetingItemProposal.State.TABLED
+        assert omitted.state == MeetingItemProposal.State.CARRIED_OVER  # defaulted to carry
+
+    def it_422s_an_unknown_disposition_token(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        proposal = MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        resp = client.post(
+            reverse("hub_meeting_approve", args=[meeting.pk]),
+            {f"disposition_{proposal.pk}": "bogus"},
+        )
+        assert resp.status_code == 422
+        proposal.refresh_from_db()
+        assert proposal.state == MeetingItemProposal.State.PENDING
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.DRAFT
+
+    def it_does_not_refetch_the_meeting_per_carried_proposal(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        for _ in range(3):
+            MeetingItemProposalFactory(meeting=meeting, proposed_by=UserFactory())
+        with CaptureQueriesContext(connection) as ctx:
+            client.post(reverse("hub_meeting_approve", args=[meeting.pk]))
+        # Only the view's get_object_or_404 SELECTs the meeting by id — the proposal.meeting=self
+        # reuse means carry_over never lazily reloads the row it already holds, per proposal.
+        # (The single UPDATE ... WHERE id=... at lock time is a write, not the reload we guard.)
+        selects_by_id = [
+            q
+            for q in ctx.captured_queries
+            if '"membership_meeting"."id" =' in q["sql"] and q["sql"].lstrip().upper().startswith("SELECT")
+        ]
+        assert len(selects_by_id) == 1
 
     def it_422s_an_undated_meeting_with_the_toast(client: Client):
         guild = GuildFactory()
@@ -683,11 +769,11 @@ def describe_approve():
         meeting = MeetingFactory(guild=guild, approved=True)
         assert client.post(reverse("hub_meeting_approve", args=[meeting.pk])).status_code == 403
 
-    def it_405s_a_get(client: Client):
-        guild = GuildFactory()
-        _lead_client(client, guild)
-        meeting = MeetingFactory(guild=guild)
-        assert client.get(reverse("hub_meeting_approve", args=[meeting.pk])).status_code == 405
+    def it_403s_a_get_from_a_non_editor(client: Client):
+        # GET now loads the disposition modal, so the guard (not @require_POST) is the gate.
+        _member_client(client)
+        meeting = MeetingFactory()
+        assert client.get(reverse("hub_meeting_approve", args=[meeting.pk])).status_code == 403
 
 
 @pytest.mark.django_db
@@ -925,8 +1011,9 @@ def describe_propose():
             {"title": "New sander", "why": "Ours died."},
         )
         assert resp.status_code == 204
-        # json.dumps escapes the em dash in the header, so assert the ASCII tail.
+        assert "Proposed." in resp["HX-Trigger"]
         assert "Woodshop leadership will review it." in resp["HX-Trigger"]
+        assert "—" not in resp["HX-Trigger"]  # no em dash in copy the member sees
         proposal = meeting.proposals.get()
         assert proposal.title == "New sander"
         assert proposal.why == "Ours died."
@@ -1240,7 +1327,6 @@ def describe_workspace_lifecycle_rendering():
             assert "Approve minutes" in content
             assert "Delete meeting" in content
             assert "Guild members will be notified." in content
-            assert "Any pending proposals are declined." in content
             assert "Deletes this meeting, its agenda, attendance, and action items." in content
 
         def it_shows_the_council_audience_line(client: Client):
@@ -1540,6 +1626,76 @@ def describe_meetings_home():
             assert "No meetings scheduled." in content
             assert content.count("+ New meeting") == 2  # header + empty state
 
+    def describe_the_list_page_propose_button():
+        def _zone(client: Client) -> str:
+            return (
+                client.get(reverse("hub_meetings")).content.decode().split("Upcoming")[1].split("Meetings by guild")[0]
+            )
+
+        def it_shows_the_propose_button_to_a_guild_member_on_their_own_card(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            zone = _zone(client)
+            assert "Propose an agenda item" in zone
+            assert f"propose-item-{meeting.pk}" in zone
+
+        def it_hides_the_propose_button_from_a_non_member(client: Client):
+            guild = GuildFactory()
+            _member_client(client)  # a member, but not of this guild
+            MeetingFactory(guild=guild)
+            assert "Propose an agenda item" not in _zone(client)
+
+        def it_hides_the_propose_button_from_an_editor(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)  # editors add items directly, no propose affordance
+            MeetingFactory(guild=guild)
+            assert "Propose an agenda item" not in _zone(client)
+
+        def it_scopes_each_cards_modal_to_its_own_meeting_no_cross_open(client: Client):
+            guild1 = GuildFactory(name="Aardvark")
+            guild2 = GuildFactory(name="Badger")
+            user = _user_with_role("multiguild")
+            GuildMembershipFactory(guild=guild1, member=user.member)
+            GuildMembershipFactory(guild=guild2, member=user.member)
+            client.login(username=user.username, password="pass")
+            m1 = MeetingFactory(guild=guild1, scheduled_date=timezone.localdate() + timedelta(days=2))
+            m2 = MeetingFactory(guild=guild2, scheduled_date=timezone.localdate() + timedelta(days=4))
+            zone = _zone(client)
+            assert f"propose-item-{m1.pk}" in zone
+            assert f"propose-item-{m2.pk}" in zone  # distinct keys — one card can't open the other's modal
+
+        def it_keeps_a_flat_query_count_with_many_proposable_cards(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=2))
+            client.get(reverse("hub_meetings"))  # warm caches
+            with CaptureQueriesContext(connection) as one_ctx:
+                client.get(reverse("hub_meetings"))
+            for i in range(4):
+                MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=5 + i))
+            with CaptureQueriesContext(connection) as many_ctx:
+                client.get(reverse("hub_meetings"))
+            assert len(one_ctx) == len(many_ctx)  # the per-card propose check is query-free
+
+        def it_keeps_a_flat_query_count_with_many_foreign_guild_cards(client: Client):
+            # Regression: a member of one guild browsing the Meetings list (which shows
+            # every guild's upcoming meetings) must not fire a can_edit_meeting
+            # staff-roster query per card that belongs to a guild they are not on. The
+            # same-guild test above only exercises the membership fast path; a foreign
+            # card falls through to the editability check, which must reuse the cheap
+            # bulk viewer_can_edit rather than re-query can_edit_meeting per card.
+            _guild_member_client(client, GuildFactory())
+            MeetingFactory(guild=GuildFactory(), scheduled_date=timezone.localdate() + timedelta(days=2))
+            client.get(reverse("hub_meetings"))  # warm caches
+            with CaptureQueriesContext(connection) as one_ctx:
+                client.get(reverse("hub_meetings"))
+            for i in range(6):
+                MeetingFactory(guild=GuildFactory(), scheduled_date=timezone.localdate() + timedelta(days=5 + i))
+            with CaptureQueriesContext(connection) as many_ctx:
+                client.get(reverse("hub_meetings"))
+            assert len(one_ctx) == len(many_ctx)
+
     def describe_the_needs_attention_strip():
         def it_shows_undated_and_past_dated_drafts_to_the_scopes_editor(client: Client):
             guild = GuildFactory()
@@ -1577,6 +1733,49 @@ def describe_meetings_home():
             _lead_client(client, guild)
             MeetingFactory(guild=guild)  # future-dated draft — nothing to nudge
             assert "Needs attention" not in client.get(reverse("hub_meetings")).content.decode()
+
+    def describe_the_start_agenda_strip():
+        def it_shows_a_start_button_for_a_leads_cadenced_scope_with_nothing_upcoming(client: Client):
+            guild = _cadence_guild()
+            _lead_client(client, guild)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            strip = content.split("Needs attention")[1].split("Meetings by guild")[0]
+            assert "pl-meeting-attention__row--start" in strip
+            assert "Start the agenda" in strip
+
+        def it_hides_the_start_button_from_a_non_editor(client: Client):
+            _cadence_guild()
+            _member_client(client)
+            assert "pl-meeting-attention__row--start" not in client.get(reverse("hub_meetings")).content.decode()
+
+        def it_omits_a_scope_that_already_has_a_draft(client: Client):
+            guild = _cadence_guild()
+            _lead_client(client, guild)
+            MeetingFactory(guild=guild)  # a future-dated draft exists → next_meeting not None
+            assert "pl-meeting-attention__row--start" not in client.get(reverse("hub_meetings")).content.decode()
+
+        def it_omits_an_uncadenced_editable_scope(client: Client):
+            guild = GuildFactory()  # no cadence configured
+            _lead_client(client, guild)
+            assert "pl-meeting-attention__row--start" not in client.get(reverse("hub_meetings")).content.decode()
+
+        def it_reuses_hub_meeting_create_and_does_not_twin_an_existing_meeting(client: Client):
+            guild = _cadence_guild()
+            _lead_client(client, guild)
+            occurrence = guild.next_meeting_occurrence()
+            post_data = {
+                "scope": str(guild.pk),
+                "kind": "monthly",
+                "date": occurrence.when.strftime("%Y-%m-%d"),
+                "time": occurrence.when.strftime("%H:%M"),
+            }
+            first = client.post(reverse("hub_meeting_create"), post_data)
+            assert first.status_code == 302
+            created = Meeting.objects.get(guild=guild)
+            assert first["Location"] == reverse("hub_meeting", args=[created.pk])
+            second = client.post(reverse("hub_meeting_create"), post_data)
+            assert Meeting.objects.filter(guild=guild).count() == 1  # redirected into the existing one, no twin
+            assert second["Location"] == reverse("hub_meeting", args=[created.pk])
 
     def describe_zone_2_coordinator_table():
         def it_puts_the_council_row_first(client: Client):

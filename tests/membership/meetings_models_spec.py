@@ -250,7 +250,7 @@ def describe_Meeting():
             assert _deliveries("meeting.council_minutes_approved") == 1
             assert _deliveries("meeting.minutes_approved") == 0
 
-        def it_auto_declines_pending_proposals_and_notifies_each_proposer():
+        def it_carries_over_pending_proposals_by_default_and_notifies_each_proposer():
             meeting = MeetingFactory()
             pending = MeetingItemProposalFactory(meeting=meeting, proposed_by=_user("prop1"))
             withdrawn = MeetingItemProposalFactory(meeting=meeting, proposed_by=_user("prop2"))
@@ -258,10 +258,63 @@ def describe_Meeting():
             meeting.approve(by=_user("a6"))
             pending.refresh_from_db()
             withdrawn.refresh_from_db()
-            assert pending.state == MeetingItemProposal.State.DECLINED
-            assert pending.review_note == "The meeting was closed before this was reviewed."
-            assert withdrawn.state == MeetingItemProposal.State.WITHDRAWN  # skipped, not declined
+            assert pending.state == MeetingItemProposal.State.CARRIED_OVER
+            assert pending.review_note == ""  # carry-over never writes a note
+            assert withdrawn.state == MeetingItemProposal.State.WITHDRAWN  # skipped, not carried
             assert _deliveries("meeting.item_decided") == 1  # only the pending proposer heard
+
+        def it_creates_a_linked_proposal_on_an_existing_next_meeting():
+            guild = GuildFactory()
+            meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            nxt = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=33))
+            pending = MeetingItemProposalFactory(meeting=meeting, title="Buy sander", proposed_by=_user("prop3"))
+            meeting.approve(by=_user("a7"))
+            pending.refresh_from_db()
+            assert pending.state == MeetingItemProposal.State.CARRIED_OVER
+            assert pending.carried_to is not None
+            assert pending.carried_to.meeting == nxt
+            assert pending.carried_to.state == MeetingItemProposal.State.PENDING
+            assert pending.carried_to.title == "Buy sander"
+
+        def it_defers_when_no_next_meeting_exists_yet():
+            meeting = MeetingFactory()
+            pending = MeetingItemProposalFactory(meeting=meeting, proposed_by=_user("prop4"))
+            meeting.approve(by=_user("a8"))
+            pending.refresh_from_db()
+            assert pending.state == MeetingItemProposal.State.CARRIED_OVER
+            assert pending.carried_to is None
+
+        def it_sets_aside_a_proposal_via_the_disposition_map():
+            meeting = MeetingFactory()
+            pending = MeetingItemProposalFactory(meeting=meeting, proposed_by=_user("prop5"))
+            meeting.approve(by=_user("a9"), dispositions={pending.pk: MeetingItemProposal.Disposition.SET_ASIDE})
+            pending.refresh_from_db()
+            assert pending.state == MeetingItemProposal.State.TABLED
+
+        def it_raises_for_an_unknown_disposition_token():
+            meeting = MeetingFactory()
+            pending = MeetingItemProposalFactory(meeting=meeting, proposed_by=_user("prop6"))
+            with pytest.raises(ValueError, match="Unknown disposition"):
+                meeting.approve(by=_user("a10"), dispositions={pending.pk: "bogus"})
+            pending.refresh_from_db()
+            meeting.refresh_from_db()
+            assert pending.state == MeetingItemProposal.State.PENDING  # aborted before this one committed
+            assert meeting.status == Meeting.Status.DRAFT  # never locked
+
+        def it_is_idempotent_across_an_unlock_and_reapprove():
+            guild = GuildFactory()
+            meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=33))
+            pending = MeetingItemProposalFactory(meeting=meeting, proposed_by=_user("prop7"))
+            meeting.approve(by=_user("a11"))
+            pending.refresh_from_db()
+            first_carried_to = pending.carried_to_id
+            assert first_carried_to is not None
+            meeting.unlock(by=_user("admin2"))
+            meeting.approve(by=_user("a12"))
+            pending.refresh_from_db()
+            assert pending.carried_to_id == first_carried_to  # not re-carried into a second row
+            assert _deliveries("meeting.item_decided") == 1  # exactly one delivery across both approvals
 
         def it_re_stamps_and_re_announces_after_an_unlock():
             member_user = _user("guildmember2")
@@ -625,6 +678,81 @@ def describe_Meeting():
             action = MeetingActionItemFactory(item=MeetingAgendaItemFactory(meeting=source))
             target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=7))
             assert list(target.carryover_actions()) == [action]
+
+    def describe_attach_carried_over_proposals():
+        def it_attaches_a_waiting_carryover_from_an_earlier_locked_meeting():
+            guild = GuildFactory()
+            earlier = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            pending = MeetingItemProposalFactory(meeting=earlier, title="Carry me", proposed_by=_user("ap1"))
+            earlier.approve(by=_user("ap2"))  # no next meeting yet → deferred CARRIED_OVER
+            pending.refresh_from_db()
+            assert pending.carried_to is None
+            target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=33))
+            attached = target.attach_carried_over_proposals()
+            pending.refresh_from_db()
+            assert len(attached) == 1
+            assert attached[0].meeting == target
+            assert attached[0].title == "Carry me"
+            assert pending.carried_to == attached[0]
+
+        def it_is_a_noop_when_nothing_is_waiting():
+            assert MeetingFactory().attach_carried_over_proposals() == []
+
+        def it_is_a_noop_on_a_locked_meeting():
+            guild = GuildFactory()
+            earlier = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            MeetingItemProposalFactory(meeting=earlier, proposed_by=_user("ap3"))
+            earlier.approve(by=_user("ap4"))  # deferred carryover waiting in this guild
+            locked = MeetingFactory(
+                guild=guild, scheduled_date=timezone.localdate() + timedelta(days=33), approved=True
+            )
+            assert locked.attach_carried_over_proposals() == []
+
+        def it_scopes_by_guild_not_council():
+            guild = GuildFactory()
+            guild_earlier = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            MeetingItemProposalFactory(meeting=guild_earlier, proposed_by=_user("ap5"))
+            guild_earlier.approve(by=_user("ap6"))  # deferred, guild scope
+            council_target = MeetingFactory(guild=None, scheduled_date=timezone.localdate() + timedelta(days=33))
+            assert council_target.attach_carried_over_proposals() == []  # different scope, untouched
+
+        def it_is_idempotent_when_run_twice():
+            guild = GuildFactory()
+            earlier = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            MeetingItemProposalFactory(meeting=earlier, proposed_by=_user("ap7"))
+            earlier.approve(by=_user("ap8"))
+            target = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=33))
+            first = target.attach_carried_over_proposals()
+            second = target.attach_carried_over_proposals()
+            assert len(first) == 1
+            assert second == []  # already claimed on the first run
+
+    def describe_next_in_scope_after():
+        def it_finds_the_soonest_later_dated_meeting_in_scope():
+            guild = GuildFactory()
+            source = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            soon = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=10))
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=40))
+            assert Meeting.objects.next_in_scope_after(source).first() == soon
+
+        def it_excludes_undated_drafts_and_other_scopes():
+            guild = GuildFactory()
+            source = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=3))
+            MeetingFactory(guild=guild, scheduled_date=None)  # undated draft — never a target
+            MeetingFactory(guild=GuildFactory(), scheduled_date=timezone.localdate() + timedelta(days=10))
+            assert list(Meeting.objects.next_in_scope_after(source)) == []
+
+        def it_scopes_a_council_source_to_council_meetings():
+            source = MeetingFactory(guild=None, scheduled_date=timezone.localdate() + timedelta(days=3))
+            council_next = MeetingFactory(guild=None, scheduled_date=timezone.localdate() + timedelta(days=10))
+            MeetingFactory(guild=GuildFactory(), scheduled_date=timezone.localdate() + timedelta(days=10))
+            assert Meeting.objects.next_in_scope_after(source).first() == council_next
+
+        def it_returns_none_for_an_undated_source():
+            guild = GuildFactory()
+            source = MeetingFactory(guild=guild, scheduled_date=None)
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=10))
+            assert list(Meeting.objects.next_in_scope_after(source)) == []
 
 
 def describe_MeetingAttendee():

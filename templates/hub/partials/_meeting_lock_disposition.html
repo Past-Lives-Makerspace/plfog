@@ -1,0 +1,27 @@
+{% comment %}
+The lock-time disposition modal body — one Carry / Set-aside choice per still-pending
+proposal, loaded via HTMX GET into the shared shell. Carry is pre-checked (approve()
+defaults an omitted pk to carry too). POST locks via HX-Redirect. Context: meeting,
+pending_proposals.
+{% endcomment %}
+<form hx-post="{% url 'hub_meeting_approve' meeting.pk %}" hx-swap="none"
+      @htmx:after-request.camel="if ($event.detail.successful) $dispatch('close-modal', 'lock-disposition')">
+  {% csrf_token %}
+  {% if pending_proposals %}
+  <p class="hub-text-muted">Decide what happens to each proposal still waiting for a decision. Carry over is the default, nothing is silently dropped.</p>
+  {% for proposal in pending_proposals %}
+  <fieldset class="pl-lock-disposition__row">
+    <legend class="pl-lock-disposition__title">{{ proposal.title }}</legend>
+    <span class="hub-text-muted">{% firstof proposal.proposed_by.member.display_name proposal.proposed_by.username %}</span><br>
+    <label class="pl-lock-disposition__option"><input type="radio" name="disposition_{{ proposal.pk }}" value="carry" checked> Carry to next month</label>
+    <label class="pl-lock-disposition__option"><input type="radio" name="disposition_{{ proposal.pk }}" value="set_aside"> Set aside</label>
+  </fieldset>
+  {% endfor %}
+  {% else %}
+  <p class="hub-text-muted">Nothing waiting for a decision.</p>
+  {% endif %}
+  <div class="pl-modal__actions">
+    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Approve minutes</button>
+    <button type="button" @click="$dispatch('close-modal', 'lock-disposition')" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+  </div>
+</form>

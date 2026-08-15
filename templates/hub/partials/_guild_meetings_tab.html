@@ -75,44 +75,7 @@ pending_proposal_count, plus guild / can_edit_this_guild.
     </div>
 </section>
 
-{# ── The propose modal (same as the workspace's §6.3 modal, targeted at the next meeting) ── #}
+{# ── The propose modal (factored partial, targeted at the next meeting) ── #}
 {% if can_propose_next %}
-<div x-data="{ open: false }"
-     x-show="open"
-     x-transition:enter="modal-enter"
-     x-transition:leave="modal-leave"
-     @open-modal.window="if ($event.detail === 'propose-item') open = true"
-     @close-modal.window="if ($event.detail === 'propose-item') open = false"
-     @keydown.escape.window="open = false"
-     class="pl-modal-backdrop"
-     style="display: none;"
-     role="dialog"
-     aria-modal="true"
-     aria-labelledby="propose-item-title">
-  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
-    <div class="pl-modal__header">
-      <h2 class="pl-modal__title" id="propose-item-title">Propose an agenda item</h2>
-      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
-    </div>
-    <div class="pl-modal__body">
-      <form hx-post="{% url 'hub_meeting_propose' next_guild_meeting.pk %}" hx-swap="none"
-            @htmx:after-request.camel="if ($event.detail.successful) { open = false; $event.target.reset(); }">
-        {% csrf_token %}
-        <div class="hub-form-group">
-          <label for="propose-item-topic">Topic</label>
-          <input type="text" id="propose-item-topic" name="title" maxlength="200" required>
-        </div>
-        <div class="hub-form-group">
-          <label for="propose-item-why">Why / what needs deciding</label>
-          <textarea id="propose-item-why" name="why" rows="3"></textarea>
-          <p class="pl-field-hint">Helps leadership slot it into the meeting.</p>
-        </div>
-        <div class="pl-modal__actions">
-          <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Propose it</button>
-          <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
+{% include "hub/partials/_propose_modal.html" with meeting=next_guild_meeting modal_key="propose-item" %}
 {% endif %}

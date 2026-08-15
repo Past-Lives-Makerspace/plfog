@@ -1025,6 +1025,17 @@ a:hover { color: var(--hub-link-hover); }
     max-width: 1320px;
     margin-inline: auto;
     width: 100%;
+    /* Systemic horizontal-overflow guard. A hidden-but-laid-out absolute child
+       (e.g. a .pl-help__bubble tooltip anchored left:0 near the right edge, or a
+       nowrap widget) still contributes to document scroll width, so the whole
+       page scrolls sideways on a phone. html{overflow-x:hidden} does NOT contain
+       it — the root's overflow propagates to the viewport (its own box computes
+       to visible) and mobile Safari ignores it for panning anyway. `clip` here
+       is the reliable stop: it trims horizontal overflow at the content column
+       without creating a scroll container, keeps overflow-y visible so tooltips
+       and menus still open downward, and never clips position:fixed modals
+       (.hub-content isn't their containing block). */
+    overflow-x: clip;
 }
 
 /* ========================================
@@ -1393,6 +1404,7 @@ a:hover { color: var(--hub-link-hover); }
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9375rem;
+    overflow-x: hidden;
 }
 .pl-members-table th,
 .pl-members-table td {
@@ -1414,7 +1426,7 @@ a:hover { color: var(--hub-link-hover); }
     border-bottom: 1px solid var(--hub-border);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
     .pl-members-table thead {
         display: none;
     }
@@ -1426,17 +1438,19 @@ a:hover { color: var(--hub-link-hover); }
         padding: 0.25rem 0.75rem;
     }
     .pl-members-table td[data-label] {
-        display: flex;
-        justify-content: space-between;
-        gap: 1rem;
-        text-align: right;
+        display: block;
         padding: 0.4rem 0;
+        overflow-wrap: anywhere;
     }
     .pl-members-table td[data-label]::before {
         content: attr(data-label);
+        display: block;
         color: var(--hub-text-muted);
         font-weight: 500;
-        text-align: left;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 0.15rem;
     }
 }
 
@@ -1887,6 +1901,32 @@ a:hover { color: var(--hub-link-hover); }
 .pl-help--right .pl-help__bubble {
     left: auto;
     right: 0;
+}
+
+/* Phone: the bubble is up to 320px and anchored to a tiny icon that can sit
+   anywhere in a narrow column, so left/right:0 always pokes one edge off-screen
+   (the page-scroll bug this component drove). Neither anchor fits a 320px bubble
+   on a 393px screen. Pin it to the viewport gutters instead so it is always fully
+   readable, regardless of where the icon sits. Fixed (not absolute) so it escapes
+   the .hub-content clip and is measured against the viewport; it stays hidden until
+   hover/focus, so it never contributes to page width. Anchored just under the
+   sticky topbar (not the bottom, which the floating chat button owns). */
+@media (max-width: 768px) {
+    .pl-help__bubble,
+    .pl-help--right .pl-help__bubble {
+        position: fixed;
+        left: 1rem;
+        right: 1rem;
+        top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px) + 0.5rem);
+        bottom: auto;
+        width: auto;
+        max-width: none;
+        transform: translateY(-6px);
+    }
+    .pl-help:hover .pl-help__bubble,
+    .pl-help:focus-within .pl-help__bubble {
+        transform: translateY(0);
+    }
 }
 
 .tab-history-link {
@@ -6390,6 +6430,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-meeting-attention__row:hover .pl-meeting-attention__title { color: var(--hub-link); }
 .pl-meeting-attention__title { font-weight: 600; }
 .pl-meeting-attention__flag { color: var(--hub-link); font-weight: 600; font-size: 0.8125rem; }
+.pl-meeting-attention__start { display: inline-block; }
+
+/* Zone 1 card — the member's list-page "Propose an agenda item" affordance (§6.2 Part 2a). */
+.pl-meeting-up__actions { margin-top: 0.5rem; }
+
+/* Lock-time disposition modal — one Carry/Set-aside choice per pending proposal (§6.3). */
+.pl-lock-disposition__row { border: none; padding: 0.5rem 0; }
+.pl-lock-disposition__title { font-weight: 600; display: block; }
+.pl-lock-disposition__option { margin-right: 1rem; font-weight: 400; }
 
 /* Coordinator table — stacks into labeled per-guild cards under 720px (§6.2). */
 .pl-meeting-dash { width: 100%; border-collapse: collapse; font-size: 0.875rem; }

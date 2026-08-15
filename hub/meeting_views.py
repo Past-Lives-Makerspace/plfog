@@ -39,6 +39,7 @@ from hub.forms import (
     MeetingAttachmentForm,
     MeetingCreateForm,
     MeetingItemProposalForm,
+    MeetingLockDispositionForm,
     MeetingProposalDecisionForm,
     half_hour_time_choices,
 )
@@ -59,7 +60,12 @@ from membership.models import (
     Member,
     NextMeeting,
 )
-from membership.permissions import can_edit_meeting, can_propose_to_meeting, editable_meeting_scopes
+from membership.permissions import (
+    can_edit_meeting,
+    can_propose_to_meeting,
+    editable_meeting_scopes,
+    viewer_guild_membership_ids,
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -384,6 +390,11 @@ def _workspace_queryset() -> Any:
 def hub_meeting(request: HttpRequest, pk: int) -> HttpResponse:
     """The workspace — draft or locked, editor or read-only (§6.3)."""
     meeting = get_object_or_404(_workspace_queryset(), pk=pk)
+    # A lead who pre-created an empty/undated draft before a carryover fired materializes
+    # the waiting proposals here (idempotent no-op in the common case). Gated to editors so
+    # a plain member's read view never triggers a write.
+    if can_edit_meeting(request, meeting):
+        meeting.attach_carried_over_proposals()
     return render(request, "hub/meeting_workspace.html", _workspace_context(request, meeting))
 
 
@@ -438,6 +449,8 @@ def hub_meeting_create(request: HttpRequest) -> HttpResponse:
         scheduled_time=prefill_time,
         created_by=user,
     )
+    # That scope's next agenda is now started — pull in any proposals waiting to carry over.
+    meeting.attach_carried_over_proposals()
     return redirect("hub_meeting", pk=meeting.pk)
 
 
@@ -778,17 +791,34 @@ def hub_meeting_publish(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(reverse("hub_meeting", args=[meeting.pk]))
 
 
+def _pending_proposals(meeting: Meeting) -> Any:
+    """Still-pending proposals — the shared shape for the decide strip and the lock-time
+    disposition modal, so the two never drift."""
+    return meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).select_related("proposed_by__member")
+
+
 @login_required
-@require_POST
 def hub_meeting_approve(request: HttpRequest, pk: int) -> HttpResponse:
-    """Approve and lock the minutes (footer confirm modal → redirect to locked mode)."""
+    """Approve and lock. GET loads the lock-time disposition modal body (HTMX) whether or
+    not there are pending proposals (a race that clears the last one degrades gracefully).
+    POST reads the (possibly empty) disposition map and locks."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
     guard = _guard(request, meeting)
     if guard is not None:
         return guard
+    pending = list(_pending_proposals(meeting))
+    if request.method == "GET":
+        return render(
+            request,
+            "hub/partials/_meeting_lock_disposition.html",
+            {"meeting": meeting, "pending_proposals": pending},
+        )
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    form = MeetingLockDispositionForm(request.POST, proposal_ids=[p.pk for p in pending])
+    if not form.is_valid():
+        return _invalid("Unknown disposition.")
     try:
-        meeting.approve(by=user)
+        meeting.approve(by=user, dispositions=form.dispositions())
     except ValueError as exc:  # undated — "Set the meeting date before approving."
         return _invalid(str(exc))
     messages.success(request, "Minutes approved and locked.")
@@ -895,7 +925,7 @@ def hub_meeting_propose(request: HttpRequest, pk: int) -> HttpResponse:
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
     meeting.propose_item(by=user, title=form.cleaned_data["title"], why=form.cleaned_data["why"])
     response = HttpResponse(status=204)
-    trigger_toast(response, f"Proposed — {meeting.scope_label} leadership will review it.", "success")
+    trigger_toast(response, f"Proposed. {meeting.scope_label} leadership will review it.", "success")
     return response
 
 
@@ -1017,6 +1047,13 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
     return rows
 
 
+def _start_agenda_rows(dash_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Editable scopes with a cadence but nothing upcoming yet — filters the already-
+    computed ``dash_rows``, no new query. Feeds the prominent 'Start the agenda' affordance
+    in the Needs-attention strip (§6.2 Part 2a-2)."""
+    return [row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["cadence"] is not None]
+
+
 def _archive_page(request: HttpRequest) -> dict[str, Any]:
     """Zone 3's filtered, paginated archive (§6.2): guild + year GET filters that never
     hide undated drafts (they match every year — an interrupted draft's only copy must
@@ -1060,8 +1097,14 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
             ),
         )
     )
+    member_guild_ids = viewer_guild_membership_ids(request)  # one query, reused per card
     for meeting in upcoming:
         meeting.viewer_can_edit = _scope_is_editable(meeting.guild_id, editable_ids, council_editable)
+        # Editors add items directly, so the list-page propose affordance is for the
+        # non-editor member of the scope — the workspace's ``can_propose`` idiom.
+        meeting.viewer_can_propose = not meeting.viewer_can_edit and can_propose_to_meeting(
+            request, meeting, member_guild_ids=member_guild_ids, is_editable=meeting.viewer_can_edit
+        )
 
     attention: list[Meeting] = []
     if can_create:
@@ -1077,6 +1120,7 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
     if can_create:
         # The archive's ?guild filter doubles as the guild-tab entry point's preselect (§6.2/§6.4).
         create_form = MeetingCreateForm(request=request, initial={"scope": guild_filter} if guild_filter else None)
+    dash_rows = _dash_rows(editable_ids, council_editable, upcoming)
     return render(
         request,
         "hub/meetings_home.html",
@@ -1084,7 +1128,8 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
             **_get_hub_context(request),
             "upcoming_meetings": upcoming,
             "attention_meetings": attention,
-            "dash_rows": _dash_rows(editable_ids, council_editable, upcoming),
+            "dash_rows": dash_rows,
+            "start_agenda_rows": _start_agenda_rows(dash_rows),
             "can_create": can_create,
             "create_form": create_form,
             **_archive_page(request),

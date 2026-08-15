@@ -33,6 +33,22 @@
     letter-spacing: 0.06em;
     margin-right: 0.25rem;
   }
+  @media (max-width: 768px) {
+    .members-filters {
+      gap: 0.4rem;
+      overflow-x: hidden;
+    }
+    .members-filters input[type="search"] {
+      min-width: 0;
+      flex: 1 1 100%;
+      max-width: 100%;
+    }
+    .members-filters select {
+      min-width: 0;
+      max-width: 100%;
+      flex: 1 1 auto;
+    }
+  }
 </style>
 {% endblock %}
 

@@ -1,0 +1,47 @@
+{% comment %}
+The "Propose an agenda item" modal (Meetings spec §6.3), factored from the workspace
+and guild-tab so the third (list-card) call site reuses it. Parameterized by:
+  meeting    — the meeting the proposal POSTs to (its pk feeds the hx-post URL).
+  modal_key  — the open-modal / close-modal event name AND the id prefix; must match the
+               trigger button's dispatch. "propose-item" for the single-meeting pages;
+               "propose-item-{{ meeting.pk }}" for the list cards so they never collide.
+Include contract: {% include "hub/partials/_propose_modal.html" with meeting=<m> modal_key=<key> %}
+{% endcomment %}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === '{{ modal_key }}') open = true"
+     @close-modal.window="if ($event.detail === '{{ modal_key }}') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="{{ modal_key }}-title">
+  <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+    <div class="pl-modal__header">
+      <h2 class="pl-modal__title" id="{{ modal_key }}-title">Propose an agenda item</h2>
+      <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+    </div>
+    <div class="pl-modal__body">
+      <form hx-post="{% url 'hub_meeting_propose' meeting.pk %}" hx-swap="none"
+            @htmx:after-request.camel="if ($event.detail.successful) { open = false; $event.target.reset(); }">
+        {% csrf_token %}
+        <div class="hub-form-group">
+          <label for="{{ modal_key }}-topic">Topic</label>
+          <input type="text" id="{{ modal_key }}-topic" name="title" maxlength="200" required>
+        </div>
+        <div class="hub-form-group">
+          <label for="{{ modal_key }}-why">Why / what needs deciding</label>
+          <textarea id="{{ modal_key }}-why" name="why" rows="3"></textarea>
+          <p class="pl-field-hint">Helps leadership slot it into the meeting.</p>
+        </div>
+        <div class="pl-modal__actions">
+          <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Propose it</button>
+          <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
