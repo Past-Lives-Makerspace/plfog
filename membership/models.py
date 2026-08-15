@@ -6140,7 +6140,7 @@ class MeetingItemProposal(models.Model):
         ordering = ["created_at"]
         indexes = [
             models.Index(fields=["state"], name="idx_meetingproposal_pending", condition=Q(state="pending")),
-            models.Index(fields=["state"], name="idx_meetingproposal_carried_over", condition=Q(state="carried_over")),
+            models.Index(fields=["state"], name="idx_meetingproposal_carryover", condition=Q(state="carried_over")),
         ]
 
     def __str__(self) -> str:

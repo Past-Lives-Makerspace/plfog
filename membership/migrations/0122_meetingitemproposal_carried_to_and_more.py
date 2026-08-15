@@ -44,7 +44,7 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="meetingitemproposal",
             index=models.Index(
-                condition=models.Q(("state", "carried_over")), fields=["state"], name="idx_meetingproposal_carried_over"
+                condition=models.Q(("state", "carried_over")), fields=["state"], name="idx_meetingproposal_carryover"
             ),
         ),
     ]
