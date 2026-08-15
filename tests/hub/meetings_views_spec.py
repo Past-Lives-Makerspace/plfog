@@ -1678,6 +1678,24 @@ def describe_meetings_home():
                 client.get(reverse("hub_meetings"))
             assert len(one_ctx) == len(many_ctx)  # the per-card propose check is query-free
 
+        def it_keeps_a_flat_query_count_with_many_foreign_guild_cards(client: Client):
+            # Regression: a member of one guild browsing the Meetings list (which shows
+            # every guild's upcoming meetings) must not fire a can_edit_meeting
+            # staff-roster query per card that belongs to a guild they are not on. The
+            # same-guild test above only exercises the membership fast path; a foreign
+            # card falls through to the editability check, which must reuse the cheap
+            # bulk viewer_can_edit rather than re-query can_edit_meeting per card.
+            _guild_member_client(client, GuildFactory())
+            MeetingFactory(guild=GuildFactory(), scheduled_date=timezone.localdate() + timedelta(days=2))
+            client.get(reverse("hub_meetings"))  # warm caches
+            with CaptureQueriesContext(connection) as one_ctx:
+                client.get(reverse("hub_meetings"))
+            for i in range(6):
+                MeetingFactory(guild=GuildFactory(), scheduled_date=timezone.localdate() + timedelta(days=5 + i))
+            with CaptureQueriesContext(connection) as many_ctx:
+                client.get(reverse("hub_meetings"))
+            assert len(one_ctx) == len(many_ctx)
+
     def describe_the_needs_attention_strip():
         def it_shows_undated_and_past_dated_drafts_to_the_scopes_editor(client: Client):
             guild = GuildFactory()

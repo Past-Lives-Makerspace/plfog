@@ -1103,7 +1103,7 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
         # Editors add items directly, so the list-page propose affordance is for the
         # non-editor member of the scope — the workspace's ``can_propose`` idiom.
         meeting.viewer_can_propose = not meeting.viewer_can_edit and can_propose_to_meeting(
-            request, meeting, member_guild_ids=member_guild_ids
+            request, meeting, member_guild_ids=member_guild_ids, is_editable=meeting.viewer_can_edit
         )
 
     attention: list[Meeting] = []

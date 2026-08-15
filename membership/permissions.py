@@ -139,7 +139,13 @@ def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
     return guilds, bool(guilds)
 
 
-def can_propose_to_meeting(request: HttpRequest, meeting: Meeting, *, member_guild_ids: set[int] | None = None) -> bool:
+def can_propose_to_meeting(
+    request: HttpRequest,
+    meeting: Meeting,
+    *,
+    member_guild_ids: set[int] | None = None,
+    is_editable: bool | None = None,
+) -> bool:
     """True when this request may propose an agenda item for the meeting.
 
     Guild meeting: any active member of that guild (its leadership and admins
@@ -149,9 +155,14 @@ def can_propose_to_meeting(request: HttpRequest, meeting: Meeting, *, member_gui
     ``member_guild_ids`` is the bulk optimization for a caller checking many meetings at
     once (the Meetings home §6.2): pass the viewer's joined-guild pks (see
     :func:`viewer_guild_membership_ids`). An active member of the meeting's guild is then
-    answered straight from the set — skipping both the per-meeting roster ``.exists()`` AND
-    the ``can_edit_meeting`` staff-roster query a plain member would otherwise trigger per
-    card. Omit it and every check runs per call, as the single-meeting call sites do.
+    answered straight from the set, skipping the per-meeting roster ``.exists()`` query.
+
+    ``is_editable`` lets that same bulk caller pass the meeting's already-computed
+    editability (from the cheap :func:`editable_meeting_scopes` sets) so this function
+    reuses it instead of firing ``can_edit_meeting``'s per-card staff-roster query for a
+    meeting in a guild the viewer is not on. The two are equivalent (both derive from the
+    member's led/staffed guilds), so a caller that already knows ``viewer_can_edit`` must
+    pass it to avoid an N+1 down the Meetings list. Omit both and every check runs per call.
     """
     from membership.models import Member
 
@@ -169,7 +180,8 @@ def can_propose_to_meeting(request: HttpRequest, meeting: Meeting, *, member_gui
     )
     if active_member_of_scope:
         return True
-    if can_edit_meeting(request, meeting):
+    editable = is_editable if is_editable is not None else can_edit_meeting(request, meeting)
+    if editable:
         return True
     if meeting.guild is None:
         return False
