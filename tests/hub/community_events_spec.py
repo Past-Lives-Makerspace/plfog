@@ -95,6 +95,53 @@ def describe_form():
         assert form.is_valid(), form.errors
         assert form.save().google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
 
+    def it_labels_the_video_url_field_video_link():
+        form = CommunityEventForm(as_admin=True)
+        assert form.fields["video_url"].label == "Video link"
+
+    def it_saves_a_valid_video_url():
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", video_url="https://meet.google.com/abc-defg-hij"),
+            as_admin=True,
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().video_url == "https://meet.google.com/abc-defg-hij"
+
+    def it_errors_on_a_non_url_video_link():
+        form = CommunityEventForm(data=_event_payload(event_type="community", video_url="not a url"), as_admin=True)
+        assert not form.is_valid()
+        assert "video_url" in form.errors
+
+    def it_rejects_a_javascript_scheme_video_url():
+        # Security: the URLField alone accepts any scheme Django's URL regex matches, which
+        # includes javascript:/data: — those would render straight into an href (event
+        # detail page, calendar item, home upcoming widget) as an XSS vector. The model
+        # field restricts to http/https via URLValidator(schemes=...), so a scheme-smuggled
+        # value fails form validation just like a malformed URL would.
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", video_url="javascript:alert(1)"), as_admin=True
+        )
+        assert not form.is_valid()
+        assert "video_url" in form.errors
+
+    def it_still_accepts_a_plain_http_video_url():
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", video_url="http://meet.example.com/x"), as_admin=True
+        )
+        assert form.is_valid(), form.errors
+
+    def it_allows_a_blank_video_url():
+        form = CommunityEventForm(data=_event_payload(event_type="community"), as_admin=True)
+        assert form.is_valid(), form.errors
+        assert form.save().video_url == ""
+
+    def it_omits_video_url_from_the_studio_hours_form():
+        from hub.forms import StudioHoursForm
+
+        guild = GuildFactory()
+        form = StudioHoursForm(guild=guild)
+        assert "video_url" not in form.fields
+
 
 @pytest.mark.django_db
 def describe_lead_gating():
@@ -208,6 +255,25 @@ def describe_admin_authoring():
         _user_with_role("ad1", fog_role=Member.FogRole.ADMIN)
         client.login(username="ad1", password="pass")
         assert client.get(reverse("hub_event_add")).status_code == 200
+
+    def it_renders_the_video_link_field_on_the_add_page(client: Client):
+        _user_with_role("ad1v", fog_role=Member.FogRole.ADMIN)
+        client.login(username="ad1v", password="pass")
+        resp = client.get(reverse("hub_event_add"))
+        assert b"Video link" in resp.content
+
+    def it_creates_a_community_event_with_a_video_url(client: Client):
+        _user_with_role("ad5", fog_role=Member.FogRole.ADMIN)
+        client.login(username="ad5", password="pass")
+        with patch.object(CommunityEvent, "announce"):
+            client.post(
+                reverse("hub_event_add"),
+                data=_event_payload(
+                    event_type="community", guild="", title="Streamed Potluck", video_url="https://meet.google.com/x"
+                ),
+            )
+        event = CommunityEvent.objects.get(title="Streamed Potluck")
+        assert event.video_url == "https://meet.google.com/x"
 
     def it_lets_an_admin_create_a_community_event_and_announces(client: Client):
         _user_with_role("ad2", fog_role=Member.FogRole.ADMIN)

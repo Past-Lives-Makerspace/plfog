@@ -381,6 +381,15 @@ def describe_ics_document():
         assert "LOCATION:Room A\\, B\\; C" in doc
         assert "DESCRIPTION:Line one\\nLine two" in doc
 
+    def it_includes_a_url_property_when_video_url_is_set(db):
+        event = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
+        doc = event.ics_document()
+        assert "URL:https://meet.google.com/abc-defg-hij" in doc
+
+    def it_omits_url_when_video_url_is_blank(db):
+        doc = CommunityEventFactory(community=True, video_url="").ics_document()
+        assert "URL:" not in doc
+
     def it_matches_the_lines_used_by_the_combined_export(db):
         # The combined calendar export builds its CommunityEvent VEVENT from the same
         # ics_vevent_lines(), so the per-event .ics and the export never drift.

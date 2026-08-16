@@ -80,6 +80,10 @@
                     </span>
                 </span>
             </a>
+            {% if item.video_url %}
+            {# A sibling of pl-upcoming__link, not nested inside it — HTML forbids an <a> inside an <a>. #}
+            <a href="{{ item.video_url }}" class="pl-upcoming__join" target="_blank" rel="noopener noreferrer">Join online</a>
+            {% endif %}
         </li>
         {% endfor %}
     </ul>

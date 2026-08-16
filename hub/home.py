@@ -47,6 +47,7 @@ class UpcomingItem:
     url: str
     location: str = ""
     guild_name: str = ""
+    video_url: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
                 url=calendar_url,
                 location=event.location,
                 guild_name=event.guild.name if event.guild_id else "",
+                video_url=event.video_url,
             )
         )
 

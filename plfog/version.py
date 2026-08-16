@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.0.3"
+VERSION = "1.1.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.1.0",
+        "date": "2026-08-15",
+        "title": "Join events online with a video link",
+        "changes": [
+            "Events can now include a video link. When an organizer adds one, you'll see a "
+            '"Join online" button on the event so you can hop into the meeting in one click. '
+            "The link rides along to Google Calendar and Discord too.",
+        ],
+    },
     {
         "version": "1.0.3",
         "date": "2026-08-14",

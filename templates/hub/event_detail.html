@@ -47,7 +47,12 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     {% endif %}
 
     <div class="pl-event-detail__actions">
+      {% if event.video_url %}
+      <a class="hub-btn hub-btn--primary" href="{{ event.video_url }}" target="_blank" rel="noopener noreferrer">Join online</a>
+      <a class="hub-btn hub-btn--ghost" href="{% url 'hub_event_ics' event.pk %}">Add to calendar</a>
+      {% else %}
       <a class="hub-btn hub-btn--primary" href="{% url 'hub_event_ics' event.pk %}">Add to calendar</a>
+      {% endif %}
       {% if user.is_authenticated %}
         <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Community Calendar</a>
       {% else %}

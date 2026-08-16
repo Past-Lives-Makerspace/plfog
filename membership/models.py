@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
 from django.db import models
 from django.db.models import BooleanField, Case, CharField, Count, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -4273,6 +4273,17 @@ class CommunityEvent(models.Model):
         default="",
         help_text="Where it happens — a room name, address, or a video link. Optional.",
     )
+    video_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        validators=[URLValidator(schemes=["https", "http"])],
+        help_text=(
+            "Optional link members click to join this event online (e.g. a Google Meet, Zoom, "
+            "or Jitsi URL). Paste a link you created under your own account so the meeting "
+            "carries your own video-call features."
+        ),
+    )
     description = models.TextField(blank=True, default="", help_text="Optional details for members.")
     recurrence = models.CharField(
         max_length=20,
@@ -4571,6 +4582,10 @@ class CommunityEvent(models.Model):
             lines.append(f"DESCRIPTION:{ical_escape(self.description[:250])}")
         if self.location:
             lines.append(f"LOCATION:{ical_escape(self.location)}")
+        if self.video_url:
+            # URL is a URI-typed property (RFC 5545 §3.8.4.6), not TEXT — no comma/semicolon
+            # escaping applies here.
+            lines.append(f"URL:{self.video_url}")
         lines.append("END:VEVENT")
         return lines
 

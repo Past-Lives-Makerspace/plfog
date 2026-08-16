@@ -2199,12 +2199,15 @@ def describe_calendar_rails():
             guild = GuildFactory()
             _lead_client(client, guild)
             CommunityEventFactory(guild=guild, title="One-off Social")
-            # Still "upcoming" (hasn't ended) but its start date is behind us — no
-            # linkable occurrence, so it must not clutter the select.
+            # Still "upcoming" (hasn't ended) but its start date is behind us: no
+            # linkable occurrence, so it must not clutter the select. Use a full day
+            # back, not a sub-24h offset: a 20-hour offset lands on *today* whenever the
+            # suite runs after 20:00 local, which spuriously gives the event a today
+            # occurrence and reddens this assertion (a nightly wall-clock flake).
             CommunityEventFactory(
                 guild=guild,
                 title="Started Yesterday",
-                starts_at=timezone.now() - timedelta(hours=20),
+                starts_at=timezone.now() - timedelta(days=1),
                 ends_at=timezone.now() + timedelta(hours=4),
             )
             CommunityEventFactory(guild=guild, title="Standing Sync", recurrence=CommunityEvent.Recurrence.MONTHLY)

@@ -62,6 +62,24 @@ def describe_create():
         assert event.submitted_by == user
         assert event.is_site_wide
 
+    def it_renders_the_video_link_field(client: Client):
+        _member("vidf1")
+        _set_policy(SiteConfiguration.MemberEventPolicy.OPEN)
+        client.login(username="vidf1", password="pass")
+        resp = client.get(reverse("hub_propose_event"))
+        assert b"Video link" in resp.content
+
+    def it_saves_a_video_url_on_the_proposal(client: Client):
+        _member("vidf2")
+        _set_policy(SiteConfiguration.MemberEventPolicy.OPEN)
+        client.login(username="vidf2", password="pass")
+        client.post(
+            reverse("hub_propose_event"),
+            data=_payload(title="Streamed Proposal", video_url="https://meet.google.com/x"),
+        )
+        event = CommunityEvent.objects.get(title="Streamed Proposal")
+        assert event.video_url == "https://meet.google.com/x"
+
     def it_publishes_immediately_under_the_open_policy(client: Client):
         _member("o1")
         _set_policy(SiteConfiguration.MemberEventPolicy.OPEN)
