@@ -235,11 +235,33 @@ def describe__build_scheduled_event_body():
         body = de._build_scheduled_event_body(_event(location=""))
         assert body["entity_metadata"]["location"] == de.DEFAULT_LOCATION
 
+    def it_uses_the_video_url_as_location_when_there_is_no_physical_location():
+        body = de._build_scheduled_event_body(_event(location="", video_url="https://meet.google.com/abc-defg-hij"))
+        assert body["entity_metadata"]["location"] == "https://meet.google.com/abc-defg-hij"
+
+    def it_keeps_the_physical_location_when_both_are_set():
+        body = de._build_scheduled_event_body(_event(location="Bay 3", video_url="https://meet.google.com/abc"))
+        assert body["entity_metadata"]["location"] == "Bay 3"
+
+    def it_truncates_a_long_video_url_used_as_location():
+        body = de._build_scheduled_event_body(_event(location="", video_url="https://meet.google.com/" + "x" * 150))
+        assert len(body["entity_metadata"]["location"]) == 100
+
     def it_ends_the_description_with_the_public_url():
         event = _event()
         body = de._build_scheduled_event_body(event)
         assert body["description"].startswith("Bring a project.")
         assert body["description"].endswith(event.public_url)
+
+    def it_leads_the_description_with_join_online_when_video_url_is_set():
+        event = _event(video_url="https://meet.google.com/abc-defg-hij")
+        body = de._build_scheduled_event_body(event)
+        assert body["description"].startswith("Join online: https://meet.google.com/abc-defg-hij")
+
+    def it_omits_the_join_online_line_when_video_url_is_blank():
+        event = _event(video_url="")
+        body = de._build_scheduled_event_body(event)
+        assert "Join online:" not in body["description"]
 
     def it_truncates_the_name_to_100_chars():
         body = de._build_scheduled_event_body(_event(title="x" * 150))

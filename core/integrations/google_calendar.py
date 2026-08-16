@@ -169,6 +169,8 @@ def _build_event_body(event: CommunityEvent, *, actor: User | None) -> dict[str,
     who = _display_name(event.created_by or event.submitted_by or actor)
     description = f"{event.description}\n\n" if event.description else ""
     description += f"Added by {who} via FOG"
+    if event.video_url:
+        description = f"Join online: {event.video_url}\n\n{description}"
     body: dict[str, Any] = {
         "summary": event.title,
         "location": event.location,

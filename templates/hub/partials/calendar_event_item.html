@@ -48,6 +48,11 @@ Params:
             {{ event.location }}
         </div>
         {% endif %}
+        {% if event.video_url %}
+        <div class="pl-calendar-list__location">
+            <a href="{{ event.video_url }}" class="pl-calendar-list__register" target="_blank" rel="noopener noreferrer">Join online</a>
+        </div>
+        {% endif %}
         {% if event.source == "classes" %}
         <div class="pl-calendar-list__guild pl-calendar-list__guild--with-action" style="color: {{ source_colors|get_item:src|default:'#888888' }}; display:flex; align-items:center; gap:0.35rem;">
             {% if event.guild and event.guild.logo_prefix %}

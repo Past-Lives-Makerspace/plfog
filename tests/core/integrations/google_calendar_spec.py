@@ -285,6 +285,14 @@ def describe__build_event_body():
         body = gc._build_event_body(_event(recurrence=CommunityEvent.Recurrence.NONE), actor=None)
         assert "recurrence" not in body
 
+    def it_prepends_a_join_online_line_when_video_url_is_set():
+        body = gc._build_event_body(_event(video_url="https://meet.google.com/abc-defg-hij"), actor=None)
+        assert body["description"].startswith("Join online: https://meet.google.com/abc-defg-hij")
+
+    def it_omits_the_join_online_line_when_video_url_is_blank():
+        body = gc._build_event_body(_event(video_url=""), actor=None)
+        assert "Join online:" not in body["description"]
+
     @pytest.mark.parametrize(
         "recurrence",
         [

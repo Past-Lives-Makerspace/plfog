@@ -1618,6 +1618,7 @@ class CommunityEventForm(forms.ModelForm):
             "starts_at",
             "ends_at",
             "location",
+            "video_url",
             "description",
             "recurrence",
             "google_calendar_target",
@@ -1652,6 +1653,7 @@ class CommunityEventForm(forms.ModelForm):
         for name in ("starts_at", "ends_at", "publish_at"):
             cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
         self.fields["publish_at"].label = "Announce at"
+        self.fields["video_url"].label = "Video link"
         # The picker is a <select> that always submits a value in the UI; keep it forgiving so a
         # value-less POST falls back to the model default (MEMBER) rather than erroring.
         self.fields["google_calendar_target"].required = False

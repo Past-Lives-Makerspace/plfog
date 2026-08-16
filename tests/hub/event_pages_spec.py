@@ -110,6 +110,35 @@ def describe_event_detail():
         assert b"Come by." in resp.content
         assert b"pl-event-detail__description" in resp.content
 
+    def it_shows_a_join_online_primary_cta_when_video_url_is_set(client: Client):
+        event = CommunityEventFactory(community=True, video_url="https://meet.google.com/abc-defg-hij")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        content = resp.content.decode()
+        assert 'href="https://meet.google.com/abc-defg-hij"' in content
+        assert "Join online" in content
+        # "Join online" is the primary CTA; "Add to calendar" is demoted to a ghost button.
+        assert (
+            'class="hub-btn hub-btn--primary" href="https://meet.google.com/abc-defg-hij"'
+            ' target="_blank" rel="noopener noreferrer">Join online</a>' in content
+        )
+        assert (
+            f'class="hub-btn hub-btn--ghost" href="{reverse("hub_event_ics", args=[event.pk])}">Add to calendar</a>'
+            in content
+        )
+
+    def it_omits_join_online_and_keeps_add_to_calendar_primary_when_video_url_is_blank(client: Client):
+        event = CommunityEventFactory(community=True, video_url="")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        content = resp.content.decode()
+        # Scope to the exact CTA anchor, not a bare "Join online" substring — the site-wide
+        # changelog widget (rendered in every hub page's context) can legitimately mention
+        # "Join online" in this feature's own release notes.
+        assert 'target="_blank" rel="noopener noreferrer">Join online</a>' not in content
+        assert (
+            f'class="hub-btn hub-btn--primary" href="{reverse("hub_event_ics", args=[event.pk])}">Add to calendar</a>'
+            in content
+        )
+
     def it_shows_the_edit_button_to_a_guild_lead(client: Client):
         user = _user_with_role("evt_editor")
         guild = GuildFactory(guild_lead=user.member)

@@ -45,6 +45,7 @@ class CalendarEntry:
     url: str = ""
     location: str = ""
     description: str = ""
+    video_url: str = ""
     all_day: bool = False
     guild: Guild | None = None
     feed: None = None
@@ -150,6 +151,7 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
                     url=ev.absolute_url,
                     location=ev.location,
                     description=ev.description,
+                    video_url=ev.video_url,
                     all_day=False,
                     guild=ev.guild,
                     community_event=ev,
@@ -199,6 +201,7 @@ def upcoming_calendar_events() -> list[Any]:
                 url=ev.absolute_url,
                 location=ev.location,
                 description=ev.description,
+                video_url=ev.video_url,
                 guild=ev.guild,
                 community_event=ev,
             )

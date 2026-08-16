@@ -128,6 +128,16 @@ def describe_hub_home_view():
             assert "Potluck" in titles
             assert "Intro to Welding" in titles
 
+        def it_carries_the_video_url_of_a_site_wide_event(client: Client):
+            _member_user("vid_up")
+            CommunityEventFactory(community=True, title="Streamed Talk", video_url="https://meet.google.com/x")
+            client.login(username="vid_up", password="pass")
+
+            upcoming = client.get(reverse("hub_home")).context["upcoming"]
+
+            item = next(i for i in upcoming if i.title == "Streamed Talk")
+            assert item.video_url == "https://meet.google.com/x"
+
         def it_excludes_meetings_of_guilds_the_member_has_not_joined(client: Client):
             _member_user("scoped")
             other_guild = GuildFactory(name="Textiles")

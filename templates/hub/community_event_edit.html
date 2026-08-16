@@ -24,6 +24,7 @@
       {% include "components/form_field.html" with field=form.starts_at %}
       {% include "components/form_field.html" with field=form.ends_at %}
       {% include "components/form_field.html" with field=form.location field_hint="A room, address, or video link. Optional." %}
+      {% include "components/form_field.html" with field=form.video_url field_hint="For an online or hybrid meeting — a Google Meet, Zoom, or Jitsi link. Optional." %}
       {% include "components/form_field.html" with field=form.description field_hint="Optional details for members." %}
       {% include "components/form_field.html" with field=form.recurrence field_hint="A weekly event repeats on the same weekday; a monthly event repeats on the same weekday-of-month as the start (e.g. the 2nd Saturday)." %}
       {% include "components/form_field.html" with field=form.google_calendar_target field_hint="Which Google calendar this event syncs to — the members-only calendar or the outward-facing public one. Only matters when Google Calendar sync is turned on." %}

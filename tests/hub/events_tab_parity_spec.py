@@ -98,6 +98,24 @@ def describe_upcoming_calendar_events():
         )
         assert "Last Month's Talk" not in [e.title for e in upcoming_calendar_events()]
 
+    def it_populates_video_url_from_the_backing_community_event():
+        from hub.calendar_entries import upcoming_calendar_events
+
+        CommunityEventFactory(community=True, title="Streamed Talk", video_url="https://meet.google.com/abc-defg-hij")
+        entry = next(e for e in upcoming_calendar_events() if e.title == "Streamed Talk")
+        assert entry.video_url == "https://meet.google.com/abc-defg-hij"
+
+    def it_leaves_video_url_blank_for_a_feed_event():
+        from hub.calendar_entries import upcoming_calendar_events
+
+        # A feed CalendarEvent has no video_url field at all (only the CalendarEntry
+        # dataclass does) — duck-typed template reads resolve it to "", so getattr
+        # mirrors that rather than asserting a real model attribute exists.
+        guild = GuildFactory(name="Ceramics")
+        _feed_event("Ceramics Open Studio", guild=guild)
+        entry = next(e for e in upcoming_calendar_events() if e.title == "Ceramics Open Studio")
+        assert getattr(entry, "video_url", "") == ""
+
 
 def describe_events_tab_view():
     def it_lists_a_feed_event_that_shows_on_the_grid(client: Client):
@@ -153,6 +171,29 @@ def describe_event_card_links():
         assert "Register" not in html
         # The class title is now itself a link, not plain text.
         assert "pl-calendar-list__title--link" in html
+
+    def it_shows_a_join_online_link_when_video_url_is_set():
+        event = CommunityEventFactory(community=True, title="Streamed Meetup", video_url="https://meet.google.com/x")
+        from hub.calendar_entries import upcoming_calendar_events
+
+        entry = next(e for e in upcoming_calendar_events() if getattr(e, "community_event", None) == event)
+        html = render_to_string(
+            "hub/partials/calendar_event_item.html",
+            {"event": entry, "source_colors": {"community": "#3d8bd4"}},
+        )
+        assert "Join online" in html
+        assert 'href="https://meet.google.com/x"' in html
+
+    def it_omits_the_join_online_link_when_video_url_is_blank():
+        event = CommunityEventFactory(community=True, title="In Person Meetup")
+        from hub.calendar_entries import upcoming_calendar_events
+
+        entry = next(e for e in upcoming_calendar_events() if getattr(e, "community_event", None) == event)
+        html = render_to_string(
+            "hub/partials/calendar_event_item.html",
+            {"event": entry, "source_colors": {"community": "#3d8bd4"}},
+        )
+        assert "Join online" not in html
 
 
 def describe_sync_flag():

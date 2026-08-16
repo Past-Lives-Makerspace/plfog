@@ -191,9 +191,12 @@ def _retry_after_seconds(response: httpx.Response) -> float | None:
 
 
 def _build_description(event: CommunityEvent) -> str:
-    """The Discord event description: the event's own description (if any), a blank line,
-    then the absolute public URL — so the entry is actionable, not a dead title."""
+    """The Discord event description: a "Join online" line first (when set) so it's visible
+    above the fold, then the event's own description (if any), a blank line, then the
+    absolute public URL — so the entry is actionable, not a dead title."""
     parts: list[str] = []
+    if event.video_url:
+        parts.append(f"Join online: {event.video_url}")
     if event.description:
         parts.append(event.description)
     parts.append(event.public_url)
@@ -258,19 +261,22 @@ def _build_scheduled_event_body(event: CommunityEvent, *, occurrence: datetime |
 
     All FOG events are off-Discord (physical), so they are ``entity_type = 3`` (EXTERNAL),
     which *requires* ``scheduled_end_time`` + ``entity_metadata.location`` (a blank location
-    falls back to :data:`DEFAULT_LOCATION`). When ``occurrence`` is given (the unmappable
-    fallback, §5.3) the event is pushed as a single instance at that start with no
+    falls back to the video link when set, then :data:`DEFAULT_LOCATION`) — a purely-online
+    event should not read as happening at the makerspace, while a physical location always
+    wins (the join link still shows in the description). When ``occurrence`` is given (the
+    unmappable fallback, §5.3) the event is pushed as a single instance at that start with no
     ``recurrence_rule``; otherwise a mappable cadence carries its ``recurrence_rule``.
     """
     start = occurrence if occurrence is not None else event.starts_at
     end = start + (event.ends_at - event.starts_at)
+    location = event.location or event.video_url or DEFAULT_LOCATION
     body: dict[str, Any] = {
         "name": event.title[:_NAME_MAX],
         "privacy_level": _PRIVACY_GUILD_ONLY,
         "entity_type": _ENTITY_TYPE_EXTERNAL,
         "scheduled_start_time": start.isoformat(),
         "scheduled_end_time": end.isoformat(),
-        "entity_metadata": {"location": (event.location or DEFAULT_LOCATION)[:_LOCATION_MAX]},
+        "entity_metadata": {"location": location[:_LOCATION_MAX]},
         "description": _build_description(event)[:_DESCRIPTION_MAX],
     }
     if occurrence is None:

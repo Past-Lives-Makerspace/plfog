@@ -86,6 +86,33 @@ def describe_monthly_expansion():
         assert entries[0].pk == EVENT_PK_OFFSET + event.pk * 100
 
 
+def describe_video_url_on_calendar_entries():
+    def it_populates_video_url_from_the_community_event():
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Online Potluck",
+            video_url="https://meet.google.com/abc-defg-hij",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=1),
+        )
+        entries = community_event_entries((now - timedelta(days=1)).date(), (now + timedelta(days=10)).date())
+        entry = next(e for e in entries if e.title == "Online Potluck")
+        assert entry.video_url == "https://meet.google.com/abc-defg-hij"
+
+    def it_leaves_video_url_blank_when_the_event_has_none():
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="In Person Potluck",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=1),
+        )
+        entries = community_event_entries((now - timedelta(days=1)).date(), (now + timedelta(days=10)).date())
+        entry = next(e for e in entries if e.title == "In Person Potluck")
+        assert entry.video_url == ""
+
+
 def describe_visibility_wiring():
     def it_wires_the_community_source_on_the_community_calendar(client: Client):
         _login(client, "vis1")
