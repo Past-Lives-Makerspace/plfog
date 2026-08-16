@@ -14,7 +14,7 @@ from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
 from django.db import models
 from django.db.models import BooleanField, Case, CharField, Count, DecimalField, Exists, OuterRef, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
@@ -4277,6 +4277,7 @@ class CommunityEvent(models.Model):
         max_length=500,
         blank=True,
         default="",
+        validators=[URLValidator(schemes=["https", "http"])],
         help_text=(
             "Optional link members click to join this event online (e.g. a Google Meet, Zoom, "
             "or Jitsi URL). Paste a link you created under your own account so the meeting "

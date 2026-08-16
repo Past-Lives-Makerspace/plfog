@@ -112,6 +112,24 @@ def describe_form():
         assert not form.is_valid()
         assert "video_url" in form.errors
 
+    def it_rejects_a_javascript_scheme_video_url():
+        # Security: the URLField alone accepts any scheme Django's URL regex matches, which
+        # includes javascript:/data: — those would render straight into an href (event
+        # detail page, calendar item, home upcoming widget) as an XSS vector. The model
+        # field restricts to http/https via URLValidator(schemes=...), so a scheme-smuggled
+        # value fails form validation just like a malformed URL would.
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", video_url="javascript:alert(1)"), as_admin=True
+        )
+        assert not form.is_valid()
+        assert "video_url" in form.errors
+
+    def it_still_accepts_a_plain_http_video_url():
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", video_url="http://meet.example.com/x"), as_admin=True
+        )
+        assert form.is_valid(), form.errors
+
     def it_allows_a_blank_video_url():
         form = CommunityEventForm(data=_event_payload(event_type="community"), as_admin=True)
         assert form.is_valid(), form.errors
