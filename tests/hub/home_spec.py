@@ -128,15 +128,33 @@ def describe_hub_home_view():
             assert "Potluck" in titles
             assert "Intro to Welding" in titles
 
-        def it_carries_the_video_url_of_a_site_wide_event(client: Client):
+        def it_renders_a_join_online_link_for_a_site_wide_event_with_a_video_url(client: Client):
             _member_user("vid_up")
             CommunityEventFactory(community=True, title="Streamed Talk", video_url="https://meet.google.com/x")
             client.login(username="vid_up", password="pass")
 
-            upcoming = client.get(reverse("hub_home")).context["upcoming"]
+            resp = client.get(reverse("hub_home"))
+            upcoming = resp.context["upcoming"]
 
+            # The data carries through to the row...
             item = next(i for i in upcoming if i.title == "Streamed Talk")
             assert item.video_url == "https://meet.google.com/x"
+            # ...and the dashboard actually renders the join link, not just carries the data
+            # (dead field bug: a populated video_url that never reaches the page). Scoped to
+            # the exact anchor markup — its own class, not a bare "Join online" substring —
+            # since the site-wide changelog widget on every hub page legitimately mentions
+            # "Join online" in this release's own notes.
+            content = resp.content.decode()
+            assert 'href="https://meet.google.com/x" class="pl-upcoming__join"' in content
+
+        def it_omits_the_join_online_link_for_an_event_with_no_video_url(client: Client):
+            _member_user("no_vid_up")
+            CommunityEventFactory(community=True, title="In Person Talk", video_url="")
+            client.login(username="no_vid_up", password="pass")
+
+            resp = client.get(reverse("hub_home"))
+
+            assert "pl-upcoming__join" not in resp.content.decode()
 
         def it_excludes_meetings_of_guilds_the_member_has_not_joined(client: Client):
             _member_user("scoped")

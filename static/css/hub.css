@@ -3875,6 +3875,25 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     background: var(--hub-blue-soft);
     color: var(--hub-blue);
 }
+/* Sibling of .pl-upcoming__link (never nested inside it — no <a> in <a>). Same pill
+   formula as .pl-calendar-list__register so "Join online" reads consistently everywhere
+   it appears. Indented to sit under the title/meta column (date column is 6.5rem + 1rem gap). */
+.pl-upcoming__join {
+    display: inline-block;
+    margin: -0.4rem 0 0.75rem 7.5rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 15%, transparent);
+    color: var(--color-tuscan-yellow);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    transition: background 0.15s;
+}
+.pl-upcoming__join:hover {
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 28%, transparent);
+}
 
 /* --- Latest announcements --- */
 .pl-ann-list { list-style: none; margin: 0; padding: 0; }
@@ -3919,6 +3938,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 @media (max-width: 520px) {
     .pl-upcoming__link { flex-direction: column; gap: 0.25rem; }
     .pl-upcoming__when { flex-direction: row; gap: 0.5rem; width: auto; }
+    .pl-upcoming__join { margin-left: 0; }
 }
 
 /* Guild editor "Share & Print" QR preview. The QR SVG (segno, scale=1) is tiny
