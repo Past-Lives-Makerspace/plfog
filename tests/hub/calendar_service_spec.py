@@ -42,6 +42,63 @@ def _series(**kwargs: object) -> ClassOffering:
     return _published_offering(scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE, **kwargs)
 
 
+def describe_to_datetime():
+    def it_anchors_an_all_day_date_to_local_midnight_not_utc():
+        # An all-day event on the 22nd must render on the 22nd locally, not the 21st. Under
+        # the old UTC-midnight anchor, localtime(2026-08-22T00:00Z) in Portland was Aug 21 17:00.
+        from datetime import date
+
+        from hub.calendar_service import _to_datetime
+
+        local = timezone.localtime(_to_datetime(date(2026, 8, 22)))
+        assert local.date() == date(2026, 8, 22)
+        assert (local.hour, local.minute) == (0, 0)
+
+    def it_normalizes_a_timezone_aware_datetime_to_utc():
+        from datetime import datetime
+        from datetime import timezone as dt_tz
+
+        from hub.calendar_service import _to_datetime
+
+        aware = datetime(2026, 8, 22, 19, 30, tzinfo=dt_tz(timedelta(hours=-7)))
+        assert _to_datetime(aware) == aware.astimezone(dt_tz.utc)
+
+    def it_treats_a_naive_datetime_as_utc():
+        from datetime import datetime
+        from datetime import timezone as dt_tz
+
+        from hub.calendar_service import _to_datetime
+
+        naive = datetime(2026, 8, 22, 19, 30)
+        assert _to_datetime(naive) == datetime(2026, 8, 22, 19, 30, tzinfo=dt_tz.utc)
+
+
+def describe_parse_ical_events():
+    def it_stores_an_all_day_event_on_its_own_local_day():
+        from datetime import date, datetime
+        from datetime import timezone as dt_tz
+
+        from hub.calendar_service import _parse_ical_events
+
+        ics = (
+            "BEGIN:VCALENDAR\r\n"
+            "VERSION:2.0\r\n"
+            "BEGIN:VEVENT\r\n"
+            "UID:allday-1@example.com\r\n"
+            "SUMMARY:Offline Art Social\r\n"
+            "DTSTART;VALUE=DATE:20260822\r\n"
+            "DTEND;VALUE=DATE:20260823\r\n"
+            "END:VEVENT\r\n"
+            "END:VCALENDAR\r\n"
+        ).encode()
+        events = _parse_ical_events(ics, datetime(2026, 8, 1, tzinfo=dt_tz.utc), datetime(2026, 9, 1, tzinfo=dt_tz.utc))
+
+        assert len(events) == 1
+        evt = events[0]
+        assert evt["all_day"] is True
+        assert timezone.localtime(evt["start_dt"]).date() == date(2026, 8, 22)  # not the 21st
+
+
 def describe_sync_local_class_events():
     def it_creates_a_calendar_event_per_upcoming_published_session():
         from hub.calendar_service import sync_local_class_events
