@@ -56,6 +56,28 @@ def describe_build_matrix():
                 assert len(row.cells) == expected
 
 
+def describe_channel_labels():
+    def it_labels_push_plainly():
+        # Renamed from "Push (Browser)" now that native push is the primary carrier.
+        assert settings_matrix.CHANNEL_LABELS[Channel.PUSH] == "Push"
+
+
+def describe_push_defaults():
+    def it_offers_push_on_every_row_with_a_mix_of_defaults():
+        user = User.objects.create_user(username="pd", email="pd@example.com")
+        push_cells = [
+            cell
+            for _section, rows in settings_matrix.build_matrix(user)
+            for row in rows
+            for cell in row.cells
+            if cell.channel is Channel.PUSH and cell.present
+        ]
+        assert push_cells  # every in-app row offers a push toggle
+        # important events default on, routine ones default off — both appear for a member
+        assert any(cell.enabled for cell in push_cells)
+        assert any(not cell.enabled for cell in push_cells)
+
+
 def describe_staff_section():
     # A pure-capability approval event (routes to SPACE_APPROVERS): visible ONLY to a
     # holder of the Space capability, and grouped under Staff & leadership, not "Spaces".

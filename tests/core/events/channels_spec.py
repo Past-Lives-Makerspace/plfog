@@ -20,7 +20,7 @@ from core.events.channels import (
     is_implemented,
 )
 from core.events.registry import Channel
-from core.models import EventDelivery, Notification, PushSubscription, TransactionalEmailLog
+from core.models import EventDelivery, FcmDevice, Notification, PushSubscription, TransactionalEmailLog
 
 pytestmark = pytest.mark.django_db
 
@@ -91,6 +91,32 @@ def describe_push_adapter():
         with patch("core.events.channels.send_web_push") as mock_push:
             PushAdapter().deliver(user, _message())
         mock_push.assert_not_called()
+
+    def it_pushes_to_each_fcm_device():
+        user = _user()
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        FcmDevice.objects.create(user=user, token="d2", platform=FcmDevice.Platform.IOS)
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message())
+        assert mock_fcm.call_count == 2
+
+    def it_does_nothing_without_fcm_devices():
+        user = _user()
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message())
+        mock_fcm.assert_not_called()
+
+    def it_fans_out_to_both_web_push_and_fcm():
+        user = _user()
+        PushSubscription.objects.create(user=user, endpoint="https://p/1", p256dh="k", auth="a")
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        with (
+            patch("core.events.channels.send_web_push") as mock_push,
+            patch("core.events.channels.send_fcm") as mock_fcm,
+        ):
+            PushAdapter().deliver(user, _message())
+        mock_push.assert_called_once()
+        mock_fcm.assert_called_once()
 
 
 def describe_scheduled_email_adapter():

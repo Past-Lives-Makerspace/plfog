@@ -48,7 +48,7 @@ USER_CHANNELS: tuple[Channel, ...] = (
 CHANNEL_LABELS: dict[Channel, str] = {
     Channel.IN_APP: "In-app (Bell)",
     Channel.EMAIL: "Email",
-    Channel.PUSH: "Push (Browser)",
+    Channel.PUSH: "Push",
     Channel.DISCORD_DM: "Discord",
     Channel.SCHEDULED_EMAIL: "Scheduled",
     Channel.DIGEST: "Digest",

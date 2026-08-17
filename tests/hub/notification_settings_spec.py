@@ -35,3 +35,12 @@ def describe_notifications_tab():
         assert (
             NotificationPreference.objects.get(user=user, event_key="class_published", channel="push").enabled is False
         )
+
+    def it_renders_the_push_label_with_a_platform_tooltip(client):
+        User.objects.create_user(username="m3", email="m3@example.com", password="pw12345!")
+        client.login(username="m3", password="pw12345!")
+        content = client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
+        assert "Push (Browser)" not in content  # renamed to plain "Push"
+        # uses the canonical .pl-help hover bubble, not a browser title= tooltip
+        assert "pl-help__bubble" in content
+        assert "Android only for now. iOS coming soon." in content

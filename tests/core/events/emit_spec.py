@@ -103,6 +103,8 @@ def describe_emit():
         def it_records_one_eventdelivery_row_per_channel(linked_member):
             member = linked_member()
             emit("class_published", context={}, title="t", body="b")
+            # class_published is in-app only for a default member (email off, and push is
+            # off by default for it), so exactly one delivery row — one per delivered channel.
             row = EventDelivery.objects.get(event_key="class_published", target_ref=f"user:{member.user_id}")
             assert row.channel == Channel.IN_APP.value
             assert row.period == ""
@@ -110,14 +112,14 @@ def describe_emit():
     def describe_result():
         def it_reports_recipient_and_delivery_counts(linked_member):
             # class_cancelled is a non-broadcast site-wide event — no Discord post to
-            # inflate the count — so its ONE recipient yields exactly two deliveries: the
-            # in-app bell row plus the FORCED transactional email (a cancelled class always
-            # emails the people it concerns).
+            # inflate the count — so its ONE recipient yields three deliveries: the in-app
+            # bell row, the FORCED transactional email (a cancelled class always emails the
+            # people it concerns), and the default-on push.
             linked_member()
             result = emit("class_cancelled", context={}, title="t", body="b")
             assert result.recipient_count == 1
-            assert result.delivery_count == 2
-            assert {channel for _user, channel in result.delivered} == {Channel.IN_APP, Channel.EMAIL}
+            assert result.delivery_count == 3
+            assert {channel for _user, channel in result.delivered} == {Channel.IN_APP, Channel.EMAIL, Channel.PUSH}
             assert "class_cancelled" in repr(result)
 
     def describe_unknown_event():

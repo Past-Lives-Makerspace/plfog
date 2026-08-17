@@ -16,8 +16,8 @@ android {
         applicationId "app.pastlives.hub"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.0.1"
+        versionCode 5
+        versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -63,6 +63,19 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+// --- Release bundle safety gate ---------------------------------------------
+// The v1.0.0 launch shipped an AAB with no Capacitor web assets, so the app
+// opened to https://localhost/ with ERR_CONNECTION_REFUSED. This runs
+// verify-aab.sh after every release bundle and FAILS the build if the config
+// or web assets are missing, so a broken bundle can never reach Play again.
+def verifyReleaseBundle = tasks.register('verifyReleaseBundle', Exec) {
+    workingDir rootProject.projectDir.parentFile   // mobile/
+    commandLine 'zsh', 'verify-aab.sh'
+}
+tasks.matching { it.name == 'bundleRelease' }.configureEach {
+    finalizedBy verifyReleaseBundle
+}
 
 try {
     def servicesJSON = file('google-services.json')

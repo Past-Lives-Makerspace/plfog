@@ -119,15 +119,29 @@ def describe_event_registry():
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
 
-        def it_maps_push_default_flag_to_push_channel():
-            # Legacy-seeded events all map push to OFF; the net-new events declare no push
-            # channel at all (they're broadcasts / forced emails) — EXCEPT class_published,
-            # which REPLACES the seeded entry only to add Discord and keeps its push-OFF channel.
+        def it_offers_push_on_every_in_app_event():
+            # Every event that writes an in-app bell row also OFFERS Push (a toggle);
+            # events with no bell (forced-email / broadcast-only) declare no Push channel.
             for event in registry.EVENTS:
-                spec = event.channel(Channel.PUSH)
-                if event.key in _NEW_KEYS and event.key != "class_published":
-                    assert spec is None
-                    continue
+                push = event.channel(Channel.PUSH)
+                if event.channel(Channel.IN_APP) is None:
+                    assert push is None
+                else:
+                    assert push is not None
+
+        def it_defaults_push_on_only_for_the_important_set():
+            # Push defaults ON exactly for the curated "relatively important" events; every
+            # other event that offers Push defaults OFF (available but quiet).
+            on = {
+                event.key
+                for event in registry.EVENTS
+                if (spec := event.channel(Channel.PUSH)) is not None and spec.default is ChannelDefault.ON
+            }
+            assert on == registry._PUSH_ON_BY_DEFAULT
+            assert registry.get_event("class_cancelled").channel(Channel.PUSH).default is ChannelDefault.ON
+            # routine / FYI notices stay OFF by default (offered, not forced on)
+            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation.completed"):
+                spec = registry.get_event(quiet).channel(Channel.PUSH)
                 assert spec is not None
                 assert spec.default is ChannelDefault.OFF
 

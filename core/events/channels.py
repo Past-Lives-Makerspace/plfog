@@ -39,7 +39,8 @@ from core.email import send as send_email
 from core.events import discord as discord_module
 from core.events import discord_dm as discord_dm_module
 from core.events.registry import Channel
-from core.models import EventDelivery, Notification, PushSubscription
+from core.fcm import send_fcm
+from core.models import EventDelivery, FcmDevice, Notification, PushSubscription
 from core.push import send_web_push
 
 if TYPE_CHECKING:
@@ -177,15 +178,23 @@ class EmailAdapter:
 
 
 class PushAdapter:
-    """Sends a web push to every one of the user's subscriptions via ``core/push.py``."""
+    """Sends a push to every one of the user's devices.
+
+    Two transports ride this one channel: browser Web Push subscriptions via
+    ``core/push.py`` and native (Capacitor) FCM device tokens via ``core/fcm.py`` — the
+    native app cannot receive Web Push, so it registers an FCM token instead. Both are
+    best-effort and reap their own dead rows.
+    """
 
     channel = Channel.PUSH
     is_broadcast = False
 
     def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
-        # Web push carries no file attachments.
+        # Push carries no file attachments.
         for sub in PushSubscription.objects.filter(user=user):
             send_web_push(sub, title=message.title, body=message.body, url=message.url)
+        for device in FcmDevice.objects.filter(user=user):
+            send_fcm(device, title=message.title, body=message.body, url=message.url)
 
 
 class _ShellAdapter:

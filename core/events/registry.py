@@ -19,7 +19,7 @@ The legacy ``core/triggers.py`` stays present and working; nothing here replaces
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from core import triggers
@@ -167,6 +167,71 @@ _EMAIL_ON = ChannelSpec(Channel.EMAIL, ChannelDefault.ON)
 _EMAIL_OFF = ChannelSpec(Channel.EMAIL, ChannelDefault.OFF)
 _EMAIL_FORCED = ChannelSpec(Channel.EMAIL, ChannelDefault.FORCED)
 _PUSH_OFF = ChannelSpec(Channel.PUSH, ChannelDefault.OFF)
+_PUSH_ON = ChannelSpec(Channel.PUSH, ChannelDefault.ON)
+
+# Events that default Push ON — the "relatively important" ones worth a phone buzz:
+# time-sensitive, actionable, or directly affecting the member. Every OTHER in-app event
+# still OFFERS Push (a toggle on the settings matrix) but defaults OFF, so routine /
+# workflow / FYI notices (meeting minutes approved, orientation completed, approval
+# queues, chatty guild updates) never buzz a phone unless the member opts in.
+_PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
+    {
+        # Classes — your booking is affected, or a seat just opened
+        "class_cancelled",
+        "refund_issued",
+        "class_reminder",
+        "waitlist_spot_available",
+        # Billing — money moved or is about to
+        "tab_charged",
+        "tab_charge_failed",
+        "tab_approaching_limit",
+        "tab_entry_added",
+        # Spaces — your lease / space request outcome
+        "lease_expiring",
+        "space.request_approved",
+        "space.request_declined",
+        # Announcements you're meant to see
+        "site_announcement",
+        "guild_announcement",
+        # Events — reminders, plus the outcome of an event you proposed
+        "event.reminder",
+        "event.happening_now",
+        "event.approved",
+        "event.declined",
+        "event.changes_requested",
+        # Voting — act before it closes / results are in
+        "voting.closing_soon",
+        "voting.vote_soon",
+        "voting.results_published",
+        # Teaching — your class's review outcome (instructor)
+        "instructor_class_approved",
+        "instructor_changes_requested",
+        # Membership — someone accepted the invite you sent
+        "invite_accepted",
+    }
+)
+
+
+def _with_push(event: EventType) -> EventType:
+    """Offer Push on every in-app event, defaulting ON only for the important ones.
+
+    Native push mirrors the in-app bell: any event that writes a bell row also offers a
+    Push channel on the settings matrix. It defaults ON for the curated
+    :data:`_PUSH_ON_BY_DEFAULT` set (time-sensitive / actionable / member-affecting) and
+    OFF for everything else — routine, workflow, and FYI notices don't buzz a phone unless
+    the member opts in. Events with no in-app bell (forced-email / broadcast-only) get no
+    Push toggle. An existing Push spec is replaced in place so channel order is preserved.
+    """
+    if event.channel(Channel.IN_APP) is None:
+        return event
+    default = _PUSH_ON if event.key in _PUSH_ON_BY_DEFAULT else _PUSH_OFF
+    if event.channel(Channel.PUSH) is not None:
+        channels = tuple(default if spec.channel is Channel.PUSH else spec for spec in event.channels)
+    else:
+        channels = (*event.channels, default)
+    return replace(event, channels=channels)
+
+
 _DISCORD_DM_OFF = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.OFF)
 
 
@@ -871,7 +936,7 @@ def _assemble_events() -> list[EventType]:
             events[by_key[new_event.key]] = new_event
         else:
             events.append(new_event)
-    return events
+    return [_with_push(event) for event in events]
 
 
 EVENTS: list[EventType] = _assemble_events()
