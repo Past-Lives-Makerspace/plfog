@@ -119,17 +119,17 @@ def describe_event_registry():
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
 
-        def it_maps_push_default_flag_to_push_channel():
-            # Legacy-seeded events all map push to OFF; the net-new events declare no push
-            # channel at all (they're broadcasts / forced emails) — EXCEPT class_published,
-            # which REPLACES the seeded entry only to add Discord and keeps its push-OFF channel.
+        def it_defaults_push_on_for_every_in_app_event():
+            # Push now mirrors the in-app bell: every event that writes a bell row also
+            # offers Push, default ON (members opt out per type). Events with no in-app
+            # bell (forced-email / broadcast-only notices) declare no Push channel.
             for event in registry.EVENTS:
-                spec = event.channel(Channel.PUSH)
-                if event.key in _NEW_KEYS and event.key != "class_published":
-                    assert spec is None
-                    continue
-                assert spec is not None
-                assert spec.default is ChannelDefault.OFF
+                push = event.channel(Channel.PUSH)
+                if event.channel(Channel.IN_APP) is None:
+                    assert push is None
+                else:
+                    assert push is not None
+                    assert push.default is ChannelDefault.ON
 
         def it_broadcasts_announcements_and_releases_on_discord():
             for key in ("class_published", "guild_announcement", "site_announcement", "release.published"):

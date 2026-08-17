@@ -19,7 +19,7 @@ The legacy ``core/triggers.py`` stays present and working; nothing here replaces
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 from core import triggers
@@ -167,6 +167,28 @@ _EMAIL_ON = ChannelSpec(Channel.EMAIL, ChannelDefault.ON)
 _EMAIL_OFF = ChannelSpec(Channel.EMAIL, ChannelDefault.OFF)
 _EMAIL_FORCED = ChannelSpec(Channel.EMAIL, ChannelDefault.FORCED)
 _PUSH_OFF = ChannelSpec(Channel.PUSH, ChannelDefault.OFF)
+_PUSH_ON = ChannelSpec(Channel.PUSH, ChannelDefault.ON)
+
+
+def _with_push(event: EventType) -> EventType:
+    """Ensure every in-app event also pushes, default ON.
+
+    Native push mirrors the in-app bell: any event that writes a bell row can also
+    reach the member's phone, so each such event offers a Push channel defaulting ON
+    (members opt out per type in settings). Applied uniformly at assembly so a
+    hand-declared event never has to remember to list Push. Events with no in-app bell
+    (forced-email / broadcast-only notices) are left untouched — they get no Push toggle.
+    An existing Push spec is replaced in place so the declared channel order is preserved.
+    """
+    if event.channel(Channel.IN_APP) is None:
+        return event
+    if event.channel(Channel.PUSH) is not None:
+        channels = tuple(_PUSH_ON if spec.channel is Channel.PUSH else spec for spec in event.channels)
+    else:
+        channels = (*event.channels, _PUSH_ON)
+    return replace(event, channels=channels)
+
+
 _DISCORD_DM_OFF = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.OFF)
 
 
@@ -871,7 +893,7 @@ def _assemble_events() -> list[EventType]:
             events[by_key[new_event.key]] = new_event
         else:
             events.append(new_event)
-    return events
+    return [_with_push(event) for event in events]
 
 
 EVENTS: list[EventType] = _assemble_events()
