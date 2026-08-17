@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.1.3",
+        "date": "2026-08-17",
+        "title": "New guide: how the calendar syncs",
+        "changes": [
+            "A new Help Center guide explains how events stay in sync across FOG, the Google "
+            "calendars, and Discord, and where to create or edit an event so it behaves. Find it "
+            "under Help, in the 'Contributing & under the hood' section.",
+        ],
+    },
     {
         "version": "1.1.2",
         "date": "2026-08-17",
