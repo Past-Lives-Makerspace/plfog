@@ -352,6 +352,44 @@ def describe_announce_new_events():
         assert dcp.announce_new_events() == 0
 
     @respx.mock
+    def it_holds_an_event_past_the_three_month_horizon_then_announces_it_once_inside(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        # The nightly sync's leading edge: an occurrence ~5 months out, past the 90-day window.
+        event = _feed_event("Tech Guild Meeting", days=150)
+
+        assert dcp.announce_new_events() == 0  # held — not pre-announced a quarter early
+        assert not route.called
+        event.refresh_from_db()
+        assert event.channel_announced_at is None  # left unstamped so a later run can post it
+
+        # A later sync brings its next occurrence inside the window; now it announces.
+        event.start_dt = timezone.now() + timedelta(days=80)
+        event.end_dt = event.start_dt + timedelta(hours=1)
+        event.save(update_fields=["start_dt", "end_dt"])
+
+        assert dcp.announce_new_events() == 1
+        assert route.call_count == 1
+
+    @respx.mock
+    def it_does_not_reannounce_a_series_leading_edge_that_lands_past_the_horizon(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        now = timezone.now()
+        # The exact "February in August" case: a weekly series whose near occurrences already
+        # went out, and the nightly sync just materialized a fresh far-edge occurrence. That
+        # lone far row must not be announced on its own.
+        _feed_event("Weekly Guild Meeting", days=3, uid="uid-guild", recurrence_id="near", channel_announced_at=now)
+        far = _feed_event("Weekly Guild Meeting", days=150, uid="uid-guild", recurrence_id="far")
+
+        assert dcp.announce_new_events() == 0
+        assert not route.called
+        far.refresh_from_db()
+        assert far.channel_announced_at is None
+
+    @respx.mock
     def it_still_announces_two_distinct_events_separately(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
