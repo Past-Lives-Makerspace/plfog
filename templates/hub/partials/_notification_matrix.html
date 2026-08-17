@@ -46,7 +46,7 @@ Context:
         <div class="pl-notif-matrix__head" role="row">
           <div class="pl-notif-matrix__event-head" role="columnheader">Event</div>
           {% for channel, label in notif_channels %}
-            <div class="pl-notif-matrix__chan-head" role="columnheader">{{ label }}{% if channel.value == "push" %} <span class="pl-help__icon" tabindex="0" role="note" title="Android only for now. iOS coming soon." aria-label="Push: Android only for now, iOS coming soon.">?</span>{% endif %}</div>
+            <div class="pl-notif-matrix__chan-head" role="columnheader">{{ label }}{% if channel.value == "push" %} <span class="pl-help"><span class="pl-help__icon" tabindex="0" role="img" aria-label="Push: Android only for now, iOS coming soon.">?</span><span class="pl-help__bubble">Android only for now. iOS coming soon.</span></span>{% endif %}</div>
           {% endfor %}
         </div>
         {% for row in rows %}

@@ -41,4 +41,6 @@ def describe_notifications_tab():
         client.login(username="m3", password="pw12345!")
         content = client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
         assert "Push (Browser)" not in content  # renamed to plain "Push"
-        assert "Android only for now. iOS coming soon." in content  # the ? column tooltip
+        # uses the canonical .pl-help hover bubble, not a browser title= tooltip
+        assert "pl-help__bubble" in content
+        assert "Android only for now. iOS coming soon." in content
