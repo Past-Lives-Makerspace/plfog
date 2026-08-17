@@ -346,6 +346,14 @@ def fcm_register(request):
         if platform not in FcmDevice.Platform.values:
             return JsonResponse({"error": "Invalid platform"}, status=400)
 
+        # A token identifies one physical device and belongs to exactly one account.
+        # Refuse to move a token already bound to a different user (device-takeover
+        # guard): a shared device unregisters on logout, so the next user gets a
+        # fresh row rather than silently claiming the previous user's device.
+        existing = FcmDevice.objects.filter(token=token).first()
+        if existing is not None and existing.user_id != request.user.id:
+            return JsonResponse({"error": "Token already registered to another account"}, status=409)
+
         FcmDevice.objects.update_or_create(
             token=token,
             defaults={"user": request.user, "platform": platform},

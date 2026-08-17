@@ -71,6 +71,20 @@ def describe_fcm_register_view():
         assert response.status_code == 400
         assert response.json() == {"error": "Invalid platform"}
 
+    def it_refuses_a_token_owned_by_another_user(authenticated_client):
+        User = get_user_model()
+        other = User.objects.create_user(username="prev", email="prev@example.com", password="x")
+        FcmDevice.objects.create(user=other, token="shared-token", platform=FcmDevice.Platform.ANDROID)
+        response = authenticated_client.post(
+            "/push/fcm/register/",
+            data=json.dumps({"token": "shared-token", "platform": "android"}),
+            content_type="application/json",
+        )
+        assert response.status_code == 409
+        assert response.json() == {"error": "Token already registered to another account"}
+        # the device stays with its original owner
+        assert FcmDevice.objects.get(token="shared-token").user == other
+
     def it_returns_400_for_invalid_json(authenticated_client):
         response = authenticated_client.post("/push/fcm/register/", data="not json", content_type="application/json")
         assert response.status_code == 400
