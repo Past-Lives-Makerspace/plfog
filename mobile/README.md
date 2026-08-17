@@ -39,8 +39,24 @@ Or build the artifact directly with gradle:
 ```
 cd android
 ./gradlew assembleDebug           # → app/build/outputs/apk/debug/app-debug.apk  (sideload/testing)
-./gradlew bundleRelease           # → app/build/outputs/bundle/release/*.aab      (Play Store)
+./gradlew clean bundleRelease     # → app/build/outputs/bundle/release/*.aab      (Play Store)
 ```
+
+`bundleRelease` runs `verify-aab.sh` automatically as a finalizer and **fails
+the build** if the bundle is missing the Capacitor config or web assets, points
+at localhost instead of the live origin, or is unsigned. This gate exists
+because the v1.0.0 launch shipped an AAB with no web assets: the app opened to
+`https://localhost/` with `ERR_CONNECTION_REFUSED`, and Play review (which never
+functionally loads the page) passed it straight to members. You can also run the
+gate by hand against any bundle:
+
+```
+zsh verify-aab.sh                 # from mobile/ — must print "GATE PASSED" (exit 0) before you upload
+```
+
+**Never upload an AAB the gate has not passed.** Each upload also needs a
+strictly higher `versionCode` in `android/app/build.gradle` (Play rejects
+duplicates).
 
 The `.aab` must be signed with an **upload key** before Play accepts it. Generate
 one once, keep it OUT of git (see `.gitignore`), and wire it via
