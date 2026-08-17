@@ -102,6 +102,38 @@ class PushSubscription(models.Model):
         return f"{self.user.email} - {self.endpoint[:50]}..."
 
 
+class FcmDevice(models.Model):
+    """Firebase Cloud Messaging registration token for a user's native (Capacitor) device.
+
+    The native-app counterpart to :class:`PushSubscription`: web push cannot reach the
+    Android/iOS WebView, so the app registers an FCM token here and :class:`core.events.channels.PushAdapter`
+    fans out to both. Delivery lives in :mod:`core.fcm`.
+    """
+
+    class Platform(models.TextChoices):
+        ANDROID = "android", "Android"
+        IOS = "ios", "iOS"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, help_text="The member this device belongs to."
+    )
+    token = models.CharField(max_length=512, unique=True, help_text="FCM registration token for this device.")
+    platform = models.CharField(
+        max_length=10,
+        choices=Platform.choices,
+        default=Platform.ANDROID,
+        help_text="Native platform the token came from.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the device first registered.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the token was last refreshed.")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user.email} - {self.get_platform_display()} - {self.token[:16]}..."
+
+
 # The starting content of the #important-info "Important Links" embed — the pinned post's
 # current live sections. Admins edit the copy on Site Settings → Discord; this constant only
 # seeds the field (and backstops a blanked one) so the embed is never empty.

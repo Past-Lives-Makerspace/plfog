@@ -438,6 +438,10 @@ else:
         "VAPID_ADMIN_EMAIL": os.environ.get("WEBPUSH_VAPID_ADMIN_EMAIL", ""),
     }
 
+# Firebase Cloud Messaging (native app push). Raw service-account JSON for the
+# firebase-adminsdk service account. Blank in dev/CI → core.fcm.send_fcm is a no-op.
+FCM_SERVICE_ACCOUNT_JSON = os.environ.get("FCM_SERVICE_ACCOUNT_JSON", "")
+
 # Django Sites
 SITE_ID = 1
 

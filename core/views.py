@@ -31,7 +31,7 @@ from django.views.decorators.http import require_GET, require_POST
 from allauth.account.internal.stagekit import clear_login
 
 from .forms import FindAccountForm, NewsletterSignupForm
-from .models import PushSubscription, SiteActivity, TransactionalEmailLog
+from .models import FcmDevice, PushSubscription, SiteActivity, TransactionalEmailLog
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +325,64 @@ def unsubscribe(request):
     except Exception:
         logger.exception("Push unsubscription failed")
         return JsonResponse({"error": "Unsubscription failed. Please try again."}, status=500)
+
+
+@require_POST
+@login_required
+def fcm_register(request):
+    """Register a native (Capacitor/FCM) device token for the authenticated user.
+
+    Expects JSON body with: token, and optional platform (defaults to android).
+    Mirrors :func:`subscribe` — ``update_or_create`` keyed on the unique token, so a
+    device that re-registers (token refresh) updates in place instead of duplicating.
+    """
+    try:
+        data = json.loads(request.body)
+        token = data.get("token")
+        platform = data.get("platform", FcmDevice.Platform.ANDROID)
+
+        if not token:
+            return JsonResponse({"error": "Missing token"}, status=400)
+        if platform not in FcmDevice.Platform.values:
+            return JsonResponse({"error": "Invalid platform"}, status=400)
+
+        FcmDevice.objects.update_or_create(
+            token=token,
+            defaults={"user": request.user, "platform": platform},
+        )
+
+        return JsonResponse({"success": True})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("FCM device registration failed")
+        return JsonResponse({"error": "Registration failed. Please try again."}, status=500)
+
+
+@require_POST
+@login_required
+def fcm_unregister(request):
+    """Delete a native device token for the authenticated user (logout / opt-out).
+
+    Expects JSON body with: token. Deletes silently — no error if the token is unknown.
+    """
+    try:
+        data = json.loads(request.body)
+        token = data.get("token")
+
+        if not token:
+            return JsonResponse({"error": "Missing token"}, status=400)
+
+        FcmDevice.objects.filter(token=token, user=request.user).delete()
+
+        return JsonResponse({"success": True})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("FCM device unregistration failed")
+        return JsonResponse({"error": "Unregistration failed. Please try again."}, status=500)
 
 
 @staff_member_required

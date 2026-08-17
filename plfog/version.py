@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.1.2"
+VERSION = "1.2.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.2.0",
+        "date": "2026-08-17",
+        "title": "Push notifications on the Past Lives app",
+        "changes": [
+            "The Past Lives phone app can now send you push notifications. Update the app, tap Allow when it "
+            "asks about notifications, and you'll get a heads-up on your phone for the things you already "
+            "follow, like announcements and event reminders, even when the app is closed.",
+            "You stay in control: it only sends what your notification settings already say you want, and you "
+            "can turn notifications off any time from your phone's settings.",
+        ],
+    },
     {
         "version": "1.1.2",
         "date": "2026-08-17",

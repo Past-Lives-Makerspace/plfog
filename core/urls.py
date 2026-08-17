@@ -33,6 +33,9 @@ urlpatterns = [
     path("webpush/vapid-key/", views.vapid_key, name="webpush_vapid_key"),
     path("webpush/subscribe/", views.subscribe, name="webpush_subscribe"),
     path("webpush/unsubscribe/", views.unsubscribe, name="webpush_unsubscribe"),
+    # Native (Capacitor/FCM) push endpoints
+    path("push/fcm/register/", views.fcm_register, name="fcm_register"),
+    path("push/fcm/unregister/", views.fcm_unregister, name="fcm_unregister"),
     # Staff activity dashboard
     path("manage/activity/", views.site_activity, name="manage_activity"),
     # Member notifications page
