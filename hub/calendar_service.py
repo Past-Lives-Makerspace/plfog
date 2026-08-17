@@ -25,12 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 def _to_datetime(val: Any) -> datetime:
-    """Convert a date or datetime value to a UTC-aware datetime."""
+    """Convert a date or datetime value to a UTC-aware datetime.
+
+    A bare ``date`` is an all-day event: anchor it to LOCAL midnight (the makerspace
+    timezone), not UTC midnight. UTC midnight renders a day early everywhere west of UTC —
+    an all-day event on the 22nd showed as the 21st in Portland (00:00 UTC == 17:00 the
+    previous day). Local midnight keeps it on its own calendar day when rendered back with
+    ``timezone.localtime``.
+    """
     if isinstance(val, datetime):
         if val.tzinfo is None:
             return val.replace(tzinfo=dt_timezone.utc)
         return val.astimezone(dt_timezone.utc)
-    return datetime(val.year, val.month, val.day, tzinfo=dt_timezone.utc)
+    return timezone.make_aware(datetime(val.year, val.month, val.day)).astimezone(dt_timezone.utc)
 
 
 # How far back / ahead to expand recurring feeds on each sync. Matches the class calendar's
