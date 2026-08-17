@@ -1884,6 +1884,12 @@ a:hover { color: var(--hub-link-hover); }
     font-size: 0.8125rem;
     line-height: 1.45;
     white-space: normal;
+    /* Own the bubble's typography — it must read as plain prose even when placed
+       inside an uppercased/letter-spaced/bold context (e.g. the notifications
+       matrix column header), not inherit those. */
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 400;
     opacity: 0;
     visibility: hidden;
     transform: translateY(-4px);
