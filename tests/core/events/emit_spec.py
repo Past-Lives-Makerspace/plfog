@@ -103,10 +103,11 @@ def describe_emit():
         def it_records_one_eventdelivery_row_per_channel(linked_member):
             member = linked_member()
             emit("class_published", context={}, title="t", body="b")
-            rows = EventDelivery.objects.filter(event_key="class_published", target_ref=f"user:{member.user_id}")
-            # one row per delivered channel: the in-app bell plus default-on push
-            assert {row.channel for row in rows} == {Channel.IN_APP.value, Channel.PUSH.value}
-            assert all(row.period == "" for row in rows)
+            # class_published is in-app only for a default member (email off, and push is
+            # off by default for it), so exactly one delivery row — one per delivered channel.
+            row = EventDelivery.objects.get(event_key="class_published", target_ref=f"user:{member.user_id}")
+            assert row.channel == Channel.IN_APP.value
+            assert row.period == ""
 
     def describe_result():
         def it_reports_recipient_and_delivery_counts(linked_member):

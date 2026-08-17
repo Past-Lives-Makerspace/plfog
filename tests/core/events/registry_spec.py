@@ -119,17 +119,31 @@ def describe_event_registry():
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
 
-        def it_defaults_push_on_for_every_in_app_event():
-            # Push now mirrors the in-app bell: every event that writes a bell row also
-            # offers Push, default ON (members opt out per type). Events with no in-app
-            # bell (forced-email / broadcast-only notices) declare no Push channel.
+        def it_offers_push_on_every_in_app_event():
+            # Every event that writes an in-app bell row also OFFERS Push (a toggle);
+            # events with no bell (forced-email / broadcast-only) declare no Push channel.
             for event in registry.EVENTS:
                 push = event.channel(Channel.PUSH)
                 if event.channel(Channel.IN_APP) is None:
                     assert push is None
                 else:
                     assert push is not None
-                    assert push.default is ChannelDefault.ON
+
+        def it_defaults_push_on_only_for_the_important_set():
+            # Push defaults ON exactly for the curated "relatively important" events; every
+            # other event that offers Push defaults OFF (available but quiet).
+            on = {
+                event.key
+                for event in registry.EVENTS
+                if (spec := event.channel(Channel.PUSH)) is not None and spec.default is ChannelDefault.ON
+            }
+            assert on == registry._PUSH_ON_BY_DEFAULT
+            assert registry.get_event("class_cancelled").channel(Channel.PUSH).default is ChannelDefault.ON
+            # routine / FYI notices stay OFF by default (offered, not forced on)
+            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation.completed"):
+                spec = registry.get_event(quiet).channel(Channel.PUSH)
+                assert spec is not None
+                assert spec.default is ChannelDefault.OFF
 
         def it_broadcasts_announcements_and_releases_on_discord():
             for key in ("class_published", "guild_announcement", "site_announcement", "release.published"):

@@ -63,7 +63,7 @@ def describe_channel_labels():
 
 
 def describe_push_defaults():
-    def it_offers_push_enabled_by_default_on_in_app_rows():
+    def it_offers_push_on_every_row_with_a_mix_of_defaults():
         user = User.objects.create_user(username="pd", email="pd@example.com")
         push_cells = [
             cell
@@ -72,8 +72,10 @@ def describe_push_defaults():
             for cell in row.cells
             if cell.channel is Channel.PUSH and cell.present
         ]
-        assert push_cells  # every in-app row now offers a push toggle
-        assert all(cell.enabled for cell in push_cells)  # default on
+        assert push_cells  # every in-app row offers a push toggle
+        # important events default on, routine ones default off — both appear for a member
+        assert any(cell.enabled for cell in push_cells)
+        assert any(not cell.enabled for cell in push_cells)
 
 
 def describe_staff_section():
