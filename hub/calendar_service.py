@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 import urllib.request
 from collections.abc import Callable
@@ -19,6 +20,8 @@ from membership.models import CalendarEvent, CommunityEvent, Guild
 
 if TYPE_CHECKING:
     from core.integrations.discord_events import DiscordScheduledEventsClient
+
+logger = logging.getLogger(__name__)
 
 
 def _to_datetime(val: Any) -> datetime:
@@ -149,6 +152,7 @@ def _upsert_events(
     guild: Guild | None,
     source: str,
     feed: CalendarFeed | None = None,
+    window: tuple[datetime, datetime] | None = None,
 ) -> int:
     """Insert or update CalendarEvent records for the given source.
 
@@ -156,12 +160,17 @@ def _upsert_events(
     series gets its own row, and two ``CalendarFeed`` rows whose upstream calendars happen to
     share a UID don't clobber each other. Echoes of our own Google-pushed CommunityEvents
     (see :func:`_pushed_event_uids`) are skipped, not imported.
+
+    When ``window`` (the span this fetch expanded over) is given, stale occurrences left by a
+    reschedule are pruned afterward — see :func:`_prune_stale_occurrences`.
     """
     now = timezone.now()
     echo_uids = _pushed_event_uids()
     events = [evt for evt in events if evt["uid"] not in echo_uids]
+    kept_pks: list[int] = []
+    fetched_uids: set[str] = set()
     for evt in events:
-        CalendarEvent.objects.update_or_create(
+        obj, _created = CalendarEvent.objects.update_or_create(
             guild=guild,
             feed=feed,
             uid=evt["uid"],
@@ -178,16 +187,85 @@ def _upsert_events(
                 "fetched_at": now,
             },
         )
+        kept_pks.append(obj.pk)
+        fetched_uids.add(evt["uid"])
+    if window is not None:
+        _prune_stale_occurrences(guild, feed, fetched_uids, kept_pks, window, now)
     return len(events)
+
+
+def _prune_stale_occurrences(
+    guild: Guild | None,
+    feed: CalendarFeed | None,
+    fetched_uids: set[str],
+    kept_pks: list[int],
+    window: tuple[datetime, datetime],
+    now: datetime,
+) -> None:
+    """Delete stale occurrence rows a reschedule left behind.
+
+    Each occurrence of a recurring series is its own row keyed by ``recurrence_id`` — the
+    occurrence's DTSTART (see :func:`_event_dict`). Move or single-instance-override an
+    occurrence and its DTSTART changes, so the next fetch writes a NEW row and the old one is
+    orphaned: it never updates again, and the calendar, the #public-calendar announcer, and the
+    Discord Scheduled Events mirror all double-list it. Mirroring :func:`sync_local_class_events`,
+    drop the rows this fetch did not just write.
+
+    Scoped deliberately to **UIDs the fetch returned**, inside the expansion ``window`` only: a
+    series that vanished entirely — or a transient empty/partial fetch — leaves its rows
+    untouched, so an upstream blip can never wipe a feed's calendar. Any pruned row's Discord
+    copy is deleted first (best-effort) so the mirror doesn't keep a ghost event.
+    """
+    if not fetched_uids:
+        return
+    window_start, window_end = window
+    stale = list(
+        CalendarEvent.objects.filter(
+            guild=guild,
+            feed=feed,
+            uid__in=fetched_uids,
+            start_dt__gte=window_start,
+            start_dt__lte=window_end,
+        ).exclude(pk__in=kept_pks)
+    )
+    if not stale:
+        return
+    _delete_stale_discord_copies(stale, now)
+    CalendarEvent.objects.filter(pk__in=[event.pk for event in stale]).delete()
+
+
+def _delete_stale_discord_copies(events: list[CalendarEvent], now: datetime) -> None:
+    """Best-effort delete of the Discord Scheduled Event copies of soon-to-be-pruned rows.
+
+    Only a *future* row that still holds a ``discord_event_id`` needs a call — a past orphan's
+    Discord event has already auto-completed and cannot be deleted. A delete failure is logged
+    and left as a minor remote residue; it never blocks the row prune (mirrors
+    :func:`remove_community_event`). No-ops when Discord Events sync is off.
+    """
+    targets = [event for event in events if event.discord_event_id and event.start_dt >= now]
+    if not targets:
+        return
+    from core.integrations.discord_events import DiscordEventsError, DiscordScheduledEventsClient
+
+    client = DiscordScheduledEventsClient.from_settings()
+    if not client.enabled:
+        return
+    for event in targets:
+        try:
+            _delete_feed_event_copy(client, event)
+        except DiscordEventsError:
+            logger.warning(
+                "Failed to delete Discord copy for stale feed event %s; leaving a stale remote event.", event.pk
+            )
 
 
 def sync_guild_calendar(guild: Guild) -> int:
     """Fetch and sync a guild's iCal calendar. Returns events synced (0 if no URL)."""
     if not guild.calendar_url:
         return 0
-    window_start, window_end = _sync_window()
-    events = _fetch_and_parse(guild.calendar_url, window_start, window_end)
-    count = _upsert_events(events, guild=guild, source="guild")
+    window = _sync_window()
+    events = _fetch_and_parse(guild.calendar_url, *window)
+    count = _upsert_events(events, guild=guild, source="guild", window=window)
     guild.calendar_last_fetched_at = timezone.now()
     guild.save(update_fields=["calendar_last_fetched_at"])
     return count
@@ -197,9 +275,9 @@ def sync_calendar_feed(feed: CalendarFeed) -> int:
     """Fetch and sync one named CalendarFeed. Returns events synced (0 if no URL)."""
     if not feed.ical_url:
         return 0
-    window_start, window_end = _sync_window()
-    events = _fetch_and_parse(feed.ical_url, window_start, window_end)
-    count = _upsert_events(events, guild=None, source="general", feed=feed)
+    window = _sync_window()
+    events = _fetch_and_parse(feed.ical_url, *window)
+    count = _upsert_events(events, guild=None, source="general", feed=feed, window=window)
     feed.last_fetched_at = timezone.now()
     feed.save(update_fields=["last_fetched_at"])
     return count

@@ -327,6 +327,179 @@ def _with_client(client: MagicMock):
     return patch.object(DiscordScheduledEventsClient, "from_settings", return_value=client)
 
 
+def _evt(uid: str, recurrence_id: str, days: float, **kwargs: object) -> dict:
+    """A parsed-event dict (the shape `_event_dict` yields) for `_upsert_events`."""
+    start = timezone.now() + timedelta(days=days)
+    event: dict = {
+        "uid": uid,
+        "recurrence_id": recurrence_id,
+        "title": "Guild Lead Meeting",
+        "description": "",
+        "location": "",
+        "url": "",
+        "start_dt": start,
+        "end_dt": start + timedelta(hours=1),
+        "all_day": False,
+    }
+    event.update(kwargs)
+    return event
+
+
+def _stored_occurrence(feed, recurrence_id: str, days: float, **kwargs: object) -> CalendarEvent:
+    """An already-stored feed occurrence row (guild=None, general source), for orphan setups."""
+    start = timezone.now() + timedelta(days=days)
+    defaults: dict[str, object] = {
+        "source": CalendarEvent.Source.GENERAL,
+        "feed": feed,
+        "guild": None,
+        "uid": "council",
+        "recurrence_id": recurrence_id,
+        "title": "Guild Lead Meeting",
+        "start_dt": start,
+        "end_dt": start + timedelta(hours=1),
+        "fetched_at": timezone.now() - timedelta(days=1),
+    }
+    defaults.update(kwargs)
+    return CalendarEvent.objects.create(**defaults)
+
+
+def describe_prune_stale_occurrences():
+    """A rescheduled recurring occurrence must not leave an orphan row behind."""
+
+    def _feed():
+        from core.models import CalendarFeed
+
+        return CalendarFeed.objects.create(name="Council", ical_url="https://example.com/c.ics")
+
+    def it_prunes_a_stale_occurrence_a_reschedule_left_behind():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        orphan = _stored_occurrence(feed, "rec-0600", days=30)  # the old 6:00 PM row
+        # The next fetch returns the same instance moved to 6:15 PM — a new recurrence_id.
+        _upsert_events(
+            [_evt("council", "rec-0615", days=30)], guild=None, source="general", feed=feed, window=_sync_window()
+        )
+
+        assert not CalendarEvent.objects.filter(pk=orphan.pk).exists()  # orphan gone
+        assert CalendarEvent.objects.filter(uid="council").count() == 1  # only the live occurrence remains
+        assert CalendarEvent.objects.filter(uid="council", recurrence_id="rec-0615").exists()
+
+    def it_leaves_a_clean_series_untouched():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        _stored_occurrence(feed, "rec-0615", days=30)  # already matches what the fetch returns
+        _upsert_events(
+            [_evt("council", "rec-0615", days=30)], guild=None, source="general", feed=feed, window=_sync_window()
+        )
+
+        assert CalendarEvent.objects.filter(uid="council").count() == 1  # updated in place, nothing pruned
+
+    def it_never_prunes_a_uid_the_fetch_did_not_return():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        # A different series' row — a transient empty/partial fetch of `council` must not wipe it.
+        survivor = _stored_occurrence(feed, "other-rec", days=30, uid="studio-hours")
+        _upsert_events(
+            [_evt("council", "rec-0615", days=30)], guild=None, source="general", feed=feed, window=_sync_window()
+        )
+
+        assert CalendarEvent.objects.filter(pk=survivor.pk).exists()
+
+    def it_prunes_nothing_when_the_fetch_returned_no_events():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        orphan = _stored_occurrence(feed, "rec-0600", days=30)
+        # An empty fetch (feed unreachable / momentarily blank) must never delete the calendar.
+        _upsert_events([], guild=None, source="general", feed=feed, window=_sync_window())
+
+        assert CalendarEvent.objects.filter(pk=orphan.pk).exists()
+
+    def it_does_not_prune_rows_outside_the_expansion_window():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        far_future = _stored_occurrence(feed, "rec-far", days=400)  # beyond the 180-day horizon
+        long_past = _stored_occurrence(feed, "rec-past", days=-10)  # before the 1-day look-back
+        _upsert_events(
+            [_evt("council", "rec-0615", days=30)], guild=None, source="general", feed=feed, window=_sync_window()
+        )
+
+        assert CalendarEvent.objects.filter(pk=far_future.pk).exists()
+        assert CalendarEvent.objects.filter(pk=long_past.pk).exists()
+
+    def it_does_not_prune_when_no_window_is_given():
+        from hub.calendar_service import _upsert_events
+
+        feed = _feed()
+        orphan = _stored_occurrence(feed, "rec-0600", days=30)
+        _upsert_events([_evt("council", "rec-0615", days=30)], guild=None, source="general", feed=feed)
+
+        assert CalendarEvent.objects.filter(pk=orphan.pk).exists()  # prune is opt-in via `window`
+
+    def it_deletes_the_discord_copy_of_a_pruned_future_orphan():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        orphan = _stored_occurrence(feed, "rec-0600", days=10, discord_event_id="disc-ghost")
+        client = _events_client()
+        with _with_client(client):
+            _upsert_events(
+                [_evt("council", "rec-0615", days=10)], guild=None, source="general", feed=feed, window=_sync_window()
+            )
+
+        client.delete_event.assert_called_once()  # the ghost scheduled-event is removed
+        assert client.delete_event.call_args.args[1] == "disc-ghost"
+        assert not CalendarEvent.objects.filter(pk=orphan.pk).exists()
+
+    def it_skips_the_discord_delete_for_a_past_orphan():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        # In-window but already started: its Discord event has auto-completed — no call, still pruned.
+        orphan = _stored_occurrence(feed, "rec-0600", days=-0.5, discord_event_id="disc-done")
+        client = _events_client()
+        with _with_client(client):
+            _upsert_events(
+                [_evt("council", "rec-0615", days=10)], guild=None, source="general", feed=feed, window=_sync_window()
+            )
+
+        client.delete_event.assert_not_called()
+        assert not CalendarEvent.objects.filter(pk=orphan.pk).exists()
+
+    def it_prunes_the_row_but_skips_discord_when_sync_is_off():
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        orphan = _stored_occurrence(feed, "rec-0600", days=10, discord_event_id="disc-ghost")
+        client = _events_client(enabled=False)
+        with _with_client(client):
+            _upsert_events(
+                [_evt("council", "rec-0615", days=10)], guild=None, source="general", feed=feed, window=_sync_window()
+            )
+
+        client.delete_event.assert_not_called()
+        assert not CalendarEvent.objects.filter(pk=orphan.pk).exists()  # row still pruned
+
+    def it_prunes_the_row_even_when_the_discord_delete_fails():
+        from core.integrations.discord_events import DiscordEventsError
+        from hub.calendar_service import _sync_window, _upsert_events
+
+        feed = _feed()
+        orphan = _stored_occurrence(feed, "rec-0600", days=10, discord_event_id="disc-ghost")
+        client = _events_client()
+        client.delete_event.side_effect = DiscordEventsError("boom")  # non-404 → surfaces to our handler
+        with _with_client(client):
+            _upsert_events(
+                [_evt("council", "rec-0615", days=10)], guild=None, source="general", feed=feed, window=_sync_window()
+            )
+
+        assert not CalendarEvent.objects.filter(pk=orphan.pk).exists()  # a stale remote event never blocks the prune
+
+
 def describe_sync_discord_feed_events():
     def it_is_a_noop_when_sync_is_disabled():
         from hub.calendar_service import sync_discord_feed_events
