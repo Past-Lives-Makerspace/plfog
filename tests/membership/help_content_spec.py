@@ -123,6 +123,7 @@ def describe_help_content():
                 "how-fog-runs": "contributing",
                 "logins-and-usernames": "contributing",
                 "discord-and-fog": "contributing",
+                "calendar-sync": "contributing",
             }
             listed = {a["slug"]: a["category"] for a in _articles() if a["slug"] not in help_content.UNLISTED_SLUGS}
             assert listed == approved

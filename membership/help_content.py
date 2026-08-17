@@ -1697,4 +1697,61 @@ Linking tells FOG which Discord user is you. Two ways:
 Linking is safe by design: a Discord account can only ever be linked to one member, and FOG will never silently swap or reassign a link. You can disconnect anytime from the same settings tab.""",
         "screenshots": [],
     },
+    {
+        "slug": "calendar-sync",
+        "category": "contributing",
+        "title": "How the calendar syncs: FOG, Google, and Discord",
+        "sort_order": 60,
+        "related": ["discord-and-fog", "how-fog-runs", "community-calendar"],
+        "body": """One calendar, three systems. Events at Past Lives live in FOG (this app), on two shared **Google calendars** (Member and Public), and in **Discord's event list**. This is how they stay in sync — and, just as important, where you should create or edit an event so it behaves.
+
+## The one rule that matters
+
+**Where an event is born decides where you manage it.** FOG can push events *out*, but it only *reads* the Google calendars — so an event created in Google can't be edited from FOG, and an event created in FOG can't be edited from Google. Pick one home per event and stick with it.
+
+## Create it in FOG (recommended)
+
+When you add an event in the FOG app, FOG owns it and fans it out:
+
+- It's pushed to the right **Google calendar** (Member or Public) automatically.
+- It's pushed to **Discord** as a scheduled event.
+- Edit it in FOG and both copies update. Delete it in FOG and both copies disappear.
+
+Because FOG owns it end to end, this is the path that gives you "create once, shows up everywhere; delete once, gone everywhere." If you want a single place to manage everything, make it FOG. (FOG won't double-list its own events: the one it pushes to Google comes back through the import below, and FOG recognizes it by ID and drops the echo.)
+
+## Create it on a Google calendar
+
+Anyone with edit access to the Member or Public Google calendar can add an event there. FOG then:
+
+- **Imports** it (read-only) on the nightly sync, so it appears on the Community Calendar.
+- **Mirrors** it into Discord's event list.
+
+The catch: FOG treats these as read-only. You **cannot edit or delete a Google-born event from FOG** — editing the FOG copy just gets overwritten on the next sync. To change its date, time, or details, or to remove it, do that **on the Google calendar**; FOG picks up the change on the next sync.
+
+## Discord is downstream
+
+Discord's event list is a mirror, never a source. FOG pushes to it; nothing you do in Discord flows back to FOG or Google. Don't create or delete events directly in Discord — treat it as a read-only display.
+
+## What deletes what
+
+- Delete a **FOG** event in FOG → removed from Google and Discord.
+- Delete a **Google** event in Google → removed from FOG and Discord on the next sync.
+- Delete an event in **Discord** → nothing else changes, and FOG may re-push it.
+- Try to delete a **Google** event from FOG → it doesn't stick; the next sync re-imports it.
+
+## Timing
+
+FOG → Google and Discord happens the moment you save. Google → FOG runs on the **nightly** sync (a scheduled job on Render — see [How FOG runs](/help/contributing/how-fog-runs/)), so an event added straight to a Google calendar can take until the next sync to appear in FOG and Discord.
+
+## The all-day gotcha (for the curious)
+
+An all-day event is a date with no time, but FOG stores every event as a precise moment — so it has to choose one for "all day." It anchors an all-day event to **local midnight** (Portland time). That sounds trivial, but it's a classic trap: anchor to midnight **UTC** instead and the event renders on the *previous* evening for anyone west of UTC — an all-day event on the 22nd shows up on the 21st. FOG anchors to local midnight so the day is always right. If you ever see an all-day event landing a day early, that's the shape of the bug.
+
+A practical tip that follows from this: if an event happens at a specific time, give it that time instead of marking it all-day. "All day" is for genuinely all-day things (a work party, a social); a 7–9pm event should be entered as 7–9pm, or it will show as an all-day block.
+
+## Where the code lives
+
+The feed import and the outbound pushes live in `hub/calendar_service.py` (the Google-calendar feeds) and `core/integrations/google_calendar.py` and `core/integrations/discord_events.py` (the Google and Discord pushes). As always, [the repository](https://github.com/Past-Lives-Makerspace/plfog) is the full story.""",
+        "screenshots": [],
+    },
 ]
