@@ -37,6 +37,12 @@ EMBED_DESCRIPTION_MAX = 4096
 MESSAGE_EMBED_TOTAL_MAX = 6000
 # Max new-event announcements posted per run; the rest are stamped silently.
 ANNOUNCE_CAP = 10
+# New-event announcements are held until the event starts within this window. The nightly
+# sync materializes one CalendarEvent row per occurrence out to a 180-day horizon, so a
+# recurring series' leading edge keeps surfacing months out — a weekly meeting shows up as
+# a February row in August. A row past this horizon is left UNstamped (not announced), so it
+# announces once it rolls inside the window instead of being pre-announced a quarter early.
+ANNOUNCE_HORIZON = timedelta(days=90)
 DIGEST_WINDOW_DAYS = 7
 # The community-calendar blue (matches the calendar legend's community color).
 _EMBED_COLOR = 0x3D8BD4
@@ -309,9 +315,12 @@ def announce_new_events() -> int:
     rows, oldest-starting first. A recurring feed series (and a multi-session class)
     materializes one row *per occurrence* sharing a uid — those collapse to a single
     announcement at the earliest upcoming occurrence, with every sibling row stamped in
-    the same pass. Posts up to :data:`ANNOUNCE_CAP`, stamping ``channel_announced_at``
-    right after each post; anything past the cap is stamped silently (and logged) so a
-    backlog can never flood the channel later.
+    the same pass. A group whose earliest occurrence starts beyond :data:`ANNOUNCE_HORIZON`
+    is held: it is left unstamped and re-checked each run, so it announces only once it
+    rolls inside the window (this is what stops a recurring series' 180-day leading edge
+    from being announced a quarter early). Posts up to :data:`ANNOUNCE_CAP`, stamping
+    ``channel_announced_at`` right after each post; anything past the cap is stamped
+    silently (and logged) so a backlog can never flood the channel later.
     """
     from membership.models import CalendarEvent, CommunityEvent
 
@@ -321,6 +330,7 @@ def announce_new_events() -> int:
     if not channel_id:
         return 0
     now = timezone.now()
+    horizon = now + ANNOUNCE_HORIZON
 
     # (start of the announced occurrence, the embed to post, every row to stamp)
     pending: list[tuple[datetime, dict[str, Any], list[Any]]] = []
@@ -340,6 +350,11 @@ def announce_new_events() -> int:
         series.setdefault((row.source, row.guild_id, row.uid), []).append(row)
     for rows in series.values():
         first = rows[0]
+        # Hold far-future occurrences: the query is start-ordered, so `first` is the group's
+        # earliest unannounced occurrence. Leave the whole group UNstamped when it's past the
+        # horizon so it announces once its next occurrence rolls inside the window, not now.
+        if first.start_dt > horizon:
+            continue
         url = _absolute(first.url) if first.url else ""
         embed = _announcement_embed(
             first.title, "New on the calendar", _when(first.start_dt, first.end_dt, first.all_day), url
