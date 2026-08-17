@@ -31,6 +31,7 @@ def site_announcement(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         form = SiteAnnouncementForm(request.POST)
         if form.is_valid():
+            from core.events.channels import Channel, Message
             from core.events.emit import emit
 
             title = form.cleaned_data["title"]
@@ -39,6 +40,15 @@ def site_announcement(request: HttpRequest) -> HttpResponse:
             # bare "/". The admin is served on the member host, so this resolves to
             # the hub home.
             site_url = request.build_absolute_uri("/")
+            # A custom phone-notification text overrides ONLY the push channel — the
+            # bell/email/Discord still render from the announcement body. Left blank,
+            # push falls back to the event's own (footer-free) push copy.
+            push_message = form.cleaned_data["push_message"]
+            push_override: dict[Channel, Message] = {}
+            if push_message:
+                push_override[Channel.PUSH] = Message(
+                    title=title, body=push_message, url=site_url, trigger_kind="site_announcement"
+                )
             result = emit(
                 "site_announcement",
                 actor=request.user if request.user.is_authenticated else None,
@@ -49,6 +59,7 @@ def site_announcement(request: HttpRequest) -> HttpResponse:
                     "site_url": site_url,
                 },
                 url=site_url,
+                messages=push_override or None,
                 # Unique per send — every other emit() caller keys its idempotency
                 # window. Without it all site announcements collapse onto one
                 # EventDelivery slot and only the first ever delivers.

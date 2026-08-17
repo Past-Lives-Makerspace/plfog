@@ -2137,7 +2137,15 @@ class SiteAnnouncementForm(forms.Form):
         widget=RichTextEditorWidget(attrs={"rows": 10}),
         label="Message",
         help_text="Use the toolbar to format — bold, headings, lists, and links. The formatted version "
-        "goes out by email; the bell and Discord get a plain-text version.",
+        "goes out by email; the bell, push, and Discord get a plain-text version.",
+    )
+    push_message = forms.CharField(
+        required=False,
+        max_length=180,
+        label="Phone notification (optional)",
+        widget=forms.Textarea(attrs={"rows": 2, "maxlength": "180"}),
+        help_text="The short text members see on their phone's lock screen. Leave blank to use the "
+        "message above. Keep it punchy — phones cut off notifications past roughly 180 characters.",
     )
     post_to_discord = forms.BooleanField(
         required=False,

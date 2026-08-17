@@ -118,6 +118,24 @@ def describe_push_adapter():
         mock_push.assert_called_once()
         mock_fcm.assert_called_once()
 
+    def it_flattens_html_and_newlines_to_one_tray_line():
+        # An announcement body is sanitized HTML; a push must never carry tags or
+        # multiple paragraphs, so the adapter flattens it to a single clean line.
+        user = _user()
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message(body="<p>Snow day.</p><p>Closed till <b>Thu</b>.</p>"))
+        assert mock_fcm.call_args.kwargs["body"] == "Snow day. Closed till Thu."
+
+    def it_caps_an_over_length_title_and_body_for_the_tray():
+        user = _user()
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message(title="T" * 200, body="B" * 400))
+        kwargs = mock_fcm.call_args.kwargs
+        assert len(kwargs["title"]) == 80 and kwargs["title"].endswith("…")
+        assert len(kwargs["body"]) == 200 and kwargs["body"].endswith("…")
+
 
 def describe_scheduled_email_adapter():
     def it_sends_through_the_choke_point_like_email():

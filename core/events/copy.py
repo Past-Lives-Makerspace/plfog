@@ -484,6 +484,13 @@ _CURATED: dict[str, EventCopy] = {
                 subject="{{ guild_name }}: {{ announcement_title }}",
                 body_text="{{ announcement_body }}",
             ),
+            # Push is a single tray line: title + the bare announcement text, no email
+            # footer/URL (which would otherwise leak in via the EMAIL fallback). The
+            # PushAdapter flattens and caps this at send time.
+            Channel.PUSH: ChannelCopy(
+                subject="{{ guild_name }}: {{ announcement_title }}",
+                body_text="{{ announcement_body }}",
+            ),
             Channel.EMAIL: ChannelCopy(
                 subject="{{ guild_name }}: {{ announcement_title }}",
                 body_text=(
@@ -509,6 +516,13 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
+                subject="{{ announcement_title }}",
+                body_text="{{ announcement_body }}",
+            ),
+            # Push is a single tray line: title + the bare announcement text, no email
+            # footer/URL (which would otherwise leak in via the EMAIL fallback). The
+            # PushAdapter flattens and caps this at send time.
+            Channel.PUSH: ChannelCopy(
                 subject="{{ announcement_title }}",
                 body_text="{{ announcement_body }}",
             ),

@@ -190,6 +190,24 @@ def describe_site_announcement_view():
             )
         assert mock_emit.call_args.kwargs["suppress_broadcast"] is False
 
+    def it_overrides_the_push_text_when_a_phone_message_is_given(admin_client):
+        from core.events.registry import Channel
+
+        with patch("core.events.emit.emit") as mock_emit:
+            admin_client.post(
+                "/admin/announcement/",
+                data={"title": "Snow", "body": "The space is closed today.", "push_message": "Snow day. Closed."},
+            )
+        override = mock_emit.call_args.kwargs["messages"]
+        assert override is not None
+        assert override[Channel.PUSH].title == "Snow"
+        assert override[Channel.PUSH].body == "Snow day. Closed."
+
+    def it_leaves_push_to_the_default_copy_when_no_phone_message_is_given(admin_client):
+        with patch("core.events.emit.emit") as mock_emit:
+            admin_client.post("/admin/announcement/", data={"title": "Hi", "body": "Body only."})
+        assert mock_emit.call_args.kwargs["messages"] is None
+
 
 @pytest.mark.django_db
 def describe_invite_member_view():

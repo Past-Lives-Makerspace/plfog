@@ -179,3 +179,22 @@ def describe_site_announcement_form():
         form = SiteAnnouncementForm({"title": "Hi", "body": "<p><br></p>", "post_to_discord": ""})
         assert not form.is_valid()
         assert "body" in form.errors
+
+    def it_is_valid_without_a_push_message():
+        form = SiteAnnouncementForm({"title": "Hi", "body": "<p>Hello there</p>", "post_to_discord": ""})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["push_message"] == ""
+
+    def it_accepts_an_optional_push_message():
+        form = SiteAnnouncementForm(
+            {"title": "Hi", "body": "<p>Hello there</p>", "push_message": "Snow day. Closed.", "post_to_discord": ""}
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["push_message"] == "Snow day. Closed."
+
+    def it_rejects_a_push_message_past_the_length_cap():
+        form = SiteAnnouncementForm(
+            {"title": "Hi", "body": "<p>Hi</p>", "push_message": "x" * 181, "post_to_discord": ""}
+        )
+        assert not form.is_valid()
+        assert "push_message" in form.errors

@@ -15,7 +15,7 @@
     <div class="hub-card pl-admin-fieldset">
         <p class="hub-text-muted" style="margin-bottom: 1.25rem; font-size: 0.875rem;">
             Broadcast a notice to every active member. They'll get it in their notification bell,
-            by email (unless they've opted out), and on Discord.
+            as a push notification on their phone, by email (unless they've opted out), and on Discord.
         </p>
 
         <form method="post">
@@ -33,6 +33,18 @@
             </div>
             {% endfor %}
 
+            <div style="margin-top: 0.5rem;">
+                <div class="hub-field-hint" style="margin-bottom: 0.4rem;">Phone preview</div>
+                <div style="display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.7rem 0.9rem; border-radius: 0.6rem; background: #0f172a; color: #e2e8f0; max-width: 26rem;">
+                    <div style="flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: 0.4rem; background: #1e293b; display: flex; align-items: center; justify-content: center; font-size: 1rem;">🔔</div>
+                    <div style="min-width: 0;">
+                        <div style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.03em; color: #94a3b8;">Past Lives Makerspace</div>
+                        <div id="pl-push-preview-title" style="font-weight: 600; font-size: 0.9rem; margin-top: 0.1rem; overflow-wrap: anywhere;">Announcement title</div>
+                        <div id="pl-push-preview-body" style="font-size: 0.85rem; margin-top: 0.1rem; overflow-wrap: anywhere; opacity: 0.6;">Uses the announcement message above.</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="pl-admin-submit" style="border-top: none; margin-top: 1.25rem; padding-top: 0;">
                 <div class="pl-admin-submit__actions">
                     <button type="submit" class="hub-btn hub-btn--primary">Send Announcement</button>
@@ -44,4 +56,28 @@
         </form>
     </div>
 </div>
+
+<script>
+(function () {
+    var title = document.getElementById("id_title");
+    var push = document.getElementById("id_push_message");
+    var outTitle = document.getElementById("pl-push-preview-title");
+    var outBody = document.getElementById("pl-push-preview-body");
+    if (!title || !push || !outTitle || !outBody) return;
+    function update() {
+        outTitle.textContent = title.value.trim() || "Announcement title";
+        var body = push.value.trim();
+        if (body) {
+            outBody.textContent = body;
+            outBody.style.opacity = "1";
+        } else {
+            outBody.textContent = "Uses the announcement message above.";
+            outBody.style.opacity = "0.6";
+        }
+    }
+    title.addEventListener("input", update);
+    push.addEventListener("input", update);
+    update();
+})();
+</script>
 {% endblock %}
