@@ -72,14 +72,20 @@ def describe_wants():
 
 
 def describe_enabled_channels():
-    def it_lists_in_app_only_by_default():
-        # class_reminder: in_app on, email off, push off, no discord → only in_app.
-        assert preferences.enabled_channels(_user(), "class_reminder") == [Channel.IN_APP]
+    def it_lists_the_default_on_channels_with_no_rows():
+        # class_reminder is time-sensitive, so it's in the curated push-on set: with no
+        # preference rows, in_app on + push on (email off, discord_dm off) → [in_app, push].
+        assert preferences.enabled_channels(_user(), "class_reminder") == [Channel.IN_APP, Channel.PUSH]
 
     def it_includes_email_when_opted_in():
         user = _user()
         _pref(user, "class_reminder", Channel.EMAIL, True)
-        assert preferences.enabled_channels(user, "class_reminder") == [Channel.IN_APP, Channel.EMAIL]
+        # Opting into email adds it in declared order, alongside the default-on push.
+        assert preferences.enabled_channels(user, "class_reminder") == [
+            Channel.IN_APP,
+            Channel.EMAIL,
+            Channel.PUSH,
+        ]
 
     def it_includes_forced_email_without_a_row():
         # member.invited forces email (and is email-only), so it's included with no row.
