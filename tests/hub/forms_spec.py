@@ -198,3 +198,22 @@ def describe_site_announcement_form():
         )
         assert not form.is_valid()
         assert "push_message" in form.errors
+
+
+def describe_push_test_form():
+    def it_resolves_a_member_email_to_the_user(db):
+        from django.contrib.auth.models import User
+
+        from hub.forms import PushTestForm
+
+        user = User.objects.create_user(username="pt", email="pt@example.com")
+        form = PushTestForm({"email": "pt@example.com"})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["user"] == user
+
+    def it_rejects_an_email_with_no_account(db):
+        from hub.forms import PushTestForm
+
+        form = PushTestForm({"email": "ghost@example.com"})
+        assert not form.is_valid()
+        assert "email" in form.errors

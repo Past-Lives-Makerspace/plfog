@@ -26,7 +26,8 @@ def describe_send_web_push():
         user = User.objects.create_user(username="u", email="u@example.com")
         sub = _sub(user)
         with patch("core.push.webpush") as mock_wp:
-            push.send_web_push(sub, title="Hi", body="There", url="/x/")
+            result = push.send_web_push(sub, title="Hi", body="There", url="/x/")
+        assert result is True
         mock_wp.assert_called_once()
 
     def it_deletes_subscription_on_410_gone():
@@ -37,7 +38,8 @@ def describe_send_web_push():
             status_code = 410
 
         with patch("core.push.webpush", side_effect=WebPushException("gone", response=_Resp())):
-            push.send_web_push(sub, title="Hi", body="There", url="/x/")
+            result = push.send_web_push(sub, title="Hi", body="There", url="/x/")
+        assert result is False
         assert not PushSubscription.objects.filter(pk=sub.pk).exists()
 
     def it_swallows_other_errors_without_deleting():
@@ -48,5 +50,6 @@ def describe_send_web_push():
             status_code = 500
 
         with patch("core.push.webpush", side_effect=WebPushException("boom", response=_Resp())):
-            push.send_web_push(sub, title="Hi", body="There", url="/x/")
+            result = push.send_web_push(sub, title="Hi", body="There", url="/x/")
+        assert result is False
         assert PushSubscription.objects.filter(pk=sub.pk).exists()

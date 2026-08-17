@@ -2162,6 +2162,32 @@ class SiteAnnouncementForm(forms.Form):
         return body
 
 
+class PushTestForm(forms.Form):
+    """Admin push-test lookup — an email that must resolve to a real account.
+
+    Backs ``/admin/push-test/``: on a valid submit the resolved ``User`` lands in
+    ``cleaned_data["user"]`` for the view to inspect or fire a test push at.
+    """
+
+    email = forms.EmailField(
+        label="Member email",
+        help_text="The member to check. Their sign-in email or any linked alias works.",
+    )
+
+    def clean(self) -> dict[str, Any]:
+        from core.push_admin import resolve_user
+
+        cleaned = super().clean()
+        email = cleaned.get("email")
+        if email:
+            user = resolve_user(email)
+            if user is None:
+                self.add_error("email", "No account found with that email.")
+            else:
+                cleaned["user"] = user
+        return cleaned
+
+
 def split_audience(raw: str) -> tuple[str, Guild | None]:
     """Split the combined compose audience value into ``(audience, guild)``.
 
