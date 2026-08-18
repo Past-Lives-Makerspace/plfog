@@ -2166,9 +2166,9 @@ def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, st
 
     _audience, guild, offering = split_audience(requested)
     if offering is not None:
-        return True, offering.title, f"Announce to {offering.title}"
+        return True, f"Registrants of {offering.title}", f"Announce to {offering.title}"
     if guild is not None:
-        return True, guild.name, f"Announce to {guild.name}"
+        return True, f"Members of {guild.name}", f"Announce to {guild.name}"
     return False, "", ""
 
 
@@ -2282,6 +2282,34 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
     )
     response = HttpResponse(status=204)
     trigger_toast(response, f"Test sent to {to}.")
+    return response
+
+
+@login_required
+@require_POST
+def hub_compose_push_test(request: HttpRequest) -> HttpResponse:
+    """HTMX: fire a canned test push at the author's own devices (never the spine).
+
+    The push equivalent of :func:`hub_compose_test` — lets the composer confirm their own
+    phone/browser is actually registered before sending the announcement. Best-effort; a dead
+    token is reaped by the sender mid-loop, so it doubles as a cleanup pass.
+    """
+    from core.push_admin import send_test_push
+
+    if not _can_compose(request, _get_member(request)):
+        return HttpResponse("Forbidden", status=403)
+    result = send_test_push(cast(User, request.user), url=request.build_absolute_uri("/"))
+    response = HttpResponse(status=204)
+    if result.attempted == 0:
+        trigger_toast(response, "No push devices are registered on your account yet.", "error")
+    elif result.all_delivered:
+        trigger_toast(response, f"Test push sent to your {result.delivered} device(s).")
+    else:
+        trigger_toast(
+            response,
+            f"Sent to {result.delivered} of {result.attempted} device(s); the rest didn't respond.",
+            "error",
+        )
     return response
 
 

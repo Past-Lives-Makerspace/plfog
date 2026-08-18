@@ -51,57 +51,73 @@
 
     <div class="pl-compose-section">
       <h2 class="pl-compose-section__title">How it goes out</h2>
+      <p class="pl-compose-section__note">Everyone always gets it in their notification bell and as a push on their phone. Fine-tune each channel below.</p>
 
-      {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Everyone gets the in-app bell. Turn this on to also email the branded message below." %}
-
-      <div class="pl-recipient-card" x-show="alsoEmail && audience.startsWith('guild')" x-cloak>
-        <div class="pl-recipient-card__head">
-          <span class="pl-form-label pl-recipient-card__title">Email recipients</span>
-          <span class="pl-help" tabindex="0" aria-label="About email recipients">
-            <span class="pl-help__icon" aria-hidden="true">?</span>
-            <span class="pl-help__bubble" role="tooltip">Everyone is included by default. Uncheck anyone you don't want to email this time. They'll still see it in the app, and it still posts to your Discord channel.</span>
-          </span>
+      <div class="pl-compose-channel">
+        <h3 class="pl-compose-channel__title">Push Notification</h3>
+        {% include "components/form_field.html" with field=form.push_message %}
+        <div class="pl-push-preview">
+          <div class="pl-push-preview__label">Push Preview</div>
+          <div class="pl-push-preview__card">
+            <div class="pl-push-preview__icon" aria-hidden="true">&#128276;</div>
+            <div class="pl-push-preview__meta">
+              <div class="pl-push-preview__app">Past Lives Makerspace</div>
+              <div id="pl-push-preview-title" class="pl-push-preview__title">Announcement title</div>
+              <div id="pl-push-preview-body" class="pl-push-preview__body">Uses the message above.</div>
+            </div>
+          </div>
         </div>
-        <p class="pl-recipient-card__summary">Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong></p>
-        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-recipient-card__toggle"
-                @click="recipientsOpen = !recipientsOpen"
-                x-text="recipientsOpen ? 'Hide list' : 'Choose who to email'"></button>
-        <div class="pl-recipient-card__body" x-show="recipientsOpen" x-cloak>
-          {% include "hub/partials/_compose_recipient_picker.html" %}
-        </div>
-      </div>
-
-      <div class="pl-wizard-preview" x-show="alsoEmail" x-cloak>
-        <div class="pl-wizard-preview__bar">
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshPreview"
-                  hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form"
-                  hx-target="#compose-preview" hx-swap="innerHTML">
-            <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Refresh preview
-          </button>
+        <div class="pl-compose-channel__actions">
           <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
-                  hx-post="{% url 'hub_compose_test' %}" hx-include="closest form" hx-swap="none">
-            <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a test to me
+                  hx-post="{% url 'hub_compose_push_test' %}" hx-swap="none">
+            <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a Push Notification test to me
           </button>
-        </div>
-        <div id="compose-preview" class="pl-wizard-preview__pane">
-          <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
         </div>
       </div>
 
-      {% include "components/form_field.html" with field=form.push_message %}
-      <div class="pl-push-preview">
-        <div class="pl-push-preview__label">Phone preview</div>
-        <div class="pl-push-preview__card">
-          <div class="pl-push-preview__icon" aria-hidden="true">&#128276;</div>
-          <div class="pl-push-preview__meta">
-            <div class="pl-push-preview__app">Past Lives Makerspace</div>
-            <div id="pl-push-preview-title" class="pl-push-preview__title">Announcement title</div>
-            <div id="pl-push-preview-body" class="pl-push-preview__body">Uses the message above.</div>
+      <div class="pl-compose-channel">
+        <h3 class="pl-compose-channel__title">Email</h3>
+        {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Everyone gets the in-app bell and push. Turn this on to also email the branded message below." %}
+
+        <div x-show="alsoEmail" x-cloak>
+          <div class="pl-recipient-card" x-show="audience.startsWith('guild')" x-cloak>
+            <div class="pl-recipient-card__head">
+              <span class="pl-form-label pl-recipient-card__title">Email recipients</span>
+              <span class="pl-help" tabindex="0" aria-label="About email recipients">
+                <span class="pl-help__icon" aria-hidden="true">?</span>
+                <span class="pl-help__bubble" role="tooltip">Everyone is included by default. Uncheck anyone you don't want to email this time. They'll still see it in the app, and it still posts to your Discord channel.</span>
+              </span>
+            </div>
+            <p class="pl-recipient-card__summary">Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong></p>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-recipient-card__toggle"
+                    @click="recipientsOpen = !recipientsOpen"
+                    x-text="recipientsOpen ? 'Hide list' : 'Choose who to email'"></button>
+            <div class="pl-recipient-card__body" x-show="recipientsOpen" x-cloak>
+              {% include "hub/partials/_compose_recipient_picker.html" %}
+            </div>
+          </div>
+
+          <div class="pl-wizard-preview">
+            <div class="pl-wizard-preview__bar">
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshPreview"
+                      hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form"
+                      hx-target="#compose-preview" hx-swap="innerHTML">
+                <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Refresh preview
+              </button>
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+                      hx-post="{% url 'hub_compose_test' %}" hx-include="closest form" hx-swap="none">
+                <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a test to me
+              </button>
+            </div>
+            <div id="compose-preview" class="pl-wizard-preview__pane">
+              <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div x-show="!audience.startsWith('class')">
+      <div class="pl-compose-channel" x-show="!audience.startsWith('class')" x-cloak>
+        <h3 class="pl-compose-channel__title">Discord</h3>
         {% include "hub/partials/_compose_channel_picker.html" %}
         <div class="pl-form-group pl-mention-picker" x-show="discordChannel !== 'none'">
           <label class="pl-form-label">Ping members (optional)</label>
@@ -114,25 +130,25 @@
             {% endfor %}
           </div>
           <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings people in the Discord channel picked above. Make it count.</p>
-          <p class="pl-field-hint">On by default. Switch to "@here" (online members only) or "No ping" if you'd rather not notify everyone.</p>
+          <p class="pl-field-hint">The recommended ping is preselected. Switch to "@here" (online members only) or "No ping" to notify fewer people.</p>
         </div>
       </div>
       <p class="pl-field-hint" x-show="audience.startsWith('class')" x-cloak>Class announcements go straight to your students' bell, phone, and email. They don't post to Discord.</p>
 
-      <div class="pl-wizard-field" x-show="audience.startsWith('guild')">
+      <div class="pl-wizard-field" x-show="audience.startsWith('guild')" x-cloak>
         {% include "components/form_field.html" with field=form.expires_at %}
       </div>
     </div>
 
     <p class="pl-wizard-reach">
-      <span x-show="!(alsoEmail && audience.startsWith('guild'))">Reaches <strong x-text="recipientCount"></strong> member(s).</span>
-      <span x-show="alsoEmail && audience.startsWith('guild')" x-cloak>Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong> &middot; everyone in the guild still sees it in the app.</span>
+      <span x-show="!(alsoEmail && audience.startsWith('guild'))">Reaching <strong x-text="recipientCount"></strong> member(s) in the app and by push<span x-show="alsoEmail">, and by email</span>.</span>
+      <span x-show="alsoEmail && audience.startsWith('guild')" x-cloak>Reaching <strong x-text="recipientCount"></strong> member(s) in the app and by push &middot; emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong>.</span>
     </p>
 
     <div class="pl-wizard-actions">
       <button type="submit" class="hub-btn hub-btn--primary"
               @click="if (!confirm(alsoEmail && audience.startsWith('guild')
-                      ? `Email ${selectedEmailCount} of ${emailRecipientTotal} recipient(s)? Everyone in the guild still sees it in the app. This can't be undone.`
+                      ? `Reaching ${recipientCount} member(s) in the app and by push, emailing ${selectedEmailCount} of ${emailRecipientTotal}. This can't be undone.`
                       : `Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
         Send announcement
       </button>

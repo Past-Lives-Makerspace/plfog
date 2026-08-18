@@ -179,6 +179,7 @@ urlpatterns = [
     path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),
     path("announcements/compose/count/", views.hub_compose_count, name="hub_compose_count"),
     path("announcements/compose/test/", views.hub_compose_test, name="hub_compose_test"),
+    path("announcements/compose/push-test/", views.hub_compose_push_test, name="hub_compose_push_test"),
     path("announcements/compose/save/", views.hub_compose_save_draft, name="hub_compose_save_draft"),
     path("announcements/compose/send/", views.hub_compose_send, name="hub_compose_send"),
     path("announcements/compose/<int:draft_pk>/", views.hub_compose, name="hub_compose_resume"),

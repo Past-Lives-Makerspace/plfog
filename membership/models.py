@@ -3450,6 +3450,7 @@ class AnnouncementDraft(models.Model):
         NONE = "none", "No ping"
         HERE = "here", "@here (online members)"
         EVERYONE = "everyone", "@everyone"
+        ROLE = "role", "@[Guild role]"
 
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -3558,7 +3559,17 @@ class AnnouncementDraft(models.Model):
         return f"{self.title} — {self.get_audience_display()} ({state})"
 
     def _mention_literal(self) -> str:
-        """The Discord ping string for :attr:`mention` — ``""`` / ``"@here"`` / ``"@everyone"``."""
+        """The Discord ping string for :attr:`mention`.
+
+        ``""`` (no ping) / ``"@here"`` / ``"@everyone"``, or — for a guild audience whose
+        :attr:`Guild.discord_role_ids` are configured — every role expanded to ``"<@&{id}>"``.
+        ``build_embed_payload`` turns that into the ``allowed_mentions`` roles gate that actually
+        fires the ping. A role ping with no guild or no configured roles is inert (``""``).
+        """
+        if self.mention == self.Mention.ROLE:
+            if self.guild is None:
+                return ""
+            return " ".join(f"<@&{role_id}>" for role_id in self.guild.discord_role_ids)
         return {self.Mention.NONE: "", self.Mention.HERE: "@here", self.Mention.EVERYONE: "@everyone"}[
             self.Mention(self.mention)
         ]

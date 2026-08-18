@@ -4574,7 +4574,28 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-compose-section__title {
     font-size: 0.95rem;
     font-weight: 700;
+    margin: 0 0 0.35rem;
+}
+.pl-compose-section__note {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    margin: 0 0 1rem;
+}
+.pl-compose-channel {
+    margin-top: 1rem;
+    padding: 1rem 1.1rem 1.15rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    background: var(--hub-surface);
+}
+.pl-compose-channel__title {
+    font-size: 0.9rem;
+    font-weight: 700;
     margin: 0 0 0.75rem;
+    color: var(--hub-text);
+}
+.pl-compose-channel__actions {
+    margin-top: 0.85rem;
 }
 .pl-compose-locked {
     display: flex;

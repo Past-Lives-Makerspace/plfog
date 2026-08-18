@@ -2256,7 +2256,7 @@ class AnnouncementComposeForm(forms.Form):
     push_message = forms.CharField(
         required=False,
         max_length=180,
-        label="Phone notification (optional)",
+        label="Push Notification (optional)",
         widget=forms.Textarea(attrs={"rows": 2, "maxlength": "180"}),
         help_text="The short line members see on their phone's lock screen. Leave blank to use the "
         "message above. Keep it punchy; phones cut off notifications past roughly 180 characters.",
@@ -2303,8 +2303,6 @@ class AnnouncementComposeForm(forms.Form):
         # must be rejected before an announcement actually goes out.
         self._require_body = require_body
         self._config = config or SiteConfiguration.load()
-        cast(forms.ChoiceField, self.fields["mention"]).choices = list(AnnouncementDraft.Mention.choices)
-
         # Audience choices: "site" (admins only) + one per editable guild + one per class you teach.
         choices: list[tuple[str, str]] = []
         if is_admin:
@@ -2332,9 +2330,25 @@ class AnnouncementComposeForm(forms.Form):
         configured = _configured_discord_channels(self.current_guild, self._config)
         widget = cast(ChannelRadioSelect, channel_field.widget)
         widget.configured_channels = configured
+
+        # @mention picker. A guild whose Discord roles are configured can ping its own role(s)
+        # — labeled "@<Guild>", the recommended default — alongside @here / @everyone / no ping.
+        # Site announcements and role-less guilds keep the @everyone default. (Glass pings both
+        # of its roles, since discord_role_ids holds every configured role for the guild.)
+        mention_choices = [
+            (AnnouncementDraft.Mention.EVERYONE.value, "@everyone"),
+            (AnnouncementDraft.Mention.HERE.value, AnnouncementDraft.Mention.HERE.label),
+        ]
+        default_mention = AnnouncementDraft.Mention.EVERYONE.value
+        if self.current_guild is not None and self.current_guild.discord_role_ids:
+            mention_choices.append((AnnouncementDraft.Mention.ROLE.value, f"@{self.current_guild.name}"))
+            default_mention = AnnouncementDraft.Mention.ROLE.value
+        mention_choices.append((AnnouncementDraft.Mention.NONE.value, AnnouncementDraft.Mention.NONE.label))
+        cast(forms.ChoiceField, self.fields["mention"]).choices = mention_choices
+
         if not self.is_bound:
             channel_field.initial = _default_discord_channel(configured)
-            self.fields["mention"].initial = AnnouncementDraft.Mention.EVERYONE.value
+            self.fields["mention"].initial = default_mention
 
         # Alpine bindings for the single-form stepper (the URL-bearing hx-get on the audience
         # select is added at render time — the form must not reverse URLs). The @click opens the

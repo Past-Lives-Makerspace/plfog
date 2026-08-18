@@ -83,8 +83,11 @@ def describe_hub_compose_page():
         assert 'name="audience"' in content
         assert "How it goes out" in content
         assert 'name="push_message"' in content
-        assert "Phone preview" in content
-        assert "Reaches" in content
+        assert "Push Preview" in content
+        assert "Reaching" in content
+        assert "Send a Push Notification test to me" in content
+        # Each channel is its own bordered section.
+        assert "pl-compose-channel" in content
         # No multi-step wizard nav / "Next" buttons any more.
         assert "Next: email" not in content
         assert "pl-wizard-nav" not in content
@@ -252,6 +255,29 @@ def describe_hub_compose_test():
         assert client.post(reverse("hub_compose_test"), _valid_send_data()).status_code == 403
 
 
+def describe_hub_compose_push_test():
+    def it_403s_a_plain_member(client: Client):
+        _login_plain(client)
+        assert client.post(reverse("hub_compose_push_test")).status_code == 403
+
+    def it_reports_when_no_devices_are_registered(client: Client):
+        _login_admin(client, username="pusher")
+        response = client.post(reverse("hub_compose_push_test"))
+        assert response.status_code == 204
+        assert "No push devices" in _trigger(response)["showToast"]["message"]
+
+    def it_fires_a_test_at_the_authors_own_devices(client: Client, monkeypatch):
+        from core import push_admin
+
+        _login_admin(client, username="pusher")
+        monkeypatch.setattr(
+            push_admin, "send_test_push", lambda *a, **k: push_admin.TestSendResult(delivered=2, attempted=2)
+        )
+        response = client.post(reverse("hub_compose_push_test"))
+        assert response.status_code == 204
+        assert "2 device(s)" in _trigger(response)["showToast"]["message"]
+
+
 def describe_hub_compose_delete_draft():
     def it_deletes_the_draft_and_returns_the_list_with_a_toast(client: Client):
         admin = _login_admin(client)
@@ -409,6 +435,20 @@ def describe_AnnouncementComposeForm():
 
     def it_offers_no_discord_channel_for_a_class_audience():
         assert discord_channel_choices("class") == []
+
+    def it_defaults_a_guild_with_discord_roles_to_pinging_its_role():
+        guild = GuildFactory(name="Ceramics", discord_role_ids=["123"])
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        labels = dict(form.fields["mention"].choices)
+        assert labels[AnnouncementDraft.Mention.ROLE.value] == "@Ceramics"
+        assert form.fields["mention"].initial == AnnouncementDraft.Mention.ROLE.value
+
+    def it_omits_the_role_ping_and_defaults_to_everyone_without_configured_roles():
+        guild = GuildFactory(name="Roleless", discord_role_ids=[])
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        values = [value for value, _label in form.fields["mention"].choices]
+        assert AnnouncementDraft.Mention.ROLE.value not in values
+        assert form.fields["mention"].initial == AnnouncementDraft.Mention.EVERYONE.value
 
     def it_accepts_an_optional_push_message():
         form = AnnouncementComposeForm(

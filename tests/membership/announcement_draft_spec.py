@@ -295,6 +295,50 @@ def describe_AnnouncementDraft():
                     draft.send()
                 assert mock_post.call_args.args[1].discord_mention == "@everyone"
 
+            def it_threads_the_guild_role_mention_into_the_guild_discord_post():
+                author = _author()
+                guild = GuildFactory(
+                    discord_webhook_url="https://d/guild",
+                    discord_post_enabled=True,
+                    discord_role_ids=["111", "222"],
+                )
+                draft = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_GUILD,
+                    guild=guild,
+                    title="T",
+                    body="<p>x</p>",
+                    discord_channel=_CHANNEL.GUILD,
+                    mention=AnnouncementDraft.Mention.ROLE,
+                )
+                with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+                    draft.send()
+                # Every configured role id rides as <@&id>; build_embed_payload turns that into the
+                # allowed_mentions roles gate. Glass has two roles — both ping.
+                assert mock_post.call_args.args[1].discord_mention == "<@&111> <@&222>"
+
+            def it_sends_an_inert_role_ping_when_the_guild_has_no_roles():
+                author = _author()
+                guild = GuildFactory(
+                    discord_webhook_url="https://d/guild", discord_post_enabled=True, discord_role_ids=[]
+                )
+                draft = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_GUILD,
+                    guild=guild,
+                    title="T",
+                    body="<p>x</p>",
+                    discord_channel=_CHANNEL.GUILD,
+                    mention=AnnouncementDraft.Mention.ROLE,
+                )
+                with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+                    draft.send()
+                assert mock_post.call_args.args[1].discord_mention == ""
+
+            def it_has_an_inert_role_literal_with_no_guild():
+                draft = AnnouncementDraft(audience=_SITE, mention=AnnouncementDraft.Mention.ROLE)
+                assert draft._mention_literal() == ""
+
         def describe_class_send():
             def it_marks_sent_and_notifies_the_confirmed_roster():
                 author = _author()
