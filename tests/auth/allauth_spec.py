@@ -54,7 +54,8 @@ def describe_allauth_urls():
     def it_login_page_shows_version_badge(client):
         response = client.get("/accounts/login/")
         content = response.content.decode()
-        assert f"BETA v{VERSION}" in content
+        assert f"v{VERSION}" in content
+        assert f"BETA v{VERSION}" not in content
 
     def it_login_page_includes_changelog_modal(client):
         response = client.get("/accounts/login/")

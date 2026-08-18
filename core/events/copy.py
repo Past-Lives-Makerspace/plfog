@@ -105,6 +105,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.ORIENTATION_RUNNER: "The staffer who claimed/ran the orientation.",
     Recipients.REGISTRANT: "The member the event is about (the registrant).",
     Recipients.INSTRUCTOR: "The class's instructor.",
+    Recipients.CLASS_ROSTER: "Everyone with a confirmed registration for the class.",
     Recipients.NEXT_WAITLISTED: "The next member in line on the waitlist.",
     Recipients.TAB_MEMBER: "The member whose billing tab this concerns.",
     Recipients.INVITER: "The person who sent the invitation.",
@@ -484,6 +485,13 @@ _CURATED: dict[str, EventCopy] = {
                 subject="{{ guild_name }}: {{ announcement_title }}",
                 body_text="{{ announcement_body }}",
             ),
+            # Push is a single tray line: title + the bare announcement text, no email
+            # footer/URL (which would otherwise leak in via the EMAIL fallback). The
+            # PushAdapter flattens and caps this at send time.
+            Channel.PUSH: ChannelCopy(
+                subject="{{ guild_name }}: {{ announcement_title }}",
+                body_text="{{ announcement_body }}",
+            ),
             Channel.EMAIL: ChannelCopy(
                 subject="{{ guild_name }}: {{ announcement_title }}",
                 body_text=(
@@ -512,6 +520,13 @@ _CURATED: dict[str, EventCopy] = {
                 subject="{{ announcement_title }}",
                 body_text="{{ announcement_body }}",
             ),
+            # Push is a single tray line: title + the bare announcement text, no email
+            # footer/URL (which would otherwise leak in via the EMAIL fallback). The
+            # PushAdapter flattens and caps this at send time.
+            Channel.PUSH: ChannelCopy(
+                subject="{{ announcement_title }}",
+                body_text="{{ announcement_body }}",
+            ),
             Channel.EMAIL: ChannelCopy(
                 subject="{{ announcement_title }}",
                 body_text="{{ announcement_body }}\n\n{{ site_url }}\n\nPast Lives Makerspace",
@@ -519,6 +534,42 @@ _CURATED: dict[str, EventCopy] = {
                     "<h2>{{ announcement_title }}</h2>"
                     "<p>{{ announcement_body }}</p>"
                     '<p><a href="{{ site_url }}">Past Lives Makerspace</a></p>'
+                ),
+            ),
+        },
+    ),
+    "class_announcement": EventCopy(
+        placeholders=("class_name", "announcement_title", "announcement_body", "class_url"),
+        sample_context={
+            "class_name": "Blacksmithing 101",
+            "announcement_title": "This week moves to Thursday",
+            "announcement_body": "Heads up: this week's session moves to Thursday at 6pm. Same room.",
+            "class_url": "https://pastlives.example/classes/blacksmithing-101/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ class_name }}: {{ announcement_title }}",
+                body_text="{{ announcement_body }}",
+            ),
+            # Push is a single tray line: title + the bare announcement text, no email
+            # footer/URL (which would otherwise leak in via the EMAIL fallback). The
+            # PushAdapter flattens and caps this at send time.
+            Channel.PUSH: ChannelCopy(
+                subject="{{ class_name }}: {{ announcement_title }}",
+                body_text="{{ announcement_body }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ class_name }}: {{ announcement_title }}",
+                body_text=(
+                    "{{ class_name }} Announcement!\n\n{{ announcement_title }}\n\n{{ announcement_body }}\n\n"
+                    "View the class: {{ class_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<h2>{{ class_name }} Announcement!</h2>"
+                    "<h3>{{ announcement_title }}</h3>"
+                    "<p>{{ announcement_body }}</p>"
+                    '<p><a href="{{ class_url }}">View {{ class_name }}</a></p>'
+                    "<p>Past Lives Makerspace</p>"
                 ),
             ),
         },

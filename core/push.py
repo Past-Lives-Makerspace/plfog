@@ -13,8 +13,13 @@ from core.models import PushSubscription
 logger = logging.getLogger(__name__)
 
 
-def send_web_push(subscription: PushSubscription, *, title: str, body: str, url: str) -> None:
-    """Send one push to one subscription. Reaps the subscription on 404/410."""
+def send_web_push(subscription: PushSubscription, *, title: str, body: str, url: str) -> bool:
+    """Send one push to one subscription. Reaps the subscription on 404/410.
+
+    Returns True when the push was accepted, False on any failure (a reaped/dead
+    subscription or a transport error). The boolean lets the admin push-test tool
+    report a real delivered tally; the event spine ignores it.
+    """
     payload = json.dumps({"title": title, "body": body, "url": url})
     try:
         webpush(
@@ -33,3 +38,5 @@ def send_web_push(subscription: PushSubscription, *, title: str, body: str, url:
             logger.info("Reaped dead push subscription %s (HTTP %s).", subscription.pk, status)
         else:
             logger.warning("Push to subscription %s failed: %s", subscription.pk, exc)
+        return False
+    return True

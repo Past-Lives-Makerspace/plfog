@@ -76,7 +76,7 @@ def describe_manage_activity():
         assert resp.status_code == 200
 
 
-def describe_hub_sidebar_activity_link():
+def describe_admin_tools_activity_link():
     def _member(fog_role: str) -> User:
         from membership.models import Member, MembershipPlan
 
@@ -95,11 +95,11 @@ def describe_hub_sidebar_activity_link():
         )
         return user
 
-    def it_appears_in_the_hub_sidebar_for_admins(client):
+    def it_appears_on_the_admin_tools_page_for_admins(client):
         from membership.models import Member
 
         client.force_login(_member(Member.FogRole.ADMIN))
-        resp = client.get("/members/")
+        resp = client.get(reverse("hub_admin_tools"))
         assert resp.status_code == 200
         assert reverse("manage_activity").encode() in resp.content
 
@@ -107,6 +107,7 @@ def describe_hub_sidebar_activity_link():
         from membership.models import Member
 
         client.force_login(_member(Member.FogRole.MEMBER))
-        resp = client.get("/members/")
-        assert resp.status_code == 200
+        resp = client.get(reverse("hub_admin_tools"))
+        # Plain members cannot use Admin Tools, so they are redirected home.
+        assert resp.status_code == 302
         assert reverse("manage_activity").encode() not in resp.content

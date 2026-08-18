@@ -64,6 +64,16 @@ def describe_audience_description():
         event = get_event("class_validation_requested")
         assert "admin" in audience_description(event).lower()
 
+    def it_describes_the_class_roster_audience():
+        event = get_event("class_announcement")
+        assert "class" in audience_description(event).lower()
+
+    def it_has_a_description_for_every_registered_events_recipient():
+        # The settings/catalogue page renders audience_description for every event; a new event
+        # whose recipient has no description KeyErrors the whole page (regression guard).
+        for event in all_events():
+            assert audience_description(event)
+
 
 def describe_generic_fallback():
     def it_uses_the_event_label_and_description_for_an_uncurated_event():

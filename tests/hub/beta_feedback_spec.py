@@ -76,7 +76,7 @@ def describe_beta_feedback_view():
         assert response.status_code == 302
         assert len(mail.outbox) == 1
         sent = mail.outbox[0]
-        assert "[Beta Bug Report]" in sent.subject
+        assert "[Bug Report]" in sent.subject
         assert "Button broken" in sent.subject
         assert "reporter@example.com" in sent.body
         assert "The submit button does not work" in sent.body

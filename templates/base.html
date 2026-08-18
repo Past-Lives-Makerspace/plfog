@@ -22,7 +22,7 @@
     <header class="site-header">
         <nav class="site-nav" aria-label="Main navigation">
             <a href="{% url 'home' %}" class="site-nav__brand">Past Lives</a>
-            <button class="site-beta-badge" onclick="document.getElementById('changelog-modal').style.display='flex'">BETA v{{ app_version }}</button>
+            <button class="site-version-badge" onclick="document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
             {% if user.is_authenticated %}
                 <span class="site-nav__user">{{ user.email }}</span>
                 <a href="{% url 'account_logout' %}" class="site-nav__link">Log out</a>

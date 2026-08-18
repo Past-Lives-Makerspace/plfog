@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from hub.forms import ProfileSettingsForm, SiteAnnouncementForm
+from hub.forms import ProfileSettingsForm
 from tests.membership.factories import MemberFactory
 
 
@@ -162,20 +162,20 @@ def describe_profile_settings_form():
             assert form.has_only_photo_errors is False
 
 
-# NOTE: The hub Site Settings plain composer + the guild-edit composer moved to the
-# /announcements/compose/ wizard (AnnouncementComposeForm), covered by
-# tests/hub/announcement_compose_spec.py + tests/membership/announcement_draft_spec.py.
-# SiteAnnouncementForm still backs the separate Django-admin composer (/admin/announcement/).
-def describe_site_announcement_form():
-    def it_sanitizes_the_body_and_strips_script():
-        form = SiteAnnouncementForm(
-            {"title": "Hi", "body": "<p>Hello there</p><script>evil()</script>", "post_to_discord": ""}
-        )
-        assert form.is_valid(), form.errors
-        assert "<script" not in form.cleaned_data["body"]
-        assert "Hello there" in form.cleaned_data["body"]
+def describe_push_test_form():
+    def it_resolves_a_member_email_to_the_user(db):
+        from django.contrib.auth.models import User
 
-    def it_rejects_an_empty_quill_doc_as_a_missing_message():
-        form = SiteAnnouncementForm({"title": "Hi", "body": "<p><br></p>", "post_to_discord": ""})
+        from hub.forms import PushTestForm
+
+        user = User.objects.create_user(username="pt", email="pt@example.com")
+        form = PushTestForm({"email": "pt@example.com"})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["user"] == user
+
+    def it_rejects_an_email_with_no_account(db):
+        from hub.forms import PushTestForm
+
+        form = PushTestForm({"email": "ghost@example.com"})
         assert not form.is_valid()
-        assert "body" in form.errors
+        assert "email" in form.errors

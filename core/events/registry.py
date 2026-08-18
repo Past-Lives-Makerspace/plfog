@@ -89,6 +89,7 @@ class Recipients(str, Enum):
     ORIENTATION_RUNNER = "orientation_runner"
     REGISTRANT = "registrant"
     INSTRUCTOR = "instructor"
+    CLASS_ROSTER = "class_roster"
     NEXT_WAITLISTED = "next_waitlisted"
     TAB_MEMBER = "tab_member"
     INVITER = "inviter"
@@ -193,6 +194,7 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         # Announcements you're meant to see
         "site_announcement",
         "guild_announcement",
+        "class_announcement",
         # Events — reminders, plus the outcome of an event you proposed
         "event.reminder",
         "event.happening_now",
@@ -398,6 +400,7 @@ MEMBER_INVITED = "member.invited"
 MEMBER_LOGIN_INVITE = "member.login_invite"
 GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
 SITE_ANNOUNCEMENT = "site_announcement"  # re-uses the seeded key + curated copy
+CLASS_ANNOUNCEMENT = "class_announcement"  # an instructor posts to their class's confirmed roster
 VOTING_CLOSING_SOON = "voting.closing_soon"
 VOTING_VOTE_SOON = "voting.vote_soon"
 VOTING_OFFICERS_CLOSING_SOON = "voting.officers_closing_soon"
@@ -509,6 +512,19 @@ _NEW_EVENTS: list[EventType] = [
         recipient=Recipients.ALL_ACTIVE_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind="site_announcement",
+    ),
+    # 3b. class.announcement — an instructor posts to their class's confirmed roster.
+    #     In-app on, email opt-out, push on by default (via _with_push). No Discord
+    #     broadcast and no activity row: a class announcement is a direct notice to
+    #     enrolled students, not a public site-wide post.
+    EventType(
+        key=CLASS_ANNOUNCEMENT,
+        label="Class announcement",
+        description="An instructor of a class you're in posted an update.",
+        category="Classes",
+        recipient=Recipients.CLASS_ROSTER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
     ),
     # 4. voting.closing_soon — scheduled N days (VotingSettings.reminder_lead_days)
     #    before the month-end close, to each member who has voted, carrying their own

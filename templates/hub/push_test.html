@@ -1,0 +1,46 @@
+{% extends "hub/base.html" %}
+{% block title %}Push notification test{% endblock %}
+{% block content %}
+<h1 class="hub-page-title">Push notification test</h1>
+<p class="pl-wizard-lead">Check whether a member is set up for push notifications, and send a test to their devices. A device shows up here once they've installed the app (or enabled browser notifications) and signed in.</p>
+
+<div class="hub-card">
+  <form method="post">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=form.email %}
+    <div class="pl-wizard-actions">
+      <button type="submit" name="lookup" value="1" class="hub-btn hub-btn--ghost">Look up devices</button>
+      <button type="submit" name="send" value="1" class="hub-btn hub-btn--primary">Send test push</button>
+    </div>
+  </form>
+
+  {% if status %}
+  <div class="pl-compose-section">
+    <h2 class="pl-compose-section__title">Devices for {{ target.email }}</h2>
+
+    {% if result %}
+    <p class="hub-field-hint">Test push delivered to <strong>{{ result.delivered }}</strong> of {{ result.attempted }} device(s).</p>
+    {% endif %}
+
+    {% if status.has_any %}
+    <ul class="pl-device-list">
+      {% for device in status.fcm_devices %}
+      <li class="pl-device-row">
+        <span>&#128241; {{ device.get_platform_display }} app</span>
+        <span class="hub-text-muted pl-device-row__meta">last seen {{ device.updated_at|timesince }} ago</span>
+      </li>
+      {% endfor %}
+      {% if status.web_subscriptions %}
+      <li class="pl-device-row">
+        <span>&#127760; Browser notifications</span>
+        <span class="hub-text-muted pl-device-row__meta">{{ status.web_subscriptions }} subscription{{ status.web_subscriptions|pluralize }}</span>
+      </li>
+      {% endif %}
+    </ul>
+    {% else %}
+    <p class="hub-text-muted">No push devices registered. This member won't get push notifications yet. They need to open the app (or turn on browser notifications) while signed in.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

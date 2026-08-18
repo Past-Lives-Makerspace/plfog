@@ -170,11 +170,16 @@ urlpatterns = [
         views.guild_announcement_edit,
         name="hub_guild_announcement_edit",
     ),
+    # Staff / leadership tools hub (announcements, orientations, push diagnostics).
+    path("tools/", views.hub_admin_tools, name="hub_admin_tools"),
+    # Push notification diagnostics (admin-only): inspect a member's devices, send a test push.
+    path("announcements/push-test/", views.hub_push_test, name="hub_push_test"),
     # Announcement compose wizard (admins: site-wide; guild leads/staff: their guilds).
     path("announcements/compose/", views.hub_compose, name="hub_compose"),
     path("announcements/compose/preview/", views.hub_compose_preview, name="hub_compose_preview"),
     path("announcements/compose/count/", views.hub_compose_count, name="hub_compose_count"),
     path("announcements/compose/test/", views.hub_compose_test, name="hub_compose_test"),
+    path("announcements/compose/push-test/", views.hub_compose_push_test, name="hub_compose_push_test"),
     path("announcements/compose/save/", views.hub_compose_save_draft, name="hub_compose_save_draft"),
     path("announcements/compose/send/", views.hub_compose_send, name="hub_compose_send"),
     path("announcements/compose/<int:draft_pk>/", views.hub_compose, name="hub_compose_resume"),

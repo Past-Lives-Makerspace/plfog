@@ -1,0 +1,72 @@
+{% extends "hub/base.html" %}
+{% block title %}Admin Tools{% endblock %}
+{% block content %}
+<h1 class="hub-page-title">Admin Tools</h1>
+<p class="pl-wizard-lead">Staff and leadership tools, in one place.</p>
+
+<div class="pl-tools-grid">
+  {% if tool_announcements %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_compose' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Announcements</span>
+    <span class="pl-tool-card__desc">Send an announcement to a class, a guild, or the whole makerspace.</span>
+  </a>
+  {% endif %}
+  {% if tool_orientations %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_orientations_dashboard' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Orientations</span>
+    <span class="pl-tool-card__desc">Review and run new-member orientations for your guild.</span>
+  </a>
+  {% endif %}
+  {% if tool_manage_members %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_members' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Manage Members</span>
+    <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
+  </a>
+  {% endif %}
+  {% if tool_activity %}
+  <a class="hub-card pl-tool-card" href="{% url 'manage_activity' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Activity</span>
+    <span class="pl-tool-card__desc">The site-wide feed of what's happening across the makerspace.</span>
+  </a>
+  {% endif %}
+  {% if tool_notifications %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_notifications' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Notification Settings</span>
+    <span class="pl-tool-card__desc">Configure which events notify members, and how.</span>
+  </a>
+  {% endif %}
+  {% if tool_site_settings %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_site_settings' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Site Settings</span>
+    <span class="pl-tool-card__desc">Configure the site: registration, integrations, and content.</span>
+  </a>
+  {% endif %}
+  {% if tool_push_test %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_push_test' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Push Notification Test</span>
+    <span class="pl-tool-card__desc">Check a member's push devices and send them a test notification.</span>
+  </a>
+  {% endif %}
+</div>
+{% endblock %}

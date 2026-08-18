@@ -1,34 +1,45 @@
 {% comment %}
-Email recipient checklist for a guild announcement (compose wizard → Step 2), wrapped in the
-OOB target (#compose-recipients) so an audience change re-scopes it to the new guild's roster
-(all checked). Rendered inline on the wizard page and returned as an hx-swap-oob partial by
-hub_compose_count. One row per emailable member (name + email) plus one per custom mailing-list
-address, all checked by default. The checkboxes live inside the single compose <form> — no nested
-form; Send stays the Step-3 submit.
-
-x-init reseeds the live "Emailing X of Y" count from the freshly-rendered checkboxes on first
-render AND after each OOB re-scope; @change keeps it live as boxes toggle.
+General recipient checklist for a guild/class announcement (compose phase). Wrapped in the OOB
+target (#compose-recipients) so an audience change re-scopes it to the new roster (all checked).
+One row per member (name + email) plus, for a guild, one per custom mailing-list address; all
+checked by default. These recipients get the in-app bell, push, and email (Discord is a separate
+channel post). Below, an "add anyone" search (a datalist of every member) lets the sender add a
+member who is not on the roster. The checkboxes live inside the single compose <form>.
 
 Params:
-  form — the AnnouncementComposeForm (its bound email_recipients field)
+  form — the AnnouncementComposeForm (its bound `recipients` field + `add_member_choices`)
   oob  — when truthy, marks this as an out-of-band swap
 {% endcomment %}
 <div id="compose-recipients"{% if oob %} hx-swap-oob="true"{% endif %}
-     x-init="refreshEmailCount()" @change="refreshEmailCount()">
-  {% if form.email_recipients.field.choices %}
+     x-init="refreshRecipientCount()" @change="refreshRecipientCount()">
+  {% if form.recipients.field.choices %}
+  {% if form.has_email_only_recipients %}
+  <p class="pl-recipient-checklist__note">Some recipients are email-only<span class="pl-help" tabindex="0" aria-label="About email-only recipients"><span class="pl-help__icon" aria-hidden="true">?</span><span class="pl-help__bubble" role="tooltip">These recipients have no app account (shown by email address only). They get the email, but not a push notification or in-app bell.</span></span></p>
+  {% endif %}
   <div class="pl-recipient-checklist__tools">
-    <button type="button" class="hub-btn hub-btn--sm" @click="selectAllRecipients(true)">Select all</button>
-    <button type="button" class="hub-btn hub-btn--sm" @click="selectAllRecipients(false)">Select none</button>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="selectAllRecipients(true)">Select all</button>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="selectAllRecipients(false)">Select none</button>
   </div>
-  <div class="pl-recipient-checklist" role="group" aria-label="Email recipients">
-    {% for checkbox in form.email_recipients %}
+  <div class="pl-recipient-checklist" role="group" aria-label="Recipients">
+    {% for checkbox in form.recipients %}
     <label class="pl-recipient-checklist__row">
       {{ checkbox.tag }}
       <span class="pl-recipient-checklist__label">{{ checkbox.choice_label }}</span>
     </label>
     {% endfor %}
+    <div id="compose-added-recipients"></div>
+  </div>
+  <div class="pl-form-group pl-recipient-add">
+    <label class="pl-form-label" for="compose-add-member">Add anyone</label>
+    <select id="compose-add-member" autocomplete="off">
+      <option value="">Add a member&hellip;</option>
+      {% for value, label in form.add_member_choices %}
+      <option value="{{ value }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="pl-field-hint">Pick a member to add them, even if they are not on the list above.</p>
   </div>
   {% else %}
-  <p class="pl-recipient-checklist__empty">No email recipients yet — add members or addresses on your Guild Settings mailing list.</p>
+  <p class="pl-recipient-checklist__empty">No members to list yet.</p>
   {% endif %}
 </div>

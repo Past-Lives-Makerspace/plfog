@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "1.1.3"
+VERSION = "1.1.4"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.1.4",
+        "date": "2026-08-17",
+        "title": "Instructors can message their class",
+        "changes": [
+            "Past Lives is officially out of beta. Thanks for helping us get here.",
+            "Instructors can now send an announcement to everyone signed up for their class. You get it "
+            "in your notification bell, as a push on your phone, and by email.",
+            "The people who send announcements (guild leads, guild staff, instructors, and admins) now "
+            "have a single Announcements tab in the sidebar to write and send them from.",
+            "Announcement push notifications now show a clean, short line on your phone instead of a "
+            "cut-off email. Whoever sends the announcement can also write a custom short version just for "
+            "the phone.",
+        ],
+    },
     {
         "version": "1.1.3",
         "date": "2026-08-17",

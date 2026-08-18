@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+
 from django.contrib import admin, messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from allauth.account.models import EmailAddress
@@ -15,55 +15,6 @@ from core.models import Invite
 from membership import email_aliases
 from membership.forms import AddEmailAliasForm, InviteMemberForm
 from membership.models import Member
-
-
-@staff_member_required
-def site_announcement(request: HttpRequest) -> HttpResponse:
-    """Admin view to broadcast a site-wide announcement to all active members.
-
-    On POST it fires the ``site_announcement`` event on the notification spine: an
-    in-app bell row for every active member, an opt-out email, and a single Discord
-    broadcast. The event itself logs the ``site_announcement`` SiteActivity (its
-    registry ``activity_kind``), so no separate ``SiteActivity.log`` is needed here.
-    """
-    from hub.forms import SiteAnnouncementForm
-
-    if request.method == "POST":
-        form = SiteAnnouncementForm(request.POST)
-        if form.is_valid():
-            from core.events.emit import emit
-
-            title = form.cleaned_data["title"]
-            body = form.cleaned_data["body"]
-            # Absolute URL — Discord embeds and email links need a full host, not a
-            # bare "/". The admin is served on the member host, so this resolves to
-            # the hub home.
-            site_url = request.build_absolute_uri("/")
-            result = emit(
-                "site_announcement",
-                actor=request.user if request.user.is_authenticated else None,
-                context={
-                    "member_name": "there",
-                    "announcement_title": title,
-                    "announcement_body": body,
-                    "site_url": site_url,
-                },
-                url=site_url,
-                # Unique per send — every other emit() caller keys its idempotency
-                # window. Without it all site announcements collapse onto one
-                # EventDelivery slot and only the first ever delivers.
-                period=f"site:{timezone.now():%Y%m%d%H%M%S%f}",
-                # Honor the "Also post to Discord" checkbox — unchecking it must
-                # silence the broadcast (the field is always present in cleaned_data
-                # since it's required=False with initial=True).
-                suppress_broadcast=not form.cleaned_data["post_to_discord"],
-            )
-            messages.success(request, f"Announcement sent to {result.recipient_count} member(s).")
-            return redirect("admin:index")
-    else:
-        form = SiteAnnouncementForm()
-    context = {**admin.site.each_context(request), "form": form}
-    return render(request, "admin/site_announcement.html", context)
 
 
 @staff_member_required

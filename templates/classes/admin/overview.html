@@ -10,11 +10,11 @@
     {% for c in pending_classes %}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
         <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
-        <span>
+        <span class="pl-row-actions">
           <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
           <form method="post" action="{% url 'classes:admin_class_approve' pk=c.pk %}" style="display:inline;">
             {% csrf_token %}
-            <button type="submit" class="hub-btn hub-btn--sm">Approve</button>
+            <button type="submit" class="hub-btn hub-btn--sm hub-btn--success">Approve</button>
           </form>
         </span>
       </div>

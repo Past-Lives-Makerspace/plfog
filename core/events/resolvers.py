@@ -339,6 +339,30 @@ def instructor(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients([member], "instructor")
 
 
+def class_roster(context: dict[str, Any]) -> list[Recipient]:
+    """CLASS-SCOPED — every confirmed registrant of a class offering, via their linked member.
+
+    The audience for an instructor's class announcement: everyone holding a CONFIRMED
+    registration, addressed through their linked User. A guest registration (no linked
+    member) or any non-confirmed status (pending / waitlisted / cancelled / refunded) is
+    dropped — only enrolled attendees hear it. A class with no confirmed roster resolves
+    to no recipient.
+    """
+    from classes.models import Registration
+
+    offering = _require(context, "class_offering")
+    members = [
+        registration.member
+        for registration in Registration.objects.filter(
+            class_offering=offering,
+            status=Registration.Status.CONFIRMED,
+            member__isnull=False,
+        ).select_related("member__user")
+        if registration.member is not None
+    ]
+    return _members_to_recipients(members, "class_roster")
+
+
 def next_waitlisted(context: dict[str, Any]) -> list[Recipient]:
     """The next member in line when a waitlist spot opens.
 
@@ -565,6 +589,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.ORIENTATION_RUNNER: orientation_runner,
     Recipients.REGISTRANT: registrant,
     Recipients.INSTRUCTOR: instructor,
+    Recipients.CLASS_ROSTER: class_roster,
     Recipients.NEXT_WAITLISTED: next_waitlisted,
     Recipients.TAB_MEMBER: tab_member,
     Recipients.INVITER: inviter,

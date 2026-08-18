@@ -1254,19 +1254,35 @@ a:hover { color: var(--hub-link-hover); }
    Buttons
    ======================================== */
 .hub-btn {
+    box-sizing: border-box;
+    /* inline-block (not flex) so a button that contains a label plus an inline
+       count/badge keeps the normal whitespace between them — flex would collapse
+       the "All 185" space to "All185". Inline SVG icons self-center via their own
+       vertical-align. */
     display: inline-block;
     padding: 0.625rem 1.5rem;
     font-family: var(--font-body);
     font-size: 0.9375rem;
     font-weight: 700;
+    line-height: 1.2;
     letter-spacing: 0.02em;
-    border: none;
+    /* Transparent 1px border on the base so bordered variants (success/danger/
+       ghost) and borderless ones (primary) share identical box math and render
+       the exact same height. box-sizing: border-box keeps the border inside. */
+    border: 1px solid transparent;
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s ease, transform 0.1s ease;
 }
 
 .hub-btn:active { transform: translateY(1px); }
+
+.hub-btn:disabled,
+.hub-btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.hub-btn:disabled:active { transform: none; }
 
 .hub-btn--primary {
     background-color: var(--color-tuscan-yellow);
@@ -1286,6 +1302,18 @@ a:hover { color: var(--hub-link-hover); }
 .hub-btn--danger:hover {
     background: #d94a3d;
     border-color: #d94a3d;
+    color: #fff;
+}
+
+/* Positive/confirming action (e.g. "Approve"). Always green. */
+.hub-btn--success {
+    background: #2f8f4e;
+    color: #fff;
+    border: 1px solid #2f8f4e;
+}
+.hub-btn--success:hover {
+    background: #37a259;
+    border-color: #37a259;
     color: #fff;
 }
 
@@ -3185,6 +3213,20 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     white-space: nowrap;
 }
 
+/* Row-action button strips (table actions, "needs your attention" rows): every
+   button shares a min-width so columns line up across rows regardless of label
+   length (Approve/Unapprove/Edit/Delete/Review). */
+.admin-actions .hub-btn,
+.pl-row-actions .hub-btn {
+    min-width: 6rem;
+    text-align: center;
+}
+.pl-row-actions {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+}
+
 /* Guild-tagging per-row category picker — theme-aware input tokens so the
    select and its native option popup stay legible on both themes (FRONTEND
    Rule 13). */
@@ -4524,10 +4566,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wizard-preview {
     display: block;
     margin-top: 1rem;
-    padding: 1rem;
-    border: 1px solid var(--hub-border);
-    border-radius: 10px;
-    background: var(--hub-surface);
 }
 .pl-wizard-preview__bar {
     display: flex;
@@ -4564,6 +4602,193 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--color-tuscan-yellow);
     font-weight: 600;
     margin-top: 0.35rem;
+}
+/* Flat composer: locked-audience banner, delivery-option sections, phone-tray push preview */
+.pl-compose-section {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-compose-section__title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-tuscan-yellow);
+    text-transform: capitalize;
+    margin: 0 0 0.85rem;
+}
+.pl-compose-section__note {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    margin: 0 0 1rem;
+}
+.pl-compose-hint {
+    padding-top: 1rem;
+    margin: 0;
+}
+.pl-compose-channel {
+    margin-top: 1rem;
+    padding: 1rem 1.1rem 1.15rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    background: var(--hub-surface);
+}
+.pl-compose-channel__title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: 0 0 0.75rem;
+    color: var(--color-tuscan-yellow);
+    text-transform: capitalize;
+}
+.pl-compose-channel__actions {
+    margin-top: 0.85rem;
+}
+.pl-phase-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--hub-border);
+}
+.pl-phase-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    font-family: var(--font-body);
+}
+.pl-phase-tab--active {
+    color: var(--hub-text);
+    border-bottom-color: var(--color-tuscan-yellow);
+}
+.pl-recipient-add {
+    margin-top: 1.25rem;
+    margin-bottom: 0;
+}
+.pl-recipient-add select {
+    max-width: 28rem;
+}
+.pl-compose-locked {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 0.95rem;
+    margin-bottom: 1.5rem;
+    border-radius: 10px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font-weight: 600;
+}
+.pl-compose-locked__label {
+    color: var(--hub-text-muted);
+    font-weight: 400;
+}
+.pl-push-preview { margin-top: 0.6rem; }
+.pl-push-preview__label {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    margin-bottom: 0.4rem;
+}
+.pl-push-preview__card {
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+    padding: 0.7rem 0.9rem;
+    border-radius: 0.6rem;
+    background: #0f172a;
+    color: #e2e8f0;
+    max-width: 26rem;
+}
+.pl-push-preview__icon {
+    flex: 0 0 auto;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.4rem;
+    background: #1e293b;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+}
+.pl-push-preview__meta { min-width: 0; }
+.pl-push-preview__app {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #94a3b8;
+}
+.pl-push-preview__title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-top: 0.1rem;
+    overflow-wrap: anywhere;
+}
+.pl-push-preview__body {
+    font-size: 0.85rem;
+    margin-top: 0.1rem;
+    overflow-wrap: anywhere;
+    opacity: 0.6;
+}
+/* Push-test device inventory rows (admin diagnostics) */
+.pl-device-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-device-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(128, 128, 128, 0.12);
+}
+.pl-device-row__meta { font-size: 0.8rem; }
+/* Admin Tools hub: a grid of tool cards */
+.pl-tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+.pl-tool-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.pl-tool-card:hover {
+    border-color: var(--color-tuscan-yellow);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+.pl-tool-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.6rem;
+    background: rgba(238, 180, 75, 0.12);
+    color: var(--color-tuscan-yellow);
+}
+.pl-tool-card__title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--hub-text);
+}
+.pl-tool-card__desc {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.45;
 }
 .pl-spin {
     display: none;
@@ -4939,6 +5164,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-recipient-card__toggle { margin: 0; }
 .pl-recipient-card__body { margin-top: 0.75rem; }
 
+.pl-recipient-checklist__note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--hub-text-muted);
+  font-size: 0.875rem;
+  margin: 0.75rem 0 0.85rem;
+}
 .pl-recipient-checklist__tools {
   display: flex;
   gap: 0.5rem;

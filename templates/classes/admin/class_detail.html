@@ -48,7 +48,7 @@
         {% if offering.status == 'pending' %}
             <form method="post" action="{% url 'classes:admin_class_approve' pk=offering.pk %}" style="display:inline;">
                 {% csrf_token %}
-                <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Approve</button>
+                <button class="hub-btn hub-btn--sm hub-btn--success" type="submit">Approve</button>
             </form>
             <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=offering.pk %}">
                 Review with notes…

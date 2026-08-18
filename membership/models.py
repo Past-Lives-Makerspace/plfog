@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from classes.models import ClassOffering
-    from core.events.channels import Message
+    from core.events.channels import Channel, Message
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -1561,6 +1561,17 @@ class Guild(HeroCropMixin, models.Model):
             "channel auto-detection."
         ),
     )
+    discord_channel_name = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text=(
+            "The '#channel' name this guild's announcement webhook posts to, shown in the "
+            "announcement composer's channel picker. Auto-filled by 'manage.py "
+            "sync_guild_discord_channels' (fetched from Discord via the webhook); blank falls back "
+            "to a generic label."
+        ),
+    )
     discord_welcome_message = models.TextField(
         blank=True,
         default="",
@@ -1920,6 +1931,26 @@ class Guild(HeroCropMixin, models.Model):
         custom = {(row.email or "").strip().lower() for row in self.mailing_list_emails.all()}
         custom.discard("")
         return sorted(custom - member_emails)
+
+    @property
+    def announcement_channel_label(self) -> str:
+        """The '#channel' label for the composer's channel picker — the fetched name, or a fallback."""
+        return self.discord_channel_name or "your guild's channel"
+
+    def sync_discord_channel_name(self) -> str:
+        """Fetch this guild's real Discord channel name from its webhook and cache it on the row.
+
+        Best-effort: returns the ``#name`` (also saved) on success, or the current stored value
+        (possibly ``""``) when the guild has no webhook or Discord can't be reached. Called by the
+        ``sync_guild_discord_channels`` management command (on deploy / cron), never on a request.
+        """
+        from core.integrations.discord_channel import fetch_channel_name_from_webhook
+
+        name = fetch_channel_name_from_webhook(self.discord_webhook_url)
+        if name and name != self.discord_channel_name:
+            self.discord_channel_name = name
+            self.save(update_fields=["discord_channel_name"])
+        return self.discord_channel_name
 
 
 class GuildStaffMembership(models.Model):
@@ -3032,9 +3063,10 @@ class GuildAnnouncement(models.Model):
         self,
         *,
         discord_mention: str = "",
-        email_message: "Message | None" = None,
-        selected_user_ids: "set[int] | None" = None,
+        channel_messages: "dict[Channel, Message] | None" = None,
+        recipient_user_ids: "set[int] | None" = None,
         selected_custom_emails: "list[str] | None" = None,
+        suppress_push: bool = False,
         override_preferences: bool = False,
     ) -> None:
         """Emit ``guild.announcement`` to the guild's members (Decision 4).
@@ -3059,15 +3091,17 @@ class GuildAnnouncement(models.Model):
                 or ``""`` for none), threaded onto the single Discord echo. Default off, so
                 every existing caller (the guild-edit create view, the proposal-approve path)
                 is byte-unaffected.
-            email_message: A pre-rendered branded EMAIL :class:`Message` override. When given
-                (the compose wizard passes the same shell its Step-2 preview renders), it
-                replaces the default copy-mode guild email so the sent email matches the
-                preview; when ``None`` (every existing caller) the copy-mode email stands.
-            selected_user_ids: A per-announcement EMAIL **subset** of member ``pk`` values (the
-                compose wizard's recipient checklist). ``None`` (every existing caller — the
-                guild-edit create view, :meth:`approve`) emails every member as before; a set
-                narrows the member email to those ``pk`` values while the in-app bell + Discord
-                post still reach the whole guild (see ``emit(email_only_user_ids=…)``).
+            channel_messages: Pre-rendered per-channel :class:`Message` overrides (the compose
+                wizard passes category-led in-app / push / Discord / email messages so every
+                channel matches the preview and leads with the auto category). ``None`` (the
+                guild-edit create view, :meth:`approve`, the ``/announce`` bot command) leaves
+                every channel to the copy catalogue.
+            recipient_user_ids: The explicit member recipient set for ALL personal channels
+                (in-app bell + push + email) — the compose wizard's general recipient selector,
+                which starts from the roster, may drop anyone, and may add any member. ``None``
+                (every existing caller — the guild-edit create view, :meth:`approve`) keeps the
+                whole-guild resolver default; a set replaces it (see ``emit(recipient_user_ids=…)``).
+                The single Discord broadcast is unaffected (it targets a channel, not members).
             selected_custom_emails: A per-announcement subset of the guild's custom mailing-list
                 addresses (lower-cased). ``None`` (every existing caller) sends the FULL custom
                 list — the mailing-list feature is never regressed; a list narrows the additive
@@ -3079,7 +3113,6 @@ class GuildAnnouncement(models.Model):
         """
         from django.urls import reverse
 
-        from core.events.channels import Channel
         from core.events.emit import emit
         from membership.orientations import _absolute_url
 
@@ -3101,6 +3134,8 @@ class GuildAnnouncement(models.Model):
                 if selected_custom_emails is None
                 else [addr for addr in all_custom if addr in set(selected_custom_emails)]
             )
+        # Per-channel Message overrides from the compose wizard (in-app / push / Discord / email,
+        # all category-led); an absent channel falls back to the copy catalogue for that channel.
         emit(
             "guild_announcement",
             actor=self.author,
@@ -3116,12 +3151,13 @@ class GuildAnnouncement(models.Model):
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
-            messages={Channel.EMAIL: email_message} if email_message is not None else None,
+            messages=channel_messages or None,
             suppress_email=not self.send_email,
+            suppress_push=suppress_push,
             suppress_guild_broadcast=(webhook == ""),
             discord_mention=discord_mention,
             extra_emails=extra_emails,
-            email_only_user_ids=selected_user_ids,
+            recipient_user_ids=recipient_user_ids,
             override_preferences=override_preferences,
         )
 
@@ -3389,20 +3425,29 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
     raise ValueError(f"Unknown Discord channel '{channel}'.")
 
 
-def build_announcement_email_html(title: str, body: str) -> str:
+def build_announcement_email_html(title: str, body: str, *, subline: str = "", sender: str = "") -> str:
     """Branded announcement email HTML — one builder for the preview and the real send.
 
-    ``body`` is the rich-text editor's sanitized HTML; :func:`render_rich_email_body`
-    inline-styles it for the dark card, the escaped title rides above it as an ``<h2>``,
-    and the branded shell wraps the whole fragment. Shared by the compose wizard's live
-    preview and the EMAIL override handed to the spine, so the two are byte-faithful.
+    ``title`` is the auto-derived category ("Ceramics Guild Announcement" / "Class Announcement",
+    with an "Urgent: " lead when urgent). ``subline`` is an optional line under it (the class title
+    for a class announcement). ``sender`` is an optional "From <name>" line. ``body`` is the
+    rich-text editor's sanitized HTML, inline-styled for the light card. The branded shell wraps
+    the whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
+    to the spine, so the two are byte-faithful.
     """
     from django.utils.html import escape
 
     from core.events.templates import wrap_email_html
     from core.html_sanitize import render_rich_email_body
 
-    fragment = f"<h2>{escape(title)}</h2>{render_rich_email_body(body)}"
+    title_mb = "6px" if (subline or sender) else "20px"
+    title_style = f"margin:0 0 {title_mb};color:#092E4C;font-size:23px;line-height:1.28;font-weight:800;"
+    fragment = f'<h2 style="{title_style}">{escape(title)}</h2>'
+    if subline:
+        fragment += f'<p style="margin:0 0 14px;color:#33424F;font-size:17px;font-weight:600;">{escape(subline)}</p>'
+    if sender:
+        fragment += f'<p style="margin:0 0 20px;color:#5b6b78;font-size:14px;">From {escape(sender)}</p>'
+    fragment += render_rich_email_body(body)
     return wrap_email_html(fragment)
 
 
@@ -3436,11 +3481,13 @@ class AnnouncementDraft(models.Model):
     class Audience(models.TextChoices):
         SITE = "site", "Everyone (site-wide)"
         GUILD = "guild", "A specific guild"
+        CLASS = "class", "A class you teach"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"
         HERE = "here", "@here (online members)"
         EVERYONE = "everyone", "@everyone"
+        ROLE = "role", "@[Guild role]"
 
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -3462,6 +3509,14 @@ class AnnouncementDraft(models.Model):
         related_name="announcement_drafts",
         help_text="The target guild — set only when the audience is a specific guild.",
     )
+    class_offering = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="announcement_drafts",
+        help_text="The target class — set only when the audience is a class you teach.",
+    )
     title = models.CharField(
         max_length=300,
         help_text="Subject / headline. Required even to save a draft (so the list row reads well).",
@@ -3471,20 +3526,43 @@ class AnnouncementDraft(models.Model):
         default="",
         help_text="Sanitized rich HTML. May be blank while drafting; required to send.",
     )
+    push_message = models.CharField(
+        max_length=180,
+        blank=True,
+        default="",
+        help_text="Optional short text for the phone push notification. Blank = auto-derive from title + body.",
+    )
+    push_enabled = models.BooleanField(
+        default=True,
+        help_text="Also send this announcement as a phone push notification (in-app bell fires regardless).",
+    )
     send_email = models.BooleanField(
         default=True,
         help_text="Also send this announcement as a branded email (in-app bell fires regardless).",
+    )
+    discord_enabled = models.BooleanField(
+        default=True,
+        help_text="Also post this announcement to Discord (the channel is chosen on the preview step).",
     )
     mark_as_urgent = models.BooleanField(
         default=False,
         help_text="Sends the email as transactional, overriding user email preferences.",
     )
-    email_recipient_selection = models.JSONField(
+    show_sender = models.BooleanField(
+        default=True,
+        help_text="Show a 'From <sender>' line in the announcement email (never in push).",
+    )
+    include_waitlist = models.BooleanField(
+        default=False,
+        help_text="Class announcements only: also notify waitlisted registrants, not just confirmed ones.",
+    )
+    recipient_selection = models.JSONField(
         default=dict,
         blank=True,
         help_text=(
-            "Which recipients get this announcement's email. Empty/absent = everyone (default). "
-            'Shape: {"users": [pk, …], "custom": ["addr", …]}.'
+            "Which members get this announcement (in-app bell + push + email). Empty/absent = "
+            'everyone in the audience (default). Shape: {"users": [pk, …], "custom": ["addr", …]}, '
+            "where custom addresses are email-only extras (a guild mailing list)."
         ),
     )
     discord_channel = models.CharField(
@@ -3524,6 +3602,10 @@ class AnnouncementDraft(models.Model):
                 condition=~models.Q(audience="guild") | models.Q(guild__isnull=False),
                 name="ck_%(class)s_guild_audience",
             ),
+            models.CheckConstraint(
+                condition=~models.Q(audience="class") | models.Q(class_offering__isnull=False),
+                name="ck_%(class)s_class_audience",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -3531,10 +3613,94 @@ class AnnouncementDraft(models.Model):
         return f"{self.title} — {self.get_audience_display()} ({state})"
 
     def _mention_literal(self) -> str:
-        """The Discord ping string for :attr:`mention` — ``""`` / ``"@here"`` / ``"@everyone"``."""
+        """The Discord ping string for :attr:`mention`.
+
+        ``""`` (no ping) / ``"@here"`` / ``"@everyone"``, or — for a guild audience whose
+        :attr:`Guild.discord_role_ids` are configured — every role expanded to ``"<@&{id}>"``.
+        ``build_embed_payload`` turns that into the ``allowed_mentions`` roles gate that actually
+        fires the ping. A role ping with no guild or no configured roles is inert (``""``).
+        """
+        if self.mention == self.Mention.ROLE:
+            if self.guild is None:
+                return ""
+            return " ".join(f"<@&{role_id}>" for role_id in self.guild.discord_role_ids)
         return {self.Mention.NONE: "", self.Mention.HERE: "@here", self.Mention.EVERYONE: "@everyone"}[
             self.Mention(self.mention)
         ]
+
+    @property
+    def announcement_category(self) -> str:
+        """The auto-derived headline used as the title everywhere (email + push + bell + Discord).
+
+        Guild → ``"<Guild> Announcement"``; class → ``"Class Announcement"`` (the class title rides
+        as a subline in the email); site → ``"Makerspace Announcement"``. When the send is marked
+        urgent, ``"Urgent: "`` leads the title. There is no member-typed subject — this is it.
+        """
+        if self.audience == self.Audience.CLASS:
+            base = "Class Announcement"
+        elif self.audience == self.Audience.GUILD and self.guild is not None:
+            base = f"{self.guild.name} Announcement"
+        else:
+            base = "Makerspace Announcement"
+        return f"Urgent: {base}" if self.mark_as_urgent else base
+
+    def _email_subline(self) -> str:
+        """The line under the category in the email — the class title for a class announcement."""
+        if self.audience == self.Audience.CLASS and self.class_offering is not None:
+            return self.class_offering.title
+        return ""
+
+    def _sender_line(self) -> str:
+        """The "From <name>" the email shows when :attr:`show_sender` is on (never in push)."""
+        if not self.show_sender:
+            return ""
+        return self.author.get_full_name() or self.author.get_username()
+
+    def _trigger_kind(self) -> str:
+        """The notification event key for this audience — the one vocabulary shared by copy + prefs."""
+        if self.audience == self.Audience.GUILD:
+            return "guild_announcement"
+        if self.audience == self.Audience.CLASS:
+            return "class_announcement"
+        return "site_announcement"
+
+    def _in_app_message(self, base_url: str) -> "Message":
+        """The in-app bell / Discord :class:`Message` — the category title + the flattened body."""
+        from core.events.channels import Message
+        from core.html_sanitize import rich_html_to_text
+
+        return Message(
+            title=self.title, body=rich_html_to_text(self.body), url=base_url, trigger_kind=self._trigger_kind()
+        )
+
+    def _push_override(self, base_url: str) -> "Message":
+        """The phone-notification :class:`Message` — the category title + the short push line.
+
+        The push line is the author's custom :attr:`push_message` when set, else the flattened
+        message body (the phone caps it). No "From" line — push leads with the category title.
+        """
+        from core.events.channels import Message
+        from core.html_sanitize import rich_html_to_text
+
+        text = (self.push_message or "").strip() or rich_html_to_text(self.body)
+        return Message(title=self.title, body=text, url=base_url, trigger_kind=self._trigger_kind())
+
+    def _channel_overrides(self, base_url: str) -> "dict[Channel, Message]":
+        """Per-channel Message overrides handed to ``emit`` — every channel leads with the category.
+
+        With no member-typed subject, the auto category is the title on the in-app bell, push,
+        Discord embed, and email, so nothing falls back to the copy catalogue's guild-name-prefixed
+        default. Email additionally carries the class subline + optional "From" line.
+        """
+        from core.events.channels import Channel
+
+        in_app = self._in_app_message(base_url)
+        return {
+            Channel.IN_APP: in_app,
+            Channel.PUSH: self._push_override(base_url),
+            Channel.DISCORD: in_app,
+            Channel.EMAIL: self.build_email_message(base_url),
+        }
 
     def build_email_message(self, base_url: str) -> "Message":
         """The branded EMAIL :class:`Message` for this draft — the Step-2 preview *is* this.
@@ -3549,13 +3715,20 @@ class AnnouncementDraft(models.Model):
         from core.html_sanitize import rich_html_to_text
 
         body_text = rich_html_to_text(self.body)
-        trigger = "guild_announcement" if self.audience == self.Audience.GUILD else "site_announcement"
+        subline = self._email_subline()
+        sender = self._sender_line()
+        text_parts = [self.title]
+        if subline:
+            text_parts.append(subline)
+        if sender:
+            text_parts.append(f"From {sender}")
+        text_parts.append(body_text)
         return Message(
             title=self.title,
-            body=f"{self.title}\n\n{body_text}\n\n{base_url}",
+            body="\n\n".join(text_parts) + f"\n\n{base_url}",
             url=base_url,
-            html_body=build_announcement_email_html(self.title, self.body),
-            trigger_kind=trigger,
+            html_body=build_announcement_email_html(self.title, self.body, subline=subline, sender=sender),
+            trigger_kind=self._trigger_kind(),
         )
 
     def recipient_count(self) -> int:
@@ -3569,6 +3742,9 @@ class AnnouncementDraft(models.Model):
 
         if self.audience == self.Audience.GUILD:
             return len(resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}))
+        if self.audience == self.Audience.CLASS:
+            offering = cast("ClassOffering", self.class_offering)
+            return len(offering.announcement_recipients(include_waitlist=self.include_waitlist))
         return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
 
     @classmethod
@@ -3588,17 +3764,27 @@ class AnnouncementDraft(models.Model):
         draft.author = author
         draft.audience = cd["audience"]
         draft.guild = cd.get("guild")
-        draft.title = cd["title"]
+        draft.class_offering = cd.get("class_offering")
         draft.body = cd["body"]  # already sanitized by the form's clean_body
+        draft.push_message = cd.get("push_message") or ""
+        draft.push_enabled = cd.get("push_enabled", True)
         draft.send_email = cd["send_email"]
+        draft.discord_enabled = cd.get("discord_enabled", True)
         draft.mark_as_urgent = cd.get("mark_as_urgent", False)
+        draft.show_sender = cd.get("show_sender", True)
+        draft.include_waitlist = cd.get("include_waitlist", False)
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
-        draft.email_recipient_selection = cd.get("email_recipient_selection") or {}
+        draft.recipient_selection = cd.get("recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
         draft.mention = cd["mention"]
         draft.expires_at = cd.get("expires_at")
         if draft.audience == cls.Audience.GUILD and draft.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
+        if draft.audience == cls.Audience.CLASS and draft.class_offering is None:
+            raise ValidationError("Choose a class for this announcement.")
+        # There is no member-typed subject: the title IS the auto category (audience + urgency),
+        # computed here once every field it depends on (audience/guild/class/urgent) is set.
+        draft.title = draft.announcement_category
         draft.save()
         return draft
 
@@ -3608,9 +3794,9 @@ class AnnouncementDraft(models.Model):
         Guards, then branches on audience. A **site** send is emit-only (ephemeral). A
         **guild** send first materializes a published :class:`GuildAnnouncement` (so the
         post lands on the guild page, the edit list, and the slideshow), then reuses the
-        tested :meth:`GuildAnnouncement.notify_members` fan-out, mapping the saved
-        ``email_recipient_selection`` (intersected with the *current* roster so stale ids
-        can't resurrect) into the per-recipient subset + the narrowed custom addresses.
+        tested :meth:`GuildAnnouncement.notify_members` fan-out, passing the saved
+        ``recipient_selection`` as the explicit recipient set (bell + push + email) plus the
+        narrowed custom mailing-list addresses.
 
         Returns:
             An ``(emailed, total)`` pair for the post-send summary. ``total`` is the full
@@ -3627,7 +3813,6 @@ class AnnouncementDraft(models.Model):
         from django.core.exceptions import ValidationError
         from django.urls import reverse
 
-        from core.events.channels import Channel
         from core.events.emit import emit
         from core.html_sanitize import rich_html_to_text, sanitize_rich_html
         from membership.orientations import _absolute_url
@@ -3639,12 +3824,17 @@ class AnnouncementDraft(models.Model):
             raise ValidationError("Add a message before sending.")
         if self.audience == self.Audience.GUILD and self.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
+        if self.audience == self.Audience.CLASS and self.class_offering is None:
+            raise ValidationError("Choose a class for this announcement.")
 
-        mention_str = self._mention_literal()
+        discord_on = self.discord_enabled
+        mention_str = self._mention_literal() if discord_on else ""
+        recipient_ids = self._selected_recipient_ids()
+        suppress_push = not self.push_enabled
 
         if self.audience == self.Audience.SITE:
             site_url = _absolute_url("/")
-            webhook = resolve_channel_webhook(self.discord_channel, None)
+            webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
             result = emit(
                 "site_announcement",
                 actor=self.author,
@@ -3657,18 +3847,52 @@ class AnnouncementDraft(models.Model):
                 },
                 url=site_url,
                 period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
-                messages={Channel.EMAIL: self.build_email_message(site_url)},
+                messages=self._channel_overrides(site_url),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
+                suppress_push=suppress_push,
+                recipient_user_ids=recipient_ids,
                 discord_mention=mention_str,
                 override_preferences=self.mark_as_urgent,
             )
             total = result.recipient_count
             counts = (total if self.send_email else 0, total)
+        elif self.audience == self.Audience.CLASS:
+            # Scoped to the class roster: confirmed registrants (and waitlisted ones when the
+            # sender opted in). A registrant with a linked account gets the in-app bell + push +
+            # email; an email-only registrant (guest checkout, no account) rides the EMAIL channel
+            # only, via ``extra_emails``. No durable post and no Discord broadcast — a class
+            # announcement is a direct notice to the roster, not a public page post. The roster is
+            # passed explicitly (never the resolver default) so email-only + waitlist are honored.
+            offering = cast("ClassOffering", self.class_offering)  # the guard above guarantees a class
+            class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+            class_user_ids, class_emails = self._class_recipients()
+            result = emit(
+                "class_announcement",
+                actor=self.author,
+                context={
+                    "class_name": offering.title,
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_text(body_html),
+                    "class_url": class_url,
+                    "class_offering": offering,
+                },
+                url=class_url,
+                period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
+                messages=self._channel_overrides(class_url),
+                suppress_email=not self.send_email,
+                suppress_push=suppress_push,
+                recipient_user_ids=class_user_ids,
+                extra_emails=class_emails or None,
+                override_preferences=self.mark_as_urgent,
+            )
+            total = len(class_user_ids) + len(class_emails)
+            counts = (total if self.send_email else 0, total)
         else:
             guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
             guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
-            selected_user_ids, selected_custom_emails, counts = self._guild_email_selection(guild)
+            total = len(recipient_ids) if recipient_ids is not None else len(guild.announcement_recipients())
+            counts = (total if self.send_email else 0, total)
             announcement = GuildAnnouncement.objects.create(
                 guild=guild,
                 author=self.author,
@@ -3679,13 +3903,14 @@ class AnnouncementDraft(models.Model):
                 body=rich_html_to_text(body_html),
                 expires_at=self.expires_at,
                 send_email=self.send_email,
-                discord_channel=self.discord_channel,
+                discord_channel=self.discord_channel if discord_on else GuildAnnouncement.DiscordChannel.NONE,
             )
             announcement.notify_members(
                 discord_mention=mention_str,
-                email_message=self.build_email_message(guild_url),
-                selected_user_ids=selected_user_ids,
-                selected_custom_emails=selected_custom_emails,
+                channel_messages=self._channel_overrides(guild_url),
+                recipient_user_ids=recipient_ids,
+                selected_custom_emails=self._selected_custom_emails(),
+                suppress_push=suppress_push,
                 override_preferences=self.mark_as_urgent,
             )
 
@@ -3693,40 +3918,56 @@ class AnnouncementDraft(models.Model):
         self.save(update_fields=["sent_at", "updated_at"])
         return counts
 
-    def _guild_email_selection(self, guild: "Guild") -> "tuple[set[int] | None, list[str] | None, tuple[int, int]]":
-        """Resolve the saved selection against the guild's *current* roster (guild-send helper).
+    def _selected_recipient_ids(self) -> "set[int] | None":
+        """The explicit member recipient set (bell + push + email) from the saved selection.
 
-        Returns ``(selected_user_ids, selected_custom_emails, (emailed, total))``:
-
-        * An **absent/empty** ``email_recipient_selection`` means "everyone" → ``(None, None, …)``
-          so :meth:`GuildAnnouncement.notify_members` emails the full roster (byte-identical to
-          the pre-feature send). A **present** selection is intersected with the live roster so a
-          member who left or a deleted custom row can't resurrect.
-        * ``total`` counts the guild's members + its deduped custom addresses (the checklist);
-          ``emailed`` is that total when no selection was made, the chosen subset when one was,
-          and ``0`` when email is off (the selection is moot then).
+        ``None`` when the sender kept the whole audience (the empty/default selection), so the
+        send path falls through to the event resolver's roster. A present ``users`` list is the
+        FINAL set the sender chose — roster minus any removals, plus any manually-added member
+        (even one off the guild/class roster). Non-existent ids are dropped downstream by
+        :func:`emit` (its ``User.objects.filter``), so no roster intersection is needed here.
         """
-        member_recipients = guild.announcement_recipients()
-        member_ids = {user.pk for user, _reason in member_recipients}
-        member_emails = {(user.email or "").strip().lower() for user, _reason in member_recipients}
-        all_custom = guild.mailing_list_emails_deduped(member_emails)
-        total = len(member_recipients) + len(all_custom)
+        users = (self.recipient_selection or {}).get("users") or []
+        return {int(pk) for pk in users} or None
 
-        selection = self.email_recipient_selection or {}
+    def _selected_custom_emails(self) -> "list[str] | None":
+        """The email-only custom addresses (a guild mailing list) from the saved selection.
+
+        ``None`` (the default) sends the guild's FULL custom list; a present list narrows it.
+        These are addresses, not members, so they only ever ride the EMAIL channel.
+        """
+        custom = (self.recipient_selection or {}).get("custom")
+        return [str(addr).lower() for addr in custom] if custom else None
+
+    def _class_recipients(self) -> "tuple[set[int], list[str]]":
+        """The class send's final ``(member user-pks, email-only addresses)`` pair.
+
+        Starts from the class roster (:meth:`ClassOffering.announcement_recipients`, waitlist-aware
+        via :attr:`include_waitlist`) and applies the saved ``recipient_selection``: an empty
+        selection sends the WHOLE roster; an explicit selection sends exactly its ``users`` +
+        ``custom`` addresses (already validated against the roster / member list at clean time).
+        Members ride the in-app bell + push + email; email-only addresses ride EMAIL only.
+        """
+        offering = cast("ClassOffering", self.class_offering)
+        roster_user_ids: set[int] = set()
+        roster_emails: list[str] = []
+        seen: set[str] = set()
+        for registration in offering.announcement_recipients(include_waitlist=self.include_waitlist):
+            member = registration.member
+            user = member.user if (member is not None and member.user is not None) else None
+            if user is not None:
+                roster_user_ids.add(user.pk)
+                continue
+            address = (registration.email or "").strip().lower()
+            if address and address not in seen:
+                seen.add(address)
+                roster_emails.append(address)
+        selection = self.recipient_selection or {}
         if not selection:
-            selected_user_ids: set[int] | None = None
-            selected_custom_emails: list[str] | None = None
-            chosen = total
-        else:
-            selected_user_ids = {int(pk) for pk in selection.get("users", [])} & member_ids
-            custom_set = set(all_custom)
-            selected_custom_emails = [
-                addr.lower() for addr in selection.get("custom", []) if addr.lower() in custom_set
-            ]
-            chosen = len(selected_user_ids) + len(selected_custom_emails)
-
-        emailed = chosen if self.send_email else 0
-        return selected_user_ids, selected_custom_emails, (emailed, total)
+            return roster_user_ids, roster_emails
+        user_ids = {int(pk) for pk in selection.get("users") or []}
+        custom_emails = [str(addr).strip().lower() for addr in (selection.get("custom") or [])]
+        return user_ids, custom_emails
 
 
 class GuildMeetingNote(models.Model):

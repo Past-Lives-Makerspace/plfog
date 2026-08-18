@@ -12,7 +12,6 @@ from plfog.admin_views import (
     member_aliases_remove,
     member_aliases_set_primary,
     member_aliases_toggle_verified,
-    site_announcement,
 )
 
 # Swap the stock admin password login for a redirect/deny. MUST run before
@@ -22,7 +21,6 @@ install_admin_login_redirect()
 # Custom admin URLs must be before admin.site.urls
 admin_custom_urls = [
     path("admin/membership/member/invite/", invite_member, name="admin_invite_member"),
-    path("admin/announcement/", site_announcement, name="admin_site_announcement"),
     path(
         "admin/members/<int:pk>/aliases/",
         member_aliases,

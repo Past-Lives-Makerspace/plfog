@@ -62,7 +62,7 @@ from the page context to re-open + repopulate the note on a server-side validati
                 </div>
                 {% endif %}
                 <div class="pl-modal__actions" style="margin-top:1rem;">
-                    <button type="submit" class="pl-btn pl-btn--{% if kind == 'decline' %}danger{% else %}primary{% endif %}" style="flex:1;">
+                    <button type="submit" class="pl-btn pl-btn--{% if kind == 'decline' %}danger{% elif kind == 'approve' %}success{% else %}primary{% endif %}" style="flex:1;">
                         {% if kind == "approve" %}Approve &amp; post{% elif kind == "changes" %}Send back{% else %}Decline{% endif %}
                     </button>
                     <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>

@@ -220,7 +220,7 @@ body {
     background-color: rgba(255, 255, 255, 0.06);
 }
 
-.pl-badge--beta {
+.pl-badge--version {
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -235,7 +235,7 @@ body {
     transition: background-color 0.15s ease;
 }
 
-.pl-badge--beta:hover {
+.pl-badge--version:hover {
     background-color: rgba(238, 180, 75, 0.3);
 }
 

@@ -143,11 +143,13 @@
         </section>
         {% endif %}
 
-        {% if announcements or user.is_authenticated and not can_edit_this_guild %}
+        {% if announcements or user.is_authenticated %}
         <section class="pl-guild-section">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
                 <h2 class="pl-guild-section__h2" style="margin:0;">Announcements</h2>
-                {% if user.is_authenticated and not can_edit_this_guild %}
+                {% if can_edit_this_guild %}
+                <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}&amp;lock=1" class="hub-btn hub-btn--sm hub-btn--primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:0.35rem;vertical-align:-2px;"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Send Announcement</a>
+                {% elif user.is_authenticated %}
                 <a href="{% url 'hub_guild_announcement_propose' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm">+ Suggest an announcement</a>
                 {% endif %}
             </div>
@@ -161,6 +163,8 @@
                 </div>
                 {% endfor %}
             </div>
+            {% elif can_edit_this_guild %}
+            <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet. Use Send Announcement to post one.</p>
             {% else %}
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet — be the first to suggest one.</p>
             {% endif %}

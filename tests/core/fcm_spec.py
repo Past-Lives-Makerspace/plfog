@@ -30,7 +30,8 @@ def describe_send_fcm():
         device = _device(user)
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
-            fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+        assert result is True
         assert route.called
         request = route.calls.last.request
         assert request.headers["Authorization"] == "Bearer access-tok"
@@ -41,28 +42,32 @@ def describe_send_fcm():
         device = _device(user, token="dead")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             respx.post(_FCM_URL).mock(return_value=httpx.Response(404, json={"error": {"status": "UNREGISTERED"}}))
-            fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+        assert result is False
         assert not FcmDevice.objects.filter(pk=device.pk).exists()
 
     def it_keeps_device_on_other_http_error(user):
         device = _device(user, token="keep")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             respx.post(_FCM_URL).mock(return_value=httpx.Response(500, text="boom"))
-            fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+        assert result is False
         assert FcmDevice.objects.filter(pk=device.pk).exists()
 
     def it_swallows_transport_errors_without_deleting(user):
         device = _device(user, token="net")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             respx.post(_FCM_URL).mock(side_effect=httpx.ConnectError("down"))
-            fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+        assert result is False
         assert FcmDevice.objects.filter(pk=device.pk).exists()
 
     def it_noops_when_credentials_unconfigured(user):
         device = _device(user)
         with patch("core.fcm._access_token_and_project", return_value=None), respx.mock:
             route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200))
-            fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+        assert result is False
         assert not route.called
 
 

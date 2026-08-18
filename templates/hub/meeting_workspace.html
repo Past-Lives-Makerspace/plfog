@@ -288,12 +288,12 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
   <div class="pl-meeting-footer" :class="dimClass()">
     {% if pending_proposals %}
     {# Pending proposals still open — load the lock-time disposition modal to decide each. #}
-    <button type="button" class="pl-btn pl-btn--primary"
+    <button type="button" class="pl-btn pl-btn--success"
             @click="$dispatch('open-modal', 'lock-disposition')"
             hx-get="{% url 'hub_meeting_approve' meeting.pk %}"
             hx-target="#lock-disposition-body" hx-swap="innerHTML">Approve minutes</button>
     {% else %}
-    <button type="button" class="pl-btn pl-btn--primary"
+    <button type="button" class="pl-btn pl-btn--success"
             @click="$dispatch('open-confirm', 'approve-meeting')">Approve minutes</button>
     {% endif %}
     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
@@ -301,9 +301,9 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     {% if not pending_proposals %}
     {% url 'hub_meeting_approve' meeting.pk as approve_url %}
     {% if meeting.guild %}
-    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. Guild members will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="primary" %}
+    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. Guild members will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="success" %}
     {% else %}
-    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. All guild leads will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="primary" %}
+    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. All guild leads will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="success" %}
     {% endif %}
     {% endif %}
     {% url 'hub_meeting_delete' meeting.pk as delete_url %}

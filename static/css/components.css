@@ -687,15 +687,17 @@
    Buttons
    ======================================== */
 .pl-btn {
+    box-sizing: border-box;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     padding: 0.5rem 1.25rem;
-    border: none;
+    border: 1px solid transparent;
     border-radius: 6px;
     font-size: 0.875rem;
     font-weight: 600;
+    line-height: 1.2;
     cursor: pointer;
     transition: background-color 0.15s ease;
     white-space: nowrap;
@@ -728,6 +730,15 @@
 
 .pl-btn--danger:hover {
     background: #ef4444;
+}
+
+.pl-btn--success {
+    background: #2f8f4e;
+    color: #fff;
+}
+
+.pl-btn--success:hover {
+    background: #37a259;
 }
 
 .pl-btn--sm {

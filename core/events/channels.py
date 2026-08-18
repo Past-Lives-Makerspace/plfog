@@ -35,6 +35,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from django.utils.text import Truncator
+
 from core.email import send as send_email
 from core.events import discord as discord_module
 from core.events import discord_dm as discord_dm_module
@@ -177,6 +179,22 @@ class EmailAdapter:
         )
 
 
+# A push shows a short bold title over a one-line body in the notification tray. Cap
+# both generously — the OS truncates anyway, but a clean word-boundary ellipsis reads
+# better than a hard mid-word cut, and it keeps a stray essay out of the tray.
+_PUSH_TITLE_LIMIT = 80
+_PUSH_BODY_LIMIT = 200
+
+
+def _push_safe(title: str, body: str) -> tuple[str, str]:
+    """Flatten copy to a single tag-free line and cap it for the notification tray."""
+    from core.html_sanitize import rich_html_to_text
+
+    flat_title = rich_html_to_text(title) or title
+    flat_body = rich_html_to_text(body)
+    return Truncator(flat_title).chars(_PUSH_TITLE_LIMIT), Truncator(flat_body).chars(_PUSH_BODY_LIMIT)
+
+
 class PushAdapter:
     """Sends a push to every one of the user's devices.
 
@@ -190,11 +208,15 @@ class PushAdapter:
     is_broadcast = False
 
     def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
-        # Push carries no file attachments.
+        # A push renders as one tray line: no HTML, no multi-paragraph body. Flatten
+        # any rich/multi-line copy (an announcement body is sanitized HTML) to a single
+        # clean line and cap both fields so the OS shows a tidy ellipsis instead of a
+        # hard mid-word cut. Push carries no file attachments.
+        title, body = _push_safe(message.title, message.body)
         for sub in PushSubscription.objects.filter(user=user):
-            send_web_push(sub, title=message.title, body=message.body, url=message.url)
+            send_web_push(sub, title=title, body=body, url=message.url)
         for device in FcmDevice.objects.filter(user=user):
-            send_fcm(device, title=message.title, body=message.body, url=message.url)
+            send_fcm(device, title=title, body=body, url=message.url)
 
 
 class _ShellAdapter:

@@ -5,11 +5,17 @@ Parameters (pass via {% include ... with %}):
   field              — required, Django BooleanField
   toggle_label       — optional, display label text
   toggle_description — optional, description below label
+  toggle_help        — optional, help text shown in a hover/focus tooltip beside the label
+                       (use instead of toggle_description to keep the row compact)
 {% endcomment %}
 <div class="pl-toggle-row">
     {% if toggle_label %}
     <div class="pl-toggle-info">
-        <div class="pl-toggle-label">{{ toggle_label }}</div>
+        <div class="pl-toggle-label">{{ toggle_label }}{% if toggle_help %}
+            <span class="pl-help" tabindex="0" aria-label="More information">
+                <span class="pl-help__icon" aria-hidden="true">?</span>
+                <span class="pl-help__bubble" role="tooltip">{{ toggle_help }}</span>
+            </span>{% endif %}</div>
         {% if toggle_description %}
         <div class="pl-toggle-desc">{{ toggle_description }}</div>
         {% endif %}

@@ -48,6 +48,7 @@ _BRAND_NEW_KEYS = {
     "meeting.council_minutes_approved",
     "discount_code.requested",
     "billing.charge_failed_admin",
+    "class_announcement",
 }
 
 

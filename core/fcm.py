@@ -52,11 +52,16 @@ def _access_token_and_project() -> tuple[str, str] | None:
     return credentials.token, project_id
 
 
-def send_fcm(device: FcmDevice, *, title: str, body: str, url: str) -> None:
-    """Send one notification to one device token. Reaps the device on 404 (unregistered)."""
+def send_fcm(device: FcmDevice, *, title: str, body: str, url: str) -> bool:
+    """Send one notification to one device token. Reaps the device on 404 (unregistered).
+
+    Returns True when FCM accepted the message, False on any failure — missing
+    credentials, a transport error, or a rejected/unregistered token. The boolean lets
+    the admin push-test tool report a real delivered tally; the event spine ignores it.
+    """
     auth = _access_token_and_project()
     if auth is None:
-        return
+        return False
     token, project_id = auth
     payload = {
         "message": {
@@ -74,9 +79,12 @@ def send_fcm(device: FcmDevice, *, title: str, body: str, url: str) -> None:
         )
     except httpx.HTTPError as exc:
         logger.warning("Push to device %s failed: %s", device.pk, exc)
-        return
+        return False
     if response.status_code == 404:
         device.delete()
         logger.info("Reaped unregistered FCM device %s (HTTP 404).", device.pk)
-    elif response.status_code >= 400:
+        return False
+    if response.status_code >= 400:
         logger.warning("Push to device %s failed: HTTP %s %s", device.pk, response.status_code, response.text)
+        return False
+    return True

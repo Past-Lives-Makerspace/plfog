@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import HttpRequest
 
+    from classes.models import ClassOffering
+
 from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
@@ -495,7 +497,7 @@ class SkillSuggestionForm(forms.Form):
 
 
 class BetaFeedbackForm(forms.Form):
-    """Form for submitting beta feedback (bug reports, feature requests, general feedback)."""
+    """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 
     CATEGORY_CHOICES = [
         ("bug", "Bug Report"),
@@ -520,7 +522,7 @@ class BetaFeedbackForm(forms.Form):
         from core.email import send as send_email
 
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
-        subject = f"[Beta {category_label}] {self.cleaned_data['subject']}"
+        subject = f"[{category_label}] {self.cleaned_data['subject']}"
         body = (
             f"From: {user.get_full_name() or user.email} ({user.email})\n"
             f"Category: {category_label}\n\n"
@@ -2124,54 +2126,56 @@ class GuildAnnouncementDecisionForm(forms.Form):
         return cleaned
 
 
-class SiteAnnouncementForm(forms.Form):
-    """Admin form to broadcast a site-wide announcement to activated members.
+class PushTestForm(forms.Form):
+    """Admin push-test lookup — an email that must resolve to a real account.
 
-    Drives the **Django-admin** composer (``plfog.admin_views.site_announcement`` at
-    ``/admin/announcement/``) — a separate surface from the hub compose wizard. ``body``
-    accepts simple HTML (paragraphs / links) — it rides into the branded email shell.
+    Backs ``/admin/push-test/``: on a valid submit the resolved ``User`` lands in
+    ``cleaned_data["user"]`` for the view to inspect or fire a test push at.
     """
 
-    title = forms.CharField(max_length=300, label="Subject")
-    body = forms.CharField(
-        widget=RichTextEditorWidget(attrs={"rows": 10}),
-        label="Message",
-        help_text="Use the toolbar to format — bold, headings, lists, and links. The formatted version "
-        "goes out by email; the bell and Discord get a plain-text version.",
-    )
-    post_to_discord = forms.BooleanField(
-        required=False,
-        initial=True,
-        label="Also post to Discord",
-        help_text="Leave on for normal announcements. Turn OFF when sending the release notes — "
-        "the release is already posted to Discord automatically when the code goes live.",
+    email = forms.EmailField(
+        label="Member email",
+        help_text="The member to check. Their sign-in email or any linked alias works.",
     )
 
-    def clean_body(self) -> str:
-        body = sanitize_rich_html(self.cleaned_data["body"])
-        if not body:
-            raise forms.ValidationError("Add a message before sending.")
-        return body
+    def clean(self) -> dict[str, Any]:
+        from core.push_admin import resolve_user
+
+        cleaned = cast(dict[str, Any], super().clean())
+        email = cleaned.get("email")
+        if email:
+            user = resolve_user(email)
+            if user is None:
+                self.add_error("email", "No account found with that email.")
+            else:
+                cleaned["user"] = user
+        return cleaned
 
 
-def split_audience(raw: str) -> tuple[str, Guild | None]:
-    """Split the combined compose audience value into ``(audience, guild)``.
+def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]":
+    """Split the combined compose audience value into ``(audience, guild, class_offering)``.
 
     The wizard's single ``<select name="audience">`` carries one value per option —
-    ``"site"`` for everyone, or ``"guild:<pk>"`` for a specific guild — so the UI stays
-    one control while the model keeps its two fields (``audience`` + ``guild``). A
-    ``"guild:<pk>"`` whose pk doesn't resolve returns ``(GUILD, None)`` (the form / view
-    then reject it). An unrecognized value returns ``("", None)``.
+    ``"site"`` for everyone, ``"guild:<pk>"`` for a guild's members, or ``"class:<pk>"``
+    for a class's confirmed roster — so the UI stays one control while the model keeps its
+    separate ``audience`` / ``guild`` / ``class_offering`` fields. A ``"guild:<pk>"`` or
+    ``"class:<pk>"`` whose pk doesn't resolve returns the audience with a ``None`` target
+    (the form / view then reject it). An unrecognized value returns ``("", None, None)``.
     """
+    from classes.models import ClassOffering
     from membership.models import AnnouncementDraft
 
     if raw == AnnouncementDraft.Audience.SITE.value:
-        return AnnouncementDraft.Audience.SITE.value, None
+        return AnnouncementDraft.Audience.SITE.value, None, None
     if raw.startswith("guild:"):
         pk = raw.split(":", 1)[1]
         guild = Guild.objects.filter(pk=pk).first() if pk.isdigit() else None
-        return AnnouncementDraft.Audience.GUILD.value, guild
-    return "", None
+        return AnnouncementDraft.Audience.GUILD.value, guild, None
+    if raw.startswith("class:"):
+        pk = raw.split(":", 1)[1]
+        offering = ClassOffering.objects.filter(pk=pk).first() if pk.isdigit() else None
+        return AnnouncementDraft.Audience.CLASS.value, None, offering
+    return "", None, None
 
 
 def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
@@ -2184,32 +2188,76 @@ def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
     channels = GuildAnnouncement.DiscordChannel
     from membership.models import AnnouncementDraft
 
+    if audience == AnnouncementDraft.Audience.CLASS.value:
+        # A class announcement is a direct notice to enrolled students — it never posts to
+        # Discord, so the picker is absent (the send path ignores the channel for this audience).
+        return []
     if audience == AnnouncementDraft.Audience.GUILD.value:
         return list(channels.choices)
     return [(channel.value, channel.label) for channel in channels if channel != channels.GUILD]
 
 
-def announcement_recipient_choices(audience: str, guild: Guild | None) -> list[tuple[str, str]]:
-    """The email recipient checklist choices for an audience — members + custom addresses.
+def _member_choice(user: Any) -> tuple[str, str]:
+    """One ``("user:<pk>", "<name> · <email>")`` recipient checkbox row for ``user``."""
+    return (f"user:{user.pk}", f"{(user.get_full_name() or user.get_username()).strip()} · {user.email}")
 
-    A **guild** audience yields one ``("user:<pk>", "<name> · <email>")`` per emailable member
-    (single-sourced from :meth:`Guild.announcement_recipients`, the exact send fan-out) followed
-    by one ``("custom:<addr>", "<addr>")`` per deduped custom mailing-list address. A **site**
-    audience (or a missing guild) yields ``[]`` — site announcements have no per-recipient
-    checklist and keep all-subscribers, so the checklist card is absent there.
+
+def announcement_recipient_choices(
+    audience: str, guild: Guild | None, offering: Any = None, *, include_waitlist: bool = False
+) -> list[tuple[str, str]]:
+    """The recipient checklist choices for an audience — who gets the bell + push + email.
+
+    A **guild** audience yields one ``("user:<pk>", "<name> · <email>")`` per member (from
+    :meth:`Guild.announcement_recipients`, the exact fan-out) followed by one
+    ``("custom:<addr>", "<addr>")`` per deduped custom mailing-list address (email-only). A
+    **class** audience yields one row per confirmed registrant (plus waitlisted ones when
+    ``include_waitlist`` is set): a registrant with a linked account is a ``user:<pk>`` row (bell +
+    push + email); an email-only registrant (guest checkout, no account) is a ``custom:<addr>`` row
+    (email only). A **site** audience yields ``[]`` — every member, too many to render as a
+    checklist (the recipient card is absent there).
     """
     from membership.models import AnnouncementDraft
 
-    if audience != AnnouncementDraft.Audience.GUILD.value or guild is None:
-        return []
-    recipients = guild.announcement_recipients()
-    member_emails = {(user.email or "").strip().lower() for user, _reason in recipients}
-    choices = [
-        (f"user:{user.pk}", f"{(user.get_full_name() or user.get_username()).strip()} · {user.email}")
-        for user, _reason in recipients
-    ]
-    choices += [(f"custom:{addr}", addr) for addr in guild.mailing_list_emails_deduped(member_emails)]
-    return choices
+    if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None:
+        recipients = guild.announcement_recipients()
+        member_emails = {(user.email or "").strip().lower() for user, _reason in recipients}
+        choices = [_member_choice(user) for user, _reason in recipients]
+        choices += [(f"custom:{addr}", addr) for addr in guild.mailing_list_emails_deduped(member_emails)]
+        return choices
+    if audience == AnnouncementDraft.Audience.CLASS.value and offering is not None:
+        from classes.models import Registration
+
+        class_choices: list[tuple[str, str]] = []
+        seen_emails: set[str] = set()
+        for registration in offering.announcement_recipients(include_waitlist=include_waitlist):
+            suffix = " (waitlist)" if registration.status == Registration.Status.WAITLISTED else ""
+            member = registration.member
+            user = member.user if (member is not None and member.user is not None) else None
+            if user is not None:
+                value, label = _member_choice(user)
+                class_choices.append((value, f"{label}{suffix}"))
+                continue
+            address = (registration.email or "").strip().lower()
+            if not address or address in seen_emails:
+                continue
+            seen_emails.add(address)
+            name = f"{registration.first_name} {registration.last_name}".strip()
+            display = f"{name} · {registration.email}" if name else registration.email
+            class_choices.append((f"custom:{address}", f"{display}{suffix}"))
+        return class_choices
+    return []
+
+
+def announcement_add_member_choices() -> list[tuple[str, str]]:
+    """Every active linked member as ``("user:<pk>", "<name> · <email>")`` — the "add anyone" list.
+
+    Backs the composer's member-search datalist so a sender can add ANY member to the recipient
+    set, even one outside the guild/class roster.
+    """
+    from django.contrib.auth.models import User
+
+    members = User.objects.filter(is_active=True, member__isnull=False).order_by("first_name", "last_name", "username")
+    return [_member_choice(user) for user in members]
 
 
 class _RecipientChoiceField(forms.MultipleChoiceField):
@@ -2237,7 +2285,6 @@ class AnnouncementComposeForm(forms.Form):
     """
 
     audience = forms.ChoiceField(label="Who is this for?")
-    title = forms.CharField(max_length=300, label="Subject")
     body = forms.CharField(
         widget=RichTextEditorWidget(attrs={"rows": 10}),
         required=False,
@@ -2245,23 +2292,39 @@ class AnnouncementComposeForm(forms.Form):
         help_text="Format with the toolbar — the formatted version goes out by email; "
         "the bell and Discord get a plain-text version.",
     )
-    send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
+    push_message = forms.CharField(
+        required=False,
+        max_length=180,
+        label="Push Notification Message",
+        widget=forms.Textarea(attrs={"rows": 2, "maxlength": "180"}),
+        help_text="Max 180 characters.",
+    )
+    push_enabled = forms.BooleanField(required=False, initial=True, label="Send push notification")
+    send_email = forms.BooleanField(required=False, initial=True, label="Send email")
+    discord_enabled = forms.BooleanField(required=False, initial=True, label="Post to Discord")
     mark_as_urgent = forms.BooleanField(
         required=False,
         initial=False,
         label="Mark as urgent",
         help_text="Sends the email as transactional, overriding user email preferences.",
     )
-    email_recipients = _RecipientChoiceField(
+    show_sender = forms.BooleanField(required=False, initial=True, label="Show who it's from")
+    include_waitlist = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Also include the waitlist",
+        help_text="Class announcements only — send to waitlisted registrants too, not just confirmed ones.",
+    )
+    recipients = _RecipientChoiceField(
         required=False,
         widget=forms.CheckboxSelectMultiple,
-        label="Email recipients",
+        label="Recipients",
     )
-    discord_channel = forms.ChoiceField(required=False, widget=ChannelRadioSelect, label="Post to Discord channel")
+    discord_channel = forms.ChoiceField(required=False, widget=forms.Select, label="Discord channel")
     mention = forms.ChoiceField(
         required=False,
-        widget=forms.RadioSelect,
-        label="Ping members",
+        widget=forms.Select,
+        label="Ping",
     )
     expires_at = forms.DateField(
         required=False,
@@ -2275,6 +2338,7 @@ class AnnouncementComposeForm(forms.Form):
         *args: Any,
         is_admin: bool = False,
         editable_guilds: Any = None,
+        editable_classes: Any = None,
         config: SiteConfiguration | None = None,
         require_body: bool = False,
         **kwargs: Any,
@@ -2286,46 +2350,73 @@ class AnnouncementComposeForm(forms.Form):
         # must be rejected before an announcement actually goes out.
         self._require_body = require_body
         self._config = config or SiteConfiguration.load()
-        cast(forms.ChoiceField, self.fields["mention"]).choices = list(AnnouncementDraft.Mention.choices)
-
-        # Audience choices: "site" (admins only) + one option per editable guild.
+        # Audience choices: "site" (admins only) + one per editable guild + one per class you teach.
         choices: list[tuple[str, str]] = []
         if is_admin:
             choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
         choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
+        choices.extend((f"class:{offering.pk}", f"Class: {offering.title}") for offering in (editable_classes or []))
         cast(forms.ChoiceField, self.fields["audience"]).choices = choices
 
         # The raw audience currently in play (bound data > initial > first choice), split so
-        # the Discord picker + guild validation are scoped correctly on both GET and POST.
+        # the Discord picker + target validation are scoped correctly on both GET and POST.
         self.audience_value = self._raw_audience(choices)
-        self.current_audience, self.current_guild = split_audience(self.audience_value)
+        self.current_audience, self.current_guild, self.current_class = split_audience(self.audience_value)
 
-        # Email recipient checklist, scoped to the audience in play (empty for a site audience).
-        # Everyone is checked by default; a resumed draft's initial (if any) wins over the default.
-        self.recipient_choices = announcement_recipient_choices(self.current_audience, self.current_guild)
-        recipient_field = cast(_RecipientChoiceField, self.fields["email_recipients"])
+        # Recipient checklist (bell + push + email), scoped to the audience (empty for site).
+        # Everyone is checked by default; a resumed draft's initial wins. ``add_member_choices``
+        # is every member, for the "add anyone" search datalist. For a class, the "also include
+        # the waitlist" toggle expands the roster to waitlisted registrants too.
+        # Named ``waitlist_included`` (not ``include_waitlist``) so it does not shadow the
+        # declared ``include_waitlist`` BooleanField — the field stays reachable as
+        # ``form["include_waitlist"]`` for rendering; this is the resolved bool for scoping.
+        self.waitlist_included = self._raw_include_waitlist()
+        self.recipient_choices = announcement_recipient_choices(
+            self.current_audience, self.current_guild, self.current_class, include_waitlist=self.waitlist_included
+        )
+        self.add_member_choices = announcement_add_member_choices()
+        recipient_field = cast(_RecipientChoiceField, self.fields["recipients"])
         recipient_field.choices = self.recipient_choices
-        if not self.is_bound and "email_recipients" not in self.initial:
+        if not self.is_bound and "recipients" not in self.initial:
             recipient_field.initial = [value for value, _label in self.recipient_choices]
         recipient_field.widget.attrs.setdefault("class", "pl-recipient-checklist__box")
 
+        # Discord channel: a plain dropdown of the CONFIGURED channels (+ "Don't post"), with the
+        # guild's own channel shown by its real #name when the sync command has fetched it.
+        self._configured_channels = _configured_discord_channels(self.current_guild, self._config)
         channel_field = cast(forms.ChoiceField, self.fields["discord_channel"])
-        channel_field.choices = discord_channel_choices(self.current_audience)
-        configured = _configured_discord_channels(self.current_guild, self._config)
-        widget = cast(ChannelRadioSelect, channel_field.widget)
-        widget.configured_channels = configured
-        if not self.is_bound:
-            channel_field.initial = _default_discord_channel(configured)
-            self.fields["mention"].initial = AnnouncementDraft.Mention.EVERYONE.value
+        channel_field.choices = self._discord_channel_dropdown_choices()
 
-        # Alpine bindings for the single-form stepper (the URL-bearing hx-get on the audience
-        # select is added at render time — the form must not reverse URLs). The @click opens the
-        # native date picker from the whole field (FRONTEND Rule 14).
+        # @mention picker. A guild whose Discord roles are configured can ping its own role(s)
+        # — labeled "@<Guild>", the recommended default — alongside @here / @everyone / no ping.
+        # Site announcements and role-less guilds keep the @everyone default. (Glass pings both
+        # of its roles, since discord_role_ids holds every configured role for the guild.)
+        mention_choices = [
+            (AnnouncementDraft.Mention.EVERYONE.value, "@everyone"),
+            (AnnouncementDraft.Mention.HERE.value, AnnouncementDraft.Mention.HERE.label),
+        ]
+        default_mention = AnnouncementDraft.Mention.EVERYONE.value
+        if self.current_guild is not None and self.current_guild.discord_role_ids:
+            mention_choices.append((AnnouncementDraft.Mention.ROLE.value, f"@{self.current_guild.name}"))
+            default_mention = AnnouncementDraft.Mention.ROLE.value
+        mention_choices.append((AnnouncementDraft.Mention.NONE.value, AnnouncementDraft.Mention.NONE.label))
+        cast(forms.ChoiceField, self.fields["mention"]).choices = mention_choices
+
+        if not self.is_bound:
+            channel_field.initial = self._default_dropdown_channel()
+            self.fields["mention"].initial = default_mention
+
+        # Alpine bindings for the two-phase composer (compose <-> preview). The URL-bearing hx-get
+        # on the audience select is added at render time (the form must not reverse URLs). The
+        # @click opens the native date picker from the whole field (FRONTEND Rule 14).
         self.fields["audience"].widget.attrs.setdefault("x-model", "audience")
-        self.fields["send_email"].widget.attrs.setdefault("x-model", "alsoEmail")
+        self.fields["push_enabled"].widget.attrs.setdefault("x-model", "pushOn")
+        self.fields["send_email"].widget.attrs.setdefault("x-model", "emailOn")
+        self.fields["discord_enabled"].widget.attrs.setdefault("x-model", "discordOn")
+        self.fields["mark_as_urgent"].widget.attrs.setdefault("x-model", "urgentOn")
+        self.fields["include_waitlist"].widget.attrs.setdefault("x-model", "includeWaitlist")
         self.fields["mention"].widget.attrs.setdefault("x-model", "mention")
-        # Track the chosen Discord channel so the @mention picker can hide when "Don't post".
-        widget.attrs.setdefault("@change", "discordChannel = $event.target.value")
+        channel_field.widget.attrs.setdefault("x-model", "discordChannel")
         self.fields["expires_at"].widget.attrs.setdefault(
             "@click", "try { $event.currentTarget.showPicker() } catch (e) {}"
         )
@@ -2339,14 +2430,50 @@ class AnnouncementComposeForm(forms.Form):
             return str(initial)
         return choices[0][0] if choices else ""
 
+    def _raw_include_waitlist(self) -> bool:
+        """Whether the waitlist is folded into the roster: bound data, else initial (default off).
+
+        Read the same way as the audience so the recipient checklist is built correctly on the
+        first GET, on the HTMX re-render when the toggle flips, and on the send POST.
+        """
+        if self.is_bound:
+            return bool(self.data.get("include_waitlist"))
+        return bool(self.initial.get("include_waitlist"))
+
     def clean_discord_channel(self) -> str:
         channel = cast(str, self.cleaned_data.get("discord_channel") or "")
         if not channel:
             return GuildAnnouncement.DiscordChannel.NONE.value
-        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
-        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
+        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in self._configured_channels:
             raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
         return channel
+
+    def _discord_channel_dropdown_choices(self) -> list[tuple[str, str]]:
+        """The Discord channel dropdown options: configured channels + "Don't post".
+
+        Only channels that are actually configured (a webhook set) appear, so the dropdown never
+        offers a dead option. The guild's own channel is relabeled with its real ``#name`` when
+        the ``sync_guild_discord_channels`` command has fetched it (else a generic fallback).
+        """
+        channels = GuildAnnouncement.DiscordChannel
+        result: list[tuple[str, str]] = []
+        for value, label in discord_channel_choices(self.current_audience):
+            if value == channels.NONE.value:
+                continue
+            if value not in self._configured_channels:
+                continue
+            if value == channels.GUILD.value and self.current_guild is not None:
+                label = self.current_guild.announcement_channel_label
+            result.append((value, label))
+        result.append((channels.NONE.value, channels.NONE.label))
+        return result
+
+    def _default_dropdown_channel(self) -> str:
+        """Preselect the first real configured channel, else "Don't post"."""
+        for value, _label in self._discord_channel_dropdown_choices():
+            if value != GuildAnnouncement.DiscordChannel.NONE.value:
+                return value
+        return GuildAnnouncement.DiscordChannel.NONE.value
 
     def clean_body(self) -> str:
         # Blank allowed while drafting; required (and always sanitized) when sending.
@@ -2359,41 +2486,59 @@ class AnnouncementComposeForm(forms.Form):
         from membership.models import AnnouncementDraft
 
         cleaned = cast(dict[str, Any], super().clean())
-        audience, guild = split_audience(cleaned.get("audience") or "")
+        audience, guild, offering = split_audience(cleaned.get("audience") or "")
         if not audience:
             raise forms.ValidationError("Choose who this announcement is for.")
         cleaned["audience"] = audience
         cleaned["guild"] = guild
+        cleaned["class_offering"] = offering
         if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
             self.add_error("audience", "Choose a guild for this announcement.")
+        if audience == AnnouncementDraft.Audience.CLASS.value and offering is None:
+            self.add_error("audience", "Choose a class for this announcement.")
         cleaned["mention"] = cleaned.get("mention") or AnnouncementDraft.Mention.NONE.value
+        cleaned["push_enabled"] = bool(cleaned.get("push_enabled"))
         cleaned["send_email"] = bool(cleaned.get("send_email"))
-        cleaned["email_recipient_selection"] = self._clean_email_recipients(cleaned, audience)
+        cleaned["discord_enabled"] = bool(cleaned.get("discord_enabled"))
+        cleaned["show_sender"] = bool(cleaned.get("show_sender"))
+        cleaned["include_waitlist"] = bool(cleaned.get("include_waitlist"))
+        cleaned["recipient_selection"] = self._clean_recipients(cleaned, audience)
         return cleaned
 
-    def _clean_email_recipients(self, cleaned: dict[str, Any], audience: str) -> dict[str, Any]:
-        """Turn the submitted checklist into the stored selection dict (see §5).
+    @property
+    def has_email_only_recipients(self) -> bool:
+        """True when any roster row is an email-only address (no linked app account).
 
-        Drops any submitted value no longer in the live roster (a roster can change between
-        render and submit — never error), then: an all-selected submission (nothing deselected)
-        collapses to ``{}`` = "everyone" (the default, so an unchanged send stays byte-identical);
-        any other submission stores ``{"users": [...], "custom": [...]}``. A guild send with email
-        on and *nothing* selected is the one hard error — "Select none" must never silently email
-        everyone (that footgun is why an empty selection is never stored as "all"). Empty is fine
-        when the roster itself is empty, or for a site audience (no checklist).
+        Drives the composer's "email only, no push/bell" note: a class guest registrant or a guild
+        custom mailing-list address can be reached by email but never by push or the in-app bell.
         """
-        from membership.models import AnnouncementDraft
+        return any(value.startswith("custom:") for value, _label in self.recipient_choices)
 
-        valid_values = {value for value, _label in self.recipient_choices}
-        chosen = [value for value in (cleaned.get("email_recipients") or []) if value in valid_values]
-        is_guild_email = audience == AnnouncementDraft.Audience.GUILD.value and cleaned["send_email"]
-        if is_guild_email and self.recipient_choices and not chosen:
-            self.add_error(None, "Pick at least one email recipient, or turn off Also send email.")
-        if set(chosen) == valid_values:
-            return {}  # nothing deselected (or an empty roster) → everyone, the default
+    def _clean_recipients(self, cleaned: dict[str, Any], audience: str) -> dict[str, Any]:
+        """Turn the submitted recipient checklist (+ any added members) into the stored selection.
+
+        Members (``user:<pk>``) may be ANY member — a roster row OR one added via the "add anyone"
+        search — so they validate against the full member list, not just the roster. Custom
+        (``custom:<addr>``) values validate against the guild's mailing-list addresses. An
+        unchanged submission (exactly the roster, nothing added or removed) collapses to ``{}`` =
+        "everyone in the audience" (the default); anything else stores ``{"users": [...],
+        "custom": [...]}``.
+        """
+        roster_values = {value for value, _label in self.recipient_choices}
+        addable_users = {value for value, _label in self.add_member_choices}
+        submitted = cleaned.get("recipients") or []
+        chosen_users = [v for v in submitted if v.startswith("user:") and v in (roster_values | addable_users)]
+        chosen_custom = [v for v in submitted if v.startswith("custom:") and v in roster_values]
+        chosen = chosen_users + chosen_custom
+
+        # Nothing chosen (an untouched or all-unchecked checklist — HTML omits unchecked boxes, so
+        # the two are indistinguishable) OR exactly the roster → ``{}`` = everyone in the audience,
+        # the default. Anything else (a subset, or an added off-roster member) is stored explicitly.
+        if not chosen or set(chosen) == roster_values:
+            return {}
         return {
-            "users": [int(value.split(":", 1)[1]) for value in chosen if value.startswith("user:")],
-            "custom": [value.split(":", 1)[1] for value in chosen if value.startswith("custom:")],
+            "users": [int(v.split(":", 1)[1]) for v in chosen_users],
+            "custom": [v.split(":", 1)[1] for v in chosen_custom],
         }
 
 
