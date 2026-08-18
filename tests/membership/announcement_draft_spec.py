@@ -183,14 +183,24 @@ def describe_AnnouncementDraft():
             _activated_member(username="g2")  # not in the guild
             assert AnnouncementDraft(audience=_GUILD, guild=guild).recipient_count() == 1
 
-        def it_counts_only_confirmed_linked_registrants_for_a_class_audience():
+        def it_counts_every_confirmed_registrant_including_guests_for_a_class_audience():
             offering = ClassOfferingFactory()
             _confirmed_registrant(offering, username="c1")
-            # A pending registrant and a guest (no linked member) are NOT on the roster.
+            # A pending registrant is NOT on the roster; a confirmed guest (no linked account) IS —
+            # they still get the email even without an app account.
             pending = _activated_member(username="c2")
             RegistrationFactory(class_offering=offering, member=pending, status=Registration.Status.PENDING)
             RegistrationFactory(class_offering=offering, member=None, status=Registration.Status.CONFIRMED)
-            assert AnnouncementDraft(audience=_CLASS, class_offering=offering).recipient_count() == 1
+            assert AnnouncementDraft(audience=_CLASS, class_offering=offering).recipient_count() == 2
+
+        def it_counts_the_waitlist_too_when_include_waitlist_is_set():
+            offering = ClassOfferingFactory()
+            _confirmed_registrant(offering, username="c1")
+            RegistrationFactory(class_offering=offering, member=None, status=Registration.Status.WAITLISTED)
+            draft = AnnouncementDraft(audience=_CLASS, class_offering=offering)
+            assert draft.recipient_count() == 1  # confirmed only by default
+            draft.include_waitlist = True
+            assert draft.recipient_count() == 2  # + the waitlisted guest
 
     def describe_resolve_channel_webhook():
         def it_returns_the_guild_webhook_for_the_guild_channel():
@@ -465,6 +475,85 @@ def describe_AnnouncementDraft():
                 assert len(mailoutbox) == 1
                 html = mailoutbox[0].alternatives[0][0]
                 assert "hello class" in html
+
+            def it_emails_a_guest_registrant_who_has_no_account(mailoutbox):
+                author = _author()
+                offering = ClassOfferingFactory()
+                RegistrationFactory(
+                    class_offering=offering,
+                    member=None,
+                    email="guest@example.com",
+                    status=Registration.Status.CONFIRMED,
+                )
+                emailed, total = AnnouncementDraft.objects.create(
+                    author=author, audience=_CLASS, class_offering=offering, title="T", body="<p>hi</p>"
+                ).send()
+                assert (emailed, total) == (1, 1)  # the guest is a reachable recipient
+                assert {addr for message in mailoutbox for addr in message.to} == {"guest@example.com"}
+
+            def it_leaves_the_waitlist_out_by_default(mailoutbox):
+                author = _author()
+                offering = ClassOfferingFactory()
+                _confirmed_registrant(offering, username="cw1")
+                RegistrationFactory(
+                    class_offering=offering,
+                    member=None,
+                    email="wait@example.com",
+                    status=Registration.Status.WAITLISTED,
+                )
+                AnnouncementDraft.objects.create(
+                    author=author, audience=_CLASS, class_offering=offering, title="T", body="<p>hi</p>"
+                ).send()
+                assert "wait@example.com" not in {addr for message in mailoutbox for addr in message.to}
+
+            def it_includes_the_waitlist_when_opted_in(mailoutbox):
+                author = _author()
+                offering = ClassOfferingFactory()
+                _confirmed_registrant(offering, username="cw2")
+                RegistrationFactory(
+                    class_offering=offering,
+                    member=None,
+                    email="wait@example.com",
+                    status=Registration.Status.WAITLISTED,
+                )
+                emailed, total = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_CLASS,
+                    class_offering=offering,
+                    title="T",
+                    body="<p>hi</p>",
+                    include_waitlist=True,
+                ).send()
+                assert (emailed, total) == (2, 2)
+                assert "wait@example.com" in {addr for message in mailoutbox for addr in message.to}
+
+            def it_honors_an_explicit_recipient_subset(mailoutbox):
+                author = _author()
+                offering = ClassOfferingFactory()
+                _confirmed_registrant(offering, username="cs1")
+                RegistrationFactory(
+                    class_offering=offering,
+                    member=None,
+                    email="picked@example.com",
+                    status=Registration.Status.CONFIRMED,
+                )
+                RegistrationFactory(
+                    class_offering=offering,
+                    member=None,
+                    email="dropped@example.com",
+                    status=Registration.Status.CONFIRMED,
+                )
+                AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_CLASS,
+                    class_offering=offering,
+                    title="T",
+                    body="<p>hi</p>",
+                    recipient_selection={"users": [], "custom": ["picked@example.com"]},
+                ).send()
+                recipients = {addr for message in mailoutbox for addr in message.to}
+                assert "picked@example.com" in recipients
+                assert "dropped@example.com" not in recipients
 
         def describe_push_override():
             def it_passes_the_custom_push_text_to_a_site_send():

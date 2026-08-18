@@ -2202,14 +2202,19 @@ def _member_choice(user: Any) -> tuple[str, str]:
     return (f"user:{user.pk}", f"{(user.get_full_name() or user.get_username()).strip()} · {user.email}")
 
 
-def announcement_recipient_choices(audience: str, guild: Guild | None, offering: Any = None) -> list[tuple[str, str]]:
+def announcement_recipient_choices(
+    audience: str, guild: Guild | None, offering: Any = None, *, include_waitlist: bool = False
+) -> list[tuple[str, str]]:
     """The recipient checklist choices for an audience — who gets the bell + push + email.
 
     A **guild** audience yields one ``("user:<pk>", "<name> · <email>")`` per member (from
     :meth:`Guild.announcement_recipients`, the exact fan-out) followed by one
     ``("custom:<addr>", "<addr>")`` per deduped custom mailing-list address (email-only). A
-    **class** audience yields one row per confirmed registrant. A **site** audience yields ``[]``
-    — every member, too many to render as a checklist (the recipient card is absent there).
+    **class** audience yields one row per confirmed registrant (plus waitlisted ones when
+    ``include_waitlist`` is set): a registrant with a linked account is a ``user:<pk>`` row (bell +
+    push + email); an email-only registrant (guest checkout, no account) is a ``custom:<addr>`` row
+    (email only). A **site** audience yields ``[]`` — every member, too many to render as a
+    checklist (the recipient card is absent there).
     """
     from membership.models import AnnouncementDraft
 
@@ -2222,10 +2227,24 @@ def announcement_recipient_choices(audience: str, guild: Guild | None, offering:
     if audience == AnnouncementDraft.Audience.CLASS.value and offering is not None:
         from classes.models import Registration
 
-        registrations = Registration.objects.filter(
-            class_offering=offering, status=Registration.Status.CONFIRMED, member__user__isnull=False
-        ).select_related("member__user")
-        return [_member_choice(reg.member.user) for reg in registrations]
+        class_choices: list[tuple[str, str]] = []
+        seen_emails: set[str] = set()
+        for registration in offering.announcement_recipients(include_waitlist=include_waitlist):
+            suffix = " (waitlist)" if registration.status == Registration.Status.WAITLISTED else ""
+            member = registration.member
+            user = member.user if (member is not None and member.user is not None) else None
+            if user is not None:
+                value, label = _member_choice(user)
+                class_choices.append((value, f"{label}{suffix}"))
+                continue
+            address = (registration.email or "").strip().lower()
+            if not address or address in seen_emails:
+                continue
+            seen_emails.add(address)
+            name = f"{registration.first_name} {registration.last_name}".strip()
+            display = f"{name} · {registration.email}" if name else registration.email
+            class_choices.append((f"custom:{address}", f"{display}{suffix}"))
+        return class_choices
     return []
 
 
@@ -2290,6 +2309,12 @@ class AnnouncementComposeForm(forms.Form):
         help_text="Sends the email as transactional, overriding user email preferences.",
     )
     show_sender = forms.BooleanField(required=False, initial=True, label="Show who it's from")
+    include_waitlist = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Also include the waitlist",
+        help_text="Class announcements only — send to waitlisted registrants too, not just confirmed ones.",
+    )
     recipients = _RecipientChoiceField(
         required=False,
         widget=forms.CheckboxSelectMultiple,
@@ -2340,9 +2365,11 @@ class AnnouncementComposeForm(forms.Form):
 
         # Recipient checklist (bell + push + email), scoped to the audience (empty for site).
         # Everyone is checked by default; a resumed draft's initial wins. ``add_member_choices``
-        # is every member, for the "add anyone" search datalist.
+        # is every member, for the "add anyone" search datalist. For a class, the "also include
+        # the waitlist" toggle expands the roster to waitlisted registrants too.
+        self.include_waitlist = self._raw_include_waitlist()
         self.recipient_choices = announcement_recipient_choices(
-            self.current_audience, self.current_guild, self.current_class
+            self.current_audience, self.current_guild, self.current_class, include_waitlist=self.include_waitlist
         )
         self.add_member_choices = announcement_add_member_choices()
         recipient_field = cast(_RecipientChoiceField, self.fields["recipients"])
@@ -2384,6 +2411,7 @@ class AnnouncementComposeForm(forms.Form):
         self.fields["send_email"].widget.attrs.setdefault("x-model", "emailOn")
         self.fields["discord_enabled"].widget.attrs.setdefault("x-model", "discordOn")
         self.fields["mark_as_urgent"].widget.attrs.setdefault("x-model", "urgentOn")
+        self.fields["include_waitlist"].widget.attrs.setdefault("x-model", "includeWaitlist")
         self.fields["mention"].widget.attrs.setdefault("x-model", "mention")
         channel_field.widget.attrs.setdefault("x-model", "discordChannel")
         self.fields["expires_at"].widget.attrs.setdefault(
@@ -2398,6 +2426,16 @@ class AnnouncementComposeForm(forms.Form):
         if initial:
             return str(initial)
         return choices[0][0] if choices else ""
+
+    def _raw_include_waitlist(self) -> bool:
+        """Whether the waitlist is folded into the roster: bound data, else initial (default off).
+
+        Read the same way as the audience so the recipient checklist is built correctly on the
+        first GET, on the HTMX re-render when the toggle flips, and on the send POST.
+        """
+        if self.is_bound:
+            return bool(self.data.get("include_waitlist"))
+        return bool(self.initial.get("include_waitlist"))
 
     def clean_discord_channel(self) -> str:
         channel = cast(str, self.cleaned_data.get("discord_channel") or "")
@@ -2460,8 +2498,18 @@ class AnnouncementComposeForm(forms.Form):
         cleaned["send_email"] = bool(cleaned.get("send_email"))
         cleaned["discord_enabled"] = bool(cleaned.get("discord_enabled"))
         cleaned["show_sender"] = bool(cleaned.get("show_sender"))
+        cleaned["include_waitlist"] = bool(cleaned.get("include_waitlist"))
         cleaned["recipient_selection"] = self._clean_recipients(cleaned, audience)
         return cleaned
+
+    @property
+    def has_email_only_recipients(self) -> bool:
+        """True when any roster row is an email-only address (no linked app account).
+
+        Drives the composer's "email only, no push/bell" note: a class guest registrant or a guild
+        custom mailing-list address can be reached by email but never by push or the in-app bell.
+        """
+        return any(value.startswith("custom:") for value, _label in self.recipient_choices)
 
     def _clean_recipients(self, cleaned: dict[str, Any], audience: str) -> dict[str, Any]:
         """Turn the submitted recipient checklist (+ any added members) into the stored selection.

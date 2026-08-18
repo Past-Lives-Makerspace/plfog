@@ -1254,13 +1254,22 @@ a:hover { color: var(--hub-link-hover); }
    Buttons
    ======================================== */
 .hub-btn {
+    box-sizing: border-box;
+    /* inline-block (not flex) so a button that contains a label plus an inline
+       count/badge keeps the normal whitespace between them — flex would collapse
+       the "All 185" space to "All185". Inline SVG icons self-center via their own
+       vertical-align. */
     display: inline-block;
     padding: 0.625rem 1.5rem;
     font-family: var(--font-body);
     font-size: 0.9375rem;
     font-weight: 700;
+    line-height: 1.2;
     letter-spacing: 0.02em;
-    border: none;
+    /* Transparent 1px border on the base so bordered variants (success/danger/
+       ghost) and borderless ones (primary) share identical box math and render
+       the exact same height. box-sizing: border-box keeps the border inside. */
+    border: 1px solid transparent;
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s ease, transform 0.1s ease;
@@ -5155,6 +5164,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-recipient-card__toggle { margin: 0; }
 .pl-recipient-card__body { margin-top: 0.75rem; }
 
+.pl-recipient-checklist__note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--hub-text-muted);
+  font-size: 0.875rem;
+  margin: 0.75rem 0 0.85rem;
+}
 .pl-recipient-checklist__tools {
   display: flex;
   gap: 0.5rem;

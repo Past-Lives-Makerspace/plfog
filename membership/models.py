@@ -3552,6 +3552,10 @@ class AnnouncementDraft(models.Model):
         default=True,
         help_text="Show a 'From <sender>' line in the announcement email (never in push).",
     )
+    include_waitlist = models.BooleanField(
+        default=False,
+        help_text="Class announcements only: also notify waitlisted registrants, not just confirmed ones.",
+    )
     recipient_selection = models.JSONField(
         default=dict,
         blank=True,
@@ -3739,7 +3743,8 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.GUILD:
             return len(resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}))
         if self.audience == self.Audience.CLASS:
-            return len(resolvers.resolve(Recipients.CLASS_ROSTER, {"class_offering": self.class_offering}))
+            offering = cast("ClassOffering", self.class_offering)
+            return len(offering.announcement_recipients(include_waitlist=self.include_waitlist))
         return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
 
     @classmethod
@@ -3767,6 +3772,7 @@ class AnnouncementDraft(models.Model):
         draft.discord_enabled = cd.get("discord_enabled", True)
         draft.mark_as_urgent = cd.get("mark_as_urgent", False)
         draft.show_sender = cd.get("show_sender", True)
+        draft.include_waitlist = cd.get("include_waitlist", False)
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
         draft.recipient_selection = cd.get("recipient_selection") or {}
         draft.discord_channel = cd["discord_channel"]
@@ -3852,11 +3858,15 @@ class AnnouncementDraft(models.Model):
             total = result.recipient_count
             counts = (total if self.send_email else 0, total)
         elif self.audience == self.Audience.CLASS:
-            # Emit-only, scoped to the class roster (confirmed registrants). No durable
-            # post and no Discord broadcast: a class announcement is a direct notice to
-            # enrolled students, not a public page post. Bell + push always; email opt-out.
+            # Scoped to the class roster: confirmed registrants (and waitlisted ones when the
+            # sender opted in). A registrant with a linked account gets the in-app bell + push +
+            # email; an email-only registrant (guest checkout, no account) rides the EMAIL channel
+            # only, via ``extra_emails``. No durable post and no Discord broadcast — a class
+            # announcement is a direct notice to the roster, not a public page post. The roster is
+            # passed explicitly (never the resolver default) so email-only + waitlist are honored.
             offering = cast("ClassOffering", self.class_offering)  # the guard above guarantees a class
             class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+            class_user_ids, class_emails = self._class_recipients()
             result = emit(
                 "class_announcement",
                 actor=self.author,
@@ -3872,10 +3882,11 @@ class AnnouncementDraft(models.Model):
                 messages=self._channel_overrides(class_url),
                 suppress_email=not self.send_email,
                 suppress_push=suppress_push,
-                recipient_user_ids=recipient_ids,
+                recipient_user_ids=class_user_ids,
+                extra_emails=class_emails or None,
                 override_preferences=self.mark_as_urgent,
             )
-            total = result.recipient_count
+            total = len(class_user_ids) + len(class_emails)
             counts = (total if self.send_email else 0, total)
         else:
             guild = cast(Guild, self.guild)  # the guard above guarantees a guild for a GUILD audience
@@ -3927,6 +3938,36 @@ class AnnouncementDraft(models.Model):
         """
         custom = (self.recipient_selection or {}).get("custom")
         return [str(addr).lower() for addr in custom] if custom else None
+
+    def _class_recipients(self) -> "tuple[set[int], list[str]]":
+        """The class send's final ``(member user-pks, email-only addresses)`` pair.
+
+        Starts from the class roster (:meth:`ClassOffering.announcement_recipients`, waitlist-aware
+        via :attr:`include_waitlist`) and applies the saved ``recipient_selection``: an empty
+        selection sends the WHOLE roster; an explicit selection sends exactly its ``users`` +
+        ``custom`` addresses (already validated against the roster / member list at clean time).
+        Members ride the in-app bell + push + email; email-only addresses ride EMAIL only.
+        """
+        offering = cast("ClassOffering", self.class_offering)
+        roster_user_ids: set[int] = set()
+        roster_emails: list[str] = []
+        seen: set[str] = set()
+        for registration in offering.announcement_recipients(include_waitlist=self.include_waitlist):
+            member = registration.member
+            user = member.user if (member is not None and member.user is not None) else None
+            if user is not None:
+                roster_user_ids.add(user.pk)
+                continue
+            address = (registration.email or "").strip().lower()
+            if address and address not in seen:
+                seen.add(address)
+                roster_emails.append(address)
+        selection = self.recipient_selection or {}
+        if not selection:
+            return roster_user_ids, roster_emails
+        user_ids = {int(pk) for pk in selection.get("users") or []}
+        custom_emails = [str(addr).strip().lower() for addr in (selection.get("custom") or [])]
+        return user_ids, custom_emails
 
 
 class GuildMeetingNote(models.Model):

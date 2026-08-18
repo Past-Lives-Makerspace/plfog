@@ -574,6 +574,61 @@ def describe_class_audience_views():
         draft = AnnouncementDraft.objects.latest("created_at")
         assert draft.push_message == "Thu 6pm, same room."
 
+    def it_shows_the_waitlist_toggle_and_email_only_note_for_a_class(client: Client):
+        _user, _member, offering = _instructor(client)
+        RegistrationFactory(
+            class_offering=offering, member=None, email="guest@x.com", status=Registration.Status.CONFIRMED
+        )
+        content = client.get(reverse("hub_compose"), {"audience": f"class:{offering.pk}"}).content.decode()
+        assert "Also include the waitlist" in content
+        assert "no app account" in content  # the email-only note
+        assert "guest@x.com" in content
+
+    def it_emails_a_guest_registrant_who_has_no_account(client: Client, mailoutbox):
+        _user, _member, offering = _instructor(client)
+        RegistrationFactory(
+            class_offering=offering, member=None, email="guest@x.com", status=Registration.Status.CONFIRMED
+        )
+        resp = client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(
+                audience=f"class:{offering.pk}", title="T", body="<p>hi</p>", discord_channel="", send_email="on"
+            ),
+        )
+        assert resp.status_code == 302
+        assert "guest@x.com" in {addr for message in mailoutbox for addr in message.to}
+
+    def it_includes_the_waitlist_on_send_when_the_toggle_is_on(client: Client, mailoutbox):
+        _user, _member, offering = _instructor(client)
+        RegistrationFactory(
+            class_offering=offering, member=None, email="wait@x.com", status=Registration.Status.WAITLISTED
+        )
+        client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(
+                audience=f"class:{offering.pk}",
+                title="T",
+                body="<p>hi</p>",
+                discord_channel="",
+                send_email="on",
+                include_waitlist="on",
+            ),
+        )
+        assert "wait@x.com" in {addr for message in mailoutbox for addr in message.to}
+
+    def it_rescopes_the_live_count_when_the_waitlist_is_included(client: Client):
+        _user, _member, offering = _instructor(client)
+        RegistrationFactory(class_offering=offering, member=None, email="c@x.com", status=Registration.Status.CONFIRMED)
+        RegistrationFactory(
+            class_offering=offering, member=None, email="w@x.com", status=Registration.Status.WAITLISTED
+        )
+        base = client.get(reverse("hub_compose_count"), {"audience": f"class:{offering.pk}"})
+        assert json.loads(base["HX-Trigger"])["compose-count"]["count"] == 1
+        widened = client.get(
+            reverse("hub_compose_count"), {"audience": f"class:{offering.pk}", "include_waitlist": "on"}
+        )
+        assert json.loads(widened["HX-Trigger"])["compose-count"]["count"] == 2
+
 
 def describe_locked_composer():
     def it_locks_the_audience_to_a_class_and_hides_the_picker(client: Client):

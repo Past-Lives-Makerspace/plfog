@@ -604,6 +604,30 @@ class ClassOffering(HeroCropMixin, models.Model):
             self.welcome_email_enabled and self.welcome_email_subject.strip() and self.welcome_email_body.strip()
         )
 
+    def announcement_recipients(self, *, include_waitlist: bool = False) -> list["Registration"]:
+        """Registrations to notify for a class announcement — the roster behind the composer.
+
+        Every CONFIRMED registrant (and, when ``include_waitlist`` is set, every WAITLISTED
+        one too). A registrant with a linked user account gets the in-app bell + push + email;
+        an email-only registrant (guest checkout, no account) can only be reached by email.
+        Both kinds are returned here — the caller splits them by ``member`` + ``member.user``.
+        Ordered confirmed-before-waitlisted, then by name, for a stable checklist.
+
+        Args:
+            include_waitlist: When True, waitlisted registrants join the confirmed ones.
+
+        Returns:
+            The matching :class:`Registration` rows, each a person to notify.
+        """
+        statuses = [Registration.Status.CONFIRMED]
+        if include_waitlist:
+            statuses.append(Registration.Status.WAITLISTED)
+        return list(
+            self.registrations.filter(status__in=statuses)
+            .select_related("member__user")
+            .order_by("status", "first_name", "last_name")
+        )
+
     def save(self, *args, **kwargs) -> None:
         from django.conf import settings
 

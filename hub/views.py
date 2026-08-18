@@ -2069,8 +2069,14 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     return HttpResponse("Forbidden", status=403)
 
 
-def _compose_count_for(audience: str, guild: Guild | None, offering: ClassOffering | None = None) -> int:
-    """Live recipient count for an audience (reuses the model's resolver-backed count)."""
+def _compose_count_for(
+    audience: str, guild: Guild | None, offering: ClassOffering | None = None, *, include_waitlist: bool = False
+) -> int:
+    """Live recipient count for an audience (reuses the model's roster-backed count).
+
+    ``include_waitlist`` widens a class count to its waitlisted registrants too, matching what
+    the "also include the waitlist" toggle will actually send.
+    """
     from membership.models import AnnouncementDraft
 
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
@@ -2078,7 +2084,10 @@ def _compose_count_for(audience: str, guild: Guild | None, offering: ClassOfferi
     if audience == AnnouncementDraft.Audience.CLASS.value and offering is None:
         return 0
     return AnnouncementDraft(
-        audience=audience or AnnouncementDraft.Audience.SITE.value, guild=guild, class_offering=offering
+        audience=audience or AnnouncementDraft.Audience.SITE.value,
+        guild=guild,
+        class_offering=offering,
+        include_waitlist=include_waitlist,
     ).recipient_count()
 
 
@@ -2101,6 +2110,7 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         "discord_enabled": draft.discord_enabled,
         "mark_as_urgent": draft.mark_as_urgent,
         "show_sender": draft.show_sender,
+        "include_waitlist": draft.include_waitlist,
         "discord_channel": draft.discord_channel,
         "mention": draft.mention,
         "expires_at": draft.expires_at,
@@ -2129,15 +2139,28 @@ def _render_compose(
     from membership.models import AnnouncementDraft
 
     # The URL-bearing live-count refresh (fires on audience change; the form can't reverse URLs).
+    # The waitlist toggle fires the same refresh so the roster + count re-scope when it flips; both
+    # controls include the other's value so switching audience keeps the waitlist choice (and back).
+    count_url = reverse("hub_compose_count")
     form.fields["audience"].widget.attrs.update(
         {
-            "hx-get": reverse("hub_compose_count"),
+            "hx-get": count_url,
             "hx-trigger": "change",
-            "hx-include": "[name=audience]",
+            "hx-include": "[name=audience],[name=include_waitlist]",
             "hx-swap": "none",
         }
     )
-    count = _compose_count_for(form.current_audience, form.current_guild, form.current_class)
+    form.fields["include_waitlist"].widget.attrs.update(
+        {
+            "hx-get": count_url,
+            "hx-trigger": "change",
+            "hx-include": "[name=audience],[name=include_waitlist]",
+            "hx-swap": "none",
+        }
+    )
+    count = _compose_count_for(
+        form.current_audience, form.current_guild, form.current_class, include_waitlist=form.include_waitlist
+    )
     # The auto category (title) for the current audience, without the client-side "Urgent: " lead.
     category_draft = AnnouncementDraft(
         audience=form.current_audience or AnnouncementDraft.Audience.SITE.value,
@@ -2276,8 +2299,11 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
     if forbidden is not None:
         return forbidden
     audience, guild, offering = split_audience(raw)
-    count = _compose_count_for(audience, guild, offering)
-    form = AnnouncementComposeForm(initial={"audience": raw}, **_compose_form_kwargs(request))
+    include_waitlist = bool(request.GET.get("include_waitlist") or request.POST.get("include_waitlist"))
+    count = _compose_count_for(audience, guild, offering, include_waitlist=include_waitlist)
+    form = AnnouncementComposeForm(
+        initial={"audience": raw, "include_waitlist": include_waitlist}, **_compose_form_kwargs(request)
+    )
     response = render(request, "hub/partials/_compose_oob_refresh.html", {"form": form})
     response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
     return response
@@ -2468,7 +2494,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
     emailed, total = draft.send()
-    messages.success(request, f"Announcement sent to {total} member(s).")
+    messages.success(request, f"Announcement sent to {total} recipient(s).")
     return redirect("hub_compose")
 
 
