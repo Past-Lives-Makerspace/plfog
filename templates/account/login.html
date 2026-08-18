@@ -45,7 +45,7 @@
     <h1 class="auth-page__title">Welcome Back</h1>
     <p class="auth-page__subtitle">Enter your email to receive a login code</p>
     <div class="auth-page__version">
-        <button class="site-beta-badge" onclick="document.getElementById('changelog-modal').style.display='flex'">BETA v{{ app_version }}</button>
+        <button class="site-version-badge" onclick="document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
     </div>
     <div class="auth-card">
         <form method="POST" action="{% url 'account_request_login_code' %}">

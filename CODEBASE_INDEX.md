@@ -81,7 +81,7 @@
 /members/                       Member directory
 /settings/profile/              Profile settings
 /settings/emails/               Email preferences
-/feedback/                      Beta feedback form
+/feedback/                      Feedback form
 /tab/                           My Tab (current balance + add entry)
 /tab/history/                   Past billing charges
 /                               Home / redirects (core.views)

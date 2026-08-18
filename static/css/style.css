@@ -213,7 +213,7 @@ p:last-child {
     color: var(--color-accent);
 }
 
-.site-beta-badge {
+.site-version-badge {
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -229,7 +229,7 @@ p:last-child {
     transition: background-color var(--transition-fast);
 }
 
-.site-beta-badge:hover {
+.site-version-badge:hover {
     background-color: rgba(238, 180, 75, 0.3);
 }
 

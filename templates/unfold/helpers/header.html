@@ -10,7 +10,7 @@
         </svg>
     </button>
     <span class="pl-topbar__divider"></span>
-    <button class="pl-badge--beta" onclick="document.getElementById('changelog-modal').style.display='flex'">BETA v{{ app_version }}</button>
+    <button class="pl-badge--version" onclick="document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
     <span class="pl-topbar__divider"></span>
     <a href="{% url 'hub_guild_voting' %}" class="pl-view-switcher" title="Switch to Member View">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
