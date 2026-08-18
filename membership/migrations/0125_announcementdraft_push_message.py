@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0124_announcementdraft_class_offering_and_more'),
+        ("membership", "0124_announcementdraft_class_offering_and_more"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='announcementdraft',
-            name='push_message',
-            field=models.CharField(blank=True, default='', help_text='Optional short text for the phone push notification. Blank = auto-derive from title + body.', max_length=180),
+            model_name="announcementdraft",
+            name="push_message",
+            field=models.CharField(
+                blank=True,
+                default="",
+                help_text="Optional short text for the phone push notification. Blank = auto-derive from title + body.",
+                max_length=180,
+            ),
         ),
     ]

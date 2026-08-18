@@ -4,15 +4,24 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0125_announcementdraft_push_message'),
+        ("membership", "0125_announcementdraft_push_message"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='announcementdraft',
-            name='mention',
-            field=models.CharField(choices=[('none', 'No ping'), ('here', '@here (online members)'), ('everyone', '@everyone'), ('role', '@[Guild role]')], default='none', help_text='Opt-in Discord ping — none, @here (online), or @everyone. Off by default.', max_length=10),
+            model_name="announcementdraft",
+            name="mention",
+            field=models.CharField(
+                choices=[
+                    ("none", "No ping"),
+                    ("here", "@here (online members)"),
+                    ("everyone", "@everyone"),
+                    ("role", "@[Guild role]"),
+                ],
+                default="none",
+                help_text="Opt-in Discord ping — none, @here (online), or @everyone. Off by default.",
+                max_length=10,
+            ),
         ),
     ]
