@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from classes.models import ClassOffering
-    from core.events.channels import Message
+    from core.events.channels import Channel, Message
 
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
 
@@ -3033,6 +3033,7 @@ class GuildAnnouncement(models.Model):
         *,
         discord_mention: str = "",
         email_message: "Message | None" = None,
+        push_message: "Message | None" = None,
         selected_user_ids: "set[int] | None" = None,
         selected_custom_emails: "list[str] | None" = None,
         override_preferences: bool = False,
@@ -3101,6 +3102,13 @@ class GuildAnnouncement(models.Model):
                 if selected_custom_emails is None
                 else [addr for addr in all_custom if addr in set(selected_custom_emails)]
             )
+        # Branded EMAIL override + optional custom PUSH tray line (both from the compose wizard);
+        # an absent channel falls back to the copy catalogue for that channel.
+        channel_messages: dict[Channel, Message] = {}
+        if email_message is not None:
+            channel_messages[Channel.EMAIL] = email_message
+        if push_message is not None:
+            channel_messages[Channel.PUSH] = push_message
         emit(
             "guild_announcement",
             actor=self.author,
@@ -3116,7 +3124,7 @@ class GuildAnnouncement(models.Model):
             },
             url=guild_url,
             period=f"announcement:{self.pk}",
-            messages={Channel.EMAIL: email_message} if email_message is not None else None,
+            messages=channel_messages or None,
             suppress_email=not self.send_email,
             suppress_guild_broadcast=(webhook == ""),
             discord_mention=discord_mention,
@@ -3436,6 +3444,7 @@ class AnnouncementDraft(models.Model):
     class Audience(models.TextChoices):
         SITE = "site", "Everyone (site-wide)"
         GUILD = "guild", "A specific guild"
+        CLASS = "class", "A class you teach"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"
@@ -3462,6 +3471,14 @@ class AnnouncementDraft(models.Model):
         related_name="announcement_drafts",
         help_text="The target guild — set only when the audience is a specific guild.",
     )
+    class_offering = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="announcement_drafts",
+        help_text="The target class — set only when the audience is a class you teach.",
+    )
     title = models.CharField(
         max_length=300,
         help_text="Subject / headline. Required even to save a draft (so the list row reads well).",
@@ -3470,6 +3487,12 @@ class AnnouncementDraft(models.Model):
         blank=True,
         default="",
         help_text="Sanitized rich HTML. May be blank while drafting; required to send.",
+    )
+    push_message = models.CharField(
+        max_length=180,
+        blank=True,
+        default="",
+        help_text="Optional short text for the phone push notification. Blank = auto-derive from title + body.",
     )
     send_email = models.BooleanField(
         default=True,
@@ -3524,6 +3547,10 @@ class AnnouncementDraft(models.Model):
                 condition=~models.Q(audience="guild") | models.Q(guild__isnull=False),
                 name="ck_%(class)s_guild_audience",
             ),
+            models.CheckConstraint(
+                condition=~models.Q(audience="class") | models.Q(class_offering__isnull=False),
+                name="ck_%(class)s_class_audience",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -3535,6 +3562,38 @@ class AnnouncementDraft(models.Model):
         return {self.Mention.NONE: "", self.Mention.HERE: "@here", self.Mention.EVERYONE: "@everyone"}[
             self.Mention(self.mention)
         ]
+
+    @property
+    def _trigger_kind(self) -> str:
+        """The notification event key for this audience — the one vocabulary shared by copy + prefs."""
+        if self.audience == self.Audience.GUILD:
+            return "guild_announcement"
+        if self.audience == self.Audience.CLASS:
+            return "class_announcement"
+        return "site_announcement"
+
+    def _push_override(self, base_url: str) -> "Message | None":
+        """A custom phone-notification :class:`Message` when a short push text was set, else None.
+
+        None leaves the push channel to auto-derive from the event copy (title + body, capped);
+        a non-blank :attr:`push_message` replaces the tray line with the author's own short text.
+        """
+        from core.events.channels import Message
+
+        text = (self.push_message or "").strip()
+        if not text:
+            return None
+        return Message(title=self.title, body=text, url=base_url, trigger_kind=self._trigger_kind)
+
+    def _channel_overrides(self, base_url: str) -> "dict[Channel, Message]":
+        """The per-channel Message overrides handed to ``emit`` — the branded EMAIL, plus PUSH if tuned."""
+        from core.events.channels import Channel
+
+        overrides = {Channel.EMAIL: self.build_email_message(base_url)}
+        push = self._push_override(base_url)
+        if push is not None:
+            overrides[Channel.PUSH] = push
+        return overrides
 
     def build_email_message(self, base_url: str) -> "Message":
         """The branded EMAIL :class:`Message` for this draft — the Step-2 preview *is* this.
@@ -3549,13 +3608,12 @@ class AnnouncementDraft(models.Model):
         from core.html_sanitize import rich_html_to_text
 
         body_text = rich_html_to_text(self.body)
-        trigger = "guild_announcement" if self.audience == self.Audience.GUILD else "site_announcement"
         return Message(
             title=self.title,
             body=f"{self.title}\n\n{body_text}\n\n{base_url}",
             url=base_url,
             html_body=build_announcement_email_html(self.title, self.body),
-            trigger_kind=trigger,
+            trigger_kind=self._trigger_kind,
         )
 
     def recipient_count(self) -> int:
@@ -3569,6 +3627,8 @@ class AnnouncementDraft(models.Model):
 
         if self.audience == self.Audience.GUILD:
             return len(resolvers.resolve(Recipients.GUILD_MEMBERS, {"guild": self.guild}))
+        if self.audience == self.Audience.CLASS:
+            return len(resolvers.resolve(Recipients.CLASS_ROSTER, {"class_offering": self.class_offering}))
         return len(resolvers.resolve(Recipients.ALL_ACTIVE_MEMBERS, {}))
 
     @classmethod
@@ -3588,8 +3648,10 @@ class AnnouncementDraft(models.Model):
         draft.author = author
         draft.audience = cd["audience"]
         draft.guild = cd.get("guild")
+        draft.class_offering = cd.get("class_offering")
         draft.title = cd["title"]
         draft.body = cd["body"]  # already sanitized by the form's clean_body
+        draft.push_message = cd.get("push_message") or ""
         draft.send_email = cd["send_email"]
         draft.mark_as_urgent = cd.get("mark_as_urgent", False)
         # Empty dict = "everyone" (the default); a present selection = exactly these recipients.
@@ -3599,6 +3661,8 @@ class AnnouncementDraft(models.Model):
         draft.expires_at = cd.get("expires_at")
         if draft.audience == cls.Audience.GUILD and draft.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
+        if draft.audience == cls.Audience.CLASS and draft.class_offering is None:
+            raise ValidationError("Choose a class for this announcement.")
         draft.save()
         return draft
 
@@ -3627,7 +3691,6 @@ class AnnouncementDraft(models.Model):
         from django.core.exceptions import ValidationError
         from django.urls import reverse
 
-        from core.events.channels import Channel
         from core.events.emit import emit
         from core.html_sanitize import rich_html_to_text, sanitize_rich_html
         from membership.orientations import _absolute_url
@@ -3639,6 +3702,8 @@ class AnnouncementDraft(models.Model):
             raise ValidationError("Add a message before sending.")
         if self.audience == self.Audience.GUILD and self.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
+        if self.audience == self.Audience.CLASS and self.class_offering is None:
+            raise ValidationError("Choose a class for this announcement.")
 
         mention_str = self._mention_literal()
 
@@ -3657,10 +3722,34 @@ class AnnouncementDraft(models.Model):
                 },
                 url=site_url,
                 period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
-                messages={Channel.EMAIL: self.build_email_message(site_url)},
+                messages=self._channel_overrides(site_url),
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 discord_mention=mention_str,
+                override_preferences=self.mark_as_urgent,
+            )
+            total = result.recipient_count
+            counts = (total if self.send_email else 0, total)
+        elif self.audience == self.Audience.CLASS:
+            # Emit-only, scoped to the class roster (confirmed registrants). No durable
+            # post and no Discord broadcast: a class announcement is a direct notice to
+            # enrolled students, not a public page post. Bell + push always; email opt-out.
+            offering = cast("ClassOffering", self.class_offering)  # the guard above guarantees a class
+            class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+            result = emit(
+                "class_announcement",
+                actor=self.author,
+                context={
+                    "class_name": offering.title,
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_text(body_html),
+                    "class_url": class_url,
+                    "class_offering": offering,
+                },
+                url=class_url,
+                period=f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}",
+                messages=self._channel_overrides(class_url),
+                suppress_email=not self.send_email,
                 override_preferences=self.mark_as_urgent,
             )
             total = result.recipient_count
@@ -3684,6 +3773,7 @@ class AnnouncementDraft(models.Model):
             announcement.notify_members(
                 discord_mention=mention_str,
                 email_message=self.build_email_message(guild_url),
+                push_message=self._push_override(guild_url),
                 selected_user_ids=selected_user_ids,
                 selected_custom_emails=selected_custom_emails,
                 override_preferences=self.mark_as_urgent,

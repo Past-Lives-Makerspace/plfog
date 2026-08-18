@@ -19,6 +19,8 @@ from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
 
+from classes.factories import ClassOfferingFactory, RegistrationFactory
+from classes.models import Registration
 from core.models import Notification, SiteConfiguration
 from membership.models import AlreadySentError, AnnouncementDraft, GuildAnnouncement, resolve_channel_webhook
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory, MembershipPlanFactory
@@ -27,6 +29,7 @@ pytestmark = pytest.mark.django_db
 
 _SITE = AnnouncementDraft.Audience.SITE
 _GUILD = AnnouncementDraft.Audience.GUILD
+_CLASS = AnnouncementDraft.Audience.CLASS
 _CHANNEL = GuildAnnouncement.DiscordChannel
 
 
@@ -46,6 +49,13 @@ def _activated_member(*, guild=None, username: str = "m"):
     member.save(update_fields=["user"])
     if guild is not None:
         GuildMembershipFactory(guild=guild, member=member)
+    return member
+
+
+def _confirmed_registrant(offering, username: str):
+    """An activated member holding a CONFIRMED registration in ``offering`` — a class recipient."""
+    member = _activated_member(username=username)
+    RegistrationFactory(class_offering=offering, member=member, status=Registration.Status.CONFIRMED)
     return member
 
 
@@ -89,6 +99,11 @@ def describe_AnnouncementDraft():
             with pytest.raises(IntegrityError):
                 AnnouncementDraft.objects.create(author=author, audience=_GUILD, guild=None, title="x")
 
+        def it_rejects_a_class_audience_without_a_class():
+            author = _author()
+            with pytest.raises(IntegrityError):
+                AnnouncementDraft.objects.create(author=author, audience=_CLASS, class_offering=None, title="x")
+
     def describe_save_from_form():
         def it_upserts_an_existing_instance_without_duplicating():
             author = _author()
@@ -106,6 +121,18 @@ def describe_AnnouncementDraft():
             with pytest.raises(ValidationError):
                 AnnouncementDraft.save_from_form(_cleaned(audience="guild", guild=None), author)
 
+        def it_raises_for_a_class_audience_without_a_class():
+            author = _author()
+            with pytest.raises(ValidationError):
+                AnnouncementDraft.save_from_form(_cleaned(audience="class", class_offering=None), author)
+
+        def it_stores_the_class_offering_for_a_class_audience():
+            author = _author()
+            offering = ClassOfferingFactory()
+            draft = AnnouncementDraft.save_from_form(_cleaned(audience="class", class_offering=offering), author)
+            assert draft.audience == _CLASS
+            assert draft.class_offering == offering
+
     def describe_recipient_count():
         def it_counts_all_active_members_for_a_site_audience():
             _activated_member(username="s1")
@@ -117,6 +144,15 @@ def describe_AnnouncementDraft():
             _activated_member(guild=guild, username="g1")
             _activated_member(username="g2")  # not in the guild
             assert AnnouncementDraft(audience=_GUILD, guild=guild).recipient_count() == 1
+
+        def it_counts_only_confirmed_linked_registrants_for_a_class_audience():
+            offering = ClassOfferingFactory()
+            _confirmed_registrant(offering, username="c1")
+            # A pending registrant and a guest (no linked member) are NOT on the roster.
+            pending = _activated_member(username="c2")
+            RegistrationFactory(class_offering=offering, member=pending, status=Registration.Status.PENDING)
+            RegistrationFactory(class_offering=offering, member=None, status=Registration.Status.CONFIRMED)
+            assert AnnouncementDraft(audience=_CLASS, class_offering=offering).recipient_count() == 1
 
     def describe_resolve_channel_webhook():
         def it_returns_the_guild_webhook_for_the_guild_channel():
@@ -258,3 +294,121 @@ def describe_AnnouncementDraft():
                 with patch("core.events.discord.post_embed", return_value=True) as mock_post:
                     draft.send()
                 assert mock_post.call_args.args[1].discord_mention == "@everyone"
+
+        def describe_class_send():
+            def it_marks_sent_and_notifies_the_confirmed_roster():
+                author = _author()
+                offering = ClassOfferingFactory()
+                member = _confirmed_registrant(offering, username="cr")
+                draft = AnnouncementDraft.objects.create(
+                    author=author, audience=_CLASS, class_offering=offering, title="Moved", body="<p>Thursday</p>"
+                )
+                count = draft.send()
+                draft.refresh_from_db()
+                assert draft.sent_at is not None
+                assert count == (1, 1)  # (emailed, total) — one confirmed registrant, all emailed
+                assert Notification.objects.filter(user=member.user, trigger="class_announcement").exists()
+
+            def it_creates_no_guild_announcement_for_a_class_send():
+                author = _author()
+                offering = ClassOfferingFactory()
+                _confirmed_registrant(offering, username="cr2")
+                AnnouncementDraft.objects.create(
+                    author=author, audience=_CLASS, class_offering=offering, title="T", body="<p>x</p>"
+                ).send()
+                assert not GuildAnnouncement.objects.exists()
+
+            def it_raises_for_a_class_audience_without_a_class():
+                author = _author()
+                draft = AnnouncementDraft(
+                    author=author, audience=_CLASS, class_offering=None, title="Hi", body="<p>x</p>"
+                )
+                with pytest.raises(ValidationError):
+                    draft.send()
+
+            def it_suppresses_email_but_keeps_the_bell_when_send_email_is_off(mailoutbox):
+                author = _author()
+                offering = ClassOfferingFactory()
+                member = _confirmed_registrant(offering, username="cr3")
+                AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_CLASS,
+                    class_offering=offering,
+                    title="Hi",
+                    body="<p>x</p>",
+                    send_email=False,
+                ).send()
+                assert mailoutbox == []
+                assert Notification.objects.filter(user=member.user, trigger="class_announcement").exists()
+
+            def it_emails_the_confirmed_roster_the_branded_class_announcement(mailoutbox):
+                author = _author()
+                offering = ClassOfferingFactory()
+                _confirmed_registrant(offering, username="cr4")
+                AnnouncementDraft.objects.create(
+                    author=author, audience=_CLASS, class_offering=offering, title="T", body="<p>hello class</p>"
+                ).send()
+                assert len(mailoutbox) == 1
+                html = mailoutbox[0].alternatives[0][0]
+                assert "hello class" in html
+
+        def describe_push_override():
+            def it_passes_the_custom_push_text_to_a_site_send():
+                from core.events.channels import Channel
+
+                author = _author()
+                draft = AnnouncementDraft.objects.create(
+                    author=author, audience=_SITE, title="Snow", body="<p>x</p>", push_message="Snow day. Closed."
+                )
+                with patch("core.events.emit.emit", return_value=types.SimpleNamespace(recipient_count=0)) as mock_emit:
+                    draft.send()
+                messages = mock_emit.call_args.kwargs["messages"]
+                assert messages[Channel.PUSH].body == "Snow day. Closed."
+                assert messages[Channel.PUSH].trigger_kind == "site_announcement"
+
+            def it_omits_the_push_override_when_no_short_text_is_set():
+                from core.events.channels import Channel
+
+                author = _author()
+                draft = AnnouncementDraft.objects.create(author=author, audience=_SITE, title="Hi", body="<p>x</p>")
+                with patch("core.events.emit.emit", return_value=types.SimpleNamespace(recipient_count=0)) as mock_emit:
+                    draft.send()
+                assert Channel.PUSH not in mock_emit.call_args.kwargs["messages"]
+
+            def it_passes_the_custom_push_text_through_a_guild_send():
+                from core.events.channels import Channel
+
+                author = _author()
+                guild = GuildFactory()
+                draft = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_GUILD,
+                    guild=guild,
+                    title="T",
+                    body="<p>x</p>",
+                    push_message="Forge tonight",
+                )
+                with patch("core.events.emit.emit", return_value=types.SimpleNamespace(recipient_count=0)) as mock_emit:
+                    draft.send()
+                messages = mock_emit.call_args.kwargs["messages"]
+                assert messages[Channel.PUSH].body == "Forge tonight"
+                assert messages[Channel.PUSH].trigger_kind == "guild_announcement"
+
+            def it_passes_the_custom_push_text_to_a_class_send():
+                from core.events.channels import Channel
+
+                author = _author()
+                offering = ClassOfferingFactory()
+                draft = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_CLASS,
+                    class_offering=offering,
+                    title="Moved",
+                    body="<p>x</p>",
+                    push_message="Thu 6pm",
+                )
+                with patch("core.events.emit.emit", return_value=types.SimpleNamespace(recipient_count=0)) as mock_emit:
+                    draft.send()
+                messages = mock_emit.call_args.kwargs["messages"]
+                assert messages[Channel.PUSH].body == "Thu 6pm"
+                assert messages[Channel.PUSH].trigger_kind == "class_announcement"

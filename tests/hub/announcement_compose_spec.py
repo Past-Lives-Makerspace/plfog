@@ -14,17 +14,21 @@ import types
 
 import pytest
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
+from factory.django import mute_signals
 
 from django.test import RequestFactory
 
-from core.models import EventDelivery
+from classes.factories import ClassOfferingFactory, RegistrationFactory
+from classes.models import ClassOffering, Registration
+from core.models import EventDelivery, Notification
 from hub.forms import AnnouncementComposeForm, discord_channel_choices, split_audience
 from hub.views import _compose_count_for, _compose_editable_guilds, _compose_first_error
 from membership.models import AnnouncementDraft, GuildAnnouncement
-from tests.membership.factories import GuildFactory, MembershipPlanFactory
+from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -70,17 +74,20 @@ def _valid_send_data(**overrides) -> dict:
 
 
 def describe_hub_compose_page():
-    def it_renders_the_three_steps_and_the_send_path_for_an_admin(client: Client):
+    def it_renders_the_single_screen_composer_for_an_admin(client: Client):
         _login_admin(client)
         response = client.get(reverse("hub_compose"))
         assert response.status_code == 200
         content = response.content.decode()
-        # All three wizard steps render: audience & message → email → Discord.
+        # One flat screen: audience picker + message + the delivery options (email + push + discord).
         assert 'name="audience"' in content
-        assert "Audience &amp; message" in content
-        assert "Email" in content
-        assert "Discord" in content
+        assert "How it goes out" in content
+        assert 'name="push_message"' in content
+        assert "Phone preview" in content
         assert "Reaches" in content
+        # No multi-step wizard nav / "Next" buttons any more.
+        assert "Next: email" not in content
+        assert "pl-wizard-nav" not in content
         # The send path is intact: one form posting to send, with a Send submit.
         assert f'action="{reverse("hub_compose_send")}"' in content
         assert "Send announcement" in content
@@ -330,10 +337,10 @@ def describe_compose_edge_cases():
 def describe_AnnouncementComposeForm():
     def it_splits_the_audience_value():
         guild = GuildFactory()
-        assert split_audience("site") == ("site", None)
-        assert split_audience(f"guild:{guild.pk}") == ("guild", guild)
-        assert split_audience("guild:abc") == ("guild", None)
-        assert split_audience("bogus") == ("", None)
+        assert split_audience("site") == ("site", None, None)
+        assert split_audience(f"guild:{guild.pk}") == ("guild", guild, None)
+        assert split_audience("guild:abc") == ("guild", None, None)
+        assert split_audience("bogus") == ("", None, None)
 
     def it_scopes_the_channel_choices_by_audience():
         assert ("guild", "Our Guild Channel") in discord_channel_choices("guild")
@@ -373,6 +380,54 @@ def describe_AnnouncementComposeForm():
         assert not form.is_valid()
         assert "audience" in form.errors
 
+    def it_splits_a_class_audience_value():
+        offering = ClassOfferingFactory()
+        assert split_audience(f"class:{offering.pk}") == ("class", None, offering)
+        assert split_audience("class:abc") == ("class", None, None)
+
+    def it_offers_a_class_audience_for_each_taught_class():
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[], editable_classes=[offering])
+        values = [value for value, _label in form.fields["audience"].choices]
+        assert f"class:{offering.pk}" in values
+
+    def it_cleans_a_class_audience_into_the_class_offering():
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        form = AnnouncementComposeForm(
+            {"audience": f"class:{offering.pk}", "title": "T", "body": "<p>x</p>"}, editable_classes=[offering]
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["class_offering"] == offering
+
+    def it_flags_a_class_audience_whose_class_vanished():
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        data = {"audience": f"class:{offering.pk}", "title": "T", "body": "<p>x</p>"}
+        form = AnnouncementComposeForm(data, editable_classes=[offering])
+        offering.delete()  # gone between render and submit
+        assert not form.is_valid()
+        assert "audience" in form.errors
+
+    def it_offers_no_discord_channel_for_a_class_audience():
+        assert discord_channel_choices("class") == []
+
+    def it_accepts_an_optional_push_message():
+        form = AnnouncementComposeForm(
+            {"audience": "site", "title": "T", "body": "<p>x</p>", "push_message": "Snow day. Closed."},
+            is_admin=True,
+            editable_guilds=[],
+        )
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["push_message"] == "Snow day. Closed."
+
+    def it_rejects_a_push_message_past_the_cap():
+        form = AnnouncementComposeForm(
+            {"audience": "site", "title": "T", "body": "<p>x</p>", "push_message": "x" * 181},
+            is_admin=True,
+            editable_guilds=[],
+        )
+        assert not form.is_valid()
+        assert "push_message" in form.errors
+
 
 def describe_compose_helpers():
     def it_returns_no_guilds_for_a_non_admin_without_a_member():
@@ -385,7 +440,189 @@ def describe_compose_helpers():
     def it_counts_the_site_audience_via_the_model():
         assert _compose_count_for("site", None) == 0  # no activated members seeded
 
+    def it_counts_zero_for_a_class_audience_with_no_class():
+        assert _compose_count_for("class", None, None) == 0
+
     def it_falls_back_when_no_field_specific_error_is_present():
         assert (
             _compose_first_error(types.SimpleNamespace(errors={"x": []})) == "Fix the highlighted fields before saving."
         )
+
+
+def _instructor(client: Client, username: str = "instr"):
+    """Log in a member who teaches one PUBLISHED class; returns (user, member, offering)."""
+    MembershipPlanFactory()
+    user = User.objects.create_user(username=username, email=f"{username}@x.com", password="p")
+    member = user.member
+    member.instructor_slug = username
+    member.save(update_fields=["instructor_slug"])
+    offering = ClassOfferingFactory(instructor=member, status=ClassOffering.Status.PUBLISHED)
+    client.login(username=username, password="p")
+    return user, member, offering
+
+
+def describe_class_audience_views():
+    def it_lets_an_instructor_open_the_composer(client: Client):
+        _instructor(client)
+        assert client.get(reverse("hub_compose")).status_code == 200
+
+    def it_offers_the_instructors_class_as_an_audience(client: Client):
+        _user, _member, offering = _instructor(client)
+        content = client.get(reverse("hub_compose")).content.decode()
+        assert f'value="class:{offering.pk}"' in content
+
+    def it_sends_a_class_announcement_to_the_confirmed_roster(client: Client):
+        _user, _member, offering = _instructor(client)
+        student = MemberFactory()
+        with mute_signals(post_save):
+            student_user = User.objects.create_user(username="stu", email="stu@x.com", last_login=timezone.now())
+        student.user = student_user
+        student.save(update_fields=["user"])
+        RegistrationFactory(class_offering=offering, member=student, status=Registration.Status.CONFIRMED)
+
+        resp = client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(
+                audience=f"class:{offering.pk}", title="Moved", body="<p>Thursday now.</p>", discord_channel=""
+            ),
+        )
+        assert resp.status_code == 302
+        assert Notification.objects.filter(user=student_user, trigger="class_announcement").exists()
+
+    def it_forbids_sending_to_a_class_you_do_not_teach(client: Client):
+        _instructor(client, username="teacher")
+        other = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)  # a different instructor's class
+        resp = client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(audience=f"class:{other.pk}", title="Nope", body="<p>x</p>", discord_channel=""),
+        )
+        assert resp.status_code == 403
+
+    def it_stores_the_push_message_on_send(client: Client):
+        _user, _member, offering = _instructor(client)
+        client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(
+                audience=f"class:{offering.pk}",
+                title="T",
+                body="<p>x</p>",
+                discord_channel="",
+                push_message="Thu 6pm, same room.",
+            ),
+        )
+        draft = AnnouncementDraft.objects.latest("created_at")
+        assert draft.push_message == "Thu 6pm, same room."
+
+
+def describe_locked_composer():
+    def it_locks_the_audience_to_a_class_and_hides_the_picker(client: Client):
+        _user, _member, offering = _instructor(client)
+        content = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1").content.decode()
+        assert "Sending to:" in content
+        assert offering.title in content
+        assert "Who is this for?" not in content  # the picker is replaced by the locked banner
+        assert 'name="audience"' in content  # still submitted, as a hidden input
+
+    def it_locks_the_audience_to_a_guild_for_a_lead(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1").content.decode()
+        assert "Sending to:" in content
+        assert guild.name in content
+        assert "Who is this for?" not in content
+
+    def it_leaves_the_picker_when_not_locked(client: Client):
+        _user, _member, offering = _instructor(client)
+        content = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}").content.decode()
+        assert "Who is this for?" in content
+        assert "Sending to:" not in content
+
+
+def describe_send_announcement_entry_points():
+    def it_shows_a_send_announcement_button_to_guild_editors(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        assert "Send Announcement" in content
+        assert f"audience=guild:{guild.pk}" in content
+
+    def it_shows_a_send_announcement_button_on_the_admin_class_page(client: Client):
+        _login_admin(client)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        content = client.get(reverse("classes:admin_class_detail", args=[offering.pk])).content.decode()
+        assert "Send Announcement" in content
+        assert f"audience=class:{offering.pk}" in content
+
+    def it_lets_an_admin_send_to_a_class_they_do_not_teach_when_locked(client: Client):
+        # The class page's button opens the locked composer; an admin who isn't the instructor must
+        # still be able to send (the pre-scoped class becomes a valid audience choice).
+        _login_admin(client)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)  # taught by someone else
+        student = MemberFactory()
+        with mute_signals(post_save):
+            student_user = User.objects.create_user(username="stu2", email="stu2@x.com", last_login=timezone.now())
+        student.user = student_user
+        student.save(update_fields=["user"])
+        RegistrationFactory(class_offering=offering, member=student, status=Registration.Status.CONFIRMED)
+
+        resp = client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(audience=f"class:{offering.pk}", title="Hi", body="<p>x</p>", discord_channel=""),
+        )
+        assert resp.status_code == 302
+        assert Notification.objects.filter(user=student_user, trigger="class_announcement").exists()
+
+
+def describe_admin_tools_sidebar_link():
+    def it_shows_the_admin_tools_tab_to_an_admin(client: Client):
+        _login_admin(client)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert reverse("hub_admin_tools") in content
+
+    def it_shows_the_admin_tools_tab_to_a_guild_lead(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert reverse("hub_admin_tools") in content
+
+    def it_shows_the_admin_tools_tab_to_an_instructor(client: Client):
+        _instructor(client)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert reverse("hub_admin_tools") in content
+
+    def it_hides_the_admin_tools_tab_from_a_plain_member(client: Client):
+        _login_plain(client)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert reverse("hub_admin_tools") not in content
+
+
+def describe_admin_tools_page():
+    def it_shows_every_tool_to_an_admin(client: Client):
+        _login_admin(client)
+        content = client.get(reverse("hub_admin_tools")).content.decode()
+        assert reverse("hub_compose") in content
+        assert reverse("hub_orientations_dashboard") in content
+        assert reverse("hub_admin_members") in content
+        assert reverse("hub_push_test") in content
+
+    def it_shows_announcements_and_orientations_to_a_guild_lead(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(reverse("hub_admin_tools")).content.decode()
+        assert reverse("hub_compose") in content
+        assert reverse("hub_orientations_dashboard") in content
+        assert reverse("hub_admin_members") not in content  # admin-only card
+        assert reverse("hub_push_test") not in content
+
+    def it_shows_only_announcements_to_a_pure_instructor(client: Client):
+        _instructor(client)
+        content = client.get(reverse("hub_admin_tools")).content.decode()
+        assert reverse("hub_compose") in content
+        assert reverse("hub_orientations_dashboard") not in content  # lead/staff only
+        assert reverse("hub_push_test") not in content  # admin-only
+
+    def it_redirects_a_plain_member_home(client: Client):
+        _login_plain(client)
+        resp = client.get(reverse("hub_admin_tools"))
+        assert resp.status_code == 302
+        assert resp.url == reverse("hub_home")

@@ -677,11 +677,6 @@ UNFOLD = {
                         "link": reverse_lazy("admin:membership_member_changelist"),
                     },
                     {
-                        "title": "Push Test",
-                        "icon": "notifications_active",
-                        "link": reverse_lazy("admin_push_test"),
-                    },
-                    {
                         "title": "Site Settings",
                         "icon": "settings",
                         "link": reverse_lazy("admin:core_siteconfiguration_changelist"),

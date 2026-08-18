@@ -1982,19 +1982,71 @@ def _compose_editable_guilds(request: HttpRequest, member: Member | None) -> Que
     return Guild.objects.none()
 
 
-def _can_compose(request: HttpRequest, member: Member | None) -> bool:
-    """True when the user can compose *something* — a fog admin, or a guild lead/staff."""
+def _compose_editable_classes(request: HttpRequest, member: Member | None) -> QuerySet[ClassOffering]:
+    """Classes this user may address in the composer: the published classes they instruct.
+
+    Scoped to ``for_instructor`` (not ``editable_by``) on purpose — announcing to a class's
+    roster is the instructor's own duty, distinct from edit rights; an admin who does not
+    teach sees no class options (they reach members via the site/guild audiences instead).
+    """
+    if member is None:
+        return ClassOffering.objects.none()
+    return ClassOffering.objects.for_instructor(member).filter(status=ClassOffering.Status.PUBLISHED).order_by("title")
+
+
+def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> bool:
+    """True when the user may announce to a class's roster — the class's instructor, or an admin."""
     if _viewing_as_admin(request):
         return True
-    return member is not None and member.staffed_guilds.filter(is_active=True).exists()
+    member = _get_member(request)
+    return member is not None and offering.instructor_id == member.pk
+
+
+def _can_compose(request: HttpRequest, member: Member | None) -> bool:
+    """True when the user can compose *something* — an admin, a guild lead/staff, or an instructor."""
+    if _viewing_as_admin(request):
+        return True
+    if member is None:
+        return False
+    return member.staffed_guilds.filter(is_active=True).exists() or member.is_instructor
+
+
+def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
+    """True when the Admin Tools hub (sidebar entry + page) is available to this request.
+
+    Anyone with elevated permissions that unlock a tool it collects sees it — a site admin, a
+    guild lead/staff (Announcements + Orientations), or an instructor (Announcements). For an
+    ACTUAL admin it is view-as-aware: an admin previewing the site as a plain member does NOT see
+    it, while a real (non-admin) lead or instructor always does.
+    """
+    is_actual_admin = getattr(request.user, "is_superuser", False) or (member is not None and member.is_fog_admin)
+    if is_actual_admin:
+        return _viewing_as_admin(request)
+    return member is not None and (member.is_guild_lead or member.is_guild_staff or member.is_instructor)
 
 
 def _compose_form_kwargs(request: HttpRequest) -> dict[str, Any]:
     """Permission-derived kwargs for :class:`~hub.forms.AnnouncementComposeForm` (audience choices)."""
     member = _get_member(request)
+    editable_guilds = list(_compose_editable_guilds(request, member))
+    editable_classes = list(_compose_editable_classes(request, member))
+    # A pre-scoped (locked) target the user may address but doesn't personally own must still be a
+    # valid audience choice — e.g. an admin sending to one class's roster from that class's page,
+    # where the class isn't in their own "classes I teach" list. Only ever ADD a target the user is
+    # actually allowed to address (re-checked here); the send path re-checks again.
+    requested = request.GET.get("audience") or request.POST.get("audience")
+    if requested:
+        from hub.forms import split_audience
+
+        _audience, guild, offering = split_audience(requested)
+        if offering is not None and offering not in editable_classes and _can_announce_to_class(request, offering):
+            editable_classes.append(offering)
+        if guild is not None and guild not in editable_guilds and _can_edit_guild(request, guild):
+            editable_guilds.append(guild)
     return {
         "is_admin": _viewing_as_admin(request),
-        "editable_guilds": list(_compose_editable_guilds(request, member)),
+        "editable_guilds": editable_guilds,
+        "editable_classes": editable_classes,
     }
 
 
@@ -2003,36 +2055,48 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     from hub.forms import split_audience
     from membership.models import AnnouncementDraft
 
-    audience, guild = split_audience(raw_audience)
+    audience, guild, offering = split_audience(raw_audience)
     if audience == AnnouncementDraft.Audience.SITE.value:
         return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
         return None
+    if (
+        audience == AnnouncementDraft.Audience.CLASS.value
+        and offering is not None
+        and _can_announce_to_class(request, offering)
+    ):
+        return None
     return HttpResponse("Forbidden", status=403)
 
 
-def _compose_count_for(audience: str, guild: Guild | None) -> int:
+def _compose_count_for(audience: str, guild: Guild | None, offering: ClassOffering | None = None) -> int:
     """Live recipient count for an audience (reuses the model's resolver-backed count)."""
     from membership.models import AnnouncementDraft
 
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
         return 0
-    return AnnouncementDraft(audience=audience or AnnouncementDraft.Audience.SITE.value, guild=guild).recipient_count()
+    if audience == AnnouncementDraft.Audience.CLASS.value and offering is None:
+        return 0
+    return AnnouncementDraft(
+        audience=audience or AnnouncementDraft.Audience.SITE.value, guild=guild, class_offering=offering
+    ).recipient_count()
 
 
 def _draft_initial(draft: Any) -> dict[str, Any]:
     """Form ``initial`` for resuming a draft — the combined audience value + the saved fields."""
     from membership.models import AnnouncementDraft
 
-    audience_value = (
-        AnnouncementDraft.Audience.SITE.value
-        if draft.audience == AnnouncementDraft.Audience.SITE.value
-        else f"guild:{draft.guild_id}"
-    )
+    if draft.audience == AnnouncementDraft.Audience.SITE.value:
+        audience_value = AnnouncementDraft.Audience.SITE.value
+    elif draft.audience == AnnouncementDraft.Audience.CLASS.value:
+        audience_value = f"class:{draft.class_offering_id}"
+    else:
+        audience_value = f"guild:{draft.guild_id}"
     initial = {
         "audience": audience_value,
         "title": draft.title,
         "body": draft.body,
+        "push_message": draft.push_message,
         "send_email": draft.send_email,
         "discord_channel": draft.discord_channel,
         "mention": draft.mention,
@@ -2049,8 +2113,16 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
     return initial
 
 
-def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: int = 1) -> HttpResponse:
-    """Render the wizard page for GET and for an invalid-POST re-render (with field errors)."""
+def _render_compose(
+    request: HttpRequest,
+    *,
+    form: Any,
+    draft: Any,
+    locked: bool = False,
+    locked_label: str = "",
+    compose_heading: str = "",
+) -> HttpResponse:
+    """Render the single-screen composer for GET and for an invalid-POST re-render (with errors)."""
     from membership.models import AnnouncementDraft
 
     # The URL-bearing live-count refresh (fires on audience change; the form can't reverse URLs).
@@ -2062,7 +2134,7 @@ def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: 
             "hx-swap": "none",
         }
     )
-    count = _compose_count_for(form.current_audience, form.current_guild)
+    count = _compose_count_for(form.current_audience, form.current_guild, form.current_class)
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -2071,12 +2143,33 @@ def _render_compose(request: HttpRequest, *, form: Any, draft: Any, start_step: 
             **ctx,
             "form": form,
             "draft": draft,
-            "start_step": start_step,
             "audience_value": form.audience_value,
             "initial_recipient_count": count,
             "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user)),
+            "locked": locked,
+            "locked_label": locked_label,
+            "compose_heading": compose_heading,
         },
     )
+
+
+def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, str]:
+    """Resolve the locked-audience banner from a pre-scoped audience value.
+
+    Returns ``(locked, locked_label, heading)``. Locked only when a class/guild target resolves —
+    a site audience is never locked (nothing to pin it to). Used by both the GET entry
+    (``?audience=…&lock=1``) and the invalid-POST re-render (the hidden ``lock`` field).
+    """
+    if not (want_lock and requested):
+        return False, "", ""
+    from hub.forms import split_audience
+
+    _audience, guild, offering = split_audience(requested)
+    if offering is not None:
+        return True, offering.title, f"Announce to {offering.title}"
+    if guild is not None:
+        return True, guild.name, f"Announce to {guild.name}"
+    return False, "", ""
 
 
 def _compose_first_error(form: Any) -> str:
@@ -2106,6 +2199,7 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
 
     draft = None
     initial: dict[str, Any] = {}
+    locked, locked_label, heading = False, "", ""
     if draft_pk is not None:
         draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
         initial = _draft_initial(draft)
@@ -2113,9 +2207,12 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         requested = request.GET.get("audience")
         if requested:
             initial["audience"] = requested
+        locked, locked_label, heading = _compose_lock(requested, bool(request.GET.get("lock")))
 
     form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request))
-    return _render_compose(request, form=form, draft=draft, start_step=1)
+    return _render_compose(
+        request, form=form, draft=draft, locked=locked, locked_label=locked_label, compose_heading=heading
+    )
 
 
 @login_required
@@ -2150,8 +2247,8 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
     forbidden = _compose_audience_forbidden(request, raw)
     if forbidden is not None:
         return forbidden
-    audience, guild = split_audience(raw)
-    count = _compose_count_for(audience, guild)
+    audience, guild, offering = split_audience(raw)
+    count = _compose_count_for(audience, guild, offering)
     form = AnnouncementComposeForm(initial={"audience": raw}, **_compose_form_kwargs(request))
     response = render(request, "hub/partials/_compose_oob_refresh.html", {"form": form})
     response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})
@@ -2186,6 +2283,68 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(status=204)
     trigger_toast(response, f"Test sent to {to}.")
     return response
+
+
+@login_required
+def hub_push_test(request: HttpRequest) -> HttpResponse:
+    """Admin support tool: inspect a member's push devices and fire a test push.
+
+    A staffer types a member's email; on lookup the page lists their registered devices
+    (native app tokens + browser subscriptions). "Send test push" fires a canned notification
+    at every one and reports how many were delivered — a dead token is reaped by the sender
+    mid-send, so it doubles as a cleanup pass. Admin-only (a diagnostic, not a member surface).
+    """
+    from core.push_admin import PushStatus, TestSendResult, send_test_push, status_for
+    from hub.forms import PushTestForm
+
+    if not _viewing_as_admin(request):
+        return HttpResponse("Forbidden", status=403)
+
+    status: PushStatus | None = None
+    result: TestSendResult | None = None
+    target: User | None = None
+    form = PushTestForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        target = form.cleaned_data["user"]
+        if "send" in request.POST:
+            result = send_test_push(target, url=request.build_absolute_uri("/"))
+        status = status_for(target)
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/push_test.html",
+        {**ctx, "form": form, "status": status, "result": result, "target": target},
+    )
+
+
+@login_required
+def hub_admin_tools(request: HttpRequest) -> HttpResponse:
+    """The admin tools hub: announcements, orientations, members, activity, notifications, settings.
+
+    Open to anyone whose elevated perms unlock a tool (admin, guild lead/staff, or instructor);
+    each card shows only to whoever can use it. View-as-aware for actual admins — an admin
+    previewing as a plain member is bounced home. Others are bounced home too.
+    """
+    member = _get_member(request)
+    if not _can_use_admin_tools(request, member):
+        return redirect("hub_home")
+    is_admin = _viewing_as_admin(request)
+    can_orient = is_admin or (member is not None and (member.is_guild_lead or member.is_guild_staff))
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/admin_tools.html",
+        {
+            **ctx,
+            "tool_announcements": _can_compose(request, member),
+            "tool_orientations": can_orient,
+            "tool_manage_members": is_admin,
+            "tool_activity": is_admin,
+            "tool_notifications": is_admin,
+            "tool_site_settings": is_admin,
+            "tool_push_test": is_admin,
+        },
+    )
 
 
 @login_required
@@ -2235,7 +2394,10 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
     form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
     if not form.is_valid():
-        return _render_compose(request, form=form, draft=instance, start_step=1)
+        locked, locked_label, heading = _compose_lock(raw, bool(request.POST.get("lock")))
+        return _render_compose(
+            request, form=form, draft=instance, locked=locked, locked_label=locked_label, compose_heading=heading
+        )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
     emailed, total = draft.send()
     messages.success(request, f"Emailed {emailed} of {total} · everyone sees it in the app.")
@@ -3518,7 +3680,7 @@ def event_retry_sync(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 def beta_feedback(request: HttpRequest) -> HttpResponse:
-    """Beta feedback page — users can report bugs, request features, or leave general feedback."""
+    """Feedback page — users can report bugs, request features, or leave general feedback."""
     ctx = _get_hub_context(request)
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User

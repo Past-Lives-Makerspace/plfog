@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.http import HttpRequest
 
+    from classes.models import ClassOffering
+
 from core.html_sanitize import sanitize_rich_html
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
@@ -495,7 +497,7 @@ class SkillSuggestionForm(forms.Form):
 
 
 class BetaFeedbackForm(forms.Form):
-    """Form for submitting beta feedback (bug reports, feature requests, general feedback)."""
+    """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 
     CATEGORY_CHOICES = [
         ("bug", "Bug Report"),
@@ -520,7 +522,7 @@ class BetaFeedbackForm(forms.Form):
         from core.email import send as send_email
 
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
-        subject = f"[Beta {category_label}] {self.cleaned_data['subject']}"
+        subject = f"[{category_label}] {self.cleaned_data['subject']}"
         body = (
             f"From: {user.get_full_name() or user.email} ({user.email})\n"
             f"Category: {category_label}\n\n"
@@ -2150,24 +2152,30 @@ class PushTestForm(forms.Form):
         return cleaned
 
 
-def split_audience(raw: str) -> tuple[str, Guild | None]:
-    """Split the combined compose audience value into ``(audience, guild)``.
+def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]":
+    """Split the combined compose audience value into ``(audience, guild, class_offering)``.
 
     The wizard's single ``<select name="audience">`` carries one value per option —
-    ``"site"`` for everyone, or ``"guild:<pk>"`` for a specific guild — so the UI stays
-    one control while the model keeps its two fields (``audience`` + ``guild``). A
-    ``"guild:<pk>"`` whose pk doesn't resolve returns ``(GUILD, None)`` (the form / view
-    then reject it). An unrecognized value returns ``("", None)``.
+    ``"site"`` for everyone, ``"guild:<pk>"`` for a guild's members, or ``"class:<pk>"``
+    for a class's confirmed roster — so the UI stays one control while the model keeps its
+    separate ``audience`` / ``guild`` / ``class_offering`` fields. A ``"guild:<pk>"`` or
+    ``"class:<pk>"`` whose pk doesn't resolve returns the audience with a ``None`` target
+    (the form / view then reject it). An unrecognized value returns ``("", None, None)``.
     """
+    from classes.models import ClassOffering
     from membership.models import AnnouncementDraft
 
     if raw == AnnouncementDraft.Audience.SITE.value:
-        return AnnouncementDraft.Audience.SITE.value, None
+        return AnnouncementDraft.Audience.SITE.value, None, None
     if raw.startswith("guild:"):
         pk = raw.split(":", 1)[1]
         guild = Guild.objects.filter(pk=pk).first() if pk.isdigit() else None
-        return AnnouncementDraft.Audience.GUILD.value, guild
-    return "", None
+        return AnnouncementDraft.Audience.GUILD.value, guild, None
+    if raw.startswith("class:"):
+        pk = raw.split(":", 1)[1]
+        offering = ClassOffering.objects.filter(pk=pk).first() if pk.isdigit() else None
+        return AnnouncementDraft.Audience.CLASS.value, None, offering
+    return "", None, None
 
 
 def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
@@ -2180,6 +2188,10 @@ def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
     channels = GuildAnnouncement.DiscordChannel
     from membership.models import AnnouncementDraft
 
+    if audience == AnnouncementDraft.Audience.CLASS.value:
+        # A class announcement is a direct notice to enrolled students — it never posts to
+        # Discord, so the picker is absent (the send path ignores the channel for this audience).
+        return []
     if audience == AnnouncementDraft.Audience.GUILD.value:
         return list(channels.choices)
     return [(channel.value, channel.label) for channel in channels if channel != channels.GUILD]
@@ -2241,6 +2253,14 @@ class AnnouncementComposeForm(forms.Form):
         help_text="Format with the toolbar — the formatted version goes out by email; "
         "the bell and Discord get a plain-text version.",
     )
+    push_message = forms.CharField(
+        required=False,
+        max_length=180,
+        label="Phone notification (optional)",
+        widget=forms.Textarea(attrs={"rows": 2, "maxlength": "180"}),
+        help_text="The short line members see on their phone's lock screen. Leave blank to use the "
+        "message above. Keep it punchy; phones cut off notifications past roughly 180 characters.",
+    )
     send_email = forms.BooleanField(required=False, initial=True, label="Also send as email")
     mark_as_urgent = forms.BooleanField(
         required=False,
@@ -2271,6 +2291,7 @@ class AnnouncementComposeForm(forms.Form):
         *args: Any,
         is_admin: bool = False,
         editable_guilds: Any = None,
+        editable_classes: Any = None,
         config: SiteConfiguration | None = None,
         require_body: bool = False,
         **kwargs: Any,
@@ -2284,17 +2305,18 @@ class AnnouncementComposeForm(forms.Form):
         self._config = config or SiteConfiguration.load()
         cast(forms.ChoiceField, self.fields["mention"]).choices = list(AnnouncementDraft.Mention.choices)
 
-        # Audience choices: "site" (admins only) + one option per editable guild.
+        # Audience choices: "site" (admins only) + one per editable guild + one per class you teach.
         choices: list[tuple[str, str]] = []
         if is_admin:
             choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
         choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
+        choices.extend((f"class:{offering.pk}", f"Class: {offering.title}") for offering in (editable_classes or []))
         cast(forms.ChoiceField, self.fields["audience"]).choices = choices
 
         # The raw audience currently in play (bound data > initial > first choice), split so
-        # the Discord picker + guild validation are scoped correctly on both GET and POST.
+        # the Discord picker + target validation are scoped correctly on both GET and POST.
         self.audience_value = self._raw_audience(choices)
-        self.current_audience, self.current_guild = split_audience(self.audience_value)
+        self.current_audience, self.current_guild, self.current_class = split_audience(self.audience_value)
 
         # Email recipient checklist, scoped to the audience in play (empty for a site audience).
         # Everyone is checked by default; a resumed draft's initial (if any) wins over the default.
@@ -2355,13 +2377,16 @@ class AnnouncementComposeForm(forms.Form):
         from membership.models import AnnouncementDraft
 
         cleaned = cast(dict[str, Any], super().clean())
-        audience, guild = split_audience(cleaned.get("audience") or "")
+        audience, guild, offering = split_audience(cleaned.get("audience") or "")
         if not audience:
             raise forms.ValidationError("Choose who this announcement is for.")
         cleaned["audience"] = audience
         cleaned["guild"] = guild
+        cleaned["class_offering"] = offering
         if audience == AnnouncementDraft.Audience.GUILD.value and guild is None:
             self.add_error("audience", "Choose a guild for this announcement.")
+        if audience == AnnouncementDraft.Audience.CLASS.value and offering is None:
+            self.add_error("audience", "Choose a class for this announcement.")
         cleaned["mention"] = cleaned.get("mention") or AnnouncementDraft.Mention.NONE.value
         cleaned["send_email"] = bool(cleaned.get("send_email"))
         cleaned["email_recipient_selection"] = self._clean_email_recipients(cleaned, audience)

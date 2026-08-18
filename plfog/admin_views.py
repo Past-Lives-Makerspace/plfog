@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 
 from django.contrib import admin, messages
 from django.contrib.admin.views.decorators import staff_member_required
@@ -16,52 +15,6 @@ from core.models import Invite
 from membership import email_aliases
 from membership.forms import AddEmailAliasForm, InviteMemberForm
 from membership.models import Member
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
-    from core.push_admin import PushStatus, TestSendResult
-
-
-@staff_member_required
-def push_test(request: HttpRequest) -> HttpResponse:
-    """Admin support tool: look up a member's push devices and fire a test push.
-
-    A staffer types a member's email; on lookup the page lists their registered
-    devices (native app tokens + browser subscriptions). The "Send test push" button
-    fires a canned notification at every one and reports how many were delivered — a
-    dead token is reaped by the sender mid-send, so it doubles as a cleanup pass.
-    """
-    from core.push_admin import send_test_push, status_for
-    from hub.forms import PushTestForm
-
-    status: PushStatus | None = None
-    result: TestSendResult | None = None
-    target: User | None = None
-    if request.method == "POST":
-        form = PushTestForm(request.POST)
-        if form.is_valid():
-            target = form.cleaned_data["user"]
-            if "send" in request.POST:
-                result = send_test_push(target, url=request.build_absolute_uri("/"))
-                email = form.cleaned_data["email"]
-                if result.attempted == 0:
-                    messages.warning(request, f"{email} has no registered push devices — nothing to send.")
-                else:
-                    messages.success(
-                        request, f"Sent a test push to {result.delivered} of {result.attempted} device(s)."
-                    )
-            status = status_for(target)
-    else:
-        form = PushTestForm()
-    context = {
-        **admin.site.each_context(request),
-        "form": form,
-        "status": status,
-        "result": result,
-        "target": target,
-    }
-    return render(request, "admin/push_test.html", context)
 
 
 @staff_member_required

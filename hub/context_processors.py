@@ -37,4 +37,17 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "guilds": Guild.objects.order_by("name"),
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
+        "can_use_admin_tools": _can_use_admin_tools(request, member),
     }
+
+
+def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
+    """Whether to show the Admin Tools sidebar entry.
+
+    Delegates to the page's own gate (``hub.views._can_use_admin_tools``) so the entry and the
+    page can never disagree: anyone whose elevated perms unlock a tool sees it (admin, guild
+    lead/staff, or instructor), and an actual admin previewing as a plain member does not.
+    """
+    from hub.views import _can_use_admin_tools as _gate
+
+    return _gate(request, member)

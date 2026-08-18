@@ -3,12 +3,11 @@
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
 
-<h1 class="hub-page-title">Compose announcement</h1>
-<p class="pl-wizard-lead">Pick who it's for, write the message, design the email, and choose the Discord channel — all in one place. Save a draft to finish later.</p>
+<h1 class="hub-page-title">{{ compose_heading|default:"Compose announcement" }}</h1>
+<p class="pl-wizard-lead">Write your message, then choose how it goes out. Everyone always gets it in their notification bell.</p>
 
 <div class="hub-card pl-wizard"
      x-data="{
-       step: {{ start_step }},
        audience: '{{ audience_value|escapejs }}',
        alsoEmail: {{ form.send_email.value|yesno:'true,false' }},
        mention: '{{ form.mention.value|default:'everyone'|escapejs }}',
@@ -25,54 +24,42 @@
        selectAllRecipients(v) {
          document.querySelectorAll('input[name=email_recipients]').forEach(b => { b.checked = v; });
          this.refreshEmailCount();
-       },
-       maybePreview() { if (this.step === 2 && this.alsoEmail) { this.$refs.refreshPreview.click(); } }
+       }
      }"
-     x-init="$watch('step', () => maybePreview()); $watch('alsoEmail', () => maybePreview())"
+     x-init="$nextTick(() => { if (alsoEmail && $refs.refreshPreview) $refs.refreshPreview.click(); });
+             $watch('alsoEmail', v => { if (v && $refs.refreshPreview) $refs.refreshPreview.click(); })"
      @compose-count.window="recipientCount = $event.detail.count">
-
-  <ol class="pl-wizard-nav" aria-label="Compose progress">
-    <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 1, 'is-done': step > 1 }"><span class="pl-wizard-nav__n">1</span> Audience &amp; message</li>
-    <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 2, 'is-done': step > 2 }"><span class="pl-wizard-nav__n">2</span> Email</li>
-    <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 3 }"><span class="pl-wizard-nav__n">3</span> Discord</li>
-  </ol>
 
   <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm">
     {% csrf_token %}
     <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
-    {% comment %}
-      The Step-1 <select name="audience"> is the single source of the audience — no hidden dup
-      (an x-show-hidden field still submits its value, so a second input would double-post).
-    {% endcomment %}
 
     {% if form.non_field_errors %}
     <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
     {% endif %}
 
-    {# ───────── Step 1 — Audience + message ───────── #}
-    <section class="pl-wizard-step" x-show="step === 1">
-      {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
-      {% include "components/form_field.html" with field=form.title %}
-      {% include "components/form_field.html" with field=form.body %}
-      <div class="pl-wizard-field" x-show="audience.startsWith('guild')">
-        {% include "components/form_field.html" with field=form.expires_at %}
-      </div>
-      <div class="pl-wizard-actions">
-        <button type="button" class="hub-btn hub-btn--primary" @click="step = 2">Next: email &rarr;</button>
-      </div>
-    </section>
+    {% if locked %}
+    <div class="pl-compose-locked"><span class="pl-compose-locked__label">Sending to:</span> {{ locked_label }}</div>
+    <input type="hidden" name="audience" value="{{ audience_value }}">
+    <input type="hidden" name="lock" value="1">
+    {% else %}
+    {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
+    {% endif %}
 
-    {# ───────── Step 2 — Email design + live preview ───────── #}
-    <section class="pl-wizard-step" x-show="step === 2">
-      {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Members always get the in-app bell. Turn this on to also email them the branded message below." %}
+    {% include "components/form_field.html" with field=form.title %}
+    {% include "components/form_field.html" with field=form.body %}
 
-      {# Email recipients — guild audiences only; a site send keeps all-subscribers (no checklist). #}
+    <div class="pl-compose-section">
+      <h2 class="pl-compose-section__title">How it goes out</h2>
+
+      {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Everyone gets the in-app bell. Turn this on to also email the branded message below." %}
+
       <div class="pl-recipient-card" x-show="alsoEmail && audience.startsWith('guild')" x-cloak>
         <div class="pl-recipient-card__head">
           <span class="pl-form-label pl-recipient-card__title">Email recipients</span>
           <span class="pl-help" tabindex="0" aria-label="About email recipients">
             <span class="pl-help__icon" aria-hidden="true">?</span>
-            <span class="pl-help__bubble" role="tooltip">Everyone is included by default. Uncheck anyone you don't want to email this time — they'll still see it in the app, and it still posts to your Discord channel.</span>
+            <span class="pl-help__bubble" role="tooltip">Everyone is included by default. Uncheck anyone you don't want to email this time. They'll still see it in the app, and it still posts to your Discord channel.</span>
           </span>
         </div>
         <p class="pl-recipient-card__summary">Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong></p>
@@ -84,7 +71,7 @@
         </div>
       </div>
 
-      <div class="pl-wizard-preview" x-show="alsoEmail">
+      <div class="pl-wizard-preview" x-show="alsoEmail" x-cloak>
         <div class="pl-wizard-preview__bar">
           <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshPreview"
                   hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form"
@@ -101,60 +88,73 @@
         </div>
       </div>
 
-      <div class="pl-wizard-actions">
-        <button type="button" class="hub-btn hub-btn--ghost" @click="step = 1">&larr; Back</button>
-        <button type="button" class="hub-btn hub-btn--primary" @click="step = 3">Next: Discord &rarr;</button>
-      </div>
-    </section>
-
-    {# ───────── Step 3 — Discord channel + opt-in @mention ───────── #}
-    <section class="pl-wizard-step" x-show="step === 3">
-      {% include "hub/partials/_compose_channel_picker.html" %}
-
-      <div class="pl-form-group pl-mention-picker" x-show="discordChannel !== 'none'">
-        <label class="pl-form-label">Ping members (optional)</label>
-        <div class="pl-channel-picker" role="radiogroup" aria-label="Ping members">
-          {% for radio in form.mention %}
-          <label class="pl-channel-option">
-            {{ radio.tag }}
-            <span class="pl-channel-option__label">{{ radio.choice_label }}</span>
-          </label>
-          {% endfor %}
+      {% include "components/form_field.html" with field=form.push_message %}
+      <div class="pl-push-preview">
+        <div class="pl-push-preview__label">Phone preview</div>
+        <div class="pl-push-preview__card">
+          <div class="pl-push-preview__icon" aria-hidden="true">&#128276;</div>
+          <div class="pl-push-preview__meta">
+            <div class="pl-push-preview__app">Past Lives Makerspace</div>
+            <div id="pl-push-preview-title" class="pl-push-preview__title">Announcement title</div>
+            <div id="pl-push-preview-body" class="pl-push-preview__body">Uses the message above.</div>
+          </div>
         </div>
-        <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings people in the Discord channel picked above — make it count.</p>
-        <p class="pl-field-hint">On by default. Switch to "@here" (online members only) or "No ping" if you'd rather not notify everyone.</p>
       </div>
 
-      <p class="pl-wizard-reach">
-        <span x-show="!(alsoEmail && audience.startsWith('guild'))">Reaches <strong x-text="recipientCount"></strong> member(s).</span>
-        <span x-show="alsoEmail && audience.startsWith('guild')" x-cloak>Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong> · everyone in the guild still sees it in the app.</span>
-      </p>
-
-      <div class="pl-wizard-actions">
-        <button type="button" class="hub-btn hub-btn--ghost" @click="step = 2">&larr; Back</button>
-        {% comment %}
-          Drafts UI hidden 2026-07-13 — the "Save draft" button. The backend (hub_compose_save_draft
-          view + route) is intact and dormant; to re-enable, un-comment this button.
-          See docs/superpowers/plans/2026-07-13-hide-announcement-drafts.md
-        <button type="button" class="hub-btn hub-btn--ghost"
-                hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none">Save draft</button>
-        {% endcomment %}
-        <button type="submit" class="hub-btn hub-btn--primary"
-                @click="if (!confirm(alsoEmail && audience.startsWith('guild')
-                        ? `Email ${selectedEmailCount} of ${emailRecipientTotal} recipient(s)? Everyone in the guild still sees it in the app. This can't be undone.`
-                        : `Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
-          Send announcement
-        </button>
+      <div x-show="!audience.startsWith('class')">
+        {% include "hub/partials/_compose_channel_picker.html" %}
+        <div class="pl-form-group pl-mention-picker" x-show="discordChannel !== 'none'">
+          <label class="pl-form-label">Ping members (optional)</label>
+          <div class="pl-channel-picker" role="radiogroup" aria-label="Ping members">
+            {% for radio in form.mention %}
+            <label class="pl-channel-option">
+              {{ radio.tag }}
+              <span class="pl-channel-option__label">{{ radio.choice_label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings people in the Discord channel picked above. Make it count.</p>
+          <p class="pl-field-hint">On by default. Switch to "@here" (online members only) or "No ping" if you'd rather not notify everyone.</p>
+        </div>
       </div>
-    </section>
+      <p class="pl-field-hint" x-show="audience.startsWith('class')" x-cloak>Class announcements go straight to your students' bell, phone, and email. They don't post to Discord.</p>
+
+      <div class="pl-wizard-field" x-show="audience.startsWith('guild')">
+        {% include "components/form_field.html" with field=form.expires_at %}
+      </div>
+    </div>
+
+    <p class="pl-wizard-reach">
+      <span x-show="!(alsoEmail && audience.startsWith('guild'))">Reaches <strong x-text="recipientCount"></strong> member(s).</span>
+      <span x-show="alsoEmail && audience.startsWith('guild')" x-cloak>Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong> &middot; everyone in the guild still sees it in the app.</span>
+    </p>
+
+    <div class="pl-wizard-actions">
+      <button type="submit" class="hub-btn hub-btn--primary"
+              @click="if (!confirm(alsoEmail && audience.startsWith('guild')
+                      ? `Email ${selectedEmailCount} of ${emailRecipientTotal} recipient(s)? Everyone in the guild still sees it in the app. This can't be undone.`
+                      : `Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
+        Send announcement
+      </button>
+    </div>
   </form>
 </div>
 
-{% comment %}
-  Drafts UI hidden 2026-07-13 — the "Your drafts" panel. It rendered run-together guild names
-  that wrecked the composer navbar/layout. The model (AnnouncementDraft), its save/list/delete
-  views, and routes are all intact and dormant; to re-enable, un-comment this include.
-  See docs/superpowers/plans/2026-07-13-hide-announcement-drafts.md
-{% include "hub/partials/_compose_drafts_list.html" %}
-{% endcomment %}
+<script>
+(function () {
+  var title = document.getElementById("id_title");
+  var push = document.getElementById("id_push_message");
+  var outTitle = document.getElementById("pl-push-preview-title");
+  var outBody = document.getElementById("pl-push-preview-body");
+  if (!outTitle || !outBody) { return; }
+  function sync() {
+    outTitle.textContent = (title && title.value.trim()) ? title.value : "Announcement title";
+    var short = push && push.value.trim();
+    outBody.textContent = short ? push.value : "Uses the message above.";
+  }
+  if (title) { title.addEventListener("input", sync); }
+  if (push) { push.addEventListener("input", sync); }
+  sync();
+})();
+</script>
 {% endblock %}

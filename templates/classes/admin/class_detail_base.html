@@ -6,7 +6,10 @@
         <h2 style="margin:0 0 0.25rem;">{{ offering.title }}</h2>
         <span style="font-size:0.8rem; padding:0.15rem 0.6rem; border-radius:4px; background:rgba(238,180,75,0.1); color:var(--hub-text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">{{ offering.get_status_display }}</span>
     </div>
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a class="hub-btn hub-btn--sm" href="{% url 'hub_compose' %}?audience=class:{{ offering.pk }}&amp;lock=1">Send Announcement</a>
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
+    </div>
 </div>
 <nav style="display: flex; gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;" role="tablist">
     <a href="{% url 'classes:admin_class_detail' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'overview' %} vote-tab--active{% endif %}">Overview</a>

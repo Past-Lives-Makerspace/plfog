@@ -107,58 +107,6 @@ def describe_dashboard_callback():
 
 
 @pytest.mark.django_db
-def describe_push_test_view():
-    def it_requires_staff(client):
-        resp = client.get("/admin/push-test/")
-        assert resp.status_code == 302
-        assert "/login" in resp.url or "/accounts/" in resp.url
-
-    def it_renders_form_on_get(admin_client):
-        resp = admin_client.get("/admin/push-test/")
-        assert resp.status_code == 200
-        assert "form" in resp.context
-
-    def it_lists_a_members_devices_on_lookup(admin_client):
-        from django.contrib.auth.models import User
-
-        from core.models import FcmDevice
-
-        user = User.objects.create_user(username="dev", email="dev@example.com")
-        FcmDevice.objects.create(user=user, token="t1", platform=FcmDevice.Platform.ANDROID)
-        resp = admin_client.post("/admin/push-test/", data={"email": "dev@example.com", "lookup": "1"})
-        assert resp.status_code == 200
-        assert resp.context["status"].total_devices == 1
-        assert resp.context["result"] is None
-
-    def it_sends_a_test_and_reports_the_delivered_tally(admin_client):
-        from django.contrib.auth.models import User
-
-        from core.models import FcmDevice
-
-        user = User.objects.create_user(username="snd", email="snd@example.com")
-        FcmDevice.objects.create(user=user, token="t1", platform=FcmDevice.Platform.ANDROID)
-        with patch("core.push_admin.send_fcm", return_value=True):
-            resp = admin_client.post("/admin/push-test/", data={"email": "snd@example.com", "send": "1"})
-        assert resp.status_code == 200
-        assert resp.context["result"].delivered == 1
-        assert resp.context["result"].attempted == 1
-
-    def it_warns_when_the_member_has_no_devices(admin_client):
-        from django.contrib.auth.models import User
-
-        User.objects.create_user(username="empty", email="empty@example.com")
-        resp = admin_client.post("/admin/push-test/", data={"email": "empty@example.com", "send": "1"})
-        assert resp.status_code == 200
-        assert resp.context["result"].attempted == 0
-
-    def it_re_renders_with_an_error_for_an_unknown_email(admin_client):
-        resp = admin_client.post("/admin/push-test/", data={"email": "ghost@example.com", "lookup": "1"})
-        assert resp.status_code == 200
-        assert resp.context["status"] is None
-        assert resp.context["form"].errors
-
-
-@pytest.mark.django_db
 def describe_invite_member_view():
     def it_requires_staff(client):
         resp = client.get("/admin/membership/member/invite/")
