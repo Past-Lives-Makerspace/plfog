@@ -2141,7 +2141,7 @@ class PushTestForm(forms.Form):
     def clean(self) -> dict[str, Any]:
         from core.push_admin import resolve_user
 
-        cleaned = super().clean()
+        cleaned = cast(dict[str, Any], super().clean())
         email = cleaned.get("email")
         if email:
             user = resolve_user(email)
@@ -2367,9 +2367,12 @@ class AnnouncementComposeForm(forms.Form):
         # Everyone is checked by default; a resumed draft's initial wins. ``add_member_choices``
         # is every member, for the "add anyone" search datalist. For a class, the "also include
         # the waitlist" toggle expands the roster to waitlisted registrants too.
-        self.include_waitlist = self._raw_include_waitlist()
+        # Named ``waitlist_included`` (not ``include_waitlist``) so it does not shadow the
+        # declared ``include_waitlist`` BooleanField — the field stays reachable as
+        # ``form["include_waitlist"]`` for rendering; this is the resolved bool for scoping.
+        self.waitlist_included = self._raw_include_waitlist()
         self.recipient_choices = announcement_recipient_choices(
-            self.current_audience, self.current_guild, self.current_class, include_waitlist=self.include_waitlist
+            self.current_audience, self.current_guild, self.current_class, include_waitlist=self.waitlist_included
         )
         self.add_member_choices = announcement_add_member_choices()
         recipient_field = cast(_RecipientChoiceField, self.fields["recipients"])

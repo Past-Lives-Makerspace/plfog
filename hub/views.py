@@ -2159,7 +2159,7 @@ def _render_compose(
         }
     )
     count = _compose_count_for(
-        form.current_audience, form.current_guild, form.current_class, include_waitlist=form.include_waitlist
+        form.current_audience, form.current_guild, form.current_class, include_waitlist=form.waitlist_included
     )
     # The auto category (title) for the current audience, without the client-side "Urgent: " lead.
     category_draft = AnnouncementDraft(
