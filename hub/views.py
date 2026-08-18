@@ -2094,10 +2094,13 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
         audience_value = f"guild:{draft.guild_id}"
     initial = {
         "audience": audience_value,
-        "title": draft.title,
         "body": draft.body,
         "push_message": draft.push_message,
+        "push_enabled": draft.push_enabled,
         "send_email": draft.send_email,
+        "discord_enabled": draft.discord_enabled,
+        "mark_as_urgent": draft.mark_as_urgent,
+        "show_sender": draft.show_sender,
         "discord_channel": draft.discord_channel,
         "mention": draft.mention,
         "expires_at": draft.expires_at,
@@ -2105,9 +2108,9 @@ def _draft_initial(draft: Any) -> dict[str, Any]:
     # A present selection resumes exactly those recipients; an empty one (the default) is left
     # unset so the form falls back to all-selected. (The drafts UI is dormant — this keeps the
     # resume path faithful for when it returns.)
-    selection = draft.email_recipient_selection or {}
+    selection = draft.recipient_selection or {}
     if selection:
-        initial["email_recipients"] = [f"user:{pk}" for pk in selection.get("users", [])] + [
+        initial["recipients"] = [f"user:{pk}" for pk in selection.get("users", [])] + [
             f"custom:{addr}" for addr in selection.get("custom", [])
         ]
     return initial
@@ -2135,6 +2138,12 @@ def _render_compose(
         }
     )
     count = _compose_count_for(form.current_audience, form.current_guild, form.current_class)
+    # The auto category (title) for the current audience, without the client-side "Urgent: " lead.
+    category_draft = AnnouncementDraft(
+        audience=form.current_audience or AnnouncementDraft.Audience.SITE.value,
+        guild=form.current_guild,
+        class_offering=form.current_class,
+    )
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -2145,6 +2154,7 @@ def _render_compose(
             "draft": draft,
             "audience_value": form.audience_value,
             "initial_recipient_count": count,
+            "announcement_category": category_draft.announcement_category,
             "drafts": AnnouncementDraft.objects.for_user(cast(User, request.user)),
             "locked": locked,
             "locked_label": locked_label,
@@ -2218,18 +2228,36 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
 @login_required
 @require_POST
 def hub_compose_preview(request: HttpRequest) -> HttpResponse:
-    """HTMX: sanitize + brand the current title/body and return the iframe email preview."""
+    """HTMX: render the category-led announcement email preview — byte-faithful to what sends.
+
+    There is no member-typed subject: the title is the auto category (audience + urgency), the
+    email carries the class subline + optional "From <sender>". Building an unsaved draft and
+    reusing its own :meth:`AnnouncementDraft.build_email_message` keeps the preview identical to
+    the sent email.
+    """
     from core.html_sanitize import sanitize_rich_html
-    from membership.models import build_announcement_email_html
+    from hub.forms import split_audience
+    from membership.models import AnnouncementDraft
+    from membership.orientations import _absolute_url
 
     if not _can_compose(request, _get_member(request)):
         return HttpResponse("Forbidden", status=403)
-    title = (request.POST.get("title") or "").strip()
-    body = sanitize_rich_html(request.POST.get("body") or "")
+    audience, guild, offering = split_audience(request.POST.get("audience") or "")
+    draft = AnnouncementDraft(
+        author=cast(User, request.user),
+        audience=audience or AnnouncementDraft.Audience.SITE.value,
+        guild=guild,
+        class_offering=offering,
+        mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
+        show_sender=bool(request.POST.get("show_sender")),
+        body=sanitize_rich_html(request.POST.get("body") or ""),
+    )
+    draft.title = draft.announcement_category
+    message = draft.build_email_message(_absolute_url("/"))
     return render(
         request,
         "hub/partials/_compose_email_preview.html",
-        {"preview_html": build_announcement_email_html(title, body), "preview_subject": title},
+        {"preview_html": message.html_body, "preview_subject": draft.title},
     )
 
 
@@ -2260,8 +2288,10 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
 def hub_compose_test(request: HttpRequest) -> HttpResponse:
     """HTMX: send a branded test of the current draft to the author's own inbox (never the spine)."""
     from core.email import send as send_email
-    from core.html_sanitize import rich_html_to_text, sanitize_rich_html
-    from membership.models import build_announcement_email_html
+    from core.html_sanitize import sanitize_rich_html
+    from hub.forms import split_audience
+    from membership.models import AnnouncementDraft
+    from membership.orientations import _absolute_url
 
     if not _can_compose(request, _get_member(request)):
         return HttpResponse("Forbidden", status=403)
@@ -2270,14 +2300,24 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
         response = HttpResponse(status=204)
         trigger_toast(response, "Your account has no email address to send a test to.", "error")
         return response
-    title = (request.POST.get("title") or "").strip()
-    body = sanitize_rich_html(request.POST.get("body") or "")
+    audience, guild, offering = split_audience(request.POST.get("audience") or "")
+    draft = AnnouncementDraft(
+        author=cast(User, request.user),
+        audience=audience or AnnouncementDraft.Audience.SITE.value,
+        guild=guild,
+        class_offering=offering,
+        mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
+        show_sender=bool(request.POST.get("show_sender")),
+        body=sanitize_rich_html(request.POST.get("body") or ""),
+    )
+    draft.title = draft.announcement_category
+    message = draft.build_email_message(_absolute_url("/"))
     send_email(
         to=to,
-        subject=title or "Announcement preview",
+        subject=draft.title,
         trigger_kind="announcement.test",
-        text_body=f"{title}\n\n{rich_html_to_text(body)}",
-        html_body=build_announcement_email_html(title, body),
+        text_body=message.body,
+        html_body=message.html_body,
         best_effort=True,
     )
     response = HttpResponse(status=204)
@@ -2428,7 +2468,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
     emailed, total = draft.send()
-    messages.success(request, f"Emailed {emailed} of {total} · everyone sees it in the app.")
+    messages.success(request, f"Announcement sent to {total} member(s).")
     return redirect("hub_compose")
 
 

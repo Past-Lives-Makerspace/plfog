@@ -4,31 +4,44 @@
 {% include "_components/rich_editor_assets.html" %}
 
 <h1 class="hub-page-title">{{ compose_heading|default:"Compose announcement" }}</h1>
-<p class="pl-wizard-lead">Write your message, then choose how it goes out. Everyone always gets it in their notification bell.</p>
+<p class="pl-wizard-lead">Write your message and pick who gets it, then preview each channel before it goes out. Everyone in your recipient list always gets it in their notification bell.</p>
 
 <div class="hub-card pl-wizard"
      x-data="{
+       phase: 1,
        audience: '{{ audience_value|escapejs }}',
-       alsoEmail: {{ form.send_email.value|yesno:'true,false' }},
-       mention: '{{ form.mention.value|default:'everyone'|escapejs }}',
+       pushOn: {{ form.push_enabled.value|yesno:'true,false' }},
+       emailOn: {{ form.send_email.value|yesno:'true,false' }},
+       discordOn: {{ form.discord_enabled.value|yesno:'true,false' }},
+       mention: '{{ form.mention.value|default:'none'|escapejs }}',
        discordChannel: '{{ form.discord_channel.value|default:'none'|escapejs }}',
        recipientCount: {{ initial_recipient_count }},
-       recipientsOpen: false,
-       selectedEmailCount: 0,
-       emailRecipientTotal: 0,
-       refreshEmailCount() {
-         const boxes = Array.from(document.querySelectorAll('input[name=email_recipients]'));
-         this.emailRecipientTotal = boxes.length;
-         this.selectedEmailCount = boxes.filter(b => b.checked).length;
+       hasBody: {% if form.body.value %}true{% else %}false{% endif %},
+       sendModalOpen: false,
+       category: '{{ announcement_category|escapejs }}',
+       urgentOn: {{ form.mark_as_urgent.value|yesno:'true,false' }},
+       refreshRecipientCount() {
+         const boxes = document.querySelectorAll('input[name=recipients]');
+         if (boxes.length) { this.recipientCount = document.querySelectorAll('input[name=recipients]:checked').length; }
        },
        selectAllRecipients(v) {
-         document.querySelectorAll('input[name=email_recipients]').forEach(b => { b.checked = v; });
-         this.refreshEmailCount();
+         document.querySelectorAll('input[name=recipients]').forEach(b => { b.checked = v; });
+         this.refreshRecipientCount();
+       },
+       goPreview() {
+         if (this.emailOn && $refs.refreshPreview) { $refs.refreshPreview.click(); }
+         this.phase = 2;
        }
      }"
-     x-init="$nextTick(() => { if (alsoEmail && $refs.refreshPreview) $refs.refreshPreview.click(); });
-             $watch('alsoEmail', v => { if (v && $refs.refreshPreview) $refs.refreshPreview.click(); })"
-     @compose-count.window="recipientCount = $event.detail.count">
+     @compose-count.window="recipientCount = $event.detail.count"
+     @compose-body.window="hasBody = $event.detail.has">
+
+  <div class="pl-phase-tabs" role="tablist" aria-label="Compose steps">
+    <button type="button" class="pl-phase-tab" role="tab" :aria-selected="phase === 1"
+            :class="{ 'pl-phase-tab--active': phase === 1 }" @click="phase = 1">1. Compose</button>
+    <button type="button" class="pl-phase-tab" role="tab" :aria-selected="phase === 2"
+            :class="{ 'pl-phase-tab--active': phase === 2 }" @click="goPreview()">2. Preview &amp; send</button>
+  </div>
 
   <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm">
     {% csrf_token %}
@@ -38,22 +51,61 @@
     <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
     {% endif %}
 
-    {% if locked %}
-    <div class="pl-compose-locked"><span class="pl-compose-locked__label">Sending to:</span> {{ locked_label }}</div>
-    <input type="hidden" name="audience" value="{{ audience_value }}">
-    <input type="hidden" name="lock" value="1">
-    {% else %}
-    {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
-    {% endif %}
+    <div x-show="phase === 1">
+      {% if locked %}
+      <div class="pl-compose-locked"><span class="pl-compose-locked__label">Sending to:</span> {{ locked_label }}</div>
+      <input type="hidden" name="audience" value="{{ audience_value }}">
+      <input type="hidden" name="lock" value="1">
+      {% else %}
+      {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
+      {% endif %}
 
-    {% include "components/form_field.html" with field=form.title %}
-    {% include "components/form_field.html" with field=form.body %}
+      {% include "components/form_field.html" with field=form.body %}
 
-    <div class="pl-compose-section">
-      <h2 class="pl-compose-section__title">How it goes out</h2>
-      <p class="pl-compose-section__note">Everyone always gets it in their notification bell and as a push on their phone. Fine-tune each channel below.</p>
+      <div class="pl-compose-section" x-show="audience.startsWith('guild') || audience.startsWith('class')" x-cloak>
+        <h2 class="pl-compose-section__title">Recipients</h2>
+        <p class="pl-compose-section__note">Everyone below is included. Uncheck anyone you don't want to reach, or add a member who is not on the list.</p>
+        {% include "hub/partials/_compose_recipient_picker.html" %}
+      </div>
 
-      <div class="pl-compose-channel">
+      <div class="pl-compose-section">
+        <h2 class="pl-compose-section__title">Delivery</h2>
+        {% include "components/toggle.html" with field=form.push_enabled toggle_label="Push notification" toggle_description="Send it to recipients' phones as a push notification." %}
+        {% include "components/toggle.html" with field=form.send_email toggle_label="Email" toggle_description="Also send the branded email. You'll preview it on the next step." %}
+        <div x-show="!audience.startsWith('class')" x-cloak>
+          {% include "components/toggle.html" with field=form.discord_enabled toggle_label="Post to Discord" toggle_description="Post it to a Discord channel. You'll pick the channel on the next step." %}
+        </div>
+        <p class="pl-field-hint pl-compose-hint" x-show="audience.startsWith('class')" x-cloak>Class announcements go straight to your students. They don't post to Discord.</p>
+        <div class="pl-toggle-row">
+          <div class="pl-toggle-info">
+            <div class="pl-toggle-label">Mark as urgent
+              <span class="pl-help" tabindex="0" aria-label="About urgent announcements">
+                <span class="pl-help__icon" aria-hidden="true">?</span>
+                <span class="pl-help__bubble" role="tooltip">This bypasses each member's notification preferences, so it reaches everyone even if they've turned this kind of notification off.</span>
+              </span>
+            </div>
+          </div>
+          <label class="pl-toggle">
+            {{ form.mark_as_urgent }}
+            <span class="pl-toggle__slider"></span>
+            <span class="sr-only">Mark as urgent</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="pl-wizard-field" x-show="audience.startsWith('guild')" x-cloak>
+        {% include "components/form_field.html" with field=form.expires_at %}
+      </div>
+
+      <div class="pl-wizard-actions">
+        <button type="button" class="hub-btn hub-btn--primary" @click="goPreview()" :disabled="!hasBody">
+          Preview &amp; send &rarr;
+        </button>
+      </div>
+    </div>
+
+    <div x-show="phase === 2" x-cloak>
+      <div class="pl-compose-channel" x-show="pushOn" x-cloak>
         <h3 class="pl-compose-channel__title">Push Notification</h3>
         {% include "components/form_field.html" with field=form.push_message %}
         <div class="pl-push-preview">
@@ -62,8 +114,8 @@
             <div class="pl-push-preview__icon" aria-hidden="true">&#128276;</div>
             <div class="pl-push-preview__meta">
               <div class="pl-push-preview__app">Past Lives Makerspace</div>
-              <div id="pl-push-preview-title" class="pl-push-preview__title">Announcement title</div>
-              <div id="pl-push-preview-body" class="pl-push-preview__body">Uses the message above.</div>
+              <div id="pl-push-preview-title" class="pl-push-preview__title" x-text="(urgentOn ? 'Urgent: ' : '') + category"></div>
+              <div id="pl-push-preview-body" class="pl-push-preview__body">Your message will show here.</div>
             </div>
           </div>
         </div>
@@ -75,102 +127,114 @@
         </div>
       </div>
 
-      <div class="pl-compose-channel">
+      <div class="pl-compose-channel" x-show="emailOn" x-cloak>
         <h3 class="pl-compose-channel__title">Email</h3>
-        {% include "components/toggle.html" with field=form.send_email toggle_label="Also send as email" toggle_description="Everyone gets the in-app bell and push. Turn this on to also email the branded message below." %}
-
-        <div x-show="alsoEmail" x-cloak>
-          <div class="pl-recipient-card" x-show="audience.startsWith('guild')" x-cloak>
-            <div class="pl-recipient-card__head">
-              <span class="pl-form-label pl-recipient-card__title">Email recipients</span>
-              <span class="pl-help" tabindex="0" aria-label="About email recipients">
-                <span class="pl-help__icon" aria-hidden="true">?</span>
-                <span class="pl-help__bubble" role="tooltip">Everyone is included by default. Uncheck anyone you don't want to email this time. They'll still see it in the app, and it still posts to your Discord channel.</span>
-              </span>
-            </div>
-            <p class="pl-recipient-card__summary">Emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong></p>
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-recipient-card__toggle"
-                    @click="recipientsOpen = !recipientsOpen"
-                    x-text="recipientsOpen ? 'Hide list' : 'Choose who to email'"></button>
-            <div class="pl-recipient-card__body" x-show="recipientsOpen" x-cloak>
-              {% include "hub/partials/_compose_recipient_picker.html" %}
-            </div>
+        {% include "components/toggle.html" with field=form.show_sender toggle_label="Show who it's from" toggle_description="Add a 'From you' line to the email (never in the push notification)." %}
+        <div class="pl-wizard-preview">
+          <div class="pl-wizard-preview__bar">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshPreview"
+                    hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form"
+                    hx-target="#compose-preview" hx-swap="innerHTML">
+              <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Refresh preview
+            </button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+                    hx-post="{% url 'hub_compose_test' %}" hx-include="closest form" hx-swap="none">
+              <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a test to me
+            </button>
           </div>
-
-          <div class="pl-wizard-preview">
-            <div class="pl-wizard-preview__bar">
-              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshPreview"
-                      hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form"
-                      hx-target="#compose-preview" hx-swap="innerHTML">
-                <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Refresh preview
-              </button>
-              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
-                      hx-post="{% url 'hub_compose_test' %}" hx-include="closest form" hx-swap="none">
-                <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a test to me
-              </button>
-            </div>
-            <div id="compose-preview" class="pl-wizard-preview__pane">
-              <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
-            </div>
+          <div id="compose-preview" class="pl-wizard-preview__pane">
+            <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
           </div>
         </div>
       </div>
 
-      <div class="pl-compose-channel" x-show="!audience.startsWith('class')" x-cloak>
+      <div class="pl-compose-channel" x-show="discordOn &amp;&amp; !audience.startsWith('class')" x-cloak>
         <h3 class="pl-compose-channel__title">Discord</h3>
         {% include "hub/partials/_compose_channel_picker.html" %}
-        <div class="pl-form-group pl-mention-picker" x-show="discordChannel !== 'none'">
-          <label class="pl-form-label">Ping members (optional)</label>
-          <div class="pl-channel-picker" role="radiogroup" aria-label="Ping members">
-            {% for radio in form.mention %}
-            <label class="pl-channel-option">
-              {{ radio.tag }}
-              <span class="pl-channel-option__label">{{ radio.choice_label }}</span>
-            </label>
-            {% endfor %}
-          </div>
-          <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings people in the Discord channel picked above. Make it count.</p>
-          <p class="pl-field-hint">The recommended ping is preselected. Switch to "@here" (online members only) or "No ping" to notify fewer people.</p>
-        </div>
       </div>
-      <p class="pl-field-hint" x-show="audience.startsWith('class')" x-cloak>Class announcements go straight to your students' bell, phone, and email. They don't post to Discord.</p>
 
-      <div class="pl-wizard-field" x-show="audience.startsWith('guild')" x-cloak>
-        {% include "components/form_field.html" with field=form.expires_at %}
+      <p class="pl-wizard-reach">
+        Reaching <strong x-text="recipientCount"></strong> member(s) in the app<span x-show="pushOn"> and by push</span><span x-show="emailOn">, plus email</span>.<span x-show="discordOn &amp;&amp; !audience.startsWith('class')"> Also posting to Discord.</span>
+      </p>
+
+      <div class="pl-wizard-actions">
+        <button type="button" class="hub-btn hub-btn--ghost" @click="phase = 1">&larr; Back</button>
+        <button type="button" class="hub-btn hub-btn--primary" :disabled="!hasBody"
+                @click="sendModalOpen = true">
+          Send announcement
+        </button>
       </div>
-    </div>
-
-    <p class="pl-wizard-reach">
-      <span x-show="!(alsoEmail && audience.startsWith('guild'))">Reaching <strong x-text="recipientCount"></strong> member(s) in the app and by push<span x-show="alsoEmail">, and by email</span>.</span>
-      <span x-show="alsoEmail && audience.startsWith('guild')" x-cloak>Reaching <strong x-text="recipientCount"></strong> member(s) in the app and by push &middot; emailing <strong x-text="selectedEmailCount"></strong> of <strong x-text="emailRecipientTotal"></strong>.</span>
-    </p>
-
-    <div class="pl-wizard-actions">
-      <button type="submit" class="hub-btn hub-btn--primary"
-              @click="if (!confirm(alsoEmail && audience.startsWith('guild')
-                      ? `Reaching ${recipientCount} member(s) in the app and by push, emailing ${selectedEmailCount} of ${emailRecipientTotal}. This can't be undone.`
-                      : `Send to ${recipientCount} member(s)? This can't be undone.`)) $event.preventDefault()">
-        Send announcement
-      </button>
     </div>
   </form>
+
+  <div x-show="sendModalOpen" x-cloak class="pl-modal-backdrop" style="display: none;"
+       @keydown.escape.window="sendModalOpen = false" role="dialog" aria-modal="true">
+    <div class="pl-modal pl-modal--sm" @click.outside="sendModalOpen = false">
+      <div class="pl-modal__header">
+        <h2 class="pl-modal__title">Ready to send?</h2>
+        <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
+      </div>
+      <div class="pl-modal__body">
+        <p style="margin: 0 0 1.5rem;">This will send the announcement to <strong x-text="recipientCount"></strong> member(s) right now. This can't be undone.</p>
+        <div class="pl-modal__actions">
+          <button type="button" class="hub-btn hub-btn--primary" @click="$refs.wizardForm.submit()">Yes, send it</button>
+          <button type="button" class="hub-btn hub-btn--ghost" @click="sendModalOpen = false">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
 (function () {
-  var title = document.getElementById("id_title");
   var push = document.getElementById("id_push_message");
-  var outTitle = document.getElementById("pl-push-preview-title");
   var outBody = document.getElementById("pl-push-preview-body");
-  if (!outTitle || !outBody) { return; }
-  function sync() {
-    outTitle.textContent = (title && title.value.trim()) ? title.value : "Announcement title";
-    var short = push && push.value.trim();
-    outBody.textContent = short ? push.value : "Uses the message above.";
+  function bodyText() {
+    var ta = document.getElementById("id_body");
+    if (!ta) { return ""; }
+    var tmp = document.createElement("div");
+    tmp.innerHTML = ta.value;
+    return (tmp.textContent || "").replace(/\s+/g, " ").trim();
   }
-  if (title) { title.addEventListener("input", sync); }
-  if (push) { push.addEventListener("input", sync); }
+  function truncate(s) { return s.length > 180 ? s.slice(0, 179).replace(/\s+$/, "") + "…" : s; }
+  var pushEdited = false;
+  function sync() {
+    // The push preview TITLE is the auto category (Alpine-driven). Here we keep the body/hasBody live.
+    window.dispatchEvent(new CustomEvent("compose-body", { detail: { has: bodyText().length > 0 } }));
+    if (!outBody) { return; }
+    // The push field auto-fills from the message body (truncated to 180) until the sender edits it.
+    if (push && !pushEdited) { push.value = truncate(bodyText()); }
+    var text = (push && push.value.trim()) || truncate(bodyText());
+    outBody.textContent = text ? text : "Your message will show here.";
+  }
+  if (push) { push.addEventListener("input", function () { pushEdited = true; sync(); }); }
+  var bodyMount = document.querySelector('.pl-rte[data-rte-for="id_body"]');
+  if (bodyMount) {
+    new MutationObserver(sync).observe(bodyMount, { childList: true, subtree: true, characterData: true });
+  }
   sync();
+
+  var addSelect = document.getElementById("compose-add-member");
+  var addedBox = document.getElementById("compose-added-recipients");
+  if (addSelect && addedBox) {
+    addSelect.addEventListener("change", function () {
+      var val = addSelect.value;
+      if (!val) { return; }
+      var label = addSelect.options[addSelect.selectedIndex].textContent;
+      if (!document.querySelector('input[name=recipients][value="' + val + '"]')) {
+        var row = document.createElement("label");
+        row.className = "pl-recipient-checklist__row";
+        var cb = document.createElement("input");
+        cb.type = "checkbox"; cb.name = "recipients"; cb.value = val; cb.checked = true;
+        var span = document.createElement("span");
+        span.className = "pl-recipient-checklist__label";
+        span.textContent = label;
+        row.appendChild(cb); row.appendChild(span);
+        addedBox.appendChild(row);
+      }
+      addSelect.value = "";
+    });
+  }
 })();
 </script>
 {% endblock %}

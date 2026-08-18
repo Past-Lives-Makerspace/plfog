@@ -108,11 +108,10 @@ def describe_AnnouncementDraft():
         def it_upserts_an_existing_instance_without_duplicating():
             author = _author()
             existing = AnnouncementDraft.objects.create(author=author, title="Old")
-            result = AnnouncementDraft.save_from_form(
-                _cleaned(title="New", send_email=False), author, instance=existing
-            )
+            result = AnnouncementDraft.save_from_form(_cleaned(send_email=False), author, instance=existing)
             assert result.pk == existing.pk
-            assert result.title == "New"
+            # No member subject: the title is the auto category (site → "Makerspace Announcement").
+            assert result.title == "Makerspace Announcement"
             assert result.send_email is False
             assert AnnouncementDraft.objects.filter(author=author).count() == 1
 
@@ -132,6 +131,45 @@ def describe_AnnouncementDraft():
             draft = AnnouncementDraft.save_from_form(_cleaned(audience="class", class_offering=offering), author)
             assert draft.audience == _CLASS
             assert draft.class_offering == offering
+
+    def describe_announcement_category():
+        def it_uses_the_guild_name_for_a_guild():
+            guild = GuildFactory(name="Ceramics Guild")
+            assert (
+                AnnouncementDraft(audience=_GUILD, guild=guild).announcement_category == "Ceramics Guild Announcement"
+            )
+
+        def it_uses_class_announcement_for_a_class():
+            assert AnnouncementDraft(audience=_CLASS).announcement_category == "Class Announcement"
+
+        def it_uses_makerspace_for_a_site_send():
+            assert AnnouncementDraft(audience=_SITE).announcement_category == "Makerspace Announcement"
+
+        def it_leads_with_urgent_when_marked():
+            guild = GuildFactory(name="Glass Guild")
+            draft = AnnouncementDraft(audience=_GUILD, guild=guild, mark_as_urgent=True)
+            assert draft.announcement_category == "Urgent: Glass Guild Announcement"
+
+    def describe_email_context():
+        def it_shows_the_from_line_when_show_sender_is_on():
+            author = _author()
+            draft = AnnouncementDraft(author=author, audience=_SITE, body="<p>hi</p>", show_sender=True)
+            draft.title = draft.announcement_category
+            assert "From " in draft.build_email_message("/").html_body
+
+        def it_hides_the_from_line_when_show_sender_is_off():
+            author = _author()
+            draft = AnnouncementDraft(author=author, audience=_SITE, body="<p>hi</p>", show_sender=False)
+            assert draft._sender_line() == ""
+
+        def it_shows_the_class_title_as_the_email_subline():
+            author = _author()
+            offering = ClassOfferingFactory(title="Intro to Glass")
+            draft = AnnouncementDraft(
+                author=author, audience=_CLASS, class_offering=offering, body="<p>hi</p>", show_sender=False
+            )
+            draft.title = draft.announcement_category
+            assert "Intro to Glass" in draft.build_email_message("/").html_body
 
     def describe_recipient_count():
         def it_counts_all_active_members_for_a_site_audience():
@@ -339,6 +377,38 @@ def describe_AnnouncementDraft():
                 draft = AnnouncementDraft(audience=_SITE, mention=AnnouncementDraft.Mention.ROLE)
                 assert draft._mention_literal() == ""
 
+            def it_does_not_post_to_discord_when_discord_is_disabled():
+                author = _author()
+                guild = GuildFactory(discord_webhook_url="https://d/guild", discord_post_enabled=True)
+                draft = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_GUILD,
+                    guild=guild,
+                    title="T",
+                    body="<p>x</p>",
+                    discord_channel=_CHANNEL.GUILD,
+                    discord_enabled=False,
+                )
+                with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+                    draft.send()
+                assert mock_post.call_count == 0
+
+            def it_passes_the_push_toggle_through_to_notify_members():
+                author = _author()
+                guild = GuildFactory()
+                draft = AnnouncementDraft.objects.create(
+                    author=author,
+                    audience=_GUILD,
+                    guild=guild,
+                    title="T",
+                    body="<p>x</p>",
+                    discord_channel=_CHANNEL.NONE,
+                    push_enabled=False,
+                )
+                with patch.object(GuildAnnouncement, "notify_members") as mock_notify:
+                    draft.send()
+                assert mock_notify.call_args.kwargs["suppress_push"] is True
+
         def describe_class_send():
             def it_marks_sent_and_notifies_the_confirmed_roster():
                 author = _author()
@@ -410,14 +480,17 @@ def describe_AnnouncementDraft():
                 assert messages[Channel.PUSH].body == "Snow day. Closed."
                 assert messages[Channel.PUSH].trigger_kind == "site_announcement"
 
-            def it_omits_the_push_override_when_no_short_text_is_set():
+            def it_pushes_the_message_body_when_no_short_text_is_set():
                 from core.events.channels import Channel
 
                 author = _author()
                 draft = AnnouncementDraft.objects.create(author=author, audience=_SITE, title="Hi", body="<p>x</p>")
                 with patch("core.events.emit.emit", return_value=types.SimpleNamespace(recipient_count=0)) as mock_emit:
                     draft.send()
-                assert Channel.PUSH not in mock_emit.call_args.kwargs["messages"]
+                # Push always leads with the category title; with no custom short text, the body is the tray line.
+                push = mock_emit.call_args.kwargs["messages"][Channel.PUSH]
+                assert push.title == "Hi"
+                assert push.body == "x"
 
             def it_passes_the_custom_push_text_through_a_guild_send():
                 from core.events.channels import Channel

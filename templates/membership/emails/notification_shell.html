@@ -1,2 +1,56 @@
-{% extends "membership/emails/_base.html" %}
-{% block content %}<div style="color:#33424f;font-size:15px;line-height:1.6;">{{ body_html|safe }}</div>{% endblock %}
+{% comment %}
+Branded notification shell (EventType.email_shell == "dark", and shared by the
+"light" shell via include). Wraps EVERY notification/announcement email: a navy
+lantern hero with the wordmark and the "Do It Together" tagline in brand gold, a
+gold brand rule, then a bordered white content card carrying the copy fragment, and
+the reused _footer below on the pale page background.
+
+Standalone document (does NOT extend _base.html — that grey-card chrome is kept for
+the transactional orientation/guild emails that still opt into it). Inline styles
+throughout — email clients strip <style> blocks. Table-based, ~600px, fluid within.
+The lantern PNG's baked-in background is the same navy as the hero (#092E4C), so it
+sits flush. The copy fragment arrives pre-styled for a white card (slate text, navy
+links) by core.events.templates._style_copy_fragment; the wrapper div carries the
+slate text color the fragment inherits.
+Context: body_html (safe fragment).
+{% endcomment %}{% load static site_urls %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+</head>
+<body style="margin: 0; padding: 0; background-color: #eef0f3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eef0f3; padding: 32px 16px;">
+<tr>
+<td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+    <!-- Hero band: lantern logo, wordmark, gold tagline -->
+    <tr>
+    <td style="background-color: #092E4C; border-radius: 14px 14px 0 0; padding: 34px 28px 28px; text-align: center;">
+        <a href="{% member_base_url %}" style="text-decoration: none;">
+            <img src="{% member_base_url %}{% static 'img/favicon.png' %}" width="58" height="58" alt="Past Lives Makerspace" style="display: block; margin: 0 auto 12px; border: 0; outline: none;">
+            <div style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; line-height: 1.2;">Past Lives Makerspace</div>
+        </a>
+        <div style="margin: 11px 0 0; font-size: 11px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: #EEB44B;">Do It Together</div>
+    </td>
+    </tr>
+    <!-- Gold brand rule -->
+    <tr>
+    <td height="5" style="height: 5px; line-height: 5px; font-size: 0; background-color: #EEB44B;">&nbsp;</td>
+    </tr>
+    <!-- White content card -->
+    <tr>
+    <td style="background-color: #FFFFFF; border-left: 1px solid #e3e7ec; border-right: 1px solid #e3e7ec; border-bottom: 1px solid #e3e7ec; border-radius: 0 0 14px 14px; padding: 38px 34px 30px;">
+        <div style="color: #33424F; font-size: 15px; line-height: 1.6;">{{ body_html|safe }}</div>
+    </td>
+    </tr>
+    <!-- Footer -->
+    {% include "membership/emails/_footer.html" %}
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

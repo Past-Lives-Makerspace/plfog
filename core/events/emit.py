@@ -57,8 +57,10 @@ def emit(
     email_to: str | list[str] | None = None,
     extra_emails: list[str] | None = None,
     email_only_user_ids: set[int] | None = None,
+    recipient_user_ids: set[int] | None = None,
     suppress_broadcast: bool = False,
     suppress_email: bool = False,
+    suppress_push: bool = False,
     suppress_guild_broadcast: bool = False,
     discord_mention: str = "",
     override_preferences: bool = False,
@@ -117,6 +119,13 @@ def emit(
             per-recipient path and its preference gate are preserved; only the email side is
             narrowed. Coexists with ``extra_emails`` (custom addresses ride their own additive
             path, filtered by the caller before it reaches here).
+        recipient_user_ids: An explicit per-recipient set that REPLACES the event resolver's
+            output for the in-app / push / email fan-out (the broadcast Discord post is
+            unaffected — it targets a channel, not people). The announcement composer's
+            recipient selector uses it: the sender starts from the roster, removes anyone, and
+            may add ANY member (even one outside the guild/class). ``None`` (every existing
+            caller) keeps the resolver's recipients byte-for-byte. Preference gating still runs
+            per user (an opted-out member is skipped unless ``override_preferences``).
         suppress_broadcast: When ``True``, skip every broadcast channel (Discord) for
             this emit — the per-recipient in-app + email fan-out still runs. Used by
             the admin "Sitewide Announcement" composer when sending the release notes:
@@ -126,6 +135,10 @@ def emit(
             emit (the in-app + push fan-out still runs). Used by a guild announcement
             whose author turned "Also send email" off: members still get the in-app
             bell, just no email.
+        suppress_push: When ``True``, skip the per-recipient PUSH channel for this emit
+            (the in-app bell + email fan-out still run). The mirror of ``suppress_email``
+            for a sender who turned the "Push notification" toggle off. The in-app bell is
+            never suppressed here — it is the permanent record of the announcement.
         suppress_guild_broadcast: When ``True``, skip ONLY the in-context guild's own
             Discord webhook (the dual-route post in :func:`_guild_broadcast`); the
             central/makerspace-wide broadcast still posts. Used by a guild announcement
@@ -154,6 +167,16 @@ def emit(
         activity = SiteActivity.log(event.activity_kind, actor=actor, target=target)
 
     recipients = resolvers.resolve(event.recipient, ctx)
+    if recipient_user_ids is not None:
+        # The composer's explicit recipient set REPLACES the resolver's per-recipient fan-out
+        # (bell / push / email). Keep the resolver's "reason" for a user still in the set; tag a
+        # freshly-added member "manual". The broadcast Discord post below is untouched.
+        from django.contrib.auth.models import User
+
+        resolved_by_pk = {user.pk: (user, reason) for user, reason in recipients}
+        recipients = [
+            resolved_by_pk.get(user.pk, (user, "manual")) for user in User.objects.filter(pk__in=recipient_user_ids)
+        ]
 
     # ADDITIVE extra_emails (belt-and-suspenders dedup): drop any that collide with a resolved
     # member's (lower-cased) email so a custom address equal to a member's address sends once —
@@ -207,6 +230,7 @@ def emit(
             channel_attachments=channel_attachments,
             period=period,
             suppress_email=user_suppress_email,
+            suppress_push=suppress_push,
             override_preferences=override_preferences,
             delivered=delivered,
             skipped_duplicates=skipped_duplicates,
@@ -359,6 +383,7 @@ def _per_recipient_fan_out(
     channel_attachments: dict[Channel, list[Attachment]],
     period: str,
     suppress_email: bool,
+    suppress_push: bool,
     override_preferences: bool,
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
@@ -381,6 +406,8 @@ def _per_recipient_fan_out(
     )
     for channel in channels:
         if channel is Channel.EMAIL and suppress_email:
+            continue
+        if channel is Channel.PUSH and suppress_push:
             continue
         if not channel_module.is_implemented(channel):
             # Registered-but-unbuilt channel: record nothing, do nothing.

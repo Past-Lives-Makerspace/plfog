@@ -1,16 +1,21 @@
 {% comment %}
-Step-3 Discord channel picker, wrapped in the OOB target (#compose-discord-picker) so an
-audience change can re-scope it server-side (a site-wide audience drops "Our Guild Channel").
-Rendered inline on the wizard page and returned as an hx-swap-oob partial by hub_compose_count.
+Discord channel + ping dropdowns (compose Preview step), wrapped in the OOB target
+(#compose-discord-picker) so an audience change re-scopes them server-side (a site-wide audience
+drops the guild's own channel; each guild's own channel shows its real #name). Rendered inline on
+the compose page and returned as an hx-swap-oob partial by hub_compose_count.
 
-The x-init seeds/refreshes the Alpine `discordChannel` var from the checked radio (so the @mention
-picker can hide itself when "Don't post" is chosen) on first render AND after each OOB re-scope.
+The x-init seeds the Alpine `discordChannel` var from the current <select> so the ping picker can
+hide itself when "Don't post" is chosen, on first render AND after each OOB re-scope.
 
 Params:
-  form — the AnnouncementComposeForm (its bound discord_channel field)
+  form — the AnnouncementComposeForm (its bound discord_channel + mention fields)
   oob  — when truthy, marks this as an out-of-band swap
 {% endcomment %}
 <div id="compose-discord-picker"{% if oob %} hx-swap-oob="true"{% endif %}
-     x-init="discordChannel = ($el.querySelector('[name=discord_channel]:checked') || {}).value || discordChannel">
-  {% include "hub/partials/_announcement_channel_picker.html" with field=form.discord_channel %}
+     x-init="discordChannel = ($el.querySelector('[name=discord_channel]') || {}).value || discordChannel">
+  {% include "components/form_field.html" with field=form.discord_channel %}
+  <div x-show="discordChannel !== 'none'" x-cloak>
+    {% include "components/form_field.html" with field=form.mention %}
+    <p class="pl-field-hint pl-field-hint--warn" x-show="mention !== 'none'">This pings people in the channel above.</p>
+  </div>
 </div>

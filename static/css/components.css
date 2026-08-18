@@ -730,6 +730,15 @@
     background: #ef4444;
 }
 
+.pl-btn--success {
+    background: #2f8f4e;
+    color: #fff;
+}
+
+.pl-btn--success:hover {
+    background: #37a259;
+}
+
 .pl-btn--sm {
     padding: 0.3rem 0.7rem;
     font-size: 0.8125rem;

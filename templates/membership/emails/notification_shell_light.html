@@ -1,46 +1,8 @@
 {% comment %}
-Light variant of the branded notification shell (EventType.email_shell == "light"):
-the hybrid release-email look for spine copy — lantern-logo hero band → white body →
-the reused _footer (navy-on-light styling) on the pale page background below.
-The copy fragment arrives pre-styled for the light body by
-core.events.templates._style_copy_fragment(shell="light"); the wrapper div carries
-the slate text color it inherits. Standalone document, inline styles throughout —
-email clients strip <style> blocks. The lantern PNG's baked-in background is the
-same navy as the hero band (#092E4C), so it sits flush on it.
+Light variant of the branded notification shell (EventType.email_shell == "light").
+Since the v1.0.0 white-background rebrand, both shells render the SAME polished
+logo-hero-over-white-card look, so this variant simply defers to the canonical shell
+to keep one source of truth (no drift between the two). Both are handed the same
+context and the copy fragment is pre-styled for the white card either way.
 Context: body_html (safe fragment).
-{% endcomment %}{% load static site_urls %}<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
-</head>
-<body style="margin: 0; padding: 0; background-color: #eef0f3; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eef0f3; padding: 32px 16px;">
-<tr>
-<td align="center">
-<table role="presentation" width="520" cellpadding="0" cellspacing="0" style="max-width: 520px; width: 100%;">
-    <!-- Hero band: lantern logo + wordmark -->
-    <tr>
-    <td style="background-color: #092E4C; border-radius: 12px 12px 0 0; padding: 28px 28px 24px; text-align: center;">
-        <a href="{% member_base_url %}" style="text-decoration: none;">
-            <img src="{% member_base_url %}{% static 'img/favicon.png' %}" width="64" height="64" alt="Past Lives lantern" style="display: block; margin: 0 auto 10px; border: 0;">
-            <span style="font-size: 20px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em;">Past Lives Makerspace</span>
-        </a>
-    </td>
-    </tr>
-    <!-- White body -->
-    <tr>
-    <td style="background-color: #FFFFFF; border-radius: 0 0 12px 12px; padding: 32px 28px 24px;">
-        <div style="color: #33424F; font-size: 15px; line-height: 1.6;">{{ body_html|safe }}</div>
-    </td>
-    </tr>
-    <!-- Footer -->
-    {% include "membership/emails/_footer.html" %}
-</table>
-</td>
-</tr>
-</table>
-</body>
-</html>
+{% endcomment %}{% include "membership/emails/notification_shell.html" %}

@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from core.events.discord_dm import API_BASE, _auth_headers
+from core.events.discord_dm import API_BASE, _auth_headers, bot_token
 
 _TIMEOUT_SECONDS = 5.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
@@ -49,6 +49,32 @@ def edit_channel_message(channel_id: str, message_id: str, embeds: list[dict[str
     :class:`DiscordChannelError` on any failure so the caller can surface it to the admin.
     """
     _send_embeds("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", embeds)
+
+
+def fetch_channel_name_from_webhook(webhook_url: str) -> str:
+    """Best-effort ``#channel-name`` of the channel a webhook posts to (``""`` on any failure).
+
+    Two hops: GET the webhook URL (its own token authorizes it, no bot auth needed) to learn the
+    ``channel_id``, then GET that channel as the bot to read its ``name``. Unlike the posting
+    helpers above this NEVER raises — it backs a *display* label (the announcement composer's
+    Discord channel picker shows the real ``#channel`` instead of "Our Guild Channel"), so a
+    transient Discord hiccup must degrade to a generic label, not 500 the compose page. Requires
+    the bot token; returns ``""`` when it is unset.
+    """
+    if not webhook_url or not bot_token():
+        return ""
+    try:
+        hook = httpx.get(webhook_url, timeout=_TIMEOUT_SECONDS)
+        hook.raise_for_status()
+        channel_id = (hook.json().get("channel_id") or "").strip()
+        if not channel_id:
+            return ""
+        channel = httpx.get(f"{API_BASE}/channels/{channel_id}", headers=_auth_headers(), timeout=_TIMEOUT_SECONDS)
+        channel.raise_for_status()
+        name = (channel.json().get("name") or "").strip()
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return ""
+    return f"#{name}" if name else ""
 
 
 def _send_embeds(method: str, url: str, embeds: list[dict[str, Any]]) -> None:

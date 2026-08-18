@@ -29,7 +29,7 @@
 
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
           {# Approve is spaced apart from the destructive controls so it isn't fat-fingered next to Decline. #}
-          <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+          <button type="button" class="pl-btn pl-btn--success pl-btn--sm"
                   @click="$dispatch('open-confirm', 'approve-{{ pk_str }}')">Approve</button>
           <span style="width:0.5rem;"></span>
           <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
@@ -39,7 +39,7 @@
         </div>
 
         {% url 'hub_event_review_decision' event.pk as decision_url %}
-        {% include "components/confirm_modal.html" with confirm_id="approve-"|add:pk_str confirm_title="Approve & publish this event?" confirm_message="It goes live on the calendar and posts to Discord." confirm_action_url=decision_url|add:"?decision=approve" confirm_button_text="Approve & publish" confirm_button_style="primary" %}
+        {% include "components/confirm_modal.html" with confirm_id="approve-"|add:pk_str confirm_title="Approve & publish this event?" confirm_message="It goes live on the calendar and posts to Discord." confirm_action_url=decision_url|add:"?decision=approve" confirm_button_text="Approve & publish" confirm_button_style="success" %}
         {% include "hub/partials/_event_decision_modal.html" with event=event modal_id="changes-modal-"|add:pk_str modal_title="Request changes" decision_value="changes" submit_text="Send back for changes" submit_style="primary" intro="The proposer can edit and resubmit — tell them what to change." %}
         {% include "hub/partials/_event_decision_modal.html" with event=event modal_id="decline-modal-"|add:pk_str modal_title="Decline event" decision_value="decline" submit_text="Decline event" submit_style="danger" intro="This removes the proposal; the proposer will be notified." %}
       </div>

@@ -41,7 +41,7 @@
                 <div class="admin-actions">
                     <form method="post" action="{% url 'classes:admin_discount_code_approve' pk=c.pk %}" style="display:inline;">
                         {% csrf_token %}
-                        <button type="submit" class="hub-btn hub-btn--sm {% if c.is_approved %}hub-btn--ghost{% else %}hub-btn--primary{% endif %}">{% if c.is_approved %}Unapprove{% else %}Approve{% endif %}</button>
+                        <button type="submit" class="hub-btn hub-btn--sm {% if c.is_approved %}hub-btn--ghost{% else %}hub-btn--success{% endif %}">{% if c.is_approved %}Unapprove{% else %}Approve{% endif %}</button>
                     </form>
                     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_discount_code_edit' pk=c.pk %}">Edit</a>
                     <button type="button"

@@ -28,7 +28,7 @@
 
         <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
           {# Approve sits apart from the destructive controls so it isn't fat-fingered next to Decline. #}
-          <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+          <button type="button" class="pl-btn pl-btn--success pl-btn--sm"
                   @click="$dispatch('open-modal', 'approve-annmodal-{{ pk_str }}')">Approve…</button>
           <span style="width:0.5rem;"></span>
           <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"

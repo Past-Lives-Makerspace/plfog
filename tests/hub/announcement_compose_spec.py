@@ -81,7 +81,7 @@ def describe_hub_compose_page():
         content = response.content.decode()
         # One flat screen: audience picker + message + the delivery options (email + push + discord).
         assert 'name="audience"' in content
-        assert "How it goes out" in content
+        assert "Delivery" in content
         assert 'name="push_message"' in content
         assert "Push Preview" in content
         assert "Reaching" in content
@@ -132,7 +132,8 @@ def describe_hub_compose_page():
         assert content.count(f'action="{reverse("hub_compose_send")}"') == 1
         start = content.index(f'action="{reverse("hub_compose_send")}"')
         form_html = content[start : content.index("</form>", start)]
-        assert form_html.count('type="submit"') == 1  # only Send
+        # Send opens a confirm modal (the button is type=button), so no submit lives in the form.
+        assert form_html.count('type="submit"') == 0
 
     def it_pre_scopes_from_the_audience_query_param(client: Client):
         guild = GuildFactory()
@@ -143,9 +144,9 @@ def describe_hub_compose_page():
 
     def it_resumes_a_draft_you_own(client: Client):
         admin = _login_admin(client)
-        draft = AnnouncementDraft.objects.create(author=admin, title="Resume me", body="<p>hi</p>")
+        draft = AnnouncementDraft.objects.create(author=admin, body="<p>Resume this body</p>")
         content = client.get(reverse("hub_compose_resume", args=[draft.pk])).content.decode()
-        assert "Resume me" in content
+        assert "Resume this body" in content
 
     def it_404s_resuming_another_users_draft(client: Client):
         other = User.objects.create_user(username="other", password="p")
@@ -162,28 +163,27 @@ def describe_hub_compose_page():
 def describe_hub_compose_save_draft():
     def it_saves_a_new_draft_and_returns_a_toast(client: Client):
         admin = _login_admin(client)
-        response = client.post(
-            reverse("hub_compose_save_draft"), _valid_send_data(title="Draft one", body="<p>body</p>")
-        )
+        response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>Draft body</p>"))
         assert response.status_code == 200
-        assert AnnouncementDraft.objects.filter(author=admin, title="Draft one").exists()
+        # The title is the auto category (site → "Makerspace Announcement"), not a member subject.
+        assert AnnouncementDraft.objects.filter(author=admin, title="Makerspace Announcement").exists()
         assert "Draft saved." in _trigger(response)["showToast"]["message"]
 
     def it_upserts_the_same_row_on_a_second_save(client: Client):
         admin = _login_admin(client)
-        first = client.post(reverse("hub_compose_save_draft"), _valid_send_data(title="v1"))
+        first = client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v1</p>"))
         draft = AnnouncementDraft.objects.get(author=admin)
-        client.post(reverse("hub_compose_save_draft"), _valid_send_data(title="v2", draft_pk=str(draft.pk)))
+        client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v2 body</p>", draft_pk=str(draft.pk)))
         assert AnnouncementDraft.objects.filter(author=admin).count() == 1
         draft.refresh_from_db()
-        assert draft.title == "v2"
+        assert "v2 body" in draft.body
         assert 'id="compose-draft-pk"' in first.content.decode()
 
-    def it_returns_an_error_toast_and_no_row_on_a_blank_title(client: Client):
+    def it_returns_an_error_toast_and_no_row_on_an_invalid_channel(client: Client):
         admin = _login_admin(client)
-        response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(title=""))
+        # #general-chat has no webhook configured in tests, so the form rejects the channel.
+        response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(discord_channel="general"))
         assert response.status_code == 204
-        assert "subject" in _trigger(response)["showToast"]["message"].lower()
         assert not AnnouncementDraft.objects.filter(author=admin).exists()
 
     def it_403s_a_lead_saving_a_site_wide_draft(client: Client):
@@ -297,10 +297,11 @@ def describe_hub_compose_delete_draft():
 def describe_hub_compose_preview():
     def it_returns_the_branded_iframe_preview(client: Client):
         _login_admin(client)
-        response = client.post(reverse("hub_compose_preview"), _valid_send_data(title="Preview", body="<p>hi</p>"))
+        response = client.post(reverse("hub_compose_preview"), _valid_send_data(body="<p>hi</p>"))
         assert response.status_code == 200
         assert b"<iframe" in response.content
-        assert b"Preview" in response.content
+        # The email leads with the auto category (site → "Makerspace Announcement").
+        assert b"Makerspace Announcement" in response.content
 
     def it_403s_a_plain_member(client: Client):
         _login_plain(client)
@@ -449,6 +450,26 @@ def describe_AnnouncementComposeForm():
         values = [value for value, _label in form.fields["mention"].choices]
         assert AnnouncementDraft.Mention.ROLE.value not in values
         assert form.fields["mention"].initial == AnnouncementDraft.Mention.EVERYONE.value
+
+    def it_labels_the_guild_channel_with_its_real_name_when_synced():
+        guild = GuildFactory(discord_channel_name="#glass", discord_webhook_url="https://d/hook")
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        labels = dict(form.fields["discord_channel"].choices)
+        assert labels.get("guild") == "#glass"
+        assert "Our Guild Channel" not in labels.values()
+
+    def it_falls_back_to_a_generic_channel_label_before_a_sync():
+        guild = GuildFactory(discord_channel_name="", discord_webhook_url="https://d/hook")
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        labels = dict(form.fields["discord_channel"].choices)
+        assert labels.get("guild") == "your guild's channel"
+
+    def it_defaults_the_three_channel_toggles_on():
+        guild = GuildFactory()
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        assert form.fields["push_enabled"].initial is True
+        assert form.fields["send_email"].initial is True
+        assert form.fields["discord_enabled"].initial is True
 
     def it_accepts_an_optional_push_message():
         form = AnnouncementComposeForm(
