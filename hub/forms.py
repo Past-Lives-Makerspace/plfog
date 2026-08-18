@@ -2124,44 +2124,6 @@ class GuildAnnouncementDecisionForm(forms.Form):
         return cleaned
 
 
-class SiteAnnouncementForm(forms.Form):
-    """Admin form to broadcast a site-wide announcement to activated members.
-
-    Drives the **Django-admin** composer (``plfog.admin_views.site_announcement`` at
-    ``/admin/announcement/``) — a separate surface from the hub compose wizard. ``body``
-    accepts simple HTML (paragraphs / links) — it rides into the branded email shell.
-    """
-
-    title = forms.CharField(max_length=300, label="Subject")
-    body = forms.CharField(
-        widget=RichTextEditorWidget(attrs={"rows": 10}),
-        label="Message",
-        help_text="Use the toolbar to format — bold, headings, lists, and links. The formatted version "
-        "goes out by email; the bell, push, and Discord get a plain-text version.",
-    )
-    push_message = forms.CharField(
-        required=False,
-        max_length=180,
-        label="Phone notification (optional)",
-        widget=forms.Textarea(attrs={"rows": 2, "maxlength": "180"}),
-        help_text="The short text members see on their phone's lock screen. Leave blank to use the "
-        "message above. Keep it punchy — phones cut off notifications past roughly 180 characters.",
-    )
-    post_to_discord = forms.BooleanField(
-        required=False,
-        initial=True,
-        label="Also post to Discord",
-        help_text="Leave on for normal announcements. Turn OFF when sending the release notes — "
-        "the release is already posted to Discord automatically when the code goes live.",
-    )
-
-    def clean_body(self) -> str:
-        body = sanitize_rich_html(self.cleaned_data["body"])
-        if not body:
-            raise forms.ValidationError("Add a message before sending.")
-        return body
-
-
 class PushTestForm(forms.Form):
     """Admin push-test lookup — an email that must resolve to a real account.
 

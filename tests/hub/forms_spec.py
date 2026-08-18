@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-from hub.forms import ProfileSettingsForm, SiteAnnouncementForm
+from hub.forms import ProfileSettingsForm
 from tests.membership.factories import MemberFactory
 
 
@@ -160,44 +160,6 @@ def describe_profile_settings_form():
             form = ProfileSettingsForm({"preferred_name": "Ok", "phone": "x" * 21}, instance=member)
             assert form.is_valid() is False
             assert form.has_only_photo_errors is False
-
-
-# NOTE: The hub Site Settings plain composer + the guild-edit composer moved to the
-# /announcements/compose/ wizard (AnnouncementComposeForm), covered by
-# tests/hub/announcement_compose_spec.py + tests/membership/announcement_draft_spec.py.
-# SiteAnnouncementForm still backs the separate Django-admin composer (/admin/announcement/).
-def describe_site_announcement_form():
-    def it_sanitizes_the_body_and_strips_script():
-        form = SiteAnnouncementForm(
-            {"title": "Hi", "body": "<p>Hello there</p><script>evil()</script>", "post_to_discord": ""}
-        )
-        assert form.is_valid(), form.errors
-        assert "<script" not in form.cleaned_data["body"]
-        assert "Hello there" in form.cleaned_data["body"]
-
-    def it_rejects_an_empty_quill_doc_as_a_missing_message():
-        form = SiteAnnouncementForm({"title": "Hi", "body": "<p><br></p>", "post_to_discord": ""})
-        assert not form.is_valid()
-        assert "body" in form.errors
-
-    def it_is_valid_without_a_push_message():
-        form = SiteAnnouncementForm({"title": "Hi", "body": "<p>Hello there</p>", "post_to_discord": ""})
-        assert form.is_valid(), form.errors
-        assert form.cleaned_data["push_message"] == ""
-
-    def it_accepts_an_optional_push_message():
-        form = SiteAnnouncementForm(
-            {"title": "Hi", "body": "<p>Hello there</p>", "push_message": "Snow day. Closed.", "post_to_discord": ""}
-        )
-        assert form.is_valid(), form.errors
-        assert form.cleaned_data["push_message"] == "Snow day. Closed."
-
-    def it_rejects_a_push_message_past_the_length_cap():
-        form = SiteAnnouncementForm(
-            {"title": "Hi", "body": "<p>Hi</p>", "push_message": "x" * 181, "post_to_discord": ""}
-        )
-        assert not form.is_valid()
-        assert "push_message" in form.errors
 
 
 def describe_push_test_form():
