@@ -56,6 +56,30 @@ else
   fail=1
 fi
 
+# --- Native push plugin must be compiled into the binary ---------------------
+# Push is the one feature the server-URL architecture CANNOT ship on its own:
+# native-push.js is served from members.pastlives.space, but it no-ops unless
+# the @capacitor/push-notifications plugin is inside the APK's dex. The
+# versionCode-5 release announced "push on your phone" while shipping a binary
+# that lacked the plugin, so the app never prompted and prod logged zero device
+# registrations. This asserts the plugin's class descriptor is actually present.
+# Use `grep -c` (reads to EOF), NOT `grep -q` (early close -> SIGPIPE -> pipefail
+# false failure), per the note at the top. Multidex: the plugin can land in any
+# classesN.dex, so scan every dex entry.
+push_found=0
+for dex in ${(f)"$(print -r -- "$listing" | grep -oE 'base/dex/[^[:space:]]+\.dex' || true)"}; do
+  if [[ "$(unzip -p "$AAB" "$dex" | grep -ac 'capacitorjs/plugins/pushnotifications' || true)" -gt 0 ]]; then
+    push_found=1
+    break
+  fi
+done
+if [[ "$push_found" -eq 1 ]]; then
+  echo "  ok   native push plugin in dex (capacitorjs/plugins/pushnotifications)"
+else
+  echo "  MISS native push plugin absent from dex (app cannot receive push; run: npx cap sync android, then rebuild)"
+  fail=1
+fi
+
 if [[ "$fail" -ne 0 ]]; then
   echo ""
   echo "GATE FAILED. Do NOT upload this AAB. Run: npx cap sync android, then rebuild."
