@@ -24,6 +24,7 @@ from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadReque
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
@@ -4064,6 +4065,7 @@ def _get_calendar_context(
 
 
 @login_required
+@ensure_csrf_cookie
 def home(request: HttpRequest) -> HttpResponse:
     """Member Home / Dashboard — the post-login landing page.
 
@@ -4071,6 +4073,14 @@ def home(request: HttpRequest) -> HttpResponse:
     shortcuts, and profile-completeness from the ``hub.home`` service. An unlinked
     account (a User with no ``Member``) renders a friendly "not linked yet" state and
     skips the personalized blocks — the hub's established graceful-``None`` pattern.
+
+    ``@ensure_csrf_cookie``: this is the native app's post-login landing page (``/``
+    redirects here), and it is where ``static/js/native-push.js`` runs to register the
+    device's FCM token. That registration POSTs to ``/push/fcm/register/`` with the CSRF
+    token read from the ``csrftoken`` cookie. Django only sets that cookie when a view
+    uses it, so without this the WebView had no cookie and every registration POST was
+    rejected ("CSRF cookie not set"), leaving native push silently broken. Forcing the
+    cookie here (it persists for the rest of the session) lets the token register.
     """
     member = _get_member(request)
     ctx = _get_hub_context(request)

@@ -79,6 +79,19 @@ def describe_hub_home_view():
         assert response.status_code == 200
         assert b"isn't linked to a membership" in response.content
 
+    def it_sets_the_csrftoken_cookie_for_the_native_push_registration_post(client: Client):
+        # The native app lands here after login; static/js/native-push.js reads the
+        # csrftoken cookie to POST the device's FCM token to /push/fcm/register/. Django
+        # only sets that cookie when a view uses it, so @ensure_csrf_cookie must force it
+        # here or every registration POST is rejected ("CSRF cookie not set").
+        _member_user("csrf")
+        client.login(username="csrf", password="pass")
+
+        response = client.get(reverse("hub_home"))
+
+        assert response.status_code == 200
+        assert "csrftoken" in response.cookies
+
     def describe_upcoming():
         def it_lists_soonest_first_capped(client: Client):
             user = _member_user("soon")
