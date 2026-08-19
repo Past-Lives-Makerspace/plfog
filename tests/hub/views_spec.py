@@ -7,6 +7,7 @@ from django.contrib.auth.models import AnonymousUser, User
 from django.test import Client, RequestFactory
 
 from core.models import SiteConfiguration
+from hub.context_processors import hub_sidebar
 from hub.views import _get_hub_context, _get_member
 from membership.models import Member
 from tests.membership.factories import GuildFactory, MemberContactFactory, MemberFactory
@@ -57,6 +58,45 @@ def describe_get_hub_context():
         ctx = _get_hub_context(request)
 
         assert ctx["user_initials"] == ""
+
+    def it_excludes_inactive_guilds_and_includes_active_ones(rf: RequestFactory):
+        user = User.objects.create_user(username="hubctxguilds", password="pass")
+        active = GuildFactory(name="Active Hub Guild", is_active=True)
+        inactive = GuildFactory(name="Retired Hub Guild", is_active=False)
+        request = rf.get("/guilds/voting/")
+        request.user = user
+
+        guilds = list(_get_hub_context(request)["guilds"])
+
+        assert active in guilds
+        assert inactive not in guilds
+
+
+@pytest.mark.django_db
+def describe_hub_sidebar():
+    """Tests for the hub_sidebar context processor (registered globally in settings.py,
+    so it runs on every authenticated page render alongside _get_hub_context)."""
+
+    def it_excludes_inactive_guilds_and_includes_active_ones(rf: RequestFactory):
+        user = User.objects.create_user(username="sidebarguilds", password="pass")
+        active = GuildFactory(name="Active Sidebar Guild", is_active=True)
+        inactive = GuildFactory(name="Retired Sidebar Guild", is_active=False)
+        request = rf.get("/guilds/voting/")
+        request.user = user
+
+        guilds = list(hub_sidebar(request)["guilds"])
+
+        assert active in guilds
+        assert inactive not in guilds
+
+    def it_returns_no_guilds_for_an_anonymous_request(rf: RequestFactory):
+        GuildFactory(name="Anon Guild", is_active=True)
+        request = rf.get("/guilds/voting/")
+        request.user = AnonymousUser()
+
+        ctx = hub_sidebar(request)
+
+        assert list(ctx["guilds"]) == []
 
 
 def describe_get_member():

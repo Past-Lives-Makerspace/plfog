@@ -246,7 +246,14 @@ class MemberQuerySet(models.QuerySet):
             | models.Q(led_guilds__isnull=False)
             | models.Q(instructor_slug__gt="")
         )
-        return self.filter(status=Member.Status.ACTIVE).filter(models.Q(show_in_directory=True) | must_show).distinct()
+        return (
+            self.filter(status=Member.Status.ACTIVE)
+            .filter(models.Q(show_in_directory=True) | must_show)
+            # The ops override beats everything, must-show roles included — it exists so the
+            # Help Center's example instructor/guild lead never surface in the directory.
+            .exclude(hide_from_directory=True)
+            .distinct()
+        )
 
 
 @dataclass(frozen=True)
@@ -444,6 +451,14 @@ class Member(models.Model):
         help_text=(
             "Whether this member appears in the public member directory. New members are listed by "
             "default; they can opt out any time in profile settings."
+        ),
+    )
+    hide_from_directory = models.BooleanField(
+        default=False,
+        help_text=(
+            "Ops-only override: never list this member in the member directory, even when their role "
+            "(admin, officer, guild lead, instructor) would normally force-list them. Used for the Help "
+            "Center's example/demo accounts. Set via shell/admin, not member-editable."
         ),
     )
     directory_visibility = models.JSONField(
@@ -1103,7 +1118,11 @@ class Member(models.Model):
 
         Admins, Guild Officers, Guild Leads, and Instructors are public-facing —
         members need to be able to find them. They cannot hide via show_in_directory.
+        The ops-only ``hide_from_directory`` override trumps even these roles, so a
+        hidden example account never reads as force-listed.
         """
+        if self.hide_from_directory:
+            return False
         return self.is_fog_admin or self.is_guild_officer or self.is_guild_lead or self.is_instructor
 
     ADMIN_ROLE_INSTRUCTOR = "instructor"
@@ -2544,10 +2563,10 @@ class HelpCategoryQuerySet(models.QuerySet):
             output_field=models.IntegerField(),
         )
         heading = Case(
-            When(audience=HelpCategory.Audience.MEMBER, then=Value("For every member")),
-            When(audience=HelpCategory.Audience.DEVELOPER, then=Value("For developers")),
+            When(audience=HelpCategory.Audience.MEMBER, then=Value("For Every Member")),
+            When(audience=HelpCategory.Audience.DEVELOPER, then=Value("For Developers")),
             When(audience=HelpCategory.Audience.INSTRUCTOR, then=Value("Teaching")),
-            When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value("Running a guild")),
+            When(audience=HelpCategory.Audience.GUILD_LEAD, then=Value("Running a Guild")),
             When(audience=HelpCategory.Audience.ADMIN, then=Value("Admin")),
             output_field=CharField(),
         )

@@ -68,5 +68,23 @@
     <span class="pl-tool-card__desc">Check a member's push devices and send them a test notification.</span>
   </a>
   {% endif %}
+  {% if guide_guild_lead %}
+  <a class="hub-card pl-tool-card" href="/help/running-a-guild/guild-lead-quickstart/">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Guild Lead Quickstart</span>
+    <span class="pl-tool-card__desc">Everything a guild lead or staff member can do, on one page.</span>
+  </a>
+  {% endif %}
+  {% if guide_instructor %}
+  <a class="hub-card pl-tool-card" href="/help/teaching/instructor-quickstart/">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Instructor Quickstart</span>
+    <span class="pl-tool-card__desc">Everything an instructor can do, on one page.</span>
+  </a>
+  {% endif %}
 </div>
 {% endblock %}

@@ -51,3 +51,25 @@ def describe_directory_visible():
         GuildFactory(name="First Led", guild_lead=member)
         GuildFactory(name="Second Led", guild_lead=member)
         assert list(Member.objects.directory_visible().filter(pk=member.pk)) == [member]
+
+    def it_excludes_a_hidden_opted_in_plain_member():
+        # hide_from_directory is the ops-only override — it beats the member's own opt-in too.
+        member = MemberFactory(show_in_directory=True, hide_from_directory=True)
+        assert member not in Member.objects.directory_visible()
+
+    def it_excludes_a_hidden_admin():
+        member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.ADMIN, hide_from_directory=True)
+        assert member not in Member.objects.directory_visible()
+
+    def it_excludes_a_hidden_guild_officer():
+        member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.GUILD_OFFICER, hide_from_directory=True)
+        assert member not in Member.objects.directory_visible()
+
+    def it_excludes_a_hidden_guild_lead():
+        member = MemberFactory(show_in_directory=False, hide_from_directory=True)
+        GuildFactory(name="Hidden Lead Guild", guild_lead=member)
+        assert member not in Member.objects.directory_visible()
+
+    def it_excludes_a_hidden_instructor():
+        member = MemberFactory(show_in_directory=False, instructor_slug="hidden-teacher", hide_from_directory=True)
+        assert member not in Member.objects.directory_visible()
