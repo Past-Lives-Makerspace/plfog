@@ -153,7 +153,7 @@ def describe_history_detail():
         content = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content
         assert b"Alice Standard" in content
         assert b"Oscar Officer" in content
-        assert b"Per-guild allocation" in content
+        assert b"Per-Guild Allocation" in content
         assert b"Individual votes" in content
 
     def it_applies_filters_via_get(admin_client):

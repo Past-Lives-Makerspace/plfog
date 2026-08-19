@@ -4,7 +4,7 @@
 {% block content %}
 <div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || 'placement' }">
 <div class="pl-map-edit__header">
-    <h1 class="hub-page-title">Edit the space map</h1>
+    <h1 class="hub-page-title">Edit the Space Map</h1>
     <a class="pl-btn pl-btn--secondary pl-map-edit__done" href="{% url 'hub_spaces' %}">Done — view the map</a>
 </div>
 <p class="hub-text-muted pl-map-edit__lede">

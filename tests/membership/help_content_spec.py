@@ -98,6 +98,7 @@ def describe_help_content():
             # The §10.2 P1 table — listed articles only (UNLISTED_SLUGS are exempt).
             approved = {
                 "welcome-to-fog": "getting-started",
+                "notifications": "getting-started",
                 "guilds-and-guild-pages": "guilds",
                 "getting-oriented": "guilds",
                 "guild-voting": "guilds",

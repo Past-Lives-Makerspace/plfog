@@ -40,7 +40,7 @@
       {# 3 · Contact block #}
       {% if guild.guild_lead or guild.contact_email or guild.guild_lead.primary_email or guild.discord_url %}
       <section class="pl-flyer__block">
-        <h2 class="pl-flyer__block-title">Get in touch</h2>
+        <h2 class="pl-flyer__block-title">Get in Touch</h2>
         {% if guild.guild_lead %}<p class="pl-flyer__line">Led by <strong>{{ guild.guild_lead.display_name }}</strong></p>{% endif %}
         {% if guild.contact_email %}
           <p class="pl-flyer__line">{{ guild.contact_email }}</p>
@@ -53,7 +53,7 @@
 
       {# 4 · Next meeting #}
       <section class="pl-flyer__block">
-        <h2 class="pl-flyer__block-title">Next meeting</h2>
+        <h2 class="pl-flyer__block-title">Next Meeting</h2>
         {% if guild.next_meeting_at %}
           <p class="pl-flyer__line"><strong>{{ guild.next_meeting_at|date:"l, M j" }}</strong></p>
           {% if guild.meeting_location %}<p class="pl-flyer__line">{{ guild.meeting_location }}</p>{% endif %}
@@ -66,7 +66,7 @@
       {# 5 · Essential / safety rules (hidden when blank) #}
       {% if guild.essential_rules %}
       <section class="pl-flyer__block">
-        <h2 class="pl-flyer__block-title">Essential rules</h2>
+        <h2 class="pl-flyer__block-title">Essential Rules</h2>
         <p class="pl-flyer__line pl-flyer__rules">{{ guild.essential_rules|linebreaksbr }}</p>
       </section>
       {% endif %}

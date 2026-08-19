@@ -37,7 +37,7 @@
         {% if member %}
         <div x-data="{ ptab: 'member' }">
         {# Deliberately the heading row, NOT the whole pane — contact-methods and skills are annotated inside it (§6.8 non-overlap rule). #}
-        <h2 class="pl-profile-heading" data-help-key="settings.profile">Edit your profile</h2>
+        <h2 class="pl-profile-heading" data-help-key="settings.profile">Edit Your Profile</h2>
         {% if member.is_instructor %}
         <div class="pl-subtabs" role="tablist" aria-label="Profile sections">
             <button type="button" @click="ptab = 'member'" :class="{ 'vote-tab--active': ptab === 'member' }" class="vote-tab" role="tab">Member</button>
@@ -263,7 +263,7 @@
 
             {# ── Contact methods (unified labeled list, saved with the profile form) ── #}
             <div class="pl-profile-section" data-help-key="settings.contact-methods">
-                <h2 class="pl-profile-section__title">Contact methods</h2>
+                <h2 class="pl-profile-section__title">Contact Methods</h2>
                 <p class="hub-text-muted" style="margin-bottom:1rem;">
                     Other ways to reach you — a website, Instagram, a booking email. You choose where each one shows.
                 </p>
@@ -333,7 +333,7 @@
 
             {# Open for commissions — saved together with the rest of the profile form #}
             <div class="pl-profile-section" x-data="{ commissions: {% if profile_form.open_for_commissions.value %}true{% else %}false{% endif %} }">
-                <h2 class="pl-profile-section__title">Open for commissions</h2>
+                <h2 class="pl-profile-section__title">Open for Commissions</h2>
                 <div @change="commissions = $event.target.checked">
                     {% include "components/toggle.html" with field=profile_form.open_for_commissions toggle_label="Open for commissions!" toggle_description="Show a badge letting members know you welcome contract work, custom jobs, or consulting." %}
                 </div>
@@ -348,7 +348,7 @@
             {# ===== Instructor panel ===== #}
             <div x-show="ptab === 'instructor'" x-cloak>
                 <div class="pl-profile-section" style="margin-top:0; padding-top:0; border-top:0;">
-                    <h2 class="pl-profile-section__title">Instructor profile</h2>
+                    <h2 class="pl-profile-section__title">Instructor Profile</h2>
                     <p class="hub-text-muted" style="margin-bottom:1rem;">
                         This is what learners see on your public instructor page.
                     </p>
@@ -364,7 +364,7 @@
                         {% for error in profile_form.instructor_bio.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
                     </div>
                     <p class="hub-text-muted" style="margin-top:1rem;">
-                        Add links (a website, Instagram, a booking email) under <strong>Contact methods</strong> on the
+                        Add links (a website, Instagram, a booking email) under <strong>Contact Methods</strong> on the
                         Member tab, then switch on <strong>“Show on instructor page”</strong> to display them here.
                     </p>
                 </div>
@@ -379,7 +379,7 @@
 
         {# Skills are edited through their own HTMX endpoints, so they live OUTSIDE the profile form (no nested forms). #}
         <div class="pl-profile-section" data-help-key="settings.skills">
-            <h2 class="pl-profile-section__title">My skills</h2>
+            <h2 class="pl-profile-section__title">My Skills</h2>
             <p class="hub-text-muted">List what you make and do — members can search the directory by skill.</p>
             {% include "hub/partials/profile_skills.html" %}
         </div>

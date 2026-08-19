@@ -11,13 +11,13 @@
   <p style="text-align:center; font-size:22px; font-weight:700; margin:0 0 32px;">Past Lives</p>
   <div style="background:#092E4C; border-radius:12px; padding:32px;">
   {% if invalid %}
-    <h1 style="font-size:18px; margin:0 0 12px;">This link is no longer valid</h1>
+    <h1 style="font-size:18px; margin:0 0 12px;">This Link Is No Longer Valid</h1>
     <p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">It may have expired or already been used. If you still need to make a change, sign in to the member hub.</p>
   {% elif result %}
-    {% if result == "confirmed" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation confirmed</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }}'s orientation for {{ booking.guild.name }} is confirmed and they've been emailed.</p>
-    {% elif result == "declined" %}<h1 style="font-size:18px; margin:0 0 12px;">Request declined</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }} has been notified.</p>
-    {% elif result == "cancelled" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation cancelled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">Everyone involved has been notified.</p>
-    {% else %}<h1 style="font-size:18px; margin:0 0 12px;">Already handled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">This orientation has already been resolved — nothing more to do.</p>{% endif %}
+    {% if result == "confirmed" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation Confirmed</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }}'s orientation for {{ booking.guild.name }} is confirmed and they've been emailed.</p>
+    {% elif result == "declined" %}<h1 style="font-size:18px; margin:0 0 12px;">Request Declined</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }} has been notified.</p>
+    {% elif result == "cancelled" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation Cancelled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">Everyone involved has been notified.</p>
+    {% else %}<h1 style="font-size:18px; margin:0 0 12px;">Already Handled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">This orientation has already been resolved — nothing more to do.</p>{% endif %}
   {% else %}
     <h1 style="font-size:18px; margin:0 0 8px;">
       {% if action == "confirm" %}Confirm this orientation?{% elif action == "decline" %}Decline this request?{% else %}Cancel this orientation?{% endif %}

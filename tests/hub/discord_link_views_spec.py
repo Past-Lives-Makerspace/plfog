@@ -96,7 +96,7 @@ def describe_discord_link_callback():
         client = _client_with_state()
         response = client.get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
         assert response.status_code == 200
-        assert b"Discord connected" in response.content
+        assert b"Discord Connected" in response.content
         assert b"Glassworks" in response.content
         member.refresh_from_db()
         assert member.discord_user_id == "42"
@@ -108,7 +108,7 @@ def describe_discord_link_callback():
         _mock_oauth("jo@example.com", verified=False)
         response = _client_with_state().get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
         assert response.status_code == 200
-        assert b"Almost there" in response.content
+        assert b"Almost There" in response.content
 
     @respx.mock
     def it_lands_on_already_linked_elsewhere(settings):
@@ -141,13 +141,13 @@ def describe_discord_link_callback():
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(400))
         response = _client_with_state().get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
         assert response.status_code == 200
-        assert b"Something went wrong" in response.content
+        assert b"Something Went Wrong" in response.content
 
     def it_lands_on_cancelled_when_the_user_denies(settings):
         _configure(settings)
         response = _client_with_state().get(reverse("hub_discord_link_callback"), {"error": "access_denied"})
         assert response.status_code == 200
-        assert b"Connection cancelled" in response.content
+        assert b"Connection Cancelled" in response.content
 
     def it_lands_on_retry_on_a_bad_state(settings):
         _configure(settings)
@@ -155,4 +155,4 @@ def describe_discord_link_callback():
             reverse("hub_discord_link_callback"), {"code": "c", "state": "forged"}
         )
         assert response.status_code == 200
-        assert b"Something went wrong" in response.content
+        assert b"Something Went Wrong" in response.content

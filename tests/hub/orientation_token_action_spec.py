@@ -34,7 +34,7 @@ def describe_orientation_action():
         booking = OrientationBookingFactory()
         response = client.post(_url(booking, "confirm"))
         assert response.status_code == 200
-        assert b"Orientation confirmed" in response.content
+        assert b"Orientation Confirmed" in response.content
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.CONFIRMED
 
@@ -43,7 +43,7 @@ def describe_orientation_action():
         response = client.post(_url(booking, "decline"))
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.DECLINED
-        assert b"Request declined" in response.content
+        assert b"Request Declined" in response.content
 
     def it_cancels_on_post(client: Client):
         booking = OrientationBookingFactory()
@@ -51,15 +51,15 @@ def describe_orientation_action():
         response = client.post(_url(booking, "cancel"))
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.CANCELLED
-        assert b"Orientation cancelled" in response.content
+        assert b"Orientation Cancelled" in response.content
 
     def it_reports_already_handled_for_a_resolved_booking(client: Client):
         booking = OrientationBookingFactory()
         booking.decline()
         response = client.post(_url(booking, "confirm"))
-        assert b"Already handled" in response.content
+        assert b"Already Handled" in response.content
 
     def it_rejects_an_invalid_token(client: Client):
         response = client.get(reverse("hub_orientation_action", args=["bogus-token"]))
         assert response.status_code == 400
-        assert b"no longer valid" in response.content
+        assert b"No Longer Valid" in response.content

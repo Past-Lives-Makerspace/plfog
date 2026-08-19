@@ -142,7 +142,7 @@
 
 {% if request.view_as.actual_is_admin %}
 <div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px; display:grid; gap:1rem;">
-    <h3 style="margin:0; font-size:0.95rem;">Admin actions</h3>
+    <h3 style="margin:0; font-size:0.95rem;">Admin Actions</h3>
     {% if registration.status != 'cancelled' and registration.status != 'refunded' %}
     <form method="post" action="{% url 'classes:admin_registration_move' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
         {% csrf_token %}

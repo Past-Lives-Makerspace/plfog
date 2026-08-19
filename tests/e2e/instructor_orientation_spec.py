@@ -14,7 +14,7 @@ from playwright.sync_api import expect
 
 from tests.membership.factories import MembershipPlanFactory
 
-BANNER = "One quick step before you can teach"
+BANNER = "One Quick Step Before You Can Teach"
 
 
 def describe_instructor_orientation_unlock():

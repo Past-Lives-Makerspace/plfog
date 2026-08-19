@@ -62,11 +62,12 @@ LEGACY_SLUG_MAP: dict[str, str] = {
     "notifications-and-your-settings": "notifications",
 }
 
-# LEGACY_SLUG_MAP targets that are approved (§10.2) but not seeded until the
-# P2 fast-follow. The landing's legacy-anchor filter already drops map entries
-# whose target isn't live, so these anchors fall back to /help/ — never a dead
-# end — until the article ships.
-PENDING_LEGACY_TARGETS: frozenset[str] = frozenset({"notifications"})
+# LEGACY_SLUG_MAP targets approved (§10.2) but not yet seeded. Empty now that the
+# ``notifications`` guide has shipped (v1.2.0) — its two legacy anchors
+# ("connecting-discord", "notifications-and-your-settings") now resolve to the live
+# article instead of falling back to /help/. Re-add a slug here only if a future
+# legacy target is mapped before its article lands.
+PENDING_LEGACY_TARGETS: frozenset[str] = frozenset()
 
 # ── OrgInfoPage launch defaults ──────────────────────────────────────────────
 # Fill-if-blank defaults for the Help landing's page blocks. ``seed_help_center``
@@ -206,6 +207,52 @@ The top bar has a light/dark theme toggle and your avatar. Open the avatar for *
                 "as_role": "member",
             },
         ],
+    },
+    {
+        "slug": "notifications",
+        "category": "getting-started",
+        "title": "Your notification settings: choose what reaches you",
+        "sort_order": 20,
+        "related": ["welcome-to-fog", "announcements", "discord-and-fog"],
+        "body": """Every important thing that happens at Past Lives — a class you booked getting cancelled, a new announcement from your guild, a reply to a request you sent — can reach you in more than one place. You decide which. This is your notification center, and it lives in **Settings → Notifications**.
+
+## Where to find it {#where}
+
+There are three ways in:
+
+- **Settings → Notifications.** Open **Settings** from your profile menu (your photo, top right), then pick the **Notifications** tab.
+- **The bell, top right.** Click it to open your full **Notifications** page — every notice you've received, newest first.
+- **Any email footer.** Every email we send has a "Manage your email preferences or unsubscribe" link. It opens your notification settings for that email address, with no sign-in needed.
+
+## The ways a notice can reach you {#channels}
+
+Your settings are a grid: every kind of event runs down the side, and each column is a way that event can reach you.
+
+- **In-app (Bell)** — always on. The bell shows everything, so nothing is ever lost.
+- **Email** — a message to your inbox.
+- **Push** — a notification on your phone. Android only for now; iOS is coming soon.
+- **Discord** — a direct message from the Fog Bot. This column only works once you've connected Discord.
+
+Some events also offer a **Scheduled** or **Digest** column — a weekly round-up instead of one message at a time.
+
+## Turning things on and off {#toggle}
+
+Flip any switch to turn that notice on or off for that channel. To move faster:
+
+- **All on** / **All off** at the very top flips everything at once.
+- Each category ("Classes", "Your guilds", and so on) has its own **All on** / **All off**.
+
+Then hit **Save** at the bottom.
+
+## What you can't turn off {#always-on}
+
+A few notices are locked on, because missing them would cause real problems: receipts, security and sign-in messages, and booking and orientation updates. You'll always get those, and the bell always shows everything.
+
+Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
+
+## Heads-up: some updates start switched on {#defaults}
+
+So that nobody misses something important, several updates come **switched on by default**. That's on purpose, but it's your call. Take a minute to open **Settings → Notifications** and set each one the way you actually want it: turn off what you don't need, and keep the ones that matter to you.""",
     },
     {
         "slug": "guilds-and-guild-pages",

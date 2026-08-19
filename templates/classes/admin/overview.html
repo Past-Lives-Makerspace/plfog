@@ -25,7 +25,7 @@
 
   {# ② Upcoming classes this week — full width #}
   <section class="hub-card" style="margin:0;">
-    <h2 class="overview-title">Upcoming classes this week</h2>
+    <h2 class="overview-title">Upcoming Classes This Week</h2>
     {% for c in upcoming_classes %}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
         <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
@@ -54,7 +54,7 @@
   {# ④ At a glance — scoped by the range filter #}
   <section id="at-a-glance" class="hub-card" style="margin:0;scroll-margin-top:1rem;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.9rem;">
-      <h2 class="overview-title" style="margin:0;">At a glance</h2>
+      <h2 class="overview-title" style="margin:0;">At a Glance</h2>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         {% for r in range_options %}
           <a href="?range={{ r.key }}#at-a-glance"
@@ -84,7 +84,7 @@
     <div style="margin-top:1.25rem;padding-top:1.1rem;border-top:1px solid var(--hub-border);">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
         <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">
-          <h3 class="overview-subtitle">Recent sign-ups</h3>
+          <h3 class="overview-subtitle">Recent Sign-Ups</h3>
           <span style="color:var(--hub-text-muted);font-size:0.78rem;">· {{ selected_range.label|lower }}</span>
         </div>
         <a href="{% url 'classes:admin_registrations' %}">View all registrations →</a>

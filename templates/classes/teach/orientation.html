@@ -17,14 +17,14 @@ auto-offers on the first post-unlock visit to the teach overview.
 
     {% if not member.can_create_classes %}
     <div class="hub-card pl-orientation-banner">
-        <h2 class="pl-orientation-banner__title">One quick step before you can teach</h2>
+        <h2 class="pl-orientation-banner__title">One Quick Step Before You Can Teach</h2>
         <p class="pl-orientation-banner__body">
             The teaching portal unlocks after this short orientation. Read it once, tick the box, and you're in.
         </p>
     </div>
     {% else %}
     <div class="hub-card pl-orientation-done">
-        <h2 class="pl-orientation-done__title">✓ You're an instructor</h2>
+        <h2 class="pl-orientation-done__title">✓ You're an Instructor</h2>
         <p class="pl-orientation-done__meta">Orientation completed {{ member.instructor_oriented_at|date }}.</p>
         <div class="pl-orientation-done__actions">
             <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the teaching portal</a>
@@ -37,7 +37,7 @@ auto-offers on the first post-unlock visit to the teach overview.
     {% endif %}
 
     <div class="hub-card">
-        <h1 class="hub-page-title">Become an instructor at Past Lives</h1>
+        <h1 class="hub-page-title">Become an Instructor at Past Lives</h1>
         {% if article %}
         <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
         {% else %}

@@ -39,8 +39,12 @@ if TYPE_CHECKING:
 # filesystem in dev/CI). Stable key so the latest capture always sits at one URL.
 _FEATURE_SHOT_PREFIX = "email/features"
 
-# The hub home page ("Open Past Lives") — the release email's primary CTA target.
-_CTA_LABEL = "Open Past Lives"
+# The hub home page ("Visit the Member Portal") — the release email's primary CTA target.
+_CTA_LABEL = "Visit the Member Portal"
+
+# The Play Store listing for the Past Lives mobile app — surfaced as a "Get the app"
+# badge in the release email footer (iOS not yet published).
+_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=app.pastlives.hub"
 
 
 @dataclass(frozen=True)
@@ -254,7 +258,7 @@ def build_release_cards(version: str, lines: list[str] | None = None) -> list[Ca
 
 
 def _release_cta_url() -> str:
-    """Absolute URL for the "Open Past Lives" button — the hub home."""
+    """Absolute URL for the "Visit the Member Portal" button — the hub home."""
     return f"{settings.MEMBER_BASE_URL}{reverse('hub_home')}"
 
 
@@ -269,6 +273,9 @@ def _release_text(subject: str, intro: str, cards: list[Card], cta_url: str) -> 
         lines += [f"• {bullet}" for bullet in card.bullets]
         lines.append("")
     lines += [f"{_CTA_LABEL}: {cta_url}", ""]
+    lines.append("The Past Lives Member Portal is officially on the Play Store. iOS coming soon.")
+    lines.append(f"Get it on Google Play: {_PLAY_STORE_URL}")
+    lines.append("")
     lines.append("You're getting this message because you have a Past Lives Makerspace account.")
     lines.append(f"Manage your email preferences or unsubscribe: {settings.MEMBER_BASE_URL}/settings/")
     return "\n".join(lines)
@@ -310,6 +317,7 @@ def render_release_email(
             "cards": included,
             "cta_url": cta_url,
             "cta_label": _CTA_LABEL,
+            "play_store_url": _PLAY_STORE_URL,
         },
     )
     text = _release_text(subject, intro, included, cta_url)

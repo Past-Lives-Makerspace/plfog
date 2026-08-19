@@ -6,7 +6,7 @@ page's "Show me around" button or the Help page still work (the description says
 {% endcomment %}
 {% if tours_form %}
 <div class="hub-card" style="margin-top:1.5rem;">
-    <h2 class="pl-notif-title">Guided tours</h2>
+    <h2 class="pl-notif-title">Guided Tours</h2>
     <form method="post" class="hub-form">
         {% csrf_token %}
         <input type="hidden" name="form_id" value="tours">

@@ -300,7 +300,9 @@ def describe_render_release_email():
         assert "Heads-Up: New Member Portal Features" in html
         assert "A home base when you sign in" in html
         assert "See what&#x27;s coming up." in html or "See what's coming up." in html  # bullet
-        assert "Open Past Lives" in html  # CTA button
+        assert "Visit the Member Portal" in html  # CTA button
+        assert "play.google.com/store/apps/details?id=app.pastlives.hub" in html  # Play Store footer badge
+        assert "officially on the Play Store" in html
         assert "Here&#x27;s what shipped." in html or "Here's what shipped." in html  # intro
 
     def it_renders_an_image_for_a_captured_card_with_alt(db, fixture_changelog, fake_storage):
@@ -314,7 +316,7 @@ def describe_render_release_email():
         cards = build_release_cards("0.20.5")  # nothing captured → no image on either card
         html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert "One place for how our space works" in html  # card still appears
-        assert "<img" not in html  # but no image
+        assert "email/features/" not in html  # but no feature-card screenshot (the Play badge img is always present)
 
     def it_keeps_the_text_part_in_sync_with_the_html(db, fixture_changelog, fake_storage):
         cards = build_release_cards("0.20.5")
@@ -330,7 +332,9 @@ def describe_render_release_email():
         assert "## A home base when you sign in" in text
         assert "• See what's coming up." in text
         assert "## One place for how our space works" in text
-        assert "Open Past Lives: " in text
+        assert "Visit the Member Portal: " in text
+        assert "officially on the Play Store" in text
+        assert "play.google.com/store/apps/details?id=app.pastlives.hub" in text
         assert "unsubscribe" in text
 
     def it_omits_a_card_that_is_not_included(db, fixture_changelog, fake_storage):

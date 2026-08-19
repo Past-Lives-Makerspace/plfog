@@ -10,9 +10,9 @@ When the class has no ClassFaq rows yet, the view seeds the formset with the sit
 default questions as prefilled editable rows — saving the form materializes them.
 {% endcomment %}
 {% if faq_formset %}
-<h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Questions &amp; answers</h3>
+<h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">FAQ</h3>
 <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">
-  The "Questions" section on the public class page. Reword the starting questions, add your own,
+  The FAQ section on the public class page. Reword the starting questions, add your own,
   or delete ones that don't fit — deleting all of them brings back the site defaults.
 </p>
 {{ faq_formset.management_form }}

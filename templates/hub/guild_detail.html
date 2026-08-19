@@ -183,7 +183,7 @@
 
         {% if upcoming_classes %}
         <section class="pl-guild-section">
-            <h2 class="pl-guild-section__h2">Upcoming classes</h2>
+            <h2 class="pl-guild-section__h2">Upcoming Classes</h2>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
                 {% for c in upcoming_classes %}
                 <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' c.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
@@ -681,7 +681,7 @@
      aria-labelledby="delete-product-title">
     <div class="pl-modal pl-modal--sm" @click.outside="deleteModalOpen = false">
         <div class="pl-modal__header">
-            <h2 class="pl-modal__title" id="delete-product-title">Delete product?</h2>
+            <h2 class="pl-modal__title" id="delete-product-title">Delete Product?</h2>
             <button type="button" @click="deleteModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
