@@ -115,6 +115,7 @@ def describe_help_content():
                 "guild-staff-roles": "running-a-guild",
                 "running-orientations": "running-a-guild",
                 "guild-announcements": "running-a-guild",
+                "announcement-composer": "running-a-guild",
                 "guild-events-hours-notes": "running-a-guild",
                 "approving-classes": "running-a-guild",
                 "members-and-invites": "admin",

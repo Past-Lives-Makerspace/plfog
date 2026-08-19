@@ -15,6 +15,9 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "for guild leads and staff (your guild page, orientations, announcements, and more). "
             "Each links a living example you can study: a fully built fictional guild and a "
             "finished example class page.",
+            "A new Announcement Composer guide covers the whole sending tool — including how push "
+            "notifications work, the short phone line you can write, and what Mark as Urgent "
+            "really does.",
             "Guided tours are listed for everyone they fit — including a tour of the guild lead "
             "tools — and every tour now ends by pointing you at its guide.",
             "Help guides can now include short video walkthroughs, and titles across Help and the "

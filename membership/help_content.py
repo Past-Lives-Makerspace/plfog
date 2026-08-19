@@ -800,7 +800,7 @@ All five are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 **Reach further:**
 
-- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**; your published classes appear as audiences. (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
+- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**; your published classes appear as audiences, and it reaches students in the app, by push, and by email — see [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
 - **Your public instructor page** — with the Instructor role, the catalog links your bio and your classes from every class you teach.
 
 ### The Ground Rules {#instructor-ground-rules}
@@ -990,7 +990,7 @@ One catch: a new code starts switched off. An admin approves it before it works,
 
 ### Announce to Your Class {#teach-announce-class}
 
-For bigger news — a schedule change, a supply list — send a real announcement instead of a plain email: open **Admin Tools** in the sidebar, then **Announcements**. Your published classes appear as audiences, and the compose wizard walks you through the message and email delivery to everyone registered. (Admin Tools appears once an admin has given you the Instructor role.)
+For bigger news — a schedule change, a supply list — send a real announcement instead of a plain email: open **Admin Tools** in the sidebar, then **Announcements**. Your published classes appear as audiences, and the announcement reaches every registrant in the app, by push notification on their phones, and by email. [The Announcement Composer](/help/running-a-guild/announcement-composer/) guide walks the whole tool. (Admin Tools appears once an admin has given you the Instructor role.)
 
 ### The Waitlist
 
@@ -1284,7 +1284,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 
 **Reaching members:**
 
-- **Announcements** — write to your whole guild (in-app, email, and Discord from one wizard), manage your mailing list, and review member-proposed announcements. See [Guild Announcements](/help/running-a-guild/guild-announcements/).
+- **Announcements** — write to your whole guild (in-app, push, email, and Discord from one wizard), manage your mailing list, and review member-proposed announcements. See [Guild Announcements](/help/running-a-guild/guild-announcements/) and [The Announcement Composer](/help/running-a-guild/announcement-composer/).
 - **Two automatic emails** — a welcome email when someone joins your guild and a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 
 **Calendar and records:**
@@ -1545,15 +1545,11 @@ Guild leads and staff can announce things to their whole guild: in the app, by e
 
 ### The Compose Wizard {#announcements-compose}
 
-From **Guild Settings**, open the **Announcements/Emails** tab and click **Compose announcement**; it opens already pointed at your guild. The wizard walks three steps:
+From **Guild Settings**, open the **Announcements/Emails** tab and click **Compose announcement**; it opens already pointed at your guild. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
 
-![The compose wizard: three steps across the top, starting with audience and message.](/static/help/guild-announcements/01-compose-wizard.png)
+![The composer's Compose tab: message, recipients, and the delivery switches.](/static/help/guild-announcements/01-compose-wizard.png)
 
-1. **Audience & message.** Pick who it's for, write the title and body, and (for a guild announcement) set an optional expiry date, after which it hides from your guild page.
-2. **Email.** Everyone in the audience always sees the announcement in the app. Flip **Also send as email** to also send the branded email; you can uncheck individual recipients, click **Refresh preview** to see exactly what lands in inboxes, and **Send a test to me** to check your own inbox first.
-3. **Discord.** Pick the Discord channel it should post to, or no channel at all. If you pick one, you can ping everyone (the default), only online members (@here), or nobody.
-
-The last step shows how many people you're reaching. Click **Send announcement** and confirm; sending can't be undone. Members without an email on file still see it in the app; they just can't be emailed.
+The full walkthrough — including push notifications, the urgent switch, and test-sends to yourself — lives in [The Announcement Composer](/help/running-a-guild/announcement-composer/). The short version: everyone in your recipient list always gets it in their notification bell; push and email are on by default and members can tune those in their own settings; Discord is one post to the channel you pick. Sending can't be undone.
 
 ### Your Mailing List
 
@@ -1583,7 +1579,7 @@ The proposer is notified of your decision either way.""",
                 "file": "01-compose-wizard.png",
                 "page": "hub_compose",
                 "selector": ".pl-wizard",
-                "caption": "The compose wizard: three steps across the top, starting with audience and message.",
+                "caption": "The composer's Compose tab: message, recipients, and the delivery switches.",
                 "as_role": "guild_lead",
             },
             {
@@ -1598,6 +1594,86 @@ The proposer is notified of your decision either way.""",
                 "page": "hub_guild_announcement_review_queue",
                 "selector": None,
                 "caption": "The review queue for member-proposed announcements.",
+                "as_role": "guild_lead",
+            },
+        ],
+    },
+    {
+        "slug": "announcement-composer",
+        "category": "running-a-guild",
+        "title": "The Announcement Composer",
+        "sort_order": 55,
+        "related": ["guild-announcements", "notifications"],
+        "body": """\
+One composer sends an announcement everywhere it needs to go: the notification bell, phones (push), email, and Discord. Admins, guild leads and staff, and instructors all use the same tool. This guide walks it end to end — especially push notifications, which put your announcement straight on members' phones.
+
+<!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
+
+### Who Can Send, and to Whom {#composer-who}
+
+- **Admins** can send to **Everyone (site-wide)** or to any guild.
+- **Guild leads and staff** can send to the guilds they help run.
+- **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page — its **Send Announcement** button.)
+
+Ways in: **Admin Tools → Announcements**, the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements/Emails tab.
+
+### Tab 1: Compose {#composer-compose}
+
+![The Compose tab: audience, message, recipients, and the delivery switches.](/static/help/announcement-composer/01-compose-tab.png)
+
+- **Who is this for?** — pick the audience. If you came from a guild or class page, it's locked to that audience.
+- **Message** — a rich-text editor. The formatted version goes out by email; the bell, push, and Discord get a plain-text version.
+- **Recipients** (guild and class audiences) — everyone is checked by default. Uncheck anyone, or add a member who isn't on the list. Class audiences also get an **Also include the waitlist** toggle.
+- **Delivery** — three switches, all on to start: **Push notification**, **Email**, and **Post to Discord**. (Class announcements never post to Discord — they go straight to your students.)
+- **Mark as urgent** — see below. Use sparingly.
+- **Hide after** (guild announcements only) — an optional date after which the post hides from your guild page.
+
+![The Delivery switches: push, email, Discord, and the urgent toggle.](/static/help/announcement-composer/02-delivery-switches.png)
+
+Everyone in your recipient list **always** gets the announcement in their notification bell, no matter how you set the switches.
+
+### Push Notifications {#composer-push}
+
+This is the channel that lands on phones, and announcements send it **on by default**.
+
+- **The phone line.** On the Preview & send tab, the **Push Notification Message** box holds the short text shown on the phone (max 180 characters). It starts as an auto-shortened copy of your message — edit it into one clean sentence; that's what people read on their lock screen.
+- **The title is automatic**: "&lt;Your Guild&gt; Announcement", "Class Announcement", or "Makerspace Announcement" — with "Urgent:" in front when you mark it urgent.
+- **Test it on yourself.** Click **Send a Push Notification test to me** and check your own phone. If it says no push devices are registered, your account has no phone set up yet — install the Android app, or add the Member Portal to your home screen and allow notifications.
+- **Who receives it:** members who have the app installed and notifications allowed, and who haven't switched announcement pushes off in **Settings → Notifications**. Class guests without accounts and custom mailing-list addresses are email-only — push and the bell can't reach them.
+
+### Tab 2: Preview & Send {#composer-send}
+
+- **Push** — the phone line and a live preview card of exactly what the phone shows.
+- **Email** — click **Refresh preview** to see the real branded email, **Send a test to me** to check your own inbox, and flip **Show who it's from** to add your name to the email (email only; push and the bell never show a sender).
+- **Discord** — pick the channel (or **Don't post**) and the ping: **@everyone**, **@here**, your guild's own role ping when it's configured (the gentlest option that still notifies your people), or no ping. It's one post to the channel, not direct messages.
+- The reach line totals it up — "Reaching N recipients in the app and by push, plus email" — and **Send announcement** asks you to confirm. Sending can't be undone.
+
+### Mark as Urgent {#composer-urgent}
+
+Urgent is the break-glass switch: it bypasses each recipient's notification preferences, so the announcement reaches everyone **even if they turned announcement emails or pushes off**. Two honest caveats:
+
+- It only overrides the *recipients'* settings. If **you** switched Email or Push off in Delivery, urgent doesn't turn them back on.
+- Every copy gets "Urgent:" in front of the title. Save it for closures, safety issues, and genuine emergencies — it spends trust.
+
+### Where It Lands Afterward {#composer-afterward}
+
+- A **guild** announcement also posts to your guild page (and members' Home dashboards) until its hide-after date, if you set one.
+- A **class** announcement goes straight to the roster — no public post anywhere.
+- A **site-wide** announcement is a notice to everyone, with no page post.
+""",
+        "screenshots": [
+            {
+                "file": "01-compose-tab.png",
+                "page": "hub_compose",
+                "selector": None,
+                "caption": "The Compose tab: audience, message, recipients, and the delivery switches.",
+                "as_role": "guild_lead",
+            },
+            {
+                "file": "02-delivery-switches.png",
+                "page": "hub_compose",
+                "selector": ".pl-compose-section:has(#id_push_enabled)",
+                "caption": "The Delivery switches: push, email, Discord, and the urgent toggle.",
                 "as_role": "guild_lead",
             },
         ],
