@@ -28,7 +28,7 @@ EMBED_DESCRIPTION_MAX = 4096
 # The community blue used by the other FOG channel posts.
 _EMBED_COLOR = 0x3D8BD4
 LINKS_TITLE = "📌 Past Lives — Important Links"
-COMMANDS_TITLE = "🤖 FOG Bot Commands"
+COMMANDS_TITLE = "🤖 Fog Bot Commands"
 
 
 def _links_content() -> str:

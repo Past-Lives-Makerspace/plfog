@@ -3,7 +3,7 @@
 {% block account_title %}Your <em>profile</em>.{% endblock %}
 {% block account_sub %}
   <p class="bk-sub">
-    {% if is_readonly %}Your member profile lives on FOG — head over to edit it. The details below are what instructors and staff see when you book a class.
+    {% if is_readonly %}Your member profile lives on the Member Portal — head over to edit it. The details below are what instructors and staff see when you book a class.
     {% else %}Edit how your name appears on roster sheets and confirmation emails. Manage which email addresses can sign in.{% endif %}
   </p>
 {% endblock %}
@@ -15,7 +15,7 @@
         <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
       </svg>
       <span><b>Read-only here.</b> Your name, contact info, and emails are managed on your member profile.</span>
-      <a href="https://{{ MEMBER_HOST }}/settings/">Edit on FOG →</a>
+      <a href="https://{{ MEMBER_HOST }}/settings/">Edit on the Member Portal →</a>
     </div>
   {% endif %}
 

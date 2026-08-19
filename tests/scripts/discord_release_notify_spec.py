@@ -185,7 +185,7 @@ def describe_discord_release_notify():
             assert len(posts) == 1
             embed = posts[0]["embeds"][0]
             assert embed["title"] == "🚀 New update: Solo feature"
-            assert embed["footer"] == {"text": "Past Lives FOG v0.20.1"}
+            assert embed["footer"] == {"text": "Past Lives Member Portal v0.20.1"}
 
         def it_titles_the_first_embed_and_continues_the_rest_across_chunks(monkeypatch):
             module = _load_script()

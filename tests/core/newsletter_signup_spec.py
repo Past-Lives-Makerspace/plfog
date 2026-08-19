@@ -48,7 +48,7 @@ def describe_newsletter_signup_view():
     def it_renders_the_form(client):
         response = client.get(reverse("newsletter_signup"))
         assert response.status_code == 200
-        assert b"Stay in the loop" in response.content
+        assert b"Stay in the Loop" in response.content
         assert b"Email address" in response.content
 
     def it_rejects_invalid_email(client):

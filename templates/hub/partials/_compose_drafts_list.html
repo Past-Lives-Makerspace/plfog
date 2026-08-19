@@ -9,7 +9,7 @@ Params:
 {% endcomment %}
 <section id="compose-drafts" class="hub-card pl-drafts"{% if oob %} hx-swap-oob="true"{% endif %}>
   <div class="pl-drafts__header">
-    <h2 class="pl-drafts__title">Your drafts</h2>
+    <h2 class="pl-drafts__title">Your Drafts</h2>
     <a href="{% url 'hub_compose' %}" class="hub-btn hub-btn--sm">+ New announcement</a>
   </div>
   {% for d in drafts %}

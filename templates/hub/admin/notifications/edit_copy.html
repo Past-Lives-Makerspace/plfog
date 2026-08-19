@@ -50,7 +50,7 @@
 
     {# ---- Live preview (right) ---- #}
     <div class="ntf-preview-card">
-      <h3>Live preview</h3>
+      <h3>Live Preview</h3>
       <div id="ntf-preview-body">
         {% include "hub/admin/notifications/_preview.html" with rendered=None channel=channel %}
       </div>
@@ -59,7 +59,7 @@
 
   {# ---- Version history + revert ---- #}
   <div class="ntf-history">
-    <h3>Version history</h3>
+    <h3>Version History</h3>
     {% if versions %}
       {% for v in versions %}
         {% url 'hub_admin_notification_revert' event.key channel.value v.pk as revert_url %}

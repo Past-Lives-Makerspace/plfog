@@ -261,7 +261,7 @@ def describe_hub_home_view():
             response = client.get(reverse("hub_home"))
 
             assert response.context["show_onboarding"] is True
-            assert b"Get started at Past Lives" in response.content
+            assert b"Get Started at Past Lives" in response.content
 
         def it_replaces_the_old_profile_nudge(client: Client):
             _member_user("nonudge")
@@ -315,7 +315,7 @@ def describe_hub_home_view():
             response = client.get(reverse("hub_home"))
 
             assert response.context["show_onboarding"] is False
-            assert b"Get started at Past Lives" not in response.content
+            assert b"Get Started at Past Lives" not in response.content
 
         def it_is_absent_once_dismissed(client: Client):
             user = _member_user("hid")
@@ -325,7 +325,7 @@ def describe_hub_home_view():
             response = client.get(reverse("hub_home"))
 
             assert response.context["show_onboarding"] is False
-            assert b"Get started at Past Lives" not in response.content
+            assert b"Get Started at Past Lives" not in response.content
 
 
 def describe_build_home_context():

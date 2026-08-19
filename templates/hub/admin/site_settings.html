@@ -178,7 +178,7 @@
          x-data="{ count: {{ feed_formset.total_form_count }} }">
 
       <div>
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Calendar feeds</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Calendar Feeds</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           Each feed shows up as its own colored entry on the Community Calendar legend. Add as many as you like — workshops, official members calendar, open studio, etc.
         </p>
@@ -295,9 +295,9 @@
         so a per-tab partial save can't blank one another's value (FRONTEND Screen D1).
       {% endcomment %}
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Member events &amp; Google sync</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Member Events &amp; Google Sync</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
-          Control who can add Community Calendar events, and the two Google calendars FOG pushes events out to —
+          Control who can add Community Calendar events, and the two Google calendars the Member Portal pushes events out to —
           a members-only one and a public one. Each event picks which calendar it belongs to.
         </p>
         {% include "components/form_field.html" with field=form.member_event_policy field_hint="Leads, staff, and admins always post directly. This controls what ordinary members can do." %}
@@ -308,20 +308,20 @@
       </div>
 
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#public-calendar Discord posts</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#public-calendar Discord Posts</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           A weekly what's-coming-up digest (Monday mornings) plus a short post whenever a new event or
-          class lands on the Community Calendar, sent to the #public-calendar channel by the FOG bot.
+          class lands on the Community Calendar, sent to the #public-calendar channel by the Fog Bot.
         </p>
         {% include "components/form_field.html" with field=form.discord_calendar_channel_id field_hint="The channel id of #public-calendar (Discord → right-click the channel → Copy Channel ID). Blank disables both posts." %}
         {% include "components/form_field.html" with field=form.discord_calendar_posts_enabled field_hint="Requires the channel id above and the bot's Send Messages + Embed Links permission in that channel." %}
       </div>
 
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#classes Discord posts</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#classes Discord Posts</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           A weekly what's-teaching digest (Monday mornings) plus a short post whenever a new class is
-          published, sent to the #classes channel by the FOG bot. Links point at the public class pages.
+          published, sent to the #classes channel by the Fog Bot. Links point at the public class pages.
         </p>
         {% include "components/form_field.html" with field=form.discord_classes_channel_id field_hint="The channel id of #classes (Discord → right-click the channel → Copy Channel ID). Blank disables both posts." %}
         {% include "components/form_field.html" with field=form.discord_classes_posts_enabled field_hint="Requires the channel id above and the bot's Send Messages + Embed Links permission in that channel." %}
@@ -338,7 +338,7 @@
 
       {# Toggle #}
       <div>
-        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Legacy CMS sync</h2>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Legacy CMS Sync</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           When enabled, classes from <code>classes.pastlives.space</code> sync into plfog automatically each morning.
           Use <strong>Sync Now</strong> for an immediate pull. Disable after the DNS flip to manage classes exclusively in plfog.
@@ -380,7 +380,7 @@
 
       {# Instructor match table #}
       <div>
-        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Instructor matching</h2>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Instructor Matching</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           Classes are matched to instructors by parsing "with [Name]" from the title.
           Once matched, the instructor link is never overwritten.
@@ -418,7 +418,7 @@
     {# -------- Features tab -------- #}
     <div x-show="tab === 'features'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
       <div>
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature switches</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature Switches</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
           Soft-launch toggles. Leave these on for normal operation; turn one off to hide a feature that isn't ready yet.
         </p>
@@ -549,7 +549,7 @@
       {# ---- Shared channels (existing) ---- #}
       <div class="hub-card" style="padding:1.5rem;">
         <div style="margin-bottom:1.25rem;">
-          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord channels</h2>
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord Channels</h2>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
             Set these so guild leads can post announcements to #general-chat, #leadership, and #guild-officers. Leave a field blank to hide that option from leads.
             In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
@@ -563,7 +563,7 @@
       {# ---- D1: Connection ids (guild-role sync) ---- #}
       <div class="hub-card" style="padding:1.5rem;">
         <div style="margin-bottom:1.25rem;">
-          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild-role sync connection</h2>
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild-Role Sync Connection</h2>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
             The server and reaction-role message that drive two-way guild membership. Leave any field blank to disable the sync.
           </p>
@@ -576,7 +576,7 @@
       {# ---- #important-info pinned post ---- #}
       <div class="hub-card" style="padding:1.5rem;">
         <div style="margin-bottom:1.25rem;">
-          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#important-info pinned post</h2>
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#important-info Pinned Post</h2>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
             The bot's pinned message in #important-info — the important-links embed plus an auto-generated
             guide to the bot's slash commands. Saving updates the pinned Discord post immediately (the
@@ -584,14 +584,14 @@
           </p>
         </div>
         {% include "components/form_field.html" with field=form.discord_info_channel_id field_hint="The channel id of #important-info (Discord → right-click the channel → Copy Channel ID). Blank disables syncing." %}
-        {% include "components/form_field.html" with field=form.discord_info_message_id field_hint="The id of the bot's pinned message in that channel (right-click the message → Copy Message ID). FOG edits it in place." %}
+        {% include "components/form_field.html" with field=form.discord_info_message_id field_hint="The id of the bot's pinned message in that channel (right-click the message → Copy Message ID). The Member Portal edits it in place." %}
         {% include "components/form_field.html" with field=form.discord_info_links_content field_hint="Discord-flavored markdown (**bold**, bare URLs auto-link). The bot-commands embed below it is generated automatically from the registered slash commands — nothing to edit here." %}
       </div>
 
       {# ---- D2: Emoji → guild map (list editor) ---- #}
       <div class="hub-card" style="padding:1.5rem;">
         <div style="margin-bottom:1rem;">
-          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Emoji → guild map</h2>
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Emoji → Guild Map</h2>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
             When a member reacts to the role message with an emoji below, they join the mapped guild. Many emojis can map to one guild (collapsed guilds). Unmapped emojis are ignored.
           </p>
@@ -671,7 +671,7 @@
       {# ---- D3: Canonical outbound role per guild ---- #}
       <div class="hub-card" style="padding:1.5rem;">
         <div style="margin-bottom:1rem;">
-          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild → Discord role</h2>
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Guild → Discord Role</h2>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
             When a member joins or leaves a guild in the app, these role id(s) are added/removed on Discord. Blank disables outbound sync for that guild. A collapsed guild (e.g. Glass) can list two role ids in lockstep.
           </p>
@@ -1007,7 +1007,7 @@
     {% include "hub/admin/_release_announcement.html" %}
     {% else %}
     <div>
-      <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide announcement</h2>
+      <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Sitewide Announcement</h2>
       <p style="color:var(--hub-text-muted);margin:0 0 1rem;">
         The sitewide announcement composer moved to the new step-through wizard — pick who it's for,
         design the email with a live preview, choose the Discord channel, and save a draft to finish later.

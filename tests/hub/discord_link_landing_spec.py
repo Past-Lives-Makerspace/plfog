@@ -70,7 +70,7 @@ def describe_discord_link_landing_nudge():
         )
         response = _client_with_state().get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
         assert response.status_code == 200
-        assert b"Discord connected" in response.content  # sanity: we're on the linked state
+        assert b"Discord Connected" in response.content  # sanity: we're on the linked state
         assert b"Back in Discord, try" in response.content
         assert b"/whats-on" in response.content
         assert b"/fog-ping" in response.content
@@ -79,5 +79,5 @@ def describe_discord_link_landing_nudge():
         _configure(settings)
         response = _client_with_state().get(reverse("hub_discord_link_callback"), {"error": "access_denied"})
         assert response.status_code == 200
-        assert b"Connection cancelled" in response.content  # sanity: a non-linked state
+        assert b"Connection Cancelled" in response.content  # sanity: a non-linked state
         assert b"Back in Discord, try" not in response.content

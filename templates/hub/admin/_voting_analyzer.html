@@ -69,7 +69,7 @@ total_count, minimum_pool, snapshot, any_filter_active, has_raw_votes).
     {% endif %}
     <div class="pl-vote-filters">
       <div>
-        <h3 class="pl-vote-filters__group-title">Member type</h3>
+        <h3 class="pl-vote-filters__group-title">Member Type</h3>
         {% for value, label in member_type_choices %}
         <label class="pl-vote-filters__row">
           <input type="checkbox" name="member_type" value="{{ value }}"
@@ -79,7 +79,7 @@ total_count, minimum_pool, snapshot, any_filter_active, has_raw_votes).
         {% endfor %}
       </div>
       <div>
-        <h3 class="pl-vote-filters__group-title">FOG role</h3>
+        <h3 class="pl-vote-filters__group-title">Member Role</h3>
         {% for value, label in fog_role_choices %}
         <label class="pl-vote-filters__row">
           <input type="checkbox" name="fog_role" value="{{ value }}"
@@ -89,7 +89,7 @@ total_count, minimum_pool, snapshot, any_filter_active, has_raw_votes).
         {% endfor %}
       </div>
       <div>
-        <h3 class="pl-vote-filters__group-title">Guild role</h3>
+        <h3 class="pl-vote-filters__group-title">Guild Role</h3>
         <label class="pl-vote-filters__row">
           <input type="checkbox" name="is_guild_lead" value="yes"
                  {% if filter_state.is_guild_lead %}checked{% endif %}>
@@ -130,7 +130,7 @@ total_count, minimum_pool, snapshot, any_filter_active, has_raw_votes).
 
 {# --- Per-guild allocation --- #}
 <div class="hub-card">
-  <h2 class="pl-vote-section-title">Per-guild allocation</h2>
+  <h2 class="pl-vote-section-title">Per-Guild Allocation</h2>
   {% if calc.results %}
   <div class="pl-vote-table-scroll">
     <table class="pl-vote-table">
@@ -175,8 +175,8 @@ total_count, minimum_pool, snapshot, any_filter_active, has_raw_votes).
       <thead>
         <tr>
           <th>Member</th>
-          <th>Member type</th>
-          <th>FOG role</th>
+          <th>Member Type</th>
+          <th>Member Role</th>
           <th>Paying?</th>
           <th>1st</th>
           <th>2nd</th>

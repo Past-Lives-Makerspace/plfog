@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
-VERSION = "1.1.4"
+VERSION = "1.2.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.2.0",
+        "date": "2026-08-18",
+        "title": "The app is now the Member Portal",
+        "changes": [
+            "We've renamed the app: what you knew as FOG is now the Past Lives Member Portal. "
+            "You'll see the new name in the top-left and throughout. Same app, clearer name, and "
+            "nothing you do changes.",
+        ],
+    },
+    {
+        "version": "1.2.0",
+        "date": "2026-08-18",
+        "title": "New guide: control your notifications",
+        "changes": [
+            "A new Help Center guide walks you through your notification settings: how to choose "
+            "exactly which emails and Discord messages you get, flag the ones you can't miss, and "
+            "turn off anything you don't want. It's the first thing under Getting Started in Help.",
+            "Worth a look at launch: a few important updates are on by default so nobody misses "
+            "something that matters. Take a minute to set your preferences the way you like them.",
+        ],
+    },
     {
         "version": "1.1.4",
         "date": "2026-08-17",

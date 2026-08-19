@@ -14,7 +14,8 @@ from django.db import IntegrityError, models, transaction
 from django.db.models import CheckConstraint, Exists, F, OuterRef, Q
 from django.utils import timezone
 from django.utils.formats import date_format
-from django.utils.html import strip_tags
+from django.utils.html import format_html, strip_tags
+from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
 
 from core.files import delete_orphan_on_replace
@@ -965,7 +966,11 @@ class ClassOffering(HeroCropMixin, models.Model):
                     "class_published",
                     actor=row.decided_by,
                     target=self,
-                    context={"class_title": self.title, "class_url": class_url},
+                    context={
+                        "class_title": self.title,
+                        "class_url": class_url,
+                        "class_image_html": self.email_hero_image_html,
+                    },
                     url=class_url,
                     period=f"offering:{self.pk}:published",
                 )
@@ -1147,6 +1152,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         (the hero already leads the page).
         """
         return [{"url": gi.image.url, "alt": gi.alt_text or self.title} for gi in self.gallery_images.all()]
+
+    @property
+    def email_hero_image_html(self) -> SafeString:
+        """A styled ``<img>`` of the class's hero image for the class-published email.
+
+        Empty string when the class has no image. Injected as a trusted, app-built
+        SafeString into the ``class_published`` copy fragment (the same pattern as the
+        voting-results chart) so the constrained copy renderer inserts it verbatim;
+        ``format_html`` escapes the URL and alt text. The URL comes from
+        :attr:`display_images` (the class's own hero, else a gallery shot, else the
+        category hero) and is absolute in production (R2 storage).
+        """
+        images = self.display_images
+        if not images:
+            return mark_safe("")
+        hero = images[0]
+        return format_html(
+            '<img src="{}" alt="{}" width="520" '
+            'style="width:100%;max-width:520px;height:auto;border-radius:8px;margin:0 0 20px;display:block;">',
+            hero["url"],
+            hero["alt"],
+        )
 
     @property
     def display_faqs(self) -> list[dict]:

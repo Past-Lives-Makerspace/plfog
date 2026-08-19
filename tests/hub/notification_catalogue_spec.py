@@ -69,7 +69,7 @@ def describe_edit_copy():
         response = client.get(url)
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Live preview" in content
+        assert "Live Preview" in content
         assert "Available merge fields" in content
 
     def it_forbids_plain_members(client):

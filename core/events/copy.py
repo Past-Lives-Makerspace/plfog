@@ -237,10 +237,13 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     "class_published": EventCopy(
-        placeholders=("class_title", "class_url"),
+        placeholders=("class_title", "class_url", "class_image_html"),
         sample_context={
             "class_title": "Intro to Lost-Wax Casting",
             "class_url": "https://pastlives.example/classes/intro-to-lost-wax-casting/",
+            # App-built SafeString injected by the send path (the class's hero image, or
+            # empty when it has none). Blank in the preview so no broken image shows.
+            "class_image_html": "",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -253,6 +256,7 @@ _CURATED: dict[str, EventCopy] = {
                     "{{ class_title }} just went live at Past Lives.\n\nSee the details and sign up: {{ class_url }}"
                 ),
                 body_html=(
+                    "{{ class_image_html }}"
                     "<p><strong>{{ class_title }}</strong> just went live at Past Lives.</p>"
                     '<p><a href="{{ class_url }}">See the details and sign up</a></p>'
                 ),

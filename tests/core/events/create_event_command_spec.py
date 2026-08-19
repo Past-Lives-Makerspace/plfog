@@ -16,7 +16,7 @@ import pytest
 import respx
 
 from core.events.discord_commands import dispatch
-from core.models import SiteConfiguration
+from core.models import NotificationPreference, SiteConfiguration
 from membership.discord_commands import (
     _GENERAL_VALUE,
     CREATE_EVENT,
@@ -389,8 +389,15 @@ def describe_the_also_email_option():
         followup = _mock_discord()
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Glass")
-        GuildMembershipFactory(guild=guild, member=linked_member())
-        GuildMembershipFactory(guild=guild, member=linked_member())
+        # Guild-event emails are ON by default, so a member on the default already gets the
+        # spine launch email; the "also email" escalation adds only members who opted out. Opt
+        # both out so the escalation force-reaches them and reports the count.
+        for _ in range(2):
+            member = linked_member()
+            GuildMembershipFactory(guild=guild, member=member)
+            NotificationPreference.objects.create(
+                user=member.user, event_key="event.guild_published", channel="email", enabled=False
+            )
 
         _create_event(
             _interaction(

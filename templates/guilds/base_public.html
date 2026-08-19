@@ -47,7 +47,7 @@ so a template can render on both this base and hub/base.html without collisions.
             <a href="{% url 'account:overview' %}" class="cp-topbar__account-item" @click="accountOpen = false">My account</a>
             {% if persona == "member" %}
               <a href="{{ MEMBER_BASE_URL }}/" class="cp-topbar__account-item cp-topbar__account-item--ext" hx-boost="false" @click="accountOpen = false">
-                FOG
+                Member Portal
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 L17 7"/><path d="M8 7h9v9"/></svg>
               </a>
             {% endif %}
@@ -91,7 +91,7 @@ so a template can render on both this base and hub/base.html without collisions.
     {% if user.is_authenticated %}
       <a href="{% url 'account:overview' %}" class="cp-topbar__drawer-link">My account</a>
       {% if persona == "member" %}
-        <a href="{{ MEMBER_BASE_URL }}/" class="cp-topbar__drawer-link" hx-boost="false">FOG dashboard</a>
+        <a href="{{ MEMBER_BASE_URL }}/" class="cp-topbar__drawer-link" hx-boost="false">Member Portal dashboard</a>
       {% endif %}
       <a href="{% url 'account_logout' %}" class="cp-topbar__drawer-link" hx-boost="false">Log out</a>
     {% else %}

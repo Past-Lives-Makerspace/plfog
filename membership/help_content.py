@@ -62,11 +62,12 @@ LEGACY_SLUG_MAP: dict[str, str] = {
     "notifications-and-your-settings": "notifications",
 }
 
-# LEGACY_SLUG_MAP targets that are approved (§10.2) but not seeded until the
-# P2 fast-follow. The landing's legacy-anchor filter already drops map entries
-# whose target isn't live, so these anchors fall back to /help/ — never a dead
-# end — until the article ships.
-PENDING_LEGACY_TARGETS: frozenset[str] = frozenset({"notifications"})
+# LEGACY_SLUG_MAP targets approved (§10.2) but not yet seeded. Empty now that the
+# ``notifications`` guide has shipped (v1.2.0) — its two legacy anchors
+# ("connecting-discord", "notifications-and-your-settings") now resolve to the live
+# article instead of falling back to /help/. Re-add a slug here only if a future
+# legacy target is mapped before its article lands.
+PENDING_LEGACY_TARGETS: frozenset[str] = frozenset()
 
 # ── OrgInfoPage launch defaults ──────────────────────────────────────────────
 # Fill-if-blank defaults for the Help landing's page blocks. ``seed_help_center``
@@ -97,7 +98,7 @@ The guides below cover the parts people ask about most. Stuck? The Who's Who sec
 further down says who to contact."""
 
 PAGE_INTRO = """\
-Welcome to the FOG hub, the app that runs Past Lives day to day. Everything you can do \
+Welcome to the Member Portal, the app that runs Past Lives day to day. Everything you can do \
 here, from taking classes to guild voting, has a short guide below. Pick a category, or \
 search if you already know what you need.
 
@@ -143,10 +144,10 @@ ARTICLES: list[dict[str, Any]] = [
     {
         "slug": "welcome-to-fog",
         "category": "getting-started",
-        "title": "Welcome to FOG: what's where",
+        "title": "Welcome to the Member Portal: what's where",
         "sort_order": 10,
         "related": ["guilds-and-guild-pages", "taking-a-class"],
-        "body": """FOG is the Past Lives member hub — the app where the makerspace runs day to day. Your guilds, the class catalog, the community calendar, guild voting, and your account settings all live here.
+        "body": """The Member Portal is the Past Lives member hub — the app where the makerspace runs day to day. Your guilds, the class catalog, the community calendar, guild voting, and your account settings all live here.
 
 ## Your home dashboard {#home-dashboard}
 
@@ -174,7 +175,7 @@ The left sidebar is the map:
 - **Guilds** — every guild, listed at the bottom. Jump straight to any guild's page.
 - **Feedback** — at the very bottom. Found a bug or have an idea? Send it here.
 
-![The sidebar: every part of FOG, one click away.](/static/help/welcome-to-fog/02-sidebar-navigation.png)
+![The sidebar: every part of the Member Portal, one click away.](/static/help/welcome-to-fog/02-sidebar-navigation.png)
 
 The top bar has a light/dark theme toggle and your avatar. Open the avatar for **Settings** and **Log Out**.
 
@@ -202,10 +203,56 @@ The top bar has a light/dark theme toggle and your avatar. Open the avatar for *
                 "file": "02-sidebar-navigation.png",
                 "page": "hub_home",
                 "selector": ".hub-sidebar",
-                "caption": "The sidebar: every part of FOG, one click away.",
+                "caption": "The sidebar: every part of the Member Portal, one click away.",
                 "as_role": "member",
             },
         ],
+    },
+    {
+        "slug": "notifications",
+        "category": "getting-started",
+        "title": "Your notification settings: choose what reaches you",
+        "sort_order": 20,
+        "related": ["welcome-to-fog", "announcements", "discord-and-fog"],
+        "body": """Every important thing that happens at Past Lives — a class you booked getting cancelled, a new announcement from your guild, a reply to a request you sent — can reach you in more than one place. You decide which. This is your notification center, and it lives in **Settings → Notifications**.
+
+## Where to find it {#where}
+
+There are three ways in:
+
+- **Settings → Notifications.** Open **Settings** from your profile menu (your photo, top right), then pick the **Notifications** tab.
+- **The bell, top right.** Click it to open your full **Notifications** page — every notice you've received, newest first.
+- **Any email footer.** Every email we send has a "Manage your email preferences or unsubscribe" link. It opens your notification settings for that email address, with no sign-in needed.
+
+## The ways a notice can reach you {#channels}
+
+Your settings are a grid: every kind of event runs down the side, and each column is a way that event can reach you.
+
+- **In-app (Bell)** — always on. The bell shows everything, so nothing is ever lost.
+- **Email** — a message to your inbox.
+- **Push** — a notification on your phone. Android only for now; iOS is coming soon.
+- **Discord** — a direct message from the Fog Bot. This column only works once you've connected Discord.
+
+Some events also offer a **Scheduled** or **Digest** column — a weekly round-up instead of one message at a time.
+
+## Turning things on and off {#toggle}
+
+Flip any switch to turn that notice on or off for that channel. To move faster:
+
+- **All on** / **All off** at the very top flips everything at once.
+- Each category ("Classes", "Your guilds", and so on) has its own **All on** / **All off**.
+
+Then hit **Save** at the bottom.
+
+## What you can't turn off {#always-on}
+
+A few notices are locked on, because missing them would cause real problems: receipts, security and sign-in messages, and booking and orientation updates. You'll always get those, and the bell always shows everything.
+
+Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
+
+## Heads-up: some updates start switched on {#defaults}
+
+So that nobody misses something important, several updates come **switched on by default**. That's on purpose, but it's your call. Take a minute to open **Settings → Notifications** and set each one the way you actually want it: turn off what you don't need, and keep the ones that matter to you.""",
     },
     {
         "slug": "guilds-and-guild-pages",
@@ -356,7 +403,7 @@ A voting cycle is one calendar month. The voting page shows the current cycle, t
 
 ![The voting page shows when the current cycle closes and the next begins.](/static/help/guild-voting/02-cycle-dates.png)
 
-Minutes into the new month, FOG automatically freezes the closed cycle's standings into a snapshot and emails the results to every active member. If you voted, your results email includes a recap of your own ballot. There's nothing to do at month's end — your standing ballot was your vote.
+Minutes into the new month, the Member Portal automatically freezes the closed cycle's standings into a snapshot and emails the results to every active member. If you voted, your results email includes a recap of your own ballot. There's nothing to do at month's end — your standing ballot was your vote.
 
 ## Watch the standings {#voting-live-standings}
 
@@ -1512,22 +1559,22 @@ Your approval doesn't publish the class. It opens the admin gate: an admin gets 
     {
         "slug": "fog-is-open-source",
         "category": "contributing",
-        "title": "FOG is open source: how to contribute",
+        "title": "The Member Portal is open source: how to contribute",
         "sort_order": 10,
         "related": ["the-fog-api", "how-fog-runs"],
-        "body": """FOG — this app — is open source. All of its code is public on GitHub under the MIT license, and any member can read it, report problems, suggest features, or change it directly.
+        "body": """The Member Portal — this app — is open source. All of its code is public on GitHub under the MIT license, and any member can read it, report problems, suggest features, or change it directly.
 
 The repository lives at [github.com/Past-Lives-Makerspace/plfog](https://github.com/Past-Lives-Makerspace/plfog).
 
 ## Ways to contribute (no coding required)
 
-- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build FOG.
+- **Report a bug or share an idea in the app.** The **Feedback** link at the bottom of the sidebar goes straight to the people who build the Member Portal.
 - **Open a GitHub issue.** If you have a GitHub account, [open an issue](https://github.com/Past-Lives-Makerspace/plfog/issues) describing the bug or idea. Screenshots help a lot.
 - **Improve these guides.** The Help Center articles live in the code too — typo fixes and clearer wording are real contributions.
 
 ## Contributing code
 
-FOG is a Django (Python) web app. If you can write Python, HTML, or CSS, you can work on it.
+The Member Portal is a Django (Python) web app. If you can write Python, HTML, or CSS, you can work on it.
 
 1. **Get it running locally.** The README in the repository walks through setup. Local development runs entirely in Docker Compose — you don't need Python or a database installed, just Docker.
 2. **Make your change on a branch**, with tests. The project keeps 100% test coverage, so changes come with tests that prove they work.
@@ -1537,7 +1584,7 @@ FOG is a Django (Python) web app. If you can write Python, HTML, or CSS, you can
 
 A pull request (a "PR") is how changes get into a shared codebase safely. Instead of editing the live code directly, you publish your proposed change as a bundle that others can read, comment on, and approve — like handing in a draft for review rather than gluing pages straight into the library's only copy.
 
-When you open a PR against FOG, two things happen automatically:
+When you open a PR against the Member Portal, two things happen automatically:
 
 - **The robots check it.** GitHub runs the full test suite, database checks, and code-style linters against your change. If anything fails, the PR is marked red and can't ship until it's fixed.
 - **A person checks it.** Every PR needs at least **one approving review** before it can merge. Nothing lands in the main branch unreviewed.
@@ -1553,23 +1600,23 @@ Merging to the main branch **is** deploying. Render (our hosting platform) watch
     {
         "slug": "the-fog-api",
         "category": "contributing",
-        "title": "The FOG API",
+        "title": "The Member Portal API",
         "sort_order": 20,
         "related": ["fog-is-open-source", "how-fog-runs"],
-        "body": """FOG has a REST API — the same data you see in the app, as JSON, for scripts, bots, and integrations built by members. Our own Discord bot and admin tooling use it.
+        "body": """The Member Portal has a REST API — the same data you see in the app, as JSON, for scripts, bots, and integrations built by members. Our own Discord bot and admin tooling use it.
 
 The base URL is `https://members.pastlives.space/api/v1/`.
 
 ## Try it right now
 
-If you're logged into FOG in your browser, open [members.pastlives.space/api/v1/](https://members.pastlives.space/api/v1/) — you'll get a browsable version of the API you can click through. Every endpoint shows its data and format right on the page.
+If you're logged into the Member Portal in your browser, open [members.pastlives.space/api/v1/](https://members.pastlives.space/api/v1/) — you'll get a browsable version of the API you can click through. Every endpoint shows its data and format right on the page.
 
 ## Authentication
 
 Every request must be authenticated — there is no anonymous access. Two ways in:
 
-- **Your browser session.** Being logged into FOG is enough for the browsable API above.
-- **A token**, for scripts and bots. Send it as a header: `Authorization: Token YOUR_TOKEN`. Tokens are issued by a FOG admin — ask in Discord if you're building something and need one.
+- **Your browser session.** Being logged into the Member Portal is enough for the browsable API above.
+- **A token**, for scripts and bots. Send it as a header: `Authorization: Token YOUR_TOKEN`. Tokens are issued by a Member Portal admin — ask in Discord if you're building something and need one.
 
 Example:
 
@@ -1597,16 +1644,16 @@ Writes do real things: creating an event through `POST /api/v1/events/` also pus
 - List endpoints support the standard REST shapes: `/guilds/` for the list, `/guilds/<id>/` for one record.
 
 !!! tip
-    Building something on the API — a dashboard, a bot, a shop-status display? Post about it in Discord. If the API is missing a field or an endpoint you need, [open a GitHub issue](https://github.com/Past-Lives-Makerspace/plfog/issues) or add it yourself (see [FOG is open source](/help/contributing/fog-is-open-source/)).""",
+    Building something on the API — a dashboard, a bot, a shop-status display? Post about it in Discord. If the API is missing a field or an endpoint you need, [open a GitHub issue](https://github.com/Past-Lives-Makerspace/plfog/issues) or add it yourself (see [The Member Portal is open source](/help/contributing/fog-is-open-source/)).""",
         "screenshots": [],
     },
     {
         "slug": "how-fog-runs",
         "category": "contributing",
-        "title": "How FOG runs: under the hood",
+        "title": "How the Member Portal runs: under the hood",
         "sort_order": 30,
         "related": ["the-fog-api", "logins-and-usernames"],
-        "body": """A tour of the machinery for the curious: what FOG is built with, where it runs, and what it talks to.
+        "body": """A tour of the machinery for the curious: what the Member Portal is built with, where it runs, and what it talks to.
 
 ## The stack
 
@@ -1616,16 +1663,16 @@ Writes do real things: creating an event through `POST /api/v1/events/` also pus
 - **Cloudflare R2** — stores uploaded images (guild photos, class images, avatars).
 - **Resend** — delivers the app's email (login codes, class confirmations, announcements).
 
-FOG is also an installable web app: "Add to Home Screen" on your phone gives you an app icon and push notifications.
+The Member Portal is also an installable web app: "Add to Home Screen" on your phone gives you an app icon and push notifications.
 
 ## Merging code is deploying
 
-There are no release days. When a change merges to the main branch on GitHub (after tests pass and a human approves — see [FOG is open source](/help/contributing/fog-is-open-source/)), Render picks it up automatically: it installs dependencies, runs database migrations, refreshes seeded content like these help guides, and swaps the new version live. A typical change is in production minutes after merge.
+There are no release days. When a change merges to the main branch on GitHub (after tests pass and a human approves — see [The Member Portal is open source](/help/contributing/fog-is-open-source/)), Render picks it up automatically: it installs dependencies, runs database migrations, refreshes seeded content like these help guides, and swaps the new version live. A typical change is in production minutes after merge.
 
-## What FOG talks to
+## What the Member Portal talks to
 
-- **Airtable** — the membership roster lives there; FOG pulls members, spaces, and leases in on a schedule, and pushes guild-voting results back out.
-- **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and FOG](/help/contributing/discord-and-fog/)).
+- **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and leases in on a schedule, and pushes guild-voting results back out.
+- **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
 - **Google Calendar** — community events are pushed to the shared calendar automatically.
 
 ## Scheduled jobs
@@ -1643,23 +1690,23 @@ Every piece above is defined in the public repository — the Render blueprint, 
         "title": "How logins and usernames work",
         "sort_order": 40,
         "related": ["discord-and-fog", "welcome-to-fog"],
-        "body": """FOG has no passwords. Here's what happens instead, and why login "just works" with your email.
+        "body": """The Member Portal has no passwords. Here's what happens instead, and why login "just works" with your email.
 
 ## Logging in
 
-Enter your email on the login page and FOG emails you a one-time code. Type it in and you're logged in. The code expires after 5 minutes, and your session sticks around afterwards — you won't be asked again every visit.
+Enter your email on the login page and the Member Portal emails you a one-time code. Type it in and you're logged in. The code expires after 5 minutes, and your session sticks around afterwards — you won't be asked again every visit.
 
-There's nothing to forget and nothing to reuse from another site, which is the point: a leaked password list somewhere else can never open your FOG account.
+There's nothing to forget and nothing to reuse from another site, which is the point: a leaked password list somewhere else can never open your Member Portal account.
 
 ## Where your account came from
 
-You never "signed up" for FOG, and there's no open registration page. Accounts are created from the makerspace's membership roster — when you became a member, an account was provisioned for the email you gave us. New members get theirs by invite.
+You never "signed up" for the Member Portal, and there's no open registration page. Accounts are created from the makerspace's membership roster — when you became a member, an account was provisioned for the email you gave us. New members get theirs by invite.
 
 That's also the fix when a login code never arrives: the email you typed probably isn't the one on file. Ask a staff member to check.
 
 ## More than one email
 
-You can attach extra email addresses to your account under **Settings → Emails**. Once verified, **any** of your emails works for login, and you choose which one FOG uses to reach you.
+You can attach extra email addresses to your account under **Settings → Emails**. Once verified, **any** of your emails works for login, and you choose which one the Member Portal uses to reach you.
 
 ## So what's my username?
 
@@ -1669,10 +1716,10 @@ You don't have one — at least not one you ever need to know. Internally the sy
     {
         "slug": "discord-and-fog",
         "category": "contributing",
-        "title": "Discord and FOG",
+        "title": "Discord and the Member Portal",
         "sort_order": 50,
         "related": ["logins-and-usernames", "community-calendar"],
-        "body": """Past Lives runs on two systems that talk to each other: FOG (this app) for the official record — membership, classes, voting, events — and Discord for the day-to-day conversation. The Fog Bot is the bridge.
+        "body": """Past Lives runs on two systems that talk to each other: the Member Portal (this app) for the official record — membership, classes, voting, events — and Discord for the day-to-day conversation. The Fog Bot is the bridge.
 
 ## What the bot does on its own
 
@@ -1684,68 +1731,68 @@ Without you doing anything, the Fog Bot:
 
 ## Linking your accounts
 
-Linking tells FOG which Discord user is you. Two ways:
+Linking tells the Member Portal which Discord user is you. Two ways:
 
-- **From FOG:** go to **Settings → Notifications** and hit **Connect Discord**. You'll bounce to Discord to approve, then land back in FOG.
-- **From Discord:** click the link the bot posts in the server. If your Discord account's verified email matches your Past Lives email, you're linked in one click — no FOG login needed.
+- **From the Member Portal:** go to **Settings → Notifications** and hit **Connect Discord**. You'll bounce to Discord to approve, then land back in the Member Portal.
+- **From Discord:** click the link the bot posts in the server. If your Discord account's verified email matches your Past Lives email, you're linked in one click — no Member Portal login needed.
 
 ## What linking gets you
 
-- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in FOG. Join or leave a guild in FOG and your Discord roles follow.
-- One identity across both systems, so your guild channels, roles, and FOG account always agree.
+- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in the Member Portal. Join or leave a guild in the Member Portal and your Discord roles follow.
+- One identity across both systems, so your guild channels, roles, and Member Portal account always agree.
 
-Linking is safe by design: a Discord account can only ever be linked to one member, and FOG will never silently swap or reassign a link. You can disconnect anytime from the same settings tab.""",
+Linking is safe by design: a Discord account can only ever be linked to one member, and the Member Portal will never silently swap or reassign a link. You can disconnect anytime from the same settings tab.""",
         "screenshots": [],
     },
     {
         "slug": "calendar-sync",
         "category": "contributing",
-        "title": "How the calendar syncs: FOG, Google, and Discord",
+        "title": "How the calendar syncs: the Member Portal, Google, and Discord",
         "sort_order": 60,
         "related": ["discord-and-fog", "how-fog-runs", "community-calendar"],
-        "body": """One calendar, three systems. Events at Past Lives live in FOG (this app), on two shared **Google calendars** (Member and Public), and in **Discord's event list**. This is how they stay in sync — and, just as important, where you should create or edit an event so it behaves.
+        "body": """One calendar, three systems. Events at Past Lives live in the Member Portal (this app), on two shared **Google calendars** (Member and Public), and in **Discord's event list**. This is how they stay in sync — and, just as important, where you should create or edit an event so it behaves.
 
 ## The one rule that matters
 
-**Where an event is born decides where you manage it.** FOG can push events *out*, but it only *reads* the Google calendars — so an event created in Google can't be edited from FOG, and an event created in FOG can't be edited from Google. Pick one home per event and stick with it.
+**Where an event is born decides where you manage it.** The Member Portal can push events *out*, but it only *reads* the Google calendars — so an event created in Google can't be edited from the Member Portal, and an event created in the Member Portal can't be edited from Google. Pick one home per event and stick with it.
 
-## Create it in FOG (recommended)
+## Create it in the Member Portal (recommended)
 
-When you add an event in the FOG app, FOG owns it and fans it out:
+When you add an event in the Member Portal app, the Member Portal owns it and fans it out:
 
 - It's pushed to the right **Google calendar** (Member or Public) automatically.
 - It's pushed to **Discord** as a scheduled event.
-- Edit it in FOG and both copies update. Delete it in FOG and both copies disappear.
+- Edit it in the Member Portal and both copies update. Delete it in the Member Portal and both copies disappear.
 
-Because FOG owns it end to end, this is the path that gives you "create once, shows up everywhere; delete once, gone everywhere." If you want a single place to manage everything, make it FOG. (FOG won't double-list its own events: the one it pushes to Google comes back through the import below, and FOG recognizes it by ID and drops the echo.)
+Because the Member Portal owns it end to end, this is the path that gives you "create once, shows up everywhere; delete once, gone everywhere." If you want a single place to manage everything, make it the Member Portal. (The Member Portal won't double-list its own events: the one it pushes to Google comes back through the import below, and the Member Portal recognizes it by ID and drops the echo.)
 
 ## Create it on a Google calendar
 
-Anyone with edit access to the Member or Public Google calendar can add an event there. FOG then:
+Anyone with edit access to the Member or Public Google calendar can add an event there. The Member Portal then:
 
 - **Imports** it (read-only) on the nightly sync, so it appears on the Community Calendar.
 - **Mirrors** it into Discord's event list.
 
-The catch: FOG treats these as read-only. You **cannot edit or delete a Google-born event from FOG** — editing the FOG copy just gets overwritten on the next sync. To change its date, time, or details, or to remove it, do that **on the Google calendar**; FOG picks up the change on the next sync.
+The catch: the Member Portal treats these as read-only. You **cannot edit or delete a Google-born event from the Member Portal** — editing the Member Portal copy just gets overwritten on the next sync. To change its date, time, or details, or to remove it, do that **on the Google calendar**; the Member Portal picks up the change on the next sync.
 
 ## Discord is downstream
 
-Discord's event list is a mirror, never a source. FOG pushes to it; nothing you do in Discord flows back to FOG or Google. Don't create or delete events directly in Discord — treat it as a read-only display.
+Discord's event list is a mirror, never a source. The Member Portal pushes to it; nothing you do in Discord flows back to the Member Portal or Google. Don't create or delete events directly in Discord — treat it as a read-only display.
 
 ## What deletes what
 
-- Delete a **FOG** event in FOG → removed from Google and Discord.
-- Delete a **Google** event in Google → removed from FOG and Discord on the next sync.
-- Delete an event in **Discord** → nothing else changes, and FOG may re-push it.
-- Try to delete a **Google** event from FOG → it doesn't stick; the next sync re-imports it.
+- Delete a **Member Portal** event in the Member Portal → removed from Google and Discord.
+- Delete a **Google** event in Google → removed from the Member Portal and Discord on the next sync.
+- Delete an event in **Discord** → nothing else changes, and the Member Portal may re-push it.
+- Try to delete a **Google** event from the Member Portal → it doesn't stick; the next sync re-imports it.
 
 ## Timing
 
-FOG → Google and Discord happens the moment you save. Google → FOG runs on the **nightly** sync (a scheduled job on Render — see [How FOG runs](/help/contributing/how-fog-runs/)), so an event added straight to a Google calendar can take until the next sync to appear in FOG and Discord.
+The Member Portal → Google and Discord happens the moment you save. Google → the Member Portal runs on the **nightly** sync (a scheduled job on Render — see [How the Member Portal runs](/help/contributing/how-fog-runs/)), so an event added straight to a Google calendar can take until the next sync to appear in the Member Portal and Discord.
 
 ## The all-day gotcha (for the curious)
 
-An all-day event is a date with no time, but FOG stores every event as a precise moment — so it has to choose one for "all day." It anchors an all-day event to **local midnight** (Portland time). That sounds trivial, but it's a classic trap: anchor to midnight **UTC** instead and the event renders on the *previous* evening for anyone west of UTC — an all-day event on the 22nd shows up on the 21st. FOG anchors to local midnight so the day is always right. If you ever see an all-day event landing a day early, that's the shape of the bug.
+An all-day event is a date with no time, but the Member Portal stores every event as a precise moment — so it has to choose one for "all day." It anchors an all-day event to **local midnight** (Portland time). That sounds trivial, but it's a classic trap: anchor to midnight **UTC** instead and the event renders on the *previous* evening for anyone west of UTC — an all-day event on the 22nd shows up on the 21st. The Member Portal anchors to local midnight so the day is always right. If you ever see an all-day event landing a day early, that's the shape of the bug.
 
 A practical tip that follows from this: if an event happens at a specific time, give it that time instead of marking it all-day. "All day" is for genuinely all-day things (a work party, a social); a 7–9pm event should be entered as 7–9pm, or it will show as an all-day block.
 

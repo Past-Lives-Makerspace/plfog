@@ -172,7 +172,7 @@ def describe_org_info_map():
         SpaceRequestFactory(requester=user.member, space=SpaceFactory(space_id="B4"))
         client.login(username="mine", password="pass")
         response = client.get(reverse("hub_spaces"))
-        assert b"Your space requests" in response.content
+        assert b"Your Space Requests" in response.content
         assert b"B4" in response.content
         assert b"Withdraw" in response.content
 

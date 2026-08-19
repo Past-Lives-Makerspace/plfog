@@ -6,7 +6,7 @@ and the mobile toggle-group get their display from `pl-` classes, never inline o
 element; the one allowed inline nudge is the bound `:style="width:…"` on the iframe.
 {% endcomment %}
 <div>
-  <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Release update</h2>
+  <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Release Update</h2>
   <p style="color:var(--hub-text-muted);margin:0;">
     The sectioned "what's new" email, assembled from this release's changelog. Preview it, send a
     test to yourself, then send it to every <strong>activated</strong> member. Discord is left off —
@@ -33,7 +33,7 @@ element; the one allowed inline nudge is the bound `:style="width:…"` on the i
   {% include "components/form_field.html" with field=release_form.intro %}
 
   <div class="pl-release-cards">
-    <h3 class="pl-release-cards__title">Features in this update</h3>
+    <h3 class="pl-release-cards__title">Features in This Update</h3>
     <p class="pl-release-cards__hint">These cards come from this release's changelog. Turn any off, or swap its screenshot.</p>
     {% for row in release_form.card_rows %}
     <div class="pl-release-card">
@@ -71,7 +71,7 @@ element; the one allowed inline nudge is the bound `:style="width:…"` on the i
 {% if release_preview %}
 <div class="pl-email-preview" x-data="{ view: 'html', device: 'desktop' }"
      style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-  <h3 class="pl-email-preview__title">Email preview</h3>
+  <h3 class="pl-email-preview__title">Email Preview</h3>
   <p class="pl-email-preview__lead">
     Exactly what lands in their inbox. Reaches <strong>{{ release_preview.count }}</strong> activated member{{ release_preview.count|pluralize }} (Discord off — it auto-posts on deploy).
   </p>

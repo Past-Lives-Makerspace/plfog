@@ -71,7 +71,7 @@
                 </span>
                 {% endif %}
                 {% if member.user.last_login %}
-                <span title="Last login to FOG">Last seen {{ member.user.last_login|timesince }} ago</span>
+                <span title="Last login to the Member Portal">Last seen {{ member.user.last_login|timesince }} ago</span>
                 {% endif %}
             </span>
             <a href="{% url 'hub_admin_member_edit' member.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost" hx-boost="false" style="font-size:0.75rem;padding:0.2rem 0.6rem;">Edit</a>

@@ -93,7 +93,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "home.dashboard": {
         "title": "Your home dashboard",
         "short_text": (
-            "Your home base: what's coming up, the latest from your guilds, and quick links into the rest of FOG."
+            "Your home base: what's coming up, the latest from your guilds, and quick links into the rest of the Member Portal."
         ),
         "article_slug": "welcome-to-fog",
         "anchor": "home-dashboard",

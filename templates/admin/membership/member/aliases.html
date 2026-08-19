@@ -15,7 +15,7 @@
 
 {% block content %}
 <div class="plfog-aliases" style="padding: 1.5rem 2rem; max-width: 960px;">
-    <h1 style="margin-bottom: 0.25rem;">Email aliases</h1>
+    <h1 style="margin-bottom: 0.25rem;">Email Aliases</h1>
     <p style="color: #888; margin-top: 0;">for {{ member }}</p>
 
     {% if messages %}
@@ -81,7 +81,7 @@
         </tbody>
     </table>
 
-    <h2 style="margin-bottom: 0.5rem;">Add email alias</h2>
+    <h2 style="margin-bottom: 0.5rem;">Add Email Alias</h2>
     <form method="post"
           action="{% url 'admin_member_aliases_add' member.pk %}"
           style="display: flex; gap: 0.5rem; align-items: flex-start; flex-wrap: wrap;">

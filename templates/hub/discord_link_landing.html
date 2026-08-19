@@ -10,7 +10,7 @@
   </div>
   <div class="auth-card">
     {% if state == "linked" %}
-      <h1 class="auth-page__title">Discord connected</h1>
+      <h1 class="auth-page__title">Discord Connected</h1>
       {% if guilds %}
         <p class="auth-page__subtitle">We set you up in {{ guilds|length }} guild{{ guilds|length|pluralize }}.</p>
         <ul class="pl-discord-landing__guilds">
@@ -31,7 +31,7 @@
       <p class="pl-discord-landing__note">Back in Discord, try <code>/whats-on</code> or <code>/fog-ping</code>.</p>
 
     {% elif state == "needs_login" %}
-      <h1 class="auth-page__title">Almost there</h1>
+      <h1 class="auth-page__title">Almost There</h1>
       <p class="auth-page__subtitle">Log in or sign up to Past Lives to finish connecting your Discord.</p>
       <a href="{{ login_next_url }}" class="btn btn--primary btn--full">Log in</a>
       {% if registration_is_open %}
@@ -39,22 +39,22 @@
       {% endif %}
 
     {% elif state == "already_linked_elsewhere" %}
-      <h1 class="auth-page__title">Already connected elsewhere</h1>
+      <h1 class="auth-page__title">Already Connected Elsewhere</h1>
       <p class="auth-page__subtitle">This Discord account is already connected to a different Past Lives account. Log in to manage it.</p>
       <a href="{{ login_url }}" class="btn btn--primary btn--full">Log in</a>
 
     {% elif state == "account_has_other_discord" %}
-      <h1 class="auth-page__title">A different Discord is connected</h1>
+      <h1 class="auth-page__title">A Different Discord Is Connected</h1>
       <p class="auth-page__subtitle">Your Past Lives account already has a different Discord connected. To switch, log in and disconnect the current one first.</p>
       <a href="{{ discord_settings_url }}" class="btn btn--primary btn--full">Go to Discord settings</a>
 
     {% elif state == "cancelled" %}
-      <h1 class="auth-page__title">Connection cancelled</h1>
+      <h1 class="auth-page__title">Connection Cancelled</h1>
       <p class="auth-page__subtitle">No problem — you can connect your Discord any time.</p>
       <a href="{{ retry_url }}" class="btn btn--primary btn--full">Try again</a>
 
     {% else %}{# oauth_failed / bad state #}
-      <h1 class="auth-page__title">Something went wrong</h1>
+      <h1 class="auth-page__title">Something Went Wrong</h1>
       <p class="auth-page__subtitle">We couldn't verify that Discord sign-in — please try again.</p>
       <a href="{{ retry_url }}" class="btn btn--primary btn--full">Try again</a>
     {% endif %}

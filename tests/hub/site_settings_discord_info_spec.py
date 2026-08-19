@@ -63,7 +63,7 @@ def describe_info_post_fields_render():
         assert content.count('name="discord_info_message_id"') == 1
         assert content.count('name="discord_info_links_content"') == 1
         assert "Saving updates the pinned Discord post immediately" in content
-        assert "#important-info pinned post" in content
+        assert "#important-info Pinned Post" in content
 
 
 def describe_info_post_save():

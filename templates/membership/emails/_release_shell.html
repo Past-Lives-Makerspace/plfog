@@ -4,8 +4,8 @@ light feature body → the reused _footer (navy-on-light styling) on the pale pa
 background below. Standalone document
 (does NOT extend the dark _base.html, which is tuned for transactional copy). ~600px.
 Inline styles throughout — email clients strip <style> blocks.
-Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url, cta_label.
-{% endcomment %}<!DOCTYPE html>
+Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url, cta_label, play_store_url.
+{% endcomment %}{% load static site_urls %}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -31,6 +31,12 @@ Context: preheader, minor_label, release_date, intro_html (safe), cards, cta_url
             {% if intro_html %}<div style="font-size: 15px; color: #33424f; line-height: 1.6; margin: 0 0 20px;">{{ intro_html }}</div>{% endif %}
             {% for card in cards %}{% include "membership/emails/_feature_card.html" with card=card %}{% endfor %}
             {% include "membership/emails/_button.html" with href=cta_url label=cta_label %}
+        </td>
+    </tr>
+    <tr>
+        <td style="text-align: center; padding: 24px 28px 0;">
+            <p style="margin: 0 0 10px; font-size: 13px; color: #5B6B77; line-height: 1.5;">The Past Lives Member Portal is officially on the Play Store. iOS coming soon.</p>
+            <a href="{{ play_store_url }}" style="text-decoration: none;"><img src="{% member_base_url %}{% static 'img/google-play-badge.png' %}" width="180" height="70" alt="Get it on Google Play" style="display: inline-block; border: 0; outline: none; width: 180px; height: auto;"></a>
         </td>
     </tr>
     {% include "membership/emails/_footer.html" %}

@@ -85,7 +85,7 @@ def describe_account_overview():
             book_client.force_login(user)
             resp = book_client.get("/account/")
             assert b"You&#x27;re a Past Lives member" in resp.content or b"You're a Past Lives member" in resp.content
-            assert b"Open FOG dashboard" in resp.content
+            assert b"Open Member Portal dashboard" in resp.content
 
     def describe_persona_instructor():
         def it_shows_instructor_banner_with_upcoming_count(book_client, db):

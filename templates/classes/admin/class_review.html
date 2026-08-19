@@ -64,7 +64,7 @@
   {# Live student preview — exactly how the published class page will look #}
   {% if is_tokenized %}{% url 'classes:class_review_preview' token=approval.token as preview_url %}{% else %}{% url 'classes:class_preview' pk=offering.pk as preview_url %}{% endif %}
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin:1.5rem 0 0.5rem;">
-    <h2 style="font-size:1.1rem;margin:0;">Student preview</h2>
+    <h2 style="font-size:1.1rem;margin:0;">Student Preview</h2>
     <a href="{{ preview_url }}" target="_blank" rel="noopener" style="font-size:0.85rem;white-space:nowrap;">Open in a new tab ↗</a>
   </div>
   <p style="color:var(--hub-text-muted);font-size:0.9rem;margin:0 0 0.75rem;">Exactly how this class page will look to a prospective student once it's published.</p>
@@ -74,7 +74,7 @@
   </div>
 
   {# Approval progress across all required roles #}
-  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Approval progress</h2>
+  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Approval Progress</h2>
   <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:6px;">
     {% for required_role in offering.required_review_roles %}
       {% with row=offering.approvals.all|first_with_role:required_role %}
@@ -99,7 +99,7 @@
   </ul>
 
   {# Class details for the reviewer to read #}
-  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class details</h2>
+  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>
   <dl style="display:grid;grid-template-columns:140px 1fr;gap:10px 18px;font-size:14px;margin:0 0 1.5rem;">
     <dt style="color:var(--hub-text-muted);">Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
     {% if offering.member_discount_pct %}<dt style="color:var(--hub-text-muted);">Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
@@ -139,7 +139,7 @@
   </dl>
 
   {% if history %}
-    <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review history</h2>
+    <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review History</h2>
     <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;">
       {% for h in history %}
         <li style="padding:10px 14px;background:var(--hub-bg);border:1px solid var(--hub-card-border);border-radius:6px;font-size:13px;">

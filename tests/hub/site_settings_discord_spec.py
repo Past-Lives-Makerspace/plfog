@@ -105,9 +105,9 @@ def describe_discord_tab_render():
         content = resp.content.decode()
         assert 'name="discord_server_id"' in content
         assert 'name="discord_role_message_id"' in content
-        assert "Emoji → guild map" in content
+        assert "Emoji → Guild Map" in content
         assert "No emoji mappings yet" in content  # empty state
-        assert "Guild → Discord role" in content
+        assert "Guild → Discord Role" in content
         assert "Woodshop" in content  # the per-guild role row
 
 

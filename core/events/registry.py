@@ -604,39 +604,42 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # 7. event.guild_published — a guild lead/staffer posts their guild's meeting/event.
-    #    Goes to the guild's members; in-app on, email OFF by default (calendar + Discord
-    #    + bell is enough), Discord on. Carries ``guild`` in context, so the routing
-    #    sibling dual-routes it to the central channel AND the guild's own webhook.
+    #    Goes to the guild's members; in-app on, email ON by default (owner call, copy-review
+    #    2026-08-18: a member who joined a guild should hear about its events by email unless
+    #    they opt out), Discord on. Carries ``guild`` in context, so the routing sibling
+    #    dual-routes it to the central channel AND the guild's own webhook.
     EventType(
         key=EVENT_GUILD_PUBLISHED,
         label="New guild event",
         description="A guild you're in scheduled a meeting or event.",
         category="Events",
         recipient=Recipients.GUILD_MEMBERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind=None,
     ),
     # 8. event.community_published — an admin posts a site-wide community event (One Mic
-    #    Night, Potluck). Every active member; in-app on, email OFF, Discord on (central).
+    #    Night, Potluck). Every active member; in-app on, email ON by default (owner call,
+    #    copy-review 2026-08-18), Discord on (central).
     EventType(
         key=EVENT_COMMUNITY_PUBLISHED,
         label="New community event",
         description="A makerspace-wide community event was scheduled.",
         category="Events",
         recipient=Recipients.ALL_ACTIVE_MEMBERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind=None,
     ),
     # 9. event.lead_meeting_published — an admin posts the cross-guild Guild Lead Meeting.
-    #    Notifies every guild lead/officer/staffer site-wide; in-app on, email OFF, Discord
-    #    on (central). The event still shows on the Community Calendar for all members.
+    #    Notifies every guild lead/officer/staffer site-wide; in-app on, email ON by default
+    #    (owner call, copy-review 2026-08-18), Discord on (central). The event still shows on
+    #    the Community Calendar for all members.
     EventType(
         key=EVENT_LEAD_MEETING_PUBLISHED,
         label="Guild Lead Meeting scheduled",
         description="A cross-guild leadership meeting was scheduled.",
         category="Events",
         recipient=Recipients.ALL_GUILD_LEADS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
         activity_kind=None,
     ),
     # 10. guild_announcement.submitted — a member proposed an announcement for a guild; it
