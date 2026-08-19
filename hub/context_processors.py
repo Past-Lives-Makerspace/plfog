@@ -34,7 +34,10 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         if member.profile_photo:
             photo_url = member.profile_photo.url
     return {
-        "guilds": Guild.objects.order_by("name"),
+        # Inactive guilds are hidden everywhere they're listed (directory, voting,
+        # My Guilds) — the sidebar follows suit. Their detail pages stay reachable
+        # by direct link, which is how the Help Center's example guild works.
+        "guilds": Guild.objects.filter(is_active=True).order_by("name"),
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
         "can_use_admin_tools": _can_use_admin_tools(request, member),

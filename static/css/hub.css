@@ -3359,6 +3359,9 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
 /* Help-profile prose: committed screenshots + anchor jumps that clear the topbar.
    Scoped to .pl-md--help — the base .pl-md deliberately has no img rule. */
 .pl-md--help img { max-width: 100%; height: auto; border: 1px solid var(--hub-border); border-radius: 8px; margin: 0.75rem 0; }
+/* Video walkthroughs (Loom / privacy-mode YouTube) — the sanitizer only lets the two
+   players through, so a bare responsive 16:9 rule covers every embed a guide can hold. */
+.pl-md--help iframe { width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--hub-border); border-radius: 8px; margin: 0.75rem 0; display: block; }
 .pl-md--help [id] { scroll-margin-top: 1rem; }
 /* Guide headings run bigger than the base .pl-md ladder — Lato display treatment so
    sections read as real landmarks inside a long guide (h4+ keep the base sizes). */

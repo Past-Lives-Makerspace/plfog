@@ -29,7 +29,7 @@ def describe_HelpCategory():
 
     def describe_slug_auto_fill():
         def it_fills_the_slug_from_the_name_when_blank(db):
-            assert HelpCategoryFactory(name="Running a guild").slug == "running-a-guild"
+            assert HelpCategoryFactory(name="Running a Guild").slug == "running-a-guild"
 
         def it_falls_back_to_category_when_the_name_has_no_slug_characters(db):
             assert HelpCategoryFactory(name="!!!").slug == "category"

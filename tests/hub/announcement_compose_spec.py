@@ -742,3 +742,23 @@ def describe_admin_tools_page():
         resp = client.get(reverse("hub_admin_tools"))
         assert resp.status_code == 302
         assert resp.url == reverse("hub_home")
+
+    def describe_quickstart_guide_cards():
+        def it_shows_both_quickstarts_to_an_admin(client: Client):
+            _login_admin(client)
+            content = client.get(reverse("hub_admin_tools")).content.decode()
+            assert "/help/running-a-guild/guild-lead-quickstart/" in content
+            assert "/help/teaching/instructor-quickstart/" in content
+
+        def it_shows_only_the_guild_lead_quickstart_to_a_guild_lead(client: Client):
+            guild = GuildFactory()
+            _login_lead(client, guild)
+            content = client.get(reverse("hub_admin_tools")).content.decode()
+            assert "/help/running-a-guild/guild-lead-quickstart/" in content
+            assert "/help/teaching/instructor-quickstart/" not in content
+
+        def it_shows_only_the_instructor_quickstart_to_a_pure_instructor(client: Client):
+            _instructor(client)
+            content = client.get(reverse("hub_admin_tools")).content.decode()
+            assert "/help/teaching/instructor-quickstart/" in content
+            assert "/help/running-a-guild/guild-lead-quickstart/" not in content

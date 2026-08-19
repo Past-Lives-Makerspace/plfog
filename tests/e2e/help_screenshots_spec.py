@@ -81,7 +81,12 @@ def _seed_personas() -> dict[str, Member]:
     plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
     traits: dict[str, dict[str, object]] = {
         "member": {"full_legal_name": "Morgan Member"},
-        "guild_lead": {"full_legal_name": "Lee Guildlead"},
+        "guild_lead": {
+            "full_legal_name": "Lee Guildlead",
+            # The approving-classes shots show the lead's review panel on the teach
+            # overview, which sits behind the one-time teaching unlock (Spec D).
+            "instructor_oriented_at": _tz.now(),
+        },
         "instructor": {
             "full_legal_name": "Jules Instructor",
             "instructor_slug": "jules-instructor",
@@ -130,6 +135,12 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
         OrientationSlotFactory,
         VotePreferenceFactory,
     )
+
+    # The example guild the guild-lead-quickstart / your-guild-page shots point
+    # at — same seed the deploy runs, so the capture shows exactly what prod has.
+    from membership.example_guild import seed_example_guild
+
+    seed_example_guild()
 
     # GATED surfaces stay out of the pictures, not just the prose (§10.5 rule 4):
     # the flag defaults on, which would leak My Tab, the balance pill, and the
@@ -197,6 +208,29 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     RegistrationFactory(class_offering=taught, first_name="Ira", last_name="Vale", status=Registration.Status.CONFIRMED)
     RegistrationFactory(
         class_offering=taught, first_name="Kit", last_name="Moss", status=Registration.Status.WAITLISTED
+    )
+
+    # Discount codes for the run-your-class Discount Codes shot: one approved and
+    # live, one still waiting on an admin — so the tab shows both states.
+    from classes.models import DiscountCode
+
+    DiscountCode.objects.get_or_create(
+        code="WHEEL10",
+        defaults={
+            "class_offering": taught,
+            "created_by": personas["instructor"].user,
+            "discount_pct": 10,
+            "is_approved": True,
+        },
+    )
+    DiscountCode.objects.get_or_create(
+        code="CLAYFRIEND",
+        defaults={
+            "class_offering": taught,
+            "created_by": personas["instructor"].user,
+            "discount_fixed_cents": 500,
+            "is_approved": False,
+        },
     )
 
     # A pending member proposal for Ceramics — the announcement review queue shot.

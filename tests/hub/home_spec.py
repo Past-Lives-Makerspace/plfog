@@ -340,6 +340,27 @@ def describe_hub_home_view():
             assert response.context["show_onboarding"] is False
             assert b"Get Started at Past Lives" not in response.content
 
+    def describe_admin_tools_quicklink():
+        def it_shows_the_admin_tools_quicklink_for_an_admin(client: Client):
+            user = _member_user("admhome")
+            user.member.fog_role = Member.FogRole.ADMIN
+            user.member.save(update_fields=["fog_role"])
+            client.login(username="admhome", password="pass")
+
+            response = client.get(reverse("hub_home"))
+
+            content = response.content.decode()
+            assert '<span class="pl-quicklink__label">Admin Tools</span>' in content
+            assert f'href="{reverse("hub_admin_tools")}"' in content
+
+        def it_hides_the_admin_tools_quicklink_for_a_plain_member(client: Client):
+            _member_user("plainhome")
+            client.login(username="plainhome", password="pass")
+
+            response = client.get(reverse("hub_home"))
+
+            assert '<span class="pl-quicklink__label">Admin Tools</span>' not in response.content.decode()
+
 
 def describe_build_home_context():
     def it_includes_the_onboarding_checklist_and_gate():

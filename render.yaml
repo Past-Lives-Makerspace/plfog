@@ -7,7 +7,8 @@ services:
       python manage.py collectstatic --noinput &&
       python manage.py migrate --run-syncdb &&
       python manage.py seed_notification_templates --quiet &&
-      python manage.py seed_help_center
+      python manage.py seed_help_center &&
+      python manage.py seed_example_guild
     startCommand: gunicorn plfog.wsgi:application --bind 0.0.0.0:$PORT
     envVars:
       - key: PYTHON_VERSION

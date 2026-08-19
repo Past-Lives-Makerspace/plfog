@@ -84,6 +84,53 @@ def describe_TOURS():
         with pytest.raises(ValueError, match="staffs no guild"):
             entry_url_for(TOURS["guild-lead"], member)
 
+    def it_uses_title_case_for_tour_and_step_titles():
+        # Locks the Title Case copy pass — a revert to sentence case must fail here.
+        assert TOURS["member-welcome"].title == "The Member Hub"
+        assert TOURS["guild-lead"].title == "Guild Lead Tools"
+        assert TOURS["instructor"].title == "The Teaching Portal"
+        member_step_titles = {step.title for step in TOURS["member-welcome"].steps}
+        assert "Everything in One Place" in member_step_titles
+        assert "Community Calendar" in member_step_titles
+        lead_step_titles = {step.title for step in TOURS["guild-lead"].steps}
+        assert "Your Guild's Control Room" in lead_step_titles
+        assert "One Tab Per Job" in lead_step_titles
+
+    def describe_guild_lead_url_fallback_for_admins_and_officers():
+        def it_falls_back_to_the_first_active_guild_ordered_by_name_for_an_admin():
+            admin = _member("admin-fallback", fog_role=Member.FogRole.ADMIN)
+            GuildFactory(name="Aaa Inactive Guild", is_active=False)  # alphabetically first, but skipped
+            alpha = GuildFactory(name="Bbb Active Guild", is_active=True)
+            GuildFactory(name="Zzz Active Guild", is_active=True)
+
+            url = entry_url_for(TOURS["guild-lead"], admin)
+
+            assert url == f"/guilds/{alpha.pk}/edit/?tour=guild-lead"
+
+        def it_falls_back_to_the_first_active_guild_for_a_guild_officer():
+            officer = _member("officer-fallback", fog_role=Member.FogRole.GUILD_OFFICER)
+            only_active = GuildFactory(name="Only Active Guild", is_active=True)
+
+            url = entry_url_for(TOURS["guild-lead"], officer)
+
+            assert url == f"/guilds/{only_active.pk}/edit/?tour=guild-lead"
+
+        def it_prefers_an_admins_own_staffed_guild_over_the_fallback():
+            admin = _member("admin-owns", fog_role=Member.FogRole.ADMIN)
+            GuildFactory(name="Aaa Would Be Fallback", is_active=True)
+            own = GuildFactory(name="Owns This Guild", guild_lead=admin)
+
+            url = entry_url_for(TOURS["guild-lead"], admin)
+
+            assert url == f"/guilds/{own.pk}/edit/?tour=guild-lead"
+
+        def it_raises_for_an_admin_with_no_staffed_guild_and_no_active_guilds():
+            admin = _member("admin-stuck", fog_role=Member.FogRole.ADMIN)
+            GuildFactory(name="Only Inactive Guild", is_active=False)
+
+            with pytest.raises(ValueError, match="staffs no guild"):
+                entry_url_for(TOURS["guild-lead"], admin)
+
     def describe_audiences():
         def it_welcomes_every_member_and_gates_the_lead_tour():
             plain = _member("plain")
@@ -103,6 +150,31 @@ def describe_TOURS():
             former = _member("former", status=Member.Status.FORMER)
             assert TOURS["instructor"].audience(former) is False
 
+        def it_admits_admins_to_the_lead_tour_even_without_staffing_a_guild():
+            GuildFactory(name="Audience Active Guild", is_active=True)
+            admin = _member("admin-audience", fog_role=Member.FogRole.ADMIN)
+            assert admin.is_guild_lead is False
+            assert admin.is_guild_staff is False
+            assert TOURS["guild-lead"].audience(admin) is True
+
+        def it_excludes_admins_when_no_active_guild_exists_to_run_the_tour_on():
+            # The entry URL is a guild edit page — with zero active guilds the tour
+            # simply isn't offered (rather than 500ing the Help page on entry_url_for).
+            admin = _member("admin-no-guilds", fog_role=Member.FogRole.ADMIN)
+            assert TOURS["guild-lead"].audience(admin) is False
+
+        def it_excludes_admins_when_the_only_guild_is_inactive():
+            GuildFactory(name="Audience Inactive Guild", is_active=False)
+            admin = _member("admin-inactive-only", fog_role=Member.FogRole.ADMIN)
+            assert TOURS["guild-lead"].audience(admin) is False
+
+        def it_admits_guild_officers_to_the_lead_tour_even_without_staffing_a_guild():
+            GuildFactory(name="Audience Officer Guild", is_active=True)
+            officer = _member("officer-audience", fog_role=Member.FogRole.GUILD_OFFICER)
+            assert officer.is_guild_lead is False
+            assert officer.is_guild_staff is False
+            assert TOURS["guild-lead"].audience(officer) is True
+
 
 def describe_tours_for():
     def it_lists_only_tours_whose_audience_passes():
@@ -117,6 +189,16 @@ def describe_tours_for():
         lead.instructor_oriented_at = timezone.now()
         lead.save(update_fields=["instructor_oriented_at"])
         assert [t.key for t in tours_for(lead)] == ["member-welcome", "guild-lead", "instructor"]
+
+    def it_includes_the_lead_tour_for_admins_who_staff_no_guild():
+        GuildFactory(name="Rows Active Guild", is_active=True)
+        admin = _member("tf-admin", fog_role=Member.FogRole.ADMIN)
+        assert [t.key for t in tours_for(admin)] == ["member-welcome", "guild-lead"]
+
+    def it_includes_the_lead_tour_for_guild_officers_who_staff_no_guild():
+        GuildFactory(name="Rows Officer Guild", is_active=True)
+        officer = _member("tf-officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        assert [t.key for t in tours_for(officer)] == ["member-welcome", "guild-lead"]
 
 
 def describe_help_card_rows():
@@ -134,6 +216,13 @@ def describe_help_card_rows():
         TourState.objects.mark_dismissed(member.user, "member-welcome")
         rows = help_card_rows(member)
         assert rows[0]["completed"] is False
+
+    def it_includes_the_lead_tour_row_for_an_admin_via_the_active_guild_fallback():
+        admin = _member("rows-admin", fog_role=Member.FogRole.ADMIN)
+        fallback_guild = GuildFactory(name="Rows Fallback Guild", is_active=True)
+        rows = help_card_rows(admin)
+        lead_row = next(row for row in rows if row["tour"].key == "guild-lead")
+        assert lead_row["url"] == f"/guilds/{fallback_guild.pk}/edit/?tour=guild-lead"
 
 
 def describe_tour_offer_context():
