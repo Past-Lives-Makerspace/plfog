@@ -15,10 +15,10 @@ from classes.forms import InstructorOrientationCompleteForm
 from core.models import SiteActivity
 from membership.models import Member, OrgInfoPage, WikiArticle
 
-BANNER = "One quick step before you can teach"
+BANNER = "One Quick Step Before You Can Teach"
 UNLOCK_BUTTON = "Unlock teaching"
 # Template-literal copy is NOT autoescaped (only variables are), so these match verbatim.
-COMPLETED_CARD = "You're an instructor"
+COMPLETED_CARD = "You're an Instructor"
 PLACEHOLDER = "Orientation content hasn't been loaded yet"
 FORM_ERROR = "Please confirm you&#x27;ve read the orientation before unlocking teaching."
 

@@ -53,7 +53,7 @@ def describe_site_settings_calendar_fields():
         resp = client.get(reverse("hub_admin_site_settings") + "?tab=calendar")
         assert resp.status_code == 200
         body = resp.content
-        assert b"Member events &amp; Google sync" in body
+        assert b"Member Events &amp; Google Sync" in body
         assert b'name="member_event_policy"' in body
         assert b'name="member_google_calendar_id"' in body
         assert b'name="public_google_calendar_id"' in body
