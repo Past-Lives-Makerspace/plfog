@@ -40,6 +40,19 @@ PUSH_CHANNEL_CLASSES = "classes"
 PUSH_CHANNEL_GENERAL = "general"
 
 
+def _android_priority(channel_id: str) -> str:
+    """FCM message priority for a channel — the Doze lever, distinct from channel importance.
+
+    Channel *importance* (set client-side) decides whether the tray posts a heads-up banner;
+    message *priority* decides whether Android delivers it at once or batches it under Doze
+    while the phone is locked and idle. Urgent notices (a class starting soon, a cancellation,
+    a freed waitlist seat, a failed charge) go ``high`` so they wake the device immediately;
+    everything else rides ``normal`` — batched, easier on battery, and fine for a notice that
+    can land a few minutes late.
+    """
+    return "high" if channel_id == PUSH_CHANNEL_URGENT else "normal"
+
+
 def _access_token_and_project() -> tuple[str, str] | None:
     """Mint an OAuth access token + resolve the project id from the service account.
 
@@ -81,7 +94,7 @@ def send_fcm(device: FcmDevice, *, title: str, body: str, url: str, channel_id: 
         "message": {
             "token": device.token,
             "notification": {"title": title, "body": body},
-            "android": {"notification": {"channel_id": channel_id}},
+            "android": {"priority": _android_priority(channel_id), "notification": {"channel_id": channel_id}},
             "data": {"url": url},
         }
     }

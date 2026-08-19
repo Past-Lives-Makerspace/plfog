@@ -98,12 +98,70 @@
     return null;
   }
 
+  // A notification tap must deep-link even on a COLD START. When the app was evicted from
+  // memory (e.g. a push that sat through Doze, then got tapped), tapping launches it fresh:
+  // the WebView first navigates to the configured server url (home), and the queued tap event
+  // can fire a beat later and get clobbered by that launch navigation — stranding the member
+  // on home instead of the announcement. So a tap doesn't rely on an immediate navigation
+  // alone: it also stashes its target, and the app re-applies a fresh stash once launch
+  // settles (on script load and whenever the app returns to the foreground).
+  var PENDING_NAV_KEY = "native-push:pending-url";
+  var PENDING_NAV_TTL_MS = 60000; // honor only a very recent tap; never hijack a later launch
+
+  function stashPendingNav(target) {
+    try {
+      window.localStorage.setItem(PENDING_NAV_KEY, JSON.stringify({ url: target, at: Date.now() }));
+    } catch (err) {
+      /* storage blocked → the immediate navigation below is the only path */
+    }
+  }
+
+  function consumePendingNav() {
+    var raw = null;
+    try {
+      raw = window.localStorage.getItem(PENDING_NAV_KEY);
+      if (raw) {
+        window.localStorage.removeItem(PENDING_NAV_KEY);
+      }
+    } catch (err) {
+      return;
+    }
+    if (!raw) {
+      return;
+    }
+    var parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      return; // corrupt entry → ignore
+    }
+    if (!parsed || typeof parsed.at !== "number" || Date.now() - parsed.at > PENDING_NAV_TTL_MS) {
+      return; // stale tap from an earlier session — don't hijack this launch
+    }
+    var target = safeNavUrl(parsed.url);
+    if (target && target !== window.location.href) {
+      window.location.replace(target);
+    }
+  }
+
   // Tapping a notification opens its target url inside the app.
   PushNotifications.addListener("pushNotificationActionPerformed", function (action) {
     var data = action && action.notification && action.notification.data;
     var target = safeNavUrl(data && data.url);
-    if (target) {
-      window.location.href = target;
+    if (!target) {
+      return;
+    }
+    stashPendingNav(target); // survives a cold-start launch that clobbers the immediate nav
+    window.location.href = target;
+  });
+
+  // Re-apply a deep-link a cold-start tap stashed but couldn't navigate to: once now (for a
+  // tap that fired before this script ran) and again each time the app becomes visible (for a
+  // tap whose immediate navigation lost the race with the launch's initial page load).
+  consumePendingNav();
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") {
+      consumePendingNav();
     }
   });
 

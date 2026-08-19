@@ -47,6 +47,22 @@ def describe_send_fcm():
         sent = json.loads(route.calls.last.request.content)
         assert sent["message"]["android"]["notification"]["channel_id"] == "urgent"
 
+    def it_sends_the_urgent_channel_at_high_priority(user):
+        device = _device(user)
+        with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
+            route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
+            fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="urgent")
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["message"]["android"]["priority"] == "high"
+
+    def it_sends_non_urgent_channels_at_normal_priority(user):
+        device = _device(user)
+        with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
+            route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
+            fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["message"]["android"]["priority"] == "normal"
+
     def it_deletes_device_on_404_unregistered(user):
         device = _device(user, token="dead")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
