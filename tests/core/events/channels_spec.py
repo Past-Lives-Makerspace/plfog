@@ -18,8 +18,9 @@ from core.events.channels import (
     ScheduledEmailAdapter,
     get_adapter,
     is_implemented,
+    push_channel_for,
 )
-from core.events.registry import Channel
+from core.events.registry import Channel, all_events
 from core.models import EventDelivery, FcmDevice, Notification, PushSubscription, TransactionalEmailLog
 
 pytestmark = pytest.mark.django_db
@@ -99,6 +100,22 @@ def describe_push_adapter():
         with patch("core.events.channels.send_fcm") as mock_fcm:
             PushAdapter().deliver(user, _message())
         assert mock_fcm.call_count == 2
+
+    def it_tags_each_fcm_send_with_the_events_push_channel():
+        # _message defaults to a Classes event, so every device send rides the "classes"
+        # channel; the id is derived once from the message and passed to each device.
+        user = _user()
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message())
+        assert mock_fcm.call_args.kwargs["channel_id"] == "classes"
+
+    def it_routes_an_urgent_event_to_the_urgent_channel():
+        user = _user()
+        FcmDevice.objects.create(user=user, token="d1", platform=FcmDevice.Platform.ANDROID)
+        with patch("core.events.channels.send_fcm") as mock_fcm:
+            PushAdapter().deliver(user, _message(trigger_kind="class_reminder"))
+        assert mock_fcm.call_args.kwargs["channel_id"] == "urgent"
 
     def it_does_nothing_without_fcm_devices():
         user = _user()
@@ -246,3 +263,47 @@ def describe_registry():
     def it_raises_for_an_unregistered_channel_lookup():
         with pytest.raises(KeyError):
             channels._ADAPTERS["nope"]  # noqa: B018 — asserting the dict has no such key
+
+
+def describe_push_channel_for():
+    def it_sends_explicitly_urgent_events_to_the_urgent_channel():
+        for key in (
+            "tab_charge_failed",
+            "class_reminder",
+            "class_cancelled",
+            "waitlist_spot_available",
+            "event.happening_now",
+            "lease_expiring",
+        ):
+            assert push_channel_for(key) == "urgent", key
+
+    def it_sends_guild_and_voting_events_to_the_guilds_channel():
+        assert push_channel_for("guild_announcement") == "guilds"
+        assert push_channel_for("voting.results_published") == "guilds"
+
+    def it_sends_class_and_teaching_events_to_the_classes_channel():
+        assert push_channel_for("class_published") == "classes"
+        assert push_channel_for("instructor_new_registration") == "classes"
+
+    def it_sends_other_categories_to_the_general_channel():
+        for key in (
+            "site_announcement",
+            "tab_charged",
+            "event.approved",
+            "meeting.minutes_approved",
+            "new_member_joined",
+            "orientation.completed",
+            "space.lease_requested",
+        ):
+            assert push_channel_for(key) == "general", key
+
+    def it_defaults_a_kind_with_no_registry_category_to_general():
+        assert push_channel_for("") == "general"
+        assert push_channel_for("not_a_registered_event") == "general"
+
+    def it_maps_every_registered_event_to_one_of_the_four_channels():
+        # Guards the direct category lookup: a new registry category added without a
+        # mapping raises KeyError here (fails CI loudly) instead of silently defaulting.
+        valid = {"urgent", "guilds", "classes", "general"}
+        for event in all_events():
+            assert push_channel_for(event.key) in valid, event.key

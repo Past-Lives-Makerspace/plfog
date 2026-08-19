@@ -14,7 +14,7 @@ from django.contrib.auth.models import User
 
 from allauth.account.models import EmailAddress
 
-from core.fcm import send_fcm
+from core.fcm import PUSH_CHANNEL_GENERAL, send_fcm
 from core.models import FcmDevice, PushSubscription
 from core.push import send_web_push
 
@@ -80,6 +80,6 @@ def send_test_push(user: User, *, url: str) -> TestSendResult:
             delivered += 1
     for device in FcmDevice.objects.filter(user=user):
         attempted += 1
-        if send_fcm(device, title=_TEST_TITLE, body=_TEST_BODY, url=url):
+        if send_fcm(device, title=_TEST_TITLE, body=_TEST_BODY, url=url, channel_id=PUSH_CHANNEL_GENERAL):
             delivered += 1
     return TestSendResult(delivered=delivered, attempted=attempted)

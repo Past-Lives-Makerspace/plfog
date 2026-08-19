@@ -21,6 +21,38 @@
 
   var platform = typeof Cap.getPlatform === "function" ? Cap.getPlatform() : "android";
 
+  // Android notification channels — the "categories" a member sees (and tunes) under the
+  // app's system notification settings. The server tags every push with one of these ids
+  // (see core.fcm / core.events.channels.push_channel_for), so they must line up exactly.
+  // createChannel is idempotent and only defines the channel; it never re-overrides a
+  // setting the member has since changed. Android-only: iOS has no channels.
+  var CHANNELS = [
+    {
+      id: "urgent",
+      name: "Urgent",
+      description:
+        "Time-sensitive alerts: a class starting soon, a cancelled class, a freed waitlist seat, a failed payment.",
+      importance: 4,
+      vibration: true,
+    },
+    { id: "guilds", name: "Guilds", description: "Guild announcements, meetings, and funding votes.", importance: 3 },
+    { id: "classes", name: "Classes", description: "Class announcements, registrations, and updates.", importance: 3 },
+    { id: "general", name: "General", description: "Everything else from Past Lives.", importance: 3 },
+  ];
+
+  function createChannels() {
+    if (platform !== "android" || typeof PushNotifications.createChannel !== "function") {
+      return; // iOS has no channels; guard older plugins without the method
+    }
+    CHANNELS.forEach(function (channel) {
+      PushNotifications.createChannel(channel).catch(function (err) {
+        console.error("[native-push] createChannel failed", channel.id, err);
+      });
+    });
+  }
+
+  createChannels();
+
   function csrfToken() {
     var match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
     return match ? decodeURIComponent(match[1]) : "";
