@@ -79,7 +79,7 @@
         <a href="{% url 'hub_home' %}" class="pl-brand">
             <img src="{% static 'img/favicon.png' %}" alt="Past Lives" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
-                <span class="pl-brand__text">Past Lives FOG</span>
+                <span class="pl-brand__text">Member Portal</span>
                 <button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
             </span>
         </a>
@@ -483,14 +483,14 @@
         <header class="pl-public-topbar">
             <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__brand">
                 <img src="{% static 'img/favicon.png' %}" alt="" width="22" height="22">
-                <span>Past Lives Federation of Guilds</span>
+                <span>Past Lives Member Portal</span>
             </a>
             <nav class="pl-public-topbar__nav" aria-label="Public navigation">
                 <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__link">Classes</a>
                 {% if user.is_authenticated %}
                     <a href="{% url 'account:overview' %}" class="pl-public-topbar__link">My account</a>
                     {% if persona == "member" %}
-                        <a href="https://{{ MEMBER_HOST }}/" class="pl-public-topbar__ext" title="Member dashboard">FOG
+                        <a href="https://{{ MEMBER_HOST }}/" class="pl-public-topbar__ext" title="Member dashboard">Member Portal
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                                 <path d="M7 17 L17 7"/><path d="M8 7h9v9"/>
                             </svg>

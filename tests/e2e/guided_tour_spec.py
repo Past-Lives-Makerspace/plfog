@@ -45,7 +45,7 @@ def describe_member_welcome_tour():
         expect(offer).not_to_be_visible()
         popover = page.locator(".driver-popover.pl-tour")
         expect(popover).to_be_visible()
-        expect(popover).to_contain_text("Welcome to FOG")
+        expect(popover).to_contain_text("Welcome to the Member Portal")
 
         # Next through every surviving step until the last one shows Done.
         # (Hard cap of 12 — surviving steps vary with page state, never exceed 7.)

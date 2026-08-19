@@ -8,6 +8,16 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "1.2.0",
         "date": "2026-08-18",
+        "title": "The app is now the Member Portal",
+        "changes": [
+            "We've renamed the app: what you knew as FOG is now the Past Lives Member Portal. "
+            "You'll see the new name in the top-left and throughout. Same app, clearer name, and "
+            "nothing you do changes.",
+        ],
+    },
+    {
+        "version": "1.2.0",
+        "date": "2026-08-18",
         "title": "New guide: control your notifications",
         "changes": [
             "A new Help Center guide walks you through your notification settings: how to choose "

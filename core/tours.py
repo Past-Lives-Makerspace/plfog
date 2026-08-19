@@ -79,7 +79,7 @@ TOURS: dict[str, Tour] = {
         steps=(
             TourStep(
                 target=None,
-                title="Welcome to FOG",
+                title="Welcome to the Member Portal",
                 body=(
                     "This is the member hub for Past Lives. Want a 30-second look around? "
                     "Use Next — or press Esc anytime to stop."

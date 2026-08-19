@@ -74,7 +74,7 @@ def describe_account_profile():
             resp = book_client.get("/account/profile/")
             assert resp.status_code == 200
             assert b"Read-only here" in resp.content
-            assert b"Edit on FOG" in resp.content
+            assert b"Edit on the Member Portal" in resp.content
             assert b"readonly" in resp.content  # at least one input has readonly
 
         def it_does_not_mutate_user_on_post(book_client, db):

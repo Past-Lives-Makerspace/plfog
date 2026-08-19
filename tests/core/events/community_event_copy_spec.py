@@ -38,11 +38,13 @@ def describe_curated_copy():
 
 def describe_channels():
     @pytest.mark.parametrize("key", _EVENT_KEYS)
-    def it_is_in_app_and_discord_with_email_off(key):
+    def it_is_in_app_email_and_discord_on_by_default(key):
+        # Owner call (copy-review 2026-08-18): email is ON by default for these three so a
+        # member who joined a guild hears about its events unless they opt out.
         event = get_event(key)
         assert Channel.IN_APP in event.channel_list
         assert Channel.DISCORD in event.channel_list
-        assert event.channel(Channel.EMAIL).default is ChannelDefault.OFF
+        assert event.channel(Channel.EMAIL).default is ChannelDefault.ON
 
 
 @pytest.mark.django_db

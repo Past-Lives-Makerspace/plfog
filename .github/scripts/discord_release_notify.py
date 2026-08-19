@@ -90,7 +90,7 @@ def main() -> None:
     entries = _release_entries()
     title = str(entries[0]["title"])
     chunks = _chunks(_bullets(entries))
-    footer = {"text": f"Past Lives FOG v{VERSION}"}
+    footer = {"text": f"Past Lives Member Portal v{VERSION}"}
 
     for index, description in enumerate(chunks):
         embed: dict[str, object] = {"description": description, "color": _EMBED_COLOR, "footer": footer}

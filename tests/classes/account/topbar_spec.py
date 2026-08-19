@@ -36,14 +36,14 @@ def describe_public_topbar():
         # Member pill is gold and uppercase "Member"; check for the class.
         assert b"cp-topbar__account-pill" not in resp.content
 
-    def it_shows_fog_link_and_member_pill_for_airtable_member(book_client, db):
+    def it_shows_member_portal_link_and_member_pill_for_airtable_member(book_client, db):
         user = UserFactory()
         _airtable_member(user)
         book_client.force_login(user)
         resp = book_client.get("/classes/")
         assert resp.status_code == 200
         assert b"My account" in resp.content
-        assert b">FOG" in resp.content
+        assert b"Member Portal dashboard" in resp.content
         assert b"cp-topbar__account-pill" in resp.content
 
     def it_shows_my_account_no_pill_for_instructor_only(book_client, db):
@@ -52,5 +52,5 @@ def describe_public_topbar():
         resp = book_client.get("/classes/")
         assert resp.status_code == 200
         assert b"My account" in resp.content
-        assert b">FOG" not in resp.content
+        assert b"Member Portal dashboard" not in resp.content
         assert b"cp-topbar__account-pill" not in resp.content
