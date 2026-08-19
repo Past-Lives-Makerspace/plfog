@@ -30,6 +30,28 @@ _SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
 _FCM_ENDPOINT = "https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 _TIMEOUT = 10.0
 
+# The four coarse Android notification channels the app creates (static/js/native-push.js).
+# A member tunes each independently in system settings; every message names exactly one.
+# These ids MUST match the ids created client-side. core.events.channels routes each event
+# to one of these; core.push_admin sends its diagnostic push on GENERAL.
+PUSH_CHANNEL_URGENT = "urgent"
+PUSH_CHANNEL_GUILDS = "guilds"
+PUSH_CHANNEL_CLASSES = "classes"
+PUSH_CHANNEL_GENERAL = "general"
+
+
+def _android_priority(channel_id: str) -> str:
+    """FCM message priority for a channel — the Doze lever, distinct from channel importance.
+
+    Channel *importance* (set client-side) decides whether the tray posts a heads-up banner;
+    message *priority* decides whether Android delivers it at once or batches it under Doze
+    while the phone is locked and idle. Urgent notices (a class starting soon, a cancellation,
+    a freed waitlist seat, a failed charge) go ``high`` so they wake the device immediately;
+    everything else rides ``normal`` — batched, easier on battery, and fine for a notice that
+    can land a few minutes late.
+    """
+    return "high" if channel_id == PUSH_CHANNEL_URGENT else "normal"
+
 
 def _access_token_and_project() -> tuple[str, str] | None:
     """Mint an OAuth access token + resolve the project id from the service account.
@@ -52,12 +74,17 @@ def _access_token_and_project() -> tuple[str, str] | None:
     return credentials.token, project_id
 
 
-def send_fcm(device: FcmDevice, *, title: str, body: str, url: str) -> bool:
+def send_fcm(device: FcmDevice, *, title: str, body: str, url: str, channel_id: str) -> bool:
     """Send one notification to one device token. Reaps the device on 404 (unregistered).
 
     Returns True when FCM accepted the message, False on any failure — missing
     credentials, a transport error, or a rejected/unregistered token. The boolean lets
     the admin push-test tool report a real delivered tally; the event spine ignores it.
+
+    ``channel_id`` names the Android notification channel the tray posts this under.
+    The native app creates the channels (see ``static/js/native-push.js``); a member
+    controls each one independently in system settings. It must match a created channel
+    id or Android falls back to a generic channel.
     """
     auth = _access_token_and_project()
     if auth is None:
@@ -67,6 +94,7 @@ def send_fcm(device: FcmDevice, *, title: str, body: str, url: str) -> bool:
         "message": {
             "token": device.token,
             "notification": {"title": title, "body": body},
+            "android": {"priority": _android_priority(channel_id), "notification": {"channel_id": channel_id}},
             "data": {"url": url},
         }
     }

@@ -41,7 +41,13 @@ from core.email import send as send_email
 from core.events import discord as discord_module
 from core.events import discord_dm as discord_dm_module
 from core.events.registry import Channel
-from core.fcm import send_fcm
+from core.fcm import (
+    PUSH_CHANNEL_CLASSES,
+    PUSH_CHANNEL_GENERAL,
+    PUSH_CHANNEL_GUILDS,
+    PUSH_CHANNEL_URGENT,
+    send_fcm,
+)
 from core.models import EventDelivery, FcmDevice, Notification, PushSubscription
 from core.push import send_web_push
 
@@ -153,6 +159,57 @@ def email_category_for(trigger_kind: str) -> str | None:
         return None
 
 
+# --- Native push notification channels (Android) -----------------------------------
+# The four coarse channels the app creates (see static/js/native-push.js). A member
+# tunes each one independently in their phone's notification settings, so every FCM
+# message is tagged with exactly one channel id and lands in the right category. The
+# ids themselves live in core.fcm (shared with the diagnostic push sender).
+# Event keys that always ride the high-importance Urgent channel, whatever settings
+# category they belong to: act-now, or you-are-inconvenienced-if-you-miss-it.
+_URGENT_EVENT_KEYS: frozenset[str] = frozenset(
+    {
+        "tab_charge_failed",
+        "class_reminder",
+        "class_cancelled",
+        "waitlist_spot_available",
+        "event.happening_now",
+        "lease_expiring",
+    }
+)
+
+# Every settings-page category routes to one coarse channel. Kept total over the live
+# categories (a completeness spec guards it), so a new category added without a mapping
+# fails CI loudly rather than silently defaulting.
+_CHANNEL_BY_CATEGORY: dict[str, str] = {
+    "Guilds": PUSH_CHANNEL_GUILDS,
+    "Voting": PUSH_CHANNEL_GUILDS,
+    "Classes": PUSH_CHANNEL_CLASSES,
+    "Teaching": PUSH_CHANNEL_CLASSES,
+    "Announcements": PUSH_CHANNEL_GENERAL,
+    "Billing": PUSH_CHANNEL_GENERAL,
+    "Events": PUSH_CHANNEL_GENERAL,
+    "Meetings": PUSH_CHANNEL_GENERAL,
+    "Membership": PUSH_CHANNEL_GENERAL,
+    "Orientations": PUSH_CHANNEL_GENERAL,
+    "Spaces": PUSH_CHANNEL_GENERAL,
+}
+
+
+def push_channel_for(trigger_kind: str) -> str:
+    """Pick the native push channel id for an event.
+
+    An explicitly urgent event key wins outright; otherwise the event's registry
+    category selects the channel. A kind with no registry category (an empty fallback
+    or a non-event kind) lands in General.
+    """
+    if trigger_kind in _URGENT_EVENT_KEYS:
+        return PUSH_CHANNEL_URGENT
+    category = email_category_for(trigger_kind)
+    if category is None:
+        return PUSH_CHANNEL_GENERAL
+    return _CHANNEL_BY_CATEGORY[category]
+
+
 class EmailAdapter:
     """Sends through the ``core.email.send`` choke-point (audited, best-effort).
 
@@ -213,10 +270,11 @@ class PushAdapter:
         # clean line and cap both fields so the OS shows a tidy ellipsis instead of a
         # hard mid-word cut. Push carries no file attachments.
         title, body = _push_safe(message.title, message.body)
+        channel_id = push_channel_for(message.trigger_kind)
         for sub in PushSubscription.objects.filter(user=user):
             send_web_push(sub, title=title, body=body, url=message.url)
         for device in FcmDevice.objects.filter(user=user):
-            send_fcm(device, title=title, body=body, url=message.url)
+            send_fcm(device, title=title, body=body, url=message.url, channel_id=channel_id)
 
 
 class _ShellAdapter:

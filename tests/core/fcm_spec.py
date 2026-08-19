@@ -1,5 +1,6 @@
 """Native push (FCM HTTP v1) sending with dead-device cleanup."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -30,7 +31,7 @@ def describe_send_fcm():
         device = _device(user)
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
-            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
         assert result is True
         assert route.called
         request = route.calls.last.request
@@ -38,11 +39,35 @@ def describe_send_fcm():
         assert b"tok-abc" in request.content
         assert b"/x/" in request.content
 
+    def it_tags_the_message_with_the_android_channel_id(user):
+        device = _device(user)
+        with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
+            route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
+            fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="urgent")
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["message"]["android"]["notification"]["channel_id"] == "urgent"
+
+    def it_sends_the_urgent_channel_at_high_priority(user):
+        device = _device(user)
+        with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
+            route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
+            fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="urgent")
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["message"]["android"]["priority"] == "high"
+
+    def it_sends_non_urgent_channels_at_normal_priority(user):
+        device = _device(user)
+        with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
+            route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
+            fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
+        sent = json.loads(route.calls.last.request.content)
+        assert sent["message"]["android"]["priority"] == "normal"
+
     def it_deletes_device_on_404_unregistered(user):
         device = _device(user, token="dead")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             respx.post(_FCM_URL).mock(return_value=httpx.Response(404, json={"error": {"status": "UNREGISTERED"}}))
-            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
         assert result is False
         assert not FcmDevice.objects.filter(pk=device.pk).exists()
 
@@ -50,7 +75,7 @@ def describe_send_fcm():
         device = _device(user, token="keep")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             respx.post(_FCM_URL).mock(return_value=httpx.Response(500, text="boom"))
-            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
         assert result is False
         assert FcmDevice.objects.filter(pk=device.pk).exists()
 
@@ -58,7 +83,7 @@ def describe_send_fcm():
         device = _device(user, token="net")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
             respx.post(_FCM_URL).mock(side_effect=httpx.ConnectError("down"))
-            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
         assert result is False
         assert FcmDevice.objects.filter(pk=device.pk).exists()
 
@@ -66,7 +91,7 @@ def describe_send_fcm():
         device = _device(user)
         with patch("core.fcm._access_token_and_project", return_value=None), respx.mock:
             route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200))
-            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/")
+            result = fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id="general")
         assert result is False
         assert not route.called
 

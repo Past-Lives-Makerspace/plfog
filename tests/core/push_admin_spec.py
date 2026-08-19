@@ -68,13 +68,15 @@ def describe_send_test_push():
         _device(user, "d1")
         _sub(user, "https://push/1")
         with (
-            patch("core.push_admin.send_fcm", return_value=True),
+            patch("core.push_admin.send_fcm", return_value=True) as mock_fcm,
             patch("core.push_admin.send_web_push", return_value=True),
         ):
             result = push_admin.send_test_push(user, url="/x/")
         assert result.attempted == 2
         assert result.delivered == 2
         assert result.all_delivered is True
+        # The diagnostic push rides the General channel.
+        assert mock_fcm.call_args.kwargs["channel_id"] == "general"
 
     def it_counts_only_the_successful_sends():
         user = _user()
