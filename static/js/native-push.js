@@ -85,6 +85,108 @@
     }
   });
 
+  // A push that arrives while the app is in the FOREGROUND is handed to this listener
+  // instead of the system tray, so we surface it as a tappable in-app banner. Without
+  // this, a foreground push (e.g. an admin using the "send test push" tool from inside
+  // the app) is received and silently dropped, which looks like push is broken.
+  function showInAppBanner(notification) {
+    var title = (notification && notification.title) || "Past Lives";
+    var body = (notification && notification.body) || "";
+    var data = notification && notification.data;
+    var url = data && data.url;
+
+    var existing = document.getElementById("native-push-banner");
+    if (existing) {
+      existing.remove();
+    }
+
+    var banner = document.createElement("div");
+    banner.id = "native-push-banner";
+    banner.setAttribute("role", "alert");
+    banner.style.cssText = [
+      "position:fixed",
+      "top:calc(env(safe-area-inset-top, 0px) + 12px)",
+      "left:12px",
+      "right:12px",
+      "z-index:2147483647",
+      "background:#092E4C",
+      "color:#fff",
+      "border-radius:12px",
+      "box-shadow:0 6px 24px rgba(0,0,0,0.35)",
+      "padding:12px 40px 12px 14px",
+      "font-family:inherit",
+      "cursor:pointer",
+      "transform:translateY(-160%)",
+      "transition:transform 0.28s ease",
+    ].join(";");
+
+    var titleEl = document.createElement("div");
+    titleEl.textContent = title;
+    titleEl.style.cssText = "font-weight:700;font-size:15px;line-height:1.25;margin-bottom:2px";
+    banner.appendChild(titleEl);
+
+    if (body) {
+      var bodyEl = document.createElement("div");
+      bodyEl.textContent = body;
+      bodyEl.style.cssText = "font-size:14px;line-height:1.3;opacity:0.92";
+      banner.appendChild(bodyEl);
+    }
+
+    var closeEl = document.createElement("button");
+    closeEl.type = "button";
+    closeEl.setAttribute("aria-label", "Dismiss notification");
+    closeEl.textContent = "×";
+    closeEl.style.cssText = [
+      "position:absolute",
+      "top:6px",
+      "right:8px",
+      "background:transparent",
+      "border:0",
+      "color:#fff",
+      "font-size:22px",
+      "line-height:1",
+      "opacity:0.8",
+      "cursor:pointer",
+      "padding:4px",
+    ].join(";");
+    banner.appendChild(closeEl);
+
+    document.body.appendChild(banner);
+    requestAnimationFrame(function () {
+      banner.style.transform = "translateY(0)";
+    });
+
+    var timer = null;
+    function dismiss() {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      banner.style.transform = "translateY(-160%)";
+      setTimeout(function () {
+        if (banner.parentNode) {
+          banner.remove();
+        }
+      }, 300);
+    }
+
+    closeEl.addEventListener("click", function (event) {
+      event.stopPropagation();
+      dismiss();
+    });
+    banner.addEventListener("click", function () {
+      if (url) {
+        window.location.href = url;
+      }
+      dismiss();
+    });
+    timer = setTimeout(dismiss, 6000);
+  }
+
+  PushNotifications.addListener("pushNotificationReceived", function (notification) {
+    showInAppBanner(notification);
+  });
+
   PushNotifications.checkPermissions()
     .then(function (status) {
       if (status.receive === "prompt" || status.receive === "prompt-with-rationale") {
