@@ -30,8 +30,12 @@ from __future__ import annotations
 
 from datetime import date, time
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from django.core.files import File
+
+if TYPE_CHECKING:
+    from membership.models import Guild, Member
 
 EXAMPLE_GUILD_SLUG = "cartographers-guild"
 EXAMPLE_GUILD_NAME = "Cartographers Guild"
@@ -163,7 +167,7 @@ ANNOUNCEMENTS: list[dict[str, str]] = [
     },
 ]
 
-MEETING_NOTES: list[dict[str, object]] = [
+MEETING_NOTES: list[dict[str, Any]] = [
     {
         "meeting_date": date(2026, 8, 4),
         "title": "August General Meeting",
@@ -217,7 +221,7 @@ ORIENTATION = {
 }
 
 
-def _example_member(name: str) -> "object":
+def _example_member(name: str) -> "Member":
     """Create or refresh one inert fictional member (see the module docstring).
 
     FORMER + user=None + blank email: invisible to every resolver, cron, and sync.
@@ -243,7 +247,7 @@ def _example_member(name: str) -> "object":
     return member
 
 
-def _seed_media(guild: "object") -> None:
+def _seed_media(guild: "Guild") -> None:
     """Banner + gallery from committed repo assets, filled only when blank/empty.
 
     Saved into media storage (R2 in prod); the fill-if-blank contract means a
@@ -262,7 +266,7 @@ def _seed_media(guild: "object") -> None:
                 image.image.save(f"{EXAMPLE_GUILD_SLUG}-gallery-{index + 1}.jpg", File(fh), save=True)
 
 
-def seed_example_guild() -> "object":
+def seed_example_guild() -> "Guild":
     """Create or refresh the Cartographers Guild and its fictional crew. Idempotent.
 
     Returns the Guild instance. Safe to run on every deploy: rows are keyed on
@@ -351,7 +355,7 @@ def seed_example_guild() -> "object":
             title=note_data["title"],
             defaults={"meeting_date": note_data["meeting_date"], "body": note_data["body"]},
         )
-        for index, (label, url) in enumerate(note_data["attachments"]):  # type: ignore[arg-type]
+        for index, (label, url) in enumerate(note_data["attachments"]):
             GuildMeetingNoteAttachment.objects.update_or_create(
                 note=note, label=label, defaults={"url": url, "sort_order": index * 10}
             )
