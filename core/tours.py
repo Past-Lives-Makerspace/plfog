@@ -49,7 +49,18 @@ def _any_member(member: Member) -> bool:
 
 
 def _guild_lead_or_staff(member: Member) -> bool:
-    return member.is_guild_lead or member.is_guild_staff
+    # Admins and guild officers can edit every guild page (membership.permissions),
+    # so the guild-lead tour is theirs too — without it, the Help page's Guided
+    # Tours card never shows the tour to the people supporting guild leads. They
+    # need an active guild to run it on, though (the entry URL is a guild edit
+    # page), so an empty-guilds site simply doesn't offer them the tour.
+    if member.is_guild_lead or member.is_guild_staff:
+        return True
+    if member.is_fog_admin or member.is_guild_officer:
+        from membership.models import Guild
+
+        return Guild.objects.filter(is_active=True).exists()
+    return False
 
 
 def _can_create_classes(member: Member) -> bool:
@@ -62,8 +73,13 @@ def _can_create_classes(member: Member) -> bool:
 
 def _first_staffed_guild_pk(member: Member) -> dict[str, Any]:
     # Any guild the member leads/staffs works: the tour targets the tab strip,
-    # identical on every guild. Audience gating guarantees at least one exists.
+    # identical on every guild. Admins/officers staff no guild of their own, so
+    # they fall back to the first active guild (they can edit every guild page).
     guild = member.staffed_guilds.first()
+    if guild is None and (member.is_fog_admin or member.is_guild_officer):
+        from membership.models import Guild
+
+        guild = Guild.objects.filter(is_active=True).order_by("name").first()
     if guild is None:
         raise ValueError(f"Member {member.pk} passed the guild-lead audience but staffs no guild")
     return {"pk": guild.pk}
@@ -72,7 +88,7 @@ def _first_staffed_guild_pk(member: Member) -> dict[str, Any]:
 TOURS: dict[str, Tour] = {
     "member-welcome": Tour(
         key="member-welcome",
-        title="The member hub",
+        title="The Member Hub",
         entry_url_name="hub_home",
         audience=_any_member,
         opens_sidebar=True,
@@ -87,7 +103,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="nav.sidebar"]',
-                title="Everything in one place",
+                title="Everything in One Place",
                 body=(
                     "The sidebar gets you everywhere: guilds, classes, the calendar, your settings. "
                     "On a phone, the menu button opens it."
@@ -103,7 +119,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="nav.calendar"]',
-                title="Community calendar",
+                title="Community Calendar",
                 body=(
                     "Classes, guild meetups, and events all land here. Filter it, open any event, "
                     "or subscribe from your own calendar app."
@@ -111,7 +127,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="voting.rank-guilds"]',
-                title="Guild voting",
+                title="Guild Voting",
                 body=(
                     "Each month, members rank their top 3 guilds to help decide funding. "
                     "Your picks save automatically and you can change them anytime."
@@ -119,7 +135,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="home.get-started"]',
-                title="Your Get started list",
+                title="Your Get Started List",
                 body=(
                     "A short checklist to finish setting up — profile, photo, first guild. "
                     "It disappears on its own when you're done."
@@ -127,7 +143,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="nav.help"]',
-                title="Help, whenever",
+                title="Help, Whenever",
                 body=(
                     "Stuck later? The Help page has short guides for everything you just saw. "
                     "That's the tour — go explore."
@@ -137,7 +153,7 @@ TOURS: dict[str, Tour] = {
     ),
     "guild-lead": Tour(
         key="guild-lead",
-        title="Guild lead tools",
+        title="Guild Lead Tools",
         entry_url_name="hub_guild_edit",
         audience=_guild_lead_or_staff,
         entry_url_kwargs=_first_staffed_guild_pk,
@@ -146,12 +162,12 @@ TOURS: dict[str, Tour] = {
         steps=(
             TourStep(
                 target=None,
-                title="Your guild's control room",
+                title="Your Guild's Control Room",
                 body="This page runs your guild. Each tab below covers one job — here's the quick lap.",
             ),
             TourStep(
                 target='[data-help-key="guild.edit-tabs"]',
-                title="One tab per job",
+                title="One Tab Per Job",
                 body=(
                     "Basic Information is your public page: banner, overview, meeting times. "
                     "Every other tab saves on its own, so switching tabs never loses work."
@@ -159,7 +175,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="guild.manage-staff"]',
-                title="Staff — heads up",
+                title="Staff — Heads Up",
                 body=(
                     "Anyone you add here gets full guild authority: edit this page, run orientations, "
                     "approve classes, send announcements. Every role has the same powers, so add people you trust."
@@ -181,22 +197,30 @@ TOURS: dict[str, Tour] = {
                     "announcements too; they wait in your review queue until you approve them."
                 ),
             ),
+            TourStep(
+                target=None,
+                title="Your Map, Whenever",
+                body=(
+                    "That's the lap. The Guild Lead Quickstart guide on the Help page lists every tool with a "
+                    "walkthrough — and the Cartographers Guild is a fully built example page to borrow ideas from."
+                ),
+            ),
         ),
     ),
     "instructor": Tour(
         key="instructor",
-        title="The teaching portal",
+        title="The Teaching Portal",
         entry_url_name="classes:teach_overview",
         audience=_can_create_classes,
         steps=(
             TourStep(
                 target=None,
-                title="The teaching portal",
+                title="The Teaching Portal",
                 body="You're cleared to create classes here. Here's the 20-second version of how it works.",
             ),
             TourStep(
                 target='[data-help-key="teach.create-class"]',
-                title="Start a class",
+                title="Start a Class",
                 body=(
                     "This opens a draft: title, description, dates, price. Drafts are private — "
                     "nothing goes public until it's been reviewed."
@@ -206,7 +230,7 @@ TOURS: dict[str, Tour] = {
             # teach.review-pipeline — reuse it rather than minting a duplicate key.
             TourStep(
                 target='[data-help-key="teach.review-pipeline"]',
-                title="Draft → review → published",
+                title="Draft → Review → Published",
                 body=(
                     "When you submit a draft, it goes to the guild's lead (if the category has one) and then "
                     "an admin. Anything waiting on you, or waiting on review, shows up right here."
@@ -214,10 +238,18 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="teach.roster"]',
-                title="Your classes and rosters",
+                title="Your Classes and Rosters",
                 body=(
                     "Click any class to see who signed up, manage the waitlist, email your registrants, "
                     "or export the roster as a CSV."
+                ),
+            ),
+            TourStep(
+                target=None,
+                title="The Rest of the Map",
+                body=(
+                    "That's the tour. The Instructor Quickstart guide on the Help page covers everything else — "
+                    "welcome emails, discount codes, announcements — and links a finished example class to study."
                 ),
             ),
         ),

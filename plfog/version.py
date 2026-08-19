@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.3.0",
+        "date": "2026-08-19",
+        "title": "New guides for instructors and guild leads",
+        "changes": [
+            "Two new Quickstart guides in the Help Center map out everything you can do: one for "
+            "instructors (create a class, run your roster, welcome emails, discount codes) and one "
+            "for guild leads and staff (your guild page, orientations, announcements, and more). "
+            "Each links a living example you can study: a fully built fictional guild and a "
+            "finished example class page.",
+            "A new Announcement Composer guide covers the whole sending tool — including how push "
+            "notifications work, the short phone line you can write, and what Mark as Urgent "
+            "really does.",
+            "Guided tours are listed for everyone they fit — including a tour of the guild lead "
+            "tools — and every tour now ends by pointing you at its guide.",
+            "Help guides can now include short video walkthroughs, and titles across Help and the "
+            "tours got a consistent-casing polish.",
+            "The Home page now shows an Admin Tools shortcut to everyone who has it in their "
+            "sidebar (admins, guild leads and staff, instructors), and Admin Tools links each "
+            "role's Quickstart guide.",
+        ],
+    },
     {
         "version": "1.2.0",
         "date": "2026-08-18",

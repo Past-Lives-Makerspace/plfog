@@ -74,9 +74,9 @@ _ALLOWED_TAGS = [
 # event handlers: the sanitizer stays strict.
 _ALLOWED_ATTRS = {"a": ["href", "title"], "th": ["align"], "td": ["align"]}
 
-# Help profile: images and admonition ``div`` wrappers join the allowlist
-# (image sources and div/p classes restricted below).
-_HELP_TAGS = [*_ALLOWED_TAGS, "img", "div"]
+# Help profile: images, admonition ``div`` wrappers, and video ``iframe`` embeds
+# join the allowlist (image/iframe sources and div/p classes restricted below).
+_HELP_TAGS = [*_ALLOWED_TAGS, "img", "div", "iframe"]
 
 # The member profile's exact extension list — unchanged, so member output stays
 # byte-identical. The help profile adds the bundled ``admonition`` extension.
@@ -95,9 +95,22 @@ _HELP_IMG_SRC_PREFIX = "/static/help/"
 # Heading anchors carry help-registry keys; keep them boring and predictable.
 _HEADING_ID_PATTERN = re.compile(r"^[a-z0-9-]{1,80}$")
 
+# Help video embeds may only come from these two players — Loom (guide walkthroughs)
+# and YouTube's privacy-enhanced host (no cookies until play). Never plain youtube.com,
+# never an arbitrary host: an iframe is a full browsing context, so the src allowlist
+# is the entire security story.
+_HELP_IFRAME_SRC_PREFIXES = (
+    "https://www.loom.com/embed/",
+    "https://www.youtube-nocookie.com/embed/",
+)
+
 # An ``img`` whose ``src`` was rejected (or never present) is removed entirely in
 # a follow-up pass — bleach only drops the attribute, leaving a useless tag.
 _SRCLESS_IMG_RE = re.compile(r"<img\b(?![^>]*\bsrc=)[^>]*>")
+
+# Same follow-up pass for an ``iframe`` whose ``src`` was rejected: bleach keeps the
+# now-useless (and src-less, hence harmless) tag pair; strip it entirely.
+_SRCLESS_IFRAME_RE = re.compile(r"<iframe\b(?![^>]*\bsrc=)[^>]*>\s*</iframe>")
 
 
 def _allow_help_img_attr(tag: str, name: str, value: str) -> bool:
@@ -105,6 +118,19 @@ def _allow_help_img_attr(tag: str, name: str, value: str) -> bool:
     if name in ("alt", "title"):
         return True
     return name == "src" and value.startswith(_HELP_IMG_SRC_PREFIX)
+
+
+def _allow_help_iframe_attr(tag: str, name: str, value: str) -> bool:
+    """Bleach attribute filter for help-profile ``iframe``: allowlisted video src only.
+
+    ``src`` must start with a :data:`_HELP_IFRAME_SRC_PREFIXES` prefix (Loom or
+    privacy-mode YouTube). ``title`` (accessibility), ``allowfullscreen``, and
+    ``loading`` survive; everything else — ``srcdoc``, ``sandbox``, ``name``,
+    event handlers — is dropped.
+    """
+    if name in ("title", "allowfullscreen", "loading"):
+        return True
+    return name == "src" and value.startswith(_HELP_IFRAME_SRC_PREFIXES)
 
 
 def _allow_help_heading_attr(tag: str, name: str, value: str) -> bool:
@@ -135,6 +161,7 @@ _HELP_ATTRS = {
     "th": ["align"],
     "td": ["align"],
     "img": _allow_help_img_attr,
+    "iframe": _allow_help_iframe_attr,
     "h2": _allow_help_heading_attr,
     "h3": _allow_help_heading_attr,
     "h4": _allow_help_heading_attr,
@@ -196,6 +223,7 @@ def render_markdown(source: str, *, profile: str = "member") -> str:
         return bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)
     cleaned = bleach.clean(raw, tags=_HELP_TAGS, attributes=_HELP_ATTRS, strip=True)
     cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
+    cleaned = _SRCLESS_IFRAME_RE.sub("", cleaned)
     return bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
 
 

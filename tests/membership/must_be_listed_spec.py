@@ -47,6 +47,38 @@ def describe_must_be_listed_in_directory():
         member = MemberFactory(fog_role=Member.FogRole.MEMBER, user=None)
         assert member.is_instructor is False
 
+    def it_defaults_to_not_hidden_from_directory():
+        member = MemberFactory()
+        assert member.hide_from_directory is False
+
+    def it_is_false_for_a_hidden_admin():
+        # The ops-only override trumps even the admin must-show role.
+        member = MemberFactory(fog_role=Member.FogRole.ADMIN, hide_from_directory=True)
+        assert member.is_fog_admin is True
+        assert member.must_be_listed_in_directory is False
+
+    def it_is_false_for_a_hidden_guild_officer():
+        member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER, hide_from_directory=True)
+        assert member.is_guild_officer is True
+        assert member.must_be_listed_in_directory is False
+
+    def it_is_false_for_a_hidden_guild_lead():
+        member = MemberFactory(fog_role=Member.FogRole.MEMBER, hide_from_directory=True)
+        GuildFactory(guild_lead=member)
+        assert member.is_guild_lead is True
+        assert member.must_be_listed_in_directory is False
+
+    def it_is_false_for_a_hidden_instructor():
+        user = User.objects.create_user(username="teachhidden", email="teachhidden@x.com", password="p")
+        InstructorFactory(user=user)
+        member = user.member
+        member.refresh_from_db()
+        member.fog_role = Member.FogRole.MEMBER
+        member.hide_from_directory = True
+        member.save(update_fields=["fog_role", "hide_from_directory"])
+        assert member.is_instructor is True
+        assert member.must_be_listed_in_directory is False
+
 
 def describe_profile_settings_form_protects_locked_roles():
     def it_force_shows_admins_in_directory_even_if_post_says_false(client):

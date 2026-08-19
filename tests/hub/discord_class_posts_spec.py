@@ -101,8 +101,9 @@ def describe_build_weekly_classes_digest_embeds():
 
     def it_chunks_and_batches_a_huge_week_under_the_message_caps():
         for i in range(30):
-            # Long titles force chunking; explicit short slugs keep the SlugField in bounds.
-            _published_class(f"Marathon class {i:02d} " + "x" * 300, days=2, slug=f"marathon-{i:02d}")
+            # Long titles force chunking (30 x ~250 chars far exceeds one embed's 4096 cap);
+            # 230 x's keep the title inside the CharField's max_length=255 so Postgres accepts it.
+            _published_class(f"Marathon class {i:02d} " + "x" * 230, days=2, slug=f"marathon-{i:02d}")
         embeds = dcp.build_weekly_classes_digest_embeds(timezone.now())
         assert len(embeds) > 1
         assert all(len(e["description"]) <= calendar_posts.EMBED_DESCRIPTION_MAX for e in embeds)

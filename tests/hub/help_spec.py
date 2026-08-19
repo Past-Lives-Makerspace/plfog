@@ -230,7 +230,7 @@ def describe_org_info_read_page():
         def it_groups_categories_under_audience_headings_in_rank_order(client: Client):
             for audience, name, sort in [
                 (HelpCategory.Audience.ADMIN, "Admin tools", 10),
-                (HelpCategory.Audience.GUILD_LEAD, "Running a guild", 20),
+                (HelpCategory.Audience.GUILD_LEAD, "Running a Guild", 20),
                 (HelpCategory.Audience.INSTRUCTOR, "Teaching things", 30),
                 (HelpCategory.Audience.DEVELOPER, "Contributing", 35),
                 (HelpCategory.Audience.MEMBER, "Getting started", 40),
@@ -238,10 +238,10 @@ def describe_org_info_read_page():
                 WikiArticleFactory(category=HelpCategoryFactory(name=name, audience=audience, sort_order=sort))
             content = client.get(reverse("hub_help")).content
             positions = [
-                content.index(b"For every member"),
-                content.index(b"For developers"),
+                content.index(b"For Every Member"),
+                content.index(b"For Developers"),
                 content.index(b"Teaching"),
-                content.index(b"Running a guild"),
+                content.index(b"Running a Guild"),
                 content.index(b"Admin"),
             ]
             assert positions == sorted(positions)

@@ -147,6 +147,65 @@ def describe_render_markdown():
                 html = render_markdown('<img src="/static/help/x/01.png" alt="a">')
                 assert "<img" not in html
 
+        def describe_iframes():
+            def it_keeps_a_loom_embed_with_allowed_attrs():
+                html = render_markdown(
+                    '<iframe src="https://www.loom.com/embed/abc123" title="Demo walkthrough" '
+                    'allowfullscreen loading="lazy"></iframe>',
+                    profile="help",
+                )
+                assert 'src="https://www.loom.com/embed/abc123"' in html
+                assert 'title="Demo walkthrough"' in html
+                assert "allowfullscreen" in html
+                assert 'loading="lazy"' in html
+
+            def it_keeps_a_youtube_nocookie_embed():
+                html = render_markdown(
+                    '<iframe src="https://www.youtube-nocookie.com/embed/xyz789" title="Vid"></iframe>',
+                    profile="help",
+                )
+                assert 'src="https://www.youtube-nocookie.com/embed/xyz789"' in html
+
+            def it_removes_a_plain_youtube_com_iframe_entirely():
+                # Cookied youtube.com is deliberately not on the allowlist — only the
+                # privacy-enhanced nocookie host is.
+                html = render_markdown(
+                    '<iframe src="https://www.youtube.com/embed/xyz789" title="Vid"></iframe>', profile="help"
+                )
+                assert "<iframe" not in html
+                assert "</iframe>" not in html
+                assert "youtube.com" not in html
+
+            def it_removes_an_evil_host_iframe_entirely():
+                html = render_markdown('<iframe src="https://evil.example.com/embed/x"></iframe>', profile="help")
+                assert "<iframe" not in html
+                assert "evil.example.com" not in html
+
+            def it_removes_a_srcless_iframe_entirely():
+                # No src attribute at all — exercises _SRCLESS_IFRAME_RE directly, distinct
+                # from the rejected-src case above (both end up srcless, different inputs).
+                html = render_markdown('<iframe title="No src here"></iframe>', profile="help")
+                assert "<iframe" not in html
+                assert "</iframe>" not in html
+
+            def it_drops_disallowed_attrs_while_keeping_allowlisted_ones():
+                html = render_markdown(
+                    '<iframe src="https://www.loom.com/embed/abc" title="Demo" srcdoc="bogus" '
+                    'sandbox="allow-scripts" name="frame1" onload="steal()"></iframe>',
+                    profile="help",
+                )
+                assert 'src="https://www.loom.com/embed/abc"' in html
+                assert 'title="Demo"' in html
+                assert "srcdoc" not in html
+                assert "sandbox" not in html
+                assert 'name="frame1"' not in html
+                assert "onload" not in html
+                assert "steal()" not in html
+
+            def it_still_strips_iframes_in_the_member_profile():
+                html = render_markdown('<iframe src="https://www.loom.com/embed/abc" title="Demo"></iframe>')
+                assert "<iframe" not in html
+
         def describe_heading_anchors():
             def it_keeps_a_pattern_valid_id_on_h2_h3_h4():
                 for level, marker in ((2, "##"), (3, "###"), (4, "####")):
