@@ -77,11 +77,33 @@
     console.error("[native-push] registration error", err);
   });
 
+  // Only navigate to a same-origin relative path or an http(s) URL. A push payload's
+  // url is server-set, but this guards against a "javascript:" or off-origin value ever
+  // reaching window.location (XSS / open-redirect defense in depth).
+  function safeNavUrl(raw) {
+    if (typeof raw !== "string" || !raw) {
+      return null;
+    }
+    if (raw.charAt(0) === "/" && raw.charAt(1) !== "/") {
+      return raw; // relative path, but not protocol-relative "//host"
+    }
+    try {
+      var parsed = new URL(raw, window.location.origin);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        return parsed.href;
+      }
+    } catch (err) {
+      /* malformed url → refuse to navigate */
+    }
+    return null;
+  }
+
   // Tapping a notification opens its target url inside the app.
   PushNotifications.addListener("pushNotificationActionPerformed", function (action) {
     var data = action && action.notification && action.notification.data;
-    if (data && data.url) {
-      window.location.href = data.url;
+    var target = safeNavUrl(data && data.url);
+    if (target) {
+      window.location.href = target;
     }
   });
 
@@ -175,8 +197,9 @@
       dismiss();
     });
     banner.addEventListener("click", function () {
-      if (url) {
-        window.location.href = url;
+      var target = safeNavUrl(url);
+      if (target) {
+        window.location.href = target;
       }
       dismiss();
     });
