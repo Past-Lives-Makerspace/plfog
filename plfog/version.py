@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.3.1",
+        "date": "2026-08-19",
+        "title": "Admins: auto-welcome new members from Airtable",
+        "changes": [
+            "New people added to the membership Airtable can now be emailed their sign-in link "
+            "automatically once they're marked active, so they know their Past Lives account is "
+            "ready and can log in. It only emails paying members, never someone who already has "
+            "access, and never the same person twice.",
+            "It's a new switch on Site Settings, under the Automations tab, and it stays off until "
+            "an admin turns it on.",
+        ],
+    },
     {
         "version": "1.3.0",
         "date": "2026-08-19",

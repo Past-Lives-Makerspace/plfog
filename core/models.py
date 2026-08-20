@@ -1669,12 +1669,22 @@ class ScheduledTaskRun(models.Model):
 
 
 class ScheduledJobStateManager(models.Manager["ScheduledJobState"]):
-    """The current ON/OFF state per job. Absence of a row means enabled."""
+    """The current ON/OFF state per job. Absence of a row falls back to the job's registry default
+    (``ScheduledJob.default_enabled``) — enabled for most jobs, but off for a default-off job."""
 
     def is_enabled(self, key: str) -> bool:
-        """Whether the job may run. ``True`` when no row exists (default-on)."""
+        """Whether the job may run. When a state row exists, its ``enabled`` value wins.
+        Otherwise fall back to the registry's declared default (``ScheduledJob.default_enabled``):
+        most jobs are default-on, but a job declared ``default_enabled=False`` stays OFF until an
+        admin turns it on. An unknown key (no registry entry) defaults on — preserving the original
+        "absence means enabled" behavior for anything not in the registry."""
+        from core.scheduled_jobs import JOBS_BY_KEY
+
         row = self.filter(task_key=key).first()
-        return row.enabled if row is not None else True
+        if row is not None:
+            return row.enabled
+        job = JOBS_BY_KEY.get(key)
+        return job.default_enabled if job is not None else True
 
     def set_enabled(self, key: str, enabled: bool, *, user: "User | None" = None) -> ScheduledJobState:
         """Flip a job on/off, recording who did it."""
@@ -1688,17 +1698,20 @@ class ScheduledJobStateManager(models.Manager["ScheduledJobState"]):
         return row
 
     def sync_registry(self) -> None:
-        """Ensure a state row exists for every registry job so the toggle formset always has
-        a row to bind. Idempotent; never deletes rows (a retired job's state survives)."""
+        """Ensure a state row exists for every registry job so the toggle formset always has a row
+        to bind, seeded with the job's declared default (``default_enabled``). Idempotent; never
+        deletes a row or re-defaults an existing one (a retired job's state, or an admin's flip,
+        survives)."""
         from core.scheduled_jobs import SCHEDULED_JOBS
 
         for job in SCHEDULED_JOBS:
-            self.get_or_create(task_key=job.key)
+            self.get_or_create(task_key=job.key, defaults={"enabled": job.default_enabled})
 
 
 class ScheduledJobState(models.Model):
-    """Current ON/OFF state for one scheduled job. Absence of a row also means enabled, so a
-    fresh database preserves today's "everything runs" behavior with zero seeding."""
+    """Current ON/OFF state for one scheduled job. Absence of a row falls back to the job's registry
+    default (``ScheduledJob.default_enabled``): default-on jobs still "just run" on a fresh database
+    with zero seeding, while a default-off job stays off until an admin turns it on."""
 
     task_key = models.CharField(max_length=64, unique=True, help_text="Registry key of the job this state controls.")
     enabled = models.BooleanField(
