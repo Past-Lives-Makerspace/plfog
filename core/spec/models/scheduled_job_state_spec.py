@@ -20,6 +20,13 @@ def describe_ScheduledJobStateManager():
             ScheduledJobStateFactory(task_key="send_class_reminders", enabled=False)
             assert ScheduledJobState.objects.is_enabled("send_class_reminders") is False
 
+        def it_falls_back_to_the_registry_default_when_no_row_exists_for_a_default_off_job():
+            # welcome_new_members declares default_enabled=False, so absence of a row means OFF.
+            assert ScheduledJobState.objects.is_enabled("welcome_new_members") is False
+
+        def it_defaults_on_for_a_key_not_in_the_registry():
+            assert ScheduledJobState.objects.is_enabled("not_a_real_job") is True
+
     def describe_set_enabled():
         def it_creates_a_row_and_records_who_flipped_it(django_user_model):
             user = django_user_model.objects.create(username="admin")
@@ -59,6 +66,14 @@ def describe_ScheduledJobStateManager():
             ScheduledJobStateFactory(task_key="retired_job", enabled=False)
             ScheduledJobState.objects.sync_registry()
             assert ScheduledJobState.objects.filter(task_key="retired_job").exists()
+
+        def it_seeds_a_default_off_job_disabled():
+            ScheduledJobState.objects.sync_registry()
+            assert ScheduledJobState.objects.get(task_key="welcome_new_members").enabled is False
+
+        def it_seeds_a_default_on_job_enabled():
+            ScheduledJobState.objects.sync_registry()
+            assert ScheduledJobState.objects.get(task_key="send_class_reminders").enabled is True
 
 
 def describe_ScheduledJobState():

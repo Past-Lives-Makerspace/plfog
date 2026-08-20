@@ -159,6 +159,23 @@ class MemberQuerySet(models.QuerySet):
         """Only standard members count as paying."""
         return self.filter(member_type=Member.MemberType.STANDARD)
 
+    def awaiting_welcome_email(self) -> MemberQuerySet:
+        """Paying (Standard), active members imported from Airtable who have not yet been sent the
+        automated welcome email — the candidate set for the ``welcome_new_members`` automation.
+
+        The blank-email guard mirrors provisioning: a passwordless account needs an address. There
+        is deliberately no ``user`` filter — members auto-provisioned on import (already linked) and
+        members the Pending→Active path left without an account both qualify; ``send_welcome_email``
+        provisions the latter before emailing. The ``welcome_email_sent_at`` guard is the
+        send-once ledger, and a one-time backfill stamped every pre-existing member so the standing
+        backlog is never emailed (only members added after this shipped are eligible)."""
+        return self.filter(
+            member_type=Member.MemberType.STANDARD,
+            status=Member.Status.ACTIVE,
+            airtable_record_id__isnull=False,
+            welcome_email_sent_at__isnull=True,
+        ).exclude(_pre_signup_email="")
+
     def with_lease_totals(self) -> MemberQuerySet:
         active_filter = _active_lease_q(prefix="leases__")
         return self.annotate(
@@ -523,6 +540,14 @@ class Member(models.Model):
         help_text=(
             "When the member completed the instructor orientation (or an admin granted teaching "
             "access); null = teaching portal locked. Cleared when an admin revokes access."
+        ),
+    )
+    welcome_email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the automated new-member welcome email was sent. Set once so the welcome automation "
+            "never emails the same member twice; blank means not yet welcomed."
         ),
     )
     leases = GenericRelation(
@@ -1271,6 +1296,25 @@ class Member(models.Model):
             context={"user": user, "member_name": self.display_name, "login_url": login_url},
             period=f"login_invite:{timezone.now():%Y%m%d%H%M%S%f}",
         )
+
+    def send_welcome_email(self) -> bool:
+        """Send this member the automated new-member welcome (their first sign-in link) once.
+
+        A thin, idempotent wrapper over :meth:`send_login_invite` for the ``welcome_new_members``
+        automation. No-ops (returns ``False``) when this member was already welcomed
+        (``welcome_email_sent_at`` set); otherwise sends the branded login-invite email and stamps
+        the send so it never repeats. Returns whether an email was sent.
+
+        Propagates :meth:`send_login_invite`'s ``ValueError`` when the member genuinely cannot be
+        provisioned (e.g. their email already belongs to another account) — the caller skips and
+        surfaces it rather than recording a phantom send, so the member is retried next run.
+        """
+        if self.welcome_email_sent_at is not None:
+            return False
+        self.send_login_invite()
+        self.welcome_email_sent_at = timezone.now()
+        self.save(update_fields=["welcome_email_sent_at"])
+        return True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Member records are otherwise managed in Airtable; this override only

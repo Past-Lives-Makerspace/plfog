@@ -54,6 +54,7 @@ class ScheduledJob:
     cadence: str
     toggleable: bool = True  # False → the dashboard shows a static "Always on" chip, no toggle
     money_job: bool = False  # True → "Run now" routes through a confirm modal; still never --force
+    default_enabled: bool = True  # False → OFF until an admin turns it on; absence of a state row means OFF, not ON
 
 
 SCHEDULED_JOBS: list[ScheduledJob] = [
@@ -194,6 +195,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         command="generate_orientation_slots",
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
+        key="welcome_new_members",
+        name="Welcome emails for new members",
+        description=(
+            "Emails new paying members their sign-in link once they're active in Airtable, so they know "
+            "their account is ready. Off by default."
+        ),
+        command="welcome_new_members",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+        default_enabled=False,
     ),
     ScheduledJob(
         key="airtable_pull",

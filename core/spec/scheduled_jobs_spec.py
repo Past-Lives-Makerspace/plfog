@@ -34,7 +34,7 @@ _DISPATCHER_ALWAYS = {
     "announce_calendar_events",
     "announce_new_classes",
 }
-_DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots"}
+_DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots", "welcome_new_members"}
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
 
@@ -78,10 +78,23 @@ def describe_registry():
             if job.key != "bill_tabs":
                 assert job.toggleable is True
 
+    def it_marks_welcome_new_members_default_off():
+        # The new-member welcome automation must ship OFF and be turned on deliberately.
+        assert JOBS_BY_KEY["welcome_new_members"].default_enabled is False
+
+    def it_leaves_every_other_job_default_on():
+        for job in SCHEDULED_JOBS:
+            if job.key != "welcome_new_members":
+                assert job.default_enabled is True
+
 
 def describe_is_enabled():
     def it_defaults_to_enabled_when_no_row_exists(db):
         assert is_enabled("send_class_reminders") is True
+
+    def it_defaults_to_disabled_for_a_default_off_job(db):
+        # welcome_new_members declares default_enabled=False, so absence of a row means OFF.
+        assert is_enabled("welcome_new_members") is False
 
     def it_reflects_a_disabled_state_row(db):
         ScheduledJobStateFactory(task_key="send_class_reminders", enabled=False)
