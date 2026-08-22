@@ -836,8 +836,20 @@ def describe_admin_site_settings_legacy_cms():
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
         assert response.status_code == 200
-        assert b"Legacy CMS" in response.content
+        # The tab is renamed to "CMS" / "CMS Sync". The historical changelog modal at the
+        # bottom of every hub page still legitimately mentions "Legacy CMS", so the
+        # absence check is scoped to the page body above it.
+        page_body = response.content.split(b'id="changelog-modal"')[0]
+        assert b"CMS Sync" in page_body
+        assert b"Legacy CMS" not in page_body
         assert response.context["active_tab"] == "legacy-cms"
+
+    def it_renders_the_instructor_discount_codes_flag_on_the_cms_tab(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        assert response.status_code == 200
+        assert b"Instructor Discount Codes" in response.content
+        assert b'id="id_instructor_discount_codes_enabled"' in response.content
 
     def it_syncs_now_on_post_with_sync_now_action(client):
         from unittest.mock import patch
@@ -900,6 +912,7 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
         assert response.content.count(b'id="id_wiki_link_enabled"') == 1
+        assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
         _create_superuser(client)

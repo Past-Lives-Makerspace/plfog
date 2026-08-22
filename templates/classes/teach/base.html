@@ -17,7 +17,7 @@
         <a href="{% url 'classes:teach_overview' %}" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}">Overview</a>
         <a href="{% url 'classes:teach_dashboard' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">Classes</a>
         <a href="{% url 'classes:teach_registrations' %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}">Registrations</a>
-        <a href="{% url 'classes:teach_discount_codes' %}" class="vote-tab{% if active_tab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>
+        {% if instructor_discount_codes_enabled %}<a href="{% url 'classes:teach_discount_codes' %}" class="vote-tab{% if active_tab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>{% endif %}
     </nav>
     {% block tab_content %}{% endblock %}
 </div>

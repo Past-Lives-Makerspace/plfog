@@ -55,6 +55,7 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,
         "wiki_link_enabled": config.wiki_link_enabled,
+        "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
     }
 
 

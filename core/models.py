@@ -321,6 +321,16 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Wiki link in the sidebar",
         help_text="When off, the Wiki link to the makerspace wiki is hidden from the sidebar.",
     )
+    instructor_discount_codes_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Allow instructors to manage their own discount codes",
+        help_text=(
+            "When off, instructors can no longer create, edit, or approve their own discount "
+            "codes from the Teaching portal — the Discount Codes tile is hidden and the pages "
+            "redirect. Admins can always create and approve discount codes from Classes admin, "
+            "either way. Default off: only admins create discount codes."
+        ),
+    )
     member_directory_public = models.BooleanField(
         default=False,
         verbose_name="Public member directory",

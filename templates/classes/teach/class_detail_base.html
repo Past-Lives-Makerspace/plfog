@@ -15,7 +15,7 @@
     <a href="{% url 'classes:teach_class_detail' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'overview' %} vote-tab--active{% endif %}">Overview</a>
     <a href="{% url 'classes:teach_class_registrations' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'registrations' %} vote-tab--active{% endif %}">Registrations ({{ active_registration_count }})</a>
     <a href="{% url 'classes:teach_class_waitlist' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'waitlist' %} vote-tab--active{% endif %}">Waitlist ({{ waitlist_count }})</a>
-    <a href="{% url 'classes:teach_class_discount_codes' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>
+    {% if instructor_discount_codes_enabled %}<a href="{% url 'classes:teach_class_discount_codes' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>{% endif %}
     <a href="{% url 'classes:teach_class_emails' pk=offering.pk %}" class="vote-tab{% if active_subtab == 'emails' %} vote-tab--active{% endif %}">Emails</a>
 </nav>
 {% block detail_content %}{% endblock %}

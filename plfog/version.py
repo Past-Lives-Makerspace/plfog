@@ -2,9 +2,29 @@
 
 from __future__ import annotations
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.4.0",
+        "date": "2026-08-21",
+        "title": "Add Your Website and Social Links to Your Profile",
+        "changes": [
+            "Your profile settings now have a Website section and a Social section (Instagram, "
+            "YouTube, Facebook, TikTok, LinkedIn and more). Add as many links as you like, and "
+            "choose where each one shows: on your directory card, on your instructor page, both, "
+            "or neither.",
+        ],
+    },
+    {
+        "version": "1.4.0",
+        "date": "2026-08-21",
+        "title": "Discount Codes Are Now Created by Admins",
+        "changes": [
+            "Instructors no longer create their own discount codes. An admin creates and "
+            "approves them now. Need one for your class? Ask an admin.",
+        ],
+    },
     {
         "version": "1.3.0",
         "date": "2026-08-19",

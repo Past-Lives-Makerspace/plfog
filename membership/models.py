@@ -1285,8 +1285,14 @@ class MemberContact(models.Model):
     One list per member. Absorbs the former fixed ``other_contact_info`` /
     ``instructor_website`` / ``instructor_social_handle`` fields — a website is just a
     contact flagged "show on instructor page." ``phone`` and ``discord_handle`` stay
-    first-class on :class:`Member`; they are not contacts.
+    first-class on :class:`Member`; they are not contacts. ``kind`` classifies each
+    contact into the profile section it renders under (Website, Social, or Other).
     """
+
+    class Kind(models.TextChoices):
+        WEBSITE = "website", "Website"
+        SOCIAL = "social", "Social"
+        OTHER = "other", "Other"
 
     # Naive email detection: exactly one ``@`` between non-space runs, with a dotted domain.
     _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -1304,12 +1310,36 @@ class MemberContact(models.Model):
         default=False, help_text="Show this contact on the member's public instructor page."
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.OTHER,
+        help_text="Which profile section this shows under: Website, Social, or Other (booking email, phone number, etc.).",
+    )
 
     class Meta:
         ordering = ["sort_order", "id"]
 
     def __str__(self) -> str:
         return f"{self.label}: {self.value} ({self.member.display_name})"
+
+    _SOCIAL_ICON_KEYWORDS: tuple[tuple[str, str], ...] = (
+        ("instagram", "instagram"),
+        ("youtube", "youtube"),
+        ("facebook", "facebook"),
+        ("tiktok", "tiktok"),
+        ("linkedin", "linkedin"),
+        ("twitter", "x"),
+    )
+
+    @property
+    def social_icon(self) -> str:
+        """Best-guess platform icon key for a Social-kind contact, matched against its label."""
+        label_lower = self.label.strip().lower()
+        for keyword, icon in self._SOCIAL_ICON_KEYWORDS:
+            if keyword in label_lower:
+                return icon
+        return "link"
 
     @property
     def as_link(self) -> SafeString:

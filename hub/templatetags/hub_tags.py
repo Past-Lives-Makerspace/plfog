@@ -80,6 +80,14 @@ def has_active_guild(context: dict[str, Any], guilds: QuerySet[Guild]) -> bool:
 
 
 @register.filter
+def by_kind(contacts: Any, kind: str) -> list[Any]:
+    """Filter a list or queryset of MemberContact by their `kind`."""
+    if not contacts:
+        return []
+    return [c for c in contacts if c.kind == kind]
+
+
+@register.filter
 def guild_logo_prefix(name: str) -> str | None:
     """Map a guild name string to its logo prefix."""
     name = name.lower()

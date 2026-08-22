@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from hub.forms import MemberContactFormSet
+from membership.models import MemberContact
 from tests.membership.factories import MemberContactFactory, MemberFactory
 
 
@@ -20,6 +21,7 @@ def describe_member_contact_formset():
                 "contacts-0-value": "https://example.com",
                 "contacts-0-show_in_directory": "on",
                 "contacts-0-sort_order": "0",
+                "contacts-0-kind": "website",
             },
             instance=member,
             prefix="contacts",
@@ -68,6 +70,44 @@ def describe_member_contact_formset():
         assert formset.is_valid(), formset.errors
         formset.save()
         assert member.contacts.count() == 0
+
+    def it_accepts_each_valid_kind():
+        member = MemberFactory()
+        for index, kind in enumerate(MemberContact.Kind):
+            formset = MemberContactFormSet(
+                {
+                    "contacts-TOTAL_FORMS": "1",
+                    "contacts-INITIAL_FORMS": "0",
+                    "contacts-0-label": f"Row {kind}",
+                    "contacts-0-value": f"https://example.com/{index}",
+                    "contacts-0-show_in_directory": "on",
+                    "contacts-0-sort_order": "0",
+                    "contacts-0-kind": kind.value,
+                },
+                instance=member,
+                prefix="contacts",
+            )
+            assert formset.is_valid(), formset.errors
+            formset.save()
+            assert member.contacts.get(label=f"Row {kind}").kind == kind
+
+    def it_rejects_an_invalid_kind_value():
+        member = MemberFactory()
+        formset = MemberContactFormSet(
+            {
+                "contacts-TOTAL_FORMS": "1",
+                "contacts-INITIAL_FORMS": "0",
+                "contacts-0-label": "Bad",
+                "contacts-0-value": "https://example.com",
+                "contacts-0-show_in_directory": "on",
+                "contacts-0-sort_order": "0",
+                "contacts-0-kind": "carrier-pigeon",
+            },
+            instance=member,
+            prefix="contacts",
+        )
+        assert not formset.is_valid()
+        assert "kind" in formset.forms[0].errors
 
     def it_deletes_a_saved_row_flagged_for_deletion():
         member = MemberFactory()

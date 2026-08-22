@@ -73,6 +73,7 @@ def describe_feature_flags():
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
         config.wiki_link_enabled = False
+        config.instructor_discount_codes_enabled = True
         config.save()
 
         rf = RequestFactory()
@@ -84,6 +85,7 @@ def describe_feature_flags():
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
             "wiki_link_enabled": False,
+            "instructor_discount_codes_enabled": True,
         }
 
 
