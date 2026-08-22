@@ -421,16 +421,26 @@ class MemberContactForm(forms.ModelForm):
 
     class Meta:
         model = MemberContact
-        fields = ["label", "value", "show_in_directory", "show_on_instructor_page", "sort_order"]
+        fields = ["label", "value", "show_in_directory", "show_on_instructor_page", "sort_order", "kind"]
         widgets = {
             "label": forms.TextInput(attrs={"placeholder": "e.g. Website, Instagram, Booking email"}),
             "value": forms.TextInput(attrs={"placeholder": "https://…, @handle, or you@example.com"}),
             "sort_order": forms.HiddenInput(),
+            "kind": forms.HiddenInput(),
         }
         labels = {
             "show_in_directory": "Show in member directory",
             "show_on_instructor_page": "Show on instructor page",
         }
+
+    def has_changed(self) -> bool:
+        """Ignore a kind-only change so an untouched "+ Add" row never blocks the save.
+
+        Each section's add-button stamps the cloned row's hidden ``kind`` the moment the
+        row is created, which would otherwise make an abandoned blank row count as
+        "changed" and fail required-field validation on save.
+        """
+        return bool(set(self.changed_data) - {"kind"})
 
 
 MemberContactFormSet = forms.inlineformset_factory(

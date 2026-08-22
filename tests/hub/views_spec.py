@@ -562,6 +562,7 @@ def describe_user_settings():
                 "contacts-0-value": "https://maker.example",
                 "contacts-0-show_in_directory": "on",
                 "contacts-0-sort_order": "0",
+                "contacts-0-kind": "website",
             },
         )
 
@@ -569,6 +570,42 @@ def describe_user_settings():
         assert contact.label == "Website"
         assert contact.value == "https://maker.example"
         assert contact.show_in_directory is True
+
+    def it_saves_a_contact_with_the_posted_kind(client: Client):
+        user = User.objects.create_user(username="kindsaver", password="pass")
+        member = user.member
+        client.login(username="kindsaver", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                "form_id": "profile",
+                "contacts-TOTAL_FORMS": "1",
+                "contacts-INITIAL_FORMS": "0",
+                "contacts-0-label": "Portfolio",
+                "contacts-0-value": "https://portfolio.example",
+                "contacts-0-show_in_directory": "on",
+                "contacts-0-sort_order": "0",
+                "contacts-0-kind": "website",
+            },
+        )
+
+        contact = member.contacts.get()
+        assert contact.kind == "website"
+
+    def it_renders_the_three_contact_section_headings(client: Client):
+        user = User.objects.create_user(username="sectionviewer", password="pass")
+        member = user.member
+        MemberContactFactory(member=member, label="My site", kind="website")
+        MemberContactFactory(member=member, label="Instagram", kind="social")
+        MemberContactFactory(member=member, label="Signal", kind="other")
+        client.login(username="sectionviewer", password="pass")
+
+        html = client.get("/settings/").content.decode()
+
+        assert "Website" in html
+        assert "Social" in html
+        assert "Other Contact Methods" in html
 
     def it_deletes_a_contact_when_the_profile_form_flags_the_row(client: Client):
         user = User.objects.create_user(username="contactdeleter", password="pass")

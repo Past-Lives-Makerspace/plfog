@@ -96,6 +96,7 @@ class MemberContactFactory(factory.django.DjangoModelFactory):
     member = factory.SubFactory(MemberFactory)
     label = factory.Sequence(lambda n: f"Contact {n}")
     value = "https://example.com"
+    kind = MemberContact.Kind.OTHER
 
 
 class SpaceFactory(factory.django.DjangoModelFactory):

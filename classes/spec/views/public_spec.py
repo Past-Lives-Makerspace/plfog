@@ -794,6 +794,34 @@ def describe_public_instructor():
         assert 'href="https://wes.example"' in content
         assert "PrivateNote" not in content
 
+    def it_renders_a_social_contact_with_its_platform_icon(db, client):
+        instructor = InstructorFactory(full_legal_name="Ida", instructor_slug="ida")
+        MemberContactFactory(
+            member=instructor,
+            label="Instagram",
+            value="https://instagram.example/ida",
+            kind="social",
+            show_on_instructor_page=True,
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert "pl-social-icon" in content
+        assert 'href="https://instagram.example/ida"' in content
+
+    def it_keeps_the_plain_label_style_for_a_non_social_contact(db, client):
+        instructor = InstructorFactory(full_legal_name="Ola", instructor_slug="ola")
+        MemberContactFactory(
+            member=instructor,
+            label="Booking",
+            value="book@ola.example",
+            kind="other",
+            show_on_instructor_page=True,
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert "Booking:" in content
+        assert "pl-social-icon" not in content
+
 
 def describe_google_analytics_gate():
     def it_omits_ga_tag_when_id_not_set(published_class, client):

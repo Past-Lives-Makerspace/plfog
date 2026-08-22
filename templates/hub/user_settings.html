@@ -261,14 +261,24 @@
                 </aside>
             </div>
 
-            {# ── Contact methods (unified labeled list, saved with the profile form) ── #}
-            <div class="pl-profile-section" data-help-key="settings.contact-methods">
-                <h2 class="pl-profile-section__title">Contact Methods</h2>
+            {% comment %}
+            Contact methods — one labeled list (a single formset + one management form,
+            rendered near the top of the form), split into three sections by each row's
+            hidden `kind`. The kind is set by which "+ Add" button the member clicks:
+            each button clones its own section's <template>, stamps the cloned row's
+            kind input from the template's data-kind, and appends it in-section.
+            {% endcomment %}
+            <div data-help-key="settings.contact-methods">
+
+            {# ── Website contacts ── #}
+            <div class="pl-profile-section">
+                <h2 class="pl-profile-section__title">Website</h2>
                 <p class="hub-text-muted" style="margin-bottom:1rem;">
-                    Other ways to reach you — a website, Instagram, a booking email. You choose where each one shows.
+                    Your personal site, shop, or portfolio.
                 </p>
-                <div id="contact-rows" style="display:flex; flex-direction:column; gap:1rem;">
+                <div id="contact-rows-website" style="display:flex; flex-direction:column; gap:1rem;">
                     {% for f in contact_formset %}
+                    {% if f.instance.kind == "website" %}
                     <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
                         <div style="display:flex; gap:1rem; flex-wrap:wrap;">
                             <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
@@ -289,15 +299,13 @@
                         {% endif %}
                         {{ f.id }}
                         {{ f.sort_order }}
+                        {{ f.kind }}
                     </div>
-                    {% empty %}
-                    <p class="hub-text-muted">No contact methods yet. Add your first below.</p>
+                    {% endif %}
                     {% endfor %}
                 </div>
 
-                {% comment %}Hidden empty-form template, cloned by the +Add button. toggle.html/form_field.html
-                   carry no per-row script, so a cloned row's controls work without re-binding.{% endcomment %}
-                <template id="contact-empty-template">
+                <template id="contact-empty-template-website" data-kind="website">
                     <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
                         {% with contact_formset.empty_form as ef %}
                         <div style="display:flex; gap:1rem; flex-wrap:wrap;">
@@ -312,6 +320,7 @@
                         </div>
                         {{ ef.id }}
                         {{ ef.sort_order }}
+                        {{ ef.kind }}
                         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
                         {% endwith %}
                     </div>
@@ -319,16 +328,164 @@
 
                 <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
                         onclick="
-                          const tpl = document.getElementById('contact-empty-template');
+                          const tpl = document.getElementById('contact-empty-template-website');
                           const total = document.getElementById('id_contacts-TOTAL_FORMS');
                           const idx = parseInt(total.value, 10);
                           const wrap = document.createElement('div');
                           wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                          document.getElementById('contact-rows').appendChild(wrap.firstElementChild);
+                          const row = wrap.firstElementChild;
+                          row.querySelector('[name$=\'-kind\']').value = tpl.dataset.kind;
+                          document.getElementById('contact-rows-website').appendChild(row);
+                          total.value = idx + 1;
+                        ">
+                    + Add a website
+                </button>
+            </div>
+
+            {# ── Social contacts ── #}
+            <div class="pl-profile-section">
+                <h2 class="pl-profile-section__title">Social</h2>
+                <p class="hub-text-muted" style="margin-bottom:1rem;">
+                    Instagram, YouTube, Facebook, TikTok, LinkedIn, whatever you use.
+                </p>
+                <div id="contact-rows-social" style="display:flex; flex-direction:column; gap:1rem;">
+                    {% for f in contact_formset %}
+                    {% if f.instance.kind == "social" %}
+                    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
+                            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.value %}</div>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                            <div>{% include "components/toggle.html" with field=f.show_in_directory toggle_label=f.show_in_directory.label %}</div>
+                            {% if member.is_instructor %}
+                            <div>{% include "components/toggle.html" with field=f.show_on_instructor_page toggle_label=f.show_on_instructor_page.label %}</div>
+                            {% endif %}
+                        </div>
+                        {% if f.instance.pk %}
+                        <div style="display:none;">{{ f.DELETE }}</div>
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                                onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                            Delete this contact
+                        </button>
+                        {% endif %}
+                        {{ f.id }}
+                        {{ f.sort_order }}
+                        {{ f.kind }}
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+
+                <template id="contact-empty-template-social" data-kind="social">
+                    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                        {% with contact_formset.empty_form as ef %}
+                        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=ef.label %}</div>
+                            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.value %}</div>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                            <div>{% include "components/toggle.html" with field=ef.show_in_directory toggle_label=ef.show_in_directory.label %}</div>
+                            {% if member.is_instructor %}
+                            <div>{% include "components/toggle.html" with field=ef.show_on_instructor_page toggle_label=ef.show_on_instructor_page.label %}</div>
+                            {% endif %}
+                        </div>
+                        {{ ef.id }}
+                        {{ ef.sort_order }}
+                        {{ ef.kind }}
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                        {% endwith %}
+                    </div>
+                </template>
+
+                <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                        onclick="
+                          const tpl = document.getElementById('contact-empty-template-social');
+                          const total = document.getElementById('id_contacts-TOTAL_FORMS');
+                          const idx = parseInt(total.value, 10);
+                          const wrap = document.createElement('div');
+                          wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                          const row = wrap.firstElementChild;
+                          row.querySelector('[name$=\'-kind\']').value = tpl.dataset.kind;
+                          document.getElementById('contact-rows-social').appendChild(row);
+                          total.value = idx + 1;
+                        ">
+                    + Add a social link
+                </button>
+            </div>
+
+            {# ── Other contact methods (the catch-all; pre-existing rows live here) ── #}
+            <div class="pl-profile-section">
+                <h2 class="pl-profile-section__title">Other Contact Methods</h2>
+                <p class="hub-text-muted" style="margin-bottom:1rem;">
+                    Other ways to reach you — a booking email, a phone line, anything else. You choose where each one shows.
+                </p>
+                <div id="contact-rows-other" style="display:flex; flex-direction:column; gap:1rem;">
+                    {% for f in contact_formset %}
+                    {% if f.instance.kind == "other" %}
+                    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
+                            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.value %}</div>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                            <div>{% include "components/toggle.html" with field=f.show_in_directory toggle_label=f.show_in_directory.label %}</div>
+                            {% if member.is_instructor %}
+                            <div>{% include "components/toggle.html" with field=f.show_on_instructor_page toggle_label=f.show_on_instructor_page.label %}</div>
+                            {% endif %}
+                        </div>
+                        {% if f.instance.pk %}
+                        <div style="display:none;">{{ f.DELETE }}</div>
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                                onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                            Delete this contact
+                        </button>
+                        {% endif %}
+                        {{ f.id }}
+                        {{ f.sort_order }}
+                        {{ f.kind }}
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+
+                <template id="contact-empty-template-other" data-kind="other">
+                    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                        {% with contact_formset.empty_form as ef %}
+                        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                            <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=ef.label %}</div>
+                            <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.value %}</div>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                            <div>{% include "components/toggle.html" with field=ef.show_in_directory toggle_label=ef.show_in_directory.label %}</div>
+                            {% if member.is_instructor %}
+                            <div>{% include "components/toggle.html" with field=ef.show_on_instructor_page toggle_label=ef.show_on_instructor_page.label %}</div>
+                            {% endif %}
+                        </div>
+                        {{ ef.id }}
+                        {{ ef.sort_order }}
+                        {{ ef.kind }}
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                        {% endwith %}
+                    </div>
+                </template>
+
+                <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                        onclick="
+                          const tpl = document.getElementById('contact-empty-template-other');
+                          const total = document.getElementById('id_contacts-TOTAL_FORMS');
+                          const idx = parseInt(total.value, 10);
+                          const wrap = document.createElement('div');
+                          wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                          const row = wrap.firstElementChild;
+                          row.querySelector('[name$=\'-kind\']').value = tpl.dataset.kind;
+                          document.getElementById('contact-rows-other').appendChild(row);
                           total.value = idx + 1;
                         ">
                     + Add a contact
                 </button>
+            </div>
+
             </div>
 
             {# Open for commissions — saved together with the rest of the profile form #}

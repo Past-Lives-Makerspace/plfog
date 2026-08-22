@@ -1086,3 +1086,12 @@
     white-space: nowrap;
     border: 0;
 }
+
+/* ===== Social / link icons (profile contact rows) ===== */
+.pl-social-icon {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+}

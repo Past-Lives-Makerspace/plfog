@@ -143,7 +143,19 @@
                 <span>{{ member.discord_handle }}</span>
             </div>
             {% endif %}
-            {% for contact in member.visible_contacts %}
+            {% for contact in member.visible_contacts|by_kind:"website" %}
+            <div class="directory-card__contact-row">
+                <span class="directory-card__contact-label">{% include "components/social_icon.html" with platform="link" %}</span>
+                <span>{{ contact.as_link }}</span>
+            </div>
+            {% endfor %}
+            {% for contact in member.visible_contacts|by_kind:"social" %}
+            <div class="directory-card__contact-row">
+                <span class="directory-card__contact-label">{% include "components/social_icon.html" with platform=contact.social_icon %}</span>
+                <span>{{ contact.as_link }}</span>
+            </div>
+            {% endfor %}
+            {% for contact in member.visible_contacts|by_kind:"other" %}
             <div class="directory-card__contact-row">
                 <span class="directory-card__contact-label">{{ contact.label }}</span>
                 <span>{{ contact.as_link }}</span>
