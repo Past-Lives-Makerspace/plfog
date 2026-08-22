@@ -893,6 +893,27 @@ def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
     return wrapper  # type: ignore[return-value]
 
 
+def instructor_discount_codes_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator: gate instructor self-service discount codes behind the site flag.
+
+    Layered under ``teaching_member_required`` — teaching access alone isn't enough
+    while the site has instructor discount codes switched off (the default). A
+    soft-launch kill switch is not an authorization failure, so a direct URL hit
+    gets the same treatment as every other feature-flag gate (``tab_detail``,
+    ``class_register``): an info message and a redirect, never a 403. The Classes
+    admin discount views never pass through here — admins are unaffected.
+    """
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if not SiteConfiguration.load().instructor_discount_codes_enabled:
+            messages.info(request, "Discount codes are managed by admins. Ask an admin if you need one for your class.")
+            return redirect("classes:teach_dashboard")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
 def classes_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator: Classes admin tabs are admin-only.
 
@@ -1344,6 +1365,7 @@ def teach_registrations_email(request: HttpRequest) -> HttpResponse:
 
 
 @teaching_member_required
+@instructor_discount_codes_required
 def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     """Discount codes for the Teaching portal.
 
@@ -1373,6 +1395,7 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
 
 
 @teaching_member_required
+@instructor_discount_codes_required
 def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
@@ -1412,6 +1435,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
 
 
 @teaching_member_required
+@instructor_discount_codes_required
 def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     # Instructors may only edit codes they created; site-wide / admin codes are
@@ -1430,6 +1454,7 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+@instructor_discount_codes_required
 def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
     # Only the instructor who created a code may delete it; site-wide / admin codes 404.
     code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
@@ -1440,6 +1465,7 @@ def teach_discount_code_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+@instructor_discount_codes_required
 @require_POST
 def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """Approve one of the teaching member's own pending codes from the Teaching portal.
@@ -1562,6 +1588,7 @@ def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+@instructor_discount_codes_required
 def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
     offering = _teach_class_or_404(request, pk)
     codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")

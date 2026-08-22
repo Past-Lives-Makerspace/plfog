@@ -109,7 +109,7 @@
             @click="tab = 'legacy-cms'"
             :class="{ 'vote-tab--active': tab === 'legacy-cms' }"
             class="vote-tab">
-      Legacy CMS
+      CMS
     </button>
     <button type="button"
             @click="tab = 'features'"
@@ -156,7 +156,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'wiki_link_enabled' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'wiki_link_enabled' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -328,7 +328,7 @@
       </div>
     </div>
 
-    {# -------- Legacy CMS tab -------- #}
+    {# -------- CMS tab -------- #}
     <div x-show="tab === 'legacy-cms'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
 
       <p class="pl-automation-callout">
@@ -338,7 +338,7 @@
 
       {# Toggle #}
       <div>
-        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Legacy CMS Sync</h2>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">CMS Sync</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           When enabled, classes from <code>classes.pastlives.space</code> sync into plfog automatically each morning.
           Use <strong>Sync Now</strong> for an immediate pull. Disable after the DNS flip to manage classes exclusively in plfog.
@@ -376,6 +376,12 @@
         {% if config.legacy_cms_last_sync_duration %}
           <small style="color:var(--hub-text-muted);">Typically takes about {{ config.legacy_cms_last_sync_duration|floatformat:0 }}s.</small>
         {% endif %}
+      </div>
+
+      {# Instructor discount codes flag #}
+      <div>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Instructor Discount Codes</h2>
+        {% include "components/form_field.html" with field=form.instructor_discount_codes_enabled %}
       </div>
 
       {# Instructor match table #}

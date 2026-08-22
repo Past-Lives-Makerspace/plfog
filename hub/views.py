@@ -5189,7 +5189,7 @@ def admin_invite_clear_expired(request: HttpRequest) -> HttpResponse:
 
 
 def _legacy_instructor_sync_status() -> tuple[list[dict[str, object]], int]:
-    """Return instructor match stats for the Legacy CMS tab.
+    """Return instructor match stats for the CMS tab.
 
     For each member with an instructor slug, count how many ClassOfferings came
     from the legacy CMS (legacy_cms_id set) and have that member linked as instructor.

@@ -67,7 +67,9 @@
 
     {% include "classes/_components/faq_formset.html" %}
 
+    {% if instructor_discount_codes_enabled %}
     {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+    {% endif %}
 
     <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap;">
         <button class="hub-btn hub-btn--sm hub-btn--ghost" name="action" value="save" type="submit">Save Draft</button>
