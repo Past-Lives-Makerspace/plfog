@@ -312,7 +312,9 @@ class ProfileSettingsForm(forms.ModelForm):
     marketing_opt_in = forms.TypedChoiceField(
         required=False,
         coerce=lambda value: value == "True",
-        empty_value=False,
+        # django-stubs types empty_value as str | None, but TypedChoiceField accepts any
+        # sentinel at runtime — False keeps cleaned_data a plain bool.
+        empty_value=False,  # type: ignore[arg-type]
         choices=(
             (
                 True,
