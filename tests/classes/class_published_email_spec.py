@@ -26,8 +26,8 @@ def describe_email_hero_image_html():
         assert f'alt="{offering.title}"' in html
 
     def it_is_empty_when_the_class_has_no_image():
-        # image="" and the factory category carries no hero, so display_images is empty.
-        offering = ClassOfferingFactory(image="")
+        # image="", gallery=0, and the factory category carries no hero, so display_images is empty.
+        offering = ClassOfferingFactory(image="", gallery=0)
         assert offering.email_hero_image_html == ""
 
 
@@ -45,7 +45,7 @@ def describe_class_published_email_body():
         assert "just went live" in rendered.body_html
 
     def it_omits_the_image_when_the_class_has_none():
-        offering = ClassOfferingFactory(image="", title="Forge Night")
+        offering = ClassOfferingFactory(image="", gallery=0, title="Forge Night")
         context = {
             "class_title": offering.title,
             "class_url": "https://pastlives.example/classes/forge-night/",

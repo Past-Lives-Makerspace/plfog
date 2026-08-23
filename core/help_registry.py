@@ -48,7 +48,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.create-class": {
         "title": "Create a class",
         "short_text": (
-            "Draft a class and submit it — the portal opens after the one-time instructor orientation. "
+            "Draft a class and submit it — the portal opens after the one-time portal orientation for instructors. "
             "A guild lead or admin reviews every class before it goes live."
         ),
         "article_slug": "become-an-instructor",
@@ -57,8 +57,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.become-instructor": {
         "title": "Become an instructor",
         "short_text": (
-            "Complete the short instructor orientation once and the teaching portal unlocks — "
-            "no waiting on an admin. Every class is still reviewed before it publishes."
+            "Complete the short portal orientation for instructors once and the teaching portal "
+            "unlocks. Every class is still reviewed before it publishes."
         ),
         "article_slug": "become-an-instructor",
         "anchor": "teach-become-instructor",
@@ -226,8 +226,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.duplicate-run": {
         "title": "Offer a class on new dates",
         "short_text": (
-            "One click clones your class as a dateless draft that stays grouped with the original. "
-            "Add the new dates, then submit it for review."
+            "One click copies your class as a new draft with no dates. Add the new dates, then submit it for review."
         ),
         "article_slug": "run-your-class",
         "anchor": "teach-duplicate-run",
@@ -616,10 +615,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "teach.roster": {
         "title": "Your classes and rosters",
-        "short_text": (
-            "Click any class to see who signed up, manage the waitlist, email your registrants, "
-            "or export the roster as a CSV."
-        ),
+        "short_text": ("Click any class to see who signed up, manage the waitlist, and email your registrants."),
         "article_slug": None,
         "anchor": None,
     },

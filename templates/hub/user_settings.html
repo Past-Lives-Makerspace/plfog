@@ -498,6 +498,23 @@
                     {% include "components/form_field.html" with field=profile_form.commission_note %}
                 </div>
             </div>
+
+            {# Marketing opt-in — private yes/no, never shown on the directory card #}
+            <div class="pl-profile-section">
+                <h2 class="pl-profile-section__title">Marketing Opportunities</h2>
+                <p class="hub-text-muted" style="margin-bottom:0.75rem;">
+                    Want us to feature your work? Your answer is private — it never appears on your directory card.
+                </p>
+                <div class="pl-radio-group" role="radiogroup" aria-label="Marketing opportunities">
+                    {% for radio in profile_form.marketing_opt_in %}
+                    <label class="pl-radio-option">
+                        {{ radio.tag }}
+                        <span class="pl-radio-option__label">{{ radio.choice_label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% for error in profile_form.marketing_opt_in.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
+            </div>
             {# ===== /Member panel ===== #}
             </div>
 

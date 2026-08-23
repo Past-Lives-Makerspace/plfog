@@ -239,17 +239,14 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="teach.roster"]',
                 title="Your Classes and Rosters",
-                body=(
-                    "Click any class to see who signed up, manage the waitlist, email your registrants, "
-                    "or export the roster as a CSV."
-                ),
+                body=("Click any class to see who signed up, manage the waitlist, and email your registrants."),
             ),
             TourStep(
                 target=None,
                 title="The Rest of the Map",
                 body=(
                     "That's the tour. The Instructor Quickstart guide on the Help page covers everything else — "
-                    "welcome emails, discount codes, announcements — and links a finished example class to study."
+                    "welcome emails, announcements — and links a finished example class to study."
                 ),
             ),
         ),

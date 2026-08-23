@@ -32,28 +32,28 @@ def _add_gallery(offering: ClassOffering, count: int) -> None:
 
 def describe_ClassOffering_photo_gate():
     def describe_has_submittable_image():
-        def it_is_true_with_own_hero_and_no_gallery(db):
-            offering = ClassOfferingFactory(image=_image_file("hero.png"))
+        def it_is_false_with_own_hero_but_no_gallery(db):
+            offering = ClassOfferingFactory(image=_image_file("hero.png"), gallery=0)
+            assert offering.has_submittable_image is False
+
+        def it_is_true_with_own_hero_and_one_gallery(db):
+            offering = ClassOfferingFactory(image=_image_file("hero.png"), gallery=0)
+            _add_gallery(offering, 1)
             assert offering.has_submittable_image is True
 
         def it_is_true_with_own_hero_and_three_gallery(db):
-            offering = ClassOfferingFactory(image=_image_file("hero.png"))
+            offering = ClassOfferingFactory(image=_image_file("hero.png"), gallery=0)
             _add_gallery(offering, 3)
             assert offering.has_submittable_image is True
 
         def it_is_false_with_no_hero_and_no_gallery(db):
-            offering = ClassOfferingFactory(image="")
+            offering = ClassOfferingFactory(image="", gallery=0)
             assert offering.has_submittable_image is False
 
-        def it_is_true_with_no_hero_and_one_gallery(db):
-            offering = ClassOfferingFactory(image="")
+        def it_is_false_with_no_hero_and_one_gallery(db):
+            offering = ClassOfferingFactory(image="", gallery=0)
             _add_gallery(offering, 1)
-            assert offering.has_submittable_image is True
-
-        def it_is_true_with_no_hero_and_two_gallery(db):
-            offering = ClassOfferingFactory(image="")
-            _add_gallery(offering, 2)
-            assert offering.has_submittable_image is True
+            assert offering.has_submittable_image is False
 
         def it_ignores_the_category_hero_fallback(db):
             category = CategoryFactory(hero_image=_image_file("cat.png"))
@@ -62,32 +62,32 @@ def describe_ClassOffering_photo_gate():
 
     def describe_needs_photo_nudge():
         def it_is_true_with_zero_gallery(db):
-            offering = ClassOfferingFactory(image=_image_file("hero.png"))
+            offering = ClassOfferingFactory(image=_image_file("hero.png"), gallery=0)
             assert offering.needs_photo_nudge is True
 
         def it_is_true_with_one_gallery(db):
-            offering = ClassOfferingFactory(image="")
+            offering = ClassOfferingFactory(image="", gallery=0)
             _add_gallery(offering, 1)
             assert offering.needs_photo_nudge is True
 
         def it_is_true_with_two_gallery(db):
-            offering = ClassOfferingFactory(image="")
+            offering = ClassOfferingFactory(image="", gallery=0)
             _add_gallery(offering, 2)
             assert offering.needs_photo_nudge is True
 
         def it_is_false_with_three_gallery(db):
-            offering = ClassOfferingFactory(image="")
+            offering = ClassOfferingFactory(image="", gallery=0)
             _add_gallery(offering, 3)
             assert offering.needs_photo_nudge is False
 
         def it_is_false_with_four_gallery(db):
-            offering = ClassOfferingFactory(image="")
+            offering = ClassOfferingFactory(image="", gallery=0)
             _add_gallery(offering, 4)
             assert offering.needs_photo_nudge is False
 
     def describe_submit_for_review():
         def it_raises_and_stays_draft_when_no_hero_and_no_gallery(db):
-            offering = ClassOfferingFactory(image="", status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(image="", gallery=0, status=ClassOffering.Status.DRAFT)
             with pytest.raises(ValidationError):
                 offering.submit_for_review()
             offering.refresh_from_db()
@@ -109,15 +109,23 @@ def describe_ClassOffering_photo_gate():
             assert offering.status == ClassOffering.Status.DRAFT
             assert offering.approvals.count() == 0
 
-        def it_succeeds_with_own_hero_and_no_gallery(db):
-            offering = ClassOfferingFactory(image=_image_file("hero.png"), status=ClassOffering.Status.DRAFT)
-            rows = offering.submit_for_review()
+        def it_raises_with_own_hero_but_no_gallery(db):
+            offering = ClassOfferingFactory(image=_image_file("hero.png"), gallery=0, status=ClassOffering.Status.DRAFT)
+            with pytest.raises(ValidationError):
+                offering.submit_for_review()
             offering.refresh_from_db()
-            assert offering.status == ClassOffering.Status.PENDING
-            assert len(rows) == 1
+            assert offering.status == ClassOffering.Status.DRAFT
 
-        def it_succeeds_with_gallery_and_no_own_hero(db):
-            offering = ClassOfferingFactory(image="", status=ClassOffering.Status.DRAFT)
+        def it_raises_with_gallery_but_no_own_hero(db):
+            offering = ClassOfferingFactory(image="", gallery=0, status=ClassOffering.Status.DRAFT)
+            _add_gallery(offering, 1)
+            with pytest.raises(ValidationError):
+                offering.submit_for_review()
+            offering.refresh_from_db()
+            assert offering.status == ClassOffering.Status.DRAFT
+
+        def it_succeeds_with_own_hero_and_one_gallery(db):
+            offering = ClassOfferingFactory(image=_image_file("hero.png"), status=ClassOffering.Status.DRAFT)
             _add_gallery(offering, 1)
             rows = offering.submit_for_review()
             offering.refresh_from_db()

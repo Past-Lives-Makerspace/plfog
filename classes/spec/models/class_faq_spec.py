@@ -7,7 +7,7 @@ from io import BytesIO
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 from classes.factories import CategoryFactory, ClassFaqFactory, ClassImageFactory, ClassOfferingFactory
-from classes.models import DEFAULT_CLASS_FAQS
+from classes.models import ARRIVAL_CLASS_FAQ, DEFAULT_CLASS_FAQS
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
@@ -36,21 +36,34 @@ def describe_ClassFaq():
 
 
 def describe_display_faqs():
-    def it_falls_back_to_the_site_defaults_when_the_class_has_no_rows(db):
+    def it_falls_back_to_the_site_defaults_plus_the_arrival_faq_when_the_class_has_no_rows(db):
         offering = ClassOfferingFactory()
-        assert offering.display_faqs == DEFAULT_CLASS_FAQS
+        assert offering.display_faqs == [*DEFAULT_CLASS_FAQS, ARRIVAL_CLASS_FAQ]
 
-    def it_returns_only_the_classes_own_rows_when_customized(db):
+    def it_returns_the_classes_own_rows_plus_the_arrival_faq_when_customized(db):
         offering = ClassOfferingFactory()
         ClassFaqFactory(class_offering=offering, question="Can I bring my dog?", answer="Sadly no.")
         faqs = offering.display_faqs
-        assert faqs == [{"question": "Can I bring my dog?", "answer": "Sadly no."}]
+        assert faqs == [{"question": "Can I bring my dog?", "answer": "Sadly no."}, ARRIVAL_CLASS_FAQ]
 
     def it_does_not_leak_defaults_alongside_custom_rows(db):
         offering = ClassOfferingFactory()
         ClassFaqFactory(class_offering=offering)
         questions = [faq["question"] for faq in offering.display_faqs]
         assert DEFAULT_CLASS_FAQS[0]["question"] not in questions
+
+    def it_does_not_duplicate_the_arrival_faq_when_a_custom_row_asks_it(db):
+        offering = ClassOfferingFactory()
+        ClassFaqFactory(
+            class_offering=offering,
+            question=ARRIVAL_CLASS_FAQ["question"],
+            answer="Meet me at the loading dock instead.",
+        )
+        faqs = offering.display_faqs
+        matching = [faq for faq in faqs if faq["question"] == ARRIVAL_CLASS_FAQ["question"]]
+        assert matching == [
+            {"question": ARRIVAL_CLASS_FAQ["question"], "answer": "Meet me at the loading dock instead."}
+        ]
 
 
 def describe_default_cancellation_policy():
@@ -67,7 +80,7 @@ def describe_default_cancellation_policy():
 
 def describe_gallery_display_images():
     def it_lists_only_gallery_rows(db):
-        offering = ClassOfferingFactory()  # factory supplies a hero image
+        offering = ClassOfferingFactory(gallery=0)  # factory supplies a hero image
         ClassImageFactory(class_offering=offering, image=_image_file("g1.png"), alt_text="A finished bowl")
         images = offering.gallery_display_images
         assert len(images) == 1
@@ -76,7 +89,7 @@ def describe_gallery_display_images():
 
     def it_is_empty_without_gallery_rows_even_with_a_category_hero(db):
         category = CategoryFactory(hero_image=_image_file("cat.png"))
-        offering = ClassOfferingFactory(category=category, image="")
+        offering = ClassOfferingFactory(category=category, image="", gallery=0)
         assert offering.gallery_display_images == []
         # display_images still falls back for the page hero
         assert offering.display_images
@@ -84,7 +97,7 @@ def describe_gallery_display_images():
 
 def describe_display_images():
     def it_keeps_the_hero_first_then_gallery_rows(db):
-        offering = ClassOfferingFactory()
+        offering = ClassOfferingFactory(gallery=0)
         ClassImageFactory(class_offering=offering, image=_image_file("g1.png"))
         images = offering.display_images
         assert len(images) == 2

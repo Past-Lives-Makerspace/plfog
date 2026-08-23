@@ -148,7 +148,7 @@ def describe_ClassOffering():
 
     def describe_add_gallery_images():
         def it_creates_class_images_with_sort_order(db):
-            offering = ClassOfferingFactory()
+            offering = ClassOfferingFactory(gallery=0)
             files = [_image_file("a.png"), _image_file("b.png"), _image_file("c.png")]
             offering.add_gallery_images(files)
             images = list(offering.gallery_images.all())
@@ -156,6 +156,6 @@ def describe_ClassOffering():
             assert [img.sort_order for img in images] == [0, 1, 2]
 
         def it_handles_empty_list(db):
-            offering = ClassOfferingFactory()
+            offering = ClassOfferingFactory(gallery=0)
             offering.add_gallery_images([])
             assert offering.gallery_images.count() == 0
