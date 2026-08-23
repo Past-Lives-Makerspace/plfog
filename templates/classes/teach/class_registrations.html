@@ -2,9 +2,6 @@
 {% load classes_tags %}
 {% block detail_content %}
 <div>
-    <div style="margin-bottom:0.75rem; text-align:right;">
-        <a href="{% url 'classes:teach_class_export' pk=offering.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export Data</a>
-    </div>
     {% if registrations %}
     <div class="admin-table-wrap">
     <table>

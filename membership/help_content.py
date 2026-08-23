@@ -786,37 +786,36 @@ The guided tour points at the real buttons, right on the teaching portal, in abo
 - **Create a class** — a private draft with your title, description, dates, price, and photos. See [Become an Instructor](/help/teaching/become-an-instructor/).
 - **Submit it for review** — a guild lead (when your category has one) and an admin check it before it goes live. Same guide.
 - **Preview as a student** — see the public page exactly as a student will, at any point while you work.
-- **Offer it again on new dates** — one click clones a class into a new dated run, grouped with the original. See [Run Your Class](/help/teaching/run-your-class/).
+- **Offer it again on new dates** — one click copies a class into a new draft so you can run it again; the two link to each other on the public page. See [Run Your Class](/help/teaching/run-your-class/).
 
 **Run the class:**
 
-- **See your roster** — who signed up, their answers to your questions, and a CSV export.
+- **See your roster** — who signed up and their answers to your questions.
 - **Email your students** — pick recipients and send, straight from the portal.
 - **Watch the waitlist** — it runs itself; the portal shows you the line.
 - **Write a welcome email** — sent automatically to each student the moment their spot is confirmed.
-- **Create discount codes** — percent or a flat amount off; an admin approves each code before it works.
 
-All five are covered in [Run Your Class](/help/teaching/run-your-class/).
+All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 **Reach further:**
 
-- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**; your published classes appear as audiences, and it reaches students in the app, by push, and by email — see [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
+- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**, and pick one of your published classes as the recipient group: everyone registered for it gets the announcement in the app, by push, and by email — see [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
 - **Your public instructor page** — with the Instructor role, the catalog links your bio and your classes from every class you teach.
 
 ### The Ground Rules {#instructor-ground-rules}
 
 - Nobody self-publishes. Every class — including every new run of an old one — goes through review first.
 - Draft and pending classes are all yours to edit. Once a class publishes, only an admin can change it.
-- The one-time [Instructor Orientation](/help/more/instructor-orientation/) is what unlocks the portal, and the quality bar lives there.
+- The one-time [portal orientation for instructors](/help/more/instructor-orientation/) is what unlocks the portal, and the quality bar lives there.
 
-![The teaching portal: overview, your classes, registrations, and discount codes.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
+![The teaching portal: overview, your classes, and registrations.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
 """,
         "screenshots": [
             {
                 "file": "01-the-teaching-portal.png",
                 "page": "/classes/teach/",
                 "selector": None,
-                "caption": "The teaching portal: overview, your classes, registrations, and discount codes.",
+                "caption": "The teaching portal: overview, your classes, and registrations.",
                 "as_role": "instructor",
             },
         ],
@@ -828,19 +827,15 @@ All five are covered in [Run Your Class](/help/teaching/run-your-class/).
         "sort_order": 20,
         "related": ["run-your-class", "taking-a-class"],
         "body": """\
-Any active member can become an instructor at Past Lives. There is no application to fill out and no waiting on approval — just a short, one-time orientation.
-
-What nobody can do is self-publish. Every class goes through review before it appears in the catalog, no matter who wrote it.
+Are you an experienced instructor? Past Lives instructors come from our membership base. If you have a vision for a class you'd like to teach at Past Lives, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
 ### Complete the Orientation {#teach-become-instructor}
 
-The first time you head for the teaching portal, you land on the [instructor orientation](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — no admin sign-off, and you only ever do it once.
+The first time you head for the teaching portal, you land on the [portal orientation for instructors](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — you only ever do it once. (This is about using the portal; it's separate from any guild equipment or tool orientations.)
 
-Already taught a class before the orientation existed? You're grandfathered in — the portal is already open for you.
-
-One note on the word "instructor": an admin can set your role to Instructor, which creates your public instructor page in the class catalog (and opens the teaching portal for you if it wasn't open already). The role and the unlock are separate things — you don't need the role to teach.
+One note on the word "instructor": an admin can also set your role to Instructor. The role adds extras — a public instructor page in the class catalog and the class Announcements tool. You don't need the role to create or teach a class; completing the portal orientation is what opens the teaching portal.
 
 ### Open the Teaching Portal
 
@@ -850,8 +845,6 @@ Three ways in:
 2. Go straight to `/classes/teach/`.
 3. On any guild page, click **Teach a Class** in the Get Involved panel. That one jumps straight to the new class form.
 
-Haven't done the orientation yet? Any of these takes you there first — finish it and you're through.
-
 ![The teaching portal Overview: your drafts, classes in review, and recent sign-ups.](/static/help/become-an-instructor/01-teaching-portal.png)
 
 ### Create Your Draft {#teach-create-class}
@@ -859,7 +852,7 @@ Haven't done the orientation yet? Any of these takes you there first — finish 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
 2. Fill in the basics: title, guild category, description, price, and how many spots.
 3. Add your dates. A class can be one session or a series; add one row per session. You can also pick flexible scheduling if the dates are arranged later.
-4. Add at least one photo. A class needs its own hero image or one gallery photo before it can be submitted.
+4. Add at least two photos: a hero image and at least one gallery photo. A class needs both before it can be submitted.
 5. Click **Save Draft** to keep working, or **Save & Submit for Review** when it is ready.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
@@ -909,11 +902,11 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
         # never appears on the landing, category pages, or search.
         "slug": "instructor-orientation",
         "category": None,
-        "title": "Instructor Orientation",
+        "title": "Portal Orientation for Instructors",
         "sort_order": 0,
         "related": [],
         "body": """\
-Teaching at Past Lives is open to every active member. This page is the one-time orientation: read it, tick the box at the bottom, and the teaching portal unlocks right away.
+Past Lives instructors come from our membership base. This page is the one-time portal orientation for instructors: read it, tick the box at the bottom, and the teaching portal unlocks right away. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
 
 ## What We Expect From Instructors {#what-we-expect}
 
@@ -937,7 +930,7 @@ Reviewers can approve, request changes, or decline — and they have to leave a 
 
 Before a class can be submitted it needs:
 
-- **At least one photo** — its own hero image or a gallery photo. Classes with real photos of the work get real sign-ups.
+- **At least two photos** — its own hero image and at least one gallery photo. Classes with real photos of the work get real sign-ups.
 - **A description that answers the basics** — what students will make or learn, what's provided, and what (if anything) to bring.
 - **Fair pricing** — cover your materials and time. If you set a member discount, members get it automatically when they register with their member email.""",
         "screenshots": [],
@@ -949,19 +942,17 @@ Before a class can be submitted it needs:
         "sort_order": 30,
         "related": ["become-an-instructor", "taking-a-class"],
         "body": """\
-Once your class is submitted or live, the teaching portal at `/classes/teach/` is where you run it: see who signed up, email them, watch the waitlist, set up your welcome email and discount codes, and offer the class again.
+Once your class is submitted or live, the teaching portal at `/classes/teach/` is where you run it: see who signed up, email them, watch the waitlist, set up your welcome email, and offer the class again.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-The portal has four tabs: **Overview**, **Classes**, **Registrations**, and **Discount Codes**. Opening a class from the **Classes** tab gives that class its own workspace with sub-tabs: **Overview**, **Registrations**, **Waitlist**, **Discount Codes**, and **Emails**.
+The portal has three tabs: **Overview**, **Classes**, and **Registrations**. Opening a class from the **Classes** tab gives that class its own workspace with sub-tabs: **Overview**, **Registrations**, **Waitlist**, and **Emails**.
 
 ![The Classes tab lists every class you teach, with its status and sign-up count.](/static/help/run-your-class/01-your-classes.png)
 
 ### See Who Signed Up
 
 Open the portal-wide **Registrations** tab to see students for all your classes at once, grouped by class. Or open one class and use its **Registrations** sub-tab. Each row shows the student's name, email, status, when they registered, and their answers to any registration questions.
-
-Need the list outside the app? Click **Export Data** on a class's Registrations sub-tab to download the full roster as a CSV. It opens in any spreadsheet.
 
 ![The Registrations tab: your students grouped by class, with the email tool.](/static/help/run-your-class/02-registrations.png)
 
@@ -976,17 +967,13 @@ You can only email people registered for your own classes, and the per-class tab
 
 ### Your Welcome Email {#teach-welcome-email}
 
-Each class can have a welcome email, sent automatically to every student the moment their spot is confirmed — right away for a free class, when the payment clears for a paid one. Waitlist joins never get it; they're not in the class yet.
+Each class can have a welcome email, sent automatically to every student the moment their spot is confirmed — that is, when their payment clears. Waitlist joins never get it; they're not in the class yet.
 
 Open the class's **Emails** sub-tab, switch the welcome email on, and write the subject and body. **Send a test to me** puts it in your own inbox so you can check it before students see it. It only goes out when it's switched on and has both a subject and a body.
 
 ### Discount Codes {#teach-discount-codes}
 
-On the **Discount Codes** tab you can create codes for your own classes: percent off or a flat amount off, an optional first and last valid date, and an optional cap on total uses. There's also an auto-apply option — the discount applies to everyone without typing a code, which is how you run a sale.
-
-One catch: a new code starts switched off. An admin approves it before it works, and you'll see its status right on the tab. (Some instructors are trusted to approve their own codes — that's a per-member setting an admin grants.) Site-wide codes made by admins show up here too, read-only.
-
-![The Discount Codes tab: your codes, their status, and the site-wide ones.](/static/help/run-your-class/03-discount-codes.png)
+Discount codes are created by admins. Want one for your class — a percent off, a flat amount off, or an auto-apply sale? Ask an admin.
 
 ### Announce to Your Class {#teach-announce-class}
 
@@ -1004,7 +991,7 @@ You do not need to rebuild a class to run it on new dates.
 2. At the bottom, click **+ Offer on another set of dates**.
 3. You get a draft copy with no dates. Add the new dates, then submit it for review.
 
-The new run stays grouped with the original on the public page, and every new run goes through review before it publishes.
+On the public class page, the original and the new class link to each other under **Other Dates for This Class**, so students always see every date the class is offered. And like any class, the new one goes through review before it publishes.
 
 The caveat: once a class is published, only an admin can edit it, and that edit page is where the button lives. To add a new date-set to a live class, ask an admin; they have the same one-click tool.""",
         "screenshots": [
@@ -1020,13 +1007,6 @@ The caveat: once a class is published, only an admin can edit it, and that edit 
                 "page": "/classes/teach/registrations/",
                 "selector": None,
                 "caption": "The Registrations tab: your students grouped by class, with the email tool.",
-                "as_role": "instructor",
-            },
-            {
-                "file": "03-discount-codes.png",
-                "page": "/classes/teach/discount-codes/",
-                "selector": None,
-                "caption": "The Discount Codes tab: your codes, their status, and the site-wide ones.",
                 "as_role": "instructor",
             },
         ],
@@ -1139,9 +1119,9 @@ Open the **Registrations** tab and click into a registration. Three admin-only a
 
 ![A registration's detail page, with Cancel, Move, and Mark Refunded.](/static/help/reviewing-classes-admin/03-registrations.png)
 
-### Discount Code Approvals
+### Discount Codes
 
-Every discount code an instructor creates starts inactive, waiting on approval. The **Discount Codes** tab shows them all; **Approve** activates a code and **Unapprove** switches it back off. Members you have given the "can approve their own discount codes" checkbox (on their Manage Members edit page) can activate their own without you.""",
+Discount codes are created by admins — instructors ask you when they want one for a class. The **Discount Codes** tab is where you create and manage them: percent off or a flat amount off, optional valid dates, an optional cap on total uses, and an auto-apply option for running a sale. A new code starts inactive; **Approve** activates it and **Unapprove** switches it back off.""",
         "screenshots": [
             {
                 "file": "01-review-queue.png",
@@ -1252,7 +1232,7 @@ Below the switches, the Email wording links let you edit the text of each voting
         "sort_order": 10,
         "related": ["your-guild-page", "guild-staff-roles", "guild-announcements"],
         "body": """\
-Lead a guild, or hold any staff role on one? You have a full control room for your guild: its public page, orientations, announcements, events, and staff. This page is the map — one line per tool, each linking to a short guide with screenshots.
+Lead a guild, or hold any staff role on one? You have a full control room for your guild: its portal landing page, orientations, announcements, events, and staff. This page is the map — one line per tool, each linking to a short guide with screenshots.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
@@ -1270,7 +1250,7 @@ The [Cartographers Guild](/guilds/cartographers-guild/) is a permanent, fictiona
 
 Open your guild's page and click **Guild Settings**. Every tool below lives on one of its tabs.
 
-**Your public page:**
+**Your guild's portal landing page:**
 
 - **Basic Information** — name, About text, essential rules, contact email, website, Discord invite, a YouTube video, a featured class, and whether your member roster shows. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 - **Banner and gallery** — a hero banner with a crop tool, plus up to 10 photos with alt text. Same guide.
@@ -1685,7 +1665,7 @@ Urgent is the break-glass switch: it bypasses each recipient's notification pref
         "sort_order": 60,
         "related": ["community-calendar", "your-guild-page"],
         "body": """\
-Three ways to keep members in the loop, each on its own Guild Settings tab. Events make noise, studio hours stay quiet, and meeting notes are the paper trail.
+Three ways to keep members in the loop, each on its own Guild Settings tab. Events go on the community calendars and send members a heads-up. Studio hours simply show on your guild page — no announcements. Meeting notes are the written record members can read later.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
@@ -1704,7 +1684,7 @@ Good to know:
 
 ### Studio Hours {#guild-studio-hours}
 
-Studio hours are the weekly windows when someone from your guild is around for members to drop by. They're ambient: shown on your guild page's Studio Hours card, never announced, never a notification to anyone.
+Studio hours are the weekly windows when someone from your guild — usually the lead or a staff member — is in the studio, so members can drop by to work, ask questions, and get guidance. They only appear on your guild page's Studio Hours card; posting them never announces anything or sends a notification to anyone.
 
 On the **Studio Hours** tab, add one row per window (Tuesdays and Saturdays are two rows) with a day, start and end time, location, and an optional note. Click **Save Studio Hours**. The row's **Delete** button saves the page at the same time, so nothing else is lost.
 
@@ -1762,10 +1742,17 @@ The moment a class is submitted, the guild lead and every staff member get a rev
 
 ### Where to Review {#guild-approve-classes}
 
-Two doors, same review page:
+Two doors lead to the same review page.
 
-- **The email link.** The review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
-- **The teaching area.** Open the teaching overview and the **Waiting on your review** panel sits at the top, one **Review** button per waiting class. (You'll only see this panel if you lead or staff a guild — and the teaching portal itself sits behind the one-time instructor orientation, so if you've never unlocked teaching, use the email link instead. It works without it.)
+**From the email (easiest):** the review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
+
+**From the teaching area:**
+
+1. Go to `/classes/teach/` (or click **Class Catalog** in the left menu, then **Manage My Classes**).
+2. On the Overview, find the **Waiting on your review** panel at the top. You only see this panel if you lead or staff a guild.
+3. Click **Review** next to the waiting class.
+
+One caveat: the teaching area itself sits behind the one-time portal orientation for instructors. If you've never unlocked teaching, use the email link instead — it works without it.
 
 ![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 

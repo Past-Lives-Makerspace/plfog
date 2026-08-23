@@ -34,11 +34,6 @@ urlpatterns = [
         name="teach_class_registrations",
     ),
     path(
-        "teach/classes/<int:pk>/registrations/export/",
-        views.teach_class_export,
-        name="teach_class_export",
-    ),
-    path(
         "teach/classes/<int:pk>/registrations/email/",
         views.teach_class_email,
         name="teach_class_email",

@@ -155,7 +155,7 @@ def describe_teach_faq_editor():
 def describe_public_faq_rendering():
     @pytest.fixture
     def published(db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, gallery=0)
         ClassSessionFactory(
             class_offering=offering,
             starts_at=timezone.now() + timedelta(days=7),
@@ -193,7 +193,7 @@ def describe_public_faq_rendering():
 def describe_rail_gallery():
     @pytest.fixture
     def published(db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, gallery=0)
         ClassSessionFactory(
             class_offering=offering,
             starts_at=timezone.now() + timedelta(days=7),

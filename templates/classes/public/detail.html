@@ -224,6 +224,33 @@
         </section>
       {% endif %}
 
+      {# Instructor card — kept right below the schedule so students meet their teacher early. #}
+      {% if offering.instructor %}
+      <section class="cp-detail__section">
+        <h2 class="cp-detail__h2">Your Instructor</h2>
+        <div class="cp-detail__instructor">
+          {% if offering.instructor.profile_photo %}
+            <img class="cp-detail__instructor-photo" src="{{ offering.instructor.profile_photo.url }}" alt="{{ offering.instructor.display_name }}">
+          {% else %}
+            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ offering.instructor.display_name|slice:":1" }}</div>
+          {% endif %}
+          <div class="cp-detail__instructor-body">
+            {% if offering.instructor.instructor_slug %}
+              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>
+            {% else %}
+              <span class="cp-detail__instructor-name">{{ offering.instructor.display_name }}</span>
+            {% endif %}
+            {% if offering.instructor.about_me %}
+              <div class="cp-detail__prose">{{ offering.instructor.about_me|linebreaks }}</div>
+            {% endif %}
+            {% if offering.instructor.instructor_slug %}
+              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+      {% endif %}
+
       {# Other dates this same class is offered on — each keeps its own seats. #}
       {% if sibling_offerings %}
         <section class="cp-detail__section">
@@ -293,33 +320,6 @@
           <h3 class="cp-detail__h3">Age</h3>
           <div class="cp-detail__prose">Open to ages {{ offering.age_minimum }}+{% if offering.age_guardian_note %} — {{ offering.age_guardian_note }}{% endif %}.</div>
         </section>
-      {% endif %}
-
-      {# Instructor card #}
-      {% if offering.instructor %}
-      <section class="cp-detail__section">
-        <h2 class="cp-detail__h2">Your Instructor</h2>
-        <div class="cp-detail__instructor">
-          {% if offering.instructor.profile_photo %}
-            <img class="cp-detail__instructor-photo" src="{{ offering.instructor.profile_photo.url }}" alt="{{ offering.instructor.display_name }}">
-          {% else %}
-            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ offering.instructor.display_name|slice:":1" }}</div>
-          {% endif %}
-          <div class="cp-detail__instructor-body">
-            {% if offering.instructor.instructor_slug %}
-              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>
-            {% else %}
-              <span class="cp-detail__instructor-name">{{ offering.instructor.display_name }}</span>
-            {% endif %}
-            {% if offering.instructor.about_me %}
-              <div class="cp-detail__prose">{{ offering.instructor.about_me|linebreaks }}</div>
-            {% endif %}
-            {% if offering.instructor.instructor_slug %}
-              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">See all classes by {{ offering.instructor.display_name }} &rarr;</a>
-            {% endif %}
-          </div>
-        </div>
-      </section>
       {% endif %}
 
       {# Guild card — renders only when the category is linked to a guild #}

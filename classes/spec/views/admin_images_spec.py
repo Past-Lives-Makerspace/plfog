@@ -66,7 +66,7 @@ def describe_admin_class_hero_upload():
 def describe_admin_class_image_upload():
     def it_creates_a_gallery_image(admin_user, client, db):
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, gallery=0)
         url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url, {"image": _tiny_gif()})
@@ -91,7 +91,7 @@ def describe_admin_class_image_upload():
 
     def it_allows_adding_again_after_a_delete(admin_user, client, db):
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, gallery=0)
         imgs = [ClassImageFactory(class_offering=offering, sort_order=i) for i in range(10)]
         ClassImage.objects.filter(pk=imgs[0].pk).delete()
         url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})

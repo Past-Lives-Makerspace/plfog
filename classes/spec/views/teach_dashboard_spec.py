@@ -26,6 +26,15 @@ def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
+def _real_image_file(name: str = "hero.png") -> SimpleUploadedFile:
+    """A genuine PNG — the hero ``image`` form field runs Pillow validation, unlike gallery files."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
 @pytest.fixture
 def instructor_fixture(db):
     user = UserFactory(username="teacher@example.com")
@@ -160,7 +169,8 @@ def describe_instructor_create_class():
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
-                # A class needs a photo of its own to pass the submit gate.
+                # A class needs its own hero plus a gallery photo to pass the submit gate.
+                "image": _real_image_file(),
                 "gallery_images": [_image_file("x.png")],
                 "action": "submit",
             },

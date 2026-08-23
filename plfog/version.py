@@ -17,6 +17,30 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         ],
     },
     {
+        "version": "1.5.0",
+        "date": "2026-08-23",
+        "title": "Class Pages Now Cover Your Arrival",
+        "changes": [
+            "Every class page answers a new question: what do I do once I arrive? Our doors are "
+            "locked, so your instructor meets you at the front door 10 minutes before class — "
+            "and if you don't see anyone, knock!",
+            "Your instructor's introduction now sits right below the class schedule, so you meet "
+            "your teacher before the fine print.",
+        ],
+    },
+    {
+        "version": "1.5.0",
+        "date": "2026-08-23",
+        "title": "For Instructors: Photos, Rosters, and Discount Codes",
+        "changes": [
+            "A class now needs two photos before it can go to review: its own hero image plus at "
+            "least one gallery photo. Real photos of the work get real sign-ups.",
+            "Your class rosters are view-only in the portal now — the download button is gone, "
+            "so student details stay inside the Member Portal.",
+            "Need a discount code for your class? Ask an admin — they create and approve all codes now.",
+        ],
+    },
+    {
         "version": "1.4.0",
         "date": "2026-08-21",
         "title": "Add Your Website and Social Links to Your Profile",

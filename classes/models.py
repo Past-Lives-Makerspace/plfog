@@ -739,7 +739,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             from django.core.exceptions import ValidationError
 
             raise ValidationError(
-                "Add a photo before submitting — a class needs at least its own hero image or one gallery photo."
+                "Add photos before submitting — a class needs its own hero image and at least one gallery photo."
             )
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
@@ -1180,22 +1180,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Question/answer pairs for the public detail page's Questions section.
 
         A class's own ``ClassFaq`` rows when it has any; otherwise the site-wide
-        ``DEFAULT_CLASS_FAQS``. Each entry is ``{"question": str, "answer": str}``
-        with plain-text answers (the template runs them through urlize/linebreaks).
+        ``DEFAULT_CLASS_FAQS``. The arrival FAQ (``ARRIVAL_CLASS_FAQ``) is site
+        policy — the building is locked — so it is always appended, even for
+        classes with their own FAQ list, unless a custom row already asks the
+        same question. Each entry is ``{"question": str, "answer": str}`` with
+        plain-text answers (the template runs them through urlize/linebreaks).
         """
         custom = [{"question": faq.question, "answer": faq.answer} for faq in self.faqs.all()]
-        return custom or [dict(faq) for faq in DEFAULT_CLASS_FAQS]
+        faqs = custom or [dict(faq) for faq in DEFAULT_CLASS_FAQS]
+        if not any(faq["question"] == ARRIVAL_CLASS_FAQ["question"] for faq in faqs):
+            faqs.append(dict(ARRIVAL_CLASS_FAQ))
+        return faqs
 
     @property
     def has_submittable_image(self) -> bool:
-        """Whether this class carries a photo good enough to submit for review.
+        """Whether this class carries the photos required to submit for review.
 
-        True when the offering has its OWN hero (``image``) or at least one
-        gallery photo. The Category/Guild-Type hero fallback that
+        True when the offering has BOTH its own hero (``image``) AND at least
+        one gallery photo. The Category/Guild-Type hero fallback that
         ``display_images`` leans on is deliberately excluded: a class must
-        supply its own photo before it can go to a reviewer.
+        supply its own photos before it can go to a reviewer.
         """
-        return bool(self.image) or self.gallery_images.exists()
+        return bool(self.image) and self.gallery_images.exists()
 
     @property
     def needs_photo_nudge(self) -> bool:
@@ -1528,6 +1534,17 @@ class ClassImage(models.Model):
 # Site-wide starting-point FAQs shown on every class page until the class saves its own
 # ClassFaq rows. The class edit form seeds these as editable rows, so instructors can
 # reword them or add more; answers are plain text (urlize turns the email into a link).
+# Shown on every class page (see ClassOffering.display_faqs) — site policy, not
+# per-class copy: the building is locked, so every student needs the arrival drill.
+ARRIVAL_CLASS_FAQ: dict = {
+    "question": "What do I do once I arrive at Past Lives?",
+    "answer": (
+        "Our building is secure, and our doors are locked. The instructor will meet you at the "
+        "front door to let you in 10 min. before your scheduled class time. If you don't see "
+        "anyone, please knock!"
+    ),
+}
+
 DEFAULT_CLASS_FAQS: list[dict] = [
     {
         "question": "What's your cancellation policy?",

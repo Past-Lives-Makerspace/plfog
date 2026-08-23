@@ -18,7 +18,7 @@ from django.urls import reverse
 from classes.factories import CategoryFactory, ClassImageFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
 
-_ERROR_FRAGMENT = "Add a photo before submitting"
+_ERROR_FRAGMENT = "Add photos before submitting"
 _NUDGE_FRAGMENT = "3 or more photos"
 
 
@@ -30,6 +30,15 @@ def instructor_fixture(db):
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+def _real_image_file(name: str = "hero.png") -> SimpleUploadedFile:
+    """A genuine PNG — the hero ``image`` form field runs Pillow validation, unlike gallery files."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -116,7 +125,9 @@ def _edit_payload(offering, **extra) -> dict:
 
 def describe_teach_class_submit_photo_gate():
     def it_bounces_an_imageless_draft_to_the_edit_page(instructor_fixture, client):
-        draft = ClassOfferingFactory(instructor=instructor_fixture, image="", status=ClassOffering.Status.DRAFT)
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture, image="", gallery=0, status=ClassOffering.Status.DRAFT
+        )
         client.force_login(instructor_fixture.user)
         response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
         assert response.status_code == 302
@@ -160,7 +171,7 @@ def describe_teach_class_create_photo_gate():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_create"),
-            _create_payload(cat, gallery_images=[_image_file("a.png")]),
+            _create_payload(cat, image=_real_image_file(), gallery_images=[_image_file("a.png")]),
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gate Class")
@@ -172,7 +183,11 @@ def describe_teach_class_create_photo_gate():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_create"),
-            _create_payload(cat, gallery_images=[_image_file("a.png"), _image_file("b.png"), _image_file("c.png")]),
+            _create_payload(
+                cat,
+                image=_real_image_file(),
+                gallery_images=[_image_file("a.png"), _image_file("b.png"), _image_file("c.png")],
+            ),
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gate Class")
@@ -182,7 +197,9 @@ def describe_teach_class_create_photo_gate():
 
 def describe_teach_class_edit_photo_gate():
     def it_keeps_an_imageless_class_as_draft_with_an_error(instructor_fixture, client):
-        offering = ClassOfferingFactory(instructor=instructor_fixture, image="", status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, image="", gallery=0, status=ClassOffering.Status.DRAFT
+        )
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),

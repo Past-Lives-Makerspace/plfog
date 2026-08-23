@@ -83,8 +83,9 @@ _ViewFunc = Callable[..., HttpResponse]
 WITHIN_DAYS = {"30": 30, "90": 90, "180": 180}
 
 # Soft, non-blocking suggestion shown after a class submits with fewer than three
-# gallery photos. The hard requirement (at least one photo) lives on the model as
-# ``ClassOffering.has_submittable_image``; this is only encouragement to add more.
+# gallery photos. The hard requirement (own hero image plus at least one gallery
+# photo) lives on the model as ``ClassOffering.has_submittable_image``; this is
+# only encouragement to add more.
 _PHOTO_NUDGE_MESSAGE = "Classes with 3 or more photos get more sign-ups — consider adding a few more."
 
 
@@ -1525,15 +1526,6 @@ def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
             **_class_workspace_counts(offering),
         },
     )
-
-
-@teaching_member_required  # type: ignore[arg-type]  # StreamingHttpResponse is an HttpResponseBase, not HttpResponse
-def teach_class_export(request: HttpRequest, pk: int) -> StreamingHttpResponse:
-    """Download a CSV of every registration for one of the teaching member's own classes."""
-    from classes.exports import stream_registrations_csv
-
-    offering = _teach_class_or_404(request, pk)  # scopes to instructor=request.teaching_member → 404 otherwise
-    return stream_registrations_csv(offering)
 
 
 @teaching_member_required
