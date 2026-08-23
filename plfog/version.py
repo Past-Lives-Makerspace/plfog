@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.5.0",
+        "date": "2026-08-23",
+        "title": "Want Your Work Featured? Tell Us on Your Profile",
+        "changes": [
+            "Profile Settings has a new Marketing Opportunities question. Say yes and the Past "
+            "Lives team may reach out about highlighting your art or business on our Instagram, "
+            "website, or email newsletter. It starts as a no, and your answer is private — it "
+            "never appears on your directory card.",
+        ],
+    },
     {
         "version": "1.4.0",
         "date": "2026-08-21",

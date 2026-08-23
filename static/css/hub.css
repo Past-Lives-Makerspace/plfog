@@ -4329,6 +4329,47 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 
+/* Generic stacked radio option cards (profile marketing opt-in). */
+.pl-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.pl-radio-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+
+.pl-radio-option input[type="radio"] {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0.2rem 0 0;
+    padding: 0;
+    background: none;
+    border: none;
+    accent-color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+
+.pl-radio-option__label {
+    flex: 1 1 auto;
+}
+
+/* :checked lives on the input; style the enclosing label via :has (option card). */
+.pl-radio-option:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-elevated);
+}
+
 /* ============================================================================
    Release-update email composer + preview  (Site Settings → Announcements)
    Admin-page chrome only — the iframe content is the email itself.

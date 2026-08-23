@@ -307,6 +307,24 @@ class ProfileSettingsForm(forms.ModelForm):
 
     VISIBILITY_PREFIX = "show_"
 
+    # Yes/No radio over the boolean model field. Not required and coerced with
+    # ``empty_value=False`` so a POST without the field (older clients, tests) means "No".
+    marketing_opt_in = forms.TypedChoiceField(
+        required=False,
+        coerce=lambda value: value == "True",
+        empty_value=False,
+        choices=(
+            (
+                True,
+                "Yes, please contact me about Past Lives Makerspace marketing opportunities to "
+                "highlight my art/business (Instagram, website, email newsletter, etc.).",
+            ),
+            (False, "No thanks."),
+        ),
+        widget=forms.RadioSelect,
+        label="Marketing opportunities",
+    )
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Snapshot the photo the member already has so an invalid upload can be discarded
@@ -384,6 +402,7 @@ class ProfileSettingsForm(forms.ModelForm):
             "show_in_directory",
             "open_for_commissions",
             "commission_note",
+            "marketing_opt_in",
             "instructor_bio",
         ]
         widgets = {

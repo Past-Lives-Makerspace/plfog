@@ -479,6 +479,14 @@ class Member(models.Model):
         blank=True,
         help_text="Short note on the kind of paid or commissioned work the member welcomes.",
     )
+    marketing_opt_in = models.BooleanField(
+        default=False,
+        help_text=(
+            "Member said yes to being contacted about Past Lives marketing opportunities that highlight "
+            "their art/business (Instagram, website, email newsletter, etc.). Private — never shown on "
+            "the directory card."
+        ),
+    )
     instructor_slug = models.SlugField(
         max_length=255,
         blank=True,
