@@ -30,6 +30,12 @@
                 class="vote-tab">
             Guilds
         </button>
+        <button type="button"
+                @click="tab = 'account'"
+                :class="{ 'vote-tab--active': tab === 'account' }"
+                class="vote-tab">
+            Account
+        </button>
     </div>
 
     {# -------- Profile tab -------- #}
@@ -647,6 +653,19 @@
        wrapping <form> would orphan them (the nested-form/submit bug). No page Save.{% endcomment %}
     <div x-show="tab === 'guilds'" x-cloak data-help-key="settings.your-guilds">
         {% include "hub/partials/_my_guilds.html" %}
+    </div>
+
+    {# -------- Account tab -------- #}
+    <div x-show="tab === 'account'" x-cloak>
+        <h2 class="pl-profile-heading">Delete Your Account</h2>
+        <div class="hub-card">
+            <h3>Danger Zone</h3>
+            <p>Deleting your account removes your personal info (name, photo, contact details, bio) from Past Lives for good and signs you out everywhere. It does not cancel any paid subscription managed outside this site.</p>
+            <p><strong>This can't be undone from here.</strong> To use Past Lives again, a guild lead or admin will need to send you a new invite.</p>
+            {% url 'hub_account_delete' as account_delete_url %}
+            <button type="button" class="pl-btn pl-btn--danger" @click="$dispatch('open-confirm', 'delete-account')">Delete My Account</button>
+            {% include "components/confirm_modal.html" with confirm_id="delete-account" confirm_title="Delete your account?" confirm_message="This permanently removes your personal info from Past Lives and signs you out. This can't be undone from here." confirm_action_url=account_delete_url confirm_button_text="Delete My Account" confirm_typed_value="DELETE" confirm_typed_placeholder="Type DELETE" confirm_typed_field_name="confirm_text" %}
+        </div>
     </div>
 </div>
 {% endblock %}

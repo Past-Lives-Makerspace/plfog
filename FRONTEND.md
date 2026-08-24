@@ -158,6 +158,13 @@ For destructive actions (delete, void, deactivate).
 - `confirm_button_text` — button label (default: "Confirm")
 - `confirm_button_style` — `danger` (default) or `primary`
 
+**Typed-confirmation (opt-in, plain-POST only):** for an especially destructive action, require the user to type an exact word before the Confirm button enables.
+- `confirm_typed_value` — when set, a text input appears and Confirm stays disabled until the typed text matches this value exactly.
+- `confirm_typed_placeholder` — the input's placeholder + label (default: "Type to confirm").
+- `confirm_typed_field_name` — the POST field name the typed value is submitted under (default: "confirm").
+
+Omit all three and the modal renders exactly as before.
+
 ```html
 <button @click="$dispatch('open-confirm', 'void-charge')">Void</button>
 {% include "components/confirm_modal.html" with confirm_id="void-charge" confirm_title="Void this charge?" confirm_message="This will remove the charge from the member's tab." confirm_action_url="/billing/void/42/" confirm_button_text="Void Charge" %}
