@@ -35,7 +35,8 @@ def delete_own_account(member: "Member") -> None:
     if member.deleted_at is not None:
         logger.info("delete_own_account: member pk=%s already deleted, no-op.", member.pk)
         return
-    if member.user_id is None:
+    user = member.user
+    if user is None:
         raise ValueError(f"Member {member.pk} has no linked User; cannot self-delete.")
 
     from allauth.account.models import EmailAddress
@@ -50,7 +51,6 @@ def delete_own_account(member: "Member") -> None:
     )
     from membership.models import Guild, GuildStaffMembership, MemberContact, MemberEmail
 
-    user = member.user
     placeholder = f"deleted-user-{user.pk}@deleted.pastlives.invalid"
 
     with transaction.atomic():
