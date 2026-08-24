@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.6.1",
+        "date": "2026-08-24",
+        "title": "Class links in Discord go to the right place",
+        "changes": [
+            "Links in the #classes Discord channel (new class announcements and the weekly "
+            "digest) now take you straight to classes.pastlives.space, where class sign-ups "
+            "currently live.",
+        ],
+    },
     {
         "version": "1.6.0",
         "date": "2026-08-24",
