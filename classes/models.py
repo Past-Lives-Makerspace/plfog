@@ -574,6 +574,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         return _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
 
     @property
+    def legacy_public_url(self) -> str:
+        """This class's page on the legacy Drupal site, or ``""`` for locally-authored offerings.
+
+        The import derives ``slug`` from the Drupal path alias (``/class/<alias>``), appending a
+        ``-legacy`` suffix only when that alias collides with an existing local slug — so stripping
+        the suffix recovers the alias.
+        """
+        from classes.import_service import LEGACY_CMS_BASE
+
+        if not self.legacy_cms_id:
+            return ""
+        return f"{LEGACY_CMS_BASE}/class/{self.slug.removesuffix('-legacy')}"
+
+    @property
     def qr_url(self) -> str:
         """Stable, slug-independent permalink the QR encodes — it redirects to the current
         public page, so a printed QR keeps working even after the class's slug changes."""
