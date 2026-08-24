@@ -433,7 +433,11 @@ class GoldenTicketConfirmLoginCodeForm(ConfirmLoginCodeForm):
             # email -> fake process with no user) from reaching a login with nobody to
             # log in as, which would otherwise assert deep inside allauth.
             user = self._pending_login_user()
-            if user is not None:
+            if user is not None and user.is_active:
+                # Defense in depth: never hand the master key to a deactivated account
+                # (e.g. one that self-service-deleted). ``pre_login`` already blocks
+                # inactive users, but the guard keeps the golden path from ever
+                # authenticating one.
                 # A master key that leaves no trace is not auditable. Name the account
                 # every time it is used, at WARNING so it survives prod log levels.
                 logger.warning(

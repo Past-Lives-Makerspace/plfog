@@ -17,9 +17,15 @@ Parameters (pass via {% include ... with %}):
   confirm_hx_post      — HTMX POST target; switches the form to hx-post.
   confirm_hx_target    — CSS selector the response swaps (hx-swap=outerHTML).
   confirm_hx_vals      — optional raw JSON for hx-vals (developer-supplied, e.g. resend).
+
+  Typed-confirmation mode (optional, plain-POST only — opt-in, backward compatible):
+  confirm_typed_value       — when set, a text input appears and the Confirm button stays
+                              disabled until the typed text matches this value exactly.
+  confirm_typed_placeholder — input placeholder + label (default: "Type to confirm").
+  confirm_typed_field_name  — POST field name carrying the typed value (default: "confirm").
 {% endcomment %}
 <template x-teleport="body">
-<div x-data="{ open: false }"
+<div x-data="{ open: false, typed: '' }"
      x-show="open"
      x-transition:enter="modal-enter"
      x-transition:leave="modal-leave"
@@ -36,6 +42,12 @@ Parameters (pass via {% include ... with %}):
         </div>
         <div class="pl-modal__body">
             <p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>
+            {% if confirm_typed_value %}
+            <label class="pl-form-label" for="{{ confirm_id }}-typed">{{ confirm_typed_placeholder|default:"Type to confirm" }}</label>
+            <input type="text" id="{{ confirm_id }}-typed" x-model="typed" autocomplete="off"
+                   placeholder="{{ confirm_typed_placeholder|default:'Type to confirm' }}"
+                   class="pl-input" style="width:100%; margin:0 0 1.5rem;">
+            {% endif %}
             <div class="pl-modal__actions">
                 {% if confirm_hx_post %}
                 <form hx-post="{{ confirm_hx_post }}"
@@ -52,7 +64,9 @@ Parameters (pass via {% include ... with %}):
                 <form method="post" action="{{ confirm_action_url }}" style="flex:1;">
                     {% csrf_token %}
                     {% if confirm_field_name %}<input type="hidden" name="{{ confirm_field_name }}" value="{{ confirm_field_value }}">{% endif %}
-                    <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;">
+                    {% if confirm_typed_value %}<input type="hidden" name="{{ confirm_typed_field_name|default:'confirm' }}" :value="typed">{% endif %}
+                    <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;"
+                            {% if confirm_typed_value %}:disabled="typed !== '{{ confirm_typed_value }}'"{% endif %}>
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>
                 </form>

@@ -527,6 +527,23 @@ class SkillSuggestionForm(forms.Form):
         return MemberSkill.objects.create(member=self.member, skill=skill)
 
 
+class DeleteAccountConfirmForm(forms.Form):
+    """Requires typing DELETE exactly to confirm irreversible self-service deletion."""
+
+    CONFIRM_TEXT = "DELETE"
+
+    confirm_text = forms.CharField(
+        label="Type DELETE to confirm",
+        widget=forms.TextInput(attrs={"autocomplete": "off"}),
+    )
+
+    def clean_confirm_text(self) -> str:
+        value = self.cleaned_data["confirm_text"].strip()
+        if value != self.CONFIRM_TEXT:
+            raise forms.ValidationError("Type DELETE (all capitals) to confirm.")
+        return value
+
+
 class BetaFeedbackForm(forms.Form):
     """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 

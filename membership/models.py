@@ -505,6 +505,15 @@ class Member(models.Model):
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Set when the member self-service-deletes their account (anonymize + lock, "
+            "never a hard delete). Distinct from status=FORMER, which an admin can set for "
+            "many other reasons. Not filtered by the default manager (see PR rationale)."
+        ),
+    )
     welcome_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,

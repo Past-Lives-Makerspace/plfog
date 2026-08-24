@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.6.0",
+        "date": "2026-08-24",
+        "title": "Delete your account, right from the app",
+        "changes": [
+            "You can now delete your account from Settings, under a new Account tab. "
+            "It removes your personal info from Past Lives for good and signs you out "
+            "everywhere. If you ever want to come back, ask a guild lead or admin to "
+            "send you a new invite.",
+        ],
+    },
     {
         "version": "1.5.0",
         "date": "2026-08-23",

@@ -14,6 +14,7 @@ from django.utils import timezone as dj_timezone
 from allauth.account.models import EmailAddress
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.views import redirect_to_login
@@ -35,6 +36,7 @@ from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
+    DeleteAccountConfirmForm,
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
@@ -80,6 +82,7 @@ from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_manage_orientations as _can_manage_orientations
 from membership.permissions import can_propose_to_meeting as _can_propose_to_meeting
+from membership.services.account_deletion import delete_own_account
 
 logger = logging.getLogger("hub")
 
@@ -1641,7 +1644,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     # Whitelist the tab param — it flows into an Alpine x-data JS expression, so
     # HTML escaping alone isn't enough to stop a payload like ?tab='+alert(1)+'.
     tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds"} else "profile"
+    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds", "account"} else "profile"
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
@@ -1712,6 +1715,26 @@ def profile_photo_delete(request: HttpRequest) -> HttpResponse:
         member.profile_photo.delete(save=True)
         messages.success(request, "Profile photo removed.")
     return redirect(f"{reverse('hub_user_settings')}?tab=profile")
+
+
+@login_required
+@require_POST
+def account_delete(request: HttpRequest) -> HttpResponse:
+    """Self-service account deletion: anonymize PII, lock login, sign the member out."""
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "Your account is not linked to a membership.")
+        return redirect("hub_user_settings")
+
+    form = DeleteAccountConfirmForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Type DELETE exactly to confirm account deletion.")
+        return redirect(f"{reverse('hub_user_settings')}?tab=account")
+
+    delete_own_account(member)
+    messages.success(request, "Your account has been deleted. You've been signed out.")
+    auth_logout(request)
+    return redirect("account_login")
 
 
 def _skill_categories_with_approved() -> QuerySet[SkillCategory]:

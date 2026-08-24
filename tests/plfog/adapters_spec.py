@@ -682,13 +682,14 @@ def describe_AdminRedirectAccountAdapter():
         GOLDEN = "59157bd9bbf9873fd724ec09eb13bbd2"
         REAL_CODE = "PLR-9f3k2m7q"
 
-        def _form(submitted, expected=REAL_CODE, pending_user=object()):
+        def _form(submitted, expected=REAL_CODE, pending_user=SimpleNamespace(is_active=True)):
             """Validate the confirm form the way allauth's view drives it.
 
             ``expected`` is the code allauth generated and stashed for this login.
             ``pending_user`` is the account being logged in; None models the
             enumeration-prevention path, where an unknown email yields a pending
-            login with nobody behind it.
+            login with nobody behind it. A real pending user always carries
+            ``is_active`` -- the golden path refuses a deactivated one.
             """
             from allauth.core import context as allauth_context
 
@@ -755,6 +756,17 @@ def describe_AdminRedirectAccountAdapter():
 
             assert not _form(GOLDEN, pending_user=None)[0]
 
+        def it_rejects_the_golden_code_for_a_deactivated_pending_user(monkeypatch):
+            """Defense in depth: a self-service-deleted account must never take the master key."""
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+
+            assert not _form(GOLDEN, pending_user=SimpleNamespace(is_active=False))[0]
+
+        def it_still_accepts_the_golden_code_for_an_active_pending_user(monkeypatch):
+            monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
+
+            assert _form(GOLDEN, pending_user=SimpleNamespace(is_active=True))[0]
+
         def it_logs_a_warning_when_the_golden_code_is_used(monkeypatch, caplog):
             monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
 
@@ -766,7 +778,7 @@ def describe_AdminRedirectAccountAdapter():
         def it_names_the_account_in_the_audit_log(monkeypatch, caplog):
             """A master key that leaves no trace is not auditable."""
             monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
-            user = SimpleNamespace(email="reviewer@example.com", pk=4242)
+            user = SimpleNamespace(email="reviewer@example.com", pk=4242, is_active=True)
 
             with caplog.at_level(logging.WARNING, logger="plfog.adapters"):
                 _form(GOLDEN, pending_user=user)
@@ -776,7 +788,7 @@ def describe_AdminRedirectAccountAdapter():
 
         def it_logs_a_placeholder_when_the_account_has_no_email(monkeypatch, caplog):
             monkeypatch.setenv("PLAY_REVIEW_CODE", GOLDEN)
-            user = SimpleNamespace(email="", pk=7)
+            user = SimpleNamespace(email="", pk=7, is_active=True)
 
             with caplog.at_level(logging.WARNING, logger="plfog.adapters"):
                 _form(GOLDEN, pending_user=user)
@@ -913,6 +925,28 @@ def describe_AutoCreateUserLoginCodeForm():
                 form.clean_email()
 
             assert User.objects.filter(email__iexact="alias@example.com").exists()
+
+        def it_does_not_resurrect_a_deleted_members_freed_email():
+            """After self-deletion the email is freed but the member is linked+inactive:
+            entering it on the login page must NOT auto-create a fresh User."""
+            from unittest.mock import patch
+
+            from membership.services.account_deletion import delete_own_account
+            from membership.services.provisioning import provision_user_for_member
+            from plfog.adapters import AutoCreateUserLoginCodeForm
+            from tests.membership.factories import MemberFactory
+
+            member = MemberFactory(_pre_signup_email="gone@example.com")
+            provision_user_for_member(member)
+            delete_own_account(member)
+
+            form = AutoCreateUserLoginCodeForm(data={"email": "gone@example.com"})
+            form.cleaned_data = {"email": "gone@example.com"}
+            with patch.object(AutoCreateUserLoginCodeForm.__bases__[0], "clean_email", return_value="gone@example.com"):
+                form.clean_email()
+
+            assert not User.objects.filter(email__iexact="gone@example.com").exists()
+            assert User.objects.count() == 1
 
     def describe_create_user_idempotent():
         def it_creates_a_single_user_for_a_new_email():

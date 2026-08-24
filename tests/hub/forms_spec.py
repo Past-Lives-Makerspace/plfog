@@ -204,3 +204,40 @@ def describe_push_test_form():
         form = PushTestForm({"email": "ghost@example.com"})
         assert not form.is_valid()
         assert "email" in form.errors
+
+
+def describe_DeleteAccountConfirmForm():
+    def it_is_valid_when_the_exact_word_is_typed():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "DELETE"})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["confirm_text"] == "DELETE"
+
+    def it_strips_surrounding_whitespace_before_comparing():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "  DELETE  "})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["confirm_text"] == "DELETE"
+
+    def it_rejects_a_lowercase_word():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "delete"})
+        assert not form.is_valid()
+        assert "confirm_text" in form.errors
+
+    def it_rejects_a_different_word():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "REMOVE"})
+        assert not form.is_valid()
+        assert "confirm_text" in form.errors
+
+    def it_rejects_a_blank_value():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": ""})
+        assert not form.is_valid()
+        assert "confirm_text" in form.errors

@@ -325,6 +325,7 @@ urlpatterns = [
         views.profile_photo_delete,
         name="hub_profile_photo_delete",
     ),
+    path("settings/delete-account/", views.account_delete, name="hub_account_delete"),
     path("settings/skills/add/", views.skill_add, name="hub_skill_add"),
     path("settings/skills/<int:skill_pk>/remove/", views.skill_remove, name="hub_skill_remove"),
     path("settings/skills/suggest/", views.skill_suggest, name="hub_skill_suggest"),
