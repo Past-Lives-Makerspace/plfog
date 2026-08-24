@@ -48,7 +48,7 @@ def delete_own_account(member: "Member") -> None:
         SiteActivity,
         UserProfile,
     )
-    from membership.models import Guild, GuildStaffMembership, MemberEmail
+    from membership.models import Guild, GuildStaffMembership, MemberContact, MemberEmail
 
     user = member.user
     placeholder = f"deleted-user-{user.pk}@deleted.pastlives.invalid"
@@ -57,6 +57,9 @@ def delete_own_account(member: "Member") -> None:
         # Free every email store so the address can be re-invited later.
         EmailAddress.objects.filter(user=user).delete()
         MemberEmail.objects.filter(member=member).delete()
+
+        # Remove the member's website/social/phone contact methods (free-text PII).
+        MemberContact.objects.filter(member=member).delete()
 
         # Lock the User out and free username/email (both unique).
         user.is_active = False
@@ -75,7 +78,12 @@ def delete_own_account(member: "Member") -> None:
         Notification.objects.filter(user=user).delete()
         NotificationPreference.objects.filter(user=user).delete()
         UserProfile.objects.filter(user=user).update(
-            preferred_name="", pronouns="", phone="", first_attendance_status=""
+            preferred_name="",
+            pronouns="",
+            phone="",
+            first_attendance_status="",
+            accessibility_note="",
+            custom_question_answers={},
         )
 
         # Scrub Member PII in place.
@@ -95,6 +103,8 @@ def delete_own_account(member: "Member") -> None:
         member.emergency_contact_phone = ""
         member.emergency_contact_relationship = ""
         member.instructor_bio = ""
+        member.instructor_slug = ""
+        member.instructor_oriented_at = None
         member.commission_note = ""
         member.open_for_commissions = False
         member.hide_from_directory = True
@@ -119,6 +129,8 @@ def delete_own_account(member: "Member") -> None:
                 "emergency_contact_phone",
                 "emergency_contact_relationship",
                 "instructor_bio",
+                "instructor_slug",
+                "instructor_oriented_at",
                 "commission_note",
                 "open_for_commissions",
                 "hide_from_directory",

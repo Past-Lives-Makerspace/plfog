@@ -21,18 +21,20 @@ from PIL import Image
 
 from core.models import (
     FcmDevice,
+    Invite,
     Notification,
     NotificationPreference,
     PushSubscription,
     SiteActivity,
     UserProfile,
 )
-from membership.models import AdminCapability, GuildStaffMembership, Member, MemberEmail
+from membership.models import AdminCapability, GuildStaffMembership, Member, MemberContact, MemberEmail
 from membership.services.account_deletion import delete_own_account
 from membership.services.provisioning import provision_user_for_member
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
+    MemberContactFactory,
     MemberEmailFactory,
     MemberFactory,
 )
@@ -205,6 +207,17 @@ def describe_delete_own_account():
         member.refresh_from_db()
         assert member.hide_from_directory is True
         assert member.must_be_listed_in_directory is False
+        assert member.instructor_slug == ""
+
+    def describe_instructor_scrub():
+        def it_clears_the_public_instructor_slug_and_teaching_orientation():
+            member = _linked_member(instructor_slug="jane-doe", instructor_oriented_at=timezone.now())
+
+            delete_own_account(member)
+
+            member.refresh_from_db()
+            assert member.instructor_slug == ""
+            assert member.instructor_oriented_at is None
 
     def it_resets_fog_role_and_strips_staff_and_superuser():
         member = _linked_member(fog_role=Member.FogRole.ADMIN)
@@ -243,6 +256,15 @@ def describe_delete_own_account():
 
         assert not MemberEmail.objects.filter(member=member).exists()
 
+    def it_deletes_every_member_contact_method():
+        member = _linked_member()
+        MemberContactFactory(member=member, label="Website", value="https://jane.example")
+        MemberContactFactory(member=member, label="Instagram", value="@jane")
+
+        delete_own_account(member)
+
+        assert not MemberContact.objects.filter(member=member).exists()
+
     def it_clears_push_fcm_notifications_and_preferences():
         member = _linked_member()
         user = member.user
@@ -267,6 +289,8 @@ def describe_delete_own_account():
                 pronouns="she/her",
                 phone="555-1111",
                 first_attendance_status=UserProfile.FirstAttendance.FIRST_TIME,
+                accessibility_note="Please use the ramp entrance.",
+                custom_question_answers={"3": "shop safety"},
             )
 
             delete_own_account(member)
@@ -276,6 +300,8 @@ def describe_delete_own_account():
             assert profile.pronouns == ""
             assert profile.phone == ""
             assert profile.first_attendance_status == ""
+            assert profile.accessibility_note == ""
+            assert profile.custom_question_answers == {}
 
         def it_does_not_raise_when_there_is_no_user_profile():
             member = _linked_member()
@@ -344,6 +370,8 @@ def describe_delete_own_account():
 
         offering.refresh_from_db()
         assert offering.instructor_id == member.pk
+        member.refresh_from_db()
+        assert member.instructor_slug == ""
 
     def it_logs_an_account_deleted_activity():
         member = _linked_member()
@@ -368,3 +396,19 @@ def describe_delete_own_account():
             assert member.full_legal_name == "Jane Doe"
             assert member.user.is_active is True
             assert EmailAddress.objects.filter(user=member.user).exists()
+
+    def describe_reinvite_after_deletion():
+        def it_frees_the_email_for_a_fresh_invite_with_no_collision():
+            member = _linked_member()
+            freed_email = member.primary_email
+            inviter = User.objects.create_user(username="inviter", email="inviter@example.com")
+
+            delete_own_account(member)
+
+            with patch("core.email.send_mail"):
+                invite = Invite.create_and_send(email=freed_email, invited_by=inviter)
+
+            assert invite.email == freed_email
+            assert invite.member is not None
+            assert invite.member.pk != member.pk
+            assert invite.member.status == Member.Status.INVITED
