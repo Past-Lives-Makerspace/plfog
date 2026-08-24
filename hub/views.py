@@ -1732,9 +1732,19 @@ def account_delete(request: HttpRequest) -> HttpResponse:
         return redirect(f"{reverse('hub_user_settings')}?tab=account")
 
     delete_own_account(member)
-    messages.success(request, "Your account has been deleted. You've been signed out.")
     auth_logout(request)
-    return redirect("account_login")
+    return redirect("hub_account_deleted")
+
+
+def account_deleted(request: HttpRequest) -> HttpResponse:
+    """Public confirmation shown after self-service deletion has signed the member out.
+
+    Deliberately undecorated (no ``@login_required``): the member is already logged out
+    by the time they land here, so this must render for an anonymous visitor. It confirms
+    the deletion on its own — it does not rely on a flash message, which ``auth_logout``'s
+    session flush would discard before the redirect.
+    """
+    return render(request, "hub/account_deleted.html")
 
 
 def _skill_categories_with_approved() -> QuerySet[SkillCategory]:

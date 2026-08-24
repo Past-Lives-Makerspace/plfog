@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Account Deleted - Past Lives{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <h1 class="auth-page__title">Your account has been deleted</h1>
+  <p class="auth-page__subtitle">Your personal information has been removed from Past Lives and you've been signed out on this device.</p>
+  <div class="auth-card">
+    <p>Thanks for being part of the space. If you'd like to come back, a guild lead or admin can send you a new invite.</p>
+    <a href="{% url 'account_login' %}" class="btn btn--primary btn--full">Back to sign in</a>
+  </div>
+</div>
+{% endblock %}

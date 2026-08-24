@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
-from django.contrib.messages import get_messages
 from django.test import Client
 from django.urls import reverse
 
@@ -82,7 +81,7 @@ def describe_account_delete():
             response = client.post(reverse("hub_account_delete"), {"confirm_text": "DELETE"})
 
             assert response.status_code == 302
-            assert response["Location"] == reverse("account_login")
+            assert response["Location"] == reverse("hub_account_deleted")
             member.refresh_from_db()
             user.refresh_from_db()
             assert member.status == Member.Status.FORMER
@@ -98,13 +97,3 @@ def describe_account_delete():
             client.post(reverse("hub_account_delete"), {"confirm_text": "DELETE"})
 
             assert "_auth_user_id" not in client.session
-
-        def it_reports_success_to_the_member():
-            user = _member_user("del_msg")
-            client = Client()
-            client.force_login(user)
-
-            response = client.post(reverse("hub_account_delete"), {"confirm_text": "DELETE"})
-
-            messages = [m.message for m in get_messages(response.wsgi_request)]
-            assert any("has been deleted" in m for m in messages)
