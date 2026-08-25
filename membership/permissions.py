@@ -149,8 +149,8 @@ def can_propose_to_meeting(
     """True when this request may propose an agenda item for the meeting.
 
     Guild meeting: any active member of that guild (its leadership and admins
-    trivially). Council: guild leads/staff/admins only. Always ``False`` once the
-    meeting is locked or its date has passed.
+    trivially). Council: any active member. Always ``False`` once the meeting is
+    locked or its date has passed.
 
     ``member_guild_ids`` is the bulk optimization for a caller checking many meetings at
     once (the Meetings home §6.2): pass the viewer's joined-guild pks (see
@@ -183,10 +183,10 @@ def can_propose_to_meeting(
     editable = is_editable if is_editable is not None else can_edit_meeting(request, meeting)
     if editable:
         return True
-    if meeting.guild is None:
-        return False
     if member is None or member.status != Member.Status.ACTIVE:
         return False
+    if meeting.guild is None:
+        return True  # council: any active member may propose
     if member_guild_ids is not None:
         return meeting.guild_id in member_guild_ids
     return meeting.guild.memberships.filter(member=member).exists()

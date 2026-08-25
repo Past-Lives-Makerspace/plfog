@@ -813,6 +813,60 @@ def describe_unlock():
 
 
 @pytest.mark.django_db
+def describe_unpublish():
+    def it_returns_a_published_agenda_to_draft_for_the_lead(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, published=True)
+        resp = client.post(reverse("hub_meeting_unpublish", args=[meeting.pk]))
+        assert resp.status_code == 204
+        assert resp["HX-Redirect"] == reverse("hub_meeting", args=[meeting.pk])
+        assert "Agenda unpublished — back to draft." in _messages(resp)
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.DRAFT
+
+    def it_allows_a_fog_admin(client: Client):
+        _admin_client(client)
+        meeting = MeetingFactory(published=True)
+        resp = client.post(reverse("hub_meeting_unpublish", args=[meeting.pk]))
+        assert resp.status_code == 204
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.DRAFT
+
+    def it_403s_a_plain_member(client: Client):
+        _member_client(client)
+        meeting = MeetingFactory(published=True)
+        assert client.post(reverse("hub_meeting_unpublish", args=[meeting.pk])).status_code == 403
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.PUBLISHED
+
+    def it_422s_a_draft_meeting(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_unpublish", args=[meeting.pk]))
+        assert resp.status_code == 422
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.DRAFT
+
+    def it_422s_an_approved_meeting_with_the_locked_message(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, approved=True)
+        resp = client.post(reverse("hub_meeting_unpublish", args=[meeting.pk]))
+        assert resp.status_code == 422
+        assert "an admin can unlock them." in resp["HX-Trigger"]
+        meeting.refresh_from_db()
+        assert meeting.status == Meeting.Status.APPROVED
+
+    def it_405s_a_get(client: Client):
+        guild = GuildFactory()
+        _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild, published=True)
+        assert client.get(reverse("hub_meeting_unpublish", args=[meeting.pk])).status_code == 405
+
+
+@pytest.mark.django_db
 def describe_delete():
     def it_deletes_a_draft_and_redirects_to_the_meetings_home(client: Client):
         guild = GuildFactory()
@@ -1061,13 +1115,25 @@ def describe_propose():
         meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=1))
         assert client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Too late"}).status_code == 403
 
-    def it_403s_a_plain_member_for_the_council_scope(client: Client):
-        _member_client(client)
+    def it_lets_an_active_plain_member_propose_to_the_council(client: Client):
+        user = _member_client(client)
         meeting = MeetingFactory(guild=None)
-        assert (
-            client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Council thing"}).status_code
-            == 403
-        )
+        resp = client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Council thing"})
+        assert resp.status_code == 204
+        assert "Council leadership will review it." in resp["HX-Trigger"]
+        proposal = meeting.proposals.get()
+        assert proposal.proposed_by == user
+        assert proposal.state == MeetingItemProposal.State.PENDING
+
+    def it_queues_an_editors_own_submission_as_a_pending_proposal(client: Client):
+        guild = GuildFactory()
+        user = _lead_client(client, guild)
+        meeting = MeetingFactory(guild=guild)
+        resp = client.post(reverse("hub_meeting_propose", args=[meeting.pk]), {"title": "Lead idea", "why": ""})
+        assert resp.status_code == 204
+        proposal = meeting.proposals.get()
+        assert proposal.proposed_by == user
+        assert proposal.state == MeetingItemProposal.State.PENDING  # same queue as everyone else
 
     def it_lets_a_guild_lead_propose_to_the_council(client: Client):
         guild = GuildFactory()
@@ -1318,6 +1384,33 @@ def describe_workspace_lifecycle_rendering():
             meeting = MeetingFactory(guild=guild)
             assert "Minutes approved by" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
 
+    def describe_the_unpublish_control():
+        def it_offers_unpublish_to_an_editor_on_a_published_agenda(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, published=True)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "pl-meeting-badge--published" in content  # the shared blue treatment
+            assert "unpublish-meeting" in content  # the confirm modal + its trigger
+            assert "Unpublish this agenda?" in content
+            assert reverse("hub_meeting_unpublish", args=[meeting.pk]) in content
+
+        def it_shows_a_plain_member_the_published_badge_only(client: Client):
+            _member_client(client)
+            meeting = MeetingFactory(published=True)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "pl-meeting-badge--published" in content
+            assert "unpublish-meeting" not in content  # the mis-gate canary
+            assert reverse("hub_meeting_unpublish", args=[meeting.pk]) not in content
+
+        def it_is_absent_on_an_editors_draft(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Publish agenda" in content
+            assert "unpublish-meeting" not in content
+
     def describe_the_footer():
         def it_shows_approve_and_delete_with_the_guild_audience_line(client: Client):
             guild = GuildFactory()
@@ -1502,13 +1595,21 @@ def describe_workspace_lifecycle_rendering():
             assert "propose-item" in content
             assert "Helps leadership slot it into the meeting." in content
 
-        def it_is_absent_for_editors(client: Client):
+        def it_renders_the_form_fields_through_form_field(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild)
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert 'id="propose-item-title"' in content  # the workspace auto_id contract
+            assert 'id="propose-item-why"' in content
+            assert 'class="pl-form-group"' in content
+
+        def it_shows_for_editors_too(client: Client):
             guild = GuildFactory()
             _lead_client(client, guild)
             meeting = MeetingFactory(guild=guild)
-            assert (
-                "Propose an agenda item" not in client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
-            )
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert "Propose an agenda item" in content
 
         def it_is_absent_on_a_locked_upcoming_meeting(client: Client):
             guild = GuildFactory()
@@ -1587,6 +1688,14 @@ def describe_meetings_home():
             assert ">Draft</span>" in upcoming_zone
             assert ">Approved</span>" in upcoming_zone
 
+        def it_badges_a_published_meeting_in_blue_not_draft(client: Client):
+            _member_client(client)
+            MeetingFactory(published=True)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            upcoming_zone = content.split("Upcoming")[1].split("Meetings by guild")[0]
+            assert 'pl-meeting-badge--published">Published</span>' in upcoming_zone
+            assert ">Draft</span>" not in upcoming_zone
+
         def it_shows_a_join_button_when_the_meeting_has_a_video_link(client: Client):
             _member_client(client)
             MeetingFactory(video_call_url="https://meet.example/home-zone")
@@ -1646,11 +1755,13 @@ def describe_meetings_home():
             MeetingFactory(guild=guild)
             assert "Propose an agenda item" not in _zone(client)
 
-        def it_hides_the_propose_button_from_an_editor(client: Client):
+        def it_shows_the_propose_button_to_an_editor_too(client: Client):
             guild = GuildFactory()
-            _lead_client(client, guild)  # editors add items directly, no propose affordance
-            MeetingFactory(guild=guild)
-            assert "Propose an agenda item" not in _zone(client)
+            _lead_client(client, guild)  # editors propose too — same pending queue
+            meeting = MeetingFactory(guild=guild)
+            zone = _zone(client)
+            assert "Propose an agenda item" in zone
+            assert f"propose-item-{meeting.pk}" in zone
 
         def it_scopes_each_cards_modal_to_its_own_meeting_no_cross_open(client: Client):
             guild1 = GuildFactory(name="Aardvark")
@@ -1664,6 +1775,10 @@ def describe_meetings_home():
             zone = _zone(client)
             assert f"propose-item-{m1.pk}" in zone
             assert f"propose-item-{m2.pk}" in zone  # distinct keys — one card can't open the other's modal
+            # Per-card auto_id: each modal's fields carry their own DOM ids, no duplicates.
+            assert f'id="propose-item-{m1.pk}-title"' in zone
+            assert f'id="propose-item-{m2.pk}-title"' in zone
+            assert zone.count(f'id="propose-item-{m1.pk}-title"') == 1
 
         def it_keeps_a_flat_query_count_with_many_proposable_cards(client: Client):
             guild = GuildFactory()
@@ -1799,6 +1914,15 @@ def describe_meetings_home():
             assert reverse("hub_meeting", args=[older.pk]) not in table
             assert 'class="pl-meeting-tick"' in table
 
+        def it_marks_a_published_most_recent_meeting_with_the_published_badge(client: Client):
+            guild = GuildFactory()
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=10), published=True)
+            _member_client(client)
+            content = client.get(reverse("hub_meetings")).content.decode()
+            table = content.split('class="pl-meeting-dash"')[1].split("</table>")[0]
+            assert 'pl-meeting-badge--published">Published</span>' in table
+            assert "pl-meeting-tick" not in table
+
         def it_keeps_an_approved_future_meeting_out_of_most_recent(client: Client):
             guild = GuildFactory()
             future = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() + timedelta(days=5), approved=True)
@@ -1854,6 +1978,18 @@ def describe_meetings_home():
             archive = content.split(">Archive<")[1]
             assert "No date" in archive
             assert archive.index(dated.display_title) < archive.index(undated.display_title)
+
+        def it_badges_a_published_past_meeting_in_the_status_column(client: Client):
+            _member_client(client)
+            MeetingFactory(
+                guild=GuildFactory(name="Pubbed"),
+                scheduled_date=timezone.localdate() - timedelta(days=3),
+                published=True,
+            )
+            content = client.get(reverse("hub_meetings")).content.decode()
+            archive = content.split(">Archive<")[1]
+            assert 'pl-meeting-badge--published">Published</span>' in archive
+            assert ">Draft</span>" not in archive
 
         def it_keeps_undated_drafts_in_every_year_filter(client: Client):
             _member_client(client)
@@ -1969,6 +2105,14 @@ def describe_guild_meetings_tab():
             assert "The agenda is locked — proposals are closed for this one." in content
             assert "Propose an agenda item" not in content
 
+        def it_shows_the_propose_button_to_the_lead_too(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            MeetingFactory(guild=guild)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "Propose an agenda item" in content
+            assert 'id="propose-item-title"' in content  # the shared per-page auto_id contract
+
         def it_falls_back_to_the_cadence_with_start_the_agenda_for_editors(client: Client):
             guild = _cadence_guild("CadeLead")
             _lead_client(client, guild)
@@ -2016,6 +2160,64 @@ def describe_guild_meetings_tab():
             content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
             assert "See all in the archive →" in content
             assert f"/meetings/?guild={guild.pk}" in content
+
+    def describe_awaiting_minutes():
+        def it_lists_a_published_past_meeting_for_a_plain_guild_member(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(
+                guild=guild, scheduled_date=timezone.localdate() - timedelta(days=10), published=True
+            )
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            section = content.split("Recent minutes")[1]
+            assert reverse("hub_meeting", args=[meeting.pk]) in section
+            assert 'pl-meeting-badge--published">Published</span>' in section
+
+        def it_lists_an_undated_published_meeting_too(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_date=None, published=True)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            section = content.split("Recent minutes")[1]
+            assert reverse("hub_meeting", args=[meeting.pk]) in section
+            assert "No date" in section
+
+        def it_shows_slipped_drafts_to_editors_but_not_members(client: Client):
+            guild = GuildFactory()
+            draft = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=4))
+            _guild_member_client(client, guild)
+            member_view = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert reverse("hub_meeting", args=[draft.pk]) not in member_view.split("Recent minutes")[1]
+            client.logout()
+            _lead_client(client, guild)
+            lead_view = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            lead_section = lead_view.split("Recent minutes")[1]
+            assert reverse("hub_meeting", args=[draft.pk]) in lead_section
+            assert 'pl-meeting-badge--draft">Draft</span>' in lead_section
+
+        def it_renders_awaiting_rows_above_the_approved_rows(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            approved = MeetingFactory(
+                guild=guild, scheduled_date=timezone.localdate() - timedelta(days=30), approved=True
+            )
+            published = MeetingFactory(
+                guild=guild, scheduled_date=timezone.localdate() - timedelta(days=5), published=True
+            )
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            section = content.split("Recent minutes")[1].split("See all in the archive")[0]
+            published_url = reverse("hub_meeting", args=[published.pk])
+            approved_url = reverse("hub_meeting", args=[approved.pk])
+            assert section.index(published_url) < section.index(approved_url)
+
+        def it_keeps_the_empty_state_only_when_both_lists_are_empty(client: Client):
+            guild = GuildFactory()
+            _guild_member_client(client, guild)
+            content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "No approved minutes yet." in content
+            MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=5), published=True)
+            refreshed = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+            assert "No approved minutes yet." not in refreshed
 
     def describe_editor_extras():
         def it_gives_editors_the_new_meeting_entry_and_pending_chip(client: Client):

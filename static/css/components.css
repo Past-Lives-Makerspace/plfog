@@ -73,6 +73,11 @@
     margin-top: 1.5rem;
 }
 
+/* Opt-in: action buttons share the row's width equally (inline-form modals). */
+.pl-modal__actions--fill .pl-btn {
+    flex: 1;
+}
+
 /* First-login welcome modal (nudges profile setup) */
 .pl-welcome-modal__lead {
     margin: 0;

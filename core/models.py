@@ -1002,6 +1002,7 @@ class SiteActivity(models.Model):
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
         MEETING_APPROVED = "meeting_approved", "Meeting minutes approved"
         MEETING_UNLOCKED = "meeting_unlocked", "Meeting minutes unlocked"
+        MEETING_UNPUBLISHED = "meeting_unpublished", "Meeting agenda unpublished"
         ACCOUNT_DELETED = "account_deleted", "Deleted account"
 
     actor = models.ForeignKey(

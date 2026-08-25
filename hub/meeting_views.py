@@ -335,6 +335,7 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
     """The full draft/locked × editor/read-only rendering context (§6.3)."""
     can_edit = can_edit_meeting(request, meeting)
     is_editable = can_edit and not meeting.is_locked
+    can_propose = can_propose_to_meeting(request, meeting, is_editable=can_edit)
     view_as = getattr(request, "view_as", None)
     user: User = request.user  # type: ignore[assignment]  # every caller is @login_required
     return {
@@ -349,8 +350,13 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
         # The Unlock button mirrors the endpoint's gate: ACTUAL admin role, so a
         # view-as preview can't grant or hide it inconsistently (fog_admin_required).
         "can_unlock": meeting.is_locked and view_as is not None and view_as.has_actual(ROLE_ADMIN),
-        # The propose button is for members who can't edit (§6.3) — editors add directly.
-        "can_propose": not can_edit and can_propose_to_meeting(request, meeting),
+        # Load-bearing: the header's published `elif` renders for read-only viewers too,
+        # so the Unpublish button needs its own explicit editor gate.
+        "can_unpublish": can_edit and meeting.status == Meeting.Status.PUBLISHED,
+        # Everyone who may propose sees the button — editors included; their submissions
+        # land in the same pending-proposals queue.
+        "can_propose": can_propose,
+        "propose_form": MeetingItemProposalForm(auto_id="propose-item-%s") if can_propose else None,
         # Deeper than carryover_for's select_related: the panel's group headers render
         # each source meeting's display_title, which touches guild.
         "carryover_actions": (
@@ -791,6 +797,22 @@ def hub_meeting_publish(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(reverse("hub_meeting", args=[meeting.pk]))
 
 
+@login_required
+@require_POST
+def hub_meeting_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
+    """Return a published agenda to draft — same editor gate as publish, confirm-modal POST."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
+    if not can_edit_meeting(request, meeting):
+        return HttpResponse("Forbidden", status=403)
+    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    try:
+        meeting.unpublish(by=user)
+    except (ValueError, MeetingLockedError) as exc:
+        return _invalid(str(exc))
+    messages.success(request, "Agenda unpublished — back to draft.")
+    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
+
+
 def _pending_proposals(meeting: Meeting) -> Any:
     """Still-pending proposals — the shared shape for the decide strip and the lock-time
     disposition modal, so the two never drift."""
@@ -1100,11 +1122,15 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
     member_guild_ids = viewer_guild_membership_ids(request)  # one query, reused per card
     for meeting in upcoming:
         meeting.viewer_can_edit = _scope_is_editable(meeting.guild_id, editable_ids, council_editable)
-        # Editors add items directly, so the list-page propose affordance is for the
-        # non-editor member of the scope — the workspace's ``can_propose`` idiom.
-        meeting.viewer_can_propose = not meeting.viewer_can_edit and can_propose_to_meeting(
+        # Everyone who may propose gets the card affordance — editors included; their
+        # submissions land in the same pending-proposals queue.
+        meeting.viewer_can_propose = can_propose_to_meeting(
             request, meeting, member_guild_ids=member_guild_ids, is_editable=meeting.viewer_can_edit
         )
+        if meeting.viewer_can_propose:
+            # Per-card auto_id — the list renders one modal per card, and a shared
+            # form would emit duplicate DOM ids.
+            meeting.propose_form = MeetingItemProposalForm(auto_id=f"propose-item-{meeting.pk}-%s")
 
     attention: list[Meeting] = []
     if can_create:

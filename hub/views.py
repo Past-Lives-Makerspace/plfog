@@ -40,6 +40,7 @@ from hub.forms import (
     DiscordGuildEmojiFormSet,
     GuildEditForm,
     GuildRoleFormSet,
+    MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberCapabilitiesForm,
     MemberContactForm,
@@ -500,17 +501,25 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     next_guild_meeting = (
         Meeting.objects.for_scope(guild).upcoming().select_related("guild").annotate(topic_count=Count("items")).first()
     )
-    can_propose_next = (
-        next_guild_meeting is not None
-        and not can_edit_this_guild  # editors add agenda items directly (§6.3 gating)
-        and _can_propose_to_meeting(request, next_guild_meeting)
-    )
+    # Everyone who may propose sees the button — editors included; their submissions
+    # land in the same pending-proposals queue.
+    can_propose_next = next_guild_meeting is not None and _can_propose_to_meeting(request, next_guild_meeting)
+    propose_form = MeetingItemProposalForm(auto_id="propose-item-%s") if can_propose_next else None
     pending_proposal_count = (
         next_guild_meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).count()
         if can_edit_this_guild and next_guild_meeting is not None
         else 0
     )
     recent_minutes = Meeting.objects.for_scope(guild).approved().select_related("guild")[:5]
+    # Not-yet-approved meetings in the archive window (past + undated), so a published or
+    # slipped meeting stays reachable from its guild page: members see published ones,
+    # editors also see slipped drafts (mirrors the Meetings-home needs-attention scope).
+    awaiting_window = Meeting.objects.for_scope(guild).archive().select_related("guild")
+    awaiting_minutes = (
+        awaiting_window.exclude(status=Meeting.Status.APPROVED)
+        if can_edit_this_guild
+        else awaiting_window.filter(status=Meeting.Status.PUBLISHED)
+    )[:3]
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
     # must never see member names/avatars (the count-only chip lives in the hero).
     roster = guild.roster_members() if guild.show_members and member is not None else None
@@ -571,8 +580,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "announcements": announcements,
             "next_guild_meeting": next_guild_meeting,
             "can_propose_next": can_propose_next,
+            "propose_form": propose_form,
             "pending_proposal_count": pending_proposal_count,
             "recent_minutes": recent_minutes,
+            "awaiting_minutes": awaiting_minutes,
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,

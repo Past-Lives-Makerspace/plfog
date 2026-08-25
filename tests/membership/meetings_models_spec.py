@@ -351,6 +351,43 @@ def describe_Meeting():
             with pytest.raises(MeetingLockedError):
                 meeting.publish()
 
+    def describe_unpublish():
+        def it_returns_published_to_draft():
+            meeting = MeetingFactory(published=True)
+            meeting.unpublish(by=_user("unpub1"))
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.DRAFT
+
+        def it_logs_the_unpublished_activity():
+            actor = _user("unpub2")
+            meeting = MeetingFactory(published=True)
+            meeting.unpublish(by=actor)
+            row = SiteActivity.objects.get(kind=SiteActivity.Kind.MEETING_UNPUBLISHED)
+            assert row.actor == actor
+            assert row.target == meeting
+
+        def it_does_not_broadcast():
+            meeting = MeetingFactory(published=True)
+            before = EventDelivery.objects.count()
+            meeting.unpublish(by=_user("unpub3"))
+            assert EventDelivery.objects.count() == before
+
+        def it_raises_locked_on_approved_minutes():
+            meeting = MeetingFactory(approved=True)
+            with pytest.raises(MeetingLockedError, match="an admin can unlock them"):
+                meeting.unpublish(by=_user("unpub4"))
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.APPROVED
+
+        def it_raises_value_error_on_a_draft():
+            meeting = MeetingFactory()
+            meeting.refresh_from_db()  # DB-loaded status is the plain string, as in the view path
+            with pytest.raises(ValueError, match="'draft'"):
+                meeting.unpublish(by=_user("unpub5"))
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.DRAFT
+            assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.MEETING_UNPUBLISHED).exists()
+
     def describe_unlock():
         def it_reopens_the_draft_and_keeps_the_stamps_as_history():
             approver = _user("appr")

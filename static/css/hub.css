@@ -6207,17 +6207,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     50% { opacity: 0.45; }
 }
 
-/* --- Published badge (header — between draft and approval) --- */
-.pl-meeting-published-badge {
-    padding: 0.25rem 0.75rem;
-    border-radius: 999px;
-    border: 1px solid var(--color-success, #38a169);
-    background: transparent;
-    font-size: 0.8125rem;
-    color: var(--color-success, #38a169);
-    white-space: nowrap;
-}
-
 /* --- Workspace-level delete confirm dialog --- */
 .pl-confirm-overlay {
     position: fixed;
@@ -6389,6 +6378,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
     background: var(--hub-surface);
     border: 1px solid var(--hub-border-strong);
+}
+/* The single Published treatment site-wide — Draft (muted) / Published (blue) /
+   Approved (green) read as a progression in both themes. */
+.pl-meeting-badge--published {
+    color: var(--hub-blue);
+    background: transparent;
+    border: 1px solid var(--hub-blue);
 }
 .pl-meeting-badge--approved {
     color: var(--color-success);

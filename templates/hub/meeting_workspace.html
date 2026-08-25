@@ -36,7 +36,13 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
         <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Publish agenda</button>
       </form>
       {% elif meeting.status == 'published' and not meeting.is_locked %}
-      <span class="pl-meeting-published-badge">Published</span>
+      <span class="pl-meeting-badge pl-meeting-badge--published">Published</span>
+      {% if can_unpublish %}
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+              @click="$dispatch('open-confirm', 'unpublish-meeting')">Unpublish</button>
+      {% url 'hub_meeting_unpublish' meeting.pk as unpublish_url %}
+      {% include "components/confirm_modal.html" with confirm_id="unpublish-meeting" confirm_title="Unpublish this agenda?" confirm_message="The agenda goes back to draft so you can keep editing — items, proposals, and attendance all stay, and members are not notified. Until you publish or approve it again, members will find this meeting only in the Meetings archive." confirm_action_url="" confirm_hx_post=unpublish_url confirm_button_text="Unpublish" confirm_button_style="primary" %}
+      {% endif %}
       {% endif %}
       {% if is_editable %}
       <span class="pl-meeting-savestate"
@@ -260,7 +266,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
   {# ── "Your proposals" — a member's own proposal outcomes, under the agenda ── #}
   {% include "hub/partials/_meeting_my_proposals.html" %}
 
-  {# ── Propose an item — members with can_propose_to_meeting who can't edit ── #}
+  {# ── Propose an item — anyone with can_propose_to_meeting, editors included ── #}
   {% if can_propose %}
   <div class="pl-meeting-propose">
     <button type="button" class="pl-btn pl-btn--secondary pl-meeting-propose-btn"
@@ -477,7 +483,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
 
 {# ── The "Propose an agenda item" modal (factored partial, shared with the guild tab and list cards) ── #}
 {% if can_propose %}
-{% include "hub/partials/_propose_modal.html" with meeting=meeting modal_key="propose-item" %}
+{% include "hub/partials/_propose_modal.html" with meeting=meeting modal_key="propose-item" form=propose_form %}
 {% endif %}
 
 <script>

@@ -1410,6 +1410,7 @@ class MeetingItemProposalForm(forms.Form):
     why = forms.CharField(
         label="Why / what needs deciding",
         required=False,
+        help_text="Helps leadership slot it into the meeting.",
         widget=forms.Textarea(attrs={"rows": 3}),
     )
 

@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "1.6.1"
+VERSION = "1.7.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.7.0",
+        "date": "2026-08-24",
+        "title": "Meeting Agendas Get More Flexible",
+        "changes": [
+            "Council meeting agendas are now open to ideas from every active member, and "
+            "meeting editors can send in ideas the same way. Everything goes to leadership "
+            "for review.",
+            "Meetings now show a clear status everywhere: Draft, Published, or Approved.",
+            "A published agenda can go back to draft for more edits, right from the meeting page.",
+            "Guild pages now list recent meetings that are still waiting on their minutes.",
+        ],
+    },
     {
         "version": "1.6.1",
         "date": "2026-08-24",
