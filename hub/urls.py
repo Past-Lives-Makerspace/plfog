@@ -16,6 +16,7 @@ urlpatterns = [
     ),
     path("meetings/<int:pk>/save/", meeting_views.hub_meeting_save, name="hub_meeting_save"),
     path("meetings/<int:pk>/publish/", meeting_views.hub_meeting_publish, name="hub_meeting_publish"),
+    path("meetings/<int:pk>/unpublish/", meeting_views.hub_meeting_unpublish, name="hub_meeting_unpublish"),
     path("meetings/<int:pk>/approve/", meeting_views.hub_meeting_approve, name="hub_meeting_approve"),
     path("meetings/<int:pk>/unlock/", meeting_views.hub_meeting_unlock, name="hub_meeting_unlock"),
     path("meetings/<int:pk>/delete/", meeting_views.hub_meeting_delete, name="hub_meeting_delete"),

@@ -31,6 +31,7 @@ from core.validators import validate_document, validate_image_size
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
+    from django import forms
     from django.contrib.auth.models import User
 
     from classes.models import ClassOffering
@@ -5537,6 +5538,9 @@ class Meeting(models.Model):
     pending_count: int
     viewer_can_edit: bool
     viewer_can_propose: bool
+    # The per-card propose form (unique auto_id per meeting), attached by the
+    # Meetings home view for proposable cards only.
+    propose_form: forms.Form
 
     guild = models.ForeignKey(
         Guild,
@@ -5763,6 +5767,26 @@ class Meeting(models.Model):
             raise ValueError(f"Cannot publish a meeting with status {self.status!r}.")
         self.status = self.Status.PUBLISHED
         self.save(update_fields=["status"])
+
+    def unpublish(self, *, by: User) -> None:
+        """Return a published agenda to draft — symmetric with :meth:`publish`.
+
+        Silent by design: ``publish()`` emits nothing, so unpublish emits nothing
+        either — an activity row only, the :meth:`unlock` idiom.
+
+        Raises:
+            MeetingLockedError: If the minutes are approved (unlock is the admin path).
+            ValueError: If the meeting is not currently published.
+        """
+        if self.status == self.Status.APPROVED:
+            raise MeetingLockedError("Approved minutes are locked — an admin can unlock them.")
+        if self.status != self.Status.PUBLISHED:
+            raise ValueError(f"Cannot unpublish a meeting with status {self.status!r}.")
+        self.status = self.Status.DRAFT
+        self.save(update_fields=["status"])
+        from core.models import SiteActivity
+
+        SiteActivity.log(SiteActivity.Kind.MEETING_UNPUBLISHED, actor=by, target=self)
 
     def attach_carried_over_proposals(self) -> list[MeetingItemProposal]:
         """Materialize proposals carried forward while this scope had no next meeting yet
