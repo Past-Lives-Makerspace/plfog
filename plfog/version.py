@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.9.0",
+        "date": "2026-08-26",
+        "title": "Post polls with /poll",
+        "changes": [
+            "Ask the room anything with /poll in Discord. Type your question and answers, pick "
+            "how long voting stays open, and the bot posts a native Discord poll right in the "
+            "channel. This replaces the old sesh bot's /poll.",
+        ],
+    },
     {
         "version": "1.8.0",
         "date": "2026-08-25",

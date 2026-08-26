@@ -1,5 +1,5 @@
 """Membership's Discord slash commands: ``/whats-on``, ``/info``, ``/schedule-orientation``,
-``/voting``, ``/members``, ``/create``, and ``/cancel``.
+``/voting``, ``/members``, ``/create``, ``/cancel``, and ``/poll``.
 
 Autodiscovered by :func:`core.events.discord_commands.autodiscover`. Each handler stays thin
 — it resolves a guild/window, calls an existing manager/service method, and hands the result
@@ -10,6 +10,7 @@ models/managers and :mod:`membership.orientations`; nothing new lands in the han
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, datetime, timedelta
 from math import ceil
 from typing import TYPE_CHECKING, cast
@@ -1624,3 +1625,233 @@ CANCEL = SlashCommand(
 
 register(CANCEL)
 register_component(ComponentHandler(prefix="cancel", handler=_cancel_component, requires_link=True))
+
+
+# --- /poll --------------------------------------------------------------------
+
+# Discord native-poll limits (verified against the API docs, 2026-08-26).
+_POLL_QUESTION_MAX = 300
+_POLL_ANSWER_MAX = 55
+_POLL_MIN_ANSWERS = 2
+_POLL_MAX_ANSWERS = 10
+_POLL_DEFAULT_DURATION_HOURS = 24
+# Duration options in hours → the label shown in the styled header. 768h is Discord's max.
+_POLL_DURATION_LABELS: dict[int, str] = {
+    1: "1 hour",
+    4: "4 hours",
+    8: "8 hours",
+    24: "1 day",
+    72: "3 days",
+    168: "1 week",
+    336: "2 weeks",
+    768: "32 days",
+}
+
+# A Discord custom-emoji token at the start of an answer: <:name:id> or <a:name:id> (animated).
+_CUSTOM_EMOJI_RE = re.compile(r"^<a?:(\w+):(\d+)>")
+# Codepoint ranges whose leading character starts a unicode emoji.
+_EMOJI_BASE_RANGES: tuple[tuple[int, int], ...] = (
+    (0x1F000, 0x1FAFF),  # the emoji SMP blocks: pictographs, faces, flags, symbols A/B
+    (0x2600, 0x27BF),  # miscellaneous symbols + dingbats (✅ ✨ ☀ ✂)
+    (0x2300, 0x23FF),  # technical symbols used as emoji (⌚ ⏰ ⏳)
+    (0x2B00, 0x2BFF),  # stars and block arrows (⭐ ⬆ ⬅)
+)
+# Codepoints that continue (but never start) an emoji grapheme: ZWJ, VS16, keycap, skin
+# tones, and regional-indicator partners (the second half of a flag).
+_EMOJI_CONTINUATION = frozenset({0x200D, 0xFE0F, 0x20E3, *range(0x1F3FB, 0x1F400), *range(0x1F1E6, 0x1F1FF + 1)})
+
+_POLL_TOO_FEW = "Give me at least 2 answers, separated by semicolons. Like: Alien; Clue; The Thing"
+_POLL_TOO_MANY = "Discord polls allow at most 10 answers. Trim the list and try again."
+_POLL_QUESTION_TOO_LONG = "The question has to fit in 300 characters. Shorten it and try again."
+_POLL_DUPLICATE = "You have the same answer twice. Make each one different and try again."
+
+
+def _split_answers(raw: str) -> list[str]:
+    """Split the ``answers`` option into trimmed, non-empty answer strings.
+
+    Semicolons win: when the input contains any ``;`` it splits on ``;`` (so an answer may
+    carry a literal ``|``); otherwise it splits on ``|``. Each piece is trimmed and empty
+    pieces are dropped.
+    """
+    separator = ";" if ";" in raw else "|"
+    return [piece.strip() for piece in raw.split(separator) if piece.strip()]
+
+
+def _in_ranges(code: int, ranges: tuple[tuple[int, int], ...]) -> bool:
+    """Whether ``code`` falls in any inclusive ``(low, high)`` range."""
+    return any(low <= code <= high for low, high in ranges)
+
+
+def _emoji_prefix(text: str) -> str:
+    """The leading unicode-emoji grapheme of ``text``, or ``""`` if it doesn't start with one.
+
+    Consumes an emoji base plus any trailing skin-tone modifiers, variation selectors,
+    keycaps, regional-indicator partners, and ZWJ-joined segments, so a multi-codepoint
+    emoji (a flag, a skin-toned thumb, a ZWJ family) is captured whole. Custom Discord
+    tokens are matched separately in :func:`_answer_media`.
+    """
+    if not text or not _in_ranges(ord(text[0]), _EMOJI_BASE_RANGES):
+        return ""
+    end = 1
+    while end < len(text):
+        code = ord(text[end])
+        if code == 0x200D and end + 1 < len(text) and _in_ranges(ord(text[end + 1]), _EMOJI_BASE_RANGES):
+            end += 2  # a ZWJ plus the emoji base it joins (family / profession sequences)
+        elif code in _EMOJI_CONTINUATION:
+            end += 1  # VS16, a keycap, a skin-tone modifier, or a regional-indicator partner
+        else:
+            break
+    return text[:end]
+
+
+def _answer_media(answer: str) -> dict:
+    """The ``poll_media`` object for one trimmed answer, pulling a leading emoji into its icon.
+
+    A leading custom-emoji token (``<:name:id>`` / ``<a:name:id>``) becomes ``{"id": <id>}``
+    with the token stripped from the text, falling back to the token's name when nothing else
+    remains (Discord rejects empty answer text). A leading unicode emoji becomes
+    ``{"name": <emoji>}`` with the emoji stripped, except an emoji-only answer keeps its
+    original text and carries no emoji field.
+    """
+    custom = _CUSTOM_EMOJI_RE.match(answer)
+    if custom is not None:
+        name, emoji_id = custom.group(1), custom.group(2)
+        remainder = answer[custom.end() :].strip()
+        return {"text": remainder or name, "emoji": {"id": emoji_id}}
+    prefix = _emoji_prefix(answer)
+    if prefix:
+        remainder = answer[len(prefix) :].strip()
+        if remainder:
+            return {"text": remainder, "emoji": {"name": prefix}}
+        return {"text": answer}  # emoji-only: keep the original string, no emoji field
+    return {"text": answer}
+
+
+def _poll_duration_hours(interaction: Interaction) -> int:
+    """The ``duration`` option in hours, defaulting to :data:`_POLL_DEFAULT_DURATION_HOURS`.
+
+    Discord constrains the integer option to the registered choices, so a supplied value is
+    always one of :data:`_POLL_DURATION_LABELS`; an omitted value falls back to one day.
+    """
+    raw = option_value(interaction, "duration")
+    return int(raw) if raw else _POLL_DEFAULT_DURATION_HOURS
+
+
+def _poll_multiselect(interaction: Interaction) -> bool:
+    """The raw boolean ``multiselect`` option (default ``False`` when omitted).
+
+    Read straight from the interaction, not via :func:`option_value`, which stringifies
+    every value — ``str(False)`` is truthy. Discord sends a JSON boolean for a type-5 option.
+    """
+    for option in interaction.get("data", {}).get("options", []):
+        if option.get("name") == "multiselect":
+            return bool(option.get("value"))
+    return False
+
+
+def _answer_too_long_reply(answer_text: str) -> dict:
+    """The ephemeral "shorten this answer" reply, quoting the first over-long answer."""
+    shown = truncate(answer_text, _POLL_ANSWER_MAX)
+    return reply(
+        f'Each answer has to fit in {_POLL_ANSWER_MAX} characters. Shorten "{shown}" and try again.', ephemeral=True
+    )
+
+
+def _poll_header(display_name: str, hours: int, multiselect: bool) -> str:
+    """The styled content line above the native poll widget — attribution, no ping."""
+    pick = "pick any" if multiselect else "pick one"
+    return f"📊 **Poll from {display_name}**  ·  open for {_POLL_DURATION_LABELS[hours]}  ·  {pick}"
+
+
+def _poll(interaction: Interaction, member: Member | None) -> dict:
+    """Post a native Discord poll in the channel, credited to the asker in the header line.
+
+    Every guard returns an immediate ephemeral reply naming the fix and posts nothing; a
+    poll can't be edited once live, so validation is airtight up front. The happy path
+    returns a public (flags 0) type-4 reply carrying the poll object itself — no extra REST
+    call. ``requires_link=True`` guarantees ``member`` is non-``None`` (dispatch shows the
+    connect prompt for an unlinked caller first), and ``defer=False`` because the deferred
+    followup path cannot carry a poll.
+    """
+    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
+    question = (option_value(interaction, "question") or "").strip()
+    if len(question) > _POLL_QUESTION_MAX:
+        return reply(_POLL_QUESTION_TOO_LONG, ephemeral=True)
+
+    pieces = _split_answers(option_value(interaction, "answers") or "")
+    if len(pieces) < _POLL_MIN_ANSWERS:
+        return reply(_POLL_TOO_FEW, ephemeral=True)
+    if len(pieces) > _POLL_MAX_ANSWERS:
+        return reply(_POLL_TOO_MANY, ephemeral=True)
+
+    media = [_answer_media(piece) for piece in pieces]
+    for item in media:
+        if len(item["text"]) > _POLL_ANSWER_MAX:
+            return _answer_too_long_reply(item["text"])
+    texts = [item["text"] for item in media]
+    if len(set(texts)) != len(texts):
+        return reply(_POLL_DUPLICATE, ephemeral=True)
+
+    hours = _poll_duration_hours(interaction)
+    multiselect = _poll_multiselect(interaction)
+    poll = {
+        "question": {"text": question},
+        "answers": [{"poll_media": item} for item in media],
+        "duration": hours,
+        "allow_multiselect": multiselect,
+    }
+    return reply(_poll_header(member.display_name, hours, multiselect), ephemeral=False, poll=poll)
+
+
+def _poll_options() -> list[dict]:
+    """The ``/poll`` options — required ``question`` + ``answers`` first, then duration + multiselect.
+
+    ``duration`` is a type-4 INTEGER choice option with integer choice values (a string
+    option with int values fails Discord's command registration); ``multiselect`` is a
+    type-5 BOOLEAN. Neither touches the DB, so this is a pure, import-safe builder.
+    """
+    duration_choices = [
+        {"name": f"{label} (default)" if hours == _POLL_DEFAULT_DURATION_HOURS else label, "value": hours}
+        for hours, label in _POLL_DURATION_LABELS.items()
+    ]
+    return [
+        {
+            "name": "question",
+            "description": "What you are asking, like Which movie should we watch?",
+            "type": 3,
+            "required": True,
+        },
+        {
+            "name": "answers",
+            "description": "The choices, separated by semicolons, like Alien; Clue; The Thing. Between 2 and 10.",
+            "type": 3,
+            "required": True,
+        },
+        {
+            "name": "duration",
+            "description": "How long voting stays open. Default is 1 day.",
+            "type": 4,
+            "required": False,
+            "choices": duration_choices,
+        },
+        {
+            "name": "multiselect",
+            "description": "Let people pick more than one answer. Off by default.",
+            "type": 5,
+            "required": False,
+        },
+    ]
+
+
+POLL = SlashCommand(
+    name="poll",
+    description="Post a poll for the channel to vote on.",
+    handler=_poll,
+    options_builder=_poll_options,
+    requires_link=True,
+    ephemeral=False,
+    defer=False,
+    scope="guild",
+)
+
+register(POLL)

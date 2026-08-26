@@ -91,17 +91,25 @@ def reply(
     ephemeral: bool = True,
     embeds: list[dict] | None = None,
     components: list[dict] | None = None,
+    poll: dict | None = None,
 ) -> dict:
     """A type-4 (CHANNEL_MESSAGE_WITH_SOURCE) reply the view returns as its HTTP body.
 
     Ephemeral by default (only the invoking member sees it) — commands surface personal
-    data. ``embeds`` / ``components`` are included only when provided.
+    data. ``embeds`` / ``components`` / ``poll`` are included only when provided.
+
+    ``poll`` (a native Discord poll object) is valid **only on this non-deferred path**:
+    :func:`send_followup` (the deferred PATCH) cannot carry a poll, so a deferred command
+    that returned one would silently drop it. A ``/poll`` handler must therefore stay
+    ``defer=False`` and post its poll straight from the interaction response.
     """
     data: dict = {"content": content, "flags": _flags(ephemeral)}
     if embeds is not None:
         data["embeds"] = embeds
     if components is not None:
         data["components"] = components
+    if poll is not None:
+        data["poll"] = poll
     return {"type": 4, "data": data}
 
 
