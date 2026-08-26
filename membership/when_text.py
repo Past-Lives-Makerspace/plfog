@@ -56,6 +56,10 @@ class WhenResult:
     start: datetime | None = None
     end: datetime | None = None
     error: WhenError | None = None
+    had_end: bool = False
+    """Whether the phrase carried an explicit end time (a range like ``6-8pm``). ``False`` when
+    the end was derived from ``duration_minutes`` — the ``/create`` modal offers a Duration
+    picker only in that case."""
 
 
 def _parse_time_token(raw: str) -> time | None:
@@ -219,4 +223,4 @@ def parse_when(text: str, *, duration_minutes: int, now: datetime) -> WhenResult
             end += timedelta(days=1)
     else:
         end = start + timedelta(minutes=duration_minutes)
-    return WhenResult(start=start, end=end)
+    return WhenResult(start=start, end=end, had_end=end_t is not None)

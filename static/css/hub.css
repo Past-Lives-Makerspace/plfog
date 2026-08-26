@@ -4208,6 +4208,46 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-top: 1.75rem;
 }
 
+/* Who's coming — read-only attendee roster + the RSVP toggle. Layout only; every color
+   comes from theme tokens, so it reads on both Obsidian (dark) and Slate (light). */
+.pl-event-detail__attendees {
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-event-detail__attendees-heading {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+
+.pl-event-detail__attendee-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    padding: 0;
+    list-style: none;
+}
+
+.pl-event-detail__attendee {
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font-size: 0.8125rem;
+}
+
+.pl-event-detail__attendees-empty {
+    margin: 0 0 1rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-event-detail__rsvp-form {
+    margin: 0;
+}
+
 /* ========================================
    My Guilds settings tab — per-guild join/leave toggle list.
    Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,

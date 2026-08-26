@@ -46,6 +46,36 @@ rest via templates/404.html). Add-to-calendar works logged-out.
     <div class="pl-event-detail__description">{{ event.description|linebreaks }}</div>
     {% endif %}
 
+    {% comment %}
+    Who's coming: the count shows for everyone, names only for a signed-in member (an
+    anonymous QR scan sees the count, not the roster). The RSVP toggle posts to
+    hub_event_rsvp and is hidden once a non-recurring event has ended (same show_past_note gate).
+    {% endcomment %}
+    <div class="pl-event-detail__attendees">
+      <h2 class="pl-event-detail__attendees-heading">Who's coming ({{ rsvp_count }})</h2>
+      {% if user.is_authenticated %}
+        {% if rsvps %}
+        <ul class="pl-event-detail__attendee-list">
+          {% for rsvp in rsvps %}
+          <li class="pl-event-detail__attendee">{{ rsvp.member.display_name }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="pl-event-detail__attendees-empty">No RSVPs yet.</p>
+        {% endif %}
+        {% if not show_past_note %}
+        <form method="post" action="{% url 'hub_event_rsvp' event.pk %}" class="pl-event-detail__rsvp-form">
+          {% csrf_token %}
+          {% if viewer_rsvped %}
+          <button type="submit" class="hub-btn hub-btn--ghost hub-btn--sm">I'm not going</button>
+          {% else %}
+          <button type="submit" class="hub-btn hub-btn--primary hub-btn--sm">I'm going</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      {% endif %}
+    </div>
+
     <div class="pl-event-detail__actions">
       {% if event.video_url %}
       <a class="hub-btn hub-btn--primary" href="{{ event.video_url }}" target="_blank" rel="noopener noreferrer">Join online</a>

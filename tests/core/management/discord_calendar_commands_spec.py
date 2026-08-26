@@ -1,4 +1,4 @@
-"""BDD specs for the two thin #public-calendar command wrappers.
+"""BDD specs for the two thin #calendar command wrappers.
 
 The service logic lives in ``hub.discord_calendar_posts`` (specced in
 ``tests/hub/discord_calendar_posts_spec.py``); these only pin the wrapper contract —

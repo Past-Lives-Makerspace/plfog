@@ -14,6 +14,7 @@ from factory.django import mute_signals
 from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
+    EventRSVP,
     Floorplan,
     FundingSnapshot,
     Guild,
@@ -297,6 +298,16 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
             google_ical_uid=factory.Sequence(lambda n: f"gevent{n}@google.com"),
             sync_state=CommunityEvent.SyncState.SYNCED,
         )
+
+
+class EventRSVPFactory(factory.django.DjangoModelFactory):
+    """One member's RSVP to a community event."""
+
+    class Meta:
+        model = EventRSVP
+
+    event = factory.SubFactory(CommunityEventFactory)
+    member = factory.SubFactory(MemberFactory)
 
 
 class MeetingFactory(factory.django.DjangoModelFactory):

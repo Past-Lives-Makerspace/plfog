@@ -11,22 +11,43 @@ from __future__ import annotations
 
 import pytest
 
+from django.core.cache import cache
+
+from core.abuse_limits import record_keyed_attempt
 from core.events import discord_interactions as di
 from core.events.discord_commands import _guide, all_commands, dispatch
 from membership.discord_commands import (
     _POLL_ANSWER_MAX,
-    _POLL_DUPLICATE,
-    _POLL_QUESTION_TOO_LONG,
-    _POLL_TOO_FEW,
-    _POLL_TOO_MANY,
+    _POLL_DAILY_LIMIT,
+    _POLL_HOURLY_LIMIT,
+    _POLL_RATE_SCOPE,
     POLL,
     _answer_media,
     _emoji_prefix,
     _poll,
+    _poll_edit_component,
+    _poll_submit,
     _split_answers,
 )
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _clear_cache():
+    cache.clear()
+    yield
+    cache.clear()
+
+
+def _label(result: dict, custom_id: str) -> dict:
+    """The wrapped input of the Label row whose child has ``custom_id`` (a modal-9 response)."""
+    return next(
+        row["component"]
+        for row in result["data"]["components"]
+        if row.get("type") == 18 and row["component"].get("custom_id") == custom_id
+    )
+
 
 # Multi-codepoint emoji written with explicit escapes so the ZWJ / skin-tone / regional /
 # variation-selector / tag joiners are unambiguous in source.
@@ -41,68 +62,81 @@ _MAHJONG = "\U0001f004"  # mahjong red dragon — excluded by the narrowed base 
 _DANGLING_ZWJ = "\U0001f3ac‍"  # clapper + a trailing (dangling) ZWJ
 
 
-def _interaction(**options: object) -> dict:
-    opts = [{"name": name, "value": value} for name, value in options.items()]
-    return {"data": {"options": opts}}
+def _submit_payload(
+    *,
+    question: str = "Which movie?",
+    answers: str = "Alien\nClue\nThe Thing",
+    hours: str = "24",
+    multiselect: bool = False,
+) -> dict:
+    """A Create-a-Poll MODAL_SUBMIT payload (Components-v2 Label rows echo back)."""
+    return {
+        "data": {
+            "custom_id": "pollform",
+            "components": [
+                {"type": 18, "component": {"custom_id": "question", "value": question}},
+                {"type": 18, "component": {"custom_id": "answers", "value": answers}},
+                {"type": 18, "component": {"custom_id": "duration", "values": [hours]}},
+                {"type": 18, "component": {"custom_id": "multiselect", "values": (["on"] if multiselect else [])}},
+            ],
+        }
+    }
 
 
-def _run(member: object, **options: object) -> dict:
-    return _poll(_interaction(**options), member)
+def _run(member: object, **kwargs: object) -> dict:
+    return _poll_submit(_submit_payload(**kwargs), member)
 
 
-def _assert_ephemeral_no_poll(result: dict) -> None:
+def _assert_error_reply(result: dict) -> None:
     assert result["data"]["flags"] == 64  # ephemeral — only the invoker sees the rejection
     assert "poll" not in result["data"]  # nothing was posted to the channel
+    assert result["data"]["components"][0]["components"][0]["label"] == "Edit Poll"
 
 
 # --- Command definition -------------------------------------------------------
 
 
 def describe_command_definition():
-    def it_is_link_gated_public_and_not_deferred():
+    def it_is_link_gated_and_carries_no_options():
         assert POLL.name == "poll"
-        assert (POLL.requires_link, POLL.ephemeral, POLL.defer) == (True, False, False)
+        assert (POLL.requires_link, POLL.defer) == (True, False)
         assert POLL.scope == "guild"
+        assert POLL.to_api_dict()["options"] == []  # the modal replaces the slash options
 
-    def it_exposes_question_and_answers_first_then_optionals():
-        opts = POLL.to_api_dict()["options"]
-        assert [o["name"] for o in opts] == ["question", "answers", "duration", "multiselect"]
-        required = [o.get("required", False) for o in opts]
-        assert required[:2] == [True, True]
-        assert not any(required[2:])
 
-    def it_offers_the_documented_duration_choices_as_integers():
-        duration = next(o for o in POLL.to_api_dict()["options"] if o["name"] == "duration")
-        assert duration["type"] == 4  # INTEGER — a string option with int values fails registration
-        assert [c["value"] for c in duration["choices"]] == [1, 4, 8, 24, 72, 168, 336, 768]
-        assert all(isinstance(c["value"], int) for c in duration["choices"])
-        default = next(c for c in duration["choices"] if c["value"] == 24)
-        assert "(default)" in default["name"]
+def describe_the_modal():
+    def it_opens_a_create_a_poll_modal(linked_member):
+        result = _poll({"data": {}}, linked_member())
+        assert result["type"] == 9  # MODAL
+        assert result["data"]["custom_id"] == "pollform"
+        assert result["data"]["title"] == "Create a Poll"
+        labels = [row["label"] for row in result["data"]["components"] if row["type"] == 18]
+        assert labels == ["Question", "Answers", "Voting Stays Open For", "Multiple Choice"]
+        # A closing Text Display carries the "cannot be edited" note.
+        assert any(row["type"] == 10 for row in result["data"]["components"])
 
-    def it_makes_multiselect_a_boolean_option():
-        multiselect = next(o for o in POLL.to_api_dict()["options"] if o["name"] == "multiselect")
-        assert multiselect["type"] == 5
-        assert multiselect.get("required", False) is False
+    def it_caps_the_question_input_at_the_native_limit(linked_member):
+        assert _label(_poll({"data": {}}, linked_member()), "question")["max_length"] == 300
+
+    def it_preselects_the_default_one_day_duration(linked_member):
+        options = _label(_poll({"data": {}}, linked_member()), "duration")["options"]
+        default = next(o for o in options if o["value"] == "24")
+        assert default["default"] is True
+        assert all(o["default"] is False for o in options if o["value"] != "24")
 
 
 # --- Answers splitting --------------------------------------------------------
 
 
 def describe_split_answers():
-    def it_splits_on_semicolons():
-        assert _split_answers("Alien; Clue; The Thing") == ["Alien", "Clue", "The Thing"]
+    def it_splits_on_newlines():
+        assert _split_answers("Alien\nClue\nThe Thing") == ["Alien", "Clue", "The Thing"]
 
-    def it_splits_on_pipes_when_there_is_no_semicolon():
-        assert _split_answers("Alien|Clue|The Thing") == ["Alien", "Clue", "The Thing"]
+    def it_trims_each_line():
+        assert _split_answers("  Alien \n  Clue  ") == ["Alien", "Clue"]
 
-    def it_prefers_semicolons_so_a_pipe_survives_inside_an_answer():
-        assert _split_answers("Alien; Clue|The Thing") == ["Alien", "Clue|The Thing"]
-
-    def it_trims_each_piece():
-        assert _split_answers("  Alien ;  Clue  ") == ["Alien", "Clue"]
-
-    def it_drops_empty_segments():
-        assert _split_answers("Alien;;Clue;") == ["Alien", "Clue"]
+    def it_drops_blank_lines():
+        assert _split_answers("Alien\n\nClue\n") == ["Alien", "Clue"]
 
 
 # --- Emoji extraction ---------------------------------------------------------
@@ -199,44 +233,47 @@ def describe_emoji_prefix():
 
 def describe_validation():
     def it_rejects_fewer_than_two_answers(linked_member):
-        result = _run(linked_member(), question="Which?", answers="Alien")
-        assert result["data"]["content"] == _POLL_TOO_FEW
-        _assert_ephemeral_no_poll(result)
+        result = _run(linked_member(), answers="Alien")
+        assert (
+            result["data"]["content"] == "A poll needs at least 2 answers. You gave 1. Put each answer on its own line."
+        )
+        _assert_error_reply(result)
 
     def it_rejects_more_than_ten_answers(linked_member):
-        answers = "; ".join(f"Choice {n}" for n in range(11))
-        result = _run(linked_member(), question="Which?", answers=answers)
-        assert result["data"]["content"] == _POLL_TOO_MANY
-        _assert_ephemeral_no_poll(result)
+        answers = "\n".join(f"Choice {n}" for n in range(11))
+        result = _run(linked_member(), answers=answers)
+        assert (
+            result["data"]["content"] == "Discord caps polls at 10 answers and you gave 11. Trim the list and resubmit."
+        )
+        _assert_error_reply(result)
 
-    def it_rejects_an_answer_longer_than_the_limit(linked_member):
+    def it_rejects_an_answer_longer_than_the_limit_naming_the_line(linked_member):
         long_answer = "x" * (_POLL_ANSWER_MAX + 1)
-        result = _run(linked_member(), question="Which?", answers=f"{long_answer}; Clue")
-        assert f"{_POLL_ANSWER_MAX} characters" in result["data"]["content"]
-        assert 'Shorten "' in result["data"]["content"]
-        _assert_ephemeral_no_poll(result)
+        result = _run(linked_member(), answers=f"Clue\n{long_answer}")
+        content = result["data"]["content"]
+        assert content.startswith("Answer 2 is too long.")
+        assert f"{_POLL_ANSWER_MAX} characters" in content
+        assert 'Shorten "' in content
+        _assert_error_reply(result)
 
     def it_measures_the_answer_limit_after_stripping_the_emoji(linked_member):
         # 55 x's plus a leading emoji is 57 raw characters but exactly 55 after extraction,
         # so it is accepted — proving the limit applies to the post-extraction text.
         exactly_max = "x" * _POLL_ANSWER_MAX
-        result = _run(linked_member(), question="Which?", answers=f"🎬 {exactly_max}; Clue")
+        result = _run(linked_member(), answers=f"🎬 {exactly_max}\nClue")
         assert "poll" in result["data"]
 
-    def it_rejects_a_question_longer_than_the_limit(linked_member):
-        result = _run(linked_member(), question="q" * 301, answers="Alien; Clue")
-        assert result["data"]["content"] == _POLL_QUESTION_TOO_LONG
-        _assert_ephemeral_no_poll(result)
-
-    def it_rejects_duplicate_answers(linked_member):
-        result = _run(linked_member(), question="Which?", answers="Alien; Alien")
-        assert result["data"]["content"] == _POLL_DUPLICATE
-        _assert_ephemeral_no_poll(result)
+    def it_rejects_duplicate_answers_quoting_the_identical_text(linked_member):
+        result = _run(linked_member(), answers="Alien\nAlien")
+        assert result["data"]["content"] == (
+            'Two answers come out identical: "Alien". Every answer has to be unique. Edit the list and resubmit.'
+        )
+        _assert_error_reply(result)
 
     def it_detects_duplicates_after_emoji_extraction(linked_member):
-        result = _run(linked_member(), question="Which?", answers="🎬 Alien; Alien")
-        assert result["data"]["content"] == _POLL_DUPLICATE
-        _assert_ephemeral_no_poll(result)
+        result = _run(linked_member(), answers="🎬 Alien\nAlien")
+        assert 'identical: "Alien"' in result["data"]["content"]
+        _assert_error_reply(result)
 
 
 # --- Happy path ---------------------------------------------------------------
@@ -245,7 +282,7 @@ def describe_validation():
 def describe_happy_path():
     def it_posts_a_public_poll_with_the_default_duration_and_multiselect_off(linked_member):
         member = linked_member(preferred_name="Nova")
-        result = _run(member, question="Which movie?", answers="Alien; Clue; The Thing")
+        result = _run(member, question="Which movie?", answers="Alien\nClue\nThe Thing")
 
         assert result["type"] == 4
         assert result["data"]["flags"] == 0  # public — a poll must be votable in the channel
@@ -262,34 +299,95 @@ def describe_happy_path():
 
     def it_suppresses_mentions_so_a_display_name_cannot_ping(linked_member):
         member = linked_member(preferred_name="@everyone")
-        result = _run(member, question="Which?", answers="Alien; Clue")
+        result = _run(member, answers="Alien\nClue")
         assert "@everyone" in result["data"]["content"]  # the raw text is credited...
         assert result["data"]["allowed_mentions"] == {"parse": []}  # ...but it can never ping
 
     def it_credits_the_asker_and_labels_the_duration_and_pick_mode(linked_member):
         member = linked_member(preferred_name="Nova")
-        content = _run(member, question="Which movie?", answers="Alien; Clue")["data"]["content"]
+        content = _run(member, answers="Alien\nClue")["data"]["content"]
         assert "Nova" in content
-        assert "1 day" in content
+        assert "24 Hours" in content
         assert "pick one" in content
 
     def it_honors_an_explicit_duration_and_multiselect(linked_member):
         member = linked_member(preferred_name="Nova")
-        result = _run(member, question="Which?", answers="Alien; Clue", duration=72, multiselect=True)
+        result = _run(member, answers="Alien\nClue", hours="72", multiselect=True)
         poll = result["data"]["poll"]
         assert poll["duration"] == 72
         assert poll["allow_multiselect"] is True
         content = result["data"]["content"]
-        assert "3 days" in content
+        assert "3 Days" in content
         assert "pick any" in content
 
     def it_carries_answer_emoji_into_the_poll_media(linked_member):
         member = linked_member(preferred_name="Nova")
-        result = _run(member, question="Which?", answers="🎬 Alien; <:fire:7> Clue")
+        result = _run(member, answers="🎬 Alien\n<:fire:7> Clue")
         assert result["data"]["poll"]["answers"] == [
             {"poll_media": {"text": "Alien", "emoji": {"name": "🎬"}}},
             {"poll_media": {"text": "Clue", "emoji": {"id": "7"}}},
         ]
+
+    def it_falls_back_to_the_default_duration_when_none_is_submitted(linked_member):
+        # A payload with no duration select (defensive) defaults to one day.
+        payload = {
+            "data": {
+                "custom_id": "pollform",
+                "components": [
+                    {"type": 18, "component": {"custom_id": "question", "value": "Q?"}},
+                    {"type": 18, "component": {"custom_id": "answers", "value": "Alien\nClue"}},
+                ],
+            }
+        }
+        assert _poll_submit(payload, linked_member())["data"]["poll"]["duration"] == 24
+
+
+# --- Rate limiting ------------------------------------------------------------
+
+
+def _exhaust_poll_limit(member) -> None:
+    for _ in range(_POLL_HOURLY_LIMIT):
+        record_keyed_attempt(
+            _POLL_RATE_SCOPE, str(member.pk), hourly_limit=_POLL_HOURLY_LIMIT, daily_limit=_POLL_DAILY_LIMIT
+        )
+
+
+def describe_rate_limiting():
+    def it_blocks_opening_the_modal_at_the_cap(linked_member):
+        member = linked_member()
+        _exhaust_poll_limit(member)
+        result = _poll({"data": {}}, member)
+        assert result["type"] == 4  # the friendly refusal, not the modal
+        assert "hit the limit for polls" in result["data"]["content"]
+
+    def it_records_nothing_on_a_validation_failure(linked_member):
+        member = linked_member()
+        _run(member, answers="Alien")  # too few → posts nothing
+        assert cache.get(f"abuse:{_POLL_RATE_SCOPE}:{member.pk}:hourly", 0) == 0
+
+    def it_records_one_on_a_successful_post(linked_member):
+        member = linked_member()
+        _run(member)  # valid poll posts
+        assert cache.get(f"abuse:{_POLL_RATE_SCOPE}:{member.pk}:hourly", 0) == 1
+
+
+# --- Edit Poll reopen ---------------------------------------------------------
+
+
+def describe_edit_reopen():
+    def it_reopens_the_modal_prefilled_from_the_failed_submission(linked_member):
+        member = linked_member()
+        error = _run(member, question="Movie night?", answers="Alien")  # too few → cached
+        token_id = error["data"]["components"][0]["components"][0]["custom_id"]
+        reopened = _poll_edit_component({"data": {"custom_id": token_id}}, member)
+        assert reopened["type"] == 9
+        assert _label(reopened, "question")["value"] == "Movie night?"
+        assert _label(reopened, "answers")["value"] == "Alien"
+
+    def it_reopens_a_blank_modal_when_the_token_expired(linked_member):
+        reopened = _poll_edit_component({"data": {"custom_id": "polledit:gone"}}, linked_member())
+        assert reopened["type"] == 9
+        assert "value" not in _label(reopened, "question")
 
 
 # --- reply(poll=…) kwarg ------------------------------------------------------

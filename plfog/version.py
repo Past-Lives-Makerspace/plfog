@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.9.2",
+        "date": "2026-08-26",
+        "title": "RSVP to events, plus friendlier /create and /poll forms",
+        "changes": [
+            "Creating events and polls in Discord is simpler now. Both /create and /poll open a "
+            "short fill in form, so you just type the details and submit. Event announcements got "
+            "a glow up too: each one shows the time, how long it runs, where it is, and who is "
+            "coming, with an RSVP button that updates the list live. Click RSVP again to take it "
+            "back. Organizers and guild leads get a Manage button for quick edits and "
+            "cancellations, whoever starts a poll can end it early with the little gear, and the "
+            "event page on the hub shows who is coming as well.",
+        ],
+    },
     {
         "version": "1.9.1",
         "date": "2026-08-26",

@@ -63,7 +63,7 @@ def describe_discord_calendar_posts_fields():
         content = client.get(reverse("hub_admin_site_settings")).content.decode()
         assert content.count('name="discord_calendar_channel_id"') == 1  # not doubled onto the General loop
         assert content.count('name="discord_calendar_posts_enabled"') == 1
-        assert "The channel id of #public-calendar" in content  # the hint copy
+        assert "The channel id of #calendar" in content  # the hint copy
         assert "Send Messages + Embed Links" in content
 
     def it_saves_the_channel_id_and_turns_the_toggle_on(client: Client):
