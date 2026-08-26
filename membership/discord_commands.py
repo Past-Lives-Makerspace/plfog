@@ -1649,16 +1649,39 @@ _POLL_DURATION_LABELS: dict[int, str] = {
 
 # A Discord custom-emoji token at the start of an answer: <:name:id> or <a:name:id> (animated).
 _CUSTOM_EMOJI_RE = re.compile(r"^<a?:(\w+):(\d+)>")
-# Codepoint ranges whose leading character starts a unicode emoji.
+# Leading-emoji extraction is deliberately CONSERVATIVE: an answer's leading emoji is
+# pulled into the poll answer's icon only when it is confidently a single, well-formed,
+# Discord-acceptable emoji. A missed icon is cosmetic; a malformed poll_media.emoji makes
+# Discord reject the whole interaction, so anything ambiguous (a non-emoji symbol, a lone
+# or doubled flag, a tag-sequence flag, a dangling joiner) keeps the answer text untouched.
+_ZWJ = 0x200D
+_VS16 = 0xFE0F  # variation selector 16 — forces emoji presentation
+_SKIN_TONES = frozenset(range(0x1F3FB, 0x1F400))
+_REGIONAL = frozenset(range(0x1F1E6, 0x1F1FF + 1))  # regional indicators; a flag is exactly a pair
+_TAG_RANGE = range(0xE0020, 0xE007F + 1)  # tag characters — only appear inside tag-sequence flags
+# Unambiguous default-emoji SMP blocks. The non-emoji SMP blocks below 0x1F300 (mahjong,
+# dominoes, playing cards, enclosed alphanumerics) are intentionally excluded.
 _EMOJI_BASE_RANGES: tuple[tuple[int, int], ...] = (
-    (0x1F000, 0x1FAFF),  # the emoji SMP blocks: pictographs, faces, flags, symbols A/B
-    (0x2600, 0x27BF),  # miscellaneous symbols + dingbats (✅ ✨ ☀ ✂)
-    (0x2300, 0x23FF),  # technical symbols used as emoji (⌚ ⏰ ⏳)
-    (0x2B00, 0x2BFF),  # stars and block arrows (⭐ ⬆ ⬅)
+    (0x1F300, 0x1F5FF),  # miscellaneous symbols & pictographs (🔥 🎬 🎲 🏴 …)
+    (0x1F600, 0x1F64F),  # emoticons
+    (0x1F680, 0x1F6FF),  # transport & map symbols
+    (0x1F7E0, 0x1F7EB),  # large colored circles and squares
+    (0x1F900, 0x1F9FF),  # supplemental symbols & pictographs
+    (0x1FA70, 0x1FAFF),  # symbols & pictographs extended-A
 )
-# Codepoints that continue (but never start) an emoji grapheme: ZWJ, VS16, keycap, skin
-# tones, and regional-indicator partners (the second half of a flag).
-_EMOJI_CONTINUATION = frozenset({0x200D, 0xFE0F, 0x20E3, *range(0x1F3FB, 0x1F400), *range(0x1F1E6, 0x1F1FF + 1)})
+# Curated default-emoji-presentation BMP codepoints. Their text-presentation neighbours
+# (☀ U+2600, ✏ U+270F, ⌘ U+2318, …) are deliberately absent — bare, they are not emoji.
+_EMOJI_BASE_BMP: frozenset[int] = frozenset(
+    {
+        0x231A, 0x231B, 0x23E9, 0x23EA, 0x23EB, 0x23EC, 0x23F0, 0x23F3,
+        0x25FD, 0x25FE, 0x2614, 0x2615, *range(0x2648, 0x2654), 0x267F,
+        0x2693, 0x26A1, 0x26AA, 0x26AB, 0x26BD, 0x26BE, 0x26C4, 0x26C5,
+        0x26CE, 0x26D4, 0x26EA, 0x26F2, 0x26F3, 0x26F5, 0x26FA, 0x26FD,
+        0x2705, 0x270A, 0x270B, 0x2728, 0x274C, 0x274E, 0x2753, 0x2754,
+        0x2755, 0x2757, 0x2795, 0x2796, 0x2797, 0x27B0, 0x27BF, 0x2B1B,
+        0x2B1C, 0x2B50, 0x2B55,
+    }
+)  # fmt: skip
 
 _POLL_TOO_FEW = "Give me at least 2 answers, separated by semicolons. Like: Alien; Clue; The Thing"
 _POLL_TOO_MANY = "Discord polls allow at most 10 answers. Trim the list and try again."
@@ -1677,31 +1700,51 @@ def _split_answers(raw: str) -> list[str]:
     return [piece.strip() for piece in raw.split(separator) if piece.strip()]
 
 
-def _in_ranges(code: int, ranges: tuple[tuple[int, int], ...]) -> bool:
-    """Whether ``code`` falls in any inclusive ``(low, high)`` range."""
-    return any(low <= code <= high for low, high in ranges)
+def _is_emoji_base(code: int) -> bool:
+    """Whether ``code`` unambiguously starts a default-emoji grapheme (curated ranges + BMP set)."""
+    return code in _EMOJI_BASE_BMP or any(low <= code <= high for low, high in _EMOJI_BASE_RANGES)
 
 
 def _emoji_prefix(text: str) -> str:
-    """The leading unicode-emoji grapheme of ``text``, or ``""`` if it doesn't start with one.
+    """A leading, confidently well-formed single emoji of ``text``, or ``""`` when not confident.
 
-    Consumes an emoji base plus any trailing skin-tone modifiers, variation selectors,
-    keycaps, regional-indicator partners, and ZWJ-joined segments, so a multi-codepoint
-    emoji (a flag, a skin-toned thumb, a ZWJ family) is captured whole. Custom Discord
-    tokens are matched separately in :func:`_answer_media`.
+    Recognizes a flag as exactly one regional-indicator pair, and a base emoji plus its
+    VS16 / skin-tone / ZWJ-joined sequence. Bails (returns ``""``) on anything ambiguous — a
+    lone or doubled flag, a tag-sequence flag, a dangling ZWJ, or a base outside the curated
+    emoji ranges — so :func:`_answer_media` keeps the original answer text rather than risk a
+    malformed ``poll_media.emoji``. Custom Discord tokens are matched separately.
     """
-    if not text or not _in_ranges(ord(text[0]), _EMOJI_BASE_RANGES):
+    if not text:
         return ""
+    first = ord(text[0])
+
+    # A flag is exactly two regional indicators; a lone one, or a third that would merge two
+    # flags, is not a confident single emoji.
+    if first in _REGIONAL:
+        pair = len(text) >= 2 and ord(text[1]) in _REGIONAL
+        tripled = len(text) >= 3 and ord(text[2]) in _REGIONAL
+        return text[:2] if pair and not tripled else ""
+
+    if not _is_emoji_base(first):
+        return ""
+
     end = 1
     while end < len(text):
         code = ord(text[end])
-        if code == 0x200D and end + 1 < len(text) and _in_ranges(ord(text[end + 1]), _EMOJI_BASE_RANGES):
+        if code in _TAG_RANGE:
+            return ""  # a tag-sequence flag (e.g. Scotland) — keep the whole answer untouched
+        if code == _VS16 or code in _SKIN_TONES:
+            end += 1
+        elif code == _ZWJ and end + 1 < len(text) and _is_emoji_base(ord(text[end + 1])):
             end += 2  # a ZWJ plus the emoji base it joins (family / profession sequences)
-        elif code in _EMOJI_CONTINUATION:
-            end += 1  # VS16, a keycap, a skin-tone modifier, or a regional-indicator partner
         else:
-            break
+            break  # a lone trailing ZWJ is left out of the prefix, never leaked into the icon
     return text[:end]
+
+
+def _clean_remainder(text: str) -> str:
+    """Trim whitespace plus any stray zero-width joiner / variation selector from a remainder."""
+    return text.strip().strip("\u200d\ufe0f").strip()
 
 
 def _answer_media(answer: str) -> dict:
@@ -1709,9 +1752,10 @@ def _answer_media(answer: str) -> dict:
 
     A leading custom-emoji token (``<:name:id>`` / ``<a:name:id>``) becomes ``{"id": <id>}``
     with the token stripped from the text, falling back to the token's name when nothing else
-    remains (Discord rejects empty answer text). A leading unicode emoji becomes
-    ``{"name": <emoji>}`` with the emoji stripped, except an emoji-only answer keeps its
-    original text and carries no emoji field.
+    remains (Discord rejects empty answer text). A confidently well-formed leading unicode
+    emoji becomes ``{"name": <emoji>}`` with the emoji stripped; an emoji-only answer, or one
+    whose leading glyph is not confidently a single emoji, keeps its original text and carries
+    no emoji field.
     """
     custom = _CUSTOM_EMOJI_RE.match(answer)
     if custom is not None:
@@ -1720,7 +1764,7 @@ def _answer_media(answer: str) -> dict:
         return {"text": remainder or name, "emoji": {"id": emoji_id}}
     prefix = _emoji_prefix(answer)
     if prefix:
-        remainder = answer[len(prefix) :].strip()
+        remainder = _clean_remainder(answer[len(prefix) :])
         if remainder:
             return {"text": remainder, "emoji": {"name": prefix}}
         return {"text": answer}  # emoji-only: keep the original string, no emoji field

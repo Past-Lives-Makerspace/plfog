@@ -29,11 +29,16 @@ from membership.discord_commands import (
 pytestmark = pytest.mark.django_db
 
 # Multi-codepoint emoji written with explicit escapes so the ZWJ / skin-tone / regional /
-# variation-selector joiners are unambiguous in source.
+# variation-selector / tag joiners are unambiguous in source.
 _FAMILY = "\U0001f468‍\U0001f469‍\U0001f467"  # man + ZWJ + woman + ZWJ + girl
 _THUMB_TONED = "\U0001f44d\U0001f3fd"  # thumbs-up + medium skin tone
+_STAR_VS16 = "⭐️"  # star (a curated emoji base) + variation selector 16
 _FLAG_US = "\U0001f1fa\U0001f1f8"  # regional-indicator U + S
-_SUN_VS16 = "☀️"  # sun + variation selector 16
+_FLAG_GB = "\U0001f1ec\U0001f1e7"  # regional-indicator G + B
+_SCOTLAND = "\U0001f3f4\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f"  # tag-sequence flag
+_PENCIL = "✎"  # lower-right pencil — a non-emoji dingbat
+_MAHJONG = "\U0001f004"  # mahjong red dragon — excluded by the narrowed base ranges
+_DANGLING_ZWJ = "\U0001f3ac‍"  # clapper + a trailing (dangling) ZWJ
 
 
 def _interaction(**options: object) -> dict:
@@ -117,7 +122,7 @@ def describe_answer_media():
         assert _answer_media(f"{_THUMB_TONED} Great") == {"text": "Great", "emoji": {"name": _THUMB_TONED}}
 
     def it_keeps_a_variation_selector_with_its_base():
-        assert _answer_media(f"{_SUN_VS16} Sunny") == {"text": "Sunny", "emoji": {"name": _SUN_VS16}}
+        assert _answer_media(f"{_STAR_VS16} Star") == {"text": "Star", "emoji": {"name": _STAR_VS16}}
 
     def it_keeps_a_regional_indicator_flag_whole():
         assert _answer_media(f"{_FLAG_US} USA") == {"text": "USA", "emoji": {"name": _FLAG_US}}
@@ -141,6 +146,28 @@ def describe_answer_media():
         assert _answer_media("<:alien:999>") == {"text": "alien", "emoji": {"id": "999"}}
 
 
+def describe_answer_media_conservative_fallbacks():
+    def it_leaves_a_non_emoji_dingbat_answer_untouched():
+        assert _answer_media(f"{_PENCIL} Draw") == {"text": f"{_PENCIL} Draw"}
+
+    def it_leaves_a_mahjong_tile_answer_untouched():
+        assert _answer_media(f"{_MAHJONG} Tile") == {"text": f"{_MAHJONG} Tile"}
+
+    def it_does_not_set_an_emoji_for_two_adjacent_flags():
+        answer = f"{_FLAG_US}{_FLAG_GB} Both"
+        assert _answer_media(answer) == {"text": answer}
+
+    def it_keeps_a_tag_sequence_flag_answer_as_full_text():
+        answer = f"{_SCOTLAND} Scotland"
+        assert _answer_media(answer) == {"text": answer}
+
+    def it_keeps_a_tag_flag_only_answer_visible_as_full_text():
+        assert _answer_media(_SCOTLAND) == {"text": _SCOTLAND}
+
+    def it_never_leaks_a_dangling_zwj_into_the_icon_or_text():
+        assert _answer_media(f"{_DANGLING_ZWJ} Later") == {"text": "Later", "emoji": {"name": "🎬"}}
+
+
 def describe_emoji_prefix():
     def it_is_empty_for_an_empty_string():
         assert _emoji_prefix("") == ""
@@ -153,6 +180,18 @@ def describe_emoji_prefix():
 
     def it_captures_a_zwj_sequence_whole():
         assert _emoji_prefix(f"{_FAMILY} Family") == _FAMILY
+
+    def it_captures_exactly_one_regional_indicator_pair():
+        assert _emoji_prefix(f"{_FLAG_US} USA") == _FLAG_US
+
+    def it_rejects_a_lone_regional_indicator():
+        assert _emoji_prefix("\U0001f1fa X") == ""
+
+    def it_rejects_three_or_more_adjacent_regional_indicators():
+        assert _emoji_prefix(f"{_FLAG_US}{_FLAG_GB}") == ""
+
+    def it_drops_a_trailing_dangling_zwj():
+        assert _emoji_prefix(_DANGLING_ZWJ) == "🎬"
 
 
 # --- Validation (each ephemeral, nothing posted) ------------------------------
@@ -219,6 +258,13 @@ def describe_happy_path():
         ]
         assert poll["duration"] == 24
         assert poll["allow_multiselect"] is False
+        assert result["data"]["allowed_mentions"] == {"parse": []}
+
+    def it_suppresses_mentions_so_a_display_name_cannot_ping(linked_member):
+        member = linked_member(preferred_name="@everyone")
+        result = _run(member, question="Which?", answers="Alien; Clue")
+        assert "@everyone" in result["data"]["content"]  # the raw text is credited...
+        assert result["data"]["allowed_mentions"] == {"parse": []}  # ...but it can never ping
 
     def it_credits_the_asker_and_labels_the_duration_and_pick_mode(linked_member):
         member = linked_member(preferred_name="Nova")
@@ -256,6 +302,13 @@ def describe_reply_poll_kwarg():
 
     def it_omits_the_poll_key_by_default():
         assert "poll" not in di.reply("x")["data"]
+
+    def it_gates_mentions_on_the_poll_path():
+        data = di.reply("hi @everyone", ephemeral=False, poll={"question": {"text": "q"}})["data"]
+        assert data["allowed_mentions"] == {"parse": []}
+
+    def it_leaves_plain_replies_mention_behavior_untouched():
+        assert "allowed_mentions" not in di.reply("hi")["data"]
 
 
 # --- Guide + dispatch integration ---------------------------------------------

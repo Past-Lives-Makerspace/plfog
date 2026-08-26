@@ -101,7 +101,11 @@ def reply(
     ``poll`` (a native Discord poll object) is valid **only on this non-deferred path**:
     :func:`send_followup` (the deferred PATCH) cannot carry a poll, so a deferred command
     that returned one would silently drop it. A ``/poll`` handler must therefore stay
-    ``defer=False`` and post its poll straight from the interaction response.
+    ``defer=False`` and post its poll straight from the interaction response. A poll reply
+    is public and credits a member-controlled display name in its content, so this path
+    also pins ``allowed_mentions`` to ``{"parse": []}`` — a name like ``@everyone`` can
+    never ping the channel. Plain (non-poll) replies are untouched, so no other command's
+    mention behavior changes.
     """
     data: dict = {"content": content, "flags": _flags(ephemeral)}
     if embeds is not None:
@@ -110,6 +114,7 @@ def reply(
         data["components"] = components
     if poll is not None:
         data["poll"] = poll
+        data["allowed_mentions"] = {"parse": []}
     return {"type": 4, "data": data}
 
 
