@@ -1451,7 +1451,9 @@ def _deletable_events(member: Member) -> "list[CommunityEvent]":
     )
     if member.is_fog_admin:
         return list(candidates)
-    return [event for event in candidates.exclude(guild=None) if member.can_edit_guild(event.guild)]
+    # `exclude(guild=None)` guarantees a guild at the query level; the cast narrows for mypy
+    # without adding a runtime branch the tests could never take.
+    return [event for event in candidates.exclude(guild=None) if member.can_edit_guild(cast("Guild", event.guild))]
 
 
 def _cancellable_events(member: Member) -> "list[CommunityEvent]":
