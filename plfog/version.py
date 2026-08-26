@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "1.10.0"
+VERSION = "1.9.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.10.0",
+        "version": "1.9.2",
         "date": "2026-08-26",
         "title": "RSVP to events, plus friendlier /create and /poll forms",
         "changes": [
@@ -17,6 +17,15 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "back. Organizers and guild leads get a Manage button for quick edits and "
             "cancellations, whoever starts a poll can end it early with the little gear, and the "
             "event page on the hub shows who is coming as well.",
+        ],
+    },
+    {
+        "version": "1.9.1",
+        "date": "2026-08-26",
+        "title": "Rebrand cleanup",
+        "changes": [
+            "We retired the old Do It Together tagline from the member portal and our emails. "
+            "We are Past Lives Makerspace everywhere now.",
         ],
     },
     {

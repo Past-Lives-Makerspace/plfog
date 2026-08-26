@@ -284,16 +284,6 @@ p:last-child {
     padding: var(--spacing-2xl) var(--spacing-sm) var(--spacing-xl);
 }
 
-.hero__tagline {
-    font-family: var(--font-body);
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    color: var(--color-accent);
-    margin-bottom: var(--spacing-md);
-}
-
 .hero__title {
     font-size: 4rem;
     color: var(--color-text);
@@ -782,14 +772,6 @@ p:last-child {
     width: 100%;
 }
 
-.site-footer__tagline {
-    font-family: var(--font-heading);
-    font-style: italic;
-    font-size: 0.95rem;
-    color: var(--color-accent);
-    margin-bottom: var(--spacing-xs);
-}
-
 .site-footer__copy {
     color: var(--color-text-muted);
 }
@@ -844,10 +826,6 @@ p:last-child {
 
     .hero {
         padding: var(--spacing-xl) var(--spacing-xs) var(--spacing-lg);
-    }
-
-    .hero__tagline {
-        font-size: 0.7rem;
     }
 
     .hero__subtitle {
