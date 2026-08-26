@@ -191,7 +191,7 @@ def describe_refund_issued_email():
     # so these drive the real call site with the Stripe call mocked.
 
     @patch("billing.stripe_utils.create_refund")
-    def it_emails_the_member_the_refund_concerns(mock_create):
+    def it_emails_the_member_the_refund_concerns(mock_create, django_capture_on_commit_callbacks):
         member = _linked_member(email="refunded@example.com", username="refunded_member")
         offering = ClassOfferingFactory(title="Screen Printing")
         registration = RegistrationFactory(
@@ -205,7 +205,8 @@ def describe_refund_issued_email():
         mock_create.return_value = {"id": "re_email_1", "status": "succeeded", "amount": 6500}
         mail.outbox.clear()
 
-        registration.issue_refund()
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.issue_refund()
 
         sent = _emails_to("refunded@example.com")
         assert len(sent) == 1
@@ -214,7 +215,7 @@ def describe_refund_issued_email():
         assert "[missing:" not in sent[0].body
 
     @patch("billing.stripe_utils.create_refund")
-    def it_emails_a_guest_registrant_with_no_member_account(mock_create):
+    def it_emails_a_guest_registrant_with_no_member_account(mock_create, django_capture_on_commit_callbacks):
         registration = RegistrationFactory(
             member=None,
             email="guestrefund@example.com",
@@ -225,14 +226,15 @@ def describe_refund_issued_email():
         mock_create.return_value = {"id": "re_email_2", "status": "succeeded", "amount": 2500}
         mail.outbox.clear()
 
-        registration.issue_refund()
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.issue_refund()
 
         sent = _emails_to("guestrefund@example.com")
         assert len(sent) == 1
         assert "$25.00" in sent[0].body
 
     @patch("billing.stripe_utils.create_refund")
-    def it_still_writes_the_bell_row_for_a_linked_member(mock_create):
+    def it_still_writes_the_bell_row_for_a_linked_member(mock_create, django_capture_on_commit_callbacks):
         member = _linked_member(email="bell@example.com", username="bell_member")
         registration = RegistrationFactory(
             class_offering=ClassOfferingFactory(),
@@ -244,7 +246,8 @@ def describe_refund_issued_email():
         )
         mock_create.return_value = {"id": "re_email_3", "status": "succeeded", "amount": 1000}
 
-        registration.issue_refund()
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.issue_refund()
 
         assert Notification.objects.filter(trigger="refund_issued", user=member.user).exists()
 

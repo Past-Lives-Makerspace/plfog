@@ -143,6 +143,24 @@ def handle_charge_refunded(event: dict[str, Any]) -> None:
         return
 
     refund_items = (charge.get("refunds") or {}).get("data") or []
+    if not refund_items:
+        # Since Stripe API 2022-11-15 the Charge payload no longer embeds its
+        # refunds list by default (and we don't pin api_version), so fetch the
+        # refunds explicitly. The embedded list still wins when present (older
+        # pinned API versions).
+        from billing import stripe_utils
+
+        refund_items = stripe_utils.list_refunds_for_payment_intent(payment_intent_id=payment_intent_id)
+    if not refund_items:
+        if charge.get("amount_refunded"):
+            logger.warning(
+                "charge.refunded: charge on payment intent %s reports amount_refunded=%s "
+                "but no refunds could be reconciled (embedded list absent and the fetch "
+                "returned none) — the ledger did NOT record this refund.",
+                payment_intent_id,
+                charge.get("amount_refunded"),
+            )
+        return
     with transaction.atomic():
         locked = Registration.objects.select_for_update().get(pk=source.pk)
         for item in refund_items:

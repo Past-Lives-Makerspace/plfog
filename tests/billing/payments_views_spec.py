@@ -93,7 +93,7 @@ def describe_payments_tab():
         registration = _paid_registration()
         PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.FAILED)
         content = client.get("/billing/admin/dashboard/?tab=payments").content.decode()
-        assert "Retry refund" in content
+        assert "Retry Refund" in content
         assert "Refund failed" in content
 
     def it_shows_the_pending_badge_with_age(client: Client):
@@ -201,6 +201,21 @@ def describe_payment_refund_retry():
         assert refund.status == PaymentRefund.Status.SUCCEEDED
         assert refund.attempt == 2
         assert mock_refund.call_args.kwargs["idempotency_key"] == f"pay-refund-{refund.pk}-a2"
+
+    def it_says_processing_when_the_retry_lands_pending(client: Client):
+        _login_admin(client, "fogadmin-retrypending")
+        refund = _failed_refund(stripe_payment_id="pi_retry_pending")
+        with patch(
+            "billing.stripe_utils.create_refund",
+            return_value={"id": "re_retry_pending", "status": "pending", "amount": 5000},
+        ):
+            response = client.post(reverse("billing_payment_refund_retry", args=[refund.pk]))
+        assert response.status_code == 204
+        triggers = json.loads(response["HX-Trigger"])
+        assert triggers["refund-done"] is True
+        assert triggers["showToast"]["message"] == "Refund sent. Stripe is processing it."
+        refund.refresh_from_db()
+        assert refund.status == PaymentRefund.Status.PENDING
 
     def it_surfaces_a_stripe_rejection_loudly_without_refund_done(client: Client):
         _login_admin(client, "fogadmin-retryfail")

@@ -1176,3 +1176,13 @@
     color: var(--hub-text-muted);
     font-size: 0.8125rem;
 }
+
+/* Payments ledger cells (the billing dashboard's dark-fixed partial — literal
+   colors match the page's own pl-* chrome, like .pl-text-muted there). */
+.pl-payer-link { color: #a0c0e0; }
+.pl-cell-muted { color: #96ACBB; }
+.pl-table-empty {
+    text-align: center;
+    color: #96ACBB;
+    padding: 2rem;
+}

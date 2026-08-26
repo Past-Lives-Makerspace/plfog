@@ -38,7 +38,7 @@ initial render and the post-refund HTMX refresh (refund-done).
           {% if row.source_kind == "tab" %}
           <span onclick="openTabModal({{ row.tab_pk }})" style="cursor:pointer;">{{ row.payer_name }}</span>
           {% elif row.payer_url %}
-          <a href="{{ row.payer_url }}" style="color:#a0c0e0;">{{ row.payer_name }}</a>
+          <a href="{{ row.payer_url }}" class="pl-payer-link">{{ row.payer_name }}</a>
           {% else %}
           {{ row.payer_name }}
           {% endif %}
@@ -58,7 +58,7 @@ initial render and the post-refund HTMX refresh (refund-done).
           {% else %}<span class="pl-badge pl-badge--fail">{{ row.status_label }}</span>
           {% endif %}
         </td>
-        <td style="color:#96ACBB;">{{ row.date|date:"M j, Y" }}</td>
+        <td class="pl-cell-muted">{{ row.date|date:"M j, Y" }}</td>
         <td>
           {% if row.source_kind == "class" and viewer_has_refund_authority %}
             {% if row.status == "refund_failed" %}
@@ -66,7 +66,7 @@ initial render and the post-refund HTMX refresh (refund-done).
                     hx-get="{% url 'classes:admin_registration_refund_form' row.source_pk %}"
                     hx-target="#refund-modal-body" hx-swap="innerHTML"
                     @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
-              Retry refund
+              Retry Refund
             </button>
             {% elif row.can_refund %}
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
@@ -82,7 +82,7 @@ initial render and the post-refund HTMX refresh (refund-done).
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="7" style="text-align:center;color:#96ACBB;padding:2rem;">No payments in this window. Widen the date range or clear filters.</td></tr>
+      <tr><td colspan="7" class="pl-table-empty">No payments in this window. Widen the date range or clear filters.</td></tr>
       {% endfor %}
     </tbody>
   </table>

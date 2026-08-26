@@ -231,7 +231,7 @@ def describe_waitlist_confirmed_notification():
 
 
 def describe_refund_issued_notification():
-    def it_notifies_member_when_refund_is_issued(db):
+    def it_notifies_member_when_refund_is_issued(db, django_capture_on_commit_callbacks):
         # The bell row now rides the PaymentRefund succeeded transition
         # (billing.refunds), not the Registration.save() REFUNDED transition.
         from unittest.mock import patch
@@ -252,7 +252,8 @@ def describe_refund_issued_notification():
 
         with patch("billing.stripe_utils.create_refund") as mock_create:
             mock_create.return_value = {"id": "re_notif_1", "status": "succeeded", "amount": 4000}
-            reg.issue_refund()
+            with django_capture_on_commit_callbacks(execute=True):
+                reg.issue_refund()
 
         assert Notification.objects.filter(
             trigger="refund_issued",

@@ -13,7 +13,7 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
 from django.http import (
     Http404,
@@ -1509,13 +1509,20 @@ def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+def _refunds_prefetch() -> Prefetch:
+    """Refunds prefetch with the issuer joined — the card/history templates read initiated_by names."""
+    from billing.models import PaymentRefund
+
+    return Prefetch("refunds", queryset=PaymentRefund.objects.select_related("initiated_by"))
+
+
 def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:
     """Shared context for the teach registrations page and its ``refund-done`` table partial."""
     from hub.view_as import has_refund_authority
 
     registrations = (
         offering.registrations.select_related("member")
-        .prefetch_related("custom_answers__question", "refunds")
+        .prefetch_related("custom_answers__question", _refunds_prefetch())
         .order_by("-registered_at")
     )
     return {
@@ -2706,7 +2713,7 @@ def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
     registration = get_object_or_404(
         _scoped_registrations(request)
         .select_related("discount_code")
-        .prefetch_related("waivers", "custom_answers__question", "refunds"),
+        .prefetch_related("waivers", "custom_answers__question", _refunds_prefetch()),
         pk=pk,
     )
     return render(
@@ -2800,7 +2807,7 @@ def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
     if not form.is_valid():
         return _render_refund_form(request, registration, form)
     try:
-        registration.issue_refund(
+        refund = registration.issue_refund(
             amount_cents=form.amount_cents,
             reason=form.cleaned_data["reason"],
             actor=request.user,
@@ -2810,8 +2817,14 @@ def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
         response = _render_refund_form(request, registration, PaymentRefundForm(registration=registration))
         trigger_toast(response, f"Refund failed: {exc}", "error")
         return response
+    from billing.models import PaymentRefund
+
     response = HttpResponse(status=204)
-    trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
     trigger_client_event(response, "refund-done")
     return response
 
@@ -2821,7 +2834,7 @@ def admin_registration_refunds_card(request: HttpRequest, pk: int) -> HttpRespon
     """The detail page's Refunds card — also the ``refund-done`` refresh target."""
     from hub.view_as import has_refund_authority
 
-    registration = get_object_or_404(_scoped_registrations(request).prefetch_related("refunds"), pk=pk)
+    registration = get_object_or_404(_scoped_registrations(request).prefetch_related(_refunds_prefetch()), pk=pk)
     return render(
         request,
         "classes/admin/partials/registration_refunds_card.html",

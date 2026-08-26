@@ -222,6 +222,19 @@ def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, id
     return {"id": refund.id, "status": refund.status, "amount": refund.amount}
 
 
+def list_refunds_for_payment_intent(*, payment_intent_id: str) -> list[dict[str, Any]]:
+    """List the refunds on a PaymentIntent — the ``charge.refunded`` fetch fallback.
+
+    Since Stripe API version 2022-11-15 the ``Charge`` payload no longer embeds
+    its ``refunds`` list by default (and we do not pin ``api_version``), so the
+    webhook handler fetches them explicitly. Returns a list of dicts with
+    'id', 'status', and 'amount' — the shape the reconciler reads.
+    """
+    client = _get_stripe_client()
+    refunds = client.v1.refunds.list(params={"payment_intent": payment_intent_id})
+    return [{"id": refund.id, "status": refund.status, "amount": refund.amount} for refund in refunds.data]
+
+
 def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
     """Verify and construct a Stripe webhook event from the raw payload.
 

@@ -57,9 +57,15 @@ def _guild_leadership_recipients(guild: "Guild | None") -> list[str]:
 
 
 def _absolute_url(path: str) -> str:
-    """Turn a relative path into an absolute URL using the book site base URL."""
-    base = getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space").rstrip("/")
-    return f"{base}{path}"
+    """Turn a relative path into an absolute URL using the book site base URL.
+
+    Thin delegate — the public helper lives in :func:`core.urls_util.book_absolute_url`
+    so other apps don't import a private classes helper. Kept for this module's
+    many internal call sites.
+    """
+    from core.urls_util import book_absolute_url
+
+    return book_absolute_url(path)
 
 
 def _flat_text_email_html(text: str) -> str:

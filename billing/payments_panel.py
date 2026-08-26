@@ -70,7 +70,6 @@ class PaymentRow:
     date: datetime
     refund_rows: tuple[PaymentRefund, ...] = ()
     can_refund: bool = False
-    failed_refund_pk: int | None = None  # powers the Retry action
     tab_pk: int | None = None  # tab rows keep the existing tab-detail modal opener
     stripe_url: str = ""  # muted "Stripe" payment link on tab rows
     pending_age: str = ""  # e.g. "2 h" when status == "refund_pending"
@@ -152,18 +151,20 @@ def _age_label(since: datetime) -> str:
 
 def _tab_rows(window: PanelWindow) -> list[PaymentRow]:
     """Tab charge rows. Refund action deferred by locked decision — ``can_refund`` is always False."""
+    from django.db.models.functions import Coalesce
+
     from billing.models import TabCharge
 
     charges = (
         TabCharge.objects.exclude(status__in=[TabCharge.Status.PENDING, TabCharge.Status.PENDING_CHECKOUT])
+        .annotate(effective_charged_at=Coalesce("charged_at", "created_at"))
+        .filter(effective_charged_at__gte=window.start_dt, effective_charged_at__lt=window.end_dt)
         .select_related("tab__member")
         .order_by("-created_at")
     )
     rows: list[PaymentRow] = []
     for charge in charges:
-        charged = charge.charged_at or charge.created_at
-        if not window.start_dt <= charged < window.end_dt:
-            continue
+        charged = charge.effective_charged_at
         status = "paid" if charge.status == TabCharge.Status.SUCCEEDED else "charge_failed"
         stripe_url = charge.stripe_receipt_url
         if not stripe_url and charge.stripe_payment_intent_id:
@@ -204,12 +205,9 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
         refunds = tuple(registration.refunds.all())
         state = registration.refund_state
         pending = next((r for r in refunds if r.status == PaymentRefund.Status.PENDING), None)
-        failed_refund_pk: int | None = None
         pending_age = ""
         if state == "failed":
             status = "refund_failed"
-            failed = next(r for r in refunds if r.status == PaymentRefund.Status.FAILED)
-            failed_refund_pk = failed.pk
         elif pending is not None:
             status = "refund_pending"
             pending_age = _age_label(pending.created_at)
@@ -236,7 +234,6 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
                 date=registration.confirmed_at,
                 refund_rows=refunds,
                 can_refund=registration.refundable_cents > 0,
-                failed_refund_pk=failed_refund_pk,
                 pending_age=pending_age,
             )
         )
@@ -290,7 +287,7 @@ class _Echo:
         return value
 
 
-def _csv_lines(ledger: PaymentsLedger, writer: Any, pseudo: _Echo) -> Iterator[str]:
+def _csv_lines(ledger: PaymentsLedger, writer: Any) -> Iterator[str]:
     yield writer.writerow(CSV_HEADERS)
     for row in ledger.rows:
         base = [
@@ -319,9 +316,8 @@ def _csv_lines(ledger: PaymentsLedger, writer: Any, pseudo: _Echo) -> Iterator[s
 
 def stream_payments_csv(ledger: PaymentsLedger) -> StreamingHttpResponse:
     """Streaming CSV download mirroring the reports pattern — table columns plus refund detail."""
-    pseudo = _Echo()
-    writer = csv.writer(pseudo)
-    response = StreamingHttpResponse(_csv_lines(ledger, writer, pseudo), content_type="text/csv")
+    writer = csv.writer(_Echo())
+    response = StreamingHttpResponse(_csv_lines(ledger, writer), content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="plfog-payments-{stamp}.csv"'
     return response

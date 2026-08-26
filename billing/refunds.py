@@ -91,8 +91,10 @@ def _check_refundable(source: RefundableSource, amount_cents: int | None) -> Non
     if not source.refund_payment_intent_id:
         raise RefundNotPossibleError("No Stripe payment on file.")
     refundable = source.refundable_cents
-    if refundable == 0:
-        raise AlreadyRefundedError("Nothing left to refund.")
+    if refundable <= 0:
+        # Negative happens when a Stripe-dashboard over-refund was reconciled in;
+        # either way there is no refundable remainder.
+        raise AlreadyRefundedError("Nothing left to refund. The payment is already fully or over refunded.")
     if amount_cents is not None and not 0 < amount_cents <= refundable:
         raise InvalidRefundAmountError(f"Refund amount must be between 1 and {refundable} cents.")
 
@@ -218,6 +220,24 @@ def apply_refund_update(refund: PaymentRefund, *, stripe_status: str, failure_re
         _emit_refund_failed_alert(refund)
 
 
+def fail_pending_refund(refund: PaymentRefund, *, failure_reason: str) -> bool:
+    """Flip a stuck PENDING row to FAILED with the full failure bookkeeping.
+
+    The stale-refund sweep's entry point: routes through the same ``_mark_failed``
+    path as every other failure (activity row included) and alerts the Billing
+    Administrators, so a process-death refund is as loud as a Stripe one. Returns
+    ``False`` (untouched) when the row is no longer PENDING under the lock.
+    """
+    with transaction.atomic():
+        _locked(refund.source_object)
+        refund.refresh_from_db()
+        if refund.status != PaymentRefund.Status.PENDING:
+            return False
+        _mark_failed(refund, failure_reason)
+    _emit_refund_failed_alert(refund)
+    return True
+
+
 def _call_stripe(refund: PaymentRefund, source: RefundableSource) -> RefundError | None:
     """Call Stripe for ``refund`` and stamp the outcome on the row.
 
@@ -257,6 +277,13 @@ def _mark_succeeded(refund: PaymentRefund) -> None:
     email the payer the receipt for the ACTUAL refunded amount, and — when the
     source is now fully refunded — run its bookkeeping (``on_fully_refunded``).
     A row already SUCCEEDED fires nothing.
+
+    The receipt EMAIL is deferred to ``transaction.on_commit`` so SMTP fan-out
+    never runs while the caller holds the source-row lock, and a rollback can't
+    have already sent mail. The DB bookkeeping (row stamp, ``on_fully_refunded``,
+    activity) stays inside the transaction — it must commit atomically with the
+    stamp, and a crash between commit and callback would otherwise lose the
+    seat-free with no retry anchor.
     """
     if refund.status == PaymentRefund.Status.SUCCEEDED:
         return
@@ -264,8 +291,8 @@ def _mark_succeeded(refund: PaymentRefund) -> None:
     refund.settled_at = timezone.now()
     refund.save(update_fields=["status", "settled_at"])
     source = refund.source_object
-    _emit_refund_receipt(refund, source)
-    if source.refundable_cents == 0:
+    transaction.on_commit(lambda: _emit_refund_receipt(refund, source))
+    if source.refundable_cents <= 0:
         # For a Retry that re-succeeds on an already-REFUNDED registration this
         # runs again but is harmless: no status transition, and waitlist
         # promotion is guarded by previously_held_a_spot.
@@ -347,9 +374,9 @@ def _emit_refund_failed_alert(refund: PaymentRefund) -> None:
     if refund.registration_id is not None:
         from django.urls import reverse
 
-        from classes.emails import _absolute_url
+        from core.urls_util import book_absolute_url
 
-        admin_url = _absolute_url(reverse("classes:admin_registration_detail", args=[refund.registration_id]))
+        admin_url = book_absolute_url(reverse("classes:admin_registration_detail", args=[refund.registration_id]))
     else:
         # Orientation bookings have no admin detail surface yet — the companion
         # paid-orientations spec supplies one; until then the manage URL stands in.

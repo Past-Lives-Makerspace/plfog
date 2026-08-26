@@ -41,7 +41,7 @@ page carries the "ask an admin" explainer, not this one).
                         hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
                         hx-target="#refund-modal-body" hx-swap="innerHTML"
                         @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
-                    Retry refund
+                    Retry Refund
                 </button>
                 {% elif reg.refundable_cents > 0 %}
                 <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"

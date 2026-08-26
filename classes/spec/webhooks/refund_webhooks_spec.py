@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -64,11 +65,12 @@ def _emails_to(address: str) -> list:
 
 
 def describe_handle_charge_refunded():
-    def it_reconciles_a_dashboard_refund_and_runs_the_bookkeeping():
+    def it_reconciles_a_dashboard_refund_and_runs_the_bookkeeping(django_capture_on_commit_callbacks):
         registration = _paid_registration(class_offering=ClassOfferingFactory(title="Kolrosing"))
         mail.outbox.clear()
 
-        handle_charge_refunded(_charge_refunded_event("pi_hook_1", [_refund_item()]))
+        with django_capture_on_commit_callbacks(execute=True):
+            handle_charge_refunded(_charge_refunded_event("pi_hook_1", [_refund_item()]))
 
         refund = registration.refunds.get()
         assert refund.status == PaymentRefund.Status.SUCCEEDED
@@ -81,18 +83,19 @@ def describe_handle_charge_refunded():
         assert len(sent) == 1
         assert "Kolrosing" in sent[0].subject
 
-    def it_is_idempotent_under_stripe_re_delivery():
+    def it_is_idempotent_under_stripe_re_delivery(django_capture_on_commit_callbacks):
         registration = _paid_registration()
         event = _charge_refunded_event("pi_hook_1", [_refund_item()])
         mail.outbox.clear()
 
-        handle_charge_refunded(event)
-        handle_charge_refunded(event)
+        with django_capture_on_commit_callbacks(execute=True):
+            handle_charge_refunded(event)
+            handle_charge_refunded(event)
 
         assert registration.refunds.count() == 1
         assert len(_emails_to("payer@example.com")) == 1
 
-    def it_does_not_duplicate_our_own_in_app_refund():
+    def it_does_not_duplicate_our_own_in_app_refund(django_capture_on_commit_callbacks):
         # issue_refund stamps stripe_refund_id + final status before its
         # transaction commits, so the webhook for our own refund finds the
         # stamped row and leaves it untouched — no duplicate row, no receipt.
@@ -106,12 +109,13 @@ def describe_handle_charge_refunded():
         )
         mail.outbox.clear()
 
-        handle_charge_refunded(_charge_refunded_event("pi_hook_1", [_refund_item("re_ours")]))
+        with django_capture_on_commit_callbacks(execute=True):
+            handle_charge_refunded(_charge_refunded_event("pi_hook_1", [_refund_item("re_ours")]))
 
         assert registration.refunds.count() == 1
         assert mail.outbox == []
 
-    def it_flips_a_known_pending_row_and_fires_effects_once():
+    def it_flips_a_known_pending_row_and_fires_effects_once(django_capture_on_commit_callbacks):
         registration = _paid_registration()
         PaymentRefundFactory(
             registration=registration,
@@ -121,7 +125,8 @@ def describe_handle_charge_refunded():
         )
         mail.outbox.clear()
 
-        handle_charge_refunded(_charge_refunded_event("pi_hook_1", [_refund_item("re_pending")]))
+        with django_capture_on_commit_callbacks(execute=True):
+            handle_charge_refunded(_charge_refunded_event("pi_hook_1", [_refund_item("re_pending")]))
 
         refund = registration.refunds.get()
         assert refund.status == PaymentRefund.Status.SUCCEEDED
@@ -135,12 +140,53 @@ def describe_handle_charge_refunded():
         refund = registration.refunds.get()
         assert refund.status == PaymentRefund.Status.PENDING
 
-    def it_copes_with_an_event_carrying_no_refund_list():
+    def it_fetches_the_refunds_when_the_charge_payload_embeds_none(django_capture_on_commit_callbacks):
+        # Since Stripe API 2022-11-15 the Charge payload no longer embeds its
+        # refunds list — the handler must fetch and reconcile, not no-op.
+        registration = _paid_registration()
+        mail.outbox.clear()
+
+        with (
+            patch(
+                "billing.stripe_utils.list_refunds_for_payment_intent",
+                return_value=[{"id": "re_fetched_1", "status": "succeeded", "amount": 5000}],
+            ) as mock_list,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            handle_charge_refunded({"data": {"object": {"payment_intent": "pi_hook_1", "amount_refunded": 5000}}})
+
+        assert mock_list.call_args.kwargs["payment_intent_id"] == "pi_hook_1"
+        refund = registration.refunds.get()
+        assert refund.stripe_refund_id == "re_fetched_1"
+        assert refund.status == PaymentRefund.Status.SUCCEEDED
+        assert refund.source == PaymentRefund.Source.STRIPE_DASHBOARD
+        registration.refresh_from_db()
+        assert registration.status == Registration.Status.REFUNDED
+        assert len(_emails_to("payer@example.com")) == 1
+
+    def it_warns_loudly_when_a_refunded_charge_yields_no_reconcilable_refunds(caplog):
         registration = _paid_registration()
 
-        handle_charge_refunded({"data": {"object": {"payment_intent": "pi_hook_1"}}})
+        with (
+            patch("billing.stripe_utils.list_refunds_for_payment_intent", return_value=[]),
+            caplog.at_level(logging.WARNING),
+        ):
+            handle_charge_refunded({"data": {"object": {"payment_intent": "pi_hook_1", "amount_refunded": 2500}}})
 
         assert registration.refunds.count() == 0
+        assert any("did NOT record" in record.message for record in caplog.records)
+
+    def it_stays_quiet_when_an_unrefunded_charge_has_nothing_to_fetch(caplog):
+        registration = _paid_registration()
+
+        with (
+            patch("billing.stripe_utils.list_refunds_for_payment_intent", return_value=[]),
+            caplog.at_level(logging.WARNING),
+        ):
+            handle_charge_refunded({"data": {"object": {"payment_intent": "pi_hook_1"}}})
+
+        assert registration.refunds.count() == 0
+        assert not any("did NOT record" in record.message for record in caplog.records)
 
     def it_warns_loudly_on_an_unknown_payment_intent(caplog):
         _paid_registration()
@@ -204,7 +250,7 @@ def describe_handle_refund_updated():
 
         assert len(_emails_to("billing@example.com")) == 1
 
-    def it_flips_a_pending_row_to_succeeded():
+    def it_flips_a_pending_row_to_succeeded(django_capture_on_commit_callbacks):
         registration = _paid_registration()
         refund = PaymentRefundFactory(
             registration=registration,
@@ -214,7 +260,8 @@ def describe_handle_refund_updated():
         )
         mail.outbox.clear()
 
-        handle_refund_updated(_refund_updated_event("re_late_ok", "succeeded"))
+        with django_capture_on_commit_callbacks(execute=True):
+            handle_refund_updated(_refund_updated_event("re_late_ok", "succeeded"))
 
         refund.refresh_from_db()
         assert refund.status == PaymentRefund.Status.SUCCEEDED

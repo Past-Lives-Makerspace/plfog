@@ -89,7 +89,7 @@ def describe_refund_form_partial():
         )
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_registration_refund_form", args=[registration.pk])).content.decode()
-        assert "Retry refund" in content
+        assert "Retry Refund" in content
         assert "expired_card" in content
         assert reverse("billing_payment_refund_retry", args=[failed.pk]) in content
         assert 'name="amount"' not in content  # no editable fields on the retry confirm
@@ -124,6 +124,23 @@ def describe_refund_post():
         assert (refund.amount_cents, refund.reason) == (2000, "goodwill")
         assert refund.initiated_by == admin_user
 
+    def it_says_processing_when_stripe_lands_the_refund_pending(admin_user, client):
+        registration = _paid_registration(stripe_payment_id="pi_pending_post")
+        client.force_login(admin_user)
+        with patch(
+            "billing.stripe_utils.create_refund",
+            return_value={"id": "re_ui_pending", "status": "pending", "amount": 5000},
+        ):
+            response = client.post(
+                reverse("classes:admin_registration_refund", args=[registration.pk]),
+                {"amount": "50.00"},
+            )
+        assert response.status_code == 204
+        triggers = json.loads(response["HX-Trigger"])
+        assert triggers["refund-done"] is True
+        assert triggers["showToast"]["message"] == "Refund sent. Stripe is processing it."
+        assert registration.refunds.get().status == PaymentRefund.Status.PENDING
+
     def it_rerenders_with_a_field_error_on_an_over_amount(admin_user, client):
         registration = _paid_registration(stripe_payment_id="pi_over_post")
         client.force_login(admin_user)
@@ -156,7 +173,7 @@ def describe_refund_post():
         assert "No such payment." in triggers["showToast"]["message"]
         assert "refund-done" not in triggers
         # The FAILED audit row remains and the partial re-renders as the retry confirm.
-        assert "Retry refund" in response.content.decode()
+        assert "Retry Refund" in response.content.decode()
         assert registration.refunds.get().status == PaymentRefund.Status.FAILED
 
     def it_lets_a_refunds_holder_refund_any_registration(client):
@@ -228,7 +245,7 @@ def describe_detail_refunds_card():
         )
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_registration_detail", args=[registration.pk])).content.decode()
-        assert "Retry refund" in content
+        assert "Retry Refund" in content
         assert "card_gone" in content
 
     def it_hides_the_card_for_an_unpaid_registration(admin_user, client):
@@ -296,7 +313,7 @@ def describe_teach_portal_refunds():
         registration = _paid_registration(class_offering=offering, stripe_payment_id="pi_teach_retry")
         PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.FAILED)
         content = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
-        assert "Retry refund" in content
+        assert "Retry Refund" in content
         assert "Refund failed" in content
 
     def it_serves_the_table_partial_for_the_refresh(client):

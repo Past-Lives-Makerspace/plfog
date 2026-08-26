@@ -114,14 +114,11 @@ def describe_build_payments_ledger():
             assert row.status == "refunded"
             assert row.can_refund is False
 
-        def it_shows_refund_failed_with_the_retry_anchor():
+        def it_shows_refund_failed():
             registration = _paid_registration()
-            failed = PaymentRefundFactory(
-                registration=registration, amount_cents=5000, status=PaymentRefund.Status.FAILED
-            )
+            PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.FAILED)
             (row,) = build_payments_ledger(window=_WINDOW).rows
             assert (row.status, row.status_label) == ("refund_failed", "Refund failed")
-            assert row.failed_refund_pk == failed.pk
 
         def it_shows_refund_pending_with_an_age():
             registration = _paid_registration()

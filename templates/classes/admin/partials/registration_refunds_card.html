@@ -21,7 +21,7 @@ refund-done refresh target.
                 hx-get="{% url 'classes:admin_registration_refund_form' registration.pk %}"
                 hx-target="#refund-modal-body" hx-swap="innerHTML"
                 @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
-            Retry refund
+            Retry Refund
         </button>
         {% elif registration.refundable_cents > 0 %}
         <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"

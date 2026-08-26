@@ -355,13 +355,17 @@ def payment_refund_retry(request: HttpRequest, refund_pk: int) -> HttpResponse:
 
     refund = get_object_or_404(PaymentRefund, pk=refund_pk)
     try:
-        refunds_service.retry_refund(refund, actor=request.user)
+        result = refunds_service.retry_refund(refund, actor=request.user)
     except RefundError as exc:
         response = HttpResponse(status=204)
         trigger_toast(response, f"Refund failed: {exc}", "error")
         return response
     response = HttpResponse(status=204)
-    trigger_toast(response, f"Refunded ${refund.amount_cents / 100:.2f}.", "success")
+    if result.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${result.amount_cents / 100:.2f}.", "success")
+    else:
+        # Stripe accepted the retry but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
     trigger_client_event(response, "refund-done")
     return response
 

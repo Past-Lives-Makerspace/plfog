@@ -64,6 +64,15 @@ def describe_issue_refund():
             with pytest.raises(AlreadyRefundedError, match="Nothing left to refund."):
                 refunds.issue_refund(registration)
 
+        def it_raises_when_reconciled_dashboard_refunds_over_refunded_the_payment():
+            # A Stripe-dashboard over-refund reconciles in as more than was paid;
+            # the refundable remainder goes negative and stays unrefundable.
+            registration = _paid_registration()
+            PaymentRefundFactory(registration=registration, amount_cents=6000, status=PaymentRefund.Status.SUCCEEDED)
+            assert registration.refundable_cents < 0
+            with pytest.raises(AlreadyRefundedError, match="fully or over refunded"):
+                refunds.issue_refund(registration)
+
         def it_rejects_a_zero_amount():
             registration = _paid_registration()
             with pytest.raises(InvalidRefundAmountError):
@@ -117,12 +126,13 @@ def describe_issue_refund():
             assert call_kwargs["idempotency_key"] == f"pay-refund-{refund.pk}-a1"
 
         @patch("billing.stripe_utils.create_refund")
-        def it_emails_the_receipt_with_the_actual_partial_amount(mock_create):
+        def it_emails_the_receipt_with_the_actual_partial_amount(mock_create, django_capture_on_commit_callbacks):
             registration = _paid_registration(class_offering=ClassOfferingFactory(title="Bowl Turning"))
             mock_create.return_value = _stripe_result("re_part_9")
             mail.outbox.clear()
 
-            refunds.issue_refund(registration, amount_cents=2000)
+            with django_capture_on_commit_callbacks(execute=True):
+                refunds.issue_refund(registration, amount_cents=2000)
 
             registration.refresh_from_db()
             assert registration.status == Registration.Status.CONFIRMED  # still attending
@@ -134,13 +144,14 @@ def describe_issue_refund():
             assert "[missing:" not in sent[0].body
 
         @patch("billing.stripe_utils.create_refund")
-        def it_delivers_a_second_partial_receipt(mock_create):
+        def it_delivers_a_second_partial_receipt(mock_create, django_capture_on_commit_callbacks):
             registration = _paid_registration()
             mock_create.side_effect = [_stripe_result("re_p1"), _stripe_result("re_p2")]
             mail.outbox.clear()
 
-            refunds.issue_refund(registration, amount_cents=1000)
-            refunds.issue_refund(registration, amount_cents=1500)
+            with django_capture_on_commit_callbacks(execute=True):
+                refunds.issue_refund(registration, amount_cents=1000)
+                refunds.issue_refund(registration, amount_cents=1500)
 
             sent = _emails_to("payer@example.com")
             assert len(sent) == 2  # unique period per refund row — no dedupe swallow
@@ -207,13 +218,14 @@ def describe_issue_refund():
 
 
 def describe_succeeded_transition():
-    def it_fires_side_effects_exactly_once_when_a_pending_row_flips():
+    def it_fires_side_effects_exactly_once_when_a_pending_row_flips(django_capture_on_commit_callbacks):
         registration = _paid_registration()
         refund = PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.PENDING)
         mail.outbox.clear()
 
-        refunds.apply_refund_update(refund, stripe_status="succeeded")
-        refunds.apply_refund_update(refund, stripe_status="succeeded")
+        with django_capture_on_commit_callbacks(execute=True):
+            refunds.apply_refund_update(refund, stripe_status="succeeded")
+            refunds.apply_refund_update(refund, stripe_status="succeeded")
 
         refund.refresh_from_db()
         assert refund.status == PaymentRefund.Status.SUCCEEDED
@@ -386,11 +398,14 @@ def describe_orientation_seam():
             registration=None, orientation_booking=booking, amount_cents=1500, status=PaymentRefund.Status.PENDING
         )
 
-    def it_emails_the_receipt_for_a_partial_orientation_refund(orientation_refund, monkeypatch):
+    def it_emails_the_receipt_for_a_partial_orientation_refund(
+        orientation_refund, monkeypatch, django_capture_on_commit_callbacks
+    ):
         monkeypatch.setattr(OrientationBooking, "refundable_cents", property(lambda self: 500), raising=False)
         mail.outbox.clear()
 
-        refunds.apply_refund_update(orientation_refund, stripe_status="succeeded")
+        with django_capture_on_commit_callbacks(execute=True):
+            refunds.apply_refund_update(orientation_refund, stripe_status="succeeded")
 
         sent = _emails_to("oriented@example.com")
         assert len(sent) == 1

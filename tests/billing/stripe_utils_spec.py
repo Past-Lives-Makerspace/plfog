@@ -295,3 +295,30 @@ def describe_create_refund():
 
         with pytest.raises(stripe.StripeError, match="already been refunded"):
             stripe_utils.create_refund(payment_intent_id="pi_refund_3", idempotency_key="pay-refund-3-a1")
+
+
+def describe_list_refunds_for_payment_intent():
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_returns_the_reconciler_shape(mock_get_client):
+        client = _mock_client()
+        refund_a = MagicMock(id="re_list_1", status="succeeded", amount=5000)
+        refund_b = MagicMock(id="re_list_2", status="pending", amount=1000)
+        client.v1.refunds.list.return_value = MagicMock(data=[refund_a, refund_b])
+        mock_get_client.return_value = client
+
+        result = stripe_utils.list_refunds_for_payment_intent(payment_intent_id="pi_list_1")
+
+        assert result == [
+            {"id": "re_list_1", "status": "succeeded", "amount": 5000},
+            {"id": "re_list_2", "status": "pending", "amount": 1000},
+        ]
+        call_kwargs = client.v1.refunds.list.call_args
+        assert call_kwargs.kwargs["params"] == {"payment_intent": "pi_list_1"}
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_returns_empty_when_stripe_has_no_refunds(mock_get_client):
+        client = _mock_client()
+        client.v1.refunds.list.return_value = MagicMock(data=[])
+        mock_get_client.return_value = client
+
+        assert stripe_utils.list_refunds_for_payment_intent(payment_intent_id="pi_list_2") == []
