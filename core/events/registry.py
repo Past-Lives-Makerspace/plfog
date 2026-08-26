@@ -235,6 +235,10 @@ def _with_push(event: EventType) -> EventType:
 
 
 _DISCORD_DM_OFF = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.OFF)
+# Default-ON DM — reserved for per-person verdicts the member explicitly asked for (their
+# event proposal's outcome): a Discord-originated proposer must hear back without hunting
+# for an opt-in. The adapter no-ops for unlinked members; anyone can opt out in settings.
+_DISCORD_DM_ON = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.ON)
 
 
 def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]:
@@ -703,7 +707,7 @@ _NEW_EVENTS: list[EventType] = [
         description="A reviewer approved a member's proposed event and it's now published.",
         category="Events",
         recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
     # 16. event.changes_requested — the proposer is asked to edit + resubmit.
@@ -713,7 +717,7 @@ _NEW_EVENTS: list[EventType] = [
         description="A reviewer asked the proposer to adjust their event and resubmit.",
         category="Events",
         recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
     # 17. event.declined — the proposal was turned down.
@@ -723,7 +727,7 @@ _NEW_EVENTS: list[EventType] = [
         description="A reviewer declined a member's proposed event.",
         category="Events",
         recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
     # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming community event, to the

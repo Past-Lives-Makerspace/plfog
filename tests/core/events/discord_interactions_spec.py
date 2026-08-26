@@ -182,3 +182,32 @@ def describe_send_followup():
         settings.DISCORD_CLIENT_ID = "app789"
         respx.patch(_FOLLOWUP_URL).mock(side_effect=httpx.ConnectError("no route"))
         assert di.send_followup("tok456", content="done") is False
+
+
+def describe_deferred_update_ack():
+    def it_is_a_bare_type_6_body():
+        assert di.deferred_update_ack() == {"type": 6}
+
+
+def describe_ack_component_deferred():
+    @respx.mock
+    def it_posts_a_type_6_ack_and_returns_true(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        route = respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+        assert di.ack_component_deferred("int123", "tok456") is True
+        assert route.called
+        import json
+
+        assert json.loads(route.calls.last.request.content) == {"type": 6}
+
+    @respx.mock
+    def it_returns_false_on_a_non_2xx(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(403, text="forbidden"))
+        assert di.ack_component_deferred("int123", "tok456") is False
+
+    @respx.mock
+    def it_returns_false_on_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(side_effect=httpx.ConnectError("no route"))
+        assert di.ack_component_deferred("int123", "tok456") is False
