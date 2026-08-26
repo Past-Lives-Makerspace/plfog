@@ -476,3 +476,114 @@ def describe_when_formatting():
         end = start + timedelta(hours=12)
         text = dcp._when(start, end, False)
         assert timezone.localtime(end).strftime("%A, %B %-d") in text
+
+
+def describe_announce_community_event_now():
+    _CHANNEL_URL = "https://discord.com/api/v10/channels/chan9/messages"
+
+    def _configured(settings):
+        from core.models import SiteConfiguration
+
+        settings.DISCORD_BOT_TOKEN = "bot"
+        config = SiteConfiguration.load()
+        config.discord_calendar_posts_enabled = True
+        config.discord_calendar_channel_id = "chan9"
+        config.discord_server_id = "srv1"
+        config.save()
+
+    def _published_event(**overrides):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from membership.models import CommunityEvent
+        from tests.membership.factories import CommunityEventFactory
+
+        starts = timezone.now() + timedelta(days=2)
+        fields = {
+            "moderation_state": CommunityEvent.ModerationState.PUBLISHED,
+            "starts_at": starts,
+            "ends_at": starts + timedelta(hours=1),
+        }
+        fields.update(overrides)
+        return CommunityEventFactory(**fields)
+
+    @respx.mock
+    def it_posts_the_card_stamps_the_event_and_returns_the_jump_url(settings):
+        from django.utils import timezone as _tz
+
+        from hub.discord_calendar_posts import announce_community_event_now
+
+        _configured(settings)
+        event = _published_event()
+        route = respx.post(_CHANNEL_URL).mock(return_value=httpx.Response(200, json={"id": "msg7"}))
+
+        url = announce_community_event_now(event)
+
+        assert url == "https://discord.com/channels/srv1/chan9/msg7"
+        body = json.loads(route.calls.last.request.content)
+        assert body["embeds"][0]["title"] == event.title
+        assert body["components"]  # the RSVP/Manage row rides along
+        event.refresh_from_db()
+        assert event.channel_announced_at is not None
+        assert event.discord_announce_message_id == "msg7"
+        assert event.channel_announced_at <= _tz.now()
+
+    @respx.mock
+    def it_never_double_posts_an_already_announced_event(settings):
+        from django.utils import timezone as _tz
+
+        from hub.discord_calendar_posts import announce_community_event_now
+
+        _configured(settings)
+        event = _published_event(channel_announced_at=_tz.now())
+        route = respx.post(_CHANNEL_URL)
+        assert announce_community_event_now(event) == ""
+        assert not route.called
+
+    @respx.mock
+    def it_skips_scheduled_studio_hours_and_disabled_config(settings):
+        from membership.models import CommunityEvent
+        from hub.discord_calendar_posts import announce_community_event_now
+
+        _configured(settings)
+        route = respx.post(_CHANNEL_URL)
+        scheduled = _published_event(moderation_state=CommunityEvent.ModerationState.SCHEDULED)
+        assert announce_community_event_now(scheduled) == ""
+        hours = _published_event(
+            event_type=CommunityEvent.EventType.STUDIO_HOURS,
+            guild=GuildFactory(name="Hours Guild"),
+        )
+        assert announce_community_event_now(hours) == ""
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.discord_calendar_posts_enabled = False
+        config.save()
+        assert announce_community_event_now(_published_event()) == ""
+        assert not route.called
+
+    @respx.mock
+    def it_returns_empty_when_the_server_id_is_unset_but_still_posts(settings):
+        from core.models import SiteConfiguration
+        from hub.discord_calendar_posts import announce_community_event_now
+
+        _configured(settings)
+        config = SiteConfiguration.load()
+        config.discord_server_id = ""
+        config.save()
+        event = _published_event()
+        route = respx.post(_CHANNEL_URL).mock(return_value=httpx.Response(200, json={"id": "msg7"}))
+        assert announce_community_event_now(event) == ""
+        assert route.called  # the card still posts; only the jump URL is unavailable
+
+    @respx.mock
+    def it_prevents_the_cron_from_reposting_after_an_instant_announce(settings):
+        from hub.discord_calendar_posts import announce_community_event_now, announce_new_events
+
+        _configured(settings)
+        event = _published_event()
+        route = respx.post(_CHANNEL_URL).mock(return_value=httpx.Response(200, json={"id": "msg7"}))
+        announce_community_event_now(event)
+        announce_new_events()
+        assert route.call_count == 1

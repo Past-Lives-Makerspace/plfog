@@ -1020,16 +1020,20 @@ def _form_error_message(form: CommunityEventForm) -> str:
     return " ".join(str(error) for errors in form.errors.values() for error in errors)
 
 
-def _published_reply(event: CommunityEvent, emailed: int) -> dict:
-    """The success reply for a live event — the hub link is the edit affordance (v1)."""
+def _published_reply(event: CommunityEvent, emailed: int, *, calendar_url: str = "") -> dict:
+    """The success reply for a live event — the hub link is the edit affordance (v1).
+
+    ``calendar_url`` (the just-posted #calendar RSVP card, when the instant announce
+    succeeded) adds a second link button so the creator lands on the card people will
+    actually RSVP on, not just the hub page.
+    """
     content = "Your event is live on the Community Calendar. ✅"
     if emailed:
         content += f"\nEmailed {emailed} member{'' if emailed == 1 else 's'}."
-    button_row = {
-        "type": 1,
-        "components": [{"type": 2, "style": 5, "label": "Open the event", "url": event.public_url}],
-    }
-    return reply(content, ephemeral=True, components=[button_row])
+    buttons = [{"type": 2, "style": 5, "label": "Open the event", "url": event.public_url}]
+    if calendar_url:
+        buttons.append({"type": 2, "style": 5, "label": "See it in #calendar", "url": calendar_url})
+    return reply(content, ephemeral=True, components=[{"type": 1, "components": buttons}])
 
 
 def _pending_reply() -> dict:
@@ -1077,13 +1081,20 @@ def _finalize_event(
 
     if not published:
         return _pending_reply()
+    calendar_url = ""
+    try:
+        from hub.discord_calendar_posts import announce_community_event_now
+
+        calendar_url = announce_community_event_now(event)
+    except Exception:
+        logger.exception("create: instant channel announcement failed; the 15 minute announcer will post it")
     emailed = 0
     if email_choice in _EMAIL_AUDIENCES:
         try:
             emailed = event.email_announcement(email_choice, actor=member.user)
         except Exception:
             logger.exception("create: email announcement failed after the event was published")
-    return _published_reply(event, emailed)
+    return _published_reply(event, emailed, calendar_url=calendar_url)
 
 
 def _local_naive(dt: datetime) -> datetime:
