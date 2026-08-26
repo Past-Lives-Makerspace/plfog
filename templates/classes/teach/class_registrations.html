@@ -2,40 +2,25 @@
 {% load classes_tags %}
 {% block detail_content %}
 <div>
-    {% if registrations %}
-    <div class="admin-table-wrap">
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Paid</th>
-                <th>Registered</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for reg in registrations %}
-            <tr{% if reg.status == 'cancelled' or reg.status == 'refunded' %} style="opacity:0.5;"{% endif %}>
-                <td>
-                    {{ reg.first_name }} {{ reg.last_name }}
-                    {% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}
-                </td>
-                <td style="font-size:0.9rem;">{{ reg.email }}</td>
-                <td>{{ reg.get_status_display }}</td>
-                <td>{{ reg.amount_paid_cents|cents_as_dollars }}</td>
-                <td>{{ reg.registered_at|date:"M j, Y" }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+    <div hx-get="{% url 'classes:teach_class_registrations_table' offering.pk %}"
+         hx-trigger="refund-done from:body"
+         hx-swap="innerHTML">
+        {% include "classes/teach/partials/class_registrations_table.html" %}
     </div>
 
+    {% if registrations %}
     <div style="margin-top:0.75rem;">
         <a href="{% url 'hub_compose' %}?audience=class:{{ offering.pk }}&amp;lock=1" class="hub-btn hub-btn--sm hub-btn--primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:0.35rem;vertical-align:-2px;"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Send Announcement</a>
     </div>
-    {% else %}
-    <div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">No registrations yet.</div>
     {% endif %}
 </div>
+
+{% if viewer_has_refund_authority %}
+{% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
+<script>
+  document.body.addEventListener('refund-done', function () {
+    window.dispatchEvent(new CustomEvent('close-modal', { detail: 'refund-modal' }));
+  });
+</script>
+{% endif %}
 {% endblock detail_content %}

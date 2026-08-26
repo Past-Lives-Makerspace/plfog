@@ -918,9 +918,10 @@ class Member(models.Model):
         """True when this member holds the given :class:`AdminCapability` grant.
 
         A capability is a scoped admin authority (approve classes, spaces, discount
-        codes, calendar proposals, or billing alerts) that both routes the matching
-        notifications to the holder and lets them act on that object type — decoupling
-        those duties from the all-or-nothing ``fog_role == admin`` tier.
+        codes, calendar proposals, billing alerts, or issue refunds) that decouples
+        one duty from the all-or-nothing ``fog_role == admin`` tier. Most both route
+        the matching notifications to the holder and let them act on that object
+        type; see :class:`AdminCapability` for the exceptions.
         """
         return self.admin_capabilities.filter(capability=capability).exists()
 
@@ -2112,11 +2113,14 @@ class GuildStaffMembership(models.Model):
 class AdminCapability(models.Model):
     """A scoped admin authority granted to a member, beyond the ``fog_role`` tier.
 
-    Each capability both *routes* the matching approval/alert notifications to the
+    Most capabilities both *route* the matching approval/alert notifications to the
     holder (so the right people hear about a class awaiting review, a space request, a
-    discount code, a calendar proposal, or a failed charge) and *grants the action* —
+    discount code, a calendar proposal, or a failed charge) and *grant the action* —
     a holder can approve or decline that object type. This lets the makerspace hand out
     a single duty (e.g. "you review classes") without promoting someone to full admin.
+    Two exceptions: ``REFUNDS`` is action-only (it routes no notifications — refund
+    failure alerts go to the Billing Administrators), and ``BILLING_APPROVER``
+    additionally gates the admin Payments dashboard views.
     The capability is the master switch: ONLY holders receive the matching notifications
     (and see them on the settings page). A plain Admin who does not hold it gets nothing
     until it is granted — they can self-grant on their own member page. See
@@ -2124,11 +2128,12 @@ class AdminCapability(models.Model):
     """
 
     class Capability(models.TextChoices):
-        CLASS_APPROVER = "class_approver", "Class Administrator"
+        CLASS_APPROVER = "class_approver", "CMS Administrator"
         SPACE_APPROVER = "space_approver", "Space & Cubby Administrator"
         DISCOUNT_APPROVER = "discount_approver", "Discount Code Administrator"
         EVENTS_APPROVER = "events_approver", "Calendar Administrator"
         BILLING_APPROVER = "billing_approver", "Billing Administrator"
+        REFUNDS = "refunds", "Refunds"
 
     member = models.ForeignKey(
         Member,

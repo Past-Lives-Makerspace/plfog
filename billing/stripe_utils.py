@@ -203,6 +203,24 @@ def create_class_checkout_session(
     return {"id": session.id, "url": session.url or ""}
 
 
+def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, idempotency_key: str) -> dict[str, Any]:
+    """Refund a PaymentIntent — full refund when ``amount_cents`` is ``None``.
+
+    Returns dict with 'id' (the Stripe ``re_…`` refund id), 'status', and 'amount'.
+    The idempotency_key is REQUIRED so a retried request never double-refunds.
+    Stripe errors propagate — the caller (``billing.refunds``) handles them loudly.
+    """
+    client = _get_stripe_client()
+    params: dict[str, Any] = {"payment_intent": payment_intent_id}
+    if amount_cents is not None:
+        params["amount"] = amount_cents
+    refund = client.v1.refunds.create(
+        params=params,
+        options={"idempotency_key": idempotency_key},
+    )
+    return {"id": refund.id, "status": refund.status, "amount": refund.amount}
+
+
 def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:
     """Verify and construct a Stripe webhook event from the raw payload.
 

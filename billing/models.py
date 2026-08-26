@@ -1141,3 +1141,149 @@ class TabEntrySplit(models.Model):
         else:
             recipient = "Guild?"
         return f"{recipient} ${self.amount} ({self.percent}%)"
+
+
+# ---------------------------------------------------------------------------
+# PaymentRefund — the source-neutral refund ledger
+# ---------------------------------------------------------------------------
+
+
+class PaymentRefundQuerySet(models.QuerySet["PaymentRefund"]):
+    """Query helpers for the refund ledger."""
+
+    def succeeded(self) -> PaymentRefundQuerySet:
+        """Refunds whose money actually moved."""
+        return self.filter(status=PaymentRefund.Status.SUCCEEDED)
+
+    def for_source(self, source: Any) -> PaymentRefundQuerySet:
+        """Refunds belonging to one refundable source row (a Registration or an OrientationBooking)."""
+        from billing.refunds import source_field_name
+
+        return self.filter(**{source_field_name(source): source})
+
+
+class PaymentRefund(models.Model):
+    """One row per refund — the audit ledger shared by every refundable source.
+
+    A dedicated model rather than fields on the source because: (a) partial
+    refunds mean multiple refunds per source row; (b) webhook reconciliation
+    needs an idempotency anchor (``stripe_refund_id`` unique when set, so
+    re-delivered events upsert rather than duplicate); (c) each refund carries
+    its own actor, reason, attempt count, and failure state; (d) two source
+    apps must share one ledger without either owning the other.
+
+    Exactly one of ``registration`` / ``orientation_booking`` is set (DB-enforced).
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
+    class Source(models.TextChoices):
+        IN_APP = "in_app", "Issued in app"
+        STRIPE_DASHBOARD = "stripe_dashboard", "Issued in Stripe dashboard"
+
+    registration = models.ForeignKey(
+        "classes.Registration",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="refunds",
+        help_text="Set for class-payment refunds. Exactly one source FK is set per row.",
+    )
+    orientation_booking = models.ForeignKey(
+        "membership.OrientationBooking",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="refunds",
+        help_text="Set for orientation-payment refunds. Exactly one source FK is set per row.",
+    )
+    stripe_refund_id = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Stripe re_… refund id. Blank only between row-create and Stripe responding; "
+            "unique when set, which makes webhook upserts idempotent."
+        ),
+    )
+    amount_cents = models.PositiveIntegerField(help_text="Amount of THIS refund, in cents.")
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="Refund lifecycle status. Card refunds usually succeed synchronously; refund.updated flips late failures.",
+    )
+    attempt = models.PositiveIntegerField(
+        default=1,
+        help_text="Attempt counter, bumped by Retry; feeds the fresh idempotency-key suffix.",
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.IN_APP,
+        help_text="Where the refund was initiated. Reconciled dashboard refunds get 'Issued in Stripe dashboard'.",
+    )
+    reason = models.TextField(
+        blank=True, help_text="Optional internal note from the refund modal. The payer never sees this."
+    )
+    failure_reason = models.CharField(
+        max_length=500, blank=True, help_text="Stripe's failure reason, for the admin to read."
+    )
+    initiated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who issued the refund in app. Null for webhook-sourced/system refunds.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this refund row was created.")
+    settled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Stamped on entering SUCCEEDED or FAILED. Also the 'side effects already fired' "
+            "guard: the succeeded-transition effects run exactly once."
+        ),
+    )
+
+    objects = PaymentRefundQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["registration", "status"], name="idx_refund_reg_status"),
+            models.Index(fields=["orientation_booking", "status"], name="idx_refund_booking_status"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (Q(registration__isnull=False) & Q(orientation_booking__isnull=True))
+                    | (Q(registration__isnull=True) & Q(orientation_booking__isnull=False))
+                ),
+                name="ck_refund_one_source",
+            ),
+            models.UniqueConstraint(
+                fields=["stripe_refund_id"],
+                condition=~Q(stripe_refund_id=""),
+                name="uq_refund_stripe_id",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"${self.amount_cents / 100:.2f} refund for {self.source_object} ({self.get_status_display()})"
+
+    @property
+    def source_object(self) -> Any:
+        """Whichever source row this refund belongs to (Registration or OrientationBooking)."""
+        if self.registration_id is not None:
+            return self.registration
+        return self.orientation_booking
+
+    @property
+    def source_kind(self) -> str:
+        """``"class"`` for registration refunds, ``"orientation"`` for orientation-booking refunds."""
+        return "class" if self.registration_id is not None else "orientation"

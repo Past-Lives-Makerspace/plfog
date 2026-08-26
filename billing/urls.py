@@ -13,6 +13,13 @@ urlpatterns = [
     path("admin/save-settings/", views.billing_admin_save_settings, name="billing_admin_save_settings"),
     path("admin/retry-charge/<int:charge_pk>/", views.billing_admin_retry_charge, name="billing_admin_retry_charge"),
     path("admin/tab/<int:tab_pk>/detail/", views.billing_admin_tab_detail_api, name="billing_admin_tab_detail_api"),
+    path("admin/payments/table/", views.billing_admin_payments_table, name="billing_admin_payments_table"),
+    path("admin/payments/export/csv/", views.admin_payments_csv, name="billing_admin_payments_csv"),
+    path(
+        "admin/refunds/<int:refund_pk>/retry/",
+        views.payment_refund_retry,
+        name="billing_payment_refund_retry",
+    ),
     path("admin/reports/", views.admin_reports, name="billing_admin_reports"),
     path("admin/reports/export/csv/", views.admin_reports_csv, name="billing_admin_reports_csv"),
     path(

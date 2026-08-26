@@ -225,6 +225,83 @@ def fog_admin_required(view_func: _ViewFunc) -> _ViewFunc:
     return login_required(wrapper)  # type: ignore[return-value]
 
 
+def _capability_or_admin_required(capability: str, forbidden_message: str) -> Callable[[_ViewFunc], _ViewFunc]:
+    """Decorator factory: pass fog-admins (actual role, preview-independent) or capability holders.
+
+    Like :func:`fog_admin_required`, the admin check honors ``has_actual`` so a
+    session view-as preview can't grant or revoke access. The capability check
+    reads the user's linked member; a user with no member fails it.
+    """
+    from functools import wraps
+    from typing import Any
+
+    from django.contrib.auth.decorators import login_required
+    from django.http import HttpResponseForbidden
+
+    def decorator(view_func: _ViewFunc) -> _ViewFunc:
+        @wraps(view_func)
+        def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+            view_as = getattr(request, "view_as", None)
+            if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+                return view_func(request, *args, **kwargs)
+            member = getattr(request.user, "member", None)
+            if member is not None and member.has_admin_capability(capability):
+                return view_func(request, *args, **kwargs)
+            return HttpResponseForbidden(forbidden_message)
+
+        return login_required(wrapper)  # type: ignore[return-value]
+
+    return decorator
+
+
+def billing_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating the admin Payments dashboard: fog-admins or Billing Administrators.
+
+    The ``BILLING_APPROVER`` capability now gates the billing admin views (it was
+    alert-only before). Views that touch Stripe credentials or billing config stay
+    ``fog_admin_required`` — a Billing Administrator sees Overview / Open Tabs /
+    Payments; the Settings and Stripe tabs stay admin-only.
+    """
+    from membership.models import AdminCapability
+
+    return _capability_or_admin_required(
+        AdminCapability.Capability.BILLING_APPROVER,
+        "Billing dashboard access requires admin privileges or the Billing Administrator permission.",
+    )(view_func)
+
+
+def refund_authority_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating refund actions: fog-admins or holders of the ``REFUNDS`` capability.
+
+    A ``REFUNDS`` holder may refund ANY registration — that is what the grant
+    means: a trusted duty handed to a person, not per-class scoping. The grant
+    opens no pages on its own; it adds Refund/Retry actions on payment surfaces
+    the holder can already reach.
+    """
+    from membership.models import AdminCapability
+
+    return _capability_or_admin_required(
+        AdminCapability.Capability.REFUNDS,
+        "Refunds require admin privileges or the Refunds permission.",
+    )(view_func)
+
+
+def has_refund_authority(request: "HttpRequest") -> bool:
+    """True when the request's user may issue refunds — fog-admin (actual) or ``REFUNDS`` holder.
+
+    The template-side twin of :func:`refund_authority_required`: views compute it
+    once so templates can gate Refund/Retry buttons without granting anything —
+    the endpoints stay decorator-gated regardless.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+        return True
+    member = getattr(request.user, "member", None)
+    return member is not None and member.has_admin_capability(AdminCapability.Capability.REFUNDS)
+
+
 class ViewAsMiddleware:
     """Attach ``request.view_as`` to every request.
 

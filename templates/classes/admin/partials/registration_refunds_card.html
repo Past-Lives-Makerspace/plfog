@@ -1,0 +1,66 @@
+{% load classes_tags %}
+{% comment %}
+The Refunds card on the CMS registration detail page. Rendered OUTSIDE the
+admin gate: instructors and guild leads reach this page too, and Refunds
+holders are deep-linked straight here. What it shows depends on the viewer:
+
+- Refund authority (fog-admin or REFUNDS holder): Refund / Retry buttons plus
+  the full refund history with internals (reason, initiated by, failure text).
+- Page-access viewers without the grant: history without internals, and a
+  muted pointer at the permission instead of a button.
+
+Served standalone by classes:admin_registration_refunds_card — the
+refund-done refresh target.
+{% endcomment %}
+<div style="padding:1rem; border:1px solid var(--hub-border); border-radius:8px;">
+    <h3 style="margin:0 0 0.75rem; font-size:0.95rem;">Refunds</h3>
+
+    {% if viewer_has_refund_authority %}
+        {% if registration.refund_state == "failed" %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                hx-get="{% url 'classes:admin_registration_refund_form' registration.pk %}"
+                hx-target="#refund-modal-body" hx-swap="innerHTML"
+                @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+            Retry refund
+        </button>
+        {% elif registration.refundable_cents > 0 %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                hx-get="{% url 'classes:admin_registration_refund_form' registration.pk %}"
+                hx-target="#refund-modal-body" hx-swap="innerHTML"
+                @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+            Refund
+        </button>
+        {% endif %}
+        {% if registration.refund_state == "failed" or registration.refundable_cents > 0 %}
+        <p style="margin:0.75rem 0 0; font-size:0.8rem; color:var(--hub-text-muted);">Refunds are sent to the payer's card through Stripe. A full refund frees the spot and promotes the waitlist.</p>
+        {% endif %}
+    {% else %}
+        <p style="margin:0; font-size:0.85rem; color:var(--hub-text-muted);">Refunds require the Refunds permission. Ask an admin.</p>
+    {% endif %}
+
+    {% if registration.refunds.all %}
+    <ul class="pl-refund-history">
+        {% for refund in registration.refunds.all %}
+        <li class="pl-refund-history__row">
+            <strong>{{ refund.amount_cents|cents_as_dollars }}</strong>
+            {% if refund.status == "succeeded" %}<span class="pl-status-badge pl-status-badge--ok">Succeeded</span>
+            {% elif refund.status == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Failed</span>
+            {% else %}<span class="pl-status-badge pl-status-badge--warn">Pending</span>{% endif %}
+            {% if viewer_has_refund_authority and refund.attempt > 1 %}<span class="pl-refund-history__meta">attempt {{ refund.attempt }}</span>{% endif %}
+            <span class="pl-refund-history__meta">{{ refund.created_at|date:"M j, Y" }}</span>
+            {% if viewer_has_refund_authority %}
+                {% if refund.source == "in_app" %}
+                <span class="pl-refund-history__meta">in app{% if refund.initiated_by %} by {{ refund.initiated_by.get_full_name|default:refund.initiated_by.username }}{% endif %}</span>
+                {% else %}
+                <span class="pl-refund-history__meta">Stripe dashboard</span>
+                {% endif %}
+                {% if refund.reason %}<span class="pl-refund-history__meta">{{ refund.reason }}</span>{% endif %}
+                {% if refund.status == "failed" and refund.failure_reason %}<span class="pl-refund-failure" style="margin:0; flex-basis:100%;">{{ refund.failure_reason }}</span>{% endif %}
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% elif viewer_has_refund_authority %}
+    <p style="margin:0.75rem 0 0; font-size:0.8rem; color:var(--hub-text-muted);">No refunds yet.</p>
+    {% endif %}
+</div>

@@ -117,6 +117,17 @@ TRIGGERS: list[Trigger] = [
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),
     Trigger("tab_charge_failed", "Tab charge failed", "A charge failed — update your payment method.", "Billing"),
+    # Transactional admin alert: a Stripe refund failed after the fact — the Billing
+    # Administrators must hear about it (the payer may already hold a receipt for
+    # money that never arrived). Routed to the BILLING_APPROVERS resolver.
+    Trigger(
+        "refund_failed",
+        "A refund failed",
+        "A Stripe refund did not go through and needs a retry.",
+        "Billing",
+        Audience.STAFF_ONLY,
+        force_email=True,
+    ),
     # Transactional: both concern money owed on the member's tab — a charge they did not
     # enter themselves, and the warning before the tab locks. Neither is opt-out-able.
     Trigger(

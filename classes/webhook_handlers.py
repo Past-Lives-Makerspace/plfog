@@ -104,3 +104,75 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     from core.services.guest_account import ensure_account_for_registration
 
     ensure_account_for_registration(registration)
+
+
+def _refundable_source_for_payment_intent(payment_intent_id: str) -> Registration | None:
+    """Resolve a Stripe PaymentIntent id to a refundable source row, across BOTH sources.
+
+    Registrations are matched on ``stripe_payment_id``. Orientation bookings are
+    the documented lookup seam: the paid-orientations companion spec adds their
+    payment-intent field, and this resolver grows that second lookup then (the
+    return type widens alongside it). ``None`` means the payment is not a
+    refundable source we know — e.g. a Tab charge (reconciliation deferred) or
+    an unknown payment.
+    """
+    return Registration.objects.filter(stripe_payment_id=payment_intent_id).first()
+
+
+def handle_charge_refunded(event: dict[str, Any]) -> None:
+    """Reconcile a ``charge.refunded`` event into the PaymentRefund ledger.
+
+    Fires for refunds we issued in app AND for refunds made by hand in the
+    Stripe dashboard. Idempotent: refunds upsert by ``stripe_refund_id``, and the
+    source-row lock serializes this handler behind an in-flight ``issue_refund``
+    (whose row is stamped before its transaction commits), so our own refund is
+    never duplicated. A dashboard refund transitioning into SUCCEEDED flips the
+    local record, frees the seat, and emails the payer exactly like an in-app one.
+    """
+    from billing import refunds as refunds_service
+
+    charge = event["data"]["object"]
+    payment_intent_id = charge.get("payment_intent") or ""
+    source = _refundable_source_for_payment_intent(payment_intent_id) if payment_intent_id else None
+    if source is None:
+        logger.warning(
+            "charge.refunded: payment intent %s is not a refundable source we know "
+            "(a Tab charge or unknown payment) — skipping reconciliation.",
+            payment_intent_id or "<missing>",
+        )
+        return
+
+    refund_items = (charge.get("refunds") or {}).get("data") or []
+    with transaction.atomic():
+        locked = Registration.objects.select_for_update().get(pk=source.pk)
+        for item in refund_items:
+            refunds_service.reconcile_dashboard_refund(
+                locked,
+                stripe_refund_id=item["id"],
+                amount_cents=item["amount"],
+                stripe_status=item["status"],
+            )
+
+
+def handle_refund_updated(event: dict[str, Any]) -> None:
+    """Apply a ``refund.updated`` event to the ledger — late failures and late successes.
+
+    Lookup is by ``stripe_refund_id`` across the whole ledger (source-neutral —
+    the row knows its side). A ``failed`` status flips the row and alerts the
+    Billing Administrators; ``succeeded`` on a PENDING row runs the
+    succeeded-transition side effects. Unknown ids log loudly and return.
+    """
+    from billing import refunds as refunds_service
+    from billing.models import PaymentRefund
+
+    refund_object = event["data"]["object"]
+    stripe_refund_id = refund_object.get("id") or ""
+    refund = PaymentRefund.objects.filter(stripe_refund_id=stripe_refund_id).first()
+    if refund is None:
+        logger.warning("refund.updated: unknown stripe refund id %s — skipping.", stripe_refund_id or "<missing>")
+        return
+    refunds_service.apply_refund_update(
+        refund,
+        stripe_status=refund_object.get("status") or "",
+        failure_reason=refund_object.get("failure_reason") or "",
+    )

@@ -132,7 +132,7 @@ class Row:
 
     ``badge`` is a short note explaining a non-obvious reason the user receives this
     event — set when they're a default recipient via an admin capability (e.g. "You get
-    this as a Class Administrator") rather than by a plain opt-in.
+    this as a CMS Administrator") rather than by a plain opt-in.
     """
 
     event_key: str

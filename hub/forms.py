@@ -645,10 +645,12 @@ class MemberCapabilitiesForm(forms.Form):
     """A member's scoped, site-wide admin duties, one BooleanField per capability.
 
     Each field renders as a labeled toggle (``components/toggle.html``) on the member
-    edit Permissions tab. A capability is the master switch: holding it both routes the
-    matching approval/alert emails to this member AND lets them act on that object type,
-    without granting full admin. These are SITE-WIDE — per-guild lead/staff authority is
-    managed on the guild's own Staff tab, not here.
+    edit Permissions tab. A capability is the master switch: holding it usually both
+    routes the matching approval/alert emails to this member AND lets them act on that
+    object type, without granting full admin. Two exceptions: Refunds is action-only
+    (routes nothing), and Billing Administrator additionally gates the admin Payments
+    dashboard. These are SITE-WIDE — per-guild lead/staff authority is managed on the
+    guild's own Staff tab, not here.
 
     Build for GET with ``MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))``;
     on POST, ``form.selected()`` returns the checked capability values for
@@ -657,7 +659,7 @@ class MemberCapabilitiesForm(forms.Form):
 
     cap_class_approver = forms.BooleanField(
         required=False,
-        label="Class Administrator",
+        label="CMS Administrator",
         help_text="Approves and publishes classes for every guild, and gets class-review emails.",
     )
     cap_space_approver = forms.BooleanField(
@@ -678,7 +680,17 @@ class MemberCapabilitiesForm(forms.Form):
     cap_billing_approver = forms.BooleanField(
         required=False,
         label="Billing Administrator",
-        help_text="Gets an alert when a member's automatic payment fails.",
+        help_text="Sees the admin Payments dashboard and gets an alert when a member's automatic payment fails.",
+    )
+    cap_refunds = forms.BooleanField(
+        required=False,
+        label="Refunds",
+        help_text=(
+            "Can send Stripe refunds for class and orientation payments. "
+            "Adds Refund buttons on payment pages this member can already reach. "
+            "It does not open any new pages, so pair it with Billing Administrator "
+            "for the Payments panel."
+        ),
     )
 
     # Field name → the capability it grants. The single source of truth both
@@ -689,6 +701,7 @@ class MemberCapabilitiesForm(forms.Form):
         "cap_discount_approver": AdminCapability.Capability.DISCOUNT_APPROVER,
         "cap_events_approver": AdminCapability.Capability.EVENTS_APPROVER,
         "cap_billing_approver": AdminCapability.Capability.BILLING_APPROVER,
+        "cap_refunds": AdminCapability.Capability.REFUNDS,
     }
 
     @classmethod

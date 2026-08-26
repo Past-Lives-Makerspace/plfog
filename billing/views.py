@@ -20,7 +20,7 @@ from classes import webhook_handlers as classes_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
 from billing.models import BillingSettings, Tab, TabCharge, TabEntry
-from hub.view_as import fog_admin_required
+from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,8 @@ _WEBHOOK_HANDLERS = {
     "payment_method.updated": webhook_handlers.handle_payment_method_updated,
     "charge.dispute.created": webhook_handlers.handle_charge_dispute_created,
     "checkout.session.completed": classes_webhook_handlers.handle_checkout_session_completed,
+    "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
+    "refund.updated": classes_webhook_handlers.handle_refund_updated,
 }
 
 
@@ -143,10 +145,52 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-_VALID_TABS = {"overview", "open-tabs", "settings", "stripe"}
+_VALID_TABS = {"overview", "open-tabs", "payments", "settings", "stripe"}
 
 
-@fog_admin_required
+def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
+    """Shared context for the Payments tab and its standalone table partial.
+
+    The same filters feed the page render, the ``refund-done`` HTMX refresh, and
+    the CSV export, so all three always agree on what "the current view" means.
+    """
+    from urllib.parse import urlencode
+
+    from billing.payments_panel import build_payments_ledger, parse_window
+    from hub.view_as import has_refund_authority
+
+    source = request.GET.get("source", "all")
+    status = request.GET.get("status", "all")
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    view_as = request.view_as  # type: ignore[attr-defined]
+    viewer_is_fog_admin = view_as.has_actual("admin")
+    ledger = build_payments_ledger(
+        window=window,
+        source=source,
+        status=status,
+        viewer_is_admin=viewer_is_fog_admin,
+    )
+    payments_query = urlencode(
+        {
+            "source": source,
+            "status": status,
+            "start": window.start.isoformat(),
+            "end": window.end.isoformat(),
+        }
+    )
+    return {
+        "ledger": ledger,
+        "payments_source": source,
+        "payments_status": status,
+        "payments_start": window.start.isoformat(),
+        "payments_end": window.end.isoformat(),
+        "payments_query": payments_query,
+        "viewer_has_refund_authority": has_refund_authority(request),
+        "viewer_is_fog_admin": viewer_is_fog_admin,
+    }
+
+
+@billing_admin_access_required
 def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     """Admin payments dashboard — five-tab view of billing data."""
     from django.contrib import admin as django_admin
@@ -157,6 +201,14 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     active_tab = request.GET.get("tab", "overview")
     if active_tab not in _VALID_TABS:
         active_tab = "overview"
+
+    # A non-admin Billing Administrator sees Overview / Open Tabs; the Settings and
+    # Stripe tabs (billing config + credentials) stay admin-only — nav links hidden
+    # AND the tab itself 403s on a direct URL hit.
+    view_as = request.view_as  # type: ignore[attr-defined]
+    viewer_is_fog_admin = view_as.has_actual("admin")
+    if active_tab in {"settings", "stripe"} and not viewer_is_fog_admin:
+        return HttpResponse("Admin access required.", status=403)
 
     now = timezone.now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -229,6 +281,11 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     # --- Add Charge modal form ---
     add_charge_form = TabItemForm(context=CONTEXT_ADMIN_DASHBOARD, user=request.user)
 
+    # --- Payments tab (built only when active — it walks two money tables) ---
+    payments_context: dict[str, object] = {}
+    if active_tab == "payments":
+        payments_context = _payments_panel_context(request)
+
     context = {
         **django_admin.site.each_context(request),
         "active_tab": active_tab,
@@ -251,9 +308,62 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
         "guilds": guilds,
         # Shared
         "add_charge_form": add_charge_form,
+        "viewer_is_fog_admin": viewer_is_fog_admin,
+        # Payments (overrides nothing when inactive; viewer_is_fog_admin agrees)
+        **payments_context,
     }
 
     return render(request, "billing/admin_dashboard.html", context)
+
+
+@billing_admin_access_required
+def billing_admin_payments_table(request: HttpRequest) -> HttpResponse:
+    """The payments ledger table alone — the ``refund-done`` HTMX refresh target."""
+    return render(request, "billing/partials/payments_table.html", _payments_panel_context(request))
+
+
+@billing_admin_access_required
+def admin_payments_csv(request: HttpRequest) -> StreamingHttpResponse:
+    """Streaming CSV of the payments ledger, same filters via GET."""
+    from billing.payments_panel import build_payments_ledger, parse_window, stream_payments_csv
+
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    view_as = request.view_as  # type: ignore[attr-defined]
+    ledger = build_payments_ledger(
+        window=window,
+        source=request.GET.get("source", "all"),
+        status=request.GET.get("status", "all"),
+        viewer_is_admin=view_as.has_actual("admin"),
+    )
+    return stream_payments_csv(ledger)
+
+
+@refund_authority_required
+@require_POST
+def payment_refund_retry(request: HttpRequest, refund_pk: int) -> HttpResponse:
+    """Retry a failed refund from the panel — 204 + toast + ``refund-done`` on success.
+
+    A Stripe rejection is loud: an error toast carries Stripe's message and the
+    modal stays open (no ``refund-done``, which would close it) — the row keeps
+    its FAILED state with the fresh failure reason for the next attempt.
+    """
+    from billing import refunds as refunds_service
+    from billing.exceptions import RefundError
+    from billing.models import PaymentRefund
+    from django.shortcuts import get_object_or_404
+    from hub.toast import trigger_client_event, trigger_toast
+
+    refund = get_object_or_404(PaymentRefund, pk=refund_pk)
+    try:
+        refunds_service.retry_refund(refund, actor=request.user)
+    except RefundError as exc:
+        response = HttpResponse(status=204)
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    trigger_toast(response, f"Refunded ${refund.amount_cents / 100:.2f}.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
 
 
 @fog_admin_required
@@ -311,7 +421,7 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     return _render(form, splits_formset)
 
 
-@fog_admin_required
+@billing_admin_access_required
 def billing_admin_tab_detail_api(request: HttpRequest, tab_pk: int) -> JsonResponse:
     """Return JSON tab detail for the tab detail modal."""
     try:
@@ -384,7 +494,7 @@ def billing_admin_save_settings(request: HttpRequest) -> HttpResponse:
     return redirect("/billing/admin/dashboard/?tab=settings")
 
 
-@fog_admin_required
+@billing_admin_access_required
 @require_POST
 def billing_admin_retry_charge(request: HttpRequest, charge_pk: int) -> JsonResponse:
     """Immediately retry a single failed charge. Returns JSON with new status."""
@@ -405,7 +515,7 @@ def billing_admin_retry_charge(request: HttpRequest, charge_pk: int) -> JsonResp
     return JsonResponse({"status": "failed"})
 
 
-@fog_admin_required
+@billing_admin_access_required
 def admin_reports(request: HttpRequest) -> HttpResponse:
     """Reports page — filtered entry list + per-guild payout summary.
 
@@ -455,7 +565,7 @@ def admin_reports(request: HttpRequest) -> HttpResponse:
     return render(request, "billing/admin_reports.html", context)
 
 
-@fog_admin_required
+@billing_admin_access_required
 def admin_reports_csv(request: HttpRequest) -> StreamingHttpResponse:
     """Streaming CSV download for the reports page, same filters via GET."""
     from billing.reports import ReportFilterForm, stream_report_csv

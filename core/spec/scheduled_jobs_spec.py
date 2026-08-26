@@ -33,8 +33,9 @@ _DISPATCHER_ALWAYS = {
     "sync_discord_guild_roles",
     "announce_calendar_events",
     "announce_new_classes",
+    "sync_interested_rsvps",
 }
-_DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots"}
+_DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots", "sweep_stale_refunds"}
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
 

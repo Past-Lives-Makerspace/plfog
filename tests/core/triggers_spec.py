@@ -4,8 +4,8 @@ from core import triggers
 
 
 def describe_catalogue():
-    def it_has_24_configurable_triggers():
-        assert len(triggers.TRIGGERS) == 24  # all opt-in; no forced legacy triggers remain
+    def it_has_25_triggers():
+        assert len(triggers.TRIGGERS) == 25  # incl. the forced refund_failed admin alert
 
     def it_looks_up_by_key():
         t = triggers.get("class_published")

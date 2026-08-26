@@ -232,6 +232,10 @@ def describe_waitlist_confirmed_notification():
 
 def describe_refund_issued_notification():
     def it_notifies_member_when_refund_is_issued(db):
+        # The bell row now rides the PaymentRefund succeeded transition
+        # (billing.refunds), not the Registration.save() REFUNDED transition.
+        from unittest.mock import patch
+
         member_user = UserFactory()
         # The ensure_user_has_member signal auto-creates an ACTIVE Member for member_user.
         member = member_user.member  # type: ignore[attr-defined]
@@ -241,11 +245,14 @@ def describe_refund_issued_notification():
             member=member,
             email=member_user.email,
             status=Registration.Status.CONFIRMED,
+            amount_paid_cents=4000,
+            stripe_payment_id="pi_notif_refund",
         )
         Notification.objects.all().delete()
 
-        reg.status = Registration.Status.REFUNDED
-        reg.save()
+        with patch("billing.stripe_utils.create_refund") as mock_create:
+            mock_create.return_value = {"id": "re_notif_1", "status": "succeeded", "amount": 4000}
+            reg.issue_refund()
 
         assert Notification.objects.filter(
             trigger="refund_issued",

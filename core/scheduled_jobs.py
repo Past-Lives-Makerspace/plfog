@@ -211,6 +211,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
     ),
+    ScheduledJob(
+        key="sweep_stale_refunds",
+        name="Sweep stale refunds",
+        description="Marks refunds that never reached Stripe as failed so they can be retried.",
+        command="sweep_stale_refunds",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
 ]
 
 JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}

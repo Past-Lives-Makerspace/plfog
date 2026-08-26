@@ -1,0 +1,57 @@
+{% load classes_tags %}
+{% comment %}
+Shared refund modal body — one partial, three hosts (billing dashboard,
+CMS registration detail, teach portal). Served by
+classes:admin_registration_refund_form (GET, refund authority required).
+
+When the registration's latest refund attempt FAILED, the only action is
+Retry (spec §5.3): the partial renders the slim retry confirm instead of the
+editable form — the amount is the failed row's; a different amount is a new
+Refund once the failed one is resolved.
+{% endcomment %}
+{% if failed_refund %}
+<div class="pl-refund-context">
+    <p class="pl-refund-context__payer">{{ registration.first_name }} {{ registration.last_name }}</p>
+    <p class="pl-refund-context__meta">{{ registration.class_offering.title }}</p>
+</div>
+<p style="margin:0 0 0.25rem;">Retry the failed refund of <strong>{{ failed_refund.amount_cents|cents_as_dollars }}</strong>{% if failed_refund.attempt > 1 %} <span class="pl-refund-history__meta">(attempt {{ failed_refund.attempt }})</span>{% endif %}.</p>
+<p class="pl-refund-failure">{{ failed_refund.failure_reason|default:"Stripe did not give a reason." }}</p>
+<form class="pl-refund-form"
+      hx-post="{% url 'billing_payment_refund_retry' failed_refund.pk %}"
+      hx-swap="none">
+    {% csrf_token %}
+    <p class="pl-refund-consequence">This sends money back to the payer's card. A full refund frees their seat and promotes the waitlist.</p>
+    <div class="pl-modal__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'refund-modal')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--danger">Retry refund</button>
+    </div>
+</form>
+{% else %}
+<div class="pl-refund-context">
+    <p class="pl-refund-context__payer">{{ registration.first_name }} {{ registration.last_name }}</p>
+    <p class="pl-refund-context__meta">
+        {{ registration.class_offering.title }} ·
+        Paid {{ registration.amount_paid_cents|cents_as_dollars }}{% if registration.confirmed_at %} on {{ registration.confirmed_at|date:"M j" }}{% endif %}{% if first_session_at %} · Class starts {{ first_session_at|date:"M j" }}{% endif %}
+    </p>
+    {% if registration.amount_refunded_cents %}
+    <p class="pl-refund-context__meta">{{ registration.amount_refunded_cents|cents_as_dollars }} already refunded</p>
+    {% endif %}
+</div>
+<form class="pl-refund-form"
+      x-data="{ amt: '{{ form.amount.value|default_if_none:'' }}' }"
+      @input="if ($event.target.name === 'amount') amt = $event.target.value"
+      hx-post="{% url 'classes:admin_registration_refund' registration.pk %}"
+      hx-target="#refund-modal-body"
+      hx-swap="innerHTML">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=form.amount %}
+    {% include "components/form_field.html" with field=form.reason %}
+    <p class="pl-refund-consequence">This sends money back to the payer's card. A full refund frees their seat and promotes the waitlist.</p>
+    <div class="pl-modal__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'refund-modal')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--danger">
+            <span x-text="(function () { var v = parseFloat(amt); return (isNaN(v) || v <= 0) ? 'Issue Refund' : 'Refund $' + v.toFixed(2); })()">Issue Refund</span>
+        </button>
+    </div>
+</form>
+{% endif %}

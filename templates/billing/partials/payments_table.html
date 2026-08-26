@@ -1,0 +1,89 @@
+{% load classes_tags %}
+{% comment %}
+The Payments tab ledger table. Included by the dashboard page AND served
+standalone by billing_admin_payments_table — the same markup powers the
+initial render and the post-refund HTMX refresh (refund-done).
+{% endcomment %}
+{% if ledger.capped %}
+<div class="pl-card" style="padding:0.75rem 1.25rem;">
+  <span class="pl-text-muted">Showing the most recent {{ ledger.rows|length }} of {{ ledger.total_count }} payments. Narrow the date range.</span>
+</div>
+{% endif %}
+<div class="pl-card">
+  <table class="pl-table">
+    <thead>
+      <tr>
+        <th>Source</th>
+        <th>Payer</th>
+        <th>Item</th>
+        <th class="text-right">Amount</th>
+        <th>Status</th>
+        <th>Date</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in ledger.rows %}
+      <tr>
+        <td>
+          <span class="pl-badge pl-badge--muted">{{ row.source_label }}</span>
+          {% if row.source_kind == "tab" %}
+          <span class="pl-help">
+            <span class="pl-help__icon" tabindex="0" role="img" aria-label="Tab refunds: Tab charges are refunded in Stripe for now.">?</span>
+            <span class="pl-help__bubble">Tab charges are refunded in Stripe for now. Refunds made there will appear here once tab reconciliation ships.</span>
+          </span>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.source_kind == "tab" %}
+          <span onclick="openTabModal({{ row.tab_pk }})" style="cursor:pointer;">{{ row.payer_name }}</span>
+          {% elif row.payer_url %}
+          <a href="{{ row.payer_url }}" style="color:#a0c0e0;">{{ row.payer_name }}</a>
+          {% else %}
+          {{ row.payer_name }}
+          {% endif %}
+        </td>
+        <td>{{ row.item }}</td>
+        <td class="text-right">
+          {{ row.amount_cents|cents_as_dollars }}
+          {% for refund in row.succeeded_refunds %}
+          <span class="pl-refund-line">− {{ refund.amount_cents|cents_as_dollars }} refunded{% if refund.settled_at %} {{ refund.settled_at|date:"M j" }}{% endif %}</span>
+          {% endfor %}
+        </td>
+        <td>
+          {% if row.status == "paid" %}<span class="pl-badge pl-badge--ok">Paid</span>
+          {% elif row.status == "partial" %}<span class="pl-badge pl-badge--warn">Partially refunded</span>
+          {% elif row.status == "refunded" %}<span class="pl-badge pl-badge--muted">Refunded</span>
+          {% elif row.status == "refund_pending" %}<span class="pl-badge pl-badge--warn">Refund pending ({{ row.pending_age }})</span>
+          {% else %}<span class="pl-badge pl-badge--fail">{{ row.status_label }}</span>
+          {% endif %}
+        </td>
+        <td style="color:#96ACBB;">{{ row.date|date:"M j, Y" }}</td>
+        <td>
+          {% if row.source_kind == "class" and viewer_has_refund_authority %}
+            {% if row.status == "refund_failed" %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                    hx-get="{% url 'classes:admin_registration_refund_form' row.source_pk %}"
+                    hx-target="#refund-modal-body" hx-swap="innerHTML"
+                    @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+              Retry refund
+            </button>
+            {% elif row.can_refund %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                    hx-get="{% url 'classes:admin_registration_refund_form' row.source_pk %}"
+                    hx-target="#refund-modal-body" hx-swap="innerHTML"
+                    @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+              Refund
+            </button>
+            {% endif %}
+          {% elif row.source_kind == "tab" and row.stripe_url %}
+          <a href="{{ row.stripe_url }}" target="_blank" rel="noopener" class="pl-text-muted" style="text-decoration:none;">Stripe ↗</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" style="text-align:center;color:#96ACBB;padding:2rem;">No payments in this window. Widen the date range or clear filters.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

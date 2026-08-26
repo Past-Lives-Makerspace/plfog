@@ -34,6 +34,11 @@ urlpatterns = [
         name="teach_class_registrations",
     ),
     path(
+        "teach/classes/<int:pk>/registrations/table/",
+        views.teach_class_registrations_table,
+        name="teach_class_registrations_table",
+    ),
+    path(
         "teach/classes/<int:pk>/registrations/email/",
         views.teach_class_email,
         name="teach_class_email",
@@ -111,6 +116,16 @@ urlpatterns = [
     path("admin/registrations/<int:pk>/cancel/", views.admin_registration_cancel, name="admin_registration_cancel"),
     path("admin/registrations/<int:pk>/move/", views.admin_registration_move, name="admin_registration_move"),
     path("admin/registrations/<int:pk>/refund/", views.admin_registration_refund, name="admin_registration_refund"),
+    path(
+        "admin/registrations/<int:pk>/refund/form/",
+        views.admin_registration_refund_form,
+        name="admin_registration_refund_form",
+    ),
+    path(
+        "admin/registrations/<int:pk>/refunds-card/",
+        views.admin_registration_refunds_card,
+        name="admin_registration_refunds_card",
+    ),
     path("admin/discount-codes/", views.admin_discount_codes, name="admin_discount_codes"),
     path("admin/discount-codes/new/", views.admin_discount_code_create, name="admin_discount_code_create"),
     path("admin/discount-codes/<int:pk>/edit/", views.admin_discount_code_edit, name="admin_discount_code_edit"),
