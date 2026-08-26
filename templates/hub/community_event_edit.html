@@ -88,10 +88,17 @@
       Saving posts the announcement to Discord and adds it to the Community Calendar — right away, or on your scheduled date if you set one. Editing an already-announced event won't re-announce it.{% if google_sync_enabled %} Saving also updates this event on the linked Google Calendar.{% endif %}
     </p>
 
-    <div style="display:flex; gap:1rem;">
+    <div class="pl-form-actions">
       <button type="submit" class="pl-btn pl-btn--primary">Save event</button>
       <a href="{{ cancel_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
+      {% if delete_url %}
+        <button type="button" class="pl-btn pl-btn--danger pl-form-actions__danger"
+                @click="$dispatch('open-confirm', 'delete-event')">Delete</button>
+      {% endif %}
     </div>
   </form>
+  {% if delete_url %}
+    {% include "components/confirm_modal.html" with confirm_id="delete-event" confirm_title="Delete this event?" confirm_message=delete_confirm_message confirm_action_url=delete_url confirm_button_text="Delete event" %}
+  {% endif %}
 </div>
 {% endblock %}

@@ -6933,3 +6933,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-meeting-title, .pl-meeting-fact, .pl-meeting-item__name, .pl-meeting-prose { color: #000 !important; }
     .pl-meeting-savestate { display: none !important; }
 }
+
+/* --- Form footer action row (Save / Cancel left, Delete pushed right) ------- */
+.pl-form-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    row-gap: 0.75rem;
+}
+.pl-form-actions__danger {
+    margin-left: auto;
+}
