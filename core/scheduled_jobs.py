@@ -203,6 +203,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Nightly ~3 AM",
         cadence=Cadence.EXTERNAL,
     ),
+    ScheduledJob(
+        key="sync_interested_rsvps",
+        name="Discord Interested sync",
+        description="Folds Interested marks on Discord server events into the event RSVP lists.",
+        command="sync_interested_rsvps",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
 ]
 
 JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}
