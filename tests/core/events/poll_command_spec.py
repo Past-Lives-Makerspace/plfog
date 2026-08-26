@@ -13,10 +13,14 @@ import pytest
 
 from django.core.cache import cache
 
+from core.abuse_limits import record_keyed_attempt
 from core.events import discord_interactions as di
 from core.events.discord_commands import _guide, all_commands, dispatch
 from membership.discord_commands import (
     _POLL_ANSWER_MAX,
+    _POLL_DAILY_LIMIT,
+    _POLL_HOURLY_LIMIT,
+    _POLL_RATE_SCOPE,
     POLL,
     _answer_media,
     _emoji_prefix,
@@ -336,6 +340,35 @@ def describe_happy_path():
             }
         }
         assert _poll_submit(payload, linked_member())["data"]["poll"]["duration"] == 24
+
+
+# --- Rate limiting ------------------------------------------------------------
+
+
+def _exhaust_poll_limit(member) -> None:
+    for _ in range(_POLL_HOURLY_LIMIT):
+        record_keyed_attempt(
+            _POLL_RATE_SCOPE, str(member.pk), hourly_limit=_POLL_HOURLY_LIMIT, daily_limit=_POLL_DAILY_LIMIT
+        )
+
+
+def describe_rate_limiting():
+    def it_blocks_opening_the_modal_at_the_cap(linked_member):
+        member = linked_member()
+        _exhaust_poll_limit(member)
+        result = _poll({"data": {}}, member)
+        assert result["type"] == 4  # the friendly refusal, not the modal
+        assert "hit the limit for polls" in result["data"]["content"]
+
+    def it_records_nothing_on_a_validation_failure(linked_member):
+        member = linked_member()
+        _run(member, answers="Alien")  # too few → posts nothing
+        assert cache.get(f"abuse:{_POLL_RATE_SCOPE}:{member.pk}:hourly", 0) == 0
+
+    def it_records_one_on_a_successful_post(linked_member):
+        member = linked_member()
+        _run(member)  # valid poll posts
+        assert cache.get(f"abuse:{_POLL_RATE_SCOPE}:{member.pk}:hourly", 0) == 1
 
 
 # --- Edit Poll reopen ---------------------------------------------------------

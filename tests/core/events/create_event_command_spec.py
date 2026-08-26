@@ -110,6 +110,15 @@ def _custom_ids(result: dict) -> list[str]:
     return [comp.get("custom_id", "") for row in result["data"]["components"] for comp in row["components"]]
 
 
+def _select_options(result: dict, custom_id: str) -> list[str]:
+    """The option values of the card select whose custom_id is ``custom_id``."""
+    for row in result["data"]["components"]:
+        for comp in row["components"]:
+            if comp.get("custom_id") == custom_id:
+                return [option["value"] for option in comp["options"]]
+    raise AssertionError(f"no select with custom_id {custom_id!r}")
+
+
 def _label(result: dict, custom_id: str) -> dict:
     return next(
         row["component"]
@@ -358,11 +367,32 @@ def describe_config_selects():
         draft.refresh_from_db()
         assert draft.email_choice == CommunityEventDraft.EmailChoice.ALL_ACTIVE
 
+    def it_omits_guild_members_from_a_site_wide_email_select(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        result, draft = _preview(admin, title="X", when="tomorrow 6pm")  # All Makerspace → no guild
+        assert _select_options(result, f"eventcfg:email:{draft.pk}") == ["none", "all_active"]
+
+    def it_offers_all_three_email_options_for_a_guild_draft(linked_member):
+        lead = linked_member()
+        guild = GuildFactory(name="Fibers")
+        guild.guild_lead = lead
+        guild.save(update_fields=["guild_lead"])
+        result, draft = _preview(lead, title="X", when="tomorrow 6pm", guild_slug=guild.slug)
+        assert _select_options(result, f"eventcfg:email:{draft.pk}") == ["none", "guild_members", "all_active"]
+
+    def it_rejects_a_forged_guild_members_email_on_a_site_wide_draft(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _result, draft = _preview(admin, title="X", when="tomorrow 6pm")  # site-wide
+        result = _cfg(admin, draft.pk, "email", "guild_members")
+        assert "went wrong" in result["data"]["content"]
+        draft.refresh_from_db()
+        assert draft.email_choice == CommunityEventDraft.EmailChoice.NONE  # unchanged
+
     def it_adds_the_email_caveat_to_a_proposal_card(linked_member):
         _set_policy(SiteConfiguration.MemberEventPolicy.APPROVAL)
         member = linked_member()
         _result, draft = _preview(member, title="X", when="tomorrow 6pm")
-        updated = _cfg(member, draft.pk, "email", "guild_members")
+        updated = _cfg(member, draft.pk, "email", "all_active")  # a whole-membership email on a proposal
         assert "email option only applies when an event publishes" in updated["data"]["content"]
 
     def it_recomputes_the_end_when_the_duration_changes(linked_member):

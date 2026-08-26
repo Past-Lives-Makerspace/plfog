@@ -1137,10 +1137,15 @@ def _create_card_parts(draft: CommunityEventDraft, *, authored: bool, policy: st
         fields.append({"name": "Description", "value": truncate(draft.description, 1024)})
     embed = {"title": draft.title, "color": 0xEEB44B, "fields": fields}
 
+    # A site-wide (guild-less) event has no guild roster, so it never offers "Guild members
+    # only" — the re-render rebuilds this list from the draft each time, so an Edit Details
+    # guild change recomputes it. The stored email_choice can only be guild_members on a guild
+    # draft (the select never offers it otherwise, and the eventcfg handler rejects a forge).
+    email_choices = [choice for choice in _CREATE_EMAIL_CHOICES if choice[0] != "guild_members" or guild is not None]
     rows = [
         _config_select_row("repeats", draft.pk, "🔁 Repeats", _CREATE_RECURRENCE_CHOICES, draft.recurrence),
         _config_select_row("calendar", draft.pk, "📅 Calendar", _CREATE_CALENDAR_CHOICES, draft.google_calendar_target),
-        _config_select_row("email", draft.pk, "✉️ Email invite", _CREATE_EMAIL_CHOICES, draft.email_choice),
+        _config_select_row("email", draft.pk, "✉️ Email invite", email_choices, draft.email_choice),
     ]
     if not draft.when_had_end:
         minutes = int((draft.ends_at - draft.starts_at).total_seconds() // 60)
@@ -1405,7 +1410,9 @@ def _event_cfg_component(interaction: Interaction, member: Member | None) -> dic
         draft.save(update_fields=["ends_at"])
     elif field in _CREATE_CFG_APPLY:
         attribute, allowed = _CREATE_CFG_APPLY[field]
-        if value not in allowed:
+        # A site-wide draft never offers "Guild members only", so a guild_members value on one
+        # is a forged/tampered click — reject it (guards the v1.8.0 no-guild-email rule).
+        if value not in allowed or (field == "email" and value == "guild_members" and draft.guild is None):
             return error_reply()
         setattr(draft, attribute, value)
         draft.save(update_fields=[attribute])
@@ -2038,6 +2045,19 @@ _POLL_MODAL_INTRO = (
     "Submitting posts the poll in this channel right away. Polls cannot be edited after they post. "
     "Need a change? End it early with the gear and run /poll again."
 )
+# Per-member poll caps (counted only when a poll is actually posted), mirroring /create.
+_POLL_RATE_SCOPE = "discord_poll"
+_POLL_HOURLY_LIMIT = 4
+_POLL_DAILY_LIMIT = 12
+
+
+def _poll_rate_limited_reply() -> dict:
+    """The friendly per-member cap refusal for /poll (no hub alternative — polls are Discord only)."""
+    return reply(
+        f"You have hit the limit for polls from Discord ({_POLL_HOURLY_LIMIT} per hour, "
+        f"{_POLL_DAILY_LIMIT} per day). Try again in a bit.",
+        ephemeral=True,
+    )
 
 
 def _poll_duration_options(selected_hours: int) -> list[dict]:
@@ -2086,7 +2106,19 @@ def _poll_modal(
 
 
 def _poll(interaction: Interaction, member: Member | None) -> dict:
-    """Open the Create-a-Poll modal (the slash command carries no options)."""
+    """Open the Create-a-Poll modal (the slash command carries no options).
+
+    The per-member rate limit is peeked here at invoke time (recorded only on a successfully
+    posted poll in :func:`_poll_submit`); an over-cap member gets the friendly refusal instead
+    of the form. ``requires_link=True`` guarantees a linked ``member``.
+    """
+    from core.abuse_limits import keyed_within_limits
+
+    member = cast("Member", member)
+    if not keyed_within_limits(
+        _POLL_RATE_SCOPE, str(member.pk), hourly_limit=_POLL_HOURLY_LIMIT, daily_limit=_POLL_DAILY_LIMIT
+    ):
+        return _poll_rate_limited_reply()
     return _poll_modal()
 
 
@@ -2182,6 +2214,12 @@ def _poll_submit(interaction: Interaction, member: Member | None) -> dict:
     # The creator pk rides statelessly in the gear's custom_id; reply() carries a poll and
     # components together and already pins allowed_mentions on the poll branch.
     gear_row = {"type": 1, "components": [{"type": 2, "style": 2, "label": "⚙", "custom_id": f"poll:end:{member.pk}"}]}
+    # Count the cap only on a poll that actually posts — validation failures above cost nothing.
+    from core.abuse_limits import record_keyed_attempt
+
+    record_keyed_attempt(
+        _POLL_RATE_SCOPE, str(member.pk), hourly_limit=_POLL_HOURLY_LIMIT, daily_limit=_POLL_DAILY_LIMIT
+    )
     return reply(
         _poll_header(member.display_name, hours, multiselect), ephemeral=False, poll=poll, components=[gear_row]
     )
