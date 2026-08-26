@@ -140,6 +140,16 @@
 </div>
 {% endif %}
 
+{% if registration.amount_paid_cents > 0 %}
+{# The Refunds card renders for every page viewer — visibility rules live in the partial. #}
+<div style="margin-top:1.5rem;"
+     hx-get="{% url 'classes:admin_registration_refunds_card' registration.pk %}"
+     hx-trigger="refund-done from:body"
+     hx-swap="innerHTML">
+    {% include "classes/admin/partials/registration_refunds_card.html" %}
+</div>
+{% endif %}
+
 {% if request.view_as.actual_is_admin %}
 <div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px; display:grid; gap:1rem;">
     <h3 style="margin:0; font-size:0.95rem;">Admin Actions</h3>
@@ -150,15 +160,6 @@
         {{ move_form.target }}
         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Move</button>
     </form>
-    <form method="post" action="{% url 'classes:admin_registration_refund' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
-        {% csrf_token %}
-        <input name="reason" placeholder="Refund note (internal)" style="padding:0.45rem 0.75rem; flex:1; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
-        <button class="hub-btn hub-btn--sm hub-btn--danger" type="submit">Mark Refunded</button>
-        {% if registration.stripe_payment_id %}
-        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="https://dashboard.stripe.com/payments/{{ registration.stripe_payment_id }}" target="_blank" rel="noopener">Issue refund in Stripe ↗</a>
-        {% endif %}
-    </form>
-    <p style="margin:0; font-size:0.8rem; color:var(--hub-text-muted);">Marking refunded frees the spot and records it here — issue the actual money refund in the Stripe dashboard.</p>
     <form method="post" action="{% url 'classes:admin_registration_cancel' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
         {% csrf_token %}
         <input name="reason" placeholder="Cancellation reason (internal)" style="padding:0.45rem 0.75rem; flex:1; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
@@ -168,5 +169,14 @@
     <p style="margin:0; font-size:0.85rem; color:var(--hub-text-muted);">This registration is {{ registration.get_status_display|lower }} — no further actions.</p>
     {% endif %}
 </div>
+{% endif %}
+
+{% if registration.amount_paid_cents > 0 %}
+{% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
+<script>
+  document.body.addEventListener('refund-done', function () {
+    window.dispatchEvent(new CustomEvent('close-modal', { detail: 'refund-modal' }));
+  });
+</script>
 {% endif %}
 {% endblock %}

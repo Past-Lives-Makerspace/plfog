@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.6"
+VERSION = "1.10.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.10.0",
+        "date": "2026-08-26",
+        "title": "Refunds without leaving the app",
+        "changes": [
+            "If a class does not work out, staff can now send your money back in a couple of "
+            "clicks, and a receipt lands in your inbox right away. No more waiting while someone "
+            "digs through a separate payments site. Behind the scenes, admins also got one "
+            "Payments page that shows every charge in one place.",
+        ],
+    },
     {
         "version": "1.9.6",
         "date": "2026-08-26",

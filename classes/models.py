@@ -7,7 +7,7 @@ import re
 import secrets
 from collections.abc import Callable, Sequence
 from datetime import date as date_type, datetime
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
     from django.core.files.uploadedfile import UploadedFile
 
+    from billing.models import PaymentRefund
     from membership.models import Member
 
 logger = logging.getLogger(__name__)
@@ -2086,34 +2087,11 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                # A refund is transactional: the receipt always emails, and it emails the
-                # address ON THE REGISTRATION so a **guest** registrant (no linked member,
-                # so invisible to the REGISTRANT resolver) is reached too. The resolver
-                # still posts the in-app row to a linked member's user; for a guest it
-                # simply finds nobody and the email is the whole notification.
-                from django.urls import reverse
-
-                from classes.emails import _absolute_url
-                from core.events.emit import emit
-
-                registration_url = _absolute_url(
-                    reverse("classes:my_registration", kwargs={"token": self.self_serve_token})
-                )
-                emit(
-                    "refund_issued",
-                    actor=acting,
-                    target=self,
-                    context={
-                        "member": self.member,
-                        "member_name": self.first_name or "there",
-                        "class_title": self.class_offering.title,
-                        "amount": f"${self.amount_paid_cents / 100:.2f}",
-                        "registration_url": registration_url,
-                    },
-                    url="/classes/account/",
-                    email_to=self.email,
-                    period=f"reg:{self.pk}:refund",
-                )
+                # The refund RECEIPT no longer emits here: it lives with the
+                # PaymentRefund row's succeeded transition (billing.refunds), which
+                # knows the ACTUAL refunded amount and gives each refund a unique
+                # dedupe period so a second partial's receipt still delivers. This
+                # save-transition keeps only the audit log above.
 
     @staticmethod
     def _generate_order_number() -> str:
@@ -2198,6 +2176,86 @@ class Registration(models.Model):
         self.save(update_fields=["status", "cancellation_reason"])
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()
+
+    # --- Refund engine surface (billing.refunds.RefundableSource) -----------
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this registration's payment.
+
+        Iterates ``refunds.all()`` (not an aggregate) so a ``prefetch_related``
+        caller pays no extra query per row.
+        """
+        from billing.models import PaymentRefund
+
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefund.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund — the paid amount minus succeeded refunds."""
+        return self.amount_paid_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"`` — the panel/badge vocabulary.
+
+        ``"failed"``: the latest refund attempt is FAILED and no succeeded refund
+        has since covered that amount (a later succeeded refund would be the
+        latest row). Deliberately NOT a new ``Status`` value — a partially
+        refunded registration is still CONFIRMED (the person is still attending),
+        and a REFUNDED registration whose covering refund later failed is exactly
+        what the Retry action exists for.
+        """
+        from billing.models import PaymentRefund
+
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefund.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent id refunds are issued against (blank when unpaid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol)."""
+        from django.urls import reverse
+
+        from classes.emails import _absolute_url
+
+        guest_name = f"{self.first_name} {self.last_name}".strip()
+        return {
+            "item_title": self.class_offering.title,
+            "recipient_email": self.email,
+            "recipient_name": self.first_name or "there",
+            "payer_name": self.member.display_name if self.member is not None else (guest_name or self.email),
+            "member": self.member,
+            "manage_url": _absolute_url(reverse("classes:my_registration", kwargs={"token": self.self_serve_token})),
+            "in_app_url": "/classes/account/",
+        }
+
+    def on_fully_refunded(self, reason: str, actor: "User | None") -> None:
+        """Full-refund bookkeeping: status to REFUNDED, seat freed, waitlist promoted."""
+        self.mark_refunded(reason=reason, actor=actor)
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: "User | None" = None
+    ) -> "PaymentRefund":
+        """Send a real Stripe refund for this registration — full when ``amount_cents`` is ``None``.
+
+        Thin delegate: the shared billing-side service owns locking, the Stripe
+        call, ledger-row lifecycle, the receipt email, and full-refund
+        bookkeeping. See :func:`billing.refunds.issue_refund` for the exceptions.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
     def move_to(self, target: "ClassOffering", actor: "User | None" = None) -> None:
         """Reassign this registration to a different class, keeping payment as-is.
@@ -2451,6 +2509,8 @@ class CmsActivity(models.Model):
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
         REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"
         REGISTRATION_REFUNDED = "registration_refunded", "Refunded"
+        REGISTRATION_PARTIAL_REFUND = "registration_partial_refund", "Partially refunded"
+        REGISTRATION_REFUND_FAILED = "registration_refund_failed", "Refund failed"
         REGISTRATION_MOVED = "registration_moved", "Moved"
         WAITLIST_JOINED = "waitlist_joined", "Joined waitlist"
         WAITLIST_NOTIFIED = "waitlist_notified", "Notified of open spot"

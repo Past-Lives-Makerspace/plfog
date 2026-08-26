@@ -286,9 +286,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "instructor_changes_requested": Recipients.INSTRUCTOR,
     "instructor_new_registration": Recipients.INSTRUCTOR,
     # A guild-led class routes to that guild's leadership; a lead-less category (guild
-    # is None in context) routes to the Class Administrators (composition, not union).
+    # is None in context) routes to the CMS Administrators (composition, not union).
     "class_review_requested": Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
-    # The admin validation stage always routes to the Class Administrators.
+    # The admin validation stage always routes to the CMS Administrators.
     "class_validation_requested": Recipients.CLASS_APPROVERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
@@ -298,6 +298,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     # orientation Decision-7 fan-out fix is scoped to orientation events, not this one.
     "guild_joined": Recipients.GUILD_LEAD,
     # Billing / tab
+    # refund_failed is the admin-facing async-refund-failure alert — it routes to
+    # the Billing Administrators (holders only), like billing.charge_failed_admin.
+    "refund_failed": Recipients.BILLING_APPROVERS,
     "tab_charged": Recipients.TAB_MEMBER,
     "tab_charge_failed": Recipients.TAB_MEMBER,
     "tab_entry_added": Recipients.TAB_MEMBER,
@@ -338,6 +341,9 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "waitlist_spot_available": None,
     "waitlist_confirmed": None,
     "refund_issued": None,
+    # refund_failed logs no SiteActivity: the refund service writes the CmsActivity
+    # (REGISTRATION_REFUND_FAILED) itself, deliberately unmirrored to the site feed.
+    "refund_failed": None,
     "instructor_class_approved": None,
     "instructor_changes_requested": None,
     "instructor_new_registration": None,

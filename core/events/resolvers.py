@@ -167,14 +167,14 @@ def _capability_recipients(capability: str) -> list[Recipient]:
 
 
 def class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Class Administrators — holders only; a plain admin gets nothing until granted."""
+    """CMS Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
 
 
 def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """COMPOSITION — a guild's leadership when present, else the Class Administrators.
+    """COMPOSITION — a guild's leadership when present, else the CMS Administrators.
 
     A guild-led class routes to that guild's lead + staff ONLY (via
     :func:`guild_leadership`); a lead-less category (``context["guild"]`` is ``None``)

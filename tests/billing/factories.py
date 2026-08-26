@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 
 from billing.models import (
     BillingSettings,
+    PaymentRefund,
     Product,
     ProductRevenueSplit,
     Tab,
@@ -121,3 +122,16 @@ class TabChargeFactory(factory.django.DjangoModelFactory):
     tab = factory.SubFactory(TabFactory)
     amount = Decimal("100.00")
     status = TabCharge.Status.PENDING
+
+
+class PaymentRefundFactory(factory.django.DjangoModelFactory):
+    """A refund ledger row, defaulting to the registration side (per the engine contract)."""
+
+    class Meta:
+        model = PaymentRefund
+
+    registration = factory.SubFactory("classes.factories.RegistrationFactory")
+    stripe_refund_id = factory.Sequence(lambda n: f"re_test_{n}")
+    amount_cents = 2500
+    status = PaymentRefund.Status.PENDING
+    source = PaymentRefund.Source.IN_APP

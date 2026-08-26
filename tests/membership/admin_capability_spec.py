@@ -27,7 +27,7 @@ def describe_AdminCapability():
         member.preferred_name = "Robin"
         member.save(update_fields=["preferred_name"])
         cap = AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.CLASS_APPROVER)
-        assert "Class Administrator" in str(cap)
+        assert "CMS Administrator" in str(cap)
 
     def it_records_the_granting_user():
         member = _member("granted")

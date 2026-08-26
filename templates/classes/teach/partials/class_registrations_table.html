@@ -1,0 +1,63 @@
+{% load classes_tags %}
+{% comment %}
+The teach portal registrations table — also served standalone by
+classes:teach_class_registrations_table as the refund-done refresh target.
+The Refund action column renders ONLY for refund authority holders; an
+instructor without the grant sees the table exactly as before (the CMS detail
+page carries the "ask an admin" explainer, not this one).
+{% endcomment %}
+{% if registrations %}
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Paid</th>
+            <th>Registered</th>
+            {% if viewer_has_refund_authority %}<th></th>{% endif %}
+        </tr>
+    </thead>
+    <tbody>
+    {% for reg in registrations %}
+        <tr{% if reg.status == 'cancelled' or reg.status == 'refunded' %} style="opacity:0.5;"{% endif %}>
+            <td>
+                {{ reg.first_name }} {{ reg.last_name }}
+                {% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}
+            </td>
+            <td style="font-size:0.9rem;">{{ reg.email }}</td>
+            <td>
+                {{ reg.get_status_display }}
+                {% if reg.refund_state == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Refund failed</span>
+                {% elif reg.refund_state == "partial" %}<span class="pl-status-badge pl-status-badge--warn">Partially refunded</span>{% endif %}
+            </td>
+            <td>{{ reg.amount_paid_cents|cents_as_dollars }}</td>
+            <td>{{ reg.registered_at|date:"M j, Y" }}</td>
+            {% if viewer_has_refund_authority %}
+            <td>
+                {% if reg.refund_state == "failed" %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
+                        hx-target="#refund-modal-body" hx-swap="innerHTML"
+                        @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+                    Retry Refund
+                </button>
+                {% elif reg.refundable_cents > 0 %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
+                        hx-target="#refund-modal-body" hx-swap="innerHTML"
+                        @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+                    Refund
+                </button>
+                {% endif %}
+            </td>
+            {% endif %}
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">No registrations yet.</div>
+{% endif %}

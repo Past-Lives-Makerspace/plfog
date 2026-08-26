@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import stripe
 from django.core.exceptions import ImproperlyConfigured
+from stripe.params import RefundCreateParams
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
@@ -201,6 +202,37 @@ def create_class_checkout_session(
         options={"idempotency_key": idempotency_key},
     )
     return {"id": session.id, "url": session.url or ""}
+
+
+def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, idempotency_key: str) -> dict[str, Any]:
+    """Refund a PaymentIntent — full refund when ``amount_cents`` is ``None``.
+
+    Returns dict with 'id' (the Stripe ``re_…`` refund id), 'status', and 'amount'.
+    The idempotency_key is REQUIRED so a retried request never double-refunds.
+    Stripe errors propagate — the caller (``billing.refunds``) handles them loudly.
+    """
+    client = _get_stripe_client()
+    params: RefundCreateParams = {"payment_intent": payment_intent_id}
+    if amount_cents is not None:
+        params["amount"] = amount_cents
+    refund = client.v1.refunds.create(
+        params=params,
+        options={"idempotency_key": idempotency_key},
+    )
+    return {"id": refund.id, "status": refund.status, "amount": refund.amount}
+
+
+def list_refunds_for_payment_intent(*, payment_intent_id: str) -> list[dict[str, Any]]:
+    """List the refunds on a PaymentIntent — the ``charge.refunded`` fetch fallback.
+
+    Since Stripe API version 2022-11-15 the ``Charge`` payload no longer embeds
+    its ``refunds`` list by default (and we do not pin ``api_version``), so the
+    webhook handler fetches them explicitly. Returns a list of dicts with
+    'id', 'status', and 'amount' — the shape the reconciler reads.
+    """
+    client = _get_stripe_client()
+    refunds = client.v1.refunds.list(params={"payment_intent": payment_intent_id})
+    return [{"id": refund.id, "status": refund.status, "amount": refund.amount} for refund in refunds.data]
 
 
 def construct_webhook_event(*, payload: bytes, sig_header: str) -> stripe.Event:

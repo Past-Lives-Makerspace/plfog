@@ -88,9 +88,9 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.GUILD_LEADERSHIP_OR_ADMINS: (
         "The guild's lead and staff, plus all admins (admins only for site-wide events)."
     ),
-    Recipients.CLASS_APPROVERS: "The Class Administrators (holders only).",
+    Recipients.CLASS_APPROVERS: "The CMS Administrators (holders only).",
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (
-        "The guild's lead and staff; for a lead-less category, the Class Administrators (holders only)."
+        "The guild's lead and staff; for a lead-less category, the CMS Administrators (holders only)."
     ),
     Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
     Recipients.DISCOUNT_APPROVERS: "The Discount Code Administrators (holders only).",
@@ -386,33 +386,81 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # Generalized to every refundable payment (class registrations now, orientation
+    # bookings via the paid-orientations spec): ``item_title`` is a class title or
+    # "Makerspace orientation", and ``registration_url`` carries the source's manage URL.
     "refund_issued": EventCopy(
-        placeholders=("member_name", "class_title", "amount", "registration_url"),
+        placeholders=("member_name", "item_title", "amount", "registration_url"),
         sample_context={
             "member_name": "Robin",
-            "class_title": "Intro to Lost-Wax Casting",
+            "item_title": "Intro to Lost-Wax Casting",
             "amount": "$65.00",
             "registration_url": "https://pastlives.example/classes/my/abc123/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
                 subject="Refund issued",
-                body_text="Your {{ amount }} for {{ class_title }} has been refunded.",
+                body_text="Your {{ amount }} for {{ item_title }} has been refunded.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Refund issued for {{ class_title }}",
+                subject="Refund issued for {{ item_title }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "We've refunded {{ amount }} for {{ class_title }}. Refunds typically process "
+                    "We've refunded {{ amount }} for {{ item_title }}. Refunds typically process "
                     "within 5–10 business days.\n\n"
                     "View your booking: {{ registration_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ class_title }}. Refunds "
+                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ item_title }}. Refunds "
                     "typically process within 5–10 business days.</p>"
                     '<p><a href="{{ registration_url }}">View your booking</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # Admin alert for an async refund failure. The payer may already hold a receipt
+    # (receipts fire on the succeeded transition, and a late failure can follow it),
+    # so the copy says to contact them after retrying.
+    "refund_failed": EventCopy(
+        placeholders=("payer_name", "item_title", "amount", "failure_reason", "admin_url"),
+        sample_context={
+            "payer_name": "Robin Vale",
+            "item_title": "Intro to Lost-Wax Casting",
+            "amount": "$65.00",
+            "failure_reason": "The customer's bank could not process this refund.",
+            "admin_url": "https://pastlives.example/classes/admin/registrations/42/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="A refund failed",
+                body_text=(
+                    "A {{ amount }} refund to {{ payer_name }} for {{ item_title }} failed. "
+                    "Review and retry from the registration page."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A refund failed",
+                body_text=(
+                    "A refund did not go through and needs a retry.\n\n"
+                    "Payer: {{ payer_name }}\n"
+                    "Item: {{ item_title }}\n"
+                    "Amount: {{ amount }}\n"
+                    "Stripe's reason: {{ failure_reason }}\n\n"
+                    "They've already received a refund receipt. Contact them after retrying.\n\n"
+                    "Review and retry: {{ admin_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    '<p>A <a href="{{ admin_url }}">refund</a> did not go through and needs a retry.</p>'
+                    "<p>Payer: {{ payer_name }}<br>"
+                    "Item: {{ item_title }}<br>"
+                    "Amount: <strong>{{ amount }}</strong><br>"
+                    "Stripe's reason: {{ failure_reason }}</p>"
+                    "<p>They've already received a refund receipt. Contact them after retrying.</p>"
+                    '<p><a href="{{ admin_url }}">Review and retry</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

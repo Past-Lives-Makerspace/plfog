@@ -1100,3 +1100,89 @@
     vertical-align: middle;
     flex-shrink: 0;
 }
+
+/* ===== Refund UI (shared by the billing dashboard, CMS registration detail, teach portal) ===== */
+
+/* Theme-aware status badge for payment / refund states. */
+.pl-status-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.pl-status-badge--ok { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.pl-status-badge--warn { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.pl-status-badge--fail { background: rgba(220, 60, 60, 0.15); color: #f87171; }
+.pl-status-badge--muted { background: rgba(255, 255, 255, 0.06); color: var(--hub-text-muted); }
+[data-theme="light"] .pl-status-badge--ok { background: rgba(16, 150, 100, 0.12); color: #0b7a52; }
+[data-theme="light"] .pl-status-badge--warn { background: rgba(180, 120, 10, 0.12); color: #8a5b06; }
+[data-theme="light"] .pl-status-badge--fail { background: rgba(200, 50, 50, 0.1); color: #b32d2d; }
+[data-theme="light"] .pl-status-badge--muted { background: rgba(0, 0, 0, 0.06); color: var(--hub-text-muted); }
+
+/* The refund modal body — context header, consequence line, busy state. */
+.pl-refund-context {
+    margin: 0 0 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.08));
+}
+.pl-refund-context__payer {
+    font-weight: 700;
+    margin: 0 0 0.15rem;
+}
+.pl-refund-context__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 0;
+}
+.pl-refund-consequence {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 1rem 0 0.75rem;
+}
+.pl-refund-failure {
+    font-size: 0.8125rem;
+    color: #f87171;
+    margin: 0.5rem 0 0;
+}
+[data-theme="light"] .pl-refund-failure { color: #b32d2d; }
+.pl-refund-form.htmx-request button[type="submit"] {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Refund history rows (detail page card + panel amount sub-lines). */
+.pl-refund-history {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+}
+.pl-refund-history__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.pl-refund-history__meta {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-refund-line {
+    display: block;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+/* Payments ledger cells (the billing dashboard's dark-fixed partial — literal
+   colors match the page's own pl-* chrome, like .pl-text-muted there). */
+.pl-payer-link { color: #a0c0e0; }
+.pl-cell-muted { color: #96ACBB; }
+.pl-table-empty {
+    text-align: center;
+    color: #96ACBB;
+    padding: 2rem;
+}

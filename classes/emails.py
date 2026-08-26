@@ -57,9 +57,15 @@ def _guild_leadership_recipients(guild: "Guild | None") -> list[str]:
 
 
 def _absolute_url(path: str) -> str:
-    """Turn a relative path into an absolute URL using the book site base URL."""
-    base = getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space").rstrip("/")
-    return f"{base}{path}"
+    """Turn a relative path into an absolute URL using the book site base URL.
+
+    Thin delegate — the public helper lives in :func:`core.urls_util.book_absolute_url`
+    so other apps don't import a private classes helper. Kept for this module's
+    many internal call sites.
+    """
+    from core.urls_util import book_absolute_url
+
+    return book_absolute_url(path)
 
 
 def _flat_text_email_html(text: str) -> str:
@@ -382,11 +388,11 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
 
 
 def send_admin_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one for lead-less categories: notify the Class Administrators.
+    """Stage one for lead-less categories: notify the CMS Administrators.
 
-    Used when a category has no guild lead, so the Class Administrator gate is stage one.
+    Used when a category has no guild lead, so the CMS Administrator gate is stage one.
     The review email + in-app row ride the ``class_review_requested`` resolver — with a
-    ``None`` guild it composes to the Class Administrators (holders only) instead of
+    ``None`` guild it composes to the CMS Administrators (holders only) instead of
     blasting a static admin address list. The instructor still gets the explainer.
     """
     instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
@@ -407,7 +413,7 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves and the
     Admin gate opens. One ``class_validation_requested`` event: the structural
     ``admin_validation_request.{txt,html}`` shell is preserved as the email, and both the
-    email and in-app row ride the CLASS_APPROVERS resolver — the Class Administrators
+    email and in-app row ride the CLASS_APPROVERS resolver — the CMS Administrators
     (holders only) get it, replacing the static
     ``_admin_recipients()`` blast. ``class_validation_requested`` logs no SiteActivity, so
     the emit introduces no activity-row duplication.
