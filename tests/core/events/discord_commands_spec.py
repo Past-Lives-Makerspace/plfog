@@ -6,6 +6,7 @@ never leak into other specs. All Discord REST (the deferred flow) is mocked with
 
 from __future__ import annotations
 
+import json
 import httpx
 import pytest
 import respx
@@ -450,3 +451,44 @@ def describe_deferred_dispatch():
 
         assert dispatch(interaction, rf.post("/")) == {}  # no raise; already acked
         assert "went wrong" in json.loads(followup.calls.last.request.content)["content"]
+
+
+def describe_modal_response_routing():
+    _CB = "https://discord.com/api/v10/interactions/intM/tokM/callback"
+
+    @pytest.fixture
+    def modal_command(monkeypatch):
+        from core.events import discord_commands as dc
+
+        cmd = dc.SlashCommand(
+            name="modaltest",
+            description="x",
+            handler=lambda interaction, member: {"type": 9, "data": {"custom_id": "t", "title": "T", "components": []}},
+            requires_link=False,
+            defer=False,
+        )
+        monkeypatch.setitem(dc._REGISTRY, "modaltest", cmd)
+        return cmd
+
+    @respx.mock
+    def it_routes_a_modal_through_the_callback_and_returns_empty(settings, rf, modal_command):
+        settings.DISCORD_BOT_TOKEN = "bot"
+        route = respx.post(_CB).mock(return_value=httpx.Response(204))
+        interaction = {"type": 2, "data": {"name": "modaltest", "options": []}, "id": "intM", "token": "tokM"}
+        result = dispatch(interaction, rf.post("/"))
+        assert result == {}
+        assert json.loads(route.calls.last.request.content)["type"] == 9
+
+    @respx.mock
+    def it_surfaces_a_callback_rejection_as_an_ephemeral_reply(settings, rf, modal_command):
+        settings.DISCORD_BOT_TOKEN = "bot"
+        respx.post(_CB).mock(return_value=httpx.Response(400, text='{"message": "Invalid Form Body"}'))
+        interaction = {"type": 2, "data": {"name": "modaltest", "options": []}, "id": "intM", "token": "tokM"}
+        result = dispatch(interaction, rf.post("/"))
+        assert result["type"] == 4
+        assert "would not open the form" in result["data"]["content"]
+        assert "Invalid Form Body" in result["data"]["content"]
+
+    def it_passes_non_modal_replies_through_untouched(rf):
+        interaction = {"type": 2, "data": {"name": "guide", "options": []}, "id": "i", "token": "t"}
+        assert dispatch(interaction, rf.post("/"))["type"] == 4
