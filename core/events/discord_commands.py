@@ -20,7 +20,14 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from typing import TYPE_CHECKING, Literal
 
-from core.events.discord_interactions import ack_deferred, error_reply, reply, send_followup, unlinked_reply
+from core.events.discord_interactions import (
+    ack_deferred,
+    error_reply,
+    reply,
+    send_followup,
+    send_modal_via_callback,
+    unlinked_reply,
+)
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -267,6 +274,23 @@ def _dispatch_deferred(cmd: SlashCommand, interaction: Interaction, member: Memb
     return {}
 
 
+def _route_modal(response: dict, interaction: Interaction) -> dict:
+    """Deliver a type-9 modal via the REST callback; anything else passes through.
+
+    Inline type-9 bodies are unreliable from an HTTP interactions endpoint (Discord
+    drops them and the member sees a timeout), so a modal response goes out over the
+    callback REST call — the same shape as the deferred path, which returns ``{}``
+    inline once the REST side has answered. A callback rejection surfaces as an
+    ephemeral reply carrying Discord's own error detail, never a silent timeout.
+    """
+    if response.get("type") != 9:
+        return response
+    detail = send_modal_via_callback(interaction["id"], interaction["token"], response)
+    if detail is None:
+        return {}
+    return reply(f"Discord would not open the form. It said: {detail}", ephemeral=True)
+
+
 def dispatch(interaction: Interaction, request: HttpRequest) -> dict:
     """Route an APPLICATION_COMMAND interaction to its handler and return a reply dict.
 
@@ -293,7 +317,7 @@ def dispatch(interaction: Interaction, request: HttpRequest) -> dict:
         return _dispatch_deferred(cmd, interaction, member)
 
     try:
-        return cmd.handler(interaction, member)
+        return _route_modal(cmd.handler(interaction, member), interaction)
     except Exception:
         logger.exception("Discord command %r handler failed", name)
         return error_reply()
@@ -326,7 +350,7 @@ def dispatch_component(interaction: Interaction, request: HttpRequest) -> dict:
         return unlinked_reply(_link_url(request))
 
     try:
-        return handler.handler(interaction, member)
+        return _route_modal(handler.handler(interaction, member), interaction)
     except Exception:
         logger.exception("Discord component %r handler failed", prefix)
         return error_reply()

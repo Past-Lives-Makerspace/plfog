@@ -326,3 +326,30 @@ def describe_parse_modal_values():
         # An unchecked checkbox Discord may echo with no values key at all.
         interaction = {"data": {"components": [{"type": 18, "component": {"custom_id": "c"}}]}}
         assert di.parse_modal_values(interaction) == {}
+
+
+def describe_send_modal_via_callback():
+    _MODAL = {"type": 9, "data": {"custom_id": "x", "title": "T", "components": []}}
+
+    @respx.mock
+    def it_returns_none_on_success_and_posts_the_modal(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        route = respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+        assert di.send_modal_via_callback("int123", "tok456", _MODAL) is None
+        import json
+
+        assert json.loads(route.calls.last.request.content)["type"] == 9
+
+    @respx.mock
+    def it_returns_the_error_detail_on_a_rejection(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(400, text='{"message": "Invalid Form Body"}'))
+        detail = di.send_modal_via_callback("int123", "tok456", _MODAL)
+        assert detail is not None
+        assert "400" in detail and "Invalid Form Body" in detail
+
+    @respx.mock
+    def it_reports_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(side_effect=httpx.ConnectError("no route"))
+        assert di.send_modal_via_callback("int123", "tok456", _MODAL) == "network error talking to Discord"

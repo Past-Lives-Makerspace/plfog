@@ -305,6 +305,34 @@ def error_reply() -> dict:
 # --- Deferred-response REST helpers (best-effort — log + falsy, never raise) ---
 
 
+def send_modal_via_callback(interaction_id: str, token: str, modal_response: dict) -> str | None:
+    """POST a type-9 modal response to the interaction callback endpoint.
+
+    Inline type-9 bodies from an HTTP interactions endpoint are silently discarded by
+    Discord in some paths (the member just sees "didn't respond in time"), while the
+    REST callback both opens the modal reliably and returns an explicit validation
+    error when the payload is malformed — so every modal goes out this way, mirroring
+    :func:`ack_deferred`'s shape. Returns ``None`` on success; on failure returns a
+    short human-readable detail (logged too) that the caller can surface ephemerally
+    instead of letting the interaction die as a timeout.
+    """
+    try:
+        response = httpx.post(
+            f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
+            json=modal_response,
+            headers=_auth_headers(),
+            timeout=_DEFAULT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Discord modal callback failed (network error): %s", exc)
+        return "network error talking to Discord"
+    if response.is_success:
+        return None
+    detail = response.text[:300]
+    logger.warning("Discord modal callback rejected: %s %s", response.status_code, detail)
+    return f"{response.status_code} {detail}"
+
+
 def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> bool:
     """POST a type-5 deferred ack so Discord's 3-second clock is satisfied (§5.4).
 
@@ -436,6 +464,7 @@ __all__ = [
     "pong",
     "reply",
     "send_followup",
+    "send_modal_via_callback",
     "string_select",
     "text_display",
     "text_input",
