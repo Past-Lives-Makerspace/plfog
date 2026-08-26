@@ -136,6 +136,17 @@ def deferred_ack(*, ephemeral: bool = True) -> dict:
     return {"type": 5, "data": {"flags": _flags(ephemeral)}}
 
 
+def deferred_update_ack() -> dict:
+    """A type-6 (DEFERRED_UPDATE_MESSAGE) ack — for a component click whose work is slow.
+
+    The component-click counterpart of :func:`deferred_ack`: Discord stops the 3-second
+    clock without posting anything, and the handler later PATCHes the ``@original``
+    message (the one the clicked button sits on) via :func:`send_followup`. Sent via
+    :func:`ack_component_deferred`, not returned as the HTTP body.
+    """
+    return {"type": 6}
+
+
 def unlinked_reply(link_url: str) -> dict:
     """The ephemeral prompt an unlinked member sees — connect Discord to Past Lives.
 
@@ -188,6 +199,30 @@ def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> 
     return False
 
 
+def ack_component_deferred(interaction_id: str, token: str) -> bool:
+    """POST a type-6 deferred-update ack for a slow component click (§5.4's sibling).
+
+    Same callback endpoint as :func:`ack_deferred`, but the type-6 body tells Discord
+    "I'll edit the clicked message shortly" instead of "I'll post a reply" — the
+    follow-up PATCH of ``@original`` then replaces the message the button lives on.
+    Best-effort: returns ``True`` on a 2xx, ``False`` otherwise (logged, never raised).
+    """
+    try:
+        response = httpx.post(
+            f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
+            json=deferred_update_ack(),
+            headers=_auth_headers(),
+            timeout=_DEFAULT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Discord deferred component ack failed (network error): %s", exc)
+        return False
+    if response.is_success:
+        return True
+    logger.warning("Discord deferred component ack failed: %s %s", response.status_code, response.text[:300])
+    return False
+
+
 def send_followup(
     token: str, *, content: str, embeds: list[dict] | None = None, components: list[dict] | None = None
 ) -> bool:
@@ -225,9 +260,11 @@ def send_followup(
 
 
 __all__ = [
+    "ack_component_deferred",
     "ack_deferred",
     "bot_token",
     "deferred_ack",
+    "deferred_update_ack",
     "error_reply",
     "is_configured",
     "pong",

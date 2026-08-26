@@ -5445,6 +5445,77 @@ class CommunityEvent(models.Model):
         )
 
 
+class CommunityEventDraftManager(models.Manager["CommunityEventDraft"]):
+    """Queries for the Discord ``/create`` preview drafts."""
+
+    def claimable_for(self, user: "User") -> "models.QuerySet[CommunityEventDraft]":
+        """This user's unconfirmed drafts — the only rows a Confirm click may claim."""
+        return self.filter(author=user, confirmed_at__isnull=True).select_related("guild")
+
+
+class CommunityEventDraft(models.Model):
+    """A pending Discord ``/create`` preview — the payload between preview and Confirm.
+
+    One row per outstanding preview message. It is a scratch payload, never a calendar
+    row: nothing joins to it, and it becomes a :class:`CommunityEvent` only when the
+    member clicks Confirm (the atomic ``confirmed_at IS NULL`` claim mirrors
+    :class:`AnnouncementDraft`'s, so a double-click can't create two events). Running
+    ``/create`` again deletes the author's older unconfirmed drafts, and a Confirm on a
+    draft older than the command's confirm window gets a friendly "expired" reply — so
+    abandoned rows stay bounded without a cleanup cron.
+    """
+
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="community_event_drafts",
+        help_text="Whose preview this is — the claim filter and the create actor.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="community_event_drafts",
+        help_text="The resolved target guild — NULL means a site-wide community event.",
+    )
+    title = models.CharField(max_length=200, help_text="The event name, mirroring CommunityEvent.title.")
+    starts_at = models.DateTimeField(help_text="Form-cleaned aware start (validated before the draft is written).")
+    ends_at = models.DateTimeField(help_text="Form-cleaned aware end (validated before the draft is written).")
+    location = models.CharField(max_length=200, blank=True, default="", help_text="Where it happens, if given.")
+    video_url = models.URLField(max_length=500, blank=True, default="", help_text="Online join link, if given.")
+    description = models.TextField(blank=True, default="", help_text="The details option's free text.")
+    recurrence = models.CharField(
+        max_length=20,
+        choices=CommunityEvent.Recurrence.choices,
+        default=CommunityEvent.Recurrence.NONE,
+        help_text="Repeat cadence — the command exposes a subset, the column accepts all values.",
+    )
+    google_calendar_target = models.CharField(
+        max_length=10,
+        choices=CommunityEvent.GoogleCalendarTarget.choices,
+        default=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        help_text="Which Google calendar the published event posts to.",
+    )
+    email_choice = models.CharField(
+        max_length=20,
+        default="none",
+        help_text="Audience email option: none, guild_members, or all_active.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="Drives the confirm-window expiry.")
+    confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The atomic claim stamp — set exactly once by the winning Confirm click.",
+    )
+
+    objects = CommunityEventDraftManager()
+
+    def __str__(self) -> str:
+        state = "confirmed" if self.confirmed_at else "unconfirmed"
+        return f"{self.title} by {self.author} ({state})"
+
+
 class MeetingLockedError(Exception):
     """Raised when a mutating operation targets an approved (locked) meeting."""
 
