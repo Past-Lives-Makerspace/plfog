@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.5"
+VERSION = "1.9.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.9.6",
+        "date": "2026-08-26",
+        "title": "Delete an event right from its edit page",
+        "changes": [
+            "Editing an event now has a Delete button, so admins and guild leads can remove one "
+            "without going back to the calendar list. A confirmation explains exactly what happens "
+            "before anything is deleted.",
+        ],
+    },
     {
         "version": "1.9.5",
         "date": "2026-08-26",

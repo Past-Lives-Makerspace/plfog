@@ -202,7 +202,7 @@ A formset with `extra=1` renders a perpetual blank row that can **block save** �
 - Add rows on demand with a **"+ Add …" button** that clones a hidden `<template>` of `formset.empty_form`, replaces `__prefix__` with the new index, and bumps `id_<prefix>-TOTAL_FORMS`.
 - Cloned (un-saved) rows get a **"Remove" button** that just removes the DOM node — no save needed, and a half-filled row the user abandons never blocks the save.
 
-Canonical implementations to copy: the FAQ and Links editors in `templates/hub/guild_edit.html`, and the recurring-hours editor in `templates/hub/orientation_settings.html`.
+Canonical implementations to copy: the FAQ and Links editors, and the orientation recurring-hours editor, all in `templates/hub/guild_edit.html`.
 
 ## Interaction Patterns
 

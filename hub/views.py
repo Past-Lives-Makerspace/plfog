@@ -63,6 +63,7 @@ from membership.cycle import get_cycle_context
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.models import (
     AdminCapability,
+    CommunityEvent,
     FundingSnapshot,
     Guild,
     HelpCategory,
@@ -3450,6 +3451,20 @@ def guild_events(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events")
 
 
+def _event_delete_confirm_message(event: CommunityEvent) -> str:
+    """Consequence copy for the edit page's delete confirm modal, varying by publish state."""
+    if event.moderation_state == CommunityEvent.ModerationState.PUBLISHED:
+        message = (
+            "Members will no longer see it on the calendar, and it will be removed from "
+            "Google Calendar and Discord. This can't be undone."
+        )
+    else:
+        message = "It'll be removed before it's ever announced. This can't be undone."
+    if event.recurrence != CommunityEvent.Recurrence.NONE:
+        message += " This removes the whole series."
+    return message
+
+
 @login_required
 def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None) -> HttpResponse:
     """Add (no ``event_pk``) or edit a guild event. Editor only.
@@ -3504,6 +3519,8 @@ def guild_event_edit(request: HttpRequest, pk: int, event_pk: int | None = None)
             "form": form,
             "cancel_url": f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=events",
             "google_sync_enabled": _google_sync_enabled(),
+            "delete_url": reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) if event.pk else None,
+            "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
         },
     )
 
@@ -3565,7 +3582,15 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
     return render(
         request,
         "hub/community_event_edit.html",
-        {**ctx, "event": event, "form": form, "cancel_url": cancel_url, "google_sync_enabled": _google_sync_enabled()},
+        {
+            **ctx,
+            "event": event,
+            "form": form,
+            "cancel_url": cancel_url,
+            "google_sync_enabled": _google_sync_enabled(),
+            "delete_url": reverse("hub_event_delete", args=[event.pk]) if event.pk else None,
+            "delete_confirm_message": _event_delete_confirm_message(event) if event.pk else None,
+        },
     )
 
 
