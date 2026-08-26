@@ -18,7 +18,7 @@ from django.db.models.signals import post_save
 from factory.django import mute_signals
 
 from core.events.discord_interactions import error_reply
-from membership.discord_commands import _poll, _poll_component
+from membership.discord_commands import _poll_component, _poll_submit
 from membership.models import Member
 from tests.membership.factories import MemberFactory
 
@@ -43,9 +43,21 @@ def _discord_settings(settings) -> None:
     settings.DISCORD_CLIENT_ID = "appX"
 
 
-def _poll_interaction(**options: object) -> dict:
-    opts = [{"name": name, "value": value} for name, value in options.items()]
-    return {"data": {"options": opts}}
+def _submit(
+    *, question: str = "Best night?", answers: str = "Fri\nSat", hours: str = "24", multiselect: bool = False
+) -> dict:
+    """A Create-a-Poll MODAL_SUBMIT payload (Components-v2 Label rows)."""
+    return {
+        "data": {
+            "custom_id": "pollform",
+            "components": [
+                {"type": 18, "component": {"custom_id": "question", "value": question}},
+                {"type": 18, "component": {"custom_id": "answers", "value": answers}},
+                {"type": 18, "component": {"custom_id": "duration", "values": [hours]}},
+                {"type": 18, "component": {"custom_id": "multiselect", "values": (["true"] if multiselect else [])}},
+            ],
+        }
+    }
 
 
 def _end_click(member, creator_pk) -> dict:
@@ -59,10 +71,10 @@ def _end_click(member, creator_pk) -> dict:
     return _poll_component(interaction, member)
 
 
-def describe_the_gear_row_on_the_poll_reply():
+def describe_the_gear_row_on_the_posted_poll():
     def it_carries_an_end_button_beside_the_poll_payload():
         member = _linked_member()
-        result = _poll(_poll_interaction(question="Best night?", answers="Fri; Sat"), member)
+        result = _poll_submit(_submit(), member)
         assert "poll" in result["data"]  # the native poll rides along
         gear = result["data"]["components"][0]["components"][0]
         assert gear["label"] == "⚙"
@@ -70,7 +82,7 @@ def describe_the_gear_row_on_the_poll_reply():
 
     def it_keeps_the_no_ping_gate_on_the_public_reply():
         member = _linked_member()
-        result = _poll(_poll_interaction(question="Best night?", answers="Fri; Sat"), member)
+        result = _poll_submit(_submit(), member)
         assert result["data"]["allowed_mentions"] == {"parse": []}
         assert result["data"]["flags"] == 0  # public, not ephemeral
 

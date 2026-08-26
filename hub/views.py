@@ -113,9 +113,10 @@ def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
 
 
 def _get_member(request: HttpRequest) -> Member | None:
-    """Get the Member for the logged-in user, or None.
+    """Get the Member for the current user, or None.
 
-    Callers must be decorated with @login_required.
+    Anonymous-safe: an unauthenticated request (e.g. the public ``event_detail`` page) has no
+    ``member`` on its user, so this returns None rather than raising.
     """
     member: Member | None = getattr(request.user, "member", None)
     return member

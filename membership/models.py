@@ -4746,7 +4746,7 @@ class CommunityEvent(models.Model):
         blank=True,
         default="",
         help_text=(
-            "The channel the #public-calendar announcement message was posted to. Blank until "
+            "The channel the #calendar announcement message was posted to. Blank until "
             "announced (or for events announced before the RSVP embed shipped)."
         ),
     )
@@ -5552,7 +5552,7 @@ class CommunityEvent(models.Model):
         return {"name": name, "value": value}
 
     def discord_announcement_embed(self) -> dict[str, Any]:
-        """The rich #public-calendar embed — one truth for the announcer, the RSVP click, and
+        """The rich #calendar embed — one truth for the announcer, the RSVP click, and
         the hub refresh. Field names render bold, which IS the bold-headline structure."""
         start = self.next_occurrence_start()
         end = start + (self.ends_at - self.starts_at)
@@ -5761,6 +5761,13 @@ class CommunityEventDraft(models.Model):
         choices=EmailChoice.choices,
         default=EmailChoice.NONE,
         help_text="Whether publishing also emails an audience, and which one.",
+    )
+    when_had_end = models.BooleanField(
+        default=True,
+        help_text=(
+            "Whether the typed When carried an explicit end time. False means the end was "
+            "derived from a duration, so the preview card offers a Duration picker."
+        ),
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="Drives the confirm-window expiry.")
     confirmed_at = models.DateTimeField(

@@ -150,7 +150,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="announce_calendar_events",
         name="New-event Discord posts",
-        description="Posts newly added calendar events and classes to the #public-calendar Discord channel.",
+        description="Posts newly added calendar events and classes to the #calendar Discord channel.",
         command="announce_calendar_events",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
@@ -158,7 +158,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="post_weekly_calendar_digest",
         name="Weekly calendar digest",
-        description="Posts the coming week's calendar lineup to the #public-calendar Discord channel.",
+        description="Posts the coming week's calendar lineup to the #calendar Discord channel.",
         command="post_weekly_calendar_digest",
         schedule_label="Mon ~6 AM",
         cadence=Cadence.WEEKLY,

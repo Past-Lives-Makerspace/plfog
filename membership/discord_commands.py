@@ -15,14 +15,28 @@ from datetime import date, datetime, timedelta
 from math import ceil
 from typing import TYPE_CHECKING, cast
 
-from core.events.discord_commands import ComponentHandler, SlashCommand, register, register_component
+from core.events.discord_commands import (
+    ComponentHandler,
+    ModalHandler,
+    SlashCommand,
+    register,
+    register_component,
+    register_modal,
+)
 from core.events.discord_interactions import (
     ack_component_deferred,
     ack_deferred,
+    checkbox,
     error_reply,
     expire_poll,
+    modal,
+    modal_label,
+    parse_modal_values,
     reply,
     send_followup,
+    string_select,
+    text_display,
+    text_input,
     update_message,
 )
 from membership.when_text import WhenError
@@ -839,9 +853,10 @@ register_component(ComponentHandler(prefix="members", handler=_members_component
 
 # The "guild" choice value that means "no guild — a site-wide community event".
 _GENERAL_VALUE = "__general__"
-# Fallback event length in minutes when the `when` phrase has no explicit end time.
-_DEFAULT_DURATION_MINUTES = 60
-# The "email" option values that trigger an audience email blast (everything else is "no email").
+# The default event length when the typed When carries no explicit end time (the preview
+# card's Duration picker, shown only in that case, opens on this value).
+_CREATE_DEFAULT_DURATION_MINUTES = 120
+# The "email" values that trigger an audience email blast (everything else is "no email").
 _EMAIL_AUDIENCES = ("guild_members", "all_active")
 # Per-member creation caps (counted only when a Confirm actually creates an event).
 _CREATE_RATE_SCOPE = "discord_create"
@@ -849,8 +864,39 @@ _CREATE_HOURLY_LIMIT = 4
 _CREATE_DAILY_LIMIT = 12
 # How long a preview's Confirm button stays live before the draft is treated as expired.
 _CONFIRM_WINDOW_MINUTES = 30
-# The recurrence cadences the command exposes — the basic set; the rest stay web-only.
-_RECURRENCE_VALUES = ("none", "weekly", "semi_monthly", "monthly")
+
+# The Create-an-Event modal + preview-card prefixes, and how long a failed submission is cached.
+_CREATE_MODAL_PREFIX = "eventform"
+_CREATE_EDIT_PREFIX = "eventedit"
+_CREATE_CFG_PREFIX = "eventcfg"
+_CREATE_EDIT_TTL_SECONDS = 900
+
+# Preview-card config selects: (stored value, menu label). The stored value lands on the draft.
+_CREATE_RECURRENCE_CHOICES: list[tuple[str, str]] = [
+    ("none", "Does not repeat"),
+    ("weekly", "Weekly"),
+    ("semi_monthly", "Twice a month"),
+    ("monthly", "Monthly"),
+]
+_CREATE_CALENDAR_CHOICES: list[tuple[str, str]] = [
+    ("member", "Members-only calendar"),
+    ("public", "Public calendar"),
+]
+_CREATE_EMAIL_CHOICES: list[tuple[str, str]] = [
+    ("none", "No email"),
+    ("guild_members", "Guild members only"),
+    ("all_active", "Whole membership"),
+]
+# Duration options (minutes, label). "All day" is a 24-hour span from the start time.
+_CREATE_DURATION_CHOICES: list[tuple[int, str]] = [
+    (30, "30 minutes"),
+    (60, "1 hour"),
+    (90, "1.5 hours"),
+    (120, "2 hours"),
+    (180, "3 hours"),
+    (240, "4 hours"),
+    (1440, "All day"),
+]
 
 _NOT_PERMITTED = (
     "Posting an event straight to the calendar is limited to guild leads and admins right now. "
@@ -860,7 +906,6 @@ _SETUP_INCOMPLETE = (
     "Your Past Lives account isn't fully set up yet, so I can't create an event under your name. "
     "Please reach out to a Past Lives organizer."
 )
-_EMAIL_NEEDS_GUILD = "Pick a guild to email its members, or choose the whole membership."
 _PREVIEW_EXPIRED = "This preview expired or was already handled. Run /create again if you still want the event."
 _PREVIEW_CANCELLED = "Cancelled. Nothing was created."
 _CREATE_FANOUT_FAILED = (
@@ -893,16 +938,6 @@ def _rate_limited_reply() -> dict:
     )
 
 
-def _duration_minutes(interaction: Interaction) -> int:
-    """The ``duration_minutes`` option as an int, defaulting to :data:`_DEFAULT_DURATION_MINUTES`.
-
-    Discord validates the integer option (``min_value=1``), so a supplied value is a positive int;
-    an omitted / blank value falls back to the default one-hour length.
-    """
-    raw = option_value(interaction, "duration_minutes")
-    return int(raw) if raw else _DEFAULT_DURATION_MINUTES
-
-
 def _guild_not_found_reply(raw: str) -> dict:
     """The ephemeral "no such guild" nudge, listing active guilds so it's never a dead end."""
     from membership.models import Guild
@@ -917,23 +952,27 @@ def _guild_not_found_reply(raw: str) -> dict:
     return reply(content, ephemeral=True)
 
 
-def _resolve_target_guild(interaction: Interaction) -> tuple[Guild | None, dict | None]:
-    """Resolve the target guild: ``(guild, None)`` on success, ``(None, error_reply)`` on failure.
+def _channel_guild(interaction: Interaction) -> Guild | None:
+    """The guild mapped to the invoking channel, or ``None`` — the modal's Guild-select default."""
+    from membership.models import Guild
 
-    An explicit ``General`` choice or an omitted option with no channel match → a site-wide event
-    (``guild=None``); an explicit guild slug that no longer resolves → the not-found reply.
+    return Guild.objects.for_discord_channel(interaction.get("channel_id", ""))
+
+
+def _guild_from_select(slug: str) -> tuple[Guild | None, dict | None]:
+    """Resolve the submitted Guild-select value: ``(guild, None)`` or ``(None, error_reply)``.
+
+    ``All Makerspace`` (or a blank value) → a site-wide event (``guild=None``); a guild slug
+    that no longer resolves (deactivated between open and submit) → the not-found reply.
     """
     from membership.models import Guild
 
-    raw = option_value(interaction, "guild")
-    if raw == _GENERAL_VALUE:
+    if slug == _GENERAL_VALUE or not slug:
         return None, None
-    if raw:
-        guild = Guild.objects.filter(slug=raw, is_active=True).first()
-        if guild is None:
-            return None, _guild_not_found_reply(raw)
-        return guild, None
-    return Guild.objects.for_discord_channel(interaction.get("channel_id", "")), None
+    guild = Guild.objects.filter(slug=slug, is_active=True).first()
+    if guild is None:
+        return None, _guild_not_found_reply(slug)
+    return guild, None
 
 
 def _build_event_form(
@@ -972,15 +1011,13 @@ def _build_event_form(
     return CommunityEventForm(data=data, as_member=True)
 
 
-def _form_error_reply(form: CommunityEventForm) -> dict:
-    """Surface the form's own validation message.
+def _form_error_message(form: CommunityEventForm) -> str:
+    """Flatten the form's own validation errors into one member-facing line.
 
-    Reachable here: the end-before-start rule, a ``title`` longer than the model's
-    200-char limit, and a malformed ``video_url``. All surface as the ephemeral
-    "adjust and try again" reply — nothing is created.
+    Reachable here: the end-before-start rule and a ``title`` longer than the model's
+    200-char limit. The caller wraps it in the error card (with an Edit Event button).
     """
-    message = " ".join(str(error) for errors in form.errors.values() for error in errors)
-    return reply(f"{message} Nothing was created — adjust and try again.", ephemeral=True)
+    return " ".join(str(error) for errors in form.errors.values() for error in errors)
 
 
 def _published_reply(event: CommunityEvent, emailed: int) -> dict:
@@ -1074,61 +1111,130 @@ def _preview_branch_line(*, authored: bool, guild: Guild | None, policy: str, em
     return line
 
 
-def _create_preview_reply(draft: CommunityEventDraft, *, authored: bool, policy: str) -> dict:
-    """The ephemeral preview: every chosen value, the publish-vs-propose branch, Confirm / Cancel."""
-    from membership.models import CommunityEvent
+def _config_select_row(field: str, pk: int, emoji_label: str, choices: list, current: object) -> dict:
+    """One preview-card config select — the current value in the placeholder, the rest as options."""
+    labels = dict(choices)
+    row_select = {
+        "type": 3,
+        "custom_id": f"{_CREATE_CFG_PREFIX}:{field}:{pk}",
+        "placeholder": f"{emoji_label}: {labels[current]}",
+        "options": [{"label": label, "value": str(value)} for value, label in choices],
+    }
+    return {"type": 1, "components": [row_select]}
 
+
+def _create_card_parts(draft: CommunityEventDraft, *, authored: bool, policy: str) -> tuple[str, dict, list]:
+    """The shared (content, gold embed, component rows) of the upgraded /create preview card."""
     guild = draft.guild
-    lines = [
-        "**Here is your event. Please confirm.**",
-        f"**{draft.title}**",
-        f"{format_local(draft.starts_at)} to {format_local(draft.ends_at)} (Pacific)",
-        f"Guild: {guild.name}" if guild is not None else "Guild: Whole makerspace",
+    start_ts, end_ts = int(draft.starts_at.timestamp()), int(draft.ends_at.timestamp())
+    fields = [
+        {"name": "When", "value": f"<t:{start_ts}:F> to <t:{end_ts}:t>"},
+        {"name": "Guild", "value": guild.name if guild is not None else "All Makerspace"},
     ]
     if draft.location:
-        lines.append(f"Location: {draft.location}")
-    if draft.video_url:
-        lines.append(f"Join online: {draft.video_url}")
-    if draft.recurrence != CommunityEvent.Recurrence.NONE:
-        lines.append(f"Repeats: {CommunityEvent.Recurrence(draft.recurrence).label}")
-    lines.append(f"Calendar: {CommunityEvent.GoogleCalendarTarget(draft.google_calendar_target).label}")
-    emails = draft.email_choice in _EMAIL_AUDIENCES
-    if emails:
-        audience = "this guild's members" if draft.email_choice == "guild_members" else "the whole membership"
-        lines.append(f"Also emails: {audience}")
-    lines.append("")
-    lines.append(_preview_branch_line(authored=authored, guild=guild, policy=policy, emails=emails))
-    row = {
-        "type": 1,
-        "components": [
-            {"type": 2, "style": 3, "label": "Create event", "custom_id": f"create:confirm:{draft.pk}"},
-            {"type": 2, "style": 4, "label": "Cancel", "custom_id": f"create:cancel:{draft.pk}"},
+        fields.append({"name": "Location", "value": draft.location})
+    if draft.description:
+        fields.append({"name": "Description", "value": truncate(draft.description, 1024)})
+    embed = {"title": draft.title, "color": 0xEEB44B, "fields": fields}
+
+    rows = [
+        _config_select_row("repeats", draft.pk, "🔁 Repeats", _CREATE_RECURRENCE_CHOICES, draft.recurrence),
+        _config_select_row("calendar", draft.pk, "📅 Calendar", _CREATE_CALENDAR_CHOICES, draft.google_calendar_target),
+        _config_select_row("email", draft.pk, "✉️ Email invite", _CREATE_EMAIL_CHOICES, draft.email_choice),
+    ]
+    if not draft.when_had_end:
+        minutes = int((draft.ends_at - draft.starts_at).total_seconds() // 60)
+        rows.append(_config_select_row("duration", draft.pk, "⏱ Duration", _CREATE_DURATION_CHOICES, minutes))
+    rows.append(
+        {
+            "type": 1,
+            "components": [
+                {"type": 2, "style": 3, "label": "Create Event", "custom_id": f"create:confirm:{draft.pk}"},
+                {"type": 2, "style": 2, "label": "Edit Details", "custom_id": f"create:edit:{draft.pk}"},
+                {"type": 2, "style": 4, "label": "Cancel", "custom_id": f"create:cancel:{draft.pk}"},
+            ],
+        }
+    )
+    content = (
+        "Here's your event. Check it over, adjust the settings below, then hit Create Event.\n"
+        + _preview_branch_line(
+            authored=authored, guild=guild, policy=policy, emails=draft.email_choice in _EMAIL_AUDIENCES
+        )
+    )
+    return content, embed, rows
+
+
+def _create_preview_card(draft: CommunityEventDraft, *, authored: bool, policy: str) -> dict:
+    """The upgraded preview as a fresh type-4 ephemeral (the modal-submit response)."""
+    content, embed, rows = _create_card_parts(draft, authored=authored, policy=policy)
+    return reply(content, ephemeral=True, embeds=[embed], components=rows)
+
+
+def _create_card_update(draft: CommunityEventDraft, *, authored: bool, policy: str) -> dict:
+    """The upgraded preview as a type-7 in-place update (a config-select click re-renders it)."""
+    content, embed, rows = _create_card_parts(draft, authored=authored, policy=policy)
+    return update_message(content, embeds=[embed], components=rows)
+
+
+def _create_guild_options(selected_slug: str) -> list[dict]:
+    """The Guild-select options: All Makerspace + active guilds (≤24), the current one preselected."""
+    from membership.models import Guild
+
+    guilds = list(Guild.objects.filter(is_active=True).order_by("name"))[:24]
+    selected = selected_slug or _GENERAL_VALUE
+    options = [{"label": "All Makerspace (no guild)", "value": _GENERAL_VALUE, "default": selected == _GENERAL_VALUE}]
+    options += [{"label": g.name, "value": g.slug, "default": g.slug == selected} for g in guilds]
+    return options
+
+
+def _create_modal(
+    *, title: str = "", when: str = "", guild_slug: str = "", location: str = "", description: str = ""
+) -> dict:
+    """The Create-an-Event modal, optionally prefilled (the Edit Details / Edit Event reopens)."""
+    return modal(
+        _CREATE_MODAL_PREFIX,
+        "Create an Event",
+        [
+            modal_label(
+                "Event Title",
+                text_input("title", value=title, max_length=200, placeholder="Intro to Lost Wax Casting"),
+                description="Shows on Discord, the calendar, and any email invite.",
+            ),
+            modal_label(
+                "When",
+                text_input("when", value=when, placeholder="next friday 6-8pm"),
+                description=(
+                    'Plain English works: "friday 6pm", "tomorrow 7-9pm", "sep 12 10am-2pm". Include an end '
+                    "time if you know it, or pick a duration on the next step."
+                ),
+            ),
+            modal_label(
+                "Guild",
+                string_select("guild", _create_guild_options(guild_slug)),
+                description="Who's hosting. We guessed from this channel; change it if that's wrong.",
+            ),
+            modal_label(
+                "Location",
+                text_input("location", value=location, required=False, placeholder="Main Shop Floor"),
+                description="Room, area, or address. Blank means the main shop.",
+            ),
+            modal_label(
+                "Description",
+                text_input("description", style=2, value=description, required=False, max_length=1000),
+                description="What to bring, skill level, cost. Shows on the calendar and in any email.",
+            ),
         ],
-    }
-    return reply("\n".join(lines), ephemeral=True, components=[row])
+    )
 
 
 def _create_event(interaction: Interaction, member: Member | None) -> dict:
-    """Stage a Community Calendar event from Discord: validate cheaply, then preview + confirm.
+    """Open the Create-an-Event modal (the slash command carries no options).
 
-    Every guard returns an immediate ephemeral reply — nothing slow happens here and
-    nothing is published: the setup-incomplete check, the per-member rate-limit peek,
-    an unknown guild, an unreadable ``when`` phrase, a guild-less guild-members email
-    choice, the shared form's validation, and the not-permitted gate (a non-lead/admin
-    under the DISABLED member-event policy). All green → the member's older unconfirmed
-    drafts are dropped, a fresh :class:`~membership.models.CommunityEventDraft` is
-    written, and the preview with Confirm / Cancel buttons goes back. The publish /
-    propose fan-out runs only on the Confirm click (:func:`_create_component`).
-
-    ``requires_link=True`` guarantees ``member`` is non-``None`` (dispatch shows the
-    connect prompt for an unlinked caller before this runs).
+    The per-member rate limit is peeked here at invoke time (recorded only on a successful
+    Create Event); a userless member and an over-cap member get their ephemeral reply
+    instead of the form. ``requires_link=True`` guarantees a linked ``member``.
     """
-    from django.utils import timezone as django_tz
-
     from core.abuse_limits import keyed_within_limits
-    from core.models import SiteConfiguration
-    from membership.models import CommunityEvent, CommunityEventDraft
-    from membership.when_text import parse_when
 
     member = cast("Member", member)
     if member.user is None:
@@ -1137,42 +1243,94 @@ def _create_event(interaction: Interaction, member: Member | None) -> dict:
         _CREATE_RATE_SCOPE, str(member.pk), hourly_limit=_CREATE_HOURLY_LIMIT, daily_limit=_CREATE_DAILY_LIMIT
     ):
         return _rate_limited_reply()
+    guild = _channel_guild(interaction)
+    return _create_modal(guild_slug=guild.slug if guild is not None else _GENERAL_VALUE)
 
-    guild, guild_error = _resolve_target_guild(interaction)
+
+def _cache_event_submission(*, title: str, when: str, guild_slug: str, location: str, description: str) -> str:
+    """Stash a failed submission under a short token so the Edit Event button can reopen it."""
+    import secrets
+
+    from django.core.cache import cache
+
+    token = secrets.token_urlsafe(9)
+    cache.set(
+        f"{_CREATE_MODAL_PREFIX}:{token}",
+        {"title": title, "when": when, "guild_slug": guild_slug, "location": location, "description": description},
+        _CREATE_EDIT_TTL_SECONDS,
+    )
+    return token
+
+
+def _create_error_card(
+    message: str, *, title: str, when: str, guild_slug: str, location: str, description: str
+) -> dict:
+    """The ephemeral submit error with a blurple Edit Event button that reopens the form prefilled."""
+    token = _cache_event_submission(
+        title=title, when=when, guild_slug=guild_slug, location=location, description=description
+    )
+    button_row = {
+        "type": 1,
+        "components": [{"type": 2, "style": 1, "label": "Edit Event", "custom_id": f"{_CREATE_EDIT_PREFIX}:{token}"}],
+    }
+    return reply(f"{message} Nothing was created yet.", ephemeral=True, components=[button_row])
+
+
+def _create_submit(interaction: Interaction, member: Member | None) -> dict:
+    """The Create-an-Event modal submit: parse + validate, then build the upgraded preview card.
+
+    A when-parse or form-validation failure returns the error card (Edit Event reopens the
+    modal prefilled from this exact submission). A valid submit drops the member's older
+    unconfirmed drafts, writes a fresh :class:`~membership.models.CommunityEventDraft` (with
+    the config defaults the card's selects then adjust), and returns the preview card. The
+    publish / propose fan-out still runs only on the Create Event click.
+    """
+    from django.utils import timezone as django_tz
+
+    from core.models import SiteConfiguration
+    from membership.models import CommunityEvent, CommunityEventDraft
+    from membership.when_text import parse_when
+
+    member = cast("Member", member)
+    if member.user is None:
+        return reply(_SETUP_INCOMPLETE, ephemeral=True)
+    values = parse_modal_values(interaction)
+    title = str(values.get("title", "")).strip()
+    when_text = str(values.get("when", "")).strip()
+    guild_slug = _first_selected(values.get("guild"))
+    location = str(values.get("location", "")).strip()
+    description = str(values.get("description", "")).strip()
+
+    guild, guild_error = _guild_from_select(guild_slug)
     if guild_error is not None:
         return guild_error
 
     when = parse_when(
-        option_value(interaction, "when") or "",
-        duration_minutes=_duration_minutes(interaction),
+        when_text,
+        duration_minutes=_CREATE_DEFAULT_DURATION_MINUTES,
         now=django_tz.localtime(django_tz.now()).replace(tzinfo=None),
     )
+    error_kwargs = {
+        "title": title,
+        "when": when_text,
+        "guild_slug": guild_slug,
+        "location": location,
+        "description": description,
+    }
     if when.error is not None:
-        return reply(_when_error_copy(when.error), ephemeral=True)
+        return _create_error_card(_when_error_copy(when.error), **error_kwargs)
 
-    email_choice = option_value(interaction, "email") or "none"
-    if email_choice == "guild_members" and guild is None:
-        return reply(_EMAIL_NEEDS_GUILD, ephemeral=True)
-
-    title = (option_value(interaction, "title") or "").strip()
-    details = (option_value(interaction, "details") or "").strip()
-    location = (option_value(interaction, "location") or "").strip()
-    video_url = (option_value(interaction, "video_url") or "").strip()
-    calendar = option_value(interaction, "calendar") or CommunityEvent.GoogleCalendarTarget.MEMBER
-    recurrence = option_value(interaction, "recurrence") or CommunityEvent.Recurrence.NONE
     form = _build_event_form(
         title,
-        details,
+        description,
         guild,
         cast("datetime", when.start),
         cast("datetime", when.end),
-        calendar,
+        CommunityEvent.GoogleCalendarTarget.MEMBER,
         location=location,
-        video_url=video_url,
-        recurrence=recurrence,
     )
     if not form.is_valid():
-        return _form_error_reply(form)
+        return _create_error_card(_form_error_message(form), **error_kwargs)
 
     policy = SiteConfiguration.load().member_event_policy
     authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
@@ -1188,13 +1346,103 @@ def _create_event(interaction: Interaction, member: Member | None) -> dict:
         starts_at=cleaned["starts_at"],
         ends_at=cleaned["ends_at"],
         location=cleaned["location"],
-        video_url=cleaned["video_url"],
+        video_url="",
         description=cleaned["description"],
-        recurrence=cleaned["recurrence"],
-        google_calendar_target=cleaned["google_calendar_target"] or CommunityEvent.GoogleCalendarTarget.MEMBER,
-        email_choice=email_choice,
+        recurrence=CommunityEvent.Recurrence.NONE,
+        google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        email_choice=CommunityEventDraft.EmailChoice.NONE,
+        when_had_end=when.had_end,
     )
-    return _create_preview_reply(draft, authored=authored, policy=policy)
+    return _create_preview_card(draft, authored=authored, policy=policy)
+
+
+def _when_text_from_draft(draft: CommunityEventDraft) -> str:
+    """A parseable When string reconstructed from a draft, for the Edit Details reopen."""
+    from django.utils import timezone as django_tz
+
+    start = django_tz.localtime(draft.starts_at)
+    if draft.when_had_end:
+        end = django_tz.localtime(draft.ends_at)
+        return f"{start:%Y-%m-%d %-I:%M %p} to {end:%-I:%M %p}"
+    return f"{start:%Y-%m-%d %-I:%M %p}"
+
+
+def _first_selected(value: object) -> str:
+    """The first value of a submitted select (a ``values`` list), or ``""`` when absent."""
+    return str(value[0]) if isinstance(value, list) and value else ""
+
+
+# Preview-card config select → (draft attribute, allowed values) for the non-duration fields.
+_CREATE_CFG_APPLY: dict[str, tuple[str, set[str]]] = {
+    "repeats": ("recurrence", {value for value, _ in _CREATE_RECURRENCE_CHOICES}),
+    "calendar": ("google_calendar_target", {value for value, _ in _CREATE_CALENDAR_CHOICES}),
+    "email": ("email_choice", {value for value, _ in _CREATE_EMAIL_CHOICES}),
+}
+
+
+def _event_cfg_component(interaction: Interaction, member: Member | None) -> dict:
+    """A preview-card config select — apply the choice to the draft and re-render the card in place."""
+    from membership.models import CommunityEventDraft
+
+    member = cast("Member", member)
+    if member.user is None:
+        return update_message(_SETUP_INCOMPLETE)
+    custom_id = interaction["data"]["custom_id"]
+    parts = custom_id.split(":")
+    if len(parts) != 3 or not parts[2].isdigit():
+        logger.warning("Malformed eventcfg custom_id %r", custom_id)
+        return error_reply()
+    field, pk = parts[1], int(parts[2])
+    draft = CommunityEventDraft.objects.claimable_for(member.user).filter(pk=pk).first()
+    if draft is None:
+        return update_message(_PREVIEW_EXPIRED)
+    value = _first_selected(interaction["data"].get("values"))
+
+    if field == "duration":
+        if not value.isdigit() or int(value) not in {minutes for minutes, _ in _CREATE_DURATION_CHOICES}:
+            return error_reply()
+        draft.ends_at = draft.starts_at + timedelta(minutes=int(value))
+        draft.save(update_fields=["ends_at"])
+    elif field in _CREATE_CFG_APPLY:
+        attribute, allowed = _CREATE_CFG_APPLY[field]
+        if value not in allowed:
+            return error_reply()
+        setattr(draft, attribute, value)
+        draft.save(update_fields=[attribute])
+    else:
+        logger.warning("Unknown eventcfg field %r", field)
+        return error_reply()
+
+    guild = draft.guild
+    authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
+    policy = _member_event_policy()
+    return _create_card_update(draft, authored=authored, policy=policy)
+
+
+def _event_edit_component(interaction: Interaction, member: Member | None) -> dict:
+    """The Edit Event click on a submit error — reopen the modal prefilled from the cache.
+
+    An expired/evicted token reopens a blank modal so the member can still start over."""
+    from django.core.cache import cache
+
+    _prefix, _, token = interaction["data"]["custom_id"].partition(":")
+    data = cache.get(f"{_CREATE_MODAL_PREFIX}:{token}") if token else None
+    if data is None:
+        return _create_modal()
+    return _create_modal(
+        title=data["title"],
+        when=data["when"],
+        guild_slug=data["guild_slug"],
+        location=data["location"],
+        description=data["description"],
+    )
+
+
+def _member_event_policy() -> str:
+    """The current site member-event policy (kept tiny so callers don't re-import SiteConfiguration)."""
+    from core.models import SiteConfiguration
+
+    return SiteConfiguration.load().member_event_policy
 
 
 def _confirm_create(interaction: Interaction, member: Member, draft: CommunityEventDraft) -> dict:
@@ -1267,12 +1515,13 @@ def _confirm_create(interaction: Interaction, member: Member, draft: CommunityEv
 
 
 def _create_component(interaction: Interaction, member: Member | None) -> dict:
-    """The Confirm / Cancel click on a ``/create`` preview — the only place an event is created.
+    """The Create Event / Edit Details / Cancel click on a ``/create`` preview card.
 
     Parses ``create:<action>:<draft_pk>``, reloads the caller's own unconfirmed draft
-    (missing / foreign / already-claimed → the friendly expired reply), enforces the
-    confirm window, and routes Cancel (delete + in-place replace) or Confirm
-    (:func:`_confirm_create`).
+    (missing / foreign / already-claimed → the friendly expired reply), enforces the confirm
+    window, then routes Cancel (delete + in-place replace), Edit Details (reopen the modal
+    prefilled from the draft), or Create Event (:func:`_confirm_create` — the only place an
+    event is created).
     """
     from django.utils import timezone as django_tz
 
@@ -1283,7 +1532,7 @@ def _create_component(interaction: Interaction, member: Member | None) -> dict:
         return update_message(_SETUP_INCOMPLETE)
     custom_id = interaction["data"]["custom_id"]
     parts = custom_id.split(":")
-    if len(parts) != 3 or parts[1] not in ("confirm", "cancel") or not parts[2].isdigit():
+    if len(parts) != 3 or parts[1] not in ("confirm", "cancel", "edit") or not parts[2].isdigit():
         logger.warning("Malformed create custom_id %r", custom_id)
         return error_reply()
     _prefix, action, pk_str = parts
@@ -1298,109 +1547,21 @@ def _create_component(interaction: Interaction, member: Member | None) -> dict:
     if action == "cancel":
         draft.delete()
         return update_message(_PREVIEW_CANCELLED)
+    if action == "edit":
+        return _create_modal(
+            title=draft.title,
+            when=_when_text_from_draft(draft),
+            guild_slug=draft.guild.slug if draft.guild is not None else _GENERAL_VALUE,
+            location=draft.location,
+            description=draft.description,
+        )
     return _confirm_create(interaction, member, draft)
-
-
-def _create_options() -> list[dict]:
-    """The ``/create`` options, guild dropdown built from the live active-guild list.
-
-    Required options (title, when) come first, as Discord requires — every optional
-    option must follow them. The guild dropdown always carries at least the ``General``
-    choice, so it never ships an empty ``choices`` list (which would 400 the bulk
-    command PUT); active guilds are capped so the total stays within Discord's
-    25-choice limit.
-    """
-    from membership.models import Guild
-
-    guilds = list(Guild.objects.filter(is_active=True).order_by("name"))[:24]
-    guild_choices = [{"name": "General (whole makerspace)", "value": _GENERAL_VALUE}]
-    guild_choices += [{"name": g.name, "value": g.slug} for g in guilds]
-    return [
-        {
-            "name": "title",
-            "description": "The event name shown on the calendar, like Monthly Potluck.",
-            "type": 3,
-            "required": True,
-        },
-        {
-            "name": "when",
-            "description": "When it happens, like next friday 6pm, tomorrow 7pm to 9pm, or 2026-09-12 18:00.",
-            "type": 3,
-            "required": True,
-        },
-        {
-            "name": "duration_minutes",
-            "description": "How long in minutes when your when has no end time. Default 60.",
-            "type": 4,
-            "required": False,
-            "min_value": 1,
-        },
-        {
-            "name": "guild",
-            "description": "Which guild this is for. Pick General, or skip it to use this channel's guild.",
-            "type": 3,
-            "required": False,
-            "choices": guild_choices,
-        },
-        {
-            "name": "details",
-            "description": "More about it. What to bring, the agenda, who it is for.",
-            "type": 3,
-            "required": False,
-        },
-        {
-            "name": "location",
-            "description": "Where it happens. A room, an address, or leave blank.",
-            "type": 3,
-            "required": False,
-        },
-        {
-            "name": "video_url",
-            "description": "A link to join online, like a Google Meet URL.",
-            "type": 3,
-            "required": False,
-        },
-        {
-            "name": "recurrence",
-            "description": "Whether it repeats. Default is a one time event.",
-            "type": 3,
-            "required": False,
-            "choices": [
-                {"name": "Does not repeat", "value": "none"},
-                {"name": "Every week", "value": "weekly"},
-                {"name": "Twice a month", "value": "semi_monthly"},
-                {"name": "Every month", "value": "monthly"},
-            ],
-        },
-        {
-            "name": "calendar",
-            "description": "Which Google calendar it posts to. Default is members only.",
-            "type": 3,
-            "required": False,
-            "choices": [
-                {"name": "Members only (default)", "value": "member"},
-                {"name": "Public", "value": "public"},
-            ],
-        },
-        {
-            "name": "email",
-            "description": "Also email members about it. Off by default.",
-            "type": 3,
-            "required": False,
-            "choices": [
-                {"name": "Don't email", "value": "none"},
-                {"name": "This guild's members", "value": "guild_members"},
-                {"name": "The whole membership", "value": "all_active"},
-            ],
-        },
-    ]
 
 
 CREATE = SlashCommand(
     name="create",
     description="Create a Community Calendar event.",
     handler=_create_event,
-    options_builder=_create_options,
     requires_link=True,
     ephemeral=True,
     defer=False,
@@ -1408,7 +1569,10 @@ CREATE = SlashCommand(
 )
 
 register(CREATE)
+register_modal(ModalHandler(prefix=_CREATE_MODAL_PREFIX, handler=_create_submit, requires_link=True))
 register_component(ComponentHandler(prefix="create", handler=_create_component, requires_link=True))
+register_component(ComponentHandler(prefix=_CREATE_CFG_PREFIX, handler=_event_cfg_component, requires_link=True))
+register_component(ComponentHandler(prefix=_CREATE_EDIT_PREFIX, handler=_event_edit_component, requires_link=True))
 
 
 # --- /cancel ------------------------------------------------------------------
@@ -1734,17 +1898,18 @@ _POLL_ANSWER_MAX = 55
 _POLL_MIN_ANSWERS = 2
 _POLL_MAX_ANSWERS = 10
 _POLL_DEFAULT_DURATION_HOURS = 24
-# Duration options in hours → the label shown in the styled header. 768h is Discord's max.
-_POLL_DURATION_LABELS: dict[int, str] = {
-    1: "1 hour",
-    4: "4 hours",
-    8: "8 hours",
-    24: "1 day",
-    72: "3 days",
-    168: "1 week",
-    336: "2 weeks",
-    768: "32 days",
-}
+# The "Voting Stays Open For" modal choices — (hours, label), in menu order. The default
+# (24 Hours) is preselected; the header line reads its label from the same source.
+_POLL_DURATIONS: list[tuple[int, str]] = [
+    (1, "1 Hour"),
+    (4, "4 Hours"),
+    (8, "8 Hours"),
+    (24, "24 Hours"),
+    (72, "3 Days"),
+    (168, "1 Week"),
+    (336, "2 Weeks"),
+]
+_POLL_DURATION_LABELS: dict[int, str] = dict(_POLL_DURATIONS)
 
 # A Discord custom-emoji token at the start of an answer: <:name:id> or <a:name:id> (animated).
 _CUSTOM_EMOJI_RE = re.compile(r"^<a?:(\w+):(\d+)>")
@@ -1782,21 +1947,10 @@ _EMOJI_BASE_BMP: frozenset[int] = frozenset(
     }
 )  # fmt: skip
 
-_POLL_TOO_FEW = "Give me at least 2 answers, separated by semicolons. Like: Alien; Clue; The Thing"
-_POLL_TOO_MANY = "Discord polls allow at most 10 answers. Trim the list and try again."
-_POLL_QUESTION_TOO_LONG = "The question has to fit in 300 characters. Shorten it and try again."
-_POLL_DUPLICATE = "You have the same answer twice. Make each one different and try again."
-
 
 def _split_answers(raw: str) -> list[str]:
-    """Split the ``answers`` option into trimmed, non-empty answer strings.
-
-    Semicolons win: when the input contains any ``;`` it splits on ``;`` (so an answer may
-    carry a literal ``|``); otherwise it splits on ``|``. Each piece is trimmed and empty
-    pieces are dropped.
-    """
-    separator = ";" if ";" in raw else "|"
-    return [piece.strip() for piece in raw.split(separator) if piece.strip()]
+    """Split the Answers textarea into trimmed, non-empty answers — one per line."""
+    return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
 def _is_emoji_base(code: int) -> bool:
@@ -1870,140 +2024,197 @@ def _answer_media(answer: str) -> dict:
     return {"text": answer}
 
 
-def _poll_duration_hours(interaction: Interaction) -> int:
-    """The ``duration`` option in hours, defaulting to :data:`_POLL_DEFAULT_DURATION_HOURS`.
-
-    Discord constrains the integer option to the registered choices, so a supplied value is
-    always one of :data:`_POLL_DURATION_LABELS`; an omitted value falls back to one day.
-    """
-    raw = option_value(interaction, "duration")
-    return int(raw) if raw else _POLL_DEFAULT_DURATION_HOURS
-
-
-def _poll_multiselect(interaction: Interaction) -> bool:
-    """The raw boolean ``multiselect`` option (default ``False`` when omitted).
-
-    Read straight from the interaction, not via :func:`option_value`, which stringifies
-    every value — ``str(False)`` is truthy. Discord sends a JSON boolean for a type-5 option.
-    """
-    for option in interaction.get("data", {}).get("options", []):
-        if option.get("name") == "multiselect":
-            return bool(option.get("value"))
-    return False
-
-
-def _answer_too_long_reply(answer_text: str) -> dict:
-    """The ephemeral "shorten this answer" reply, quoting the first over-long answer."""
-    shown = truncate(answer_text, _POLL_ANSWER_MAX)
-    return reply(
-        f'Each answer has to fit in {_POLL_ANSWER_MAX} characters. Shorten "{shown}" and try again.', ephemeral=True
-    )
-
-
 def _poll_header(display_name: str, hours: int, multiselect: bool) -> str:
     """The styled content line above the native poll widget — attribution, no ping."""
     pick = "pick any" if multiselect else "pick one"
     return f"📊 **Poll from {display_name}**  ·  open for {_POLL_DURATION_LABELS[hours]}  ·  {pick}"
 
 
+_POLL_MODAL_PREFIX = "pollform"
+_POLL_EDIT_PREFIX = "polledit"
+# A failed submission is cached this long so its "Edit Poll" button can reopen it prefilled.
+_POLL_EDIT_TTL_SECONDS = 900
+_POLL_MODAL_INTRO = (
+    "Submitting posts the poll in this channel right away. Polls cannot be edited after they post. "
+    "Need a change? End it early with the gear and run /poll again."
+)
+
+
+def _poll_duration_options(selected_hours: int) -> list[dict]:
+    """The duration-select options (hour ints as string values), the current one preselected."""
+    return [
+        {"label": label, "value": str(hours), "default": hours == selected_hours} for hours, label in _POLL_DURATIONS
+    ]
+
+
+def _poll_modal(
+    *, question: str = "", answers: str = "", hours: int = _POLL_DEFAULT_DURATION_HOURS, multiselect: bool = False
+) -> dict:
+    """The Create-a-Poll modal, optionally prefilled from a failed submission (the edit reopen)."""
+    return modal(
+        _POLL_MODAL_PREFIX,
+        "Create a Poll",
+        [
+            modal_label(
+                "Question",
+                text_input(
+                    "question", placeholder="What should we vote on?", value=question, max_length=_POLL_QUESTION_MAX
+                ),
+                description="Posted exactly as written.",
+            ),
+            modal_label(
+                "Answers",
+                text_input("answers", style=2, placeholder="🔨 Option one\n🎨 Option two", value=answers),
+                description=(
+                    "One per line, 2 to 10 answers, 55 characters each. Start a line with an emoji to make it "
+                    "that answer's icon, like 🍿 Snacks provided."
+                ),
+            ),
+            modal_label(
+                "Voting Stays Open For",
+                string_select("duration", _poll_duration_options(hours)),
+                description="The poll closes on its own and shows the winner.",
+            ),
+            modal_label(
+                "Multiple Choice",
+                checkbox("multiselect", default=multiselect),
+                description="Members can vote for more than one answer.",
+            ),
+            text_display(_POLL_MODAL_INTRO),
+        ],
+    )
+
+
 def _poll(interaction: Interaction, member: Member | None) -> dict:
-    """Post a native Discord poll in the channel, credited to the asker in the header line.
+    """Open the Create-a-Poll modal (the slash command carries no options)."""
+    return _poll_modal()
 
-    Every guard returns an immediate ephemeral reply naming the fix and posts nothing; a
-    poll can't be edited once live, so validation is airtight up front. The happy path
-    returns a public (flags 0) type-4 reply carrying the poll object itself — no extra REST
-    call. ``requires_link=True`` guarantees ``member`` is non-``None`` (dispatch shows the
-    connect prompt for an unlinked caller first), and ``defer=False`` because the deferred
-    followup path cannot carry a poll.
+
+def _poll_selected_hours(values: dict[str, object]) -> int:
+    """The chosen duration in hours from the submitted select, defaulting to one day."""
+    raw = values.get("duration")
+    if isinstance(raw, list) and raw:
+        return int(str(raw[0]))
+    return _POLL_DEFAULT_DURATION_HOURS
+
+
+def _poll_build_media(pieces: list[str]) -> tuple[list[dict], str | None]:
+    """Validate the answers and build their ``poll_media``, or return ``(_, error copy)``.
+
+    Reuses :func:`_answer_media`'s leading-emoji extraction. The per-answer 55-char cap is
+    enforced here (not by the modal) because every answer shares one textarea; the count and
+    uniqueness rules name the number and quote the offending answer.
     """
-    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
-    question = (option_value(interaction, "question") or "").strip()
-    if len(question) > _POLL_QUESTION_MAX:
-        return reply(_POLL_QUESTION_TOO_LONG, ephemeral=True)
-
-    pieces = _split_answers(option_value(interaction, "answers") or "")
-    if len(pieces) < _POLL_MIN_ANSWERS:
-        return reply(_POLL_TOO_FEW, ephemeral=True)
-    if len(pieces) > _POLL_MAX_ANSWERS:
-        return reply(_POLL_TOO_MANY, ephemeral=True)
-
+    count = len(pieces)
+    if count < _POLL_MIN_ANSWERS:
+        return [], f"A poll needs at least 2 answers. You gave {count}. Put each answer on its own line."
+    if count > _POLL_MAX_ANSWERS:
+        return [], f"Discord caps polls at 10 answers and you gave {count}. Trim the list and resubmit."
     media = [_answer_media(piece) for piece in pieces]
-    for item in media:
+    for index, item in enumerate(media, start=1):
         if len(item["text"]) > _POLL_ANSWER_MAX:
-            return _answer_too_long_reply(item["text"])
-    texts = [item["text"] for item in media]
-    if len(set(texts)) != len(texts):
-        return reply(_POLL_DUPLICATE, ephemeral=True)
+            shown = truncate(item["text"], _POLL_ANSWER_MAX)
+            return media, (
+                f"Answer {index} is too long. Each answer has to fit in {_POLL_ANSWER_MAX} characters. "
+                f'Shorten "{shown}" and resubmit.'
+            )
+    seen: set[str] = set()
+    for item in media:
+        text = item["text"]
+        if text in seen:
+            return media, (
+                f'Two answers come out identical: "{text}". Every answer has to be unique. Edit the list and resubmit.'
+            )
+        seen.add(text)
+    return media, None
 
-    hours = _poll_duration_hours(interaction)
-    multiselect = _poll_multiselect(interaction)
+
+def _cache_poll_submission(*, question: str, answers: str, hours: int, multiselect: bool) -> str:
+    """Stash a failed submission under a short token so the Edit Poll button can reopen it."""
+    import secrets
+
+    from django.core.cache import cache
+
+    token = secrets.token_urlsafe(9)
+    cache.set(
+        f"{_POLL_MODAL_PREFIX}:{token}",
+        {"question": question, "answers": answers, "hours": hours, "multiselect": multiselect},
+        _POLL_EDIT_TTL_SECONDS,
+    )
+    return token
+
+
+def _poll_error_reply(error: str, *, question: str, answers: str, hours: int, multiselect: bool) -> dict:
+    """The ephemeral validation error with a blurple Edit Poll button that reopens the form."""
+    token = _cache_poll_submission(question=question, answers=answers, hours=hours, multiselect=multiselect)
+    button_row = {
+        "type": 1,
+        "components": [{"type": 2, "style": 1, "label": "Edit Poll", "custom_id": f"{_POLL_EDIT_PREFIX}:{token}"}],
+    }
+    return reply(error, ephemeral=True, components=[button_row])
+
+
+def _poll_submit(interaction: Interaction, member: Member | None) -> dict:
+    """The Create-a-Poll modal submit: validate, then post the native poll (or the edit reopen).
+
+    A validation failure returns an ephemeral error naming the fix plus an Edit Poll button
+    that reopens the modal prefilled from this exact submission. A valid submit posts the
+    public poll (flags 0) with the attribution header, the mass-ping gate, and the ⚙ gear row.
+    ``requires_link=True`` guarantees a linked ``member``.
+    """
+    member = cast("Member", member)
+    values = parse_modal_values(interaction)
+    question = str(values.get("question", "")).strip()
+    answers = str(values.get("answers", ""))
+    hours = _poll_selected_hours(values)
+    multiselect = bool(values.get("multiselect"))
+
+    media, error = _poll_build_media(_split_answers(answers))
+    if error is not None:
+        return _poll_error_reply(error, question=question, answers=answers, hours=hours, multiselect=multiselect)
+
     poll = {
         "question": {"text": question},
         "answers": [{"poll_media": item} for item in media],
         "duration": hours,
         "allow_multiselect": multiselect,
     }
-    # A one-button ⚙ row so the asker (or an admin) can end the poll early. The creator pk
-    # rides statelessly in the custom_id; reply() carries a poll and components together, and
-    # already pins allowed_mentions on the poll branch.
+    # The creator pk rides statelessly in the gear's custom_id; reply() carries a poll and
+    # components together and already pins allowed_mentions on the poll branch.
     gear_row = {"type": 1, "components": [{"type": 2, "style": 2, "label": "⚙", "custom_id": f"poll:end:{member.pk}"}]}
     return reply(
         _poll_header(member.display_name, hours, multiselect), ephemeral=False, poll=poll, components=[gear_row]
     )
 
 
-def _poll_options() -> list[dict]:
-    """The ``/poll`` options — required ``question`` + ``answers`` first, then duration + multiselect.
+def _poll_edit_component(interaction: Interaction, member: Member | None) -> dict:
+    """The Edit Poll click on a validation error — reopen the modal prefilled from the cache.
 
-    ``duration`` is a type-4 INTEGER choice option with integer choice values (a string
-    option with int values fails Discord's command registration); ``multiselect`` is a
-    type-5 BOOLEAN. Neither touches the DB, so this is a pure, import-safe builder.
-    """
-    duration_choices = [
-        {"name": f"{label} (default)" if hours == _POLL_DEFAULT_DURATION_HOURS else label, "value": hours}
-        for hours, label in _POLL_DURATION_LABELS.items()
-    ]
-    return [
-        {
-            "name": "question",
-            "description": "What you are asking, like Which movie should we watch?",
-            "type": 3,
-            "required": True,
-        },
-        {
-            "name": "answers",
-            "description": "The choices, separated by semicolons, like Alien; Clue; The Thing. Between 2 and 10.",
-            "type": 3,
-            "required": True,
-        },
-        {
-            "name": "duration",
-            "description": "How long voting stays open. Default is 1 day.",
-            "type": 4,
-            "required": False,
-            "choices": duration_choices,
-        },
-        {
-            "name": "multiselect",
-            "description": "Let people pick more than one answer. Off by default.",
-            "type": 5,
-            "required": False,
-        },
-    ]
+    An expired/evicted token reopens a blank modal so the member can still start over."""
+    from django.core.cache import cache
+
+    _prefix, _, token = interaction["data"]["custom_id"].partition(":")
+    data = cache.get(f"{_POLL_MODAL_PREFIX}:{token}") if token else None
+    if data is None:
+        return _poll_modal()
+    return _poll_modal(
+        question=data["question"], answers=data["answers"], hours=data["hours"], multiselect=data["multiselect"]
+    )
 
 
 POLL = SlashCommand(
     name="poll",
     description="Post a poll for the channel to vote on.",
     handler=_poll,
-    options_builder=_poll_options,
     requires_link=True,
-    ephemeral=False,
+    ephemeral=True,
     defer=False,
     scope="guild",
 )
 
 register(POLL)
+register_modal(ModalHandler(prefix=_POLL_MODAL_PREFIX, handler=_poll_submit, requires_link=True))
+register_component(ComponentHandler(prefix=_POLL_EDIT_PREFIX, handler=_poll_edit_component, requires_link=True))
 
 
 # --- poll component (⚙ End poll) ----------------------------------------------

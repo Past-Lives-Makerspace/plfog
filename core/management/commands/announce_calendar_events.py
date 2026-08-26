@@ -1,4 +1,4 @@
-"""Announce newly added calendar events/classes in the #public-calendar Discord channel.
+"""Announce newly added calendar events/classes in the #calendar Discord channel.
 
 Wired into ``run_scheduled_tasks``' always-run set (every ~15 minutes). Self-gating: a
 no-op when calendar posts are off or no channel id is configured. Idempotent — each item
@@ -15,7 +15,7 @@ from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = "Post new calendar events and classes to the #public-calendar Discord channel."
+    help = "Post new calendar events and classes to the #calendar Discord channel."
 
     def handle(self, *args: Any, **options: Any) -> None:
         from hub.discord_calendar_posts import announce_new_events
@@ -24,4 +24,4 @@ class Command(BaseCommand):
         if posted == 0:
             self.stdout.write("No new events to announce.")
             return
-        self.stdout.write(self.style.SUCCESS(f"Announced {posted} new event(s) in #public-calendar."))
+        self.stdout.write(self.style.SUCCESS(f"Announced {posted} new event(s) in #calendar."))

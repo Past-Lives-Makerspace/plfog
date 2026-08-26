@@ -145,6 +145,117 @@ def update_message(
     return {"type": 7, "data": data}
 
 
+# --- Modal builders (Components v2: Label-wrapped inputs + Text Display) -------
+#
+# A MODAL (type 9) response is valid for an APPLICATION_COMMAND or a MESSAGE_COMPONENT
+# interaction, but NEVER for a MODAL_SUBMIT (no chaining). A MODAL_SUBMIT is answered with
+# a plain type-4 message (:func:`reply`), public or ephemeral. Top-level modal components are
+# Label (type 18, wrapping ONE input) and Text Display (type 10); inputs are Text Input
+# (type 4), String Select (type 3), and Checkbox (type 23). Max 5 top-level components; the
+# title is capped at 45 characters by Discord.
+
+_LABEL = 18
+_TEXT_DISPLAY = 10
+_TEXT_INPUT = 4
+_STRING_SELECT = 3
+_CHECKBOX = 23
+
+
+def modal(custom_id: str, title: str, components: list[dict]) -> dict:
+    """A type-9 (MODAL) response — pops a form. Its submit routes by ``custom_id`` prefix.
+
+    ``components`` are up to five top-level Label / Text Display components (built with the
+    helpers below). Valid only as the response to a slash command or a component click.
+    """
+    return {"type": 9, "data": {"custom_id": custom_id, "title": title, "components": components}}
+
+
+def modal_label(label: str, child: dict, *, description: str = "") -> dict:
+    """A top-level Label (type 18) wrapping ONE input child, with an optional description.
+
+    ``label`` ≤100 chars, ``description`` ≤200. The wrapped ``child`` is a Text Input, String
+    Select, or Checkbox. On submit the row echoes back as ``{"type": 18, "component": {…}}``.
+    """
+    row: dict = {"type": _LABEL, "label": label, "component": child}
+    if description:
+        row["description"] = description
+    return row
+
+
+def text_display(content: str) -> dict:
+    """A Text Display (type 10) block — static guidance inside a modal (no input, no value)."""
+    return {"type": _TEXT_DISPLAY, "content": content}
+
+
+def text_input(
+    custom_id: str,
+    *,
+    style: int = 1,
+    placeholder: str = "",
+    value: str = "",
+    required: bool = True,
+    min_length: int | None = None,
+    max_length: int | None = None,
+) -> dict:
+    """A Text Input (type 4). ``style`` 1 = short, 2 = paragraph. ``value`` prefills it.
+
+    Optional keys (``placeholder`` ≤100, ``value``, ``min_length``/``max_length``) are
+    included only when provided so a blank field ships a minimal component.
+    """
+    comp: dict = {"type": _TEXT_INPUT, "custom_id": custom_id, "style": style, "required": required}
+    if placeholder:
+        comp["placeholder"] = placeholder
+    if value:
+        comp["value"] = value
+    if min_length is not None:
+        comp["min_length"] = min_length
+    if max_length is not None:
+        comp["max_length"] = max_length
+    return comp
+
+
+def string_select(custom_id: str, options: list[dict], *, required: bool = True) -> dict:
+    """A String Select (type 3) for a modal — ≤25 options, each ``{"label","value","default"?}``.
+
+    An option's ``"default": true`` preselects it (valid in modals). Wrap in :func:`modal_label`.
+    """
+    return {"type": _STRING_SELECT, "custom_id": custom_id, "options": options, "required": required}
+
+
+def checkbox(custom_id: str, *, default: bool = False, required: bool = False) -> dict:
+    """A single Checkbox (type 23). ``default`` sets its initial checked state.
+
+    On submit a checked box echoes a truthy ``values`` list; an unchecked one an empty/absent
+    one — read via :func:`parse_modal_values` and coerce with ``bool``.
+    """
+    comp: dict = {"type": _CHECKBOX, "custom_id": custom_id, "required": required}
+    if default:
+        comp["value"] = True
+    return comp
+
+
+def parse_modal_values(interaction: dict) -> dict[str, object]:
+    """Flatten a MODAL_SUBMIT payload to ``{custom_id: value | values}``.
+
+    Tolerant to both submit shapes: the Components-v2 Label row
+    (``{"type": 18, "component": {…}}``, one child) and the legacy action row
+    (``{"type": 1, "components": [...]}``). A Text Input yields its ``"value"`` string; a
+    String Select or Checkbox yields its ``"values"`` list.
+    """
+    result: dict[str, object] = {}
+    for row in interaction.get("data", {}).get("components", []):
+        children = [row["component"]] if row.get("type") == _LABEL else row.get("components", [])
+        for child in children:
+            custom_id = child.get("custom_id")
+            if custom_id is None:
+                continue
+            if "value" in child:
+                result[custom_id] = child["value"]
+            elif "values" in child:
+                result[custom_id] = child["values"]
+    return result
+
+
 def deferred_ack(*, ephemeral: bool = True) -> dict:
     """A type-5 (DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE) ack — Discord's "thinking…" state.
 
@@ -313,14 +424,21 @@ __all__ = [
     "ack_component_deferred",
     "ack_deferred",
     "bot_token",
+    "checkbox",
     "deferred_ack",
     "deferred_update_ack",
     "error_reply",
     "expire_poll",
     "is_configured",
+    "modal",
+    "modal_label",
+    "parse_modal_values",
     "pong",
     "reply",
     "send_followup",
+    "string_select",
+    "text_display",
+    "text_input",
     "unlinked_reply",
     "update_message",
     "verify_signature",

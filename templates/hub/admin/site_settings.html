@@ -308,12 +308,12 @@
       </div>
 
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#public-calendar Discord Posts</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#calendar Discord Posts</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           A weekly what's-coming-up digest (Monday mornings) plus a short post whenever a new event or
-          class lands on the Community Calendar, sent to the #public-calendar channel by the Fog Bot.
+          class lands on the Community Calendar, sent to the #calendar channel by the Fog Bot.
         </p>
-        {% include "components/form_field.html" with field=form.discord_calendar_channel_id field_hint="The channel id of #public-calendar (Discord → right-click the channel → Copy Channel ID). Blank disables both posts." %}
+        {% include "components/form_field.html" with field=form.discord_calendar_channel_id field_hint="The channel id of #calendar (Discord → right-click the channel → Copy Channel ID). Blank disables both posts." %}
         {% include "components/form_field.html" with field=form.discord_calendar_posts_enabled field_hint="Requires the channel id above and the bot's Send Messages + Embed Links permission in that channel." %}
       </div>
 

@@ -1,4 +1,4 @@
-"""#public-calendar Discord posts: the weekly digest + the 15-minute new-event announcer.
+"""#calendar Discord posts: the weekly digest + the 15-minute new-event announcer.
 
 Two skinny management commands (``post_weekly_calendar_digest`` / ``announce_calendar_events``)
 delegate here. Both posts share one config gate — ``SiteConfiguration.discord_calendar_posts_enabled``
@@ -110,7 +110,7 @@ def _digest_items(now: datetime) -> list[Any]:
     """The next-7-days slice of the events calendar (feed + general + community events),
     minus classes and standing studio-hours blocks.
 
-    #public-calendar is events-only: classes have their own #classes digest, so
+    #calendar is events-only: classes have their own #classes digest, so
     class-sourced rows are dropped here even though they share the calendar union.
     """
     from hub.calendar_entries import upcoming_calendar_events
@@ -263,7 +263,7 @@ def _posting_channel_id() -> str:
 
 
 def post_weekly_digest() -> int:
-    """Post the weekly digest to #public-calendar; return the number of items listed.
+    """Post the weekly digest to #calendar; return the number of items listed.
 
     No-ops (returns 0) when posting is disabled, no channel id is set, or the coming
     week is empty — an empty digest is noise, not news.
@@ -305,7 +305,7 @@ def _stamp(objs: list[Any], now: datetime, *, extra_fields: list[str] | None = N
 
 
 def announce_new_events() -> int:
-    """Announce unannounced upcoming items in #public-calendar; return how many posted.
+    """Announce unannounced upcoming items in #calendar; return how many posted.
 
     Pulls new feed/class ``CalendarEvent`` rows (future start, echoes of our own
     Google-pushed events excluded) and newly published non-studio-hours ``CommunityEvent``
@@ -334,7 +334,7 @@ def announce_new_events() -> int:
     pending: list[tuple[datetime, dict[str, Any], list[dict[str, Any]] | None, list[Any], Any]] = []
     feed_rows = (
         CalendarEvent.objects.filter(channel_announced_at__isnull=True, start_dt__gt=now)
-        # #public-calendar is events-only — classes announce to #classes, not here.
+        # #calendar is events-only — classes announce to #classes, not here.
         .exclude(source=CalendarEvent.Source.CLASSES)
         # Feed-based "open studio hours" blocks carry no event type; drop them by title.
         .exclude(title__icontains=_STUDIO_HOURS_TITLE)

@@ -121,6 +121,38 @@ def register_component(handler: ComponentHandler) -> None:
     _COMPONENT_REGISTRY[handler.prefix] = handler
 
 
+@dataclass(frozen=True)
+class ModalHandler:
+    """One MODAL_SUBMIT ``custom_id`` namespace — everything before the first ``:`` routes here.
+
+    The modal-submit counterpart of :class:`ComponentHandler`. A command whose slash handler
+    (or a component click) returns a modal encodes its submit route as the modal's
+    ``custom_id`` prefix; :func:`dispatch_modal` routes the submit back by that prefix.
+    Registered from the same autodiscovered ``<app>/discord_commands.py`` modules.
+
+    Args:
+        prefix: The modal ``custom_id`` namespace (no colon), e.g. ``"pollform"``.
+        handler: ``(interaction, member) -> reply dict`` — a MODAL_SUBMIT is answered with a
+            plain type-4 message (:func:`~core.events.discord_interactions.reply`), never
+            another modal.
+        requires_link: Unlinked submitter → the connect prompt; the handler never runs.
+    """
+
+    prefix: str
+    handler: Handler
+    requires_link: bool = True
+
+
+_MODAL_REGISTRY: dict[str, ModalHandler] = {}
+
+
+def register_modal(handler: ModalHandler) -> None:
+    """Add ``handler`` to the modal registry, failing loudly on a duplicate prefix."""
+    if handler.prefix in _MODAL_REGISTRY:
+        raise ValueError(f"Duplicate modal prefix: {handler.prefix!r}")
+    _MODAL_REGISTRY[handler.prefix] = handler
+
+
 def all_commands() -> list[SlashCommand]:
     """Every registered command, in registration order."""
     return list(_REGISTRY.values())
@@ -297,6 +329,32 @@ def dispatch_component(interaction: Interaction, request: HttpRequest) -> dict:
         return handler.handler(interaction, member)
     except Exception:
         logger.exception("Discord component %r handler failed", prefix)
+        return error_reply()
+
+
+def dispatch_modal(interaction: Interaction, request: HttpRequest) -> dict:
+    """Route a MODAL_SUBMIT interaction to its handler by ``custom_id`` prefix.
+
+    Mirrors :func:`dispatch_component` step for step: unknown prefix → :func:`error_reply`;
+    ``requires_link`` and no linked member → :func:`unlinked_reply`; else the handler, wrapped
+    so any exception becomes :func:`error_reply` (never a 5xx back to Discord). A MODAL_SUBMIT
+    is answered with a type-4 message, so those replies are all valid responses.
+    """
+    custom_id = interaction["data"]["custom_id"]
+    prefix = custom_id.split(":", 1)[0]
+    handler = _MODAL_REGISTRY.get(prefix)
+    if handler is None:
+        logger.warning("Discord modal submit for unknown prefix %r", prefix)
+        return error_reply()
+
+    member = resolve_member(interaction)
+    if handler.requires_link and member is None:
+        return unlinked_reply(_link_url(request))
+
+    try:
+        return handler.handler(interaction, member)
+    except Exception:
+        logger.exception("Discord modal %r handler failed", prefix)
         return error_reply()
 
 

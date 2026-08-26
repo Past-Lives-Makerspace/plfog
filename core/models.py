@@ -393,7 +393,7 @@ class SiteConfiguration(models.Model):
         default="",
         verbose_name="Discord calendar channel id",
         help_text=(
-            "The channel id of #public-calendar — where the weekly digest and new-event posts go. "
+            "The channel id of #calendar — where the weekly digest and new-event posts go. "
             "Blank disables both posts."
         ),
     )
@@ -402,7 +402,7 @@ class SiteConfiguration(models.Model):
         verbose_name="Post calendar updates to Discord",
         help_text=(
             "When on (and the calendar channel id is set), FOG posts a weekly what's-coming-up digest "
-            "to #public-calendar every Monday morning, plus a short post whenever a new event or class "
+            "to #calendar every Monday morning, plus a short post whenever a new event or class "
             "lands on the Community Calendar."
         ),
     )

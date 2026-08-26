@@ -1,4 +1,4 @@
-"""BDD specs for the #public-calendar Discord posts (weekly digest + new-event announcer).
+"""BDD specs for the #calendar Discord posts (weekly digest + new-event announcer).
 
 HTTP is mocked with respx (never the models/DB): the service posts through the real
 ``core.integrations.discord_channel`` client against a mocked Discord messages endpoint.
@@ -79,7 +79,7 @@ def describe_build_weekly_digest_embeds():
         assert f"**{day}**" in description
 
     def it_excludes_classes_from_the_events_only_digest():
-        # #public-calendar is events-only; classes belong in the #classes digest.
+        # #calendar is events-only; classes belong in the #classes digest.
         _feed_event("Intro to Welding", days=3, source="classes", url="/classes/welding/")
         now = timezone.now()
         CommunityEventFactory(
@@ -145,7 +145,7 @@ def describe_build_weekly_digest_embeds():
 
     def it_excludes_a_feed_event_titled_studio_hours():
         # A guild's Google-calendar "open studio hours" block arrives as a feed event with
-        # no event type — filter it by title so #public-calendar stays real events only.
+        # no event type — filter it by title so #calendar stays real events only.
         now = timezone.now()
         _feed_event("Art Framing open studio hours", days=2)
         CommunityEventFactory(
@@ -296,7 +296,7 @@ def describe_announce_new_events():
         _enable_posts()
         klass = _feed_event("Intro to Welding", days=3, source="classes", url="/classes/welding/")
 
-        assert dcp.announce_new_events() == 0  # classes post to #classes, not #public-calendar
+        assert dcp.announce_new_events() == 0  # classes post to #classes, not #calendar
         assert not route.called
         klass.refresh_from_db()
         assert klass.channel_announced_at is None  # left unstamped by the events-only announcer
