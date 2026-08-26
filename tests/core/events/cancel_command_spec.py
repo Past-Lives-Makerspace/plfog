@@ -301,3 +301,10 @@ def describe_malformed_clicks():
         member = linked_member()
         result = _cancel_component({"data": {"custom_id": "cancel:pick", "values": []}}, member)
         assert "went wrong" in result["data"]["content"]
+
+    def it_errors_on_a_colonless_custom_id(linked_member):
+        # The prefix router matches a bare "cancel" to this handler — it must land on the
+        # malformed reply, not an IndexError.
+        member = linked_member()
+        result = _cancel_component({"data": {"custom_id": "cancel"}}, member)
+        assert "went wrong" in result["data"]["content"]

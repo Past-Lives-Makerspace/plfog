@@ -1446,8 +1446,10 @@ def _deletable_events(member: Member) -> "list[CommunityEvent]":
     from membership.models import CommunityEvent
 
     states = (CommunityEvent.ModerationState.PUBLISHED, CommunityEvent.ModerationState.SCHEDULED)
-    candidates = CommunityEvent.objects.filter(moderation_state__in=states).filter(
-        Q(ends_at__gte=django_tz.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE)
+    candidates = (
+        CommunityEvent.objects.filter(moderation_state__in=states)
+        .filter(Q(ends_at__gte=django_tz.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE))
+        .select_related("guild")  # the per-event can_edit_guild check below reads event.guild
     )
     if member.is_fog_admin:
         return list(candidates)
@@ -1583,7 +1585,7 @@ def _cancel_component(interaction: Interaction, member: Member | None) -> dict:
         return update_message(_SETUP_INCOMPLETE)
     custom_id = interaction["data"]["custom_id"]
     parts = custom_id.split(":")
-    if parts[1] == "pick" and len(parts) == 2:
+    if len(parts) == 2 and parts[1] == "pick":
         values = interaction["data"].get("values") or []
         pk_str = values[0] if values else ""
     elif len(parts) == 3 and parts[1] in ("confirm", "keep"):

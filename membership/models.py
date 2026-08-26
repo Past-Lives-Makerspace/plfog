@@ -5465,6 +5465,11 @@ class CommunityEventDraft(models.Model):
     abandoned rows stay bounded without a cleanup cron.
     """
 
+    class EmailChoice(models.TextChoices):
+        NONE = "none", "Don't email"
+        GUILD_MEMBERS = "guild_members", "This guild's members"
+        ALL_ACTIVE = "all_active", "The whole membership"
+
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -5499,8 +5504,9 @@ class CommunityEventDraft(models.Model):
     )
     email_choice = models.CharField(
         max_length=20,
-        default="none",
-        help_text="Audience email option: none, guild_members, or all_active.",
+        choices=EmailChoice.choices,
+        default=EmailChoice.NONE,
+        help_text="Whether publishing also emails an audience, and which one.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="Drives the confirm-window expiry.")
     confirmed_at = models.DateTimeField(
