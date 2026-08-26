@@ -5599,8 +5599,10 @@ class CommunityEvent(models.Model):
         unique constraint's ``IntegrityError``, which is caught and treated as "already existed"
         so a lost race never 500s — the caller re-renders from the true DB state either way.
         ``source`` stamps which door a NEW row came through (defaults to the Discord button);
-        toggling off deletes the row regardless of its source — a member taking back their
-        RSVP always wins, whichever door originally recorded it.
+        toggling off deletes the row regardless of its source. The removal is durable for
+        button and hub rows; an ``interested``-sourced row returns on the next sweep if the
+        member's Discord Interested mark is still set (no API lets the bot clear it) — the
+        Events-tab bell is the place to take that one back.
         """
         from django.db import IntegrityError, transaction
 

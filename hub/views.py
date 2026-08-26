@@ -4351,7 +4351,7 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
     unlinked account or a finished non-recurring event is turned away with a friendly message
     (the same "already taken place" gate the page shows), never a 500.
     """
-    from membership.models import CommunityEvent
+    from membership.models import CommunityEvent, EventRSVP
 
     event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
     member = _get_member(request)
@@ -4361,7 +4361,7 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
         return redirect("hub_event_detail", pk=pk)
-    going = event.toggle_rsvp(member, source="hub")
+    going = event.toggle_rsvp(member, source=EventRSVP.Source.HUB)
     event.refresh_discord_announcement()
     messages.success(request, "You're on the list. See you there." if going else "You're no longer on the list.")
     return redirect("hub_event_detail", pk=pk)

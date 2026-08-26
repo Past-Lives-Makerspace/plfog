@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -142,7 +142,9 @@ class DiscordScheduledEventsClient:
             path = f"/guilds/{server_id}/scheduled-events/{event_id}/users?limit=100&with_member=false"
             if after:
                 path += f"&after={after}"
-            page = self._execute("GET", path)
+            # This endpoint returns a JSON array; _execute is annotated for the dict-shaped
+            # calls, so narrow the actual shape here.
+            page = cast("list[dict[str, Any]]", self._execute("GET", path))
             ids.extend(row["user"]["id"] for row in page)
             if len(page) < 100:
                 return ids
