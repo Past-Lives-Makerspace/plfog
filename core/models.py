@@ -393,8 +393,7 @@ class SiteConfiguration(models.Model):
         default="",
         verbose_name="Discord calendar channel id",
         help_text=(
-            "The channel id of #calendar — where the weekly digest and new-event posts go. "
-            "Blank disables both posts."
+            "The channel id of #calendar — where the weekly digest and new-event posts go. Blank disables both posts."
         ),
     )
     discord_calendar_posts_enabled = models.BooleanField(

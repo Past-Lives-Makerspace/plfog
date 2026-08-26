@@ -4,20 +4,29 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0065_alter_siteactivity_kind'),
+        ("core", "0065_alter_siteactivity_kind"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='discord_calendar_channel_id',
-            field=models.CharField(blank=True, default='', help_text='The channel id of #calendar — where the weekly digest and new-event posts go. Blank disables both posts.', max_length=30, verbose_name='Discord calendar channel id'),
+            model_name="siteconfiguration",
+            name="discord_calendar_channel_id",
+            field=models.CharField(
+                blank=True,
+                default="",
+                help_text="The channel id of #calendar — where the weekly digest and new-event posts go. Blank disables both posts.",
+                max_length=30,
+                verbose_name="Discord calendar channel id",
+            ),
         ),
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='discord_calendar_posts_enabled',
-            field=models.BooleanField(default=False, help_text="When on (and the calendar channel id is set), FOG posts a weekly what's-coming-up digest to #calendar every Monday morning, plus a short post whenever a new event or class lands on the Community Calendar.", verbose_name='Post calendar updates to Discord'),
+            model_name="siteconfiguration",
+            name="discord_calendar_posts_enabled",
+            field=models.BooleanField(
+                default=False,
+                help_text="When on (and the calendar channel id is set), FOG posts a weekly what's-coming-up digest to #calendar every Monday morning, plus a short post whenever a new event or class lands on the Community Calendar.",
+                verbose_name="Post calendar updates to Discord",
+            ),
         ),
     ]

@@ -4,15 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0136_eventrsvp_announce_message_ids'),
+        ("membership", "0136_eventrsvp_announce_message_ids"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='communityeventdraft',
-            name='when_had_end',
-            field=models.BooleanField(default=True, help_text='Whether the typed When carried an explicit end time. False means the end was derived from a duration, so the preview card offers a Duration picker.'),
+            model_name="communityeventdraft",
+            name="when_had_end",
+            field=models.BooleanField(
+                default=True,
+                help_text="Whether the typed When carried an explicit end time. False means the end was derived from a duration, so the preview card offers a Duration picker.",
+            ),
         ),
     ]

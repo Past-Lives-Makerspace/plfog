@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0137_eventdraft_when_had_end'),
+        ("membership", "0137_eventdraft_when_had_end"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='communityevent',
-            name='discord_announce_channel_id',
-            field=models.CharField(blank=True, default='', help_text='The channel the #calendar announcement message was posted to. Blank until announced (or for events announced before the RSVP embed shipped).', max_length=64),
+            model_name="communityevent",
+            name="discord_announce_channel_id",
+            field=models.CharField(
+                blank=True,
+                default="",
+                help_text="The channel the #calendar announcement message was posted to. Blank until announced (or for events announced before the RSVP embed shipped).",
+                max_length=64,
+            ),
         ),
     ]
