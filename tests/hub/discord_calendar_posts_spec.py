@@ -233,7 +233,8 @@ def describe_announce_new_events():
     @respx.mock
     def it_posts_a_compact_embed_per_new_item_and_stamps_it(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
-        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        settings.MEMBER_BASE_URL = "https://members.example"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={"id": "msg1"}))
         _enable_posts()
         feed = _feed_event("Forge Night", days=2)
         now = timezone.now()
@@ -245,14 +246,48 @@ def describe_announce_new_events():
         )
 
         assert dcp.announce_new_events() == 2
-        assert route.call_count == 2  # one compact message per item
+        assert route.call_count == 2  # one message per item
         embeds = _sent_embeds(route)
         assert [e["title"] for e in embeds] == ["Forge Night", "Spring Mixer"]
-        assert "New on the calendar" in embeds[0]["description"]
-        assert embeds[1]["url"] == community.absolute_url
+        assert "New on the calendar" in embeds[0]["description"]  # feed keeps the compact embed
+        assert embeds[1]["url"] == community.absolute_url  # community links to its page
         for obj in (feed, community):
             obj.refresh_from_db()
             assert obj.channel_announced_at is not None
+
+    @respx.mock
+    def it_gives_a_community_event_the_rich_rsvp_embed_with_buttons_and_stores_the_ids(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        settings.MEMBER_BASE_URL = "https://members.example"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={"id": "msg-77"}))
+        _enable_posts()
+        feed = _feed_event("Forge Night", days=2)
+        now = timezone.now()
+        community = CommunityEventFactory(
+            community=True,
+            title="Spring Mixer",
+            starts_at=now + timedelta(days=4),
+            ends_at=now + timedelta(days=4, hours=2),
+        )
+
+        assert dcp.announce_new_events() == 2
+        payloads = [json.loads(call.request.content) for call in route.calls]
+        feed_payload = next(p for p in payloads if p["embeds"][0]["title"] == "Forge Night")
+        community_payload = next(p for p in payloads if p["embeds"][0]["title"] == "Spring Mixer")
+        # The feed row carries no RSVP buttons; the community row carries the two-button row.
+        assert "components" not in feed_payload
+        buttons = community_payload["components"][0]["components"]
+        assert [b["custom_id"] for b in buttons] == [f"event:rsvp:{community.pk}", f"event:manage:{community.pk}"]
+        # The rich embed's Attendees field starts empty and names the count in its title.
+        field_names = [f["name"] for f in community_payload["embeds"][0]["fields"]]
+        assert "Attendees (0)" in field_names
+        # The message ids are stored so the hub refresh + cancel button-strip can find it.
+        community.refresh_from_db()
+        assert community.discord_announce_channel_id == CHANNEL_ID
+        assert community.discord_announce_message_id == "msg-77"
+        # Feed rows store no ids (they have no such columns to stamp).
+        feed.refresh_from_db()
+        assert feed.channel_announced_at is not None
 
     @respx.mock
     def it_never_announces_class_events(settings):
@@ -404,7 +439,8 @@ def describe_announce_new_events():
     @respx.mock
     def it_announces_a_recurring_event_at_its_next_occurrence(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
-        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        settings.MEMBER_BASE_URL = "https://members.example"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={"id": "m"}))
         _enable_posts()
         now = timezone.now()
         CommunityEventFactory(
@@ -416,10 +452,11 @@ def describe_announce_new_events():
         )
 
         assert dcp.announce_new_events() == 1
-        when_line = _sent_embeds(route)[0]["description"]
-        # Announced with an attendable (future/nowish) occurrence, not the month-old anchor.
-        anchor_day = timezone.localtime(now - timedelta(days=30)).strftime("%B %-d")
-        assert anchor_day not in when_line
+        # The rich embed's Time field, not the compact "description" — announced with an
+        # attendable (future/nowish) occurrence, not the month-old anchor.
+        time_value = {f["name"]: f["value"] for f in _sent_embeds(route)[0]["fields"]}["Time"]
+        anchor_day = timezone.localtime(now - timedelta(days=30)).strftime("%b %-d")
+        assert anchor_day not in time_value
 
 
 def describe_when_formatting():
@@ -439,14 +476,3 @@ def describe_when_formatting():
         end = start + timedelta(hours=12)
         text = dcp._when(start, end, False)
         assert timezone.localtime(end).strftime("%A, %B %-d") in text
-
-
-def describe_next_community_start():
-    def it_falls_back_to_the_anchor_when_no_occurrence_is_in_horizon():
-        now = timezone.now()
-        far_future = CommunityEventFactory(
-            community=True,
-            starts_at=now + timedelta(days=400),
-            ends_at=now + timedelta(days=400, hours=2),
-        )
-        assert dcp._next_community_start(far_future, now) == far_future.starts_at

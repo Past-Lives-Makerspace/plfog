@@ -18,7 +18,9 @@ from typing import TYPE_CHECKING, cast
 from core.events.discord_commands import ComponentHandler, SlashCommand, register, register_component
 from core.events.discord_interactions import (
     ack_component_deferred,
+    ack_deferred,
     error_reply,
+    expire_poll,
     reply,
     send_followup,
     update_message,
@@ -1563,6 +1565,7 @@ def _confirm_cancel(interaction: Interaction, member: Member, event: CommunityEv
     try:
         event.remove_from_google()
         event.remove_from_discord()
+        event.strip_discord_announcement_buttons()
         event.delete()
         content = _CANCEL_DELETED
     except Exception:
@@ -1625,6 +1628,102 @@ CANCEL = SlashCommand(
 
 register(CANCEL)
 register_component(ComponentHandler(prefix="cancel", handler=_cancel_component, requires_link=True))
+
+
+# --- event component (RSVP toggle + ⚙ Manage) ---------------------------------
+
+_RSVP_CLOSED = "This event has already ended, so RSVPs are closed."
+_EVENT_GONE = "This event is no longer on the calendar."
+_MANAGE_CREATOR_ONLY = (
+    "Editing and cancelling a published event is handled by a guild lead or admin. "
+    "Ask a lead if this event needs a change."
+)
+
+
+def _manage_no_auth_reply(event: CommunityEvent) -> dict:
+    """The friendly ephemeral refusal for a non-manager clicking ⚙ — never a dead end."""
+    return reply(
+        f"Only the organizer or a guild lead can manage this event. You can see the details here: {event.public_url}",
+        ephemeral=True,
+    )
+
+
+def _event_edit_url(event: CommunityEvent) -> str:
+    """The absolute hub edit URL for the manage card's link button.
+
+    Mirrors ``templates/hub/event_detail.html``: a guild event edits via
+    ``hub_guild_event_edit``, a site-wide event via ``hub_event_edit``. ``hub_url`` prefixes
+    ``MEMBER_BASE_URL`` so Discord's link button gets an absolute https URL (it rejects
+    relative paths).
+    """
+    guild = event.guild
+    if guild is not None:
+        return hub_url("hub_guild_event_edit", guild.pk, event.pk)
+    return hub_url("hub_event_edit", event.pk)
+
+
+def _manage_card(event: CommunityEvent, member: Member) -> dict:
+    """The ephemeral ⚙ Manage card.
+
+    An authorized manager (``_cancel_authority`` yields a branch) gets Edit + Cancel; a
+    creator without edit/cancel authority gets an honest "ask a lead" card with a plain link
+    to the event page — the same pre-existing gap ``/cancel``'s empty state acknowledges, not
+    widened and not hidden.
+    """
+    branch = _cancel_authority(member, event)
+    when = format_local(event.next_occurrence_start())
+    if branch is not None:
+        row = [
+            {"type": 2, "style": 5, "label": "Edit on the hub", "url": _event_edit_url(event)},
+            {"type": 2, "style": 4, "label": "Cancel this event", "custom_id": f"event:cancelcard:{event.pk}"},
+        ]
+        content = f"**Managing {truncate(event.title, 100)}** ({when})"
+    else:
+        row = [{"type": 2, "style": 5, "label": "Open the event page", "url": event.public_url}]
+        content = f"**Managing {truncate(event.title, 100)}** ({when})\n\n{_MANAGE_CREATOR_ONLY}"
+    return reply(content, ephemeral=True, components=[{"type": 1, "components": row}])
+
+
+def _event_component(interaction: Interaction, member: Member | None) -> dict:
+    """The announcement buttons: RSVP toggle, ⚙ Manage card, and the Cancel jump.
+
+    Parses ``event:<action>:<pk>``; a malformed id or unknown action lands on ``error_reply``
+    (the ``members`` pattern). A missing/unpublished event is the friendly "no longer on the
+    calendar" ephemeral. ``requires_link=True`` guarantees a linked ``member``.
+    """
+    from membership.models import CommunityEvent
+
+    member = cast("Member", member)
+    custom_id = interaction["data"]["custom_id"]
+    parts = custom_id.split(":")
+    if len(parts) != 3 or parts[1] not in ("rsvp", "manage", "cancelcard") or not parts[2].isdigit():
+        logger.warning("Malformed event custom_id %r", custom_id)
+        return error_reply()
+    action, pk = parts[1], int(parts[2])
+    event = CommunityEvent.objects.published().filter(pk=pk).first()
+    if event is None:
+        return reply(_EVENT_GONE, ephemeral=True)
+
+    if action == "rsvp":
+        if event.rsvps_closed:
+            return reply(_RSVP_CLOSED, ephemeral=True)
+        event.toggle_rsvp(member)
+        # Type-7 rebuild from the DB (components omitted → Discord keeps the existing buttons):
+        # your name visibly appears in / disappears from the Attendees field.
+        return update_message("", embeds=[event.discord_announcement_embed()])
+    if action == "manage":
+        if not event.can_manage_from_discord(member):
+            return _manage_no_auth_reply(event)
+        return _manage_card(event, member)
+    # cancelcard: re-resolve the authority (state may have shifted), then edit the ephemeral
+    # manage card into the EXISTING confirm card whose buttons route to _cancel_component.
+    branch = _cancel_authority(member, event)
+    if branch is None:
+        return update_message(_CANCEL_NO_AUTH)
+    return _cancel_confirm_card(event, branch)
+
+
+register_component(ComponentHandler(prefix="event", handler=_event_component, requires_link=True))
 
 
 # --- /poll --------------------------------------------------------------------
@@ -1844,7 +1943,13 @@ def _poll(interaction: Interaction, member: Member | None) -> dict:
         "duration": hours,
         "allow_multiselect": multiselect,
     }
-    return reply(_poll_header(member.display_name, hours, multiselect), ephemeral=False, poll=poll)
+    # A one-button ⚙ row so the asker (or an admin) can end the poll early. The creator pk
+    # rides statelessly in the custom_id; reply() carries a poll and components together, and
+    # already pins allowed_mentions on the poll branch.
+    gear_row = {"type": 1, "components": [{"type": 2, "style": 2, "label": "⚙", "custom_id": f"poll:end:{member.pk}"}]}
+    return reply(
+        _poll_header(member.display_name, hours, multiselect), ephemeral=False, poll=poll, components=[gear_row]
+    )
 
 
 def _poll_options() -> list[dict]:
@@ -1899,3 +2004,43 @@ POLL = SlashCommand(
 )
 
 register(POLL)
+
+
+# --- poll component (⚙ End poll) ----------------------------------------------
+
+_POLL_END_NO_AUTH = "Only the person who started this poll or an admin can end it."
+_POLL_ENDED = "Poll closed."
+_POLL_ALREADY_ENDED = "This poll has already ended."
+
+
+def _poll_component(interaction: Interaction, member: Member | None) -> dict:
+    """The ⚙ End-poll click: the asker or a fog admin ends the poll early.
+
+    Parses ``poll:end:<creator_member_pk>``; a malformed id lands on ``error_reply``, a
+    stranger on the friendly refusal. An authorized clicker gets a **type-5 ephemeral** ack
+    (NOT type 6 — Discord refuses to edit a message carrying a poll, so a type-6 ack's
+    ``@original`` followups would fail silently), then the poll is expired via one bot REST
+    call. On success the clicker sees "Poll closed."; on any failure (already expired, deleted)
+    the followup says "This poll has already ended." Never a stacktrace.
+    """
+    member = cast("Member", member)
+    custom_id = interaction["data"]["custom_id"]
+    parts = custom_id.split(":")
+    if len(parts) != 3 or parts[1] != "end" or not parts[2].isdigit():
+        logger.warning("Malformed poll custom_id %r", custom_id)
+        return error_reply()
+    creator_pk = int(parts[2])
+    if member.pk != creator_pk and not member.is_fog_admin:
+        return reply(_POLL_END_NO_AUTH, ephemeral=True)
+
+    ack_deferred(interaction["id"], interaction["token"], ephemeral=True)
+    ended = expire_poll(interaction["channel_id"], interaction["message"]["id"])
+    send_followup(
+        interaction["token"],
+        content=_POLL_ENDED if ended else _POLL_ALREADY_ENDED,
+        allowed_mentions={"parse": []},
+    )
+    return {}
+
+
+register_component(ComponentHandler(prefix="poll", handler=_poll_component, requires_link=True))

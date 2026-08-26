@@ -211,3 +211,44 @@ def describe_ack_component_deferred():
         settings.DISCORD_BOT_TOKEN = "bot-token"
         respx.post(_CALLBACK_URL).mock(side_effect=httpx.ConnectError("no route"))
         assert di.ack_component_deferred("int123", "tok456") is False
+
+
+def describe_update_message():
+    def it_builds_a_type_7_body_with_only_content_by_default():
+        result = di.update_message("edited")
+        assert result == {"type": 7, "data": {"content": "edited"}}
+
+    def it_includes_embeds_components_and_allowed_mentions_when_given():
+        data = di.update_message(
+            "edited",
+            embeds=[{"title": "t"}],
+            components=[{"type": 1}],
+            allowed_mentions={"parse": []},
+        )["data"]
+        assert data["embeds"] == [{"title": "t"}]
+        assert data["components"] == [{"type": 1}]
+        assert data["allowed_mentions"] == {"parse": []}
+
+
+_EXPIRE_URL = "https://discord.com/api/v10/channels/chan/polls/msg/expire"
+
+
+def describe_expire_poll():
+    @respx.mock
+    def it_returns_true_on_a_2xx(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        route = respx.post(_EXPIRE_URL).mock(return_value=httpx.Response(200, json={}))
+        assert di.expire_poll("chan", "msg") is True
+        assert route.calls.last.request.headers["Authorization"] == "Bot bot-token"
+
+    @respx.mock
+    def it_returns_false_on_a_non_2xx(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_EXPIRE_URL).mock(return_value=httpx.Response(400, json={"code": 520003}))
+        assert di.expire_poll("chan", "msg") is False
+
+    @respx.mock
+    def it_returns_false_on_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_EXPIRE_URL).mock(side_effect=httpx.ConnectError("no route"))
+        assert di.expire_poll("chan", "msg") is False

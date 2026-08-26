@@ -123,20 +123,25 @@ def update_message(
     *,
     embeds: list[dict] | None = None,
     components: list[dict] | None = None,
+    allowed_mentions: dict | None = None,
 ) -> dict:
     """A type-7 (UPDATE_MESSAGE) response — edits the message the clicked component sits on.
 
     The component-click counterpart of :func:`reply`: instead of posting a fresh message it
     replaces the content/embeds/components of the message the button lives on, in place.
     Deliberately carries no ``flags`` — a message's ephemeral state is immutable, so an
-    ephemeral browse stays ephemeral across updates. ``embeds`` / ``components`` are included
-    only when provided (an omitted key leaves Discord's existing value untouched).
+    ephemeral browse stays ephemeral across updates. ``embeds`` / ``components`` /
+    ``allowed_mentions`` are included only when provided (an omitted key leaves Discord's
+    existing value untouched); pass ``allowed_mentions={"parse": []}`` when member-controlled
+    names enter the content so a name like ``@everyone`` can never ping the channel.
     """
     data: dict = {"content": content}
     if embeds is not None:
         data["embeds"] = embeds
     if components is not None:
         data["components"] = components
+    if allowed_mentions is not None:
+        data["allowed_mentions"] = allowed_mentions
     return {"type": 7, "data": data}
 
 
@@ -237,17 +242,23 @@ def ack_component_deferred(interaction_id: str, token: str) -> bool:
 
 
 def send_followup(
-    token: str, *, content: str, embeds: list[dict] | None = None, components: list[dict] | None = None
+    token: str,
+    *,
+    content: str,
+    embeds: list[dict] | None = None,
+    components: list[dict] | None = None,
+    allowed_mentions: dict | None = None,
 ) -> bool:
     """PATCH the deferred interaction's ``@original`` message with the real reply (§5.4).
 
     Hits ``PATCH /webhooks/{DISCORD_CLIENT_ID}/{token}/messages/@original``, well inside
     Discord's 15-minute followup window. The message inherits the ephemeral state of the
-    :func:`ack_deferred` that preceded it. ``embeds`` / ``components`` are included only when
-    provided (mirroring :func:`reply`), so a deferred command's link buttons survive the
-    followup path. Best-effort: returns ``True`` on a 2xx, ``False`` on a network error or
-    any non-2xx (logged, never raised) — a failed followup leaves Discord's own
-    "interaction failed" rather than a misleading success.
+    :func:`ack_deferred` that preceded it. ``embeds`` / ``components`` / ``allowed_mentions``
+    are included only when provided (mirroring :func:`reply`), so a deferred command's link
+    buttons survive the followup path and a member-name-bearing followup can pin
+    ``allowed_mentions={"parse": []}``. Best-effort: returns ``True`` on a 2xx, ``False`` on a
+    network error or any non-2xx (logged, never raised) — a failed followup leaves Discord's
+    own "interaction failed" rather than a misleading success.
     """
     from core.events.discord_oauth import client_id
 
@@ -256,6 +267,8 @@ def send_followup(
         payload["embeds"] = embeds
     if components is not None:
         payload["components"] = components
+    if allowed_mentions is not None:
+        payload["allowed_mentions"] = allowed_mentions
     try:
         response = httpx.patch(
             f"{API_BASE}/webhooks/{client_id()}/{token}/messages/@original",
@@ -272,6 +285,30 @@ def send_followup(
     return False
 
 
+def expire_poll(channel_id: str, message_id: str) -> bool:
+    """End (expire) a bot-authored native poll early (§5.6). Best-effort: ``True`` on a 2xx.
+
+    Hits ``POST /channels/{channel_id}/polls/{message_id}/expire`` with the bot auth headers.
+    Legal because the poll message is authored by our application — Discord only lets you end
+    your own polls. A poll already expired, deleted, or otherwise un-endable returns a
+    non-2xx, which the caller surfaces as the friendly "already ended" reply. Never raises —
+    logs and returns ``False`` on a network error or any non-2xx.
+    """
+    try:
+        response = httpx.post(
+            f"{API_BASE}/channels/{channel_id}/polls/{message_id}/expire",
+            headers=_auth_headers(),
+            timeout=_DEFAULT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Discord poll expire failed (network error): %s", exc)
+        return False
+    if response.is_success:
+        return True
+    logger.warning("Discord poll expire failed: %s %s", response.status_code, response.text[:300])
+    return False
+
+
 __all__ = [
     "ack_component_deferred",
     "ack_deferred",
@@ -279,6 +316,7 @@ __all__ = [
     "deferred_ack",
     "deferred_update_ack",
     "error_reply",
+    "expire_poll",
     "is_configured",
     "pong",
     "reply",

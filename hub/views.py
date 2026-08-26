@@ -4319,6 +4319,10 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
     on_member_surface = getattr(request, "surface", "members") == "members"
     can_edit = on_member_surface and can_edit_event(request, event)
     is_recurring = event.recurrence != CommunityEvent.Recurrence.NONE
+    # "Who's coming": names for signed-in viewers, count only for an anonymous QR scan.
+    rsvps = list(event.rsvps.select_related("member"))
+    member = _get_member(request)
+    viewer_rsvped = member is not None and any(rsvp.member_id == member.pk for rsvp in rsvps)
     return render(
         request,
         "hub/event_detail.html",
@@ -4330,8 +4334,36 @@ def event_detail(request: HttpRequest, pk: int) -> HttpResponse:
             # A non-recurring event that has already ended is still viewable; show an honest
             # "already taken place" note. A recurring series is ongoing, so never flag it.
             "show_past_note": not is_recurring and event.ends_at < dj_timezone.now(),
+            "rsvps": rsvps,
+            "rsvp_count": len(rsvps),
+            "viewer_rsvped": viewer_rsvped,
         },
     )
+
+
+@login_required
+@require_POST
+def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
+    """Toggle the signed-in member's RSVP to a published event, then refresh the Discord embed.
+
+    Thin orchestration: the toggle and the best-effort Discord refresh are model methods. An
+    unlinked account or a finished non-recurring event is turned away with a friendly message
+    (the same "already taken place" gate the page shows), never a 500.
+    """
+    from membership.models import CommunityEvent
+
+    event = get_object_or_404(CommunityEvent.objects.published(), pk=pk)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "Connect your Past Lives account to RSVP.")
+        return redirect("hub_event_detail", pk=pk)
+    if event.rsvps_closed:
+        messages.info(request, "This event has already taken place.")
+        return redirect("hub_event_detail", pk=pk)
+    going = event.toggle_rsvp(member)
+    event.refresh_discord_announcement()
+    messages.success(request, "You're on the list. See you there." if going else "You're no longer on the list.")
+    return redirect("hub_event_detail", pk=pk)
 
 
 def event_ics(request: HttpRequest, pk: int) -> HttpResponse:

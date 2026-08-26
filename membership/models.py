@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date as date_type
@@ -37,7 +38,19 @@ if TYPE_CHECKING:
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
+
+# The community-calendar blue for the rich Discord announcement embed (matches the
+# calendar legend and the announcer's compact embed at hub/discord_calendar_posts.py).
+_DISCORD_ANNOUNCE_COLOR = 0x3D8BD4
+# How many attendee names the announcement embed lists before "and N more".
+_DISCORD_ATTENDEE_CAP = 15
+# Discord's hard cap on one embed field's value.
+_DISCORD_FIELD_VALUE_MAX = 1024
+# How far the rich embed's description text is trimmed before a "more on the page" tail.
+_DISCORD_DESCRIPTION_MAX = 600
 
 
 def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
@@ -4728,6 +4741,24 @@ class CommunityEvent(models.Model):
             "channel. NULL = not yet announced; the 15-minute announcer picks it up once published."
         ),
     )
+    discord_announce_channel_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The channel the #public-calendar announcement message was posted to. Blank until "
+            "announced (or for events announced before the RSVP embed shipped)."
+        ),
+    )
+    discord_announce_message_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The announcement message id, so the hub can refresh its Attendees field and a cancel "
+            "can strip its buttons. Blank until announced."
+        ),
+    )
 
     # --- Seed import bookkeeping ----------------------------------------------
     import_source_uid = models.CharField(
@@ -5443,6 +5474,229 @@ class CommunityEvent(models.Model):
             url=url,
             period=period,
         )
+
+    # --- Discord announcement: rich embed, RSVP toggle, manage authority ------
+
+    def next_occurrence_start(self) -> datetime_type:
+        """The next occurrence starting at/after now, falling back to the anchor ``starts_at``.
+
+        A recurring series' anchor may already be in the past; the announcement embed and the
+        manage card show a date members can actually attend. A one-off returns its own
+        ``starts_at``. Promoted onto the model (from the announcer's old ``_next_community_start``)
+        so the embed builder has no ``hub`` import.
+        """
+        now = timezone.now()
+        today = timezone.localdate(now)
+        horizon = today + timedelta(days=366)
+        duration = self.ends_at - self.starts_at
+        for occ in self.occurrences_in(today, horizon):
+            if occ + duration >= now:
+                return occ
+        return self.starts_at
+
+    @property
+    def rsvps_closed(self) -> bool:
+        """Whether RSVPs are closed: a non-recurring event whose end has passed.
+
+        A recurring series keeps accepting RSVPs (the row represents the ongoing series),
+        mirroring the public page's ``show_past_note`` rule (``hub.views.event_detail``).
+        """
+        return self.recurrence == self.Recurrence.NONE and self.ends_at < timezone.now()
+
+    def _discord_time_value(self, start: datetime_type, end: datetime_type) -> str:
+        """The **Time** field value, e.g. ``'Fri, Aug 29 · 6:00 PM to 8:00 PM'`` (local, no dash)."""
+        local_start = timezone.localtime(start)
+        local_end = timezone.localtime(end)
+        return (
+            f"{local_start.strftime('%a, %b %-d')} · "
+            f"{local_start.strftime('%-I:%M %p')} to {local_end.strftime('%-I:%M %p')}"
+        )
+
+    def _discord_duration_value(self) -> str:
+        """The **Duration** field value humanized from ``ends_at - starts_at`` (e.g. '1 hour 30 minutes')."""
+        total_minutes = int((self.ends_at - self.starts_at).total_seconds() // 60)
+        hours, minutes = divmod(total_minutes, 60)
+        parts = []
+        if hours:
+            parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes or not hours:
+            parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        return " ".join(parts)
+
+    def _discord_creator_name(self) -> str:
+        """The creator's display name for the embed footer, or ``'Past Lives'`` for imported rows."""
+        user = self.created_by or self.submitted_by
+        if user is None:
+            return "Past Lives"
+        member = Member.objects.filter(user=user).first()
+        return member.display_name if member is not None else "Past Lives"
+
+    def attendees_field(self) -> dict[str, str]:
+        """The **Attendees (N)** embed field: the first names in RSVP order, then 'and N more'.
+
+        Empty state names nobody and invites the first RSVP. Names are capped at
+        :data:`_DISCORD_ATTENDEE_CAP` and the whole value is defensively trimmed under Discord's
+        1024-char field cap. One query with ``select_related('member')``.
+        """
+        rsvps = list(self.rsvps.select_related("member"))
+        count = len(rsvps)
+        name = f"Attendees ({count})"
+        if not rsvps:
+            return {"name": name, "value": "No RSVPs yet. Click RSVP below to be the first."}
+        names = [rsvp.member.display_name for rsvp in rsvps[:_DISCORD_ATTENDEE_CAP]]
+        value = ", ".join(names)
+        if count > _DISCORD_ATTENDEE_CAP:
+            value += f", and {count - _DISCORD_ATTENDEE_CAP} more"
+        if len(value) > _DISCORD_FIELD_VALUE_MAX:
+            value = value[: _DISCORD_FIELD_VALUE_MAX - 1].rstrip() + "…"
+        return {"name": name, "value": value}
+
+    def discord_announcement_embed(self) -> dict[str, Any]:
+        """The rich #public-calendar embed — one truth for the announcer, the RSVP click, and
+        the hub refresh. Field names render bold, which IS the bold-headline structure."""
+        start = self.next_occurrence_start()
+        end = start + (self.ends_at - self.starts_at)
+        fields: list[dict[str, Any]] = [
+            {"name": "Time", "value": self._discord_time_value(start, end)},
+            {"name": "Duration", "value": self._discord_duration_value()},
+        ]
+        if self.location:
+            fields.append({"name": "Location", "value": self.location})
+        if self.recurrence != self.Recurrence.NONE:
+            fields.append({"name": "Repeats", "value": self.get_recurrence_display()})
+        fields.append(self.attendees_field())
+        embed: dict[str, Any] = {
+            "title": self.title,
+            "url": self.public_url,
+            "color": _DISCORD_ANNOUNCE_COLOR,
+            "fields": fields,
+            "footer": {"text": f"RSVP below · Created by {self._discord_creator_name()}"},
+        }
+        if self.description:
+            description = self.description.strip()
+            if len(description) > _DISCORD_DESCRIPTION_MAX:
+                description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + "… more on the event page"
+            embed["description"] = description
+        return embed
+
+    def discord_announcement_components(self) -> list[dict[str, Any]]:
+        """The RSVP toggle + Manage button row carried on the announcement message."""
+        return [
+            {
+                "type": 1,
+                "components": [
+                    {"type": 2, "style": 3, "label": "✅ RSVP", "custom_id": f"event:rsvp:{self.pk}"},
+                    {"type": 2, "style": 2, "label": "⚙ Manage", "custom_id": f"event:manage:{self.pk}"},
+                ],
+            }
+        ]
+
+    def toggle_rsvp(self, member: "Member") -> bool:
+        """Add this member's RSVP if absent, remove it if present. Pure DB, no HTTP.
+
+        Returns ``True`` when the member is now going (a row was created), ``False`` when the
+        RSVP was taken back (the row was deleted). A concurrent duplicate insert loses to the
+        unique constraint's ``IntegrityError``, which is caught and treated as "already existed"
+        so a lost race never 500s — the caller re-renders from the true DB state either way.
+        """
+        from django.db import IntegrityError, transaction
+
+        try:
+            with transaction.atomic():
+                _rsvp, created = EventRSVP.objects.get_or_create(event=self, member=member)
+        except IntegrityError:
+            created = False
+        if created:
+            return True
+        EventRSVP.objects.filter(event=self, member=member).delete()
+        return False
+
+    def can_manage_from_discord(self, member: "Member") -> bool:
+        """Who may open the ⚙ Manage card: the ``/cancel`` delete authority, plus the creator.
+
+        The first clause is byte-for-byte ``_cancel_authority``'s delete authority (admins,
+        the event's guild leads/staff); the creator clause widens *who sees the card only* —
+        what the card lets them do is still governed by the per-action authorities (``/cancel``
+        re-checks ``_cancel_authority``), so no new edit/delete power is minted.
+        """
+        if member.is_fog_admin or (self.guild is not None and member.can_edit_guild(self.guild)):
+            return True
+        user_pk = getattr(member.user, "pk", None)
+        return user_pk is not None and user_pk in (self.created_by_id, self.submitted_by_id)
+
+    def refresh_discord_announcement(self) -> None:
+        """Best-effort: rebuild the announcement embed's Attendees field in place (buttons kept).
+
+        No-ops silently when the message ids are unset (pre-RSVP-embed or unannounced events).
+        A Discord hiccup is logged and swallowed — a hub RSVP must never 500 on it (PATCHing
+        only ``embeds`` leaves the existing buttons untouched)."""
+        if not (self.discord_announce_channel_id and self.discord_announce_message_id):
+            return
+        from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
+
+        try:
+            edit_channel_message(
+                self.discord_announce_channel_id,
+                self.discord_announce_message_id,
+                [self.discord_announcement_embed()],
+            )
+        except DiscordChannelError:
+            logger.warning("refresh_discord_announcement failed for event %s", self.pk, exc_info=True)
+
+    def strip_discord_announcement_buttons(self) -> None:
+        """Best-effort: drop the RSVP/Manage buttons off a cancelled event's announcement message.
+
+        Called from the ``/cancel`` delete fan-out so a removed event stops inviting clicks;
+        no-ops when the message ids are unset, and a Discord failure is logged, never raised
+        (stale clicks on a not-yet-stripped message degrade gracefully at the handler)."""
+        if not (self.discord_announce_channel_id and self.discord_announce_message_id):
+            return
+        from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
+
+        try:
+            edit_channel_message(
+                self.discord_announce_channel_id,
+                self.discord_announce_message_id,
+                [self.discord_announcement_embed()],
+                components=[],
+            )
+        except DiscordChannelError:
+            logger.warning("strip_discord_announcement_buttons failed for event %s", self.pk, exc_info=True)
+
+
+class EventRSVP(models.Model):
+    """One member's RSVP to a published :class:`CommunityEvent` (the ✅ toggle in Discord).
+
+    Created/deleted by :meth:`CommunityEvent.toggle_rsvp`; rendered live in the announcement
+    embed's Attendees field and on the public event page. The unique constraint makes the
+    toggle race-safe (a concurrent duplicate insert loses to it). No choice fields, so no
+    ``TextChoices`` (the house rule mandates them only where choices exist)."""
+
+    event = models.ForeignKey(
+        "CommunityEvent",
+        on_delete=models.CASCADE,
+        related_name="rsvps",
+        help_text="The published event this RSVP is for.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="event_rsvps",
+        help_text="Who is coming.",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the RSVP was made (drives the display order).",
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["event", "member"], name="uq_eventrsvp_event_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} → {self.event.title}"
 
 
 class CommunityEventDraftManager(models.Manager["CommunityEventDraft"]):

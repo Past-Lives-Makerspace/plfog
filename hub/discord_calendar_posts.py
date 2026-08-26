@@ -44,6 +44,9 @@ ANNOUNCE_CAP = 10
 # announces once it rolls inside the window instead of being pre-announced a quarter early.
 ANNOUNCE_HORIZON = timedelta(days=90)
 DIGEST_WINDOW_DAYS = 7
+# Persisted alongside channel_announced_at when a community event's RSVP announcement posts,
+# so the hub refresh and the cancel button-strip can find the message it created.
+_ANNOUNCE_ID_FIELDS = ["discord_announce_channel_id", "discord_announce_message_id"]
 # The community-calendar blue (matches the calendar legend's community color).
 _EMBED_COLOR = 0x3D8BD4
 _DIGEST_TITLE = "This week at Past Lives"
@@ -288,23 +291,17 @@ def _announcement_embed(title: str, kind_label: str, when: str, url: str) -> dic
     return embed
 
 
-def _next_community_start(event: Any, now: datetime) -> datetime:
-    """A recurring series' next occurrence at/after ``now`` (falling back to its anchor),
-    so the announcement shows a date members can actually attend."""
-    today = timezone.localdate(now)
-    horizon = today + timedelta(days=366)
-    duration = event.ends_at - event.starts_at
-    for occ in event.occurrences_in(today, horizon):
-        if occ + duration >= now:
-            return occ
-    return event.starts_at
+def _stamp(objs: list[Any], now: datetime, *, extra_fields: list[str] | None = None) -> None:
+    """Mark every row of one announced (or capped) item as handled.
 
-
-def _stamp(objs: list[Any], now: datetime) -> None:
-    """Mark every row of one announced (or capped) item as handled."""
+    ``extra_fields`` are persisted in the same save as ``channel_announced_at`` — used for a
+    community event whose stored announcement channel/message ids are set right before the
+    stamp, so the RSVP embed, the hub refresh, and the cancel button-strip all find the message.
+    """
+    fields = ["channel_announced_at", *(extra_fields or [])]
     for obj in objs:
         obj.channel_announced_at = now
-        obj.save(update_fields=["channel_announced_at"])
+        obj.save(update_fields=fields)
 
 
 def announce_new_events() -> int:
@@ -332,8 +329,9 @@ def announce_new_events() -> int:
     now = timezone.now()
     horizon = now + ANNOUNCE_HORIZON
 
-    # (start of the announced occurrence, the embed to post, every row to stamp)
-    pending: list[tuple[datetime, dict[str, Any], list[Any]]] = []
+    # (start of the announced occurrence, the embed, the button row or None, every row to
+    # stamp, the CommunityEvent to store message ids on or None for a feed row)
+    pending: list[tuple[datetime, dict[str, Any], list[dict[str, Any]] | None, list[Any], Any]] = []
     feed_rows = (
         CalendarEvent.objects.filter(channel_announced_at__isnull=True, start_dt__gt=now)
         # #public-calendar is events-only — classes announce to #classes, not here.
@@ -359,7 +357,8 @@ def announce_new_events() -> int:
         embed = _announcement_embed(
             first.title, "New on the calendar", _when(first.start_dt, first.end_dt, first.all_day), url
         )
-        pending.append((first.start_dt, embed, list(rows)))
+        # Feed/class rows have no CommunityEvent to RSVP against: compact embed, no buttons.
+        pending.append((first.start_dt, embed, None, list(rows), None))
 
     community_rows = (
         CommunityEvent.objects.published()
@@ -368,20 +367,32 @@ def announce_new_events() -> int:
         .exclude(event_type=CommunityEvent.EventType.STUDIO_HOURS)
     )
     for event in community_rows:
-        start = _next_community_start(event, now)
-        end = start + (event.ends_at - event.starts_at)
-        embed = _announcement_embed(event.title, "New on the calendar", _when(start, end, False), event.absolute_url)
-        pending.append((start, embed, [event]))
+        # One truth: the rich embed + RSVP/Manage buttons the model builds, also rendered by
+        # the RSVP click's type-7 rebuild and the hub refresh.
+        pending.append(
+            (
+                event.next_occurrence_start(),
+                event.discord_announcement_embed(),
+                event.discord_announcement_components(),
+                [event],
+                event,
+            )
+        )
 
     pending.sort(key=lambda item: item[0])
     posted = 0
-    for _start, embed, objs in pending[:ANNOUNCE_CAP]:
-        post_channel_message(channel_id, [embed])
-        _stamp(objs, now)
+    for _start, embed, components, objs, event in pending[:ANNOUNCE_CAP]:
+        message = post_channel_message(channel_id, [embed], components=components)
+        if event is not None:
+            event.discord_announce_channel_id = channel_id
+            event.discord_announce_message_id = str(message["id"])
+            _stamp(objs, now, extra_fields=_ANNOUNCE_ID_FIELDS)
+        else:
+            _stamp(objs, now)
         posted += 1
 
     overflow = pending[ANNOUNCE_CAP:]
-    for _start, _embed, objs in overflow:
+    for _start, _embed, _components, objs, _event in overflow:
         _stamp(objs, now)
     if overflow:
         logger.info(

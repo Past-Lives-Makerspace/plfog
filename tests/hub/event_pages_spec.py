@@ -7,16 +7,26 @@ from __future__ import annotations
 from datetime import timedelta
 from unittest.mock import patch
 
+import httpx
 import pytest
+import respx
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
 from django.test import Client, RequestFactory, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from factory.django import mute_signals
 
 from hub import views
 from hub.view_as import ROLE_ADMIN, ROLE_MEMBER, ViewAs
-from membership.models import CommunityEvent, Member
-from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
+from membership.models import CommunityEvent, EventRSVP, Member
+from tests.membership.factories import (
+    CommunityEventFactory,
+    EventRSVPFactory,
+    GuildFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -268,3 +278,91 @@ def describe_event_qr():
         event = CommunityEventFactory(pending=True)
         client.login(username="evt_qr_unpub", password="pass")
         assert client.get(reverse("hub_event_qr", args=[event.pk, "svg"])).status_code == 404
+
+
+def describe_whos_coming():
+    def it_shows_the_count_and_names_to_a_signed_in_member(client: Client):
+        _user_with_role("evt_rsvp_viewer")
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"))
+        client.login(username="evt_rsvp_viewer", password="pass")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert b"Who's coming (1)" in resp.content
+        assert b"Zzytrix Quon" in resp.content
+
+    def it_shows_the_count_but_not_names_to_an_anonymous_visitor(client: Client):
+        event = CommunityEventFactory(community=True)
+        EventRSVPFactory(event=event, member=MemberFactory(full_legal_name="Zzytrix Quon"))
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert b"Who's coming (1)" in resp.content  # the count is public
+        assert b"Zzytrix Quon" not in resp.content  # names are not
+
+    def it_offers_the_rsvp_button_to_a_signed_in_member(client: Client):
+        _user_with_role("evt_rsvp_btn")
+        event = CommunityEventFactory(community=True)
+        client.login(username="evt_rsvp_btn", password="pass")
+        resp = client.get(reverse("hub_event_detail", args=[event.pk]))
+        assert reverse("hub_event_rsvp", args=[event.pk]).encode() in resp.content
+
+
+def describe_event_rsvp_post():
+    def it_toggles_the_rsvp_and_refreshes_discord(client: Client):
+        user = _user_with_role("evt_rsvp_post")
+        event = CommunityEventFactory(community=True)
+        client.login(username="evt_rsvp_post", password="pass")
+        with patch.object(CommunityEvent, "refresh_discord_announcement") as refresh:
+            resp = client.post(reverse("hub_event_rsvp", args=[event.pk]))
+        assert resp.status_code == 302
+        assert EventRSVP.objects.filter(event=event, member=user.member).exists()
+        assert refresh.called
+        # A second POST takes it back.
+        with patch.object(CommunityEvent, "refresh_discord_announcement"):
+            client.post(reverse("hub_event_rsvp", args=[event.pk]))
+        assert not EventRSVP.objects.filter(event=event, member=user.member).exists()
+
+    @respx.mock
+    def it_never_surfaces_a_discord_error_to_the_member(client: Client, settings):
+        settings.DISCORD_BOT_TOKEN = "bot"
+        settings.MEMBER_BASE_URL = "https://members.example"
+        respx.patch("https://discord.com/api/v10/channels/chan/messages/msg").mock(
+            return_value=httpx.Response(500, text="boom")
+        )
+        user = _user_with_role("evt_rsvp_err")
+        event = CommunityEventFactory(
+            community=True, discord_announce_channel_id="chan", discord_announce_message_id="msg"
+        )
+        client.login(username="evt_rsvp_err", password="pass")
+        resp = client.post(reverse("hub_event_rsvp", args=[event.pk]))
+        assert resp.status_code == 302  # a Discord hiccup never 500s the RSVP
+        assert EventRSVP.objects.filter(event=event, member=user.member).exists()
+
+    def it_refuses_an_ended_one_off(client: Client):
+        _user_with_role("evt_rsvp_ended")
+        past = timezone.now() - timedelta(days=2)
+        event = CommunityEventFactory(community=True, starts_at=past, ends_at=past + timedelta(hours=1))
+        client.login(username="evt_rsvp_ended", password="pass")
+        resp = client.post(reverse("hub_event_rsvp", args=[event.pk]))
+        assert resp.status_code == 302
+        assert not EventRSVP.objects.filter(event=event).exists()
+
+    def it_turns_away_a_userless_account_without_a_crash(client: Client):
+        MembershipPlanFactory()
+        with mute_signals(post_save):
+            User.objects.create_user(username="evt_rsvp_nomember", password="pass")
+        event = CommunityEventFactory(community=True)
+        client.login(username="evt_rsvp_nomember", password="pass")
+        resp = client.post(reverse("hub_event_rsvp", args=[event.pk]))
+        assert resp.status_code == 302
+        assert not EventRSVP.objects.filter(event=event).exists()
+
+    def it_404s_an_unpublished_event(client: Client):
+        _user_with_role("evt_rsvp_unpub")
+        event = CommunityEventFactory(pending=True)
+        client.login(username="evt_rsvp_unpub", password="pass")
+        assert client.post(reverse("hub_event_rsvp", args=[event.pk])).status_code == 404
+
+    def it_requires_login(client: Client):
+        event = CommunityEventFactory(community=True)
+        resp = client.post(reverse("hub_event_rsvp", args=[event.pk]))
+        assert resp.status_code == 302
+        assert "/accounts/login/" in resp.headers["Location"] or "login" in resp.headers["Location"]

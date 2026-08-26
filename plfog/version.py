@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.10.0",
+        "date": "2026-08-26",
+        "title": "RSVP to events right in Discord",
+        "changes": [
+            "Event announcements in Discord got a glow up. Each one now shows the time, how "
+            "long it runs, where it is, and who is coming, with an RSVP button that updates the "
+            "list live. Click RSVP again to take it back. Organizers and guild leads get a "
+            "manage button for edits and cancellations, whoever starts a poll can now end it "
+            "early with the little gear, and the event page on the hub shows who is coming too.",
+        ],
+    },
     {
         "version": "1.9.0",
         "date": "2026-08-26",
