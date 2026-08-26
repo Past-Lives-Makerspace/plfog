@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import stripe
 from django.core.exceptions import ImproperlyConfigured
+from stripe.params import RefundCreateParams
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
@@ -211,7 +212,7 @@ def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, id
     Stripe errors propagate — the caller (``billing.refunds``) handles them loudly.
     """
     client = _get_stripe_client()
-    params: dict[str, Any] = {"payment_intent": payment_intent_id}
+    params: RefundCreateParams = {"payment_intent": payment_intent_id}
     if amount_cents is not None:
         params["amount"] = amount_cents
     refund = client.v1.refunds.create(
