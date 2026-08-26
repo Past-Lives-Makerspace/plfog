@@ -4361,7 +4361,7 @@ def event_rsvp(request: HttpRequest, pk: int) -> HttpResponse:
     if event.rsvps_closed:
         messages.info(request, "This event has already taken place.")
         return redirect("hub_event_detail", pk=pk)
-    going = event.toggle_rsvp(member)
+    going = event.toggle_rsvp(member, source="hub")
     event.refresh_discord_announcement()
     messages.success(request, "You're on the list. See you there." if going else "You're no longer on the list.")
     return redirect("hub_event_detail", pk=pk)

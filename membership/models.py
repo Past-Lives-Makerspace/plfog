@@ -5591,25 +5591,60 @@ class CommunityEvent(models.Model):
             }
         ]
 
-    def toggle_rsvp(self, member: "Member") -> bool:
+    def toggle_rsvp(self, member: "Member", *, source: str = "") -> bool:
         """Add this member's RSVP if absent, remove it if present. Pure DB, no HTTP.
 
         Returns ``True`` when the member is now going (a row was created), ``False`` when the
         RSVP was taken back (the row was deleted). A concurrent duplicate insert loses to the
         unique constraint's ``IntegrityError``, which is caught and treated as "already existed"
         so a lost race never 500s — the caller re-renders from the true DB state either way.
+        ``source`` stamps which door a NEW row came through (defaults to the Discord button);
+        toggling off deletes the row regardless of its source — a member taking back their
+        RSVP always wins, whichever door originally recorded it.
         """
         from django.db import IntegrityError, transaction
 
         try:
             with transaction.atomic():
-                _rsvp, created = EventRSVP.objects.get_or_create(event=self, member=member)
+                _rsvp, created = EventRSVP.objects.get_or_create(
+                    event=self, member=member, defaults={"source": source or EventRSVP.Source.BUTTON}
+                )
         except IntegrityError:
             created = False
         if created:
             return True
         EventRSVP.objects.filter(event=self, member=member).delete()
         return False
+
+    def reconcile_interested(self, interested_discord_ids: "set[str]") -> bool:
+        """Reconcile Discord's Interested list into this event's RSVPs. Pure DB, no HTTP.
+
+        Adds an ``interested``-sourced RSVP for every linked member on the list who has no
+        RSVP yet, and removes ``interested``-sourced rows whose member is no longer on the
+        list. Button and hub rows are never removed here — clearing an Interested mark can
+        only take back what the sync itself granted. Returns ``True`` when anything changed
+        (the caller then refreshes the announcement embed).
+        """
+        from django.db import IntegrityError, transaction
+
+        members = Member.objects.filter(discord_user_id__in=interested_discord_ids)
+        already = set(self.rsvps.values_list("member_id", flat=True))
+        changed = False
+        for member in members:
+            if member.pk in already:
+                continue
+            try:
+                with transaction.atomic():
+                    EventRSVP.objects.create(event=self, member=member, source=EventRSVP.Source.INTERESTED)
+                changed = True
+            except IntegrityError:  # concurrent button/hub RSVP won the race — that row stands
+                continue
+        removed, _ = (
+            self.rsvps.filter(source=EventRSVP.Source.INTERESTED)
+            .exclude(member__discord_user_id__in=interested_discord_ids)
+            .delete()
+        )
+        return changed or bool(removed)
 
     def can_manage_from_discord(self, member: "Member") -> bool:
         """Who may open the ⚙ Manage card: the ``/cancel`` delete authority, plus the creator.
@@ -5665,12 +5700,20 @@ class CommunityEvent(models.Model):
 
 
 class EventRSVP(models.Model):
-    """One member's RSVP to a published :class:`CommunityEvent` (the ✅ toggle in Discord).
+    """One member's RSVP to a published :class:`CommunityEvent`.
 
-    Created/deleted by :meth:`CommunityEvent.toggle_rsvp`; rendered live in the announcement
+    Created/deleted by :meth:`CommunityEvent.toggle_rsvp` (the ✅ Discord button and the hub
+    page button) or by the Interested sync (:mod:`membership.interested_sync`, which mirrors
+    Discord's native Scheduled-Event "Interested" list). Rendered live in the announcement
     embed's Attendees field and on the public event page. The unique constraint makes the
-    toggle race-safe (a concurrent duplicate insert loses to it). No choice fields, so no
-    ``TextChoices`` (the house rule mandates them only where choices exist)."""
+    toggle race-safe (a concurrent duplicate insert loses to it). ``source`` records which
+    door the RSVP came through — the sync may only remove rows it created, so a button or
+    hub RSVP can never be taken away by someone clearing their Interested mark."""
+
+    class Source(models.TextChoices):
+        BUTTON = "button", "Discord RSVP button"
+        HUB = "hub", "Hub event page"
+        INTERESTED = "interested", "Discord Interested sync"
 
     event = models.ForeignKey(
         "CommunityEvent",
@@ -5683,6 +5726,12 @@ class EventRSVP(models.Model):
         on_delete=models.CASCADE,
         related_name="event_rsvps",
         help_text="Who is coming.",
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.BUTTON,
+        help_text="Which door the RSVP came through; the Interested sync may only remove its own rows.",
     )
     created_at = models.DateTimeField(
         auto_now_add=True,

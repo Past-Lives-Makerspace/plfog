@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.4"
+VERSION = "1.9.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.9.5",
+        "date": "2026-08-26",
+        "title": "Interested on a Discord event now counts as an RSVP",
+        "changes": [
+            "Hit Interested on any Past Lives event in Discord's Events tab and you will show "
+            "up on that event's attendee list, right beside everyone who used the RSVP button "
+            "or the event page. Clear your Interested mark and the sync takes you back off. "
+            "One list, three ways onto it.",
+        ],
+    },
     {
         "version": "1.9.4",
         "date": "2026-08-26",
