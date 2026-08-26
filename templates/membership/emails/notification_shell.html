@@ -1,8 +1,7 @@
 {% comment %}
 Branded notification shell (EventType.email_shell == "dark", and shared by the
 "light" shell via include). Wraps EVERY notification/announcement email: a navy
-lantern hero with the wordmark and the "Do It Together" tagline in brand gold, a
-gold brand rule, then a bordered white content card carrying the copy fragment, and
+lantern hero with the wordmark, a gold brand rule, then a bordered white content card carrying the copy fragment, and
 the reused _footer below on the pale page background.
 
 Standalone document (does NOT extend _base.html — that grey-card chrome is kept for
@@ -33,7 +32,6 @@ Context: body_html (safe fragment).
             <img src="{% member_base_url %}{% static 'img/favicon.png' %}" width="58" height="58" alt="Past Lives Makerspace" style="display: block; margin: 0 auto 12px; border: 0; outline: none;">
             <div style="font-size: 22px; font-weight: 700; color: #F4EFDD; letter-spacing: 0.02em; line-height: 1.2;">Past Lives Makerspace</div>
         </a>
-        <div style="margin: 11px 0 0; font-size: 11px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: #EEB44B;">Do It Together</div>
     </td>
     </tr>
     <!-- Gold brand rule -->
