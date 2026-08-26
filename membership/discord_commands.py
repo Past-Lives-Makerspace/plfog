@@ -1208,10 +1208,7 @@ def _create_modal(
             modal_label(
                 "When",
                 text_input("when", value=when, placeholder="next friday 6-8pm"),
-                description=(
-                    'Plain English works: "friday 6pm", "tomorrow 7-9pm", "sep 12 10am-2pm". Include an end '
-                    "time if you know it, or pick a duration on the next step."
-                ),
+                description='Plain English works: "friday 6pm", "tomorrow 7-9pm", "sep 12 10am-2pm". End time optional.',
             ),
             modal_label(
                 "Guild",
@@ -2085,10 +2082,7 @@ def _poll_modal(
             modal_label(
                 "Answers",
                 text_input("answers", style=2, placeholder="🔨 Option one\n🎨 Option two", value=answers),
-                description=(
-                    "One per line, 2 to 10 answers, 55 characters each. Start a line with an emoji to make it "
-                    "that answer's icon, like 🍿 Snacks provided."
-                ),
+                description="One per line, 2 to 10 answers. Start a line with an emoji to use it as that answer's icon.",
             ),
             modal_label(
                 "Voting Stays Open For",

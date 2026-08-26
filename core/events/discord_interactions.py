@@ -173,9 +173,19 @@ def modal(custom_id: str, title: str, components: list[dict]) -> dict:
 def modal_label(label: str, child: dict, *, description: str = "") -> dict:
     """A top-level Label (type 18) wrapping ONE input child, with an optional description.
 
-    ``label`` ≤100 chars, ``description`` ≤200. The wrapped ``child`` is a Text Input, String
-    Select, or Checkbox. On submit the row echoes back as ``{"type": 18, "component": {…}}``.
+    ``label`` and ``description`` are both capped at **100** characters — verified against a
+    live Discord rejection (BASE_TYPE_BAD_LENGTH on a 131-char description took the whole
+    /poll modal down in v1.9.2; the docs' claimed 200-char description cap is wrong). The
+    guard raises at build time so an overlong string fails in tests, never in production.
+    The wrapped ``child`` is a Text Input, String Select, or Checkbox. On submit the row
+    echoes back as ``{"type": 18, "component": {…}}``.
     """
+    if len(label) > 100:
+        raise ValueError(f"Modal label exceeds Discord's 100-char cap ({len(label)}): {label[:60]!r}")
+    if len(description) > 100:
+        raise ValueError(
+            f"Modal label description exceeds Discord's 100-char cap ({len(description)}): {description[:60]!r}"
+        )
     row: dict = {"type": _LABEL, "label": label, "component": child}
     if description:
         row["description"] = description
