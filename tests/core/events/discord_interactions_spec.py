@@ -9,6 +9,7 @@ layer). All Discord REST is mocked with ``respx`` — never the network.
 from __future__ import annotations
 
 import httpx
+import pytest
 import respx
 from nacl.signing import SigningKey
 
@@ -353,3 +354,17 @@ def describe_send_modal_via_callback():
         settings.DISCORD_BOT_TOKEN = "bot-token"
         respx.post(_CALLBACK_URL).mock(side_effect=httpx.ConnectError("no route"))
         assert di.send_modal_via_callback("int123", "tok456", _MODAL) == "network error talking to Discord"
+
+
+def describe_modal_label_limits():
+    def it_rejects_a_label_over_100_chars():
+        with pytest.raises(ValueError, match="100-char cap"):
+            di.modal_label("x" * 101, di.text_input("a"))
+
+    def it_rejects_a_description_over_100_chars():
+        with pytest.raises(ValueError, match="100-char cap"):
+            di.modal_label("ok", di.text_input("a"), description="x" * 101)
+
+    def it_accepts_the_boundary():
+        row = di.modal_label("x" * 100, di.text_input("a"), description="y" * 100)
+        assert row["label"] == "x" * 100

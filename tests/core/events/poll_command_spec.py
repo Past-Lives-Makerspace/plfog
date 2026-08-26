@@ -431,3 +431,21 @@ def describe_dispatch_integration():
         result = dispatch(interaction, rf.post("/"))
         button = result["data"]["components"][0]["components"][0]
         assert button["url"].endswith("/discord/link/")
+
+
+def describe_modal_discord_limits():
+    def it_keeps_every_label_and_description_within_the_verified_caps():
+        # A live Discord rejection (v1.9.2) proved the description cap is 100, not the
+        # documented 200 — one overlong string kills the whole modal. Pin every field.
+        from membership.discord_commands import _create_modal, _poll_modal
+
+        for m in (_poll_modal(), _create_modal()):
+            assert len(m["data"]["title"]) <= 45
+            comps = m["data"]["components"]
+            assert 1 <= len(comps) <= 5
+            for row in comps:
+                if row["type"] == 18:
+                    assert len(row["label"]) <= 100
+                    assert len(row.get("description", "")) <= 100
+                    placeholder = row["component"].get("placeholder", "")
+                    assert len(placeholder) <= 100
