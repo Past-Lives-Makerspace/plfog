@@ -396,3 +396,54 @@ def describe_google_sync_note():
         client.login(username="sync_on", password="pass")
         resp = client.get(reverse("hub_community_calendar"))
         assert SYNC_COPY in resp.content
+
+
+@pytest.mark.django_db
+def describe_edit_page_delete_button():
+    def it_shows_delete_on_the_site_wide_edit_page(client: Client):
+        _user_with_role("dele1", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True, moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        client.login(username="dele1", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert reverse("hub_event_delete", args=[event.pk]) in html
+        assert "open-confirm" in html
+        assert "removed from Google Calendar and Discord" in html
+
+    def it_shows_delete_on_the_guild_edit_page(client: Client):
+        user = _user_with_role("dele2")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild=guild)
+        client.login(username="dele2", password="pass")
+        resp = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk]))
+        assert resp.status_code == 200
+        assert reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) in resp.content.decode()
+
+    def it_hides_delete_when_creating(client: Client):
+        _user_with_role("dele3", fog_role=Member.FogRole.ADMIN)
+        client.login(username="dele3", password="pass")
+        resp = client.get(reverse("hub_event_add"))
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "delete-event" not in html
+        assert "Delete event" not in html
+
+    def it_uses_unannounced_copy_for_scheduled_events(client: Client):
+        _user_with_role("dele4", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True, moderation_state=CommunityEvent.ModerationState.SCHEDULED)
+        client.login(username="dele4", password="pass")
+        html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+        assert "ever announced" in html
+        assert "removed from Google Calendar and Discord" not in html
+
+    def it_uses_series_copy_for_recurring_events(client: Client):
+        _user_with_role("dele5", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(
+            community=True,
+            moderation_state=CommunityEvent.ModerationState.PUBLISHED,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+        )
+        client.login(username="dele5", password="pass")
+        html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+        assert "This removes the whole series." in html
