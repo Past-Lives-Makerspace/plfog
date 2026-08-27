@@ -281,27 +281,33 @@ def seed_example_guild() -> "Guild":
 
     lead = _example_member(LEAD_NAME)
 
+    # Every seeded field stays authoritative on re-seed via ``defaults`` — EXCEPT
+    # ``is_active``, which belongs only in ``create_defaults`` (Django 5+) so it is
+    # set on first creation and never again. That way an admin who flips the guild
+    # visible for a demo keeps it visible across the next deploy's re-seed, instead
+    # of every deploy silently forcing it back to inactive.
+    guild_defaults = {
+        "name": EXAMPLE_GUILD_NAME,
+        "is_featured": False,
+        "guild_lead": lead,
+        "about": ABOUT,
+        "wishlist": WISHLIST,
+        "essential_rules": ESSENTIAL_RULES,
+        "faq_label": FAQ_LABEL,
+        "website_url": "https://members.pastlives.space/help/",
+        "youtube_url": "https://www.youtube.com/watch?v=YE7VzlLtp-4",
+        "show_members": True,
+        "meeting_schedule": MEETING_SCHEDULE,
+        "meeting_cadence": Guild.MeetingCadence.MONTHLY,
+        "meeting_weekday": 1,  # Tuesday
+        "meeting_week_of_month": 1,
+        "meeting_time": time(19, 0),
+        "meeting_location": "The Map Room (2nd floor)",
+    }
     guild, _ = Guild.objects.update_or_create(
         slug=EXAMPLE_GUILD_SLUG,
-        defaults={
-            "name": EXAMPLE_GUILD_NAME,
-            "is_active": False,
-            "is_featured": False,
-            "guild_lead": lead,
-            "about": ABOUT,
-            "wishlist": WISHLIST,
-            "essential_rules": ESSENTIAL_RULES,
-            "faq_label": FAQ_LABEL,
-            "website_url": "https://members.pastlives.space/help/",
-            "youtube_url": "https://www.youtube.com/watch?v=YE7VzlLtp-4",
-            "show_members": True,
-            "meeting_schedule": MEETING_SCHEDULE,
-            "meeting_cadence": Guild.MeetingCadence.MONTHLY,
-            "meeting_weekday": 1,  # Tuesday
-            "meeting_week_of_month": 1,
-            "meeting_time": time(19, 0),
-            "meeting_location": "The Map Room (2nd floor)",
-        },
+        defaults=guild_defaults,
+        create_defaults={**guild_defaults, "is_active": False},
     )
 
     _seed_media(guild)

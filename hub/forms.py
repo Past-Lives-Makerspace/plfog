@@ -2270,6 +2270,29 @@ class GuildAnnouncementSettingsForm(forms.ModelForm):
         labels = {"allow_member_announcement_suggestions": "Let members suggest announcements"}
 
 
+class GuildVisibilityForm(forms.ModelForm):
+    """Admin-only show/hide toggle for a guild (Basic tab of the guild editor).
+
+    A single boolean on :class:`~membership.models.Guild`, rendered as a toggle. Turning
+    it off sets ``is_active=False``, which removes the guild from the sidebar, the guild
+    directory, the community calendar, and voting — but the guild page and this settings
+    page stay reachable by direct link, so an admin can turn it back on. Save is gated to
+    an actual admin in the view; a guild lead never sees or reaches this control.
+    """
+
+    class Meta:
+        model = Guild
+        fields = ["is_active"]
+        labels = {"is_active": "Visible to members"}
+        help_texts = {
+            "is_active": (
+                "When off, this guild is hidden from the sidebar, the guild directory, the "
+                "community calendar, and voting. Its guild page and this settings page stay "
+                "reachable by direct link, so an admin can turn it back on."
+            )
+        }
+
+
 class GuildAnnouncementDecisionForm(forms.Form):
     """A reviewer's decision on a proposed guild announcement.
 
