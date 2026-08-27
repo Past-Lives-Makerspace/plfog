@@ -1287,15 +1287,23 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
 
+    from membership.models import OrientationError
+
     if request.method == "POST":
         action = request.POST.get("action")
-        if action == "confirm":
-            # Decision 7: credit the staffer who actually confirmed, not the guild lead.
-            orientations.confirm_orientation(booking, oriented_by=_get_member(request))
-            messages.success(request, "Orientation confirmed — the member has been emailed.")
-        elif action == "decline":
-            orientations.decline_orientation(booking, note=request.POST.get("note", ""), actor=cast(User, request.user))
-            messages.success(request, "Orientation declined — the member has been notified.")
+        try:
+            if action == "confirm":
+                # Decision 7: credit the staffer who actually confirmed, not the guild lead.
+                orientations.confirm_orientation(booking, oriented_by=_get_member(request))
+                messages.success(request, "Orientation confirmed — the member has been emailed.")
+            elif action == "decline":
+                orientations.decline_orientation(
+                    booking, note=request.POST.get("note", ""), actor=cast(User, request.user)
+                )
+                messages.success(request, "Orientation declined — the member has been notified.")
+        except OrientationError as exc:
+            # E.g. a PENDING_PAYMENT checkout hold — not a booking yet, never actionable here.
+            messages.error(request, str(exc))
         return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
     from hub.view_as import has_refund_authority
@@ -1320,12 +1328,17 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
     from membership import orientations
     from membership.models import OrientationBooking
 
+    from membership.models import OrientationError
+
     booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
     forbidden = _require_can_manage_orientations(request, booking.guild)
     if forbidden is not None:
         return forbidden
-    orientations.cancel_orientation(booking, actor_label="the guild", actor=cast(User, request.user))
-    messages.success(request, "Orientation cancelled — the member has been notified.")
+    try:
+        orientations.cancel_orientation(booking, actor_label="the guild", actor=cast(User, request.user))
+        messages.success(request, "Orientation cancelled — the member has been notified.")
+    except OrientationError as exc:
+        messages.error(request, str(exc))
     return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
 
@@ -1336,12 +1349,17 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
     from membership import orientations
     from membership.models import OrientationBooking
 
+    from membership.models import OrientationError
+
     booking = get_object_or_404(OrientationBooking, pk=booking_pk)
     member = _get_member(request)
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
-    orientations.cancel_orientation(booking, actor_label=member.display_name, actor=cast(User, request.user))
-    messages.success(request, "Your orientation was cancelled.")
+    try:
+        orientations.cancel_orientation(booking, actor_label=member.display_name, actor=cast(User, request.user))
+        messages.success(request, "Your orientation was cancelled.")
+    except OrientationError as exc:
+        messages.error(request, str(exc))
     return redirect("hub_guild_detail", slug=booking.guild.slug)
 
 

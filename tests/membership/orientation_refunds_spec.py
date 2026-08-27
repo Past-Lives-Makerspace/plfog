@@ -170,3 +170,30 @@ def describe_token_recipient_edge_cases():
         _booking, action, recipient = orientations.read_action_token(token)
         assert action == "cancel"
         assert recipient == booking.member
+
+
+def describe_refund_email_copy():
+    @patch(
+        "billing.stripe_utils.create_refund",
+        return_value={"id": "re_ok_1", "status": "succeeded", "amount": 1500},
+    )
+    def it_promises_the_refund_is_on_its_way_when_it_succeeded(mock_create):
+        booking = _paid_booking()
+        mail.outbox.clear()
+        orientations.decline_orientation(booking)
+        declined = next(m for m in mail.outbox if "about your orientation request" in m.subject.lower())
+        assert "refund is on its way" in declined.body
+        assert "refund is being processed" not in declined.body
+
+    def it_softens_to_being_processed_when_the_refund_failed():
+        import stripe as stripe_lib
+
+        with patch("billing.stripe_utils.create_refund", side_effect=stripe_lib.StripeError("bank said no")):
+            booking = _paid_booking()
+            mail.outbox.clear()
+            orientations.decline_orientation(booking)
+        booking.refresh_from_db()
+        assert booking.refund_state == "failed"
+        declined = next(m for m in mail.outbox if "about your orientation request" in m.subject.lower())
+        assert "refund is being processed" in declined.body
+        assert "refund is on its way" not in declined.body

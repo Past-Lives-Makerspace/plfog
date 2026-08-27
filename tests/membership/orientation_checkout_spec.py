@@ -54,7 +54,9 @@ def describe_start_orientation_checkout():
         assert url == _SESSION["url"]
         hold = OrientationBooking.objects.get(member=member)
         assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
-        assert hold.amount_paid_cents == 1500
+        # No provisional amount: money is stamped only at finalize, so a
+        # never-paid hold can never render as a paid row anywhere.
+        assert hold.amount_paid_cents == 0
         assert hold.stripe_session_id == "cs_test_1"
         assert hold.member_note == "hi"
         # Nothing has happened yet: no emails, no activity, no notifications.
@@ -224,12 +226,155 @@ def describe_expire_payment_holds():
 
 
 def describe_finalize_paid_booking():
-    def it_keeps_the_provisional_amount_when_the_session_has_none():
+    def it_keeps_a_legacy_provisional_amount_when_the_session_has_none():
         slot = _paid_slot()
         hold = OrientationBookingFactory(
             slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, amount_paid_cents=1500
         )
-        orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=None)
+        assert orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=None) == "finalized"
         hold.refresh_from_db()
         assert hold.amount_paid_cents == 1500
         assert hold.status == OrientationBooking.Status.REQUESTED
+
+    def it_backfills_a_missing_session_id():
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=1500, session_id="cs_back_1")
+        hold.refresh_from_db()
+        assert hold.stripe_session_id == "cs_back_1"
+
+    def describe_race_safety():
+        def it_finalizes_exactly_once_when_two_paths_race(db):
+            # The sweep-vs-late-webhook case: both hold a stale PENDING_PAYMENT copy.
+            slot = _paid_slot()
+            hold = OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
+            stale_copy = OrientationBooking.objects.get(pk=hold.pk)
+
+            first = orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=1500)
+            rows_after_first = SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).count()
+            mail.outbox.clear()
+            second = orientations.finalize_paid_booking(stale_copy, payment_intent="pi_1", amount_total=1500)
+
+            assert (first, second) == ("finalized", "already")
+            assert mail.outbox == []  # no second fan-out
+            # No duplicate activity from the losing path (the baseline count per
+            # request is the existing fan-out's own business).
+            assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).count() == rows_after_first
+
+        def it_never_resurrects_a_cancelled_booking(db):
+            slot = _paid_slot()
+            booking = OrientationBookingFactory(
+                slot=slot,
+                status=OrientationBooking.Status.CANCELLED,
+                amount_paid_cents=1500,
+                stripe_payment_id="pi_done",
+            )
+            stale_copy = OrientationBooking.objects.get(pk=booking.pk)
+
+            assert orientations.finalize_paid_booking(stale_copy, payment_intent="pi_done", amount_total=1500) == (
+                "already"
+            )
+            booking.refresh_from_db()
+            assert booking.status == OrientationBooking.Status.CANCELLED
+
+        def it_no_ops_when_the_row_is_gone(db):
+            slot = _paid_slot()
+            hold = OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
+            stale_copy = OrientationBooking.objects.get(pk=hold.pk)
+            hold.delete()
+
+            assert orientations.finalize_paid_booking(stale_copy, payment_intent="pi_1", amount_total=1500) == "gone"
+
+    def describe_cancelled_slot():
+        @patch("billing.refunds.issue_refund")
+        def it_finalizes_then_auto_cancels_and_refunds(mock_issue):
+            slot = _paid_slot()
+            hold = OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
+            slot.mark_cancelled(reason="closed")
+            mail.outbox.clear()
+
+            outcome = orientations.finalize_paid_booking(hold, payment_intent="pi_dead", amount_total=1500)
+
+            assert outcome == "cancelled_slot"
+            hold.refresh_from_db()
+            assert hold.status == OrientationBooking.Status.CANCELLED
+            assert hold.amount_paid_cents == 1500
+            mock_issue.assert_called_once()
+            subjects = [m.subject.lower() for m in mail.outbox]
+            assert any("cancelled" in s for s in subjects)  # one honest email
+            assert not any("request received" in s for s in subjects)  # no request fan-out
+
+
+def describe_session_expiry_on_release():
+    @patch("billing.stripe_utils.expire_checkout_session")
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved(status="expired"))
+    def it_expires_the_session_when_a_hold_is_released(mock_retrieve, mock_expire):
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id="cs_open_1"
+        )
+        assert orientations.release_hold_if_unpaid(hold) == "released"
+        mock_expire.assert_called_once_with(session_id="cs_open_1")
+
+    @patch("billing.stripe_utils.expire_checkout_session", side_effect=RuntimeError("already expired"))
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved(status="expired"))
+    def it_swallows_expire_errors_and_still_releases(mock_retrieve, mock_expire):
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id="cs_open_2"
+        )
+        assert orientations.release_hold_if_unpaid(hold) == "released"
+        assert not OrientationBooking.objects.filter(pk=hold.pk).exists()
+
+    def it_releases_a_hold_with_no_session_id_outright():
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        assert orientations.release_hold_if_unpaid(hold) == "released"
+        assert not OrientationBooking.objects.filter(pk=hold.pk).exists()
+
+
+def describe_sweep_stranded_holds():
+    def it_deletes_a_past_cutoff_hold_with_an_empty_session_id():
+        # Crash between session create and save: nothing to verify, seat must free.
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        OrientationBooking.objects.filter(pk=hold.pk).update(requested_at=timezone.now() - timedelta(hours=3))
+        assert orientations.expire_payment_holds() == (1, 0)
+        assert not OrientationBooking.objects.filter(pk=hold.pk).exists()
+
+
+def describe_cancel_slot_holds():
+    @patch("billing.stripe_utils.expire_checkout_session")
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved(status="open"))
+    def it_expires_and_deletes_unpaid_holds_on_a_cancelled_slot(mock_retrieve, mock_expire):
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id="cs_slot_1"
+        )
+        orientations.cancel_slot(slot, reason="closed")
+        assert not OrientationBooking.objects.filter(pk=hold.pk).exists()
+        mock_expire.assert_called_once_with(session_id="cs_slot_1")
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+
+    @patch("billing.refunds.issue_refund")
+    @patch(
+        "billing.stripe_utils.retrieve_checkout_session",
+        return_value=_retrieved(status="complete", payment_status="paid", payment_intent="pi_slot", amount_total=1500),
+    )
+    def it_routes_a_paid_hold_into_the_auto_cancel_refund_path(mock_retrieve, mock_issue):
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id="cs_slot_2"
+        )
+        orientations.cancel_slot(slot, reason="closed")
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.CANCELLED
+        assert hold.stripe_payment_id == "pi_slot"
+        mock_issue.assert_called_once()

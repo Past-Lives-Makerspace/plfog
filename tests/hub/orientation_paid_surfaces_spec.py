@@ -305,3 +305,50 @@ def describe_guild_edit_upcoming_slots():
         client.login(username="ge1", password="pass")
         content = client.get(reverse("hub_guild_edit", args=[slot.guild.pk]) + "?tab=orientations").content.decode()
         assert "1 seat held by a checkout in progress" in content
+
+
+def describe_hold_transition_guards_in_views():
+    def _hold_booking():
+        slot = _paid_slot()
+        return OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
+
+    def it_blocks_a_crafted_decline_post_on_a_hold(client: Client):
+        _user_with_role("hg1", fog_role=Member.FogRole.ADMIN)
+        hold = _hold_booking()
+        client.login(username="hg1", password="pass")
+        response = client.post(
+            reverse("hub_orientation_respond", args=[hold.pk]), {"action": "decline", "note": ""}, follow=True
+        )
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+        assert any("still finishing checkout" in str(m) for m in response.context["messages"])
+
+    def it_blocks_a_crafted_confirm_post_on_a_hold(client: Client):
+        _user_with_role("hg2", fog_role=Member.FogRole.ADMIN)
+        hold = _hold_booking()
+        client.login(username="hg2", password="pass")
+        response = client.post(reverse("hub_orientation_respond", args=[hold.pk]), {"action": "confirm"}, follow=True)
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+        assert any("still finishing checkout" in str(m) for m in response.context["messages"])
+
+    def it_blocks_a_lead_cancel_on_a_hold(client: Client):
+        _user_with_role("hg3", fog_role=Member.FogRole.ADMIN)
+        hold = _hold_booking()
+        client.login(username="hg3", password="pass")
+        response = client.post(reverse("hub_orientation_lead_cancel", args=[hold.pk]), follow=True)
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+        assert any("still finishing checkout" in str(m) for m in response.context["messages"])
+
+    def it_blocks_a_member_cancel_on_their_own_hold(client: Client):
+        user = _user_with_role("hg4")
+        slot = _paid_slot()
+        hold = OrientationBookingFactory(
+            slot=slot, member=user.member, status=OrientationBooking.Status.PENDING_PAYMENT
+        )
+        client.login(username="hg4", password="pass")
+        response = client.post(reverse("hub_orientation_cancel_mine", args=[hold.pk]), follow=True)
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+        assert any("still finishing checkout" in str(m) for m in response.context["messages"])

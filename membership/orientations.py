@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import icalendar
 from django.conf import settings
 from django.core import signing
+from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
@@ -357,13 +358,15 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
     if settings_obj is None or not settings_obj.is_paid:
         raise OrientationError("This guild doesn't charge for orientations.")
     slot.ensure_bookable_for(member)
+    # amount_paid_cents stays 0 until money is actually in hand — the finalize
+    # step stamps it from the session's amount_total. A provisional amount here
+    # would make never-paid holds render as paid rows in staff surfaces.
     booking = OrientationBooking.objects.create(
         slot=slot,
         guild=slot.guild,
         member=member,
         member_note=note,
         status=OrientationBooking.Status.PENDING_PAYMENT,
-        amount_paid_cents=settings_obj.price_cents,  # provisional; the webhook's amount_total is canonical
     )
     token = make_checkout_token(booking)
     metadata = {"kind": "orientation_booking", "booking_id": str(booking.pk)}
@@ -420,32 +423,100 @@ def start_custom_orientation_checkout(guild: Guild, member: Member, starts_at: d
         raise
 
 
-def finalize_paid_booking(booking: OrientationBooking, *, payment_intent: str, amount_total: int | None) -> None:
+def finalize_paid_booking(
+    booking: OrientationBooking, *, payment_intent: str, amount_total: int | None, session_id: str = ""
+) -> str:
     """Flip a ``PENDING_PAYMENT`` hold to ``REQUESTED`` with the full request fan-out.
 
-    The single "money is in hand" transition, shared by the webhook handler, the
-    Stripe-verified release paths, Resume, and the sweep's lost-webhook recovery.
-    ``amount_total`` (from the session/webhook) is canonical when present.
+    THE single "money is in hand" transition — the webhook handler, the
+    Stripe-verified release paths, Resume, and the sweep's lost-webhook recovery
+    all funnel through here, and it is safe to race: the row is re-fetched under
+    ``select_for_update`` and only a still-``PENDING_PAYMENT`` hold is flipped,
+    so a sweep-vs-late-webhook race finalizes exactly once (one activity row,
+    one fan-out) and can never resurrect a declined/cancelled/refunded booking.
+
+    ``amount_total`` (from the session/webhook) is canonical; ``session_id``
+    backfills a hold whose session id never got saved (crash mid-start).
+
+    A hold whose slot was cancelled while the member was paying is finalized and
+    then immediately cancelled with the slot-cancelled fan-out (member email +
+    automatic full refund) — money is recorded first so the refund has a real
+    payment to anchor to, and the member gets exactly one email (no request
+    fan-out for a booking that is dead on arrival).
+
+    Returns:
+        ``"finalized"`` — this call flipped the hold (fan-out fired);
+        ``"cancelled_slot"`` — flipped, then auto-cancelled + refunded;
+        ``"already"`` — the row is no longer ``PENDING_PAYMENT`` (someone else
+        finalized it, or it was resolved); nothing changed;
+        ``"gone"`` — the row no longer exists; nothing changed.
     """
     from membership.models import OrientationBooking
 
-    booking.status = OrientationBooking.Status.REQUESTED
-    booking.stripe_payment_id = payment_intent
-    if amount_total is not None:
-        booking.amount_paid_cents = amount_total
-    booking.save(update_fields=["status", "stripe_payment_id", "amount_paid_cents"])
-    _fan_out_request(booking)
+    with transaction.atomic():
+        locked = (
+            OrientationBooking.objects.select_for_update()
+            .select_related("slot", "guild", "member")
+            .filter(pk=booking.pk)
+            .first()
+        )
+        if locked is None:
+            return "gone"
+        if locked.status != OrientationBooking.Status.PENDING_PAYMENT:
+            return "already"
+        locked.status = OrientationBooking.Status.REQUESTED
+        locked.stripe_payment_id = payment_intent
+        if session_id and not locked.stripe_session_id:
+            locked.stripe_session_id = session_id
+        if amount_total is not None:
+            locked.amount_paid_cents = amount_total
+        locked.save(update_fields=["status", "stripe_payment_id", "stripe_session_id", "amount_paid_cents"])
+        slot_cancelled = locked.slot.is_cancelled
+    if slot_cancelled:
+        # Fan-out outside the lock. The request fan-out is skipped on purpose —
+        # the member gets one honest email: cancelled, with the refund promise.
+        cancel_orientation(locked, actor_label="the guild")
+        return "cancelled_slot"
+    _fan_out_request(locked)
+    return "finalized"
 
 
-def _delete_hold(booking: OrientationBooking) -> None:
+def _expire_session_best_effort(booking: OrientationBooking) -> None:
+    """Expire the hold's Checkout Session so an open Stripe tab can't pay a dead booking.
+
+    Best-effort by design: the session may already be expired or Stripe may be
+    down — either way the release proceeds (the session's own ``expires_at`` and
+    the webhook/sweep recovery paths are the backstop).
+    """
+    from billing import stripe_utils
+
+    if not booking.stripe_session_id:
+        return
+    try:
+        stripe_utils.expire_checkout_session(session_id=booking.stripe_session_id)
+    except Exception:
+        logger.info("Could not expire Checkout session for orientation hold %s (best effort).", booking.pk)
+
+
+def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) -> None:
     """Delete a checkout hold — never CANCELLED: no fan-out ever fired, nothing should remember it.
 
-    A custom-request hold also deletes its orphan 1-seat MANUAL slot.
+    Expires the hold's Checkout Session first (best-effort) unless the caller
+    knows it is already expired. The delete itself is status-guarded so a row a
+    concurrent webhook just finalized is never destroyed (and a row already gone
+    is a quiet no-op). A custom-request hold also deletes its orphan 1-seat
+    MANUAL slot.
     """
-    from membership.models import OrientationSlot
+    from membership.models import OrientationBooking, OrientationSlot
 
+    if expire_session:
+        _expire_session_best_effort(booking)
     slot = booking.slot
-    booking.delete()
+    deleted, _detail = OrientationBooking.objects.filter(
+        pk=booking.pk, status=OrientationBooking.Status.PENDING_PAYMENT
+    ).delete()
+    if not deleted:
+        return
     if slot.seats == 1 and slot.source == OrientationSlot.Source.MANUAL and not slot.bookings.exists():
         slot.delete()
 
@@ -454,12 +525,18 @@ def release_hold_if_unpaid(booking: OrientationBooking) -> str:
     """Release a ``PENDING_PAYMENT`` hold — but only after verifying with Stripe.
 
     A hold can be paid-but-webhook-lagged, and deleting it would eat the member's
-    money. Returns ``"released"`` (unpaid — hold deleted, orphan custom slot too),
-    ``"paid"`` (kept and flipped to REQUESTED with the full fan-out — the same
-    recovery as the sweep), or ``"unknown"`` (Stripe unreachable — hold kept).
+    money. Returns ``"released"`` (unpaid — hold deleted, session expired
+    best-effort, orphan custom slot too), ``"paid"`` (kept and flipped to
+    REQUESTED with the full fan-out — the same recovery as the sweep), or
+    ``"unknown"`` (Stripe unreachable — hold kept). A hold with no stored
+    session id (crash between session create and save) is released outright —
+    there is nothing to verify or pay.
     """
     from billing import stripe_utils
 
+    if not booking.stripe_session_id:
+        _delete_hold(booking, expire_session=False)
+        return "released"
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
     except Exception:
@@ -495,16 +572,26 @@ def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
     released = 0
     recovered = 0
     for booking in stale:
+        if not booking.stripe_session_id:
+            # Crash between session create and save: no session ever attached, so
+            # there is nothing to verify — a blind delete is safe and frees the
+            # otherwise forever-stranded seat.
+            _delete_hold(booking, expire_session=False)
+            released += 1
+            continue
         try:
             session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
         except Exception:
             logger.exception("Hold sweep: could not verify session for booking %s; retrying next tick.", booking.pk)
             continue
         if session["payment_status"] == "paid":
-            finalize_paid_booking(
+            outcome = finalize_paid_booking(
                 booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
             )
-            recovered += 1
+            if outcome in ("finalized", "cancelled_slot"):
+                recovered += 1
+            # "already"/"gone": a concurrent webhook or release won the race —
+            # nothing changed here, so nothing to count.
         else:
             _delete_hold(booking)
             released += 1
@@ -660,9 +747,22 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
-    """Cancel a slot and run the full cancel fan-out for each of its active bookings."""
+    """Cancel a slot and run the full cancel fan-out for each of its active bookings.
+
+    ``PENDING_PAYMENT`` checkout holds on the slot are released too, through the
+    Stripe-verified release path: an unpaid hold has its session expired
+    (best-effort, so an open Checkout tab can't pay for a cancelled slot) and its
+    row deleted — no fan-out ever fired for it, so nothing should remember it.
+    A hold Stripe reports as already paid routes into the finalize path, which
+    sees the cancelled slot and auto-cancels + refunds with one honest email.
+    """
+    from membership.models import OrientationBooking
+
     active = list(slot.bookings.active())
+    holds = list(slot.bookings.filter(status=OrientationBooking.Status.PENDING_PAYMENT))
     slot.mark_cancelled(reason=reason)
+    for hold in holds:
+        release_hold_if_unpaid(hold)
     for booking in active:
         cancel_orientation(booking, actor_label="the guild")
 

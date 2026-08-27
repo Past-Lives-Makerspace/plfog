@@ -99,12 +99,54 @@ def describe_handle_checkout_session_completed():
         hold.refresh_from_db()
         assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
 
-    def it_logs_a_missing_booking_loudly_without_raising(caplog):
+    def _billing_approver():
+        from django.contrib.auth.models import User
+        from django.db.models.signals import post_save
+        from factory.django import mute_signals
+
+        from membership.models import AdminCapability
+        from tests.membership.factories import MemberFactory
+
+        member = MemberFactory(_pre_signup_email="billing-approver@example.com")
+        with mute_signals(post_save):
+            user = User.objects.create_user(username=f"ba{member.pk}", email="billing-approver@example.com")
+        member.user = user
+        member.save(update_fields=["user"])
+        member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
+        return member
+
+    def it_logs_and_alerts_billing_admins_on_a_missing_booking(caplog):
         import logging
 
+        _billing_approver()
+        mail.outbox.clear()
         with caplog.at_level(logging.ERROR, logger="membership.webhook_handlers"):
             webhook_handlers.handle_checkout_session_completed(_event(booking_id=999999))
         assert any("no in-app trace" in record.getMessage() for record in caplog.records)
+        alert = next(m for m in mail.outbox if "Orphaned orientation payment" in m.subject)
+        assert "billing-approver@example.com" in alert.to
+
+    def it_alerts_when_a_paid_session_lands_on_a_booking_with_no_recorded_payment():
+        # Not a re-delivery: the booking resolved without money ever being stamped.
+        _billing_approver()
+        booking = _hold(status=OrientationBooking.Status.DECLINED, amount_paid_cents=0, stripe_payment_id="")
+        mail.outbox.clear()
+
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=booking.pk))
+
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.DECLINED  # untouched
+        assert any("Orphaned orientation payment" in m.subject for m in mail.outbox)
+
+    def it_stays_quiet_on_a_true_redelivery():
+        _billing_approver()
+        hold = _hold()
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=hold.pk))
+        mail.outbox.clear()
+
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=hold.pk))
+
+        assert not any("Orphaned orientation payment" in m.subject for m in mail.outbox)
 
     def it_ignores_other_kinds():
         hold = _hold()
@@ -188,3 +230,19 @@ def describe_billing_fan_in_router():
             billing_views._WEBHOOK_HANDLERS["checkout.session.completed"] is billing_views._dispatch_checkout_completed
         )
         assert billing_views._WEBHOOK_HANDLERS["checkout.session.expired"] is billing_views._dispatch_checkout_expired
+
+
+def describe_orphan_alert_edges():
+    def it_sends_no_alert_when_nobody_holds_billing_administrator():
+        mail.outbox.clear()
+        webhook_handlers.handle_checkout_session_completed(_event(booking_id=999999))
+        assert not any("Orphaned orientation payment" in m.subject for m in mail.outbox)
+
+
+def describe_delete_hold_guard():
+    def it_never_deletes_a_booking_that_already_advanced():
+        from membership import orientations
+
+        booking = _hold(status=OrientationBooking.Status.REQUESTED, stripe_payment_id="pi_live")
+        orientations._delete_hold(booking, expire_session=False)
+        assert OrientationBooking.objects.filter(pk=booking.pk).exists()

@@ -8664,8 +8664,27 @@ class OrientationBooking(models.Model):
         """Still live (requested/confirmed) and the slot is in the future."""
         return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and self.slot.starts_at >= timezone.now()
 
+    def _refuse_checkout_hold(self) -> None:
+        """Guard every lifecycle transition against a live ``PENDING_PAYMENT`` hold.
+
+        A hold is not a booking yet — declining or cancelling one would leave its
+        Stripe session payable for up to an hour, and the webhook's non-pending
+        branch would then eat the member's money with no refund anchor. Holds
+        resolve themselves: payment lands (webhook flips to REQUESTED) or the
+        seat frees automatically (session expiry / the sweep).
+
+        Raises:
+            OrientationError: If this booking is a checkout hold.
+        """
+        if self.status == self.Status.PENDING_PAYMENT:
+            raise OrientationError(
+                "This booking is still finishing checkout. It becomes a real request when the "
+                "payment lands, and the seat frees automatically if it doesn't."
+            )
+
     def confirm(self, *, oriented_by: Member | None = None) -> None:
         """Accept the request; default the giver to the slot's orienter, then the guild lead."""
+        self._refuse_checkout_hold()
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
         self.oriented_by = oriented_by or self.slot.orienter or self.guild.guild_lead
@@ -8673,6 +8692,7 @@ class OrientationBooking(models.Model):
 
     def decline(self, *, note: str = "") -> None:
         """Turn down the request, optionally with a note for the member."""
+        self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
         self.lead_note = note
@@ -8680,6 +8700,7 @@ class OrientationBooking(models.Model):
 
     def cancel(self) -> None:
         """Cancel the booking, freeing its seat."""
+        self._refuse_checkout_hold()
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
         self.save(update_fields=["status", "cancelled_at"])

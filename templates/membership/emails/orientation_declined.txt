@@ -6,8 +6,9 @@ Thanks for your interest in {{ guild.name }}.
 A note from {% if slot.orienter %}{{ slot.orienter_first_name }}{% else %}the guild lead{% endif %}:
 {{ booking.lead_note }}
 {% endif %}
-{% if booking.amount_paid_cents %}{% load classes_tags %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually
-reach your card in 5 to 10 business days.
+{% if booking.amount_paid_cents %}{% load classes_tags %}{% if booking.refund_state == "failed" %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is being processed. We will make sure
+it reaches your card.{% else %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually
+reach your card in 5 to 10 business days.{% endif %}
 
 {% endif %}We'd love to get you oriented ASAP. Pick another time on the guild page:
 {{ guild_url }}

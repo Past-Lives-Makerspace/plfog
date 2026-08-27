@@ -96,6 +96,7 @@ def describe_email_gallery_completeness():
             "classes.welcome_email_test",
             "classes.instructor_message",
             "classes.admin_message",
+            "membership.orientation_orphan_payment",
             "release_email.test",
             "announcement.test",
             "hub.beta_feedback",

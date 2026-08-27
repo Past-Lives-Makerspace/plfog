@@ -203,3 +203,31 @@ def describe_price_changes():
         settings_obj.save(update_fields=["price_cents"])
         hold.refresh_from_db()
         assert hold.amount_paid_cents == 1500
+
+
+def describe_checkout_hold_transition_guards():
+    def it_refuses_to_decline_a_hold():
+        hold = _hold()
+        with pytest.raises(OrientationError, match="still finishing checkout"):
+            hold.decline(note="no")
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+
+    def it_refuses_to_cancel_a_hold():
+        hold = _hold()
+        with pytest.raises(OrientationError, match="still finishing checkout"):
+            hold.cancel()
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+
+    def it_refuses_to_confirm_a_hold():
+        hold = _hold()
+        with pytest.raises(OrientationError, match="still finishing checkout"):
+            hold.confirm()
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+
+    def it_still_transitions_real_bookings():
+        booking = OrientationBookingFactory()
+        booking.decline(note="busy")
+        assert booking.status == OrientationBooking.Status.DECLINED

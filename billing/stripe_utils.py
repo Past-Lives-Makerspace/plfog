@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from stripe.params import RefundCreateParams
+from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
@@ -185,7 +186,7 @@ def create_checkout_session(
     The idempotency_key is REQUIRED to prevent duplicate sessions on retry.
     """
     client = _get_stripe_client()
-    params: dict[str, Any] = {
+    params: SessionCreateParams = {
         "mode": "payment",
         "customer_email": customer_email,
         "line_items": [
@@ -206,7 +207,7 @@ def create_checkout_session(
     if expires_at is not None:
         params["expires_at"] = expires_at
     session = client.v1.checkout.sessions.create(
-        params=params,  # type: ignore[arg-type]  # built dict matches SessionCreateParams
+        params=params,
         options={"idempotency_key": idempotency_key},
     )
     return {"id": session.id, "url": session.url or ""}
@@ -232,6 +233,17 @@ def create_class_checkout_session(
         metadata=metadata,
         idempotency_key=idempotency_key,
     )
+
+
+def expire_checkout_session(*, session_id: str) -> None:
+    """Expire an open Checkout Session so its hosted page can no longer take payment.
+
+    Called best-effort when a seat hold is released — an open Stripe tab must not
+    be able to pay for a booking that no longer exists. Stripe errors propagate;
+    callers swallow them (the session's own ``expires_at`` is the backstop).
+    """
+    client = _get_stripe_client()
+    client.v1.checkout.sessions.expire(session_id)
 
 
 def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
