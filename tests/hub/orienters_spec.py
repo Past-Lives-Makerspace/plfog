@@ -61,7 +61,9 @@ def describe_orienter_access_to_the_config_editor():
         client.login(username="o_edit", password="pass")
         response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]), follow=True)
         assert response.status_code == 200
-        assert b"My Orientation Hours" in response.content
+        # An orienter now sees the Orientation Schedule (scoped to their own editable row),
+        # not a separate inline My Hours card.
+        assert b"Orientation Schedule" in response.content
 
     def it_still_forbids_an_unrelated_member(client: Client):
         guild = GuildFactory()

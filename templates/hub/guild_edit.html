@@ -396,93 +396,19 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
   </form>
 
-  {# My Orientation Hours — the viewer's own personal formset (prefix "rules"). Editing anyone #}
-  {# else's hours happens in the Edit Hours modal (prefix "modal_rules"), never on this page. #}
-  {# Hidden for an admin/officer not on this guild's leadership: their own rules would never generate slots. #}
-  {% if show_my_hours_card %}
-  <form id="my-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
-    {% csrf_token %}
-    <input type="hidden" name="orienter_scope" value="{{ viewer_member_pk|default:'' }}">
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">My Orientation Hours</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when you personally can give orientations. We turn them into bookable slots automatically — members book you by name.</p>
-      {{ rule_formset.management_form }}
-      <div id="rule-rows" class="pl-hours-rows">
-        {% for rule in rule_formset %}
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
-          {{ rule.id }}
-          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-            <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
-            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
-            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
-            <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
-          </div>
-          {% include "components/form_field.html" with field=rule.is_active %}
-          {% if rule.instance.pk %}
-            {# Delete confirms first (it retires future open slots), then flips DELETE and saves the page. #}
-            <div style="display:none;">{{ rule.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
-                    @click="$dispatch('open-confirm', 'rule-del-{{ rule.instance.pk }}')">
-              Delete
-            </button>
-            {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('my-hours-form').requestSubmit();" %}
-            {% include "components/confirm_modal.html" with confirm_id="rule-del-"|add:rpks confirm_title="Delete these hours?" confirm_message="Upcoming open slots from this window will be removed. Slots someone already booked stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
-            {% endwith %}
-          {% endif %}
-        </div>
-        {% empty %}
-        <p class="hub-text-muted">No hours yet. Add your first window and members can start booking you.</p>
-        {% endfor %}
-      </div>
-
-      {# Hidden empty-form template, cloned by the +Add button below. #}
-      <template id="rule-empty-template">
-        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
-          {% with rule_formset.empty_form as er %}
-            {{ er.id }}
-            <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-              <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=er.weekday %}</div>
-              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.start_time %}</div>
-              <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.end_time %}</div>
-              <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=er.seats %}</div>
-            </div>
-            {% include "components/form_field.html" with field=er.is_active %}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
-          {% endwith %}
-        </div>
-      </template>
-
-      {# Add then Save sit together — the user asked for Save next to Add (FAQ/Links footer rhythm). #}
-      <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-        <button type="button" class="hub-btn hub-btn--sm"
-                onclick="
-                  const tpl = document.getElementById('rule-empty-template');
-                  const total = document.getElementById('id_rules-TOTAL_FORMS');
-                  const idx = parseInt(total.value, 10);
-                  const wrap = document.createElement('div');
-                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                  document.getElementById('rule-rows').appendChild(wrap.firstElementChild);
-                  total.value = idx + 1;
-                ">
-          + Add hours
-        </button>
-        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-      </div>
-    </div>
-  </form>
-  {% endif %}
-
-  {# Orientation Schedule — lead/admin overview grouped by person; Edit Hours opens a modal. #}
-  {% if can_edit_others_hours %}
+  {# Orientation Schedule — everyone who can give orientations, grouped by person; Edit Hours opens a modal. #}
+  {# A lead/admin (can_edit_others_hours) sees + edits every row including their own; a plain orienter #}
+  {# (show_my_hours_card only) sees just their own row, still with an Edit Hours button. #}
+  {% if show_my_hours_card or can_edit_others_hours %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Schedule</h2>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">Everyone on staff who can give orientations, and when.</p>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">{% if can_edit_others_hours %}Everyone on staff who can give orientations, and when.{% else %}Your weekly orientation hours. Members book you by name.{% endif %}</p>
     {% for staffer, staffer_rules in orienter_overview %}
+    {% if can_edit_others_hours or staffer.pk == viewer_member_pk %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">
         {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
         <strong>{{ staffer.display_name }}</strong>
-        {% if staffer.pk != viewer_member_pk %}
         <button type="button" class="hub-btn hub-btn--sm"
                 @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
                 hx-get="{% url 'hub_guild_orientation_hours_form' guild.pk %}?orienter={{ staffer.pk }}"
@@ -491,7 +417,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
                 hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
           Edit Hours
         </button>
-        {% endif %}
       </div>
       {% if staffer_rules %}
       <ul class="pl-orient-overview__rules">
@@ -503,8 +428,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
       {% endif %}
     </div>
+    {% endif %}
     {% endfor %}
-    {% if former_staff_overview %}
+    {% if can_edit_others_hours and former_staff_overview %}
     <h3 class="hub-detail-label" style="margin:1.25rem 0 0.25rem;">Former Staff</h3>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people no longer on staff. They no longer generate slots. Delete them when you are ready.</p>
     {% for staffer, staffer_rules in former_staff_overview %}
@@ -512,8 +438,8 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <div class="pl-orient-overview__person">
         {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
         <strong>{{ staffer.display_name }}</strong>
-        {# Deliberately ungated: a former-staff viewer (admin/officer not on this guild's leadership) #}
-        {# gets no inline My Hours card, so this modal is their only route to clean up their own rows. #}
+        {# Deliberately ungated within this lead/admin card: the Edit Hours modal is the only route #}
+        {# to clean up a former staffer's leftover rows (they no longer appear in the active list). #}
         <button type="button" class="hub-btn hub-btn--sm"
                 @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
                 hx-get="{% url 'hub_guild_orientation_hours_form' guild.pk %}?orienter={{ staffer.pk }}"

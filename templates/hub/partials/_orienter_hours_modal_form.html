@@ -2,16 +2,16 @@
 Edit Hours modal body — the orientation-availability formset for one staffer, loaded via
 HTMX into #edit-hours-modal-body (see the Orientation Schedule card in guild_edit.html).
 
-Prefix is ALWAYS "modal_rules" (never "rules"): the page permanently renders the viewer's
-own "rules"-prefixed My Orientation Hours formset, so a second "rules" formset here would
-duplicate every DOM id. The posted formset_prefix field tells the save view which prefix to
-bind (whitelisted, HTMX-only).
+Prefix is ALWAYS "modal_rules": it is the sole whitelisted personal-hours prefix, and the
+save view accepts it only on an HTMX request (the posted formset_prefix field carries it).
+Every orienter — including the viewer — edits their own hours through this modal now, so the
+page no longer renders any inline personal-hours formset that its DOM ids could collide with.
 
 Context: guild, target (the Member being edited), formset (unbound on GET; bound on an
 invalid POST re-render so errors show inside the open modal).
 {% endcomment %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.display_name }}'s Hours</h2>
-<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when {{ target.display_name }} can give orientations. We turn them into bookable slots automatically — members book them by name.</p>
+<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when {{ target.display_name }} can give orientations. We turn them into bookable slots automatically. Members book them by name.</p>
 <form id="edit-hours-modal-form" class="hub-form"
       hx-post="{% url 'hub_guild_orientation_hours_save' guild.pk %}"
       hx-target="#edit-hours-modal-body" hx-swap="innerHTML">

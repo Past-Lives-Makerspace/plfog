@@ -93,12 +93,15 @@ def _form_url(guild: object, orienter_pk: object) -> str:
 
 def describe_my_hours_scope_binding():
     def it_lets_a_staffer_save_their_own_hours(client: Client):
+        # Own hours now save through the Edit Hours modal (prefix modal_rules, HTMX): a valid
+        # save answers 204 + HX-Redirect back to the tab, not a plain 302.
         guild = GuildFactory()
         user = _member_user("sc_own", name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="sc_own", password="pass")
-        response = client.post(_hours_url(guild), _rule_payload(str(user.member.pk)))
-        assert response.status_code == 302
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(user.member.pk)), HTTP_HX_REQUEST="true")
+        assert response.status_code == 204
+        assert response["HX-Redirect"] == _tab_url(guild)
         rule = OrientationAvailability.objects.get(guild=guild)
         assert rule.orienter == user.member
 
@@ -110,16 +113,17 @@ def describe_my_hours_scope_binding():
         client.login(username="sc_edit", password="pass")
         response = client.post(
             _hours_url(guild),
-            _rule_payload(
+            _modal_rule_payload(
                 str(user.member.pk),
                 **{
-                    "rules-INITIAL_FORMS": "1",
-                    "rules-0-id": str(rule.pk),
-                    "rules-0-seats": "6",
+                    "modal_rules-INITIAL_FORMS": "1",
+                    "modal_rules-0-id": str(rule.pk),
+                    "modal_rules-0-seats": "6",
                 },
             ),
+            HTTP_HX_REQUEST="true",
         )
-        assert response.status_code == 302
+        assert response.status_code == 204
         rule.refresh_from_db()
         assert rule.seats == 6
         assert rule.orienter == user.member
@@ -131,7 +135,7 @@ def describe_my_hours_scope_binding():
         alice = MemberFactory(full_legal_name="Alice Ash")
         GuildStaffMembershipFactory(guild=guild, member=alice, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="sc_other", password="pass")
-        response = client.post(_hours_url(guild), _rule_payload(str(alice.pk)))
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(alice.pk)), HTTP_HX_REQUEST="true")
         assert response.status_code == 403
         assert not OrientationAvailability.objects.filter(guild=guild).exists()
 
@@ -141,8 +145,8 @@ def describe_my_hours_scope_binding():
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="sc_lead", password="pass")
-        response = client.post(_hours_url(guild), _rule_payload(str(bob.pk)))
-        assert response.status_code == 302
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk)), HTTP_HX_REQUEST="true")
+        assert response.status_code == 204
         assert OrientationAvailability.objects.get(guild=guild).orienter == bob
 
     def it_forbids_non_lead_staff_posting_the_guild_scope(client: Client):
@@ -186,36 +190,41 @@ def describe_my_hours_scope_binding():
         user = _member_user("sc_bad", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="sc_bad", password="pass")
-        response = client.post(_hours_url(guild), _rule_payload("bogus"))
+        response = client.post(_hours_url(guild), _modal_rule_payload("bogus"), HTTP_HX_REQUEST="true")
         assert response.status_code == 404
 
-    def it_re_renders_an_invalid_own_hours_post_on_the_orientations_tab(client: Client):
-        # A plain (non-HTMX) own-hours POST that fails validation re-renders the full page
-        # with the tab kept open and the bound formset's errors surfaced.
+    def it_re_renders_an_invalid_own_hours_modal_post(client: Client):
+        # An own-hours modal POST that fails validation re-renders the bound modal partial with
+        # the errors surfaced inside the open editor; nothing is saved.
         user = _member_user("sc_invalid", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="sc_invalid", password="pass")
         response = client.post(
             _hours_url(guild),
-            _rule_payload(str(user.member.pk), **{"rules-0-start_time": "19:00", "rules-0-end_time": "18:00"}),
+            _modal_rule_payload(
+                str(user.member.pk), **{"modal_rules-0-start_time": "19:00", "modal_rules-0-end_time": "18:00"}
+            ),
+            HTTP_HX_REQUEST="true",
         )
         assert response.status_code == 200
-        assert response.context["active_tab"] == "orientations"  # tab stays open on the error
-        assert response.context["rule_formset"].errors
+        assert b"Editing Lead Person" in response.content  # the bound modal partial
         assert not OrientationAvailability.objects.filter(guild=guild).exists()
 
 
 def describe_my_hours_rendering():
+    # The inline My Hours card is gone; a staffer edits their own hours through the same Edit
+    # Hours modal partial as everyone else, opened from their row in the Orientation Schedule.
     def it_renders_a_saved_rule_with_its_delete_confirm_modal(client: Client):
         guild = GuildFactory()
         user = _member_user("rw_row", name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
         client.login(username="rw_row", password="pass")
-        response = client.get(_tab_url(guild))
+        response = client.get(_form_url(guild, user.member.pk))
         assert response.status_code == 200
+        assert b"Editing Bob Placeholder" in response.content
         assert b"Delete these hours?" in response.content
-        assert f"rule-del-{rule.pk}".encode() in response.content
+        assert f"modal-rule-del-{rule.pk}".encode() in response.content
         assert b"+ Add hours" in response.content
 
     def it_shows_the_empty_state_for_a_staffer_with_no_hours(client: Client):
@@ -223,8 +232,8 @@ def describe_my_hours_rendering():
         user = _member_user("rw_empty", name="Empty Staffer")
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="rw_empty", password="pass")
-        response = client.get(_tab_url(guild))
-        assert b"No hours yet. Add your first window and members can start booking you." in response.content
+        response = client.get(_form_url(guild, user.member.pk))
+        assert b"No hours yet. Add a window and members can start booking Empty Staffer." in response.content
 
 
 def describe_non_leadership_admin_self_scope():
@@ -254,17 +263,21 @@ def describe_non_leadership_admin_self_scope():
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="nl_behalf", password="pass")
-        response = client.post(_hours_url(guild), _rule_payload(str(bob.pk)))
-        assert response.status_code == 302
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk)), HTTP_HX_REQUEST="true")
+        assert response.status_code == 204
         assert OrientationAvailability.objects.get(guild=guild).orienter == bob
 
-    def it_shows_the_card_again_when_the_admin_is_also_on_staff(client: Client):
+    def it_shows_their_own_editable_row_when_the_admin_is_also_on_staff(client: Client):
+        # A staffed admin gets no inline card either — their own row shows in the Orientation
+        # Schedule with an Edit Hours trigger scoped to themselves.
         guild = GuildFactory()
         user = _member_user("nl_staffed", name="Staffed Admin", fog_role=Member.FogRole.ADMIN)
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="nl_staffed", password="pass")
         response = client.get(_tab_url(guild))
-        assert b"My Orientation Hours" in response.content
+        assert b"My Orientation Hours" not in response.content
+        assert b"Orientation Schedule" in response.content
+        assert f"orienter={user.member.pk}".encode() in response.content
 
 
 def describe_upcoming_slots_query_count():
@@ -410,24 +423,29 @@ def describe_rule_delete_retirement():
         )
         OrientationBookingFactory(slot=booked)
         client.login(username="del_lead", password="pass")
+        # The lead deletes Bob's rule through the Edit Hours modal (modal_rules, HTMX). A valid
+        # save answers 204 + HX-Redirect; the retirement flash renders on the reloaded tab.
         response = client.post(
             _hours_url(guild),
-            _rule_payload(
+            _modal_rule_payload(
                 str(bob.pk),
                 **{
-                    "rules-INITIAL_FORMS": "1",
-                    "rules-0-id": str(rule.pk),
-                    "rules-0-weekday": str(rule.weekday),
-                    "rules-0-start_time": "18:00",
-                    "rules-0-end_time": "19:00",
-                    "rules-0-seats": str(rule.seats),
-                    "rules-0-DELETE": "on",
+                    "modal_rules-INITIAL_FORMS": "1",
+                    "modal_rules-0-id": str(rule.pk),
+                    "modal_rules-0-weekday": str(rule.weekday),
+                    "modal_rules-0-start_time": "18:00",
+                    "modal_rules-0-end_time": "19:00",
+                    "modal_rules-0-seats": str(rule.seats),
+                    "modal_rules-0-DELETE": "on",
                 },
             ),
-            follow=True,
+            HTTP_HX_REQUEST="true",
         )
-        assert response.status_code == 200
-        joined = " ".join(str(m) for m in response.context["messages"])
+        assert response.status_code == 204
+        assert response["HX-Redirect"] == _tab_url(guild)
+        # Follow the HX-Redirect to consume the queued flash on the reloaded tab.
+        followup = client.get(_tab_url(guild))
+        joined = " ".join(str(m) for m in followup.context["messages"])
         assert "Hours deleted." in joined
         assert "Removed 1 upcoming open slot." in joined
         assert "1 booked slot kept." in joined
@@ -485,27 +503,34 @@ def describe_orientation_schedule_overview():
         assert b"No hours published" in response.content  # the lead has none
         assert f"orienter={bob.pk}".encode() in response.content  # Edit Hours modal trigger (hx-get)
 
-    def it_hides_the_edit_hours_button_on_the_viewers_own_row(client: Client):
-        # The viewer edits their own hours via the inline My Hours card; an Edit Hours modal
-        # over their own row would open a second editor over the same rows. Every OTHER
-        # active-staff row still gets the modal trigger.
+    def it_shows_the_edit_hours_button_on_the_viewers_own_row(client: Client):
+        # The viewer now edits their own hours through the same Edit Hours modal as everyone
+        # else, so their own row carries the modal trigger. Every other staff row does too.
         user = _member_user("ov_ownrow", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ov_ownrow", password="pass")
         content = client.get(_tab_url(guild)).content
-        assert f"orienter={user.member.pk}".encode() not in content
+        assert f"orienter={user.member.pk}".encode() in content
         assert f"orienter={bob.pk}".encode() in content
 
-    def it_hides_the_overview_from_plain_staff(client: Client):
+    def it_shows_a_plain_staffer_only_their_own_row(client: Client):
+        # A plain orienter (no authority over others) now sees the Orientation Schedule scoped
+        # to their own row with its Edit Hours trigger — never another staffer's row.
         guild = GuildFactory()
         user = _member_user("ov_staff", name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
+        other = MemberFactory(full_legal_name="Other Orienter")
+        GuildStaffMembershipFactory(guild=guild, member=other, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ov_staff", password="pass")
         response = client.get(_tab_url(guild))
         assert response.status_code == 200
-        assert b"Orientation Schedule" not in response.content
+        assert b"Orientation Schedule" in response.content
+        assert f"orienter={user.member.pk}".encode() in response.content
+        # The other staffer's Orientation Schedule row + Edit Hours trigger are not rendered
+        # (their name still appears on the Staff tab, so assert on the schedule trigger, not it).
+        assert f"orienter={other.pk}".encode() not in response.content
         # Changelog guard (§10): the retired heading must never resurface on a hub page —
         # the changelog text renders into every page's context, so keep asserting its absence.
         assert b"All Orientation Hours" not in response.content
@@ -556,6 +581,36 @@ def describe_guild_hours_legacy_card():
         assert b"Guild Hours (Any Orienter)" in response.content
         assert b"Only the guild lead can change them." in response.content
         assert b"guild_rules-TOTAL_FORMS" not in response.content
+
+    def it_re_renders_an_invalid_guild_scope_post_on_the_tab(client: Client):
+        # A guild-scope (legacy shared) hours POST that fails validation re-renders the full
+        # page with the bound guild_rules formset and the Orientations tab kept open; the
+        # personal path is modal-only, so this full-page arm is guild scope alone now.
+        user = _member_user("gh_invalid", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        rule = OrientationAvailabilityFactory(guild=guild)  # a guild-level (orienter=None) row
+        client.login(username="gh_invalid", password="pass")
+        response = client.post(
+            _hours_url(guild),
+            {
+                "orienter_scope": "",
+                "guild_rules-TOTAL_FORMS": "1",
+                "guild_rules-INITIAL_FORMS": "1",
+                "guild_rules-MIN_NUM_FORMS": "0",
+                "guild_rules-MAX_NUM_FORMS": "1000",
+                "guild_rules-0-id": str(rule.pk),
+                "guild_rules-0-weekday": str(rule.weekday),
+                "guild_rules-0-start_time": "19:00",
+                "guild_rules-0-end_time": "18:00",
+                "guild_rules-0-seats": str(rule.seats),
+                "guild_rules-0-is_active": "on",
+            },
+        )
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "orientations"
+        assert response.context["guild_rule_formset"].errors
+        rule.refresh_from_db()
+        assert rule.start_time.hour == 18  # nothing saved
 
 
 def describe_upcoming_slots_card():
