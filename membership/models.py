@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from django import forms
     from django.contrib.auth.models import User
 
+    from billing.models import PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
 
@@ -1231,6 +1232,10 @@ class Member(models.Model):
             guild=guild,
             status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
         ).first()
+
+    def pending_payment_orientation_for(self, guild: Guild) -> OrientationBooking | None:
+        """The member's live checkout hold (``PENDING_PAYMENT``) for this guild, if any."""
+        return self.orientation_bookings.filter(guild=guild, status=OrientationBooking.Status.PENDING_PAYMENT).first()
 
     @property
     def must_be_listed_in_directory(self) -> bool:
@@ -8150,6 +8155,9 @@ class GuildOrientationSettings(models.Model):
     default_duration_minutes = models.PositiveSmallIntegerField(
         default=60, help_text="Length of a slot generated from a recurring rule, in minutes."
     )
+    price_cents = models.PositiveIntegerField(
+        default=0, help_text="Price to book an orientation, in cents. 0 = free (the default)."
+    )
     is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
     closed_message = models.CharField(
         max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
@@ -8215,6 +8223,11 @@ class GuildOrientationSettings(models.Model):
     def is_accepting(self) -> bool:
         """True when this guild is taking orientation bookings right now."""
         return self.is_enabled and not self.is_closed
+
+    @property
+    def is_paid(self) -> bool:
+        """True when this guild charges for orientations (price set above zero)."""
+        return self.price_cents > 0
 
 
 class OrientationAvailabilityQuerySet(models.QuerySet):
@@ -8310,6 +8323,20 @@ class OrientationSlotQuerySet(models.QuerySet):
             )
         )
 
+    def with_pending_hold_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``hold_count`` — seats held by checkouts in progress.
+
+        The list-render companion to the ``pending_hold_count`` property, so staff
+        surfaces can show "1 seat held by a checkout in progress" without a COUNT
+        per row.
+        """
+        return self.annotate(
+            hold_count=Count(
+                "bookings",
+                filter=Q(bookings__status=OrientationBooking.Status.PENDING_PAYMENT),
+            )
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots at guilds currently accepting bookings (does not check seats).
 
@@ -8338,6 +8365,8 @@ class OrientationSlot(models.Model):
     with_display: str
     # Queryset annotation (set by OrientationSlotQuerySet.with_active_booking_count)
     active_booking_count: int
+    # Queryset annotation (set by OrientationSlotQuerySet.with_pending_hold_count)
+    hold_count: int
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
@@ -8390,10 +8419,17 @@ class OrientationSlot(models.Model):
 
     @property
     def seats_taken(self) -> int:
-        """Active (requested or confirmed) bookings — declined/cancelled free their seat."""
-        return self.bookings.filter(
-            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
-        ).count()
+        """Seat-holding bookings — a live paid checkout holds its seat like a real booking.
+
+        Counts ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` so two members can't buy the
+        last seat at once; declined/cancelled (and deleted holds) free their seat.
+        """
+        return self.bookings.seat_holding().count()
+
+    @property
+    def pending_hold_count(self) -> int:
+        """Seats held by checkouts in progress (``PENDING_PAYMENT``) — for staff visibility."""
+        return self.bookings.filter(status=OrientationBooking.Status.PENDING_PAYMENT).count()
 
     @property
     def seats_remaining(self) -> int:
@@ -8442,6 +8478,33 @@ class OrientationSlot(models.Model):
         settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
         return settings_obj is not None and settings_obj.is_accepting
 
+    def ensure_bookable_for(self, member: Member) -> None:
+        """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
+
+        The duplicate guard runs at the ``seat_holding()`` scope — a member with a
+        live ``PENDING_PAYMENT`` checkout is caught here with a friendly error, never
+        by the widened DB constraint as a raw ``IntegrityError`` (the constraint stays
+        as the concurrent-race backstop only). A full slot whose remaining seats are
+        held by in-progress checkouts names that cause, so staff aren't left guessing.
+
+        Raises:
+            OrientationError: If the slot can't be booked, or the member is already
+                oriented for, mid-checkout on, or actively booked on this guild.
+        """
+        if not self.is_bookable:
+            if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
+                raise OrientationError(
+                    "That slot's remaining seat is held by a member finishing checkout. "
+                    "It frees up within an hour if they don't complete payment."
+                )
+            raise OrientationError("This orientation slot is not available to book.")
+        if member.is_oriented_for(self.guild):
+            raise OrientationError("You're already oriented for this guild.")
+        if member.pending_payment_orientation_for(self.guild) is not None:
+            raise OrientationError("You already have a checkout in progress for this guild. Resume or cancel it first.")
+        if member.active_orientation_for(self.guild) is not None:
+            raise OrientationError("You already have a pending orientation for this guild.")
+
     def book(self, member: Member, *, note: str = "") -> OrientationBooking:
         """Create a requested booking for ``member`` on this slot.
 
@@ -8456,12 +8519,7 @@ class OrientationSlot(models.Model):
             OrientationError: If the slot can't be booked, or the member is
                 already oriented for or already has a live booking on this guild.
         """
-        if not self.is_bookable:
-            raise OrientationError("This orientation slot is not available to book.")
-        if member.is_oriented_for(self.guild):
-            raise OrientationError("You're already oriented for this guild.")
-        if member.active_orientation_for(self.guild) is not None:
-            raise OrientationError("You already have a pending orientation for this guild.")
+        self.ensure_bookable_for(member)
         return OrientationBooking.objects.create(slot=self, guild=self.guild, member=member, member_note=note)
 
     def mark_cancelled(self, *, reason: str = "") -> None:
@@ -8488,8 +8546,18 @@ class OrientationBookingQuerySet(models.QuerySet):
         return self.filter(guild=guild)
 
     def active(self) -> OrientationBookingQuerySet:
-        """Requested or confirmed — i.e. still occupying a seat."""
+        """Requested or confirmed — real bookings. Deliberately excludes payment holds."""
         return self.filter(status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED])
+
+    def seat_holding(self) -> OrientationBookingQuerySet:
+        """Everything occupying a seat — real bookings plus live ``PENDING_PAYMENT`` checkout holds."""
+        return self.filter(
+            status__in=[
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.CONFIRMED,
+            ]
+        )
 
     def upcoming(self) -> OrientationBookingQuerySet:
         return self.active().filter(slot__starts_at__gte=timezone.now())
@@ -8512,6 +8580,7 @@ class OrientationBooking(models.Model):
     """
 
     class Status(models.TextChoices):
+        PENDING_PAYMENT = "pending_payment", "Pending payment"
         REQUESTED = "requested", "Requested"
         CONFIRMED = "confirmed", "Confirmed"
         DECLINED = "declined", "Declined"
@@ -8530,7 +8599,7 @@ class OrientationBooking(models.Model):
         Member, on_delete=models.CASCADE, related_name="orientation_bookings", help_text="Who's getting oriented."
     )
     status = models.CharField(
-        max_length=10, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
+        max_length=20, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
     )
     is_completed = models.BooleanField(
         default=False,
@@ -8546,6 +8615,22 @@ class OrientationBooking(models.Model):
     )
     member_note = models.TextField(blank=True, default="", help_text="Optional note from the member when requesting.")
     lead_note = models.TextField(blank=True, default="", help_text="Note from the lead when declining or following up.")
+    amount_paid_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Amount paid to book, in cents. 0 for free bookings. Set provisionally at "
+            "checkout start; the webhook's amount_total is canonical."
+        ),
+    )
+    stripe_session_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="Stripe Checkout Session ID."
+    )
+    stripe_payment_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Stripe PaymentIntent ID, stamped by the webhook on payment.",
+    )
     requested_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
@@ -8558,7 +8643,10 @@ class OrientationBooking(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["guild", "member"],
-                condition=Q(status__in=["requested", "confirmed"]),
+                # Includes pending_payment so a member can't open two checkouts (or a
+                # checkout plus a live booking) for one guild — the race backstop behind
+                # the friendly ensure_bookable_for guard.
+                condition=Q(status__in=["pending_payment", "requested", "confirmed"]),
                 name="uq_orientationbooking_active_per_guild",
             ),
         ]
@@ -8609,6 +8697,87 @@ class OrientationBooking(models.Model):
         """Undo a completion (a lead correcting an auto-completed no-show)."""
         self.is_completed = False
         self.save(update_fields=["is_completed"])
+
+    # --- Refund engine surface (billing.refunds.RefundableSource) -----------
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this booking's payment.
+
+        Iterates ``refunds.all()`` (not an aggregate) so a ``prefetch_related``
+        caller pays no extra query per row.
+        """
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefundModel.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund — the paid amount minus succeeded refunds."""
+        return self.amount_paid_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"`` — the panel/badge vocabulary.
+
+        ``"failed"``: the latest refund attempt is FAILED and no succeeded refund
+        has since covered that amount. Mirrors ``Registration.refund_state`` —
+        deliberately not a booking ``Status``; money and scheduling stay
+        independently controlled.
+        """
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefundModel.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent id refunds are issued against (blank when unpaid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol)."""
+        from membership.orientations import _absolute_url
+
+        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+        return {
+            "item_title": f"Orientation — {self.guild.name}",
+            "recipient_email": self.member.primary_email,
+            "recipient_name": self.member.display_name,
+            "payer_name": self.member.display_name,
+            "member": self.member,
+            "manage_url": guild_url,
+            "in_app_url": reverse("hub_guild_detail", args=[self.guild.slug]),
+        }
+
+    def on_fully_refunded(self, reason: str, actor: User | None) -> None:
+        """Full-refund bookkeeping — deliberately nothing to do for orientations.
+
+        A manual full refund on a still-live booking does NOT auto-cancel it:
+        money and scheduling stay independently controlled (the admin cancels
+        separately when that's the intent), and decline/cancel already changed
+        state before their automatic refund fired.
+        """
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: User | None = None
+    ) -> PaymentRefund:
+        """Send a real Stripe refund for this booking — full when ``amount_cents`` is ``None``.
+
+        Thin delegate: the shared billing-side service owns locking, the Stripe
+        call, ledger-row lifecycle, the receipt email, and full-refund
+        bookkeeping. See :func:`billing.refunds.issue_refund` for the exceptions.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
 
 # ── Signage slideshow ─────────────────────────────────────────────────────────

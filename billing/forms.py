@@ -460,3 +460,38 @@ def build_product_split_formset(
 ) -> BaseInlineFormSet:
     """Convenience constructor used by views and tests so the prefix is consistent."""
     return ProductRevenueSplitFormSet(data=data, instance=instance, prefix=prefix)
+
+
+class OrientationRefundForm(forms.Form):
+    """Validates the orientation refund modal — amount bounds live here, not in the view.
+
+    Mirrors ``classes.forms.PaymentRefundForm`` against the booking's refundable
+    remainder: ``amount`` pre-fills with the full remainder (full refund is the
+    default), ``reason`` is an internal note the payer never sees.
+    """
+
+    amount = forms.DecimalField(max_digits=8, decimal_places=2)
+    reason = forms.CharField(required=False, widget=forms.TextInput)
+
+    def __init__(self, *args: Any, booking: Any, **kwargs: Any) -> None:
+        self.booking = booking
+        refundable = (Decimal(booking.refundable_cents) / 100).quantize(Decimal("0.01"))
+        kwargs.setdefault("initial", {})
+        kwargs["initial"].setdefault("amount", refundable)
+        super().__init__(*args, **kwargs)
+        self.fields["amount"].label = "Amount"
+        self.fields["amount"].help_text = f"Up to ${refundable:.2f}. Edit for a partial refund."
+        self.fields["reason"].label = "Reason"
+        self.fields["reason"].help_text = "Internal note. The payer never sees this."
+
+    def clean_amount(self) -> Decimal:
+        amount: Decimal = self.cleaned_data["amount"]
+        refundable = Decimal(self.booking.refundable_cents) / 100
+        if not Decimal("0.01") <= amount <= refundable:
+            raise forms.ValidationError(f"Enter an amount between $0.01 and ${refundable:.2f}.")
+        return amount
+
+    @property
+    def amount_cents(self) -> int:
+        """The validated refund amount in cents — what ``issue_refund`` takes."""
+        return int(self.cleaned_data["amount"] * 100)

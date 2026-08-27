@@ -14,7 +14,18 @@ if TYPE_CHECKING:
 
     from membership.models import OrientationBooking
 
-ORIENTATIONS_CSV_HEADERS = ["Member", "Guild", "Orienter", "When", "Status", "Completed", "Oriented by", "Requested at"]
+ORIENTATIONS_CSV_HEADERS = [
+    "Member",
+    "Guild",
+    "Orienter",
+    "When",
+    "Status",
+    "Completed",
+    "Oriented by",
+    "Requested at",
+    "Paid",
+    "Refund status",
+]
 
 
 class _Echo:
@@ -28,8 +39,10 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
     """Stream an (already filtered) orientation-booking queryset as a CSV download."""
     pseudo = _Echo()
     writer = csv.writer(pseudo)
-    bookings = bookings.select_related("slot", "slot__orienter", "guild", "member", "oriented_by").order_by(
-        "-slot__starts_at"
+    bookings = (
+        bookings.select_related("slot", "slot__orienter", "guild", "member", "oriented_by")
+        .prefetch_related("refunds")
+        .order_by("-slot__starts_at")
     )
 
     def iter_rows() -> Iterator[str]:
@@ -45,6 +58,8 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
                     "yes" if booking.is_completed else "no",
                     booking.oriented_by.display_name if booking.oriented_by is not None else "",
                     booking.requested_at.strftime("%Y-%m-%d %H:%M"),
+                    f"{booking.amount_paid_cents / 100:.2f}" if booking.amount_paid_cents else "",
+                    booking.refund_state if booking.amount_paid_cents else "",
                 ]
             )
 

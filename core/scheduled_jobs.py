@@ -196,6 +196,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="expire_orientation_payment_holds",
+        name="Release abandoned orientation checkouts",
+        description="Releases orientation seats held by checkouts that were never completed.",
+        command="expire_orientation_payment_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="airtable_pull",
         name="Airtable member pull",
         description="Imports member and space updates from Airtable.",

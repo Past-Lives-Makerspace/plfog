@@ -1,7 +1,14 @@
 {% extends "hub/base.html" %}
+{% load classes_tags %}
 {% block title %}Orientation · {{ guild.name }}{% endblock %}
 {% block content %}
 <h1 class="hub-page-title">Orientation · {{ guild.name }}</h1>
+{% if orientation and orientation.is_paid %}
+<p style="margin:0 0 1rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+  <span class="pl-price-chip">{{ orientation.price_cents|cents_as_price }}</span>
+  <span class="hub-text-muted" style="font-size:0.9rem;">You pay when you book. If the guild can't make it work, you get an automatic full refund.</span>
+</p>
+{% endif %}
 {% if orientation and orientation.info %}
 <div class="hub-card" style="padding:1.5rem;">{{ orientation.info|linebreaks }}</div>
 {% else %}

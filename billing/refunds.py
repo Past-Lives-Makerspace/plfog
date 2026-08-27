@@ -378,9 +378,11 @@ def _emit_refund_failed_alert(refund: PaymentRefund) -> None:
 
         admin_url = book_absolute_url(reverse("classes:admin_registration_detail", args=[refund.registration_id]))
     else:
-        # Orientation bookings have no admin detail surface yet — the companion
-        # paid-orientations spec supplies one; until then the manage URL stands in.
-        admin_url = ctx["manage_url"]
+        from django.urls import reverse
+
+        from membership.orientations import _absolute_url
+
+        admin_url = _absolute_url(reverse("hub_orientation_respond", args=[refund.orientation_booking_id]))
     emit(
         "refund_failed",
         actor=None,

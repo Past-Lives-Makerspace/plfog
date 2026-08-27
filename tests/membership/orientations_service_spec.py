@@ -237,9 +237,10 @@ def describe_action_tokens():
     def it_round_trips_a_token():
         booking = OrientationBookingFactory()
         token = orientations.make_action_token(booking, "confirm")
-        decoded_booking, action = orientations.read_action_token(token)
+        decoded_booking, action, recipient = orientations.read_action_token(token)
         assert decoded_booking.pk == booking.pk
         assert action == "confirm"
+        assert recipient is None  # payload without a recipient reads back as None
 
     def it_rejects_a_tampered_token():
         with pytest.raises(signing.BadSignature):

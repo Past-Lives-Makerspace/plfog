@@ -53,7 +53,7 @@ TRIGGERS: list[Trigger] = [
     Trigger(
         "refund_issued",
         "Refund issued",
-        "A refund was processed for a registration.",
+        "A refund was processed for a payment you made.",
         "Classes",
         force_email=True,
     ),

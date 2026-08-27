@@ -539,6 +539,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
     orientation_booking = member.active_orientation_for(guild) if member is not None else None
+    orientation_hold = member.pending_payment_orientation_for(guild) if member is not None else None
     is_oriented = member.is_oriented_for(guild) if member is not None else False
     show_orientation = orientation is not None and orientation.is_enabled
     orientation_slots = (
@@ -549,6 +550,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         and show_orientation
         and not is_oriented
         and orientation_booking is None
+        and orientation_hold is None
         and not orientation.is_closed
         else []
     )
@@ -602,6 +604,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "pulse": pulse,
             "orientation": orientation,
             "orientation_booking": orientation_booking,
+            "orientation_hold": orientation_hold,
             "is_oriented": is_oriented,
             "show_orientation": show_orientation,
             "orientation_slots": orientation_slots,
@@ -736,6 +739,7 @@ def _guild_edit_context(
     upcoming_slots_admin = list(
         guild.orientation_slots.upcoming()
         .with_active_booking_count()  # one aggregate, not a COUNT per row — the list is unbounded
+        .with_pending_hold_count()  # holds consume seats but hide from active() — show them, not ghosts
         .select_related("orienter")
         .order_by("starts_at")
     )
@@ -1177,12 +1181,18 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     from membership import orientations
     from membership.models import OrientationError, OrientationSlot
 
+    from membership.models import GuildOrientationSettings
+
     slot = get_object_or_404(OrientationSlot, pk=slot_pk)
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
         return redirect("hub_guild_detail", slug=slot.guild.slug)
+    settings_obj = GuildOrientationSettings.objects.filter(guild=slot.guild).first()
     try:
+        if settings_obj is not None and settings_obj.is_paid:
+            checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
+            return redirect(checkout_url)
         orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
         messages.success(
             request,
@@ -1190,6 +1200,9 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
+    except Exception:
+        logger.exception("Orientation checkout failed for slot %s.", slot.pk)
+        messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
     return redirect("hub_guild_detail", slug=slot.guild.slug)
 
 
@@ -1218,6 +1231,19 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
         messages.error(request, "Pick a valid future time for your orientation.")
         return redirect("hub_guild_detail", slug=guild.slug)
     starts = form.cleaned_data["starts_at"]
+    if settings_obj.is_paid:
+        try:
+            checkout_url = orientations.start_custom_orientation_checkout(
+                guild, member, starts, note=form.cleaned_data["note"]
+            )
+        except OrientationError as exc:
+            messages.error(request, str(exc))
+            return redirect("hub_guild_detail", slug=guild.slug)
+        except Exception:
+            logger.exception("Custom orientation checkout failed for guild %s.", guild.pk)
+            messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
+            return redirect("hub_guild_detail", slug=guild.slug)
+        return redirect(checkout_url)
     slot = OrientationSlot.objects.create(
         guild=guild,
         starts_at=starts,
@@ -1268,12 +1294,23 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             orientations.confirm_orientation(booking, oriented_by=_get_member(request))
             messages.success(request, "Orientation confirmed — the member has been emailed.")
         elif action == "decline":
-            orientations.decline_orientation(booking, note=request.POST.get("note", ""))
+            orientations.decline_orientation(booking, note=request.POST.get("note", ""), actor=request.user)
             messages.success(request, "Orientation declined — the member has been notified.")
         return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
+    from hub.view_as import has_refund_authority
+
     ctx = _get_hub_context(request)
-    return render(request, "hub/orientation_respond.html", {**ctx, "booking": booking})
+    return render(
+        request,
+        "hub/orientation_respond.html",
+        {
+            **ctx,
+            "booking": booking,
+            "refund_state": booking.refund_state if booking.amount_paid_cents else "none",
+            "viewer_has_refund_authority": has_refund_authority(request),
+        },
+    )
 
 
 @login_required
@@ -1287,7 +1324,7 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
     forbidden = _require_can_manage_orientations(request, booking.guild)
     if forbidden is not None:
         return forbidden
-    orientations.cancel_orientation(booking, actor_label="the guild")
+    orientations.cancel_orientation(booking, actor_label="the guild", actor=request.user)
     messages.success(request, "Orientation cancelled — the member has been notified.")
     return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
@@ -1303,8 +1340,166 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
     member = _get_member(request)
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
-    orientations.cancel_orientation(booking, actor_label=member.display_name)
+    orientations.cancel_orientation(booking, actor_label=member.display_name, actor=request.user)
     messages.success(request, "Your orientation was cancelled.")
+    return redirect("hub_guild_detail", slug=booking.guild.slug)
+
+
+def _own_pending_hold_or_none(request: HttpRequest, booking_pk: int) -> Any:
+    """The request member's own ``PENDING_PAYMENT`` hold, or ``None`` (wrong owner / wrong state)."""
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        return None
+    if booking.status != OrientationBooking.Status.PENDING_PAYMENT:
+        return None
+    return booking
+
+
+@login_required
+def orientation_checkout_return(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``success_url`` landing — states A (booked), B (webhook lag, polls), C (bad token).
+
+    The HTMX poll requests the same URL; an ``HX-Request`` gets just the card
+    partial. The poll carries ``?n=<count>`` so after ~60 s of pending it swaps
+    to a calm "still processing" fallback instead of spinning forever.
+    """
+    from django.core.signing import BadSignature
+
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    is_fragment = request.headers.get("HX-Request") == "true"
+    try:
+        poll_count = int(request.GET.get("n", "0"))
+    except ValueError:
+        poll_count = 0
+    try:
+        booking = orientations.read_checkout_token(token)
+    except (BadSignature, OrientationBooking.DoesNotExist):
+        context = {**_get_hub_context(request), "state": "invalid", "token": token}
+        template = (
+            "hub/partials/orientation_checkout_return_card.html"
+            if is_fragment
+            else ("hub/orientation_checkout_return.html")
+        )
+        return render(request, template, context, status=400)
+    if booking.status == OrientationBooking.Status.PENDING_PAYMENT:
+        state = "pending" if poll_count < 20 else "still_processing"
+    else:
+        state = "booked"
+    context = {
+        **_get_hub_context(request),
+        "state": state,
+        "booking": booking,
+        "token": token,
+        "next_poll": poll_count + 1,
+    }
+    template = (
+        "hub/partials/orientation_checkout_return_card.html" if is_fragment else "hub/orientation_checkout_return.html"
+    )
+    return render(request, template, context)
+
+
+@login_required
+def orientation_checkout_cancelled(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``cancel_url`` landing — GET confirms, POST releases (Stripe-verified).
+
+    The GET/POST split exists so an email-client or browser prefetch can never
+    delete a hold. The POST verifies payment status with Stripe first: a
+    paid-but-webhook-lagged hold is kept and flipped, never eaten.
+    """
+    from django.core.signing import BadSignature
+
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    try:
+        booking = orientations.read_checkout_token(token)
+    except (BadSignature, OrientationBooking.DoesNotExist):
+        return redirect("hub_guild_directory")
+    if booking.status != OrientationBooking.Status.PENDING_PAYMENT:
+        # Already released, recovered, or resolved — plain redirect, no message drama.
+        return redirect("hub_guild_detail", slug=booking.guild.slug)
+    if request.method != "POST":
+        context = {**_get_hub_context(request), "state": "cancel_confirm", "booking": booking, "token": token}
+        return render(request, "hub/orientation_checkout_return.html", context)
+    outcome = orientations.release_hold_if_unpaid(booking)
+    if outcome == "released":
+        messages.info(request, "No charge was made. Your card was not billed.")
+    elif outcome == "paid":
+        messages.success(request, "Good news, your payment already went through. Your booking request is in.")
+    else:
+        messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
+    return redirect("hub_guild_detail", slug=booking.guild.slug)
+
+
+@login_required
+@require_POST
+def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """The guild page's pending-state Cancel — session-authenticated, own hold only.
+
+    Distinct from the token-authorized Stripe ``cancel_url`` path. Verifies
+    payment status with Stripe before deleting (a finalizing payment is kept).
+    """
+    from membership import orientations
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild"), pk=booking_pk)
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        return HttpResponse("Forbidden", status=403)
+    if booking.status != OrientationBooking.Status.PENDING_PAYMENT:
+        return redirect("hub_guild_detail", slug=booking.guild.slug)
+    outcome = orientations.release_hold_if_unpaid(booking)
+    if outcome == "released":
+        messages.success(request, "Booking cancelled. You were not charged.")
+    elif outcome == "paid":
+        messages.info(
+            request,
+            "Your payment is finalizing, so this booking can't be cancelled that way. "
+            "You can cancel the confirmed request instead and get an automatic refund.",
+        )
+    else:
+        messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
+    return redirect("hub_guild_detail", slug=booking.guild.slug)
+
+
+@login_required
+@require_POST
+def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Resume a checkout in progress — Stripe-verified, never a dead Checkout URL.
+
+    Retrieves the stored session and branches on its status first: ``open`` →
+    the same live session's URL (nothing minted — an idempotency-key replay
+    against an expired session would hand back a dead URL); paid → the recovery
+    flip and the return page; expired → release the hold and bounce to the guild
+    page (re-booking re-runs every guard, since the slot may have filled).
+    """
+    from billing import stripe_utils
+
+    from membership import orientations
+
+    booking = _own_pending_hold_or_none(request, booking_pk)
+    if booking is None:
+        return HttpResponse("Forbidden", status=403)
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+    except Exception:
+        logger.exception("Resume: could not retrieve Checkout session for booking %s.", booking.pk)
+        messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
+        return redirect("hub_guild_detail", slug=booking.guild.slug)
+    if session["payment_status"] == "paid":
+        orientations.finalize_paid_booking(
+            booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+        )
+        return redirect("hub_orientation_checkout_return", token=orientations.make_checkout_token(booking))
+    if session["status"] == "open" and session["url"]:
+        return redirect(session["url"])
+    orientations.release_hold_if_unpaid(booking)
+    messages.info(request, "That checkout expired. Pick a time to start again.")
     return redirect("hub_guild_detail", slug=booking.guild.slug)
 
 
@@ -1321,10 +1516,10 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
     from membership.models import OrientationBooking
 
     try:
-        booking, action = orientations.read_action_token(token)
+        booking, action, recipient = orientations.read_action_token(token)
     except (BadSignature, OrientationBooking.DoesNotExist):
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
-    result = orientations.apply_token_action(booking, action) if request.method == "POST" else None
+    result = orientations.apply_token_action(booking, action, recipient=recipient) if request.method == "POST" else None
     return render(request, "hub/orientation_action.html", {"booking": booking, "action": action, "result": result})
 
 
@@ -1341,7 +1536,7 @@ def _manageable_slots(request: HttpRequest) -> Any:
     """Upcoming slots this request may add members to: all for admins, own-guild for leads/staff."""
     from membership.models import OrientationSlot
 
-    qs = OrientationSlot.objects.upcoming().select_related("guild")
+    qs = OrientationSlot.objects.upcoming().select_related("guild").with_pending_hold_count()
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.has_actual("admin"):
         return qs
@@ -1387,7 +1582,9 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     if not _can_access_orientations(request):
         return HttpResponse("Forbidden", status=403)
 
-    base = OrientationBooking.objects.select_related("slot", "slot__orienter", "guild", "member", "oriented_by")
+    base = OrientationBooking.objects.select_related(
+        "slot", "slot__orienter", "guild", "member", "oriented_by"
+    ).prefetch_related("refunds")
     table = prepare_table(
         request,
         _filter_orientations(request, base),
@@ -1398,6 +1595,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     upcoming = (
         OrientationBooking.objects.upcoming()
         .select_related("slot", "slot__orienter", "guild", "member")
+        .prefetch_related("refunds")
         .order_by("slot__starts_at")[:25]
     )
     view_as = getattr(request, "view_as", None)
@@ -1425,6 +1623,24 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         and not OrientationAvailability.objects.filter(orienter=member).exists()
     ):
         hours_nudge_guilds = list(Guild.objects.filter(pk__in=my_leadership_guild_ids).order_by("name"))
+    # Paid-guild note for the add-member form: slot pk → price string, so the
+    # Alpine toggle can show "this guild charges $X; members you add are not charged."
+    import json
+
+    from classes.templatetags.classes_tags import cents_as_price
+
+    from hub.view_as import has_refund_authority
+    from membership.models import GuildOrientationSettings
+
+    manageable = list(_manageable_slots(request).select_related("guild__orientation_settings"))
+    paid_slot_prices: dict[str, str] = {}
+    for slot in manageable:
+        try:
+            slot_settings: GuildOrientationSettings | None = slot.guild.orientation_settings
+        except GuildOrientationSettings.DoesNotExist:
+            slot_settings = None
+        if slot_settings is not None and slot_settings.is_paid:
+            paid_slot_prices[str(slot.pk)] = cents_as_price(slot_settings.price_cents)
     return render(
         request,
         "hub/orientations_dashboard.html",
@@ -1436,6 +1652,8 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "statuses": OrientationBooking.Status.choices,
             "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
+            "paid_slot_prices_json": json.dumps(paid_slot_prices),
+            "viewer_has_refund_authority": has_refund_authority(request),
             "is_admin": view_as is not None and view_as.has_actual("admin"),
             "my_member_id": member.pk if member is not None else None,
             "my_leadership_guild_ids": my_leadership_guild_ids,

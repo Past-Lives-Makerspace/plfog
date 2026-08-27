@@ -20,6 +20,16 @@ urlpatterns = [
         views.payment_refund_retry,
         name="billing_payment_refund_retry",
     ),
+    path(
+        "admin/orientations/<int:booking_pk>/refund/form/",
+        views.payment_orientation_refund_form,
+        name="billing_orientation_refund_form",
+    ),
+    path(
+        "admin/orientations/<int:booking_pk>/refund/",
+        views.payment_orientation_refund,
+        name="billing_orientation_refund",
+    ),
     path("admin/reports/", views.admin_reports, name="billing_admin_reports"),
     path("admin/reports/export/csv/", views.admin_reports_csv, name="billing_admin_reports_csv"),
     path(

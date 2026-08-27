@@ -73,6 +73,8 @@ class PaymentRow:
     tab_pk: int | None = None  # tab rows keep the existing tab-detail modal opener
     stripe_url: str = ""  # muted "Stripe" payment link on tab rows
     pending_age: str = ""  # e.g. "2 h" when status == "refund_pending"
+    item_url: str = ""  # orientation rows: the guild page the item text links to
+    booking_url: str = ""  # orientation rows: the linked booking's respond page
 
     @property
     def status_label(self) -> str:
@@ -244,9 +246,61 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
     return rows
 
 
-def _orientation_rows(window: PanelWindow) -> list[PaymentRow]:
-    """The documented seam the paid-orientations companion spec fills — empty until then."""
-    return []
+def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+    """Paid orientation-booking rows, with refund state derived from the ledger.
+
+    ``PENDING_PAYMENT`` holds are excluded — no money has moved yet. ``requested_at``
+    stands in for paid-at (payment lands within the checkout hour of creation; the
+    booking stamps no separate payment timestamp).
+    """
+    from django.urls import reverse
+
+    from billing.models import PaymentRefund
+    from membership.models import OrientationBooking
+
+    bookings = (
+        OrientationBooking.objects.filter(amount_paid_cents__gt=0)
+        .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
+        .filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt)
+        .select_related("guild", "member")
+        .prefetch_related("refunds")
+    )
+    rows: list[PaymentRow] = []
+    for booking in bookings:
+        refunds = tuple(booking.refunds.all())
+        state = booking.refund_state
+        pending = next((r for r in refunds if r.status == PaymentRefund.Status.PENDING), None)
+        pending_age = ""
+        if state == "failed":
+            status = "refund_failed"
+        elif pending is not None:
+            status = "refund_pending"
+            pending_age = _age_label(pending.created_at)
+        elif state == "full":
+            status = "refunded"
+        elif state == "partial":
+            status = "partial"
+        else:
+            status = "paid"
+        payer_url = reverse("hub_admin_member_edit", args=[booking.member_id]) if viewer_is_admin else None
+        rows.append(
+            PaymentRow(
+                source_kind="orientation",
+                source_pk=booking.pk,
+                payer_name=booking.member.display_name,
+                payer_url=payer_url,
+                item=f"Orientation — {booking.guild.name}",
+                amount_cents=booking.amount_paid_cents,
+                status=status,
+                date=booking.requested_at,
+                refund_rows=refunds,
+                can_refund=bool(booking.stripe_payment_id) and booking.refundable_cents > 0,
+                pending_age=pending_age,
+                item_url=reverse("hub_guild_detail", args=[booking.guild.slug]),
+                booking_url=reverse("hub_orientation_respond", args=[booking.pk]),
+            )
+        )
+    return rows
 
 
 def build_payments_ledger(
@@ -267,7 +321,7 @@ def build_payments_ledger(
     if source in ("all", "class"):
         rows.extend(_class_rows(window, viewer_is_admin=viewer_is_admin))
     if source in ("all", "orientation"):
-        rows.extend(_orientation_rows(window))
+        rows.extend(_orientation_rows(window, viewer_is_admin=viewer_is_admin))
 
     wanted = _STATUS_FILTERS.get(status)
     if wanted is not None:

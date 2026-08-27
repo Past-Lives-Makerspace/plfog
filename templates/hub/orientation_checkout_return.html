@@ -1,0 +1,14 @@
+{% extends "hub/base.html" %}
+{% block title %}Orientation Checkout · Past Lives{% endblock %}
+{% block content %}
+{% comment %}
+Stripe Checkout landing page (success_url and the cancel_url confirm step).
+The real content lives in the card partial so the webhook-lag poll can swap
+just the card via HTMX.
+{% endcomment %}
+<div class="pl-checkout-return">
+  <div id="orientation-checkout-card" class="hub-card pl-checkout-return__card">
+    {% include "hub/partials/orientation_checkout_return_card.html" %}
+  </div>
+</div>
+{% endblock %}
