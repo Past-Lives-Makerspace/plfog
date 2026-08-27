@@ -3197,8 +3197,8 @@ def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpRespo
     if forbidden is not None:
         return forbidden
     form = GuildAnnouncementSettingsForm(request.POST, instance=guild)
-    if form.is_valid():
-        form.save()
+    form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
+    form.save()
     messages.success(request, "Announcement settings saved.")
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
