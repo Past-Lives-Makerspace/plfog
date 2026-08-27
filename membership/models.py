@@ -2069,6 +2069,33 @@ class Guild(HeroCropMixin, models.Model):
                 seen.add(staff.member_id)
         return members
 
+    def orienter_name_labels(self) -> dict[int, str]:
+        """Short display labels for the current leadership, keyed by member pk.
+
+        The label is the first name ("Bob"); when two current leadership members share a
+        first name it gains a last initial ("Bob P.") so slot lists stay unambiguous.
+        Computed guild-wide here because only a guild-wide view can see the collision;
+        ``OrientationSlot.with_label`` stays the cheap first-name form. A member with no
+        splittable name yields no entry (callers fall back to ``with_label``).
+        """
+        members = self.leadership_members()
+        tokens: dict[int, list[str]] = {}
+        counts: dict[str, int] = {}
+        for member in members:
+            parts = (member.display_name or "").strip().split()
+            if not parts:
+                continue
+            tokens[member.pk] = parts
+            counts[parts[0]] = counts.get(parts[0], 0) + 1
+        labels: dict[int, str] = {}
+        for member_pk, parts in tokens.items():
+            first = parts[0]
+            if counts[first] > 1 and len(parts) > 1:
+                labels[member_pk] = f"{first} {parts[-1][0].upper()}."
+            else:
+                labels[member_pk] = first
+        return labels
+
     def announcement_recipients(self) -> list[tuple["User", str]]:
         """The exact ``(User, reason)`` list a guild announcement email fans out to.
 
@@ -8190,11 +8217,23 @@ class GuildOrientationSettings(models.Model):
         return self.is_enabled and not self.is_closed
 
 
+class OrientationAvailabilityQuerySet(models.QuerySet):
+    def for_orienter(self, member: Member) -> OrientationAvailabilityQuerySet:
+        """The member's personal recurring-hours rules."""
+        return self.filter(orienter=member)
+
+    def guild_level(self) -> OrientationAvailabilityQuerySet:
+        """Legacy shared rules with no personal orienter ("any orienter")."""
+        return self.filter(orienter__isnull=True)
+
+
 class OrientationAvailability(models.Model):
     """A weekly recurring window during which a guild offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
-    each active rule across a rolling window.
+    each active rule across a rolling window. A rule with an ``orienter`` is one
+    staff member's personal hours; ``orienter=NULL`` is a legacy guild-level rule
+    ("any orienter").
     """
 
     class Weekday(models.IntegerChoices):
@@ -8209,6 +8248,17 @@ class OrientationAvailability(models.Model):
     guild = models.ForeignKey(
         Guild, on_delete=models.CASCADE, related_name="orientation_rules", help_text="Parent guild."
     )
+    orienter = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_availability_rules",
+        help_text=(
+            "The staff member who personally gives orientations during this window. "
+            "Empty means any orienter (legacy guild hours)."
+        ),
+    )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
     )
@@ -8221,6 +8271,8 @@ class OrientationAvailability(models.Model):
     is_active = models.BooleanField(default=True, help_text="Generate slots from this rule.")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = OrientationAvailabilityQuerySet.as_manager()
+
     class Meta:
         ordering = ["weekday", "start_time"]
         constraints = [
@@ -8231,7 +8283,8 @@ class OrientationAvailability(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M}"
+        who = self.orienter.display_name if self.orienter is not None else "any orienter"
+        return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M} ({who})"
 
 
 class OrientationSlotQuerySet(models.QuerySet):
@@ -8242,16 +8295,49 @@ class OrientationSlotQuerySet(models.QuerySet):
         """Future, uncancelled slots."""
         return self.filter(is_cancelled=False, starts_at__gte=timezone.now())
 
+    def with_active_booking_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``active_booking_count`` (requested + confirmed).
+
+        The list-render companion to the ``seats_taken`` property: one aggregate in the
+        slot query instead of a COUNT per row (the Upcoming Slots card is unbounded).
+        """
+        return self.annotate(
+            active_booking_count=Count(
+                "bookings",
+                filter=Q(
+                    bookings__status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
+                ),
+            )
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
-        """Upcoming slots at guilds currently accepting bookings (does not check seats)."""
-        return self.upcoming().filter(
-            guild__orientation_settings__is_enabled=True,
-            guild__orientation_settings__is_closed=False,
+        """Upcoming slots at guilds currently accepting bookings (does not check seats).
+
+        A personal slot whose orienter has left the guild's leadership (no longer the
+        lead nor on staff) is excluded — a departed staffer's surviving slot must not
+        reappear in the member list the moment its booking is declined or cancelled.
+        """
+        still_on_staff = GuildStaffMembership.objects.filter(
+            guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
+        )
+        return (
+            self.upcoming()
+            .filter(
+                guild__orientation_settings__is_enabled=True,
+                guild__orientation_settings__is_closed=False,
+            )
+            .filter(Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
         )
 
 
 class OrientationSlot(models.Model):
     """A concrete, bookable orientation appointment with a seat cap."""
+
+    # View-attached display label ("with Bob P.") — set where a slot list is built
+    # with the guild-wide duplicate-first-name disambiguation map.
+    with_display: str
+    # Queryset annotation (set by OrientationSlotQuerySet.with_active_booking_count)
+    active_booking_count: int
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
@@ -8270,6 +8356,14 @@ class OrientationSlot(models.Model):
     )
     source = models.CharField(
         max_length=10, choices=Source.choices, default=Source.MANUAL, help_text="How this slot was created."
+    )
+    orienter = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_slots_offered",
+        help_text="The staff member this slot is booked with. Empty means any orienter.",
     )
     starts_at = models.DateTimeField(help_text="When the orientation starts.")
     ends_at = models.DateTimeField(help_text="When the orientation ends.")
@@ -8319,9 +8413,31 @@ class OrientationSlot(models.Model):
         return self.ends_at <= timezone.now()
 
     @property
+    def orienter_first_name(self) -> str:
+        """The orienter's first name ("Bob"), or "" for a guild slot or a nameless member."""
+        if self.orienter is None:
+            return ""
+        name = (self.orienter.display_name or "").strip()
+        if not name:
+            return ""
+        return name.split()[0]
+
+    @property
+    def with_label(self) -> str:
+        """The member-facing "with Bob" phrase — "" for a guild slot (never a bare "with")."""
+        first = self.orienter_first_name
+        return f"with {first}" if first else ""
+
+    @property
     def is_bookable(self) -> bool:
-        """Future, uncancelled, has a free seat, and the guild is accepting bookings."""
+        """Future, uncancelled, has a free seat, guild accepting, and the orienter still on staff.
+
+        A personal slot whose orienter is no longer in the guild's leadership blocks NEW
+        bookings only — existing bookings on it are untouched.
+        """
         if self.is_cancelled or self.has_started or self.is_full:
+            return False
+        if self.orienter_id is not None and self.orienter_id not in {m.pk for m in self.guild.leadership_members()}:
             return False
         settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
         return settings_obj is not None and settings_obj.is_accepting
@@ -8461,10 +8577,10 @@ class OrientationBooking(models.Model):
         return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and self.slot.starts_at >= timezone.now()
 
     def confirm(self, *, oriented_by: Member | None = None) -> None:
-        """Accept the request; default the giver to the guild lead."""
+        """Accept the request; default the giver to the slot's orienter, then the guild lead."""
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
-        self.oriented_by = oriented_by or self.guild.guild_lead
+        self.oriented_by = oriented_by or self.slot.orienter or self.guild.guild_lead
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self, *, note: str = "") -> None:
@@ -8486,7 +8602,7 @@ class OrientationBooking(models.Model):
         if oriented_by is not None:
             self.oriented_by = oriented_by
         elif self.oriented_by is None:
-            self.oriented_by = self.guild.guild_lead
+            self.oriented_by = self.slot.orienter or self.guild.guild_lead
         self.save(update_fields=["is_completed", "oriented_by"])
 
     def uncomplete(self) -> None:

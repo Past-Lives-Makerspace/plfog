@@ -3626,6 +3626,62 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-orient-slots__action { flex: 0 0 7rem; text-align: right; }
 .pl-orient-slots__action .hub-btn { width: 100%; }
 .pl-orient-slots__pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+.pl-orient-slots__with { flex: 1; display: flex; align-items: center; gap: 0.4rem; min-width: 0; font-size: 0.9rem; }
+@media (max-width: 640px) {
+    .pl-orient-slots__row { flex-wrap: wrap; }
+    .pl-orient-slots__with { flex-basis: 100%; }
+}
+
+/* Small orienter avatar chip ("with Bob") — theme tokens, initials fallback */
+.pl-orient-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+.pl-orient-avatar--initials {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* Orientations tab — hours rows, the All Orientation Hours overview, Upcoming Slots card */
+.pl-hours-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-orient-overview__group { padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
+.pl-orient-overview__person { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.pl-orient-overview__rules {
+    list-style: none;
+    padding: 0.4rem 0 0;
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
+.pl-slot-admin__row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-slot-admin__when { font-weight: 500; }
+.pl-slot-admin__with { display: flex; align-items: center; gap: 0.4rem; flex: 1; min-width: 140px; }
+.pl-slot-admin__seats { color: var(--hub-text-muted); font-size: 0.85rem; }
+.pl-slot-admin__source { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Add A Slot date input — Rule 14 dark-mode picker icon */
+.pl-slot-date::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-slot-date::-webkit-calendar-picker-indicator { filter: none; }
+
+/* "Post your hours" nudge banner on the orientations dashboard */
+.pl-hours-nudge { padding: 0.9rem 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid var(--color-tuscan-yellow); }
+.pl-hours-nudge a { color: var(--color-tuscan-yellow); }
 
 /* ============================================================
    Skills directory — filter bar, chips, commission badge, editor

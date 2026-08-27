@@ -48,6 +48,10 @@ def _future(hours: int) -> str:
     return (timezone.localtime() + timedelta(days=3, hours=hours)).strftime("%Y-%m-%dT%H:%M")
 
 
+def _future_date() -> str:
+    return (timezone.localtime() + timedelta(days=3)).strftime("%Y-%m-%d")
+
+
 def describe_orienter_access_to_the_config_editor():
     def it_lets_an_orienter_open_the_editor(client: Client):
         # The editor is an in-page tab now; the old URL redirects an orienter through to it.
@@ -57,7 +61,7 @@ def describe_orienter_access_to_the_config_editor():
         client.login(username="o_edit", password="pass")
         response = client.get(reverse("hub_guild_orientation_edit", args=[guild.pk]), follow=True)
         assert response.status_code == 200
-        assert b"Recurring hours" in response.content
+        assert b"My Orientation Hours" in response.content
 
     def it_still_forbids_an_unrelated_member(client: Client):
         guild = GuildFactory()
@@ -121,7 +125,15 @@ def describe_orienter_dashboard_and_booking_actions():
         client.login(username="b_slot", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_slot_add", args=[guild.pk]),
-            {"starts_at": _future(0), "ends_at": _future(1), "seats": "3", "location": "Lobby"},
+            {
+                "date": _future_date(),
+                "start_time": "18:00",
+                "duration_minutes": "60",
+                "seats": "3",
+                "location": "Lobby",
+            },
         )
         assert response.status_code == 302
-        assert guild.orientation_slots.exists()
+        # A plain orienter's one-off slot is theirs — the form locks the orienter to self.
+        slot = guild.orientation_slots.get()
+        assert slot.orienter == user.member

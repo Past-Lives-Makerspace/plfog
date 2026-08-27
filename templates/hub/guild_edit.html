@@ -365,14 +365,22 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <button type="submit" class="hub-btn hub-btn--primary" style="margin-bottom:2rem;">Save orientation settings</button>
   </form>
 
-  {# Recurring hours — its own form/endpoint, like the FAQ & Links editors. #}
-  <form method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
+  {# My Orientation Hours — the viewer's personal formset (or edit-on-behalf via ?orienter=). #}
+  {# Hidden for an admin/officer not on this guild's leadership: their own rules would never generate slots. #}
+  {% if show_my_hours_card %}
+  <form id="my-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
+    <input type="hidden" name="orienter_scope" value="{{ hours_scope_member.pk|default:'' }}">
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Recurring hours</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows we turn into bookable slots automatically.</p>
+      {% if hours_editing_other %}
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ hours_scope_member.display_name }}'s Hours</h2>
+      <p style="font-size:0.8125rem; margin:0 0 0.5rem;"><a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations">← Back To My Hours</a></p>
+      {% else %}
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">My Orientation Hours</h2>
+      {% endif %}
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when you personally can give orientations. We turn them into bookable slots automatically — members book you by name.</p>
       {{ rule_formset.management_form }}
-      <div id="rule-rows" style="display:flex; flex-direction:column; gap:0.75rem;">
+      <div id="rule-rows" class="pl-hours-rows">
         {% for rule in rule_formset %}
         <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
           {{ rule.id }}
@@ -384,16 +392,19 @@ confirm modal carries its own POST form, and template content can't nest a form.
           </div>
           {% include "components/form_field.html" with field=rule.is_active %}
           {% if rule.instance.pk %}
-            {# Real delete button: flips the hidden DELETE field and saves the form so no work is lost. #}
+            {# Delete confirms first (it retires future open slots), then flips DELETE and saves the page. #}
             <div style="display:none;">{{ rule.DELETE }}</div>
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
-                    onclick="document.getElementById('{{ rule.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                    @click="$dispatch('open-confirm', 'rule-del-{{ rule.instance.pk }}')">
               Delete
             </button>
+            {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('my-hours-form').requestSubmit();" %}
+            {% include "components/confirm_modal.html" with confirm_id="rule-del-"|add:rpks confirm_title="Delete these hours?" confirm_message="Upcoming open slots from this window will be removed. Slots someone already booked stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
+            {% endwith %}
           {% endif %}
         </div>
         {% empty %}
-        <p class="hub-text-muted">No recurring hours yet — add your first window.</p>
+        <p class="hub-text-muted">No hours yet. Add your first window and members can start booking you.</p>
         {% endfor %}
       </div>
 
@@ -426,12 +437,175 @@ confirm modal carries its own POST form, and template content can't nest a form.
                   document.getElementById('rule-rows').appendChild(wrap.firstElementChild);
                   total.value = idx + 1;
                 ">
-          + Add recurring hours
+          + Add hours
         </button>
-        <button type="submit" class="pl-btn pl-btn--primary">Save Hours</button>
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
       </div>
     </div>
   </form>
+  {% endif %}
+
+  {# All Orientation Hours — lead/admin overview grouped by person, with edit-on-behalf links. #}
+  {% if can_edit_others_hours %}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">All Orientation Hours</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">Everyone on staff who can give orientations, and when.</p>
+    {% for staffer, staffer_rules in orienter_overview %}
+    <div class="pl-orient-overview__group">
+      <div class="pl-orient-overview__person">
+        {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
+        <strong>{{ staffer.display_name }}</strong>
+        <a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations&orienter={{ staffer.pk }}" class="hub-btn hub-btn--sm">Edit Hours</a>
+      </div>
+      {% if staffer_rules %}
+      <ul class="pl-orient-overview__rules">
+        {% for r in staffer_rules %}
+        <li>{{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% if former_staff_overview %}
+    <h3 class="hub-detail-label" style="margin:1.25rem 0 0.25rem;">Former Staff</h3>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people no longer on staff. They no longer generate slots. Delete them when you are ready.</p>
+    {% for staffer, staffer_rules in former_staff_overview %}
+    <div class="pl-orient-overview__group">
+      <div class="pl-orient-overview__person">
+        {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
+        <strong>{{ staffer.display_name }}</strong>
+        <a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations&orienter={{ staffer.pk }}" class="hub-btn hub-btn--sm">Edit Hours</a>
+      </div>
+      <ul class="pl-orient-overview__rules">
+        {% for r in staffer_rules %}
+        <li>{{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# Guild Hours (Any Orienter) — legacy shared rules; renders only while such rows exist. #}
+  {% if guild_rule_formset %}
+  <form id="guild-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <input type="hidden" name="orienter_scope" value="">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orienter)</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">These shared hours predate personal hours and cannot be recreated once deleted. New recurring hours always belong to a person. For occasional shared coverage, add an Any orienter slot in Upcoming Slots.</p>
+      {{ guild_rule_formset.management_form }}
+      <div class="pl-hours-rows">
+        {% for rule in guild_rule_formset %}
+        <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+          {{ rule.id }}
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
+            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
+            <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
+            <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
+          </div>
+          {% include "components/form_field.html" with field=rule.is_active %}
+          {% if rule.instance.pk %}
+            <div style="display:none;">{{ rule.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    @click="$dispatch('open-confirm', 'guild-rule-del-{{ rule.instance.pk }}')">
+              Delete
+            </button>
+            {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('guild-hours-form').requestSubmit();" %}
+            {% include "components/confirm_modal.html" with confirm_id="guild-rule-del-"|add:rpks confirm_title="Delete these shared hours?" confirm_message="Shared recurring hours cannot be recreated. Upcoming open slots from this window will be removed; booked slots stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
+            {% endwith %}
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {# Keep/edit/retire only — new shared recurring hours can't be created (the one-way door). #}
+      <div style="margin-top:1rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      </div>
+    </div>
+  </form>
+  {% elif guild_rules_readonly %}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Hours (Any Orienter)</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These are shared guild hours any orienter can run. Only the guild lead can change them.</p>
+    <ul class="pl-orient-overview__rules">
+      {% for r in guild_rules_readonly %}
+      <li>{{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }}–{{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# Upcoming Slots + Add A Slot — first UI for the long-shipped slot endpoints. #}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Upcoming Slots</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Every bookable slot for the next 8 weeks, from everyone's hours plus one-offs.</p>
+    {% if upcoming_slots_admin %}
+    <div x-data="{ page: 0, size: 5, total: {{ upcoming_slots_admin|length }} }">
+      {% for slot in upcoming_slots_admin %}
+      {% with spks=slot.pk|stringformat:"s" %}
+      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-slot-admin__row">
+        <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }}–{{ slot.ends_at|time:"g:i A" }}</span>
+        <span class="pl-slot-admin__with">
+          {% if slot.orienter %}
+            {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
+            {{ slot.orienter.display_name }}
+          {% else %}
+            <span class="hub-text-muted">Any orienter</span>
+          {% endif %}
+        </span>
+        <span class="pl-slot-admin__seats">{{ slot.active_booking_count }} of {{ slot.seats }} booked</span>
+        <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one-off{% endif %}</span>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'slot-cancel-{{ slot.pk }}')">Cancel</button>
+        {% url 'hub_guild_orientation_slot_cancel' guild.pk slot.pk as slot_cancel_url %}
+        {% if slot.active_booking_count %}
+        {% include "components/confirm_modal.html" with confirm_id="slot-cancel-"|add:spks confirm_title="Cancel this slot?" confirm_message="Anyone booked on it will be emailed that it is off." confirm_action_url=slot_cancel_url confirm_button_text="Cancel slot" %}
+        {% else %}
+        {% include "components/confirm_modal.html" with confirm_id="slot-cancel-"|add:spks confirm_title="Cancel this open slot?" confirm_message="No one is booked on it yet." confirm_action_url=slot_cancel_url confirm_button_text="Cancel slot" %}
+        {% endif %}
+      </div>
+      {% endwith %}
+      {% endfor %}
+      <div x-show="total > size" x-cloak class="pl-orient-slots__pager">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.max(0, page - 1)" :disabled="page === 0" aria-label="Previous slots">←</button>
+        <span class="hub-text-muted" style="font-size:0.85rem;" x-text="(page + 1) + ' / ' + Math.ceil(total / size)"></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>
+      </div>
+    </div>
+    {% else %}
+    <p class="hub-text-muted">No upcoming slots yet. They appear as soon as hours are saved, or add a one-off below.</p>
+    {% endif %}
+
+    <div x-data="{ showAddSlot: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);">
+      <button type="button" class="hub-btn hub-btn--sm" x-show="!showAddSlot" @click="showAddSlot = true">+ Add A Slot</button>
+      <div x-show="showAddSlot" x-cloak>
+        <form method="post" action="{% url 'hub_guild_orientation_slot_add' guild.pk %}" class="hub-form">
+          {% csrf_token %}
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+            <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=slot_form.date %}</div>
+            <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=slot_form.start_time %}</div>
+            <div style="flex:1; min-width:110px;">{% include "components/form_field.html" with field=slot_form.duration_minutes %}</div>
+            <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=slot_form.seats %}</div>
+          </div>
+          {% include "components/form_field.html" with field=slot_form.location %}
+          {% if slot_form_locked %}
+          <div style="display:none;">{{ slot_form.orienter }}</div>
+          <p class="hub-text-muted" style="font-size:0.85rem; margin:0.5rem 0 0;">Runs with: you</p>
+          {% else %}
+          {% include "components/form_field.html" with field=slot_form.orienter %}
+          {% endif %}
+          <div style="display:flex; gap:0.75rem; margin-top:1rem;">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showAddSlot = false">Cancel</button>
+            <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 
 {# ── FAQ & Links (each its own form, outside the main form — you can't nest forms) ──── #}

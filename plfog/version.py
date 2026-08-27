@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.12.0"
+VERSION = "1.13.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.13.0",
+        "date": "2026-08-27",
+        "title": "Orientation slots now show who runs them",
+        "changes": [
+            "Guild staff can each post their own orientation hours, so booking a slot now tells "
+            "you exactly who you will meet. Your request goes straight to that person, and your "
+            "confirmation email says who is expecting you. Staff who have not posted hours yet "
+            "get a nudge on the orientations dashboard.",
+        ],
+    },
     {
         "version": "1.12.0",
         "date": "2026-08-27",

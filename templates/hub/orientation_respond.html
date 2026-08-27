@@ -7,6 +7,7 @@
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <p style="margin:0 0 0.25rem; font-size:1.05rem;"><strong>{{ booking.member.display_name }}</strong> · {{ booking.guild.name }}</p>
     <p style="margin:0 0 0.25rem;">{{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}</p>
+    <p class="hub-text-muted" style="margin:0 0 0.25rem;">Runs with: {% if booking.slot.orienter %}{{ booking.slot.orienter.display_name }}{% else %}Any orienter{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Status: {{ booking.get_status_display }}</p>
     {% if booking.member_note %}<p class="hub-text-muted" style="margin:0;">Note: {{ booking.member_note }}</p>{% endif %}
   </div>

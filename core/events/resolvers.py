@@ -269,10 +269,21 @@ def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
     Used for "an orientation needs a runner" fan-out (Decision 7): every orienter
     is pinged, not just the lead. The lead is always included (the lead can run
     orientations and carries full authority).
+
+    Personal-slot scoping: when the context carries a ``slot`` with an ``orienter``,
+    the audience narrows to that orienter + the guild lead (deduped) — the request
+    belongs to the person the member booked, with the lead kept in the loop.
     """
     from membership.models import GuildStaffMembership
 
     guild: Guild = _require(context, "guild")
+    slot = context.get("slot")
+    if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
+        scoped: list[Member] = [slot.orienter]
+        lead = guild.guild_lead
+        if guild.guild_lead_id is not None and lead is not None and guild.guild_lead_id != slot.orienter_id:
+            scoped.append(lead)
+        return _members_to_recipients(scoped, "guild_orienter")
     members: list[Member] = []
     seen: set[int] = set()
     if guild.guild_lead_id is not None and guild.guild_lead is not None:

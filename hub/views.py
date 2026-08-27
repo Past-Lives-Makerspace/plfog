@@ -542,7 +542,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     is_oriented = member.is_oriented_for(guild) if member is not None else False
     show_orientation = orientation is not None and orientation.is_enabled
     orientation_slots = (
-        list(guild.orientation_slots.upcoming().order_by("starts_at")[:30])
+        # bookable() (not upcoming()) so a departed orienter's surviving personal slot
+        # never reappears in the member list once its booking is declined or cancelled.
+        list(guild.orientation_slots.bookable().select_related("orienter").order_by("starts_at")[:30])
         if orientation is not None
         and show_orientation
         and not is_oriented
@@ -550,6 +552,15 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         and not orientation.is_closed
         else []
     )
+    # Guild-wide duplicate-first-name disambiguation ("with Bob P.") — computed here
+    # because only a guild-wide view can see the collision; with_label stays cheap.
+    orienter_labels = guild.orienter_name_labels() if orientation_slots else {}
+    for slot in orientation_slots:
+        if slot.orienter_id is None:
+            slot.with_display = ""
+        else:
+            label = orienter_labels.get(slot.orienter_id, "")
+            slot.with_display = f"with {label}" if label else slot.with_label
 
     from hub.forms import OrientationCustomRequestForm
 
@@ -653,6 +664,8 @@ def _guild_edit_context(
     orientation_form: Any = None,
     emails_form: Any = None,
     rule_formset: Any = None,
+    guild_rule_formset: Any = None,
+    hours_scope_member: Any = None,
     studio_hours_formset: Any = None,
     mailing_list_formset: Any = None,
 ) -> dict[str, Any]:
@@ -672,13 +685,61 @@ def _guild_edit_context(
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
         OrientationAvailabilityFormSet,
+        OrientationSlotForm,
         StudioHoursFormSet,
     )
-    from membership.models import GuildOrientationSettings
+    from membership.models import GuildOrientationSettings, Member
+    from membership.permissions import can_edit_orienter_hours
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
     recipients = guild.announcement_recipients()
+
+    # ── Orientations tab: per-orienter hours scope + overview + slots ─────────
+    viewer = _get_member(request)
+    can_edit_others_hours = can_edit_orienter_hours(request, guild, None)
+    hours_scope = hours_scope_member
+    if hours_scope is None:
+        hours_scope = viewer
+        orienter_param = request.GET.get("orienter", "")
+        # ?orienter=<pk> scopes the My Hours editor to that person (leads/admins only);
+        # without permission, or with a bogus pk, the param is ignored — self it is.
+        if orienter_param.isdigit() and can_edit_others_hours:
+            candidate = Member.objects.filter(pk=int(orienter_param)).first()
+            if candidate is not None:
+                hours_scope = candidate
+    hours_editing_other = hours_scope is not None and (viewer is None or hours_scope.pk != viewer.pk)
+    personal_rules_qs = (
+        guild.orientation_rules.for_orienter(hours_scope) if hours_scope is not None else guild.orientation_rules.none()
+    )
+    leadership = guild.leadership_members()
+    leadership_ids = {m.pk for m in leadership}
+    # An admin/officer who is not on this guild's leadership gets no self-scoped My Hours
+    # card — their personal rules would never generate slots (the save 403s that scope
+    # too). Edit-on-behalf (?orienter=, incl. Former Staff cleanup) still renders.
+    show_my_hours_card = hours_editing_other or (viewer is not None and viewer.pk in leadership_ids)
+    rules_by_orienter: dict[int, list[Any]] = {}
+    orphan_orienters: dict[int, Any] = {}
+    for rule in guild.orientation_rules.exclude(orienter=None).select_related("orienter"):
+        orienter_id = rule.orienter_id
+        assert orienter_id is not None  # guaranteed by the exclude(orienter=None) filter
+        rules_by_orienter.setdefault(orienter_id, []).append(rule)
+        if orienter_id not in leadership_ids:
+            orphan_orienters[orienter_id] = rule.orienter
+    orienter_overview = [(m, rules_by_orienter.get(m.pk, [])) for m in leadership]
+    former_staff_overview = sorted(
+        ((m, rules_by_orienter[pk]) for pk, m in orphan_orienters.items()),
+        key=lambda pair: pair[0].display_name.lower(),
+    )
+    guild_rules_qs = guild.orientation_rules.guild_level()
+    has_guild_rules = guild_rules_qs.exists()
+    upcoming_slots_admin = list(
+        guild.orientation_slots.upcoming()
+        .with_active_booking_count()  # one aggregate, not a COUNT per row — the list is unbounded
+        .select_related("orienter")
+        .order_by("starts_at")
+    )
+
     return {
         **ctx,
         "guild": guild,
@@ -711,8 +772,29 @@ def _guild_edit_context(
         ),
         "emails_form": emails_form if emails_form is not None else GuildEmailsForm(instance=settings_obj),
         "rule_formset": (
-            rule_formset if rule_formset is not None else OrientationAvailabilityFormSet(instance=guild, prefix="rules")
+            rule_formset
+            if rule_formset is not None
+            else OrientationAvailabilityFormSet(instance=guild, prefix="rules", queryset=personal_rules_qs)
         ),
+        "hours_scope_member": hours_scope,
+        "hours_editing_other": hours_editing_other,
+        "show_my_hours_card": show_my_hours_card,
+        "can_edit_others_hours": can_edit_others_hours,
+        "orienter_overview": orienter_overview,
+        "former_staff_overview": former_staff_overview,
+        "guild_rule_formset": (
+            guild_rule_formset
+            if guild_rule_formset is not None
+            else (
+                OrientationAvailabilityFormSet(instance=guild, prefix="guild_rules", queryset=guild_rules_qs)
+                if has_guild_rules and can_edit_others_hours
+                else None
+            )
+        ),
+        "guild_rules_readonly": (list(guild_rules_qs) if has_guild_rules and not can_edit_others_hours else []),
+        "upcoming_slots_admin": upcoming_slots_admin,
+        "slot_form": OrientationSlotForm(guild=guild, acting_member=viewer, lock_to_acting=not can_edit_others_hours),
+        "slot_form_locked": not can_edit_others_hours,
     }
 
 
@@ -824,38 +906,108 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect(orientations_tab)
 
     ctx = _guild_edit_context(request, guild, orientation_form=form)
+    ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)
+
+
+def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, removed: int, kept: int) -> str:
+    """The success flash for an hours save — with real retirement counts on a delete."""
+    if not deleted_rules:
+        return "Hours saved."
+    if guild_scope and not guild.orientation_rules.guild_level().exists():
+        return (
+            "Shared hours deleted. From now on recurring hours are personal. "
+            "Use an Any orienter one-off slot for shared coverage."
+        )
+    parts = [
+        "Hours deleted.",
+        f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.",
+    ]
+    if kept:
+        pronoun = "it" if kept == 1 else "them"
+        parts.append(
+            f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Slots card."
+        )
+    return " ".join(parts)
 
 
 @login_required
 @require_POST
 def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the recurring orientation hours from their own form on the Orientations tab.
+    """Save one scope of recurring orientation hours from the Orientations tab.
 
-    The recurring-hours formset is its own ``<form>`` (mirroring the FAQ/Links editors), so it
-    saves independently of the orientation-settings form, materializes bookable slots immediately,
-    and redirects back to the Orientations tab. An invalid time range re-renders the page with the
-    formset's field errors and saves nothing. Open to anyone who may manage the guild's
-    orientations (lead, admin, or staff/orienter).
+    The posted hidden ``orienter_scope`` field is read FIRST and selects which formset
+    prefix binds — a member pk scopes the personal ``rules`` prefix to that person's
+    rows; an empty scope binds the legacy ``guild_rules`` prefix to the guild-level
+    rows. Binding the wrong prefix against a mismatched management form is a crash, not
+    a validation error, so scope selection precedes any formset construction. Gate is
+    ``can_edit_orienter_hours`` (own hours: any orientation manager; someone else's or
+    the guild rows: lead/admin). Deleted rows retire via ``retire_rule`` (removing their
+    future open slots), new rows are stamped with the scope's orienter, and saved hours
+    materialize slots immediately. An invalid POST re-renders the tab with the scope
+    echoed back, so an edit-on-behalf error still shows under the right heading.
     """
     from hub.forms import OrientationAvailabilityFormSet
+    from membership import orientations
+    from membership.models import Member
+    from membership.permissions import can_edit_orienter_hours
 
     guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_manage_orientations(request, guild)
-    if forbidden is not None:
-        return forbidden
-    formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix="rules")
+    scope_raw = request.POST.get("orienter_scope", "")
+    target = None
+    if scope_raw:
+        if not scope_raw.isdigit():
+            raise Http404("Unknown orienter scope.")
+        target = get_object_or_404(Member, pk=int(scope_raw))
+    if not can_edit_orienter_hours(request, guild, target):
+        return HttpResponse("Forbidden", status=403)
+    if target is not None:
+        prefix = "rules"
+        queryset = guild.orientation_rules.for_orienter(target)
+    else:
+        prefix = "guild_rules"
+        queryset = guild.orientation_rules.guild_level()
+    formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix=prefix, queryset=queryset)
     if formset.is_valid():
-        formset.save()
+        deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
         # Same side effect the combined save had — saved hours materialize slots immediately.
-        from membership import orientations
-
         orientations.generate_slots(guild=guild)
-        messages.success(request, "Recurring hours saved.")
+        messages.success(
+            request,
+            _hours_save_message(
+                guild=guild, guild_scope=target is None, deleted_rules=deleted_rules, removed=removed, kept=kept
+            ),
+        )
         return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
 
-    ctx = _guild_edit_context(request, guild, rule_formset=formset)
+    if target is not None:
+        ctx = _guild_edit_context(request, guild, rule_formset=formset, hours_scope_member=target)
+    else:
+        ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
+    # The invalid POST lands on the hours-save URL (no ?tab) — keep the Orientations tab open.
+    ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)
+
+
+def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
+    """Apply a valid hours formset: retire deleted rules, stamp + save the kept rows.
+
+    Returns ``(deleted_rules, open_slots_removed, kept_with_bookings)`` for the flash.
+    """
+    from membership import orientations
+
+    removed = kept = deleted_rules = 0
+    for rule_form in formset.deleted_forms:
+        if rule_form.instance.pk:
+            rule_removed, rule_kept = orientations.retire_rule(rule_form.instance)
+            removed += rule_removed
+            kept += rule_kept
+            deleted_rules += 1
+    for rule in formset.save(commit=False):
+        if rule.orienter_id is None and target is not None:
+            rule.orienter = target  # scope stamps new rows — orienter is write-once from the UI
+        rule.save()
+    return deleted_rules, removed, kept
 
 
 @login_required
@@ -946,10 +1098,24 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
         return forbidden
 
     staff = get_object_or_404(GuildStaffMembership, pk=staff_pk, guild=guild)
-    member_name = staff.member.display_name
+    removed_member = staff.member
+    member_name = removed_member.display_name
     title_label = staff.display_title
     staff.delete()
-    messages.success(request, f"{member_name} is no longer {title_label} of {guild.name}.")
+    message = f"{member_name} is no longer {title_label} of {guild.name}."
+    # Retire their personal hours ONLY when this was their last leadership row — staff can
+    # hold multiple roles (Treasurer + Orienter), and dropping one must not nuke their hours.
+    if removed_member.pk not in {m.pk for m in guild.leadership_members()}:
+        from membership import orientations
+
+        _removed, booked_remaining = orientations.retire_orienter(guild, removed_member)
+        if booked_remaining:
+            message += (
+                f" They still have {booked_remaining} upcoming booked "
+                f"orientation{'' if booked_remaining == 1 else 's'}. Cancel them from the "
+                "Upcoming Slots card on the Orientations tab if they won't be run."
+            )
+    messages.success(request, message)
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 
@@ -959,13 +1125,21 @@ def guild_orientation_slot_add(request: HttpRequest, pk: int) -> HttpResponse:
     """POST-only — add a one-off orientation slot to this guild. Editors only."""
     from hub.forms import OrientationSlotForm
     from membership.models import OrientationSlot
+    from membership.permissions import can_edit_orienter_hours
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_manage_orientations(request, guild)
     if forbidden is not None:
         return forbidden
 
-    form = OrientationSlotForm(request.POST)
+    # Leads/admins may pick any leadership member (or "Any orienter"); plain staff
+    # add slots for themselves only — the form locks and forces the acting member.
+    form = OrientationSlotForm(
+        request.POST,
+        guild=guild,
+        acting_member=_get_member(request),
+        lock_to_acting=not can_edit_orienter_hours(request, guild, None),
+    )
     if form.is_valid():
         slot = form.save(commit=False)
         slot.guild = guild
@@ -1213,7 +1387,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     if not _can_access_orientations(request):
         return HttpResponse("Forbidden", status=403)
 
-    base = OrientationBooking.objects.select_related("slot", "guild", "member", "oriented_by")
+    base = OrientationBooking.objects.select_related("slot", "slot__orienter", "guild", "member", "oriented_by")
     table = prepare_table(
         request,
         _filter_orientations(request, base),
@@ -1222,7 +1396,9 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         default_dir="desc",
     )
     upcoming = (
-        OrientationBooking.objects.upcoming().select_related("slot", "guild", "member").order_by("slot__starts_at")[:25]
+        OrientationBooking.objects.upcoming()
+        .select_related("slot", "slot__orienter", "guild", "member")
+        .order_by("slot__starts_at")[:25]
     )
     view_as = getattr(request, "view_as", None)
     member = _get_member(request)
@@ -1238,6 +1414,17 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         if member is not None
         else set()
     )
+    # "Post your hours" nudge — a staffer/lead with zero personal rules anywhere gets a
+    # banner linking to each staffed guild's Orientations tab; it disappears with a rule.
+    from membership.models import OrientationAvailability
+
+    hours_nudge_guilds: list[Guild] = []
+    if (
+        member is not None
+        and my_leadership_guild_ids
+        and not OrientationAvailability.objects.filter(orienter=member).exists()
+    ):
+        hours_nudge_guilds = list(Guild.objects.filter(pk__in=my_leadership_guild_ids).order_by("name"))
     return render(
         request,
         "hub/orientations_dashboard.html",
@@ -1245,6 +1432,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             **_get_hub_context(request),
             **table,
             "upcoming": upcoming,
+            "hours_nudge_guilds": hours_nudge_guilds,
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "statuses": OrientationBooking.Status.choices,
             "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
