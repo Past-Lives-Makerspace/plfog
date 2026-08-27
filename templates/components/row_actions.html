@@ -1,0 +1,84 @@
+{% comment %}
+Reusable overflow ("kebab") actions menu for a table row.
+
+Parameters (pass via {% include ... with %}):
+  menu_include — required, template path rendered inside the menu. It inherits the
+                 caller's context, so reg / can_manage / viewer_has_refund_authority
+                 are available to the menu items.
+  menu_label   — required, accessible name for the trigger (e.g. "Actions for Jane Doe").
+
+The menu is position:fixed and placed from the trigger's bounding rect on open, so
+it escapes the roster table wrapper's overflow:hidden clip; near the viewport bottom
+it flips upward. Any window scroll or resize dismisses it (a fixed element does not
+track scroll). See docs/superpowers/plans/2026-08-27-roster-actions-menu.md.
+{% endcomment %}
+<div class="pl-row-menu" x-data="plRowMenu()"
+     @keydown.escape.window="closeAndRefocus()"
+     @keydown.tab="open = false">
+    <button type="button" class="pl-row-menu__trigger" x-ref="trigger"
+            aria-haspopup="menu" :aria-expanded="open" aria-label="{{ menu_label }}"
+            @click="toggle()">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="12" cy="5" r="2"/>
+            <circle cx="12" cy="12" r="2"/>
+            <circle cx="12" cy="19" r="2"/>
+        </svg>
+    </button>
+    <div class="pl-row-menu__menu" x-ref="menu" x-show="open" x-transition.opacity
+         x-cloak role="menu"
+         @click.away="open = false"
+         @scroll.window.passive="open = false" @resize.window="open = false"
+         @keydown.down.prevent="focusNext()" @keydown.up.prevent="focusPrev()">
+        {% include menu_include %}
+    </div>
+</div>
+<script>
+if (!window.__plRowMenuDefined) {
+  window.__plRowMenuDefined = true;
+  window.plRowMenu = function () {
+    return {
+      open: false,
+      toggle() {
+        if (this.open) { this.open = false; return; }
+        this.open = true;
+        this.$nextTick(() => { this.position(); this.focusFirst(); });
+      },
+      position() {
+        var rect = this.$refs.trigger.getBoundingClientRect();
+        var menu = this.$refs.menu;
+        var w = menu.offsetWidth;
+        var h = menu.offsetHeight;
+        var left = Math.max(8, rect.right - w);
+        var top = rect.bottom + 4;
+        if (top + h > window.innerHeight - 8) { top = rect.top - h - 4; }
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+      },
+      closeAndRefocus() {
+        if (!this.open) { return; }
+        this.open = false;
+        this.$refs.trigger.focus();
+      },
+      items() {
+        return Array.from(this.$refs.menu.querySelectorAll('[role="menuitem"]'));
+      },
+      focusFirst() {
+        var items = this.items();
+        if (items.length) { items[0].focus(); }
+      },
+      focusNext() {
+        var items = this.items();
+        if (!items.length) { return; }
+        var i = items.indexOf(document.activeElement);
+        items[(i + 1) % items.length].focus();
+      },
+      focusPrev() {
+        var items = this.items();
+        if (!items.length) { return; }
+        var i = items.indexOf(document.activeElement);
+        items[i <= 0 ? items.length - 1 : i - 1].focus();
+      },
+    };
+  };
+}
+</script>

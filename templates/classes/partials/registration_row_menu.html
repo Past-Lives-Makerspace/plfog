@@ -1,0 +1,41 @@
+{% comment %}
+Menu items for a roster (Registrations tab) row — rendered inside
+components/row_actions.html, so it inherits reg, can_manage, and
+viewer_has_refund_authority from the table context. Order, gates, and per-item
+behavior match the inline buttons this replaced (plus View Details + Email
+Student on top). Dividers render only between non-empty groups. See
+docs/superpowers/plans/2026-08-27-roster-actions-menu.md.
+{% endcomment %}
+<a href="{% url 'classes:admin_registration_detail' pk=reg.pk %}" class="pl-row-menu__item" role="menuitem"
+   @click="closeAndRefocus()">View Details</a>
+<a href="mailto:{{ reg.email }}" class="pl-row-menu__item" role="menuitem"
+   @click="closeAndRefocus()">Email Student</a>
+{% if can_manage and reg.is_unpaid %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        hx-post="{% url 'classes:registration_send_payment_link' reg.pk %}"
+        hx-target="#reg-row-{{ reg.pk }}" hx-swap="outerHTML" hx-disabled-elt="this"
+        @click="closeAndRefocus()">Send Payment Link</button>
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'markpaid-reg-{{ reg.pk }}')">Mark as Paid</button>
+{% endif %}
+{% if viewer_has_refund_authority and reg.refund_state == "failed" or viewer_has_refund_authority and reg.refundable_cents > 0 or can_manage and reg.status == 'confirmed' or can_manage and reg.status == 'pending' %}
+<div class="pl-row-menu__divider" role="separator"></div>
+{% if viewer_has_refund_authority %}
+    {% if reg.refund_state == "failed" %}
+    <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+            hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
+            hx-target="#refund-modal-body" hx-swap="innerHTML"
+            @click="closeAndRefocus(); document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">Retry Refund</button>
+    {% elif reg.refundable_cents > 0 %}
+    <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+            hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
+            hx-target="#refund-modal-body" hx-swap="innerHTML"
+            @click="closeAndRefocus(); document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">Refund</button>
+    {% endif %}
+{% endif %}
+{% if can_manage and reg.status == 'confirmed' or can_manage and reg.status == 'pending' %}
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'remove-reg-{{ reg.pk }}')">Remove Student</button>
+{% endif %}
+{% endif %}

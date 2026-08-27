@@ -38,44 +38,7 @@ Context:
     <td>{{ reg.registered_at|date:"M j, Y" }}</td>
     {% if can_manage or viewer_has_refund_authority %}
     <td>
-        <div class="pl-roster-actions">
-            {% if can_manage and reg.is_unpaid %}
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
-                    hx-post="{% url 'classes:registration_send_payment_link' reg.pk %}"
-                    hx-target="#reg-row-{{ reg.pk }}" hx-swap="outerHTML" hx-disabled-elt="this">
-                Send Payment Link
-            </button>
-            <button type="button" class="hub-btn hub-btn--sm"
-                    @click="$dispatch('open-confirm', 'markpaid-reg-{{ reg.pk }}')">
-                Mark as Paid
-            </button>
-            {% endif %}
-            {% if viewer_has_refund_authority %}
-                {% if reg.refund_state == "failed" %}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                        hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
-                        hx-target="#refund-modal-body" hx-swap="innerHTML"
-                        @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
-                    Retry Refund
-                </button>
-                {% elif reg.refundable_cents > 0 %}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-                        hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
-                        hx-target="#refund-modal-body" hx-swap="innerHTML"
-                        @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
-                    Refund
-                </button>
-                {% endif %}
-            {% endif %}
-            {% if can_manage %}
-                {% if reg.status == 'confirmed' or reg.status == 'pending' %}
-                <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
-                        @click="$dispatch('open-confirm', 'remove-reg-{{ reg.pk }}')">
-                    Remove
-                </button>
-                {% endif %}
-            {% endif %}
-        </div>
+        {% include "components/row_actions.html" with menu_include="classes/partials/registration_row_menu.html" menu_label="Actions for "|add:reg.first_name|add:" "|add:reg.last_name %}
     </td>
     {% endif %}
 </tr>
