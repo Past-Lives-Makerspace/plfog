@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.13.0"
+VERSION = "1.14.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.14.0",
+        "date": "2026-08-27",
+        "title": "Guilds can charge for orientations",
+        "changes": [
+            "Some orientations now have a price. You pay when you book, right on the booking "
+            "page, and your spot is held while you check out. If the orienter cannot make it "
+            "work or you cancel, your money comes back automatically. Free orientations work "
+            "exactly like before.",
+        ],
+    },
     {
         "version": "1.13.0",
         "date": "2026-08-27",

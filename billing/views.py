@@ -479,7 +479,6 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     """
     from django.contrib import admin
 
-
     from billing.forms import CustomSplitFormSet
     from membership.models import Guild
 

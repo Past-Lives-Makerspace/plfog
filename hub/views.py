@@ -1294,7 +1294,7 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
             orientations.confirm_orientation(booking, oriented_by=_get_member(request))
             messages.success(request, "Orientation confirmed — the member has been emailed.")
         elif action == "decline":
-            orientations.decline_orientation(booking, note=request.POST.get("note", ""), actor=request.user)
+            orientations.decline_orientation(booking, note=request.POST.get("note", ""), actor=cast(User, request.user))
             messages.success(request, "Orientation declined — the member has been notified.")
         return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
@@ -1324,7 +1324,7 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
     forbidden = _require_can_manage_orientations(request, booking.guild)
     if forbidden is not None:
         return forbidden
-    orientations.cancel_orientation(booking, actor_label="the guild", actor=request.user)
+    orientations.cancel_orientation(booking, actor_label="the guild", actor=cast(User, request.user))
     messages.success(request, "Orientation cancelled — the member has been notified.")
     return redirect("hub_orientation_respond", booking_pk=booking.pk)
 
@@ -1340,7 +1340,7 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
     member = _get_member(request)
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
-    orientations.cancel_orientation(booking, actor_label=member.display_name, actor=request.user)
+    orientations.cancel_orientation(booking, actor_label=member.display_name, actor=cast(User, request.user))
     messages.success(request, "Your orientation was cancelled.")
     return redirect("hub_guild_detail", slug=booking.guild.slug)
 
