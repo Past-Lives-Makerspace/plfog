@@ -79,12 +79,6 @@ def build_sample_data() -> SampleData:
         thankyou_email_enabled=True,
         thankyou_email_subject="",
         thankyou_email_body="",
-        join_email_enabled=True,
-        join_email_subject="Welcome to the Ceramics Guild!",
-        join_email_body=(
-            "We're so glad you've joined us. Glazes and community clay live on the shelves by the "
-            "kilns; book an orientation from the guild page and we'll show you around. — Mara"
-        ),
     )
 
     instructor = InstructorFactory(
@@ -517,23 +511,6 @@ def orientation_lead_request_context(data: SampleData) -> dict[str, Any]:
             confirm_url=_action_url(data.booking, "confirm"),
             decline_url=_action_url(data.booking, "decline"),
         ),
-    }
-
-
-def guild_welcome_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``membership.orientations.member_joined_guild`` (guild-authored)."""
-    from membership.models import GuildOrientationSettings
-    from membership.orientations import _absolute_url
-
-    settings_obj = GuildOrientationSettings.objects.get(guild=data.guild)
-    return {
-        "subject": settings_obj.join_email_subject,
-        "template_context": {
-            "guild": data.guild,
-            "greeting_name": data.member.display_name,
-            "body": settings_obj.join_email_body,
-            "guild_url": _absolute_url(reverse("hub_guild_detail", args=[data.guild.slug])),
-        },
     }
 
 

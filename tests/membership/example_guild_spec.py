@@ -38,9 +38,8 @@ def describe_seed_example_guild():
         assert settings.is_enabled is True
         assert settings.is_closed is True
         assert "example guild" in settings.closed_message
-        # Both automatic emails are authored but switched off — nothing can send.
+        # The thank-you email is authored but switched off — nothing can send.
         assert settings.thankyou_email_enabled is False
-        assert settings.join_email_enabled is False
 
     def it_creates_inert_fictional_members_only(db):
         guild = seed_example_guild()

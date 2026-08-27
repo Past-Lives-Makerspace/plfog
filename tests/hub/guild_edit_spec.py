@@ -738,7 +738,7 @@ def describe_guild_edit_tabs():
         assert b"+ Add meeting notes" in response.content
         assert b"+ Add event" in response.content
         # A non-leadership admin sees the overview, not a self-scoped My Hours card.
-        assert b"All Orientation Hours" in response.content
+        assert b"Orientation Schedule" in response.content
         assert b"Save orientation settings" in response.content
 
     def it_lays_short_inputs_out_in_two_columns(client: Client):

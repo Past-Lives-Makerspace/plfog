@@ -248,14 +248,17 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
     faithful structural copy:
 
     * In-app is always present and on (``dispatch`` always writes a bell row).
-    * Email is ``FORCED`` for ``force_email`` triggers, else default from
+    * Email is omitted entirely for ``no_email`` triggers (in-app / push / Discord
+      DM only), ``FORCED`` for ``force_email`` triggers, else default from
       ``email_default`` (on/off).
     * Push default from ``push_default`` (on/off).
     * Discord DM is always offered, default OFF — every member may opt into a
       personal DM for any of these events once they've linked their Discord account.
     """
     specs: list[ChannelSpec] = [_IN_APP_ON]
-    if trigger.force_email:
+    if trigger.no_email:
+        pass  # this trigger sends no email at all — no EMAIL channel is declared
+    elif trigger.force_email:
         specs.append(_EMAIL_FORCED)
     else:
         specs.append(_EMAIL_ON if trigger.email_default else _EMAIL_OFF)

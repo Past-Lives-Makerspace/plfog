@@ -5,6 +5,11 @@ Parameters (pass via {% include ... with %}):
   modal_id      — required, unique DOM id
   modal_title   — required, heading text
   modal_size    — optional: "sm" (400px), "md" (560px, default), "lg" (720px)
+  modal_static  — optional: truthy drops the window-Escape + click-outside dismiss handlers,
+                  so the modal closes only via the X button, an in-body Cancel, or a
+                  close-modal dispatch. Use it when the modal teleports a nested layer to
+                  <body> (e.g. a confirm dialog) whose clicks would otherwise read as
+                  "outside" and close this modal. Omit for today's dismiss-on-outside behavior.
 
 Open from anywhere:
   <button @click="$dispatch('open-modal', 'my-modal-id')">Open</button>
@@ -17,13 +22,13 @@ Modal body is loaded via HTMX into #<modal_id>-body, or set via modal_body varia
      x-transition:leave="modal-leave"
      @open-modal.window="if ($event.detail === '{{ modal_id }}') open = true"
      @close-modal.window="if ($event.detail === '{{ modal_id }}') open = false"
-     @keydown.escape.window="open = false"
+     {% if not modal_static %}@keydown.escape.window="open = false"{% endif %}
      class="pl-modal-backdrop"
      style="display: none;"
      role="dialog"
      aria-modal="true"
      aria-labelledby="{{ modal_id }}-title">
-    <div class="pl-modal pl-modal--{{ modal_size|default:'md' }}" @click.outside="open = false">
+    <div class="pl-modal pl-modal--{{ modal_size|default:'md' }}"{% if not modal_static %} @click.outside="open = false"{% endif %}>
         <div class="pl-modal__header">
             <h2 class="pl-modal__title" id="{{ modal_id }}-title">{{ modal_title }}</h2>
             <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>

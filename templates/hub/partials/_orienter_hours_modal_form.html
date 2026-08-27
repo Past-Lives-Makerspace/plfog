@@ -1,0 +1,84 @@
+{% comment %}
+Edit Hours modal body — the orientation-availability formset for one staffer, loaded via
+HTMX into #edit-hours-modal-body (see the Orientation Schedule card in guild_edit.html).
+
+Prefix is ALWAYS "modal_rules" (never "rules"): the page permanently renders the viewer's
+own "rules"-prefixed My Orientation Hours formset, so a second "rules" formset here would
+duplicate every DOM id. The posted formset_prefix field tells the save view which prefix to
+bind (whitelisted, HTMX-only).
+
+Context: guild, target (the Member being edited), formset (unbound on GET; bound on an
+invalid POST re-render so errors show inside the open modal).
+{% endcomment %}
+<h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.display_name }}'s Hours</h2>
+<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when {{ target.display_name }} can give orientations. We turn them into bookable slots automatically — members book them by name.</p>
+<form id="edit-hours-modal-form" class="hub-form"
+      hx-post="{% url 'hub_guild_orientation_hours_save' guild.pk %}"
+      hx-target="#edit-hours-modal-body" hx-swap="innerHTML">
+  {% csrf_token %}
+  <input type="hidden" name="orienter_scope" value="{{ target.pk }}">
+  <input type="hidden" name="formset_prefix" value="modal_rules">
+  {{ formset.management_form }}
+  {% if formset.non_form_errors %}<div class="hub-form-errors">{{ formset.non_form_errors }}</div>{% endif %}
+  <div id="modal-rule-rows" class="pl-hours-rows">
+    {% for rule in formset %}
+    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      {{ rule.id }}
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
+        <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
+        <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
+        <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=rule.seats %}</div>
+      </div>
+      {% include "components/form_field.html" with field=rule.is_active %}
+      {% if rule.instance.pk %}
+        {# Delete confirms first (it retires future open slots), then flips DELETE and submits the modal form. #}
+        <div style="display:none;">{{ rule.DELETE }}</div>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                @click="$dispatch('open-confirm', 'modal-rule-del-{{ rule.instance.pk }}')">
+          Delete
+        </button>
+        {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('edit-hours-modal-form').requestSubmit();" %}
+        {% include "components/confirm_modal.html" with confirm_id="modal-rule-del-"|add:rpks confirm_title="Delete these hours?" confirm_message="Upcoming open slots from this window will be removed. Slots someone already booked stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
+        {% endwith %}
+      {% endif %}
+    </div>
+    {% empty %}
+    <p class="hub-text-muted">No hours yet. Add a window and members can start booking {{ target.display_name }}.</p>
+    {% endfor %}
+  </div>
+
+  {# Hidden empty-form template, cloned by the +Add button below. #}
+  <template id="modal-rule-empty-template">
+    <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+      {% with formset.empty_form as er %}
+        {{ er.id }}
+        <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+          <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=er.weekday %}</div>
+          <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.start_time %}</div>
+          <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.end_time %}</div>
+          <div style="flex:1; min-width:70px;">{% include "components/form_field.html" with field=er.seats %}</div>
+        </div>
+        {% include "components/form_field.html" with field=er.is_active %}
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+      {% endwith %}
+    </div>
+  </template>
+
+  <div style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+    <button type="button" class="hub-btn hub-btn--sm"
+            onclick="
+              const tpl = document.getElementById('modal-rule-empty-template');
+              const total = document.getElementById('id_modal_rules-TOTAL_FORMS');
+              const idx = parseInt(total.value, 10);
+              const wrap = document.createElement('div');
+              wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+              document.getElementById('modal-rule-rows').appendChild(wrap.firstElementChild);
+              total.value = idx + 1;
+            ">
+      + Add hours
+    </button>
+    <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('close-modal', 'edit-hours-modal')">Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Save</button>
+  </div>
+</form>

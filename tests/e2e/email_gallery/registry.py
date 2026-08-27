@@ -468,25 +468,6 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="orientation_orphan_payment_alert_context",
     ),
     GalleryEmail(
-        key="guild_welcome",
-        name="Guild welcome (guild-authored)",
-        section="Guilds & Orientations",
-        renderer=Renderer.SHELL_TEMPLATE,
-        trigger_note=(
-            "Sent when a member joins a guild that has written and enabled a join welcome email. "
-            "The subject and body are the guild lead's own words. Goes to the joining member."
-        ),
-        edit_pointer=(
-            "Guild-authored (guild page → Orientations settings); "
-            "shell in templates/membership/emails/guild_welcome.{txt,html}"
-        ),
-        audience="The member who just joined the guild.",
-        event_keys=frozenset({"guild_joined"}),
-        text_template="membership/emails/guild_welcome.txt",
-        html_template="membership/emails/guild_welcome.html",
-        context_builder="guild_welcome_context",
-    ),
-    GalleryEmail(
         key="discord_guilds_imported",
         name="Your Past Lives guilds are set up (Discord link)",
         section="Guilds & Orientations",

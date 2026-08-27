@@ -91,6 +91,11 @@ urlpatterns = [
         name="hub_guild_orientation_hours_save",
     ),
     path(
+        "guilds/<int:pk>/orientation/hours/form/",
+        views.guild_orientation_hours_form,
+        name="hub_guild_orientation_hours_form",
+    ),
+    path(
         "guilds/<int:pk>/studio-hours/save/",
         views.guild_studio_hours_save,
         name="hub_guild_studio_hours_save",
@@ -234,6 +239,11 @@ urlpatterns = [
         name="hub_guild_announcement_review_decision",
     ),
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
+    path(
+        "guilds/<int:pk>/announcement-settings/save/",
+        views.guild_announcement_settings_save,
+        name="hub_guild_announcement_settings_save",
+    ),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
     path(

@@ -20,7 +20,7 @@
   <button type="button" class="vote-tab" data-help-key="guild.run-orientations" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
-  <button type="button" class="vote-tab" data-help-key="guild.announcements" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements/Emails</button>
+  <button type="button" class="vote-tab" data-help-key="guild.announcements" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
   <button type="button" class="vote-tab" data-help-key="guild.manage-staff" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
 </div>
 
@@ -382,19 +382,29 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <button type="submit" class="hub-btn hub-btn--primary" style="margin-bottom:2rem;">Save orientation settings</button>
   </form>
 
-  {# My Orientation Hours — the viewer's personal formset (or edit-on-behalf via ?orienter=). #}
+  {# Thank-you Email — the orientation-lifecycle email; own form + endpoint (multi-form via form_id). #}
+  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <input type="hidden" name="form_id" value="thankyou_email">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you Email</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
+      {% include "components/form_field.html" with field=thankyou_email_form.thankyou_email_enabled %}
+      {% include "components/form_field.html" with field=thankyou_email_form.thankyou_email_subject %}
+      {% include "components/form_field.html" with field=thankyou_email_form.thankyou_email_body %}
+      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
+    </div>
+  </form>
+
+  {# My Orientation Hours — the viewer's own personal formset (prefix "rules"). Editing anyone #}
+  {# else's hours happens in the Edit Hours modal (prefix "modal_rules"), never on this page. #}
   {# Hidden for an admin/officer not on this guild's leadership: their own rules would never generate slots. #}
   {% if show_my_hours_card %}
   <form id="my-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
-    <input type="hidden" name="orienter_scope" value="{{ hours_scope_member.pk|default:'' }}">
+    <input type="hidden" name="orienter_scope" value="{{ viewer_member_pk|default:'' }}">
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      {% if hours_editing_other %}
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ hours_scope_member.display_name }}'s Hours</h2>
-      <p style="font-size:0.8125rem; margin:0 0 0.5rem;"><a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations">← Back To My Hours</a></p>
-      {% else %}
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">My Orientation Hours</h2>
-      {% endif %}
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when you personally can give orientations. We turn them into bookable slots automatically — members book you by name.</p>
       {{ rule_formset.management_form }}
       <div id="rule-rows" class="pl-hours-rows">
@@ -462,17 +472,26 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
   {% endif %}
 
-  {# All Orientation Hours — lead/admin overview grouped by person, with edit-on-behalf links. #}
+  {# Orientation Schedule — lead/admin overview grouped by person; Edit Hours opens a modal. #}
   {% if can_edit_others_hours %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">All Orientation Hours</h2>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Schedule</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">Everyone on staff who can give orientations, and when.</p>
     {% for staffer, staffer_rules in orienter_overview %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">
         {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
         <strong>{{ staffer.display_name }}</strong>
-        <a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations&orienter={{ staffer.pk }}" class="hub-btn hub-btn--sm">Edit Hours</a>
+        {% if staffer.pk != viewer_member_pk %}
+        <button type="button" class="hub-btn hub-btn--sm"
+                @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
+                hx-get="{% url 'hub_guild_orientation_hours_form' guild.pk %}?orienter={{ staffer.pk }}"
+                hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
+                hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+                hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+          Edit Hours
+        </button>
+        {% endif %}
       </div>
       {% if staffer_rules %}
       <ul class="pl-orient-overview__rules">
@@ -493,7 +512,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
       <div class="pl-orient-overview__person">
         {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
         <strong>{{ staffer.display_name }}</strong>
-        <a href="{% url 'hub_guild_edit' guild.pk %}?tab=orientations&orienter={{ staffer.pk }}" class="hub-btn hub-btn--sm">Edit Hours</a>
+        {# Deliberately ungated: a former-staff viewer (admin/officer not on this guild's leadership) #}
+        {# gets no inline My Hours card, so this modal is their only route to clean up their own rows. #}
+        <button type="button" class="hub-btn hub-btn--sm"
+                @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
+                hx-get="{% url 'hub_guild_orientation_hours_form' guild.pk %}?orienter={{ staffer.pk }}"
+                hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
+                hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+                hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+          Edit Hours
+        </button>
       </div>
       <ul class="pl-orient-overview__rules">
         {% for r in staffer_rules %}
@@ -504,6 +532,10 @@ confirm modal carries its own POST form, and template content can't nest a form.
     {% endfor %}
     {% endif %}
   </div>
+  {# One shared Edit Hours modal for every staffer row above; its body is HTMX-loaded per person. #}
+  {# modal_static: the teleported delete-confirm lives outside this modal's DOM, so click-outside #}
+  {# would otherwise close the editor when confirming/cancelling a delete. #}
+  {% include "components/modal.html" with modal_id="edit-hours-modal" modal_title="Edit Hours" modal_size="lg" modal_static=True %}
   {% endif %}
 
   {# Guild Hours (Any Orienter) — legacy shared rules; renders only while such rows exist. #}
@@ -757,7 +789,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
 </div>
 
-{# ── Announcements/Emails (separate forms, live outside the main form) ── #}
+{# ── Announcements (separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
 
   {# ── Your Mailing List (own forms/endpoints — not nested in another form) ── #}
@@ -877,6 +909,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </div>
   {% endif %}
   {% endwith %}
+  {# Member Suggestions — the toggle sits right next to the feature it governs; own form/endpoint. #}
+  <form method="post" action="{% url 'hub_guild_announcement_settings_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Member Suggestions</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Members can propose announcements from your guild page. Nothing posts until you approve it. Turn this off to hide the suggestion button.</p>
+      {% include "components/form_field.html" with field=announcement_settings_form.allow_member_announcement_suggestions %}
+      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
+    </div>
+  </form>
   <div class="hub-card" style="padding:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Post an Announcement</h2>
     <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Compose in the step-through wizard — write the message, design the email with a live preview, choose the Discord channel, and save a draft to finish later. It reaches your mailing list above.</p>
@@ -893,28 +935,6 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% endfor %}
     </div>
   </div>
-
-  {# Guild follow-up emails — moved here from Orientations; own form/endpoint. #}
-  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
-    {% csrf_token %}
-    <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Thank-you email</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to the member once their orientation is marked complete.</p>
-      {% include "components/form_field.html" with field=emails_form.thankyou_email_enabled %}
-      {% include "components/form_field.html" with field=emails_form.thankyou_email_subject %}
-      {% include "components/form_field.html" with field=emails_form.thankyou_email_body %}
-    </div>
-
-    <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome email</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent when a member joins this guild.</p>
-      {% include "components/form_field.html" with field=emails_form.join_email_enabled %}
-      {% include "components/form_field.html" with field=emails_form.join_email_subject %}
-      {% include "components/form_field.html" with field=emails_form.join_email_body %}
-    </div>
-
-    <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save emails</button>
-  </form>
 </div>
 
 {% for a in guild.announcements.published %}

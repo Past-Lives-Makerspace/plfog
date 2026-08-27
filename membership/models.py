@@ -1777,6 +1777,10 @@ class Guild(HeroCropMixin, models.Model):
         default="FAQ",
         help_text="Heading for this guild's FAQ / info section on the guild page — e.g. 'Ceramics Info'.",
     )
+    allow_member_announcement_suggestions = models.BooleanField(
+        default=True,
+        help_text="Let members suggest announcements for this guild from its guild page.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
         null=True,
@@ -8128,7 +8132,7 @@ class OrientationError(Exception):
 
 
 class GuildOrientationSettings(models.Model):
-    """Per-guild orientation configuration plus two lead-editable follow-up emails.
+    """Per-guild orientation configuration plus the lead-editable thank-you email.
 
     A guild offers orientation booking only when ``is_enabled`` is on; a lead can
     temporarily stop taking bookings with ``is_closed`` + a ``closed_message``
@@ -8178,18 +8182,6 @@ class GuildOrientationSettings(models.Model):
     thankyou_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the thank-you email was last edited."
     )
-    join_email_enabled = models.BooleanField(
-        default=False, help_text="Send a welcome email when a member joins this guild."
-    )
-    join_email_subject = models.CharField(
-        max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
-    )
-    join_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the welcome email (plain text, line breaks preserved)."
-    )
-    join_email_updated_at = models.DateTimeField(
-        null=True, blank=True, help_text="When the welcome email was last edited."
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -8213,11 +8205,6 @@ class GuildOrientationSettings(models.Model):
         from membership.orientation_copy import STANDARD_THANKYOU_BODY
 
         return self.thankyou_email_body or STANDARD_THANKYOU_BODY
-
-    @property
-    def join_email_ready(self) -> bool:
-        """True when the welcome email is enabled and has both subject and body."""
-        return self.join_email_enabled and bool(self.join_email_subject) and bool(self.join_email_body)
 
     @property
     def is_accepting(self) -> bool:

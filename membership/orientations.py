@@ -942,39 +942,21 @@ def retire_orienter(guild: Guild, member: Member) -> tuple[int, int]:
 
 
 def member_joined_guild(guild: Guild, member: Member) -> None:
-    """Fan out when a member joins a guild: welcome email (if configured), lead notification, activity.
+    """Fan out when a member joins a guild: lead notification + activity (no email).
 
-    One :func:`emit` handles all three: the ``GUILD_JOINED`` activity row, the lead-only
-    in-app ``guild_joined`` notification (resolver ``guild_lead`` — preserving the
-    lead-only audience), and — when the guild configured a welcome email — the welcome
-    email to the *member* via an explicit ``email_to`` (a different audience from the
-    in-app, addressed directly so it sends regardless of preferences, as today).
+    A plain :func:`emit` handles both: the ``GUILD_JOINED`` activity row and the
+    lead-only in-app ``guild_joined`` notification (resolver ``guild_lead`` —
+    preserving the lead-only audience). ``guild_joined`` declares no email channel
+    (``core/triggers.py``: ``no_email=True``), so no email is sent — the old
+    guild welcome email was removed with its dead "Join This Guild" trigger.
     """
-    from membership.models import GuildOrientationSettings
-
-    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    # A configured welcome email needs a settings row that is join_email_ready; bind it to
-    # a separate name so the type checker can narrow ``GuildOrientationSettings | None``.
-    welcome_settings = settings_obj if (settings_obj is not None and settings_obj.join_email_ready) else None
-    welcome_ready = welcome_settings is not None
-    template_context = {
-        "guild": guild,
-        "greeting_name": member.display_name,
-        "body": welcome_settings.join_email_body if welcome_settings is not None else "",
-        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
-    }
-    emit_with_email_shell(
+    emit(
         "guild_joined",
         actor=member.user,
         target=guild,
         context={"guild": guild},
-        subject=welcome_settings.join_email_subject if welcome_settings is not None else "",
-        text_template="membership/emails/guild_welcome.txt",
-        html_template="membership/emails/guild_welcome.html",
-        template_context=template_context,
-        in_app_title="New follower",
-        in_app_body=f"{member.display_name} now follows {guild.name}.",
+        title="New follower",
+        body=f"{member.display_name} now follows {guild.name}.",
         url=reverse("hub_guild_detail", args=[guild.slug]),
-        email_to=member.primary_email if welcome_ready else None,
         period=f"guild:{guild.pk}:join:{member.pk}",
     )

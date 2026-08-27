@@ -46,7 +46,7 @@ def describe_guild_announcement_recipients():
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        # Open the editor straight onto the Announcements/Emails tab.
+        # Open the editor straight onto the Announcements tab.
         page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
         # The count reflects only the reachable members; the list starts hidden.

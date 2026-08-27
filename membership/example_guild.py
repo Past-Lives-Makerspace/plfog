@@ -162,7 +162,7 @@ ANNOUNCEMENTS: list[dict[str, str]] = [
         "body": (
             "If you're reading this, you found the Cartographers Guild — the Help Center's "
             "permanent example page. Announcements like this one are what guild leads publish "
-            "from the Announcements/Emails tab in Guild Settings."
+            "from the Announcements tab in Guild Settings."
         ),
     },
 ]
@@ -211,12 +211,6 @@ ORIENTATION = {
     "thankyou_email_body": (
         "Thanks for getting oriented with the Cartographers Guild! (This example text shows where "
         "a guild's post-orientation thank-you email is written.)"
-    ),
-    "join_email_enabled": False,
-    "join_email_subject": "You joined the Cartographers Guild",
-    "join_email_body": (
-        "Welcome! Atlas Night is the first Tuesday of every month. (Example text — this is the "
-        "welcome email a guild can send when a member joins.)"
     ),
 }
 

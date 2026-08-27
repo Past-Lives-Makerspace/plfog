@@ -325,9 +325,97 @@ def describe_guild_page_entry_points():
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert f"/announcements/propose/?guild={guild.pk}".encode() not in resp.content
 
+    def it_hides_suggest_when_the_guild_disables_member_suggestions(client: Client):
+        _member("v1c")
+        guild = GuildFactory(name="Closed Suggest Guild", allow_member_announcement_suggestions=False)
+        client.login(username="v1c", password="pass")
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert f"/announcements/propose/?guild={guild.pk}".encode() not in resp.content
+        # The empty-state invitation is softened to plain copy (no dead-end invite to a hidden button).
+        assert b"be the first to suggest one" not in resp.content
+        assert b"No announcements yet." in resp.content
+
+    def it_keeps_the_suggest_invite_when_suggestions_are_on(client: Client):
+        _member("v1d")
+        guild = GuildFactory(name="Open Suggest Guild")
+        client.login(username="v1d", password="pass")
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert b"be the first to suggest one" in resp.content
+
     def it_shows_the_view_public_button_to_an_editor_on_a_guild(client: Client):
         _member("ed1", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Public View Guild")
         client.login(username="ed1", password="pass")
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"public page as a guest" in resp.content  # the button's title attribute
+
+
+@pytest.mark.django_db
+def describe_suggestion_gating():
+    def it_excludes_disabled_guilds_from_the_picker_for_new_proposals(client: Client):
+        _member("sg1")
+        GuildFactory(name="Open Guild")
+        GuildFactory(name="Closed Guild", allow_member_announcement_suggestions=False)
+        client.login(username="sg1", password="pass")
+        resp = client.get(reverse("hub_guild_announcement_propose"))
+        names = {g.name for g in resp.context["form"].fields["guild"].queryset}
+        assert "Open Guild" in names
+        assert "Closed Guild" not in names
+
+    def it_rejects_a_post_naming_a_disabled_guild_with_the_exact_message(client: Client):
+        _member("sg2")
+        guild = GuildFactory(allow_member_announcement_suggestions=False)
+        # A second, open guild so the form still renders (this is not the all-disabled case).
+        GuildFactory(name="Still Open")
+        client.login(username="sg2", password="pass")
+        resp = client.post(reverse("hub_guild_announcement_propose"), data=_payload(guild.pk))
+        assert resp.status_code == 200
+        assert "This guild isn't taking member suggestions right now." in resp.context["form"].errors["guild"]
+        assert not GuildAnnouncement.objects.filter(guild=guild).exists()
+
+    def it_degrades_a_disabled_guild_query_string_to_the_unfixed_picker(client: Client):
+        _member("sg3")
+        GuildFactory(name="Still Open")
+        guild = GuildFactory(name="Closed Guild", allow_member_announcement_suggestions=False)
+        client.login(username="sg3", password="pass")
+        resp = client.get(reverse("hub_guild_announcement_propose") + f"?guild={guild.pk}")
+        assert resp.status_code == 200
+        assert resp.context["form"]["guild"].value() is None  # not preselected
+        assert guild not in set(resp.context["form"].fields["guild"].queryset)
+
+    def it_renders_the_empty_state_when_no_guilds_take_suggestions(client: Client):
+        _member("sg4")
+        GuildFactory(allow_member_announcement_suggestions=False)
+        client.login(username="sg4", password="pass")
+        resp = client.get(reverse("hub_guild_announcement_propose"))
+        assert resp.status_code == 200
+        assert resp.context["no_guilds_available"] is True
+        assert resp.context["form"] is None
+        assert b"No guilds are taking member suggestions right now." in resp.content
+
+    def it_keeps_a_changes_requested_proposal_editable_for_a_since_disabled_guild(client: Client):
+        user = _member("sg5")
+        guild = GuildFactory(allow_member_announcement_suggestions=False)
+        announcement = GuildAnnouncementFactory(guild=guild, changes_requested=True, submitted_by=user)
+        client.login(username="sg5", password="pass")
+        get_resp = client.get(reverse("hub_guild_announcement_propose_edit", args=[announcement.pk]))
+        assert get_resp.status_code == 200
+        # The proposal's own guild stays selectable so it can be revised without repointing.
+        assert guild in set(get_resp.context["form"].fields["guild"].queryset)
+        post_resp = client.post(
+            reverse("hub_guild_announcement_propose_edit", args=[announcement.pk]),
+            data=_payload(guild.pk, title="Revised", body="Now with the time."),
+        )
+        assert post_resp.status_code == 302
+        announcement.refresh_from_db()
+        assert announcement.moderation_state == GuildAnnouncement.ModerationState.PENDING
+
+    def it_still_lets_a_lead_decide_a_pending_proposal_for_a_since_disabled_guild(client: Client):
+        # Disabling suggestions suppresses NEW proposals only; pending ones stay decidable.
+        lead = _member("sg6lead")
+        guild = GuildFactory(guild_lead=lead.member, allow_member_announcement_suggestions=False)
+        announcement = GuildAnnouncementFactory(guild=guild, pending=True, title="Still Decidable")
+        client.login(username="sg6lead", password="pass")
+        resp = client.get(reverse("hub_guild_announcement_review_queue"))
+        assert resp.status_code == 200
+        assert announcement.title.encode() in resp.content
