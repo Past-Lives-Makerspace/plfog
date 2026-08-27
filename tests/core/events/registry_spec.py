@@ -123,6 +123,23 @@ def describe_event_registry():
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
 
+        def it_declares_no_email_channel_when_a_trigger_sets_no_email():
+            # The no_email flag suppresses the EMAIL channel entirely — the trigger seeds
+            # in-app + push + Discord DM only. (Both branches of the email guard are exercised:
+            # this one skips EMAIL; the force/default tests above append it.)
+            silent = triggers.Trigger(
+                key="silent_probe", label="Probe", description="d", category="Guilds", no_email=True
+            )
+            channels = registry._channels_from_trigger(silent)
+            assert all(spec.channel is not Channel.EMAIL for spec in channels)
+            assert any(spec.channel is Channel.IN_APP for spec in channels)
+
+        def it_gives_guild_joined_no_email_channel():
+            # guild_joined is the first spine event to declare no_email — its welcome email
+            # was removed, so the in-app notice + push + Discord DM are its only channels.
+            assert get_event("guild_joined").channel(Channel.EMAIL) is None
+            assert get_event("guild_joined").has_channel(Channel.IN_APP)
+
         def it_offers_push_on_every_in_app_event():
             # Every event that writes an in-app bell row also OFFERS Push (a toggle);
             # events with no bell (forced-email / broadcast-only) declare no Push channel.

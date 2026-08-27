@@ -2,8 +2,7 @@
 
 Covers the one-time prompt eligibility (``needs_guild_updates_prompt``), the shared
 answered-stamp recorder (``mark_guild_updates_answered``), the single subscribe and
-unsubscribe paths, the prompt answer (``answer_guild_updates_prompt``), and the
-welcome-email period dedupe across skip/subscribe/resubscribe sequences.
+unsubscribe paths, and the prompt answer (``answer_guild_updates_prompt``).
 """
 
 from __future__ import annotations
@@ -11,13 +10,11 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from django.core import mail
 
 from membership.models import GuildMembership
 from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
-    GuildOrientationSettingsFactory,
     MemberFactory,
 )
 
@@ -158,30 +155,3 @@ def describe_answer_guild_updates_prompt():
         count = member.answer_guild_updates_prompt([guild])
         assert count == 0
         assert GuildMembership.objects.filter(guild=guild, member=member).count() == 1
-
-
-def describe_welcome_email_dedupe():
-    @pytest.fixture
-    def guild_with_welcome():
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome to the guild!",
-            join_email_body="So glad you're here.",
-        )
-        return guild
-
-    def it_sends_the_welcome_once_when_a_skipper_later_subscribes(guild_with_welcome):
-        member = MemberFactory()
-        member.answer_guild_updates_prompt([])  # Skip
-        member.subscribe_to_guild(guild_with_welcome)  # later, from Settings
-        assert sum(1 for m in mail.outbox if m.subject == "Welcome to the guild!") == 1
-
-    def it_does_not_resend_the_welcome_on_unsubscribe_then_resubscribe(guild_with_welcome):
-        member = MemberFactory()
-        member.subscribe_to_guild(guild_with_welcome)
-        member.unsubscribe_from_guild(guild_with_welcome)
-        member.subscribe_to_guild(guild_with_welcome)
-        assert sum(1 for m in mail.outbox if m.subject == "Welcome to the guild!") == 1

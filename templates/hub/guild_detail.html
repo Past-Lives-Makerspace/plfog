@@ -114,10 +114,11 @@
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
-     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings'">
+     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; if (window.location.hash === '#guild-orientation') $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView()); }{% endif %}">
 <nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
+    {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>{% endif %}
     {% if my_tab_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
@@ -148,7 +149,7 @@
                 <h2 class="pl-guild-section__h2" style="margin:0;">Announcements</h2>
                 {% if can_edit_this_guild %}
                 <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}&amp;lock=1" class="hub-btn hub-btn--sm hub-btn--primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:0.35rem;vertical-align:-2px;"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Send Announcement</a>
-                {% elif user.is_authenticated %}
+                {% elif user.is_authenticated and guild.allow_member_announcement_suggestions %}
                 <a href="{% url 'hub_guild_announcement_propose' %}?guild={{ guild.pk }}" class="hub-btn hub-btn--sm">+ Suggest an announcement</a>
                 {% endif %}
             </div>
@@ -164,8 +165,10 @@
             </div>
             {% elif can_edit_this_guild %}
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet. Use Send Announcement to post one.</p>
-            {% else %}
+            {% elif guild.allow_member_announcement_suggestions %}
             <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet — be the first to suggest one.</p>
+            {% else %}
+            <p class="hub-text-muted" style="margin-top:0.5rem;">No announcements yet.</p>
             {% endif %}
         </section>
         {% endif %}
@@ -304,7 +307,7 @@
                 {% endif %}
                 {% if show_orientation and not is_oriented %}
                 <button type="button" class="pl-btn pl-btn--primary" style="width:100%;" data-help-key="orientation.book-slot"
-                        @click="section = 'schedule'; $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView({ behavior: 'smooth' }))">
+                        @click="section = 'orientations'; $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView({ behavior: 'smooth' }))">
                     Join an Orientation
                 </button>
                 {% endif %}
@@ -444,8 +447,19 @@
     {# Calendar first — the guild's classes + orientation slots show as entries on it. #}
     {% include "hub/partials/guild_calendar_app.html" with cal=calendar guild=guild %}
 
-    {% if show_orientation %}{% include "hub/partials/guild_orientation.html" %}{% endif %}
+    {% if show_orientation and not is_oriented %}
+    <p class="hub-text-muted" style="margin-top:0.75rem; font-size:0.9rem;">
+        Want to book one of these orientation times?
+        <a href="#" @click.prevent="section = 'orientations'">Open the Orientations tab.</a>
+    </p>
+    {% endif %}
 </div>
+
+{% if show_orientation %}
+<div x-show="section === 'orientations'" x-cloak>
+    {% include "hub/partials/guild_orientation.html" %}
+</div>
+{% endif %}
 
 {% if my_tab_enabled and not is_guilds_surface %}
 <div x-show="section === 'buyables'" x-cloak>

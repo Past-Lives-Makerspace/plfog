@@ -274,6 +274,7 @@ Tabs across the top:
 
 - **Overview** — announcements, what the guild is about, upcoming classes, and meetings.
 - **Guild Calendar** — that guild's meetings, classes, and orientation times.
+- **Orientations** — book a time to get oriented (appears when the guild offers orientations).
 - **FAQ**, **Meeting Notes**, and **Gallery** — appear once the guild adds content to them.
 
 The Overview's side panels show the guild's staff, studio hours, next meeting, members, links, and contact info — plus the **Get Involved** panel with quick actions like booking an orientation.
@@ -285,11 +286,11 @@ The Overview's side panels show the guild's staff, studio hours, next meeting, m
 
 ![The Guilds tab in Settings: one toggle per guild, saved instantly.](/static/help/guilds-and-guild-pages/03-leave-from-settings.png)
 
-Following is free, and you can follow as many guilds as you want. It gets you the guild's announcements, puts you on its roster, and gives you its Discord role. Some guilds send a welcome email with next steps, and the guild's leads are notified so they can say hi.
+Following is free, and you can follow as many guilds as you want. It gets you the guild's announcements, puts you on its roster, and gives you its Discord role, and the guild's leads are notified so they can say hi.
 
 ## Good to Know
 
-- Anyone can propose an announcement for a guild, but a guild lead or admin has to approve it before it appears — so yours may not show up right away.
+- Anyone can propose an announcement for a guild when the guild has member suggestions on, but a guild lead or admin has to approve it before it appears — so yours may not show up right away.
 - Only guild leads, their staff, and admins can edit a guild page. If you help run a guild and need access, ask an admin.
 - Many guilds ask you to get oriented before using their space and tools — see [Getting Oriented](/help/guilds/getting-oriented/).
 """,
@@ -320,13 +321,13 @@ Following is free, and you can follow as many guilds as you want. It gets you th
 
 ## Book a Slot {#orientation-book-slot}
 
-1. Open the guild's page and click **Join an Orientation** in the **Get Involved** panel. It jumps you to the booking section on the **Guild Calendar** tab.
+1. Open the guild's page and click **Join an Orientation** in the **Get Involved** panel. It jumps you to the booking section on the **Orientations** tab.
 
    ![Join an Orientation in the Get Involved panel jumps to the booking section.](/static/help/getting-oriented/01-join-an-orientation.png)
 
 2. The booking section lists upcoming times with a **Request** button next to each open one. Pick a time and click **Request**. (A time marked **Full** has no seats left — pick another.)
 
-   ![The Guild Calendar tab holds the guild's schedule and the orientation booking section.](/static/help/getting-oriented/02-guild-calendar-tab.png)
+   ![The Orientations tab holds the guild's booking section.](/static/help/getting-oriented/02-orientations-tab.png)
 
 3. Click **Send request** to confirm.
 
@@ -356,10 +357,10 @@ On the guild page, your booking shows under **Your orientation** with a **Cancel
                 "as_role": "member",
             },
             {
-                "file": "02-guild-calendar-tab.png",
+                "file": "02-orientations-tab.png",
                 "page": "/guilds/ceramics-guild/",
                 "selector": 'nav[role="tablist"]',
-                "caption": "The Guild Calendar tab holds the guild's schedule and the orientation booking section.",
+                "caption": "The Orientations tab holds the guild's booking section.",
                 "as_role": "member",
             },
         ],
@@ -646,11 +647,13 @@ Announcements are how guilds share news — a restock, a schedule change, a call
 
 ### Suggest an Announcement {#announcement-propose}
 
-Anyone can suggest an announcement for any guild — you don't need to run it.
+Anyone can suggest an announcement for any guild that has member suggestions on — you don't need to run it.
 
 1. On the guild's page, click **+ Suggest an announcement**.
 2. Write your title and message, and submit it.
 3. It goes to the guild's leads (or an admin) for review before it posts. You'll get a note when someone responds.
+
+Some guilds turn member suggestions off. If you don't see the button, that guild isn't taking suggestions right now.
 
 ![The Suggest an announcement form.](/static/help/announcements/02-propose-announcement.png)
 
@@ -1251,7 +1254,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 **Reaching members:**
 
 - **Announcements** — write to your whole guild (in-app, push, email, and Discord from one wizard), manage your mailing list, and review member-proposed announcements. See [Guild Announcements](/help/running-a-guild/guild-announcements/) and [The Announcement Composer](/help/running-a-guild/announcement-composer/).
-- **Two automatic emails** — a welcome email when someone starts following your guild and a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
+- **One automatic email** — a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 
 **Calendar and records:**
 
@@ -1296,7 +1299,7 @@ Wondering how far you can take the page? The [Cartographers Guild](/guilds/carto
 
 ### The Tabs {#guild-edit-page}
 
-Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Images**, **FAQ & Links**, **Announcements/Emails**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
+Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Images**, **FAQ & Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
 
 This guide covers the page itself. Orientations, announcements, events, studio hours, and staff each have their own guide.
 
@@ -1330,9 +1333,9 @@ On the **FAQ & Links** tab, click **+ Add a question**. Each answer can also emb
 
 Below the FAQ editor, add links with a label and a URL, then click **Save Links**. They show on your guild page.
 
-### Two Automatic Emails
+### Your Automatic Email
 
-On the **Announcements/Emails** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete, and a **Welcome email**, sent when a member starts following your guild. Each one only goes out when it's switched on and has both a subject and a body. Click **Save emails**.
+On the **Orientations** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete. It's on by default and falls back to standard wording, so you can leave the subject and body blank or write your own. Click its **Save** button.
 
 Only leads, staff, and admins see the Guild Settings button. Everything a staff member can do here, they can do with your full authority; see the guild staff roles guide before adding anyone.""",
         "screenshots": [
@@ -1431,7 +1434,7 @@ Members request orientations from your guild's own page. Every request stays pen
 3. Choose whether members may propose their own time (custom requests).
 4. Click **Save orientation settings**.
 
-![The Orientations tab: booking settings, the pause switch, and recurring hours.](/static/help/running-orientations/01-orientations-tab.png)
+![The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.](/static/help/running-orientations/01-orientations-tab.png)
 
 Going away for a while? The **Closed for orientations** card pauses bookings without losing any of your settings, and shows members your message (like: on vacation till Sept 8).
 
@@ -1466,13 +1469,13 @@ Need to orient someone who never booked? Use **Add a member to a slot** at the b
 
 ### Past Orientations Complete Themselves
 
-Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Announcements/Emails tab) and posts a welcome notice to the guild. If a no-show got auto-completed, the guild's lead or an admin can flip it back with the **Mark done** toggle in the dashboard table.""",
+Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Orientations tab) and posts a welcome notice to the guild. If a no-show got auto-completed, the guild's lead or an admin can flip it back with the **Mark done** toggle in the dashboard table.""",
         "screenshots": [
             {
                 "file": "01-orientations-tab.png",
                 "page": "/guilds/1/edit/?tab=orientations",
                 "selector": "[x-show=\"section === 'orientations'\"]",
-                "caption": "The Orientations tab: booking settings, the pause switch, and recurring hours.",
+                "caption": "The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.",
                 "as_role": "guild_lead",
             },
             {
@@ -1511,7 +1514,7 @@ Guild leads and staff can announce things to their whole guild: in the app, by e
 
 ### The Compose Wizard {#announcements-compose}
 
-From **Guild Settings**, open the **Announcements/Emails** tab and click **Compose announcement**; it opens already pointed at your guild. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
+From **Guild Settings**, open the **Announcements** tab and click **Compose announcement**; it opens already pointed at your guild. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
 
 ![The composer's Compose tab: message, recipients, and the delivery switches.](/static/help/guild-announcements/01-compose-wizard.png)
 
@@ -1519,9 +1522,9 @@ The full walkthrough — including push notifications, the urgent switch, and te
 
 ### Your Mailing List
 
-The **Announcements/Emails** tab shows exactly who your emails reach. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
+The **Announcements** tab shows exactly who your emails reach. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
 
-![The Announcements/Emails tab: your mailing list, the compose button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
+![The Announcements tab: your mailing list, the compose button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
 
 ### Edit or Delete a Posted Announcement
 
@@ -1529,7 +1532,7 @@ Under **Recent Announcements** on the same tab, each announcement has **Edit** a
 
 ### Review Member Proposals {#announcements-review-proposals}
 
-Any logged-in member can propose an announcement for any guild. Nothing posts until a lead, staff member, or admin approves it. When proposals are waiting, the Announcements/Emails tab shows a banner with a **Review proposals** button; the queue shows proposals for the guilds you help run (admins see every guild's).
+Any logged-in member can propose an announcement for any guild. Nothing posts until a lead, staff member, or admin approves it. When proposals are waiting, the Announcements tab shows a banner with a **Review proposals** button; the queue shows proposals for the guilds you help run (admins see every guild's).
 
 ![The review queue for member-proposed announcements.](/static/help/guild-announcements/03-review-queue.png)
 
@@ -1539,7 +1542,11 @@ For each proposal you can:
 - **Request changes**, with a note. The proposal goes back to the member, who can edit and resubmit it.
 - **Decline** it, with a note explaining why.
 
-The proposer is notified of your decision either way.""",
+The proposer is notified of your decision either way.
+
+### Turning Member Suggestions Off {#announcements-member-suggestions}
+
+If you'd rather not take member-proposed announcements, open the **Member Suggestions** card on the **Announcements** tab and switch it off. The **+ Suggest an announcement** button disappears from your guild page, and the suggest page stops offering your guild in its picker. Proposals already in your queue stay decidable, and anyone mid-revision on a changes-requested proposal can still resubmit it. Turn it back on any time.""",
         "screenshots": [
             {
                 "file": "01-compose-wizard.png",
@@ -1552,7 +1559,7 @@ The proposer is notified of your decision either way.""",
                 "file": "02-announcements-tab.png",
                 "page": "/guilds/1/edit/?tab=announcements",
                 "selector": "[x-show=\"section === 'announcements'\"]",
-                "caption": "The Announcements/Emails tab: your mailing list, the compose button, and recent announcements.",
+                "caption": "The Announcements tab: your mailing list, the compose button, and recent announcements.",
                 "as_role": "guild_lead",
             },
             {
@@ -1581,7 +1588,7 @@ One composer sends an announcement everywhere it needs to go: the notification b
 - **Guild leads and staff** can send to the guilds they help run.
 - **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page — its **Send Announcement** button.)
 
-Ways in: **Admin Tools → Announcements**, the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements/Emails tab.
+Ways in: **Admin Tools → Announcements**, the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements tab.
 
 ### Tab 1: Compose {#composer-compose}
 

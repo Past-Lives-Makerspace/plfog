@@ -512,36 +512,21 @@ def describe_auto_complete():
 
 
 def describe_member_joined_guild():
-    def it_emails_the_member_and_notifies_the_lead():
+    def it_notifies_the_lead_and_logs_activity_without_emailing():
         lead = _member_with_user("join_lead")
         guild = GuildFactory(guild_lead=lead)
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome!",
-            join_email_body="Glad you joined.",
-        )
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
         member = _member_with_user("join_member")
 
         orientations.member_joined_guild(guild, member)
 
-        assert mail.outbox[0].to == [member.primary_email]
-        assert mail.outbox[0].subject == "Welcome!"
+        # The welcome email was removed with its dead trigger; only the lead-only "New
+        # follower" notice and the GUILD_JOINED activity remain — no email is sent.
+        assert mail.outbox == []
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
         notice = Notification.objects.get(user=lead.user, trigger="guild_joined")
         assert notice.title == "New follower"
         assert notice.body == f"{member.display_name} now follows {guild.name}."
-
-    def it_skips_the_email_when_not_configured():
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        member = _member_with_user("join_noemail")
-
-        orientations.member_joined_guild(guild, member)
-
-        assert mail.outbox == []
-        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
 
 
 def describe_generate_slots():

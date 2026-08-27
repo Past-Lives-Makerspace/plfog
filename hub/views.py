@@ -665,10 +665,9 @@ def _guild_edit_context(
     *,
     form: GuildEditForm | None = None,
     orientation_form: Any = None,
-    emails_form: Any = None,
+    thankyou_email_form: Any = None,
     rule_formset: Any = None,
     guild_rule_formset: Any = None,
-    hours_scope_member: Any = None,
     studio_hours_formset: Any = None,
     mailing_list_formset: Any = None,
 ) -> dict[str, Any]:
@@ -681,46 +680,38 @@ def _guild_edit_context(
     save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
     """
     from hub.forms import (
-        GuildEmailsForm,
+        GuildAnnouncementSettingsForm,
         GuildFAQItemFormSet,
         GuildLinkFormSet,
         GuildMailingListFormSet,
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
+        GuildThankyouEmailForm,
         OrientationAvailabilityFormSet,
         OrientationSlotForm,
         StudioHoursFormSet,
     )
-    from membership.models import GuildOrientationSettings, Member
+    from membership.models import GuildOrientationSettings
     from membership.permissions import can_edit_orienter_hours
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     ctx = _get_hub_context(request)
     recipients = guild.announcement_recipients()
 
-    # ── Orientations tab: per-orienter hours scope + overview + slots ─────────
+    # ── Orientations tab: the viewer's own hours + overview + slots ───────────
+    # Editing another staffer's hours happens in the Edit Hours modal (its own GET
+    # partial + save prefix), never by reloading this page with a ?orienter= param.
     viewer = _get_member(request)
     can_edit_others_hours = can_edit_orienter_hours(request, guild, None)
-    hours_scope = hours_scope_member
-    if hours_scope is None:
-        hours_scope = viewer
-        orienter_param = request.GET.get("orienter", "")
-        # ?orienter=<pk> scopes the My Hours editor to that person (leads/admins only);
-        # without permission, or with a bogus pk, the param is ignored — self it is.
-        if orienter_param.isdigit() and can_edit_others_hours:
-            candidate = Member.objects.filter(pk=int(orienter_param)).first()
-            if candidate is not None:
-                hours_scope = candidate
-    hours_editing_other = hours_scope is not None and (viewer is None or hours_scope.pk != viewer.pk)
     personal_rules_qs = (
-        guild.orientation_rules.for_orienter(hours_scope) if hours_scope is not None else guild.orientation_rules.none()
+        guild.orientation_rules.for_orienter(viewer) if viewer is not None else guild.orientation_rules.none()
     )
     leadership = guild.leadership_members()
     leadership_ids = {m.pk for m in leadership}
     # An admin/officer who is not on this guild's leadership gets no self-scoped My Hours
     # card — their personal rules would never generate slots (the save 403s that scope
-    # too). Edit-on-behalf (?orienter=, incl. Former Staff cleanup) still renders.
-    show_my_hours_card = hours_editing_other or (viewer is not None and viewer.pk in leadership_ids)
+    # too). They clean up any leftover rows via the Edit Hours modal on the Former Staff row.
+    show_my_hours_card = viewer is not None and viewer.pk in leadership_ids
     rules_by_orienter: dict[int, list[Any]] = {}
     orphan_orienters: dict[int, Any] = {}
     for rule in guild.orientation_rules.exclude(orienter=None).select_related("orienter"):
@@ -774,14 +765,16 @@ def _guild_edit_context(
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
-        "emails_form": emails_form if emails_form is not None else GuildEmailsForm(instance=settings_obj),
+        "thankyou_email_form": (
+            thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
+        ),
+        "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
         "rule_formset": (
             rule_formset
             if rule_formset is not None
             else OrientationAvailabilityFormSet(instance=guild, prefix="rules", queryset=personal_rules_qs)
         ),
-        "hours_scope_member": hours_scope,
-        "hours_editing_other": hours_editing_other,
+        "viewer_member_pk": viewer.pk if viewer is not None else None,
         "show_my_hours_card": show_my_hours_card,
         "can_edit_others_hours": can_edit_others_hours,
         "orienter_overview": orienter_overview,
@@ -935,21 +928,39 @@ def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, 
     return " ".join(parts)
 
 
+def _personal_hours_prefix(request: HttpRequest, *, is_htmx: bool) -> str:
+    """Pick the whitelisted formset prefix for a personal-scope hours save.
+
+    The page's own My Hours card posts ``rules`` (a plain POST); the Edit Hours modal posts
+    ``modal_rules`` over HTMX. ``modal_rules`` is only accepted WITH the ``HX-Request`` header,
+    so its DOM ids never collide with the always-rendered ``rules`` formset. Any other value,
+    or ``modal_rules`` on a non-HTMX request, is a 404 (fail loudly).
+    """
+    prefix = request.POST.get("formset_prefix", "rules")
+    if prefix not in {"rules", "modal_rules"}:
+        raise Http404("Unknown formset prefix.")
+    if prefix == "modal_rules" and not is_htmx:
+        raise Http404("The modal hours editor requires an HTMX request.")
+    return prefix
+
+
 @login_required
 @require_POST
 def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     """Save one scope of recurring orientation hours from the Orientations tab.
 
-    The posted hidden ``orienter_scope`` field is read FIRST and selects which formset
-    prefix binds — a member pk scopes the personal ``rules`` prefix to that person's
-    rows; an empty scope binds the legacy ``guild_rules`` prefix to the guild-level
-    rows. Binding the wrong prefix against a mismatched management form is a crash, not
-    a validation error, so scope selection precedes any formset construction. Gate is
-    ``can_edit_orienter_hours`` (own hours: any orientation manager; someone else's or
-    the guild rows: lead/admin). Deleted rows retire via ``retire_rule`` (removing their
-    future open slots), new rows are stamped with the scope's orienter, and saved hours
-    materialize slots immediately. An invalid POST re-renders the tab with the scope
-    echoed back, so an edit-on-behalf error still shows under the right heading.
+    The posted hidden ``orienter_scope`` field is read FIRST and selects the target — a
+    member pk scopes to that person's rows; an empty scope binds the legacy
+    ``guild_rules`` prefix to the guild-level rows. For a personal scope the ``formset_prefix``
+    field picks the prefix: the page's own My Hours card posts ``rules`` (a plain POST); the
+    Edit Hours modal posts ``modal_rules`` over HTMX (whitelisted, and only accepted WITH the
+    ``HX-Request`` header, so its DOM ids never collide with the always-rendered ``rules``
+    formset on the page). An unlisted prefix, or ``modal_rules`` on a non-HTMX request, is a
+    404 (fail loudly). Gate is ``can_edit_orienter_hours``. Deleted rows retire via
+    ``retire_rule``, new rows are stamped with the scope's orienter, and saved hours
+    materialize slots immediately. A valid HTMX (modal) save answers 204 + ``HX-Redirect``
+    to reload the tab; an invalid modal save re-renders the bound formset inside the modal.
+    Non-HTMX (page) saves keep the plain redirect / full-page re-render on the tab.
     """
     from hub.forms import OrientationAvailabilityFormSet
     from membership import orientations
@@ -957,6 +968,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     from membership.permissions import can_edit_orienter_hours
 
     guild = get_object_or_404(Guild, pk=pk)
+    is_htmx = bool(request.headers.get("HX-Request"))
     scope_raw = request.POST.get("orienter_scope", "")
     target = None
     if scope_raw:
@@ -966,7 +978,7 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     if not can_edit_orienter_hours(request, guild, target):
         return HttpResponse("Forbidden", status=403)
     if target is not None:
-        prefix = "rules"
+        prefix = _personal_hours_prefix(request, is_htmx=is_htmx)
         queryset = guild.orientation_rules.for_orienter(target)
     else:
         prefix = "guild_rules"
@@ -982,15 +994,61 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
                 guild=guild, guild_scope=target is None, deleted_rules=deleted_rules, removed=removed, kept=kept
             ),
         )
-        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+        orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        if is_htmx:
+            # The modal save round-trips through HX-Redirect: htmx does a full navigation,
+            # the modal disappears with the old page, and the queued flash renders on the
+            # reloaded Orientations tab (delete/add/slot counts surface exactly as today).
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = orientations_tab
+            return response
+        return redirect(orientations_tab)
 
+    if prefix == "modal_rules":
+        # Invalid modal POST: re-render the bound partial so field / non-form errors appear
+        # inside the open modal with everything the lead typed preserved.
+        return render(
+            request,
+            "hub/partials/_orienter_hours_modal_form.html",
+            {"guild": guild, "target": target, "formset": formset},
+        )
     if target is not None:
-        ctx = _guild_edit_context(request, guild, rule_formset=formset, hours_scope_member=target)
+        ctx = _guild_edit_context(request, guild, rule_formset=formset)
     else:
         ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
     # The invalid POST lands on the hours-save URL (no ?tab) — keep the Orientations tab open.
     ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
+    """Return the Edit Hours modal's formset partial for one orienter (HTMX GET).
+
+    Reads ``?orienter=<pk>`` (non-digit or missing → 404), resolves the target Member, and
+    gates with ``can_edit_orienter_hours`` (403 otherwise) — the same gate the save uses, so
+    former-staff targets work for leads/admins exactly as the old querystring flow did.
+    Renders an UNBOUND ``modal_rules`` formset scoped to the target's rows.
+    """
+    from hub.forms import OrientationAvailabilityFormSet
+    from membership.models import Member
+    from membership.permissions import can_edit_orienter_hours
+
+    guild = get_object_or_404(Guild, pk=pk)
+    orienter_raw = request.GET.get("orienter", "")
+    if not orienter_raw.isdigit():
+        raise Http404("Unknown orienter.")
+    target = get_object_or_404(Member, pk=int(orienter_raw))
+    if not can_edit_orienter_hours(request, guild, target):
+        return HttpResponse("Forbidden", status=403)
+    formset = OrientationAvailabilityFormSet(
+        instance=guild, prefix="modal_rules", queryset=guild.orientation_rules.for_orienter(target)
+    )
+    return render(
+        request,
+        "hub/partials/_orienter_hours_modal_form.html",
+        {"guild": guild, "target": target, "formset": formset},
+    )
 
 
 def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
@@ -3090,34 +3148,59 @@ def hub_compose_delete_draft(request: HttpRequest, draft_pk: int) -> HttpRespons
 
 @login_required
 def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the guild's two follow-up emails from the Announcements/Emails tab. Editor only.
+    """Save the guild's thank-you email from the Orientations tab. Editor only.
 
-    The editors are an in-page section of the Announcements/Emails tab on ``guild_edit``,
-    so a GET just sends the viewer there. A POST validates and saves the six email fields
-    (enable-requires-subject+body, stamping each email's ``*_updated_at``), then redirects
-    back to the tab; an invalid POST re-renders the full guild edit page with the email
-    form's errors.
+    The editor is an in-page card on the Orientations tab of ``guild_edit``, so a GET just
+    sends the viewer there. A POST carries a ``form_id`` discriminator (the house
+    multi-form-per-endpoint pattern); the only email form left is ``thankyou_email``. A
+    valid POST saves and redirects back to the tab; an invalid POST re-renders the full
+    guild edit page on the Orientations tab with the form's errors. An unknown or missing
+    ``form_id`` on a POST is a 404 (fail loudly).
     """
-    from hub.forms import GuildEmailsForm
+    from hub.forms import GuildThankyouEmailForm
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
     forbidden = _require_can_edit_guild(request, guild)
     if forbidden is not None:
         return forbidden
-    announcements_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements"
+    orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
     if request.method != "POST":
-        return redirect(announcements_tab)
+        return redirect(orientations_tab)
+    if request.POST.get("form_id") != "thankyou_email":
+        raise Http404("Unknown email form.")
 
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
-    form = GuildEmailsForm(request.POST, instance=settings_obj)
+    form = GuildThankyouEmailForm(request.POST, instance=settings_obj)
     if form.is_valid():
         form.save()
-        messages.success(request, "Guild emails saved.")
-        return redirect(announcements_tab)
+        messages.success(request, "Thank-you email saved.")
+        return redirect(orientations_tab)
 
-    ctx = _guild_edit_context(request, guild, emails_form=form)
+    ctx = _guild_edit_context(request, guild, thankyou_email_form=form)
+    ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)
+
+
+@login_required
+@require_POST
+def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the Member Suggestions toggle from the Announcements tab. Editor only.
+
+    A single-boolean ModelForm on ``Guild`` — it cannot fail validation, so there is no
+    error branch beyond the edit gate. Redirects back to the Announcements tab.
+    """
+    from hub.forms import GuildAnnouncementSettingsForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    form = GuildAnnouncementSettingsForm(request.POST, instance=guild)
+    form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
+    form.save()
+    messages.success(request, "Announcement settings saved.")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
 
 @login_required
@@ -3728,7 +3811,13 @@ def propose_guild_announcement(request: HttpRequest, pk: int | None = None) -> H
         announcement = GuildAnnouncement()
         editing = False
         guild_pk = request.GET.get("guild")
-        fixed_guild = Guild.objects.filter(pk=guild_pk, is_active=True).first() if guild_pk else None
+        # A ?guild=<disabled> degrades to the unfixed picker rather than pre-selecting a
+        # guild the form would reject.
+        fixed_guild = (
+            Guild.objects.filter(pk=guild_pk, is_active=True, allow_member_announcement_suggestions=True).first()
+            if guild_pk
+            else None
+        )
     else:
         announcement = get_object_or_404(
             GuildAnnouncement, pk=pk, submitted_by=user, moderation_state__in=editable_states
@@ -3739,25 +3828,34 @@ def propose_guild_announcement(request: HttpRequest, pk: int | None = None) -> H
     back_guild = announcement.guild if editing else fixed_guild
     back_url = reverse("hub_guild_detail", args=[back_guild.slug]) if back_guild is not None else reverse("hub_home")
 
-    if request.method == "POST":
-        form = GuildAnnouncementProposalForm(request.POST, instance=announcement, fixed_guild=fixed_guild)
-        if form.is_valid():
-            announcement = form.save(commit=False)
-            if not editing:
-                announcement.author = user
-            else:
-                # Persist the edited title/body/guild first — submit_for_review then saves
-                # only the moderation fields (update_fields), so the content edits would
-                # otherwise be dropped for an already-saved row.
-                announcement.save()
-            announcement.submit_for_review(submitted_by=user)
-            messages.success(
-                request,
-                "Thanks — your announcement was submitted for review. You'll get a note when a lead or admin responds.",
-            )
-            return redirect(reverse("hub_guild_detail", args=[announcement.guild.slug]))
-    else:
-        form = GuildAnnouncementProposalForm(instance=announcement, fixed_guild=fixed_guild)
+    # A new proposal needs at least one guild taking suggestions; when none are, skip the
+    # form entirely and render a friendly empty-state card. The page stays reachable even
+    # with every suggest button hidden (hub_compose redirects non-composers here).
+    suggestible_exists = Guild.objects.filter(is_active=True, allow_member_announcement_suggestions=True).exists()
+    no_guilds_available = not editing and not suggestible_exists
+
+    form = None
+    if not no_guilds_available:
+        if request.method == "POST":
+            form = GuildAnnouncementProposalForm(request.POST, instance=announcement, fixed_guild=fixed_guild)
+            if form.is_valid():
+                announcement = form.save(commit=False)
+                if not editing:
+                    announcement.author = user
+                else:
+                    # Persist the edited title/body/guild first — submit_for_review then saves
+                    # only the moderation fields (update_fields), so the content edits would
+                    # otherwise be dropped for an already-saved row.
+                    announcement.save()
+                announcement.submit_for_review(submitted_by=user)
+                messages.success(
+                    request,
+                    "Thanks — your announcement was submitted for review. "
+                    "You'll get a note when a lead or admin responds.",
+                )
+                return redirect(reverse("hub_guild_detail", args=[announcement.guild.slug]))
+        else:
+            form = GuildAnnouncementProposalForm(instance=announcement, fixed_guild=fixed_guild)
 
     ctx = _get_hub_context(request)
     my_proposals = (
@@ -3776,6 +3874,7 @@ def propose_guild_announcement(request: HttpRequest, pk: int | None = None) -> H
             "editing": editing,
             "back_url": back_url,
             "my_proposals": my_proposals,
+            "no_guilds_available": no_guilds_available,
         },
     )
 

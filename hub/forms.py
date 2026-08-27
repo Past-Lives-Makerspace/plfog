@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.conf import settings
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -1515,8 +1516,8 @@ class MeetingAttachmentForm(forms.ModelForm):
 class GuildOrientationSettingsForm(forms.ModelForm):
     """Edit a guild's orientation booking configuration.
 
-    The two lead-authored follow-up emails (thank-you + welcome) live on their own
-    :class:`GuildEmailsForm` (Announcements/Emails tab); only the booking config is here.
+    The lead-authored thank-you email lives on its own :class:`GuildThankyouEmailForm`
+    (also on the Orientations tab); only the booking config is here.
 
     ``price`` is entered in dollars ("15" or "15.50", never cents) and mapped to
     ``price_cents`` on save. Blank normalizes to 0 (free), and a free guild renders
@@ -1581,13 +1582,15 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         }
 
 
-class GuildEmailsForm(forms.ModelForm):
-    """Edit a guild's two lead-authored follow-up emails (thank-you + welcome).
+class GuildThankyouEmailForm(forms.ModelForm):
+    """Edit a guild's lead-authored thank-you email.
 
-    These live on the Announcements/Emails tab of the guild editor. The email *data*
-    stays on :class:`~membership.models.GuildOrientationSettings`; only the editing UI
-    moved here. Enabling either email requires a subject and a body, mirroring the
-    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    Lives on the Orientations tab of the guild editor — it is the orientation-lifecycle
+    email, sent once an orientation is marked complete. The email *data* stays on
+    :class:`~membership.models.GuildOrientationSettings`; only the editing UI lives here.
+    The thank-you email is on by default and falls back to the standard copy, so enabling
+    it needs no subject or body. Saving stamps ``thankyou_email_updated_at`` when a
+    thank-you field changed.
     """
 
     class Meta:
@@ -1596,54 +1599,24 @@ class GuildEmailsForm(forms.ModelForm):
             "thankyou_email_enabled",
             "thankyou_email_subject",
             "thankyou_email_body",
-            "join_email_enabled",
-            "join_email_subject",
-            "join_email_body",
         ]
         widgets = {
             "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
-            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
             "thankyou_email_enabled": "Send a thank-you / next-steps email after orientation",
             "thankyou_email_subject": "Thank-you subject",
             "thankyou_email_body": "Thank-you message",
-            "join_email_enabled": "Send a welcome email when a member joins this guild",
-            "join_email_subject": "Welcome subject",
-            "join_email_body": "Welcome message",
         }
 
     def clean_thankyou_email_body(self) -> str:
         return sanitize_rich_html(self.cleaned_data.get("thankyou_email_body") or "")
 
-    def clean_join_email_body(self) -> str:
-        return sanitize_rich_html(self.cleaned_data.get("join_email_body") or "")
-
-    def _require_subject_and_body(self, cleaned: dict[str, Any], prefix: str, label: str) -> None:
-        if cleaned.get(f"{prefix}_enabled"):
-            if not (cleaned.get(f"{prefix}_subject") or "").strip():
-                self.add_error(f"{prefix}_subject", f"Add a subject before turning the {label} email on.")
-            if not (cleaned.get(f"{prefix}_body") or "").strip():
-                self.add_error(f"{prefix}_body", f"Add a message before turning the {label} email on.")
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        # The thank-you email is on by default and falls back to the standard copy, so enabling
-        # it needs no subject/body. The join/welcome email has no standard fallback, so it still
-        # requires both before it can be turned on.
-        self._require_subject_and_body(cleaned, "join_email", "welcome")
-        return cleaned
-
     _THANKYOU_EMAIL_FIELDS = ("thankyou_email_enabled", "thankyou_email_subject", "thankyou_email_body")
-    _JOIN_EMAIL_FIELDS = ("join_email_enabled", "join_email_subject", "join_email_body")
 
     def save(self, commit: bool = True) -> GuildOrientationSettings:
-        now = timezone.now()
-        changed = set(self.changed_data)
-        if changed.intersection(self._THANKYOU_EMAIL_FIELDS):
-            self.instance.thankyou_email_updated_at = now
-        if changed.intersection(self._JOIN_EMAIL_FIELDS):
-            self.instance.join_email_updated_at = now
+        if set(self.changed_data).intersection(self._THANKYOU_EMAIL_FIELDS):
+            self.instance.thankyou_email_updated_at = timezone.now()
         return cast(GuildOrientationSettings, super().save(commit=commit))
 
 
@@ -2266,10 +2239,35 @@ class GuildAnnouncementProposalForm(forms.ModelForm):
     def __init__(self, *args: Any, fixed_guild: Guild | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
-        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+        # New proposals may only target guilds that are taking member suggestions. An
+        # existing proposal keeps its own guild selectable even if that guild has since
+        # turned suggestions off, so a CHANGES_REQUESTED proposal can be revised and
+        # resubmitted without being repointed at a different guild.
+        active = Guild.objects.filter(is_active=True)
+        if self.instance.pk:
+            guild_field.queryset = active.filter(
+                Q(allow_member_announcement_suggestions=True) | Q(pk=self.instance.guild_id)
+            ).order_by("name")
+        else:
+            guild_field.queryset = active.filter(allow_member_announcement_suggestions=True).order_by("name")
         guild_field.required = True
+        guild_field.error_messages["invalid_choice"] = "This guild isn't taking member suggestions right now."
         if fixed_guild is not None and not self.is_bound:
             guild_field.initial = fixed_guild.pk
+
+
+class GuildAnnouncementSettingsForm(forms.ModelForm):
+    """Guild-lead toggle for whether members may suggest announcements for this guild.
+
+    A single boolean on :class:`~membership.models.Guild`, rendered as a toggle on the
+    Announcements tab of the guild editor. Turning it off hides the member suggestion
+    button and excludes the guild from the proposal form's guild picker for new proposals.
+    """
+
+    class Meta:
+        model = Guild
+        fields = ["allow_member_announcement_suggestions"]
+        labels = {"allow_member_announcement_suggestions": "Let members suggest announcements"}
 
 
 class GuildAnnouncementDecisionForm(forms.Form):

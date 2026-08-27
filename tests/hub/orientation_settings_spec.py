@@ -164,8 +164,8 @@ def describe_guild_orientation_edit():
         assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
 
     def it_no_longer_touches_the_email_fields(client: Client):
-        # The follow-up emails moved to the Announcements/Emails tab; the orientation
-        # settings save must leave the email fields untouched even if they're posted.
+        # The thank-you email has its own form/endpoint; the orientation settings save
+        # must leave the email fields untouched even if they're posted.
         _user_with_role("ed_no_email", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         settings_obj = GuildOrientationSettingsFactory(

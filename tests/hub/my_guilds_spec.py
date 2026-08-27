@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
-from django.core import mail
 from django.test import Client
 from django.urls import reverse
 
@@ -24,7 +23,6 @@ from membership.models import GuildMembership, Member
 from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
-    GuildOrientationSettingsFactory,
     MemberFactory,
     MembershipPlanFactory,
 )
@@ -197,22 +195,6 @@ def describe_guild_membership_set():
 
 
 def describe_leave_then_rejoin():
-    def it_does_not_resend_the_welcome_email_on_rejoin(client: Client):
-        _user, _member = _linked_user(client)
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome to the guild!",
-            join_email_body="So glad you're here.",
-        )
-        url = reverse("hub_guild_membership_set", args=[guild.pk])
-        client.post(url, data={"joined": "on"})  # join → welcome email
-        client.post(url, data={})  # leave
-        client.post(url, data={"joined": "on"})  # rejoin — period dedupe suppresses a 2nd email
-        assert sum(1 for m in mail.outbox if m.subject == "Welcome to the guild!") == 1
-
     def it_refires_the_join_activity_on_each_rejoin(client: Client):
         # Documented decision (§9): a rejoin's get_or_create returns created=True, so the
         # non-period-guarded side effects (activity row, lead notice) fire again — an

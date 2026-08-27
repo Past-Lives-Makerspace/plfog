@@ -26,6 +26,11 @@ class Trigger:
     description: str
     category: str
     audience: Audience = Audience.ALL_MEMBERS
+    # Declared here (after ``audience``) on purpose: several Trigger() calls pass
+    # ``audience`` positionally at index 4, so a new positional field must sit past it.
+    # ``no_email`` suppresses the EMAIL channel entirely (in-app / push / Discord DM only).
+    # Mutually exclusive with ``force_email`` — a trigger cannot both force and suppress email.
+    no_email: bool = False
     force_email: bool = False
     push_default: bool = False
     email_default: bool = False
@@ -113,6 +118,7 @@ TRIGGERS: list[Trigger] = [
         "New follower",
         "Someone new is following your guild.",
         "Guilds",
+        no_email=True,
     ),
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),

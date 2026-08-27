@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.18.0"
+VERSION = "1.19.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.19.0",
+        "date": "2026-08-27",
+        "title": "Orientations get their own tab on guild pages",
+        "changes": [
+            "Finding and booking an orientation is easier now: every guild page has its own "
+            "Orientations tab instead of tucking it under the calendar. For guild leads, editing "
+            "your orientation hours opens in a quick popup instead of reloading the whole page, and "
+            "you can turn off member announcement suggestions if you prefer.",
+        ],
+    },
     {
         "version": "1.18.0",
         "date": "2026-08-27",

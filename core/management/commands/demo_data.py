@@ -708,11 +708,6 @@ class Command(BaseCommand):
                 "Reach out to your guild lead any time with questions."
             )
             obj.thankyou_email_updated_at = timezone.now()
-        if not obj.join_email_subject:
-            obj.join_email_enabled = True
-            obj.join_email_subject = f"You joined the {guild.name}"
-            obj.join_email_body = "Welcome aboard! Watch the guild page for upcoming orientations, classes, and events."
-            obj.join_email_updated_at = timezone.now()
         obj.save()
         return obj
 
