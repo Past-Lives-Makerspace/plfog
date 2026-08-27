@@ -139,8 +139,6 @@ urlpatterns = [
         views.orientation_toggle_completed,
         name="hub_orientation_toggle_completed",
     ),
-    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
-    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path(
         "guilds/<int:pk>/images/<int:image_pk>/delete/",
         views.guild_image_delete,
@@ -316,6 +314,7 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    path("welcome/guild-updates/", views.guild_updates_prompt, name="hub_guild_updates_prompt"),
     # Guided tours (Spec C): the one state-recording endpoint — the offer card's
     # "No thanks" and the tour runtime's end-of-tour hook both POST here.
     path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),

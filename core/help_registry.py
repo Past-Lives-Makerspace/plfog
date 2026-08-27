@@ -99,10 +99,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "home-dashboard",
     },
     "guild.join-leave": {
-        "title": "Join or leave a guild",
+        "title": "Follow a guild",
         "short_text": (
-            "Join free from any guild page — you're on the roster and its announcement emails. "
-            "Leave any time from the Guilds tab in Settings."
+            "Following a guild gets you its announcements, puts you on its roster, and gives you "
+            "its Discord role. Choose your guilds from the Guilds tab in Settings."
         ),
         "article_slug": "guilds-and-guild-pages",
         "anchor": "guild-join-leave",
@@ -518,8 +518,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "settings.your-guilds": {
-        "title": "Your guilds",
-        "short_text": ("The guilds you belong to. Join or leave here — leaving keeps your orientation history."),
+        "title": "Your guild updates",
+        "short_text": (
+            "Choose which guilds you get updates from. Flip one off to stop — your orientation history stays."
+        ),
         "article_slug": None,
         "anchor": None,
     },

@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load hub_tags static %}
+{% load hub_tags %}
 {% block title %}Member Directory{% endblock %}
 
 {% block content %}
@@ -10,17 +10,6 @@
 <p class="hub-text-muted" style="margin-bottom: 1rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
 
 <form method="get" class="pl-directory-filters" data-help-key="directory.search-filter">
-    {% if guilds %}
-    <label class="pl-filter-field">
-        <span class="pl-filter-label">Guild</span>
-        <select name="guild" class="pl-filter-control" onchange="this.form.submit()">
-            <option value="">All guilds</option>
-            {% for g in guilds %}
-            <option value="{{ g.pk }}"{% if g.pk|stringformat:'s' == guild_filter %} selected{% endif %}>{{ g.name }}</option>
-            {% endfor %}
-        </select>
-    </label>
-    {% endif %}
     <label class="pl-filter-field">
         <span class="pl-filter-label">Skill</span>
         <select name="skill" class="pl-filter-control" onchange="this.form.submit()">
@@ -164,17 +153,6 @@
         </div>
         {% endif %}
         {% endwith %}
-
-        {% if member.guild_memberships.all %}
-        <div class="directory-card__guilds" style="display:flex; flex-wrap:wrap; gap:0.35rem; margin-top:0.5rem;">
-            {% for gm in member.guild_memberships.all %}
-            <span class="hub-badge" style="display:inline-flex; align-items:center; gap:0.3rem;">
-                {% if gm.guild.logo_prefix %}<img src="{% static 'img/guild_logos/'|add:gm.guild.logo_prefix|add:'_color.svg' %}" width="14" height="14" alt="">{% endif %}
-                {{ gm.guild.name }}
-            </span>
-            {% endfor %}
-        </div>
-        {% endif %}
 
         {% if member|is_public:"skills" %}
         {% with member_skills=member.approved_skills %}

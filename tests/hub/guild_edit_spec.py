@@ -1229,7 +1229,7 @@ def describe_guild_announcement_reach():
         # Assert on the specific reach-line markup, not a bare number that the "what's new"
         # changelog widget (echoed on every hub page) could also contain. The roster now lives
         # in the "Your Mailing List" section at the top of the tab.
-        assert b"<strong>2 members</strong> are on your list automatically." in response.content
+        assert b"<strong>2 followers</strong> are on your list automatically." in response.content
         # The collapsible recipient list is rendered when there are recipients.
         assert b'class="pl-recipient-list"' in response.content
 

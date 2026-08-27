@@ -113,8 +113,8 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="nav.guilds"]',
                 title="Guilds",
                 body=(
-                    "Guilds are the craft groups that run each studio. Join as many as you like, "
-                    "then book an orientation to get working in the space."
+                    "Guilds are the craft groups that run each studio. Follow the ones you want "
+                    "updates from, then book an orientation to get working in the space."
                 ),
             ),
             TourStep(
@@ -137,8 +137,8 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="home.get-started"]',
                 title="Your Get Started List",
                 body=(
-                    "A short checklist to finish setting up — profile, photo, first guild. "
-                    "It disappears on its own when you're done."
+                    "A short checklist to finish setting up including your profile, photo, and "
+                    "guild updates. It disappears on its own when you're done."
                 ),
             ),
             TourStep(

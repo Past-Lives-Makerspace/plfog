@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -544,6 +545,14 @@ class Member(models.Model):
             "dismissed. Does NOT affect is_onboarded — only hides the card."
         ),
     )
+    guild_updates_prompt_answered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member answered or skipped the first-login guild updates prompt. "
+            "Null means they have never been asked."
+        ),
+    )
     guided_tours_enabled = models.BooleanField(
         default=True,
         help_text="When off, tours are never auto-offered. Manual starts from the Help page still work.",
@@ -672,9 +681,82 @@ class Member(models.Model):
         return self.profile_completeness.essentials_complete
 
     @cached_property
-    def _has_joined_guild(self) -> bool:
-        """Whether the member has officially joined at least one guild. Cached (one query)."""
-        return self.joined_guilds.exists()
+    def _has_chosen_guild_updates(self) -> bool:
+        """Whether the member has chosen their guild updates. Cached (at most one query).
+
+        True once they've answered (or skipped) the first-login guild updates prompt —
+        subscribing to *nothing* is a legitimate, deliberate answer — or hold at least
+        one subscription (a :class:`GuildMembership` row, however it was created).
+        """
+        return self.guild_updates_prompt_answered_at is not None or self.joined_guilds.exists()
+
+    @property
+    def needs_guild_updates_prompt(self) -> bool:
+        """Whether the first-login guild updates prompt should be shown on next login.
+
+        True only for a member who has never answered/skipped the prompt AND holds no
+        subscription at all. A member with any :class:`GuildMembership` row (legacy
+        join, Discord reaction) has effectively answered and is never prompted.
+        """
+        return self.guild_updates_prompt_answered_at is None and not self.guild_memberships.exists()
+
+    def mark_guild_updates_answered(self) -> None:
+        """Stamp :attr:`guild_updates_prompt_answered_at` once; no-op if already stamped.
+
+        The shared "this member has made a choice" recorder. Called from the prompt
+        (:meth:`answer_guild_updates_prompt`), every settings-toggle subscribe or
+        unsubscribe, and a settings GET landing on the Guilds tab via ``?tab=guilds`` —
+        any of those means the member has seen the control and chosen, so the one-time
+        prompt must never resurrect (including for a legacy member who unsubscribes
+        from their last guild).
+        """
+        if self.guild_updates_prompt_answered_at is None:
+            self.guild_updates_prompt_answered_at = timezone.now()
+            self.save(update_fields=["guild_updates_prompt_answered_at"])
+
+    def subscribe_to_guild(self, guild: Guild) -> bool:
+        """Subscribe this member to ``guild``'s updates (idempotent).
+
+        The one subscribe path: records the app-sourced :class:`GuildMembership` row,
+        fires the ``guild_joined`` fan-out (welcome email when configured, lead notice,
+        activity row) only when the row is new or upgraded from a Discord reaction, and
+        always self-heals the Discord role (idempotent, best-effort).
+
+        Returns:
+            Whether this was a new or upgraded subscription (the fan-out fired).
+        """
+        from core.events import discord_roles
+        from membership import orientations
+
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, self)
+        if created or upgraded:
+            orientations.member_joined_guild(guild, self)
+        discord_roles.on_membership_changed(guild, self, joined=True)
+        return created or upgraded
+
+    def unsubscribe_from_guild(self, guild: Guild) -> None:
+        """Remove this member's subscription to ``guild`` (idempotent) and drop the Discord role."""
+        from core.events import discord_roles
+
+        GuildMembership.objects.filter(guild=guild, member=self).delete()
+        discord_roles.on_membership_changed(guild, self, joined=False)
+
+    def answer_guild_updates_prompt(self, guilds: Iterable[Guild]) -> int:
+        """Record the member's first-login guild updates answer (idempotent to re-call).
+
+        Subscribes to each picked guild (an empty pick IS the Skip case) and stamps
+        :attr:`guild_updates_prompt_answered_at` so the prompt never shows again.
+
+        Args:
+            guilds: The guilds the member picked; may be empty.
+
+        Returns:
+            How many picks were new or upgraded subscriptions.
+        """
+        subscribed = sum(1 for guild in guilds if self.subscribe_to_guild(guild))
+        self.guild_updates_prompt_answered_at = timezone.now()
+        self.save(update_fields=["guild_updates_prompt_answered_at"])
+        return subscribed
 
     @property
     def _has_voting_preference(self) -> bool:
@@ -685,12 +767,14 @@ class Member(models.Model):
     def is_onboarded(self) -> bool:
         """Whether the member has finished the required first-week setup.
 
-        True once their profile **content essentials** are filled AND they've joined at
-        least one guild. Voting is a recommended, **optional** step and does NOT affect
-        this. Uses ``_profile_essentials_done`` (not ``profile_completeness.complete``) so
-        the directory-listing opt-out can never make a member permanently un-onboardable.
+        True once their profile **content essentials** are filled AND they've chosen
+        their guild updates (answered the prompt, even with zero picks, or hold at
+        least one subscription). Voting is a recommended, **optional** step and does NOT
+        affect this. Uses ``_profile_essentials_done`` (not
+        ``profile_completeness.complete``) so the directory-listing opt-out can never
+        make a member permanently un-onboardable.
         """
-        return self._profile_essentials_done and self._has_joined_guild
+        return self._profile_essentials_done and self._has_chosen_guild_updates
 
     @property
     def onboarding(self) -> OnboardingChecklist:
@@ -716,8 +800,8 @@ class Member(models.Model):
             ),
             OnboardingStep(
                 key="guilds",
-                label="Join your guilds",
-                done=self._has_joined_guild,
+                label="Choose your guild updates",
+                done=self._has_chosen_guild_updates,
                 url=f"{reverse('hub_user_settings')}?tab=guilds",
                 optional=False,
                 hint="",

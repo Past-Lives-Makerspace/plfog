@@ -14,7 +14,7 @@
     {% include "hub/partials/_discord_connect_cta.html" with member=member id_suffix="notifications" %}
     {% if member.discord_is_linked %}
       {% url 'hub_discord_disconnect' as discord_disconnect_url %}
-      {% include "components/confirm_modal.html" with confirm_id="disconnect-discord-notifications" confirm_title="Disconnect Discord?" confirm_message="You'll stop getting DMs and your guild membership will no longer sync with Discord." confirm_action_url=discord_disconnect_url confirm_button_text="Disconnect" %}
+      {% include "components/confirm_modal.html" with confirm_id="disconnect-discord-notifications" confirm_title="Disconnect Discord?" confirm_message="You'll stop getting DMs and your guilds will no longer sync with Discord." confirm_action_url=discord_disconnect_url confirm_button_text="Disconnect" %}
     {% endif %}
   {% endif %}
   {% include "hub/partials/_notification_matrix.html" with matrix_self=True %}

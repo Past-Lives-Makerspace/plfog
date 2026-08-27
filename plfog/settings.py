@@ -132,8 +132,6 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "hub_guild_detail_by_id",
         "hub_spaces",
         "hub_help",
-        "hub_guild_join",
-        "hub_guild_leave",
         "hub_orientation_book",
         "hub_guild_orientation_request_custom",
         "hub_orientation_cancel_mine",

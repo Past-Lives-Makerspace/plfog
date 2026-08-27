@@ -91,7 +91,7 @@ Use the menu on the left to get around:
 - Spaces: the floor plan and every studio and shared area.
 - Guild Voting: rank the guilds you want the monthly funding pool to support.
 - Help: this page, plus answers to common questions.
-- Member Directory: find other members by skill or guild.
+- Member Directory: find other members by skill.
 - Guilds: jump straight to any guild's page.
 
 The guides below cover the parts people ask about most. Stuck? The Who's Who section \
@@ -156,7 +156,7 @@ Log in and you land on **Home**. It shows:
 - **Get started at Past Lives** — a short checklist for new members. Dismiss it once you're settled.
 - Quick links — one tap to the **Community Calendar**, **Class Catalog**, **Guild Voting**, **Member Directory**, and **Settings**.
 - **Your upcoming** — classes and events you're signed up for.
-- **Latest from your guilds** — recent announcements from guilds you've joined.
+- **Latest from your guilds** — recent announcements from guilds you follow.
 - **Your guilds** — a chip for each of your guilds, linking straight to its page.
 
 ![The home dashboard: your checklist, quick links, upcoming events, and guild news.](/static/help/welcome-to-fog/01-home-dashboard.png)
@@ -181,7 +181,7 @@ The top bar has a light/dark theme toggle and your avatar. Open the avatar for *
 
 ## Good First Steps
 
-- Join a guild or two — see [Guilds and Guild Pages](/help/guilds/guilds-and-guild-pages/).
+- Follow a guild or two — see [Guilds and Guild Pages](/help/guilds/guilds-and-guild-pages/).
 - Book a guild orientation — see [Getting Oriented](/help/guilds/getting-oriented/).
 - Grab a seat in a class — see [Taking a Class](/help/classes/taking-a-class/).
 - Cast your guild vote — see [Guild Voting](/help/guilds/guild-voting/).
@@ -276,23 +276,16 @@ Tabs across the top:
 - **Guild Calendar** — that guild's meetings, classes, and orientation times.
 - **FAQ**, **Meeting Notes**, and **Gallery** — appear once the guild adds content to them.
 
-The Overview's side panels show the guild's staff, studio hours, next meeting, members, links, and contact info — plus the **Get Involved** panel, where joining happens.
+The Overview's side panels show the guild's staff, studio hours, next meeting, members, links, and contact info — plus the **Get Involved** panel with quick actions like booking an orientation.
 
-## Join a Guild {#guild-join-leave}
+## Follow a Guild {#guild-join-leave}
 
-1. Open the guild's page.
-2. In the **Get Involved** panel, click **Join This Guild**.
-
-![Join This Guild lives in the Get Involved panel on every guild page.](/static/help/guilds-and-guild-pages/02-join-this-guild.png)
-
-Joining is free, and you can be in as many guilds as you want. It puts you on the guild's roster and its announcement emails. Some guilds send a welcome email with next steps, and the guild's leads are notified so they can say hi.
-
-### Leave a Guild
-
-1. Click your avatar (top right), open **Settings**, then the **Guilds** tab. Guild pages you've joined also show a **Manage in Settings** shortcut.
-2. Flip that guild's toggle off. Changes save instantly — flip it back on any time to rejoin.
+1. Click your avatar (top right), open **Settings**, then the **Guilds** tab. The first time you sign in, we also ask which guilds you want updates from.
+2. Flip on each guild you want updates from. Flip one off any time to stop. Changes save instantly.
 
 ![The Guilds tab in Settings: one toggle per guild, saved instantly.](/static/help/guilds-and-guild-pages/03-leave-from-settings.png)
+
+Following is free, and you can follow as many guilds as you want. It gets you the guild's announcements, puts you on its roster, and gives you its Discord role. Some guilds send a welcome email with next steps, and the guild's leads are notified so they can say hi.
 
 ## Good to Know
 
@@ -306,13 +299,6 @@ Joining is free, and you can be in as many guilds as you want. It puts you on th
                 "page": "/guilds/ceramics-guild/",
                 "selector": None,
                 "caption": "A guild page: the tabs across the top, announcements, and the Get Involved panel.",
-                "as_role": "member",
-            },
-            {
-                "file": "02-join-this-guild.png",
-                "page": "/guilds/ceramics-guild/",
-                "selector": '.hub-card:has(form[action$="/join/"])',
-                "caption": "Join This Guild lives in the Get Involved panel on every guild page.",
                 "as_role": "member",
             },
             {
@@ -653,7 +639,7 @@ Announcements are how guilds share news — a restock, a schedule change, a call
 ### Where They Show Up {#announcement-where}
 
 - Every guild page has an **Announcements** section with that guild's posts.
-- Your **Home** dashboard shows **Latest from your guilds** — recent announcements from the guilds you've joined.
+- Your **Home** dashboard shows **Latest from your guilds** — recent announcements from the guilds you follow.
 - A guild's leads can also send an announcement to guild members by email, so keep an eye on your inbox.
 
 ![The Announcements section on a guild page, with the Suggest an announcement button.](/static/help/announcements/01-guild-announcements.png)
@@ -702,21 +688,21 @@ Your in-flight proposals appear under **Your proposed announcements** at the top
         "sort_order": 40,
         "related": ["guilds-and-guild-pages"],
         "body": """\
-The Member Directory is where you find other makers — by name, guild, or skill — and where you decide what they see about you.
+The Member Directory is where you find other makers — by name or skill — and where you decide what they see about you.
 
 ### Find People {#directory-search-filter}
 
 1. Click **Member Directory** in the left menu. You'll need to be signed in (unless an admin has made the directory public).
-2. Filter with the **Guild** and **Skill** dropdowns.
+2. Filter with the **Skill** dropdown.
 3. Type a name or a skill into the **Search** box.
 4. Tick **Open for commissions** to see only members taking commission work.
 5. Click **Apply**.
 
 ![The Member Directory — a card for every listed member.](/static/help/member-directory/01-directory.png)
 
-![Filter by guild or skill, search by name, or show only members open for commissions.](/static/help/member-directory/02-directory-filters.png)
+![Filter by skill, search by name, or show only members open for commissions.](/static/help/member-directory/02-directory-filters.png)
 
-Each card shows what that member chose to share: name, photo, pronouns, contact details, guilds, and skills. Want to be findable by skill? Add yours under **My skills** in your settings.
+Each card shows what that member chose to share: name, photo, pronouns, contact details, and skills. Want to be findable by skill? Add yours under **My skills** in your settings.
 
 ### Control What Others See {#directory-visibility}
 
@@ -733,7 +719,7 @@ The fine print:
 
 - Anything you switch off stays private to staff.
 - Admins, guild officers, guild leads, and instructors are always listed — their role needs a public profile — but they still choose which fields appear on their card.
-- Some things are never shown to other members, no matter what: your full legal name, billing details, emergency contacts, and your account status or notes.
+- Some things are never shown to other members, no matter what: your full legal name, billing details, emergency contacts, your account status or notes, and which guilds you follow (that's a notification choice, not a public label).
 - The directory normally requires signing in. Admins can turn on a site setting that opens it to visitors without an account — if that's on, treat whatever your card shows as public.
 """,
         "screenshots": [
@@ -748,7 +734,7 @@ The fine print:
                 "file": "02-directory-filters.png",
                 "page": "hub_member_directory",
                 "selector": ".pl-directory-filters",
-                "caption": "Filter by guild or skill, search by name, or show only members open for commissions.",
+                "caption": "Filter by skill, search by name, or show only members open for commissions.",
                 "as_role": "member",
             },
             {
@@ -1265,7 +1251,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 **Reaching members:**
 
 - **Announcements** — write to your whole guild (in-app, push, email, and Discord from one wizard), manage your mailing list, and review member-proposed announcements. See [Guild Announcements](/help/running-a-guild/guild-announcements/) and [The Announcement Composer](/help/running-a-guild/announcement-composer/).
-- **Two automatic emails** — a welcome email when someone joins your guild and a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
+- **Two automatic emails** — a welcome email when someone starts following your guild and a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 
 **Calendar and records:**
 
@@ -1346,7 +1332,7 @@ Below the FAQ editor, add links with a label and a URL, then click **Save Links*
 
 ### Two Automatic Emails
 
-On the **Announcements/Emails** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete, and a **Welcome email**, sent when a member joins your guild. Each one only goes out when it's switched on and has both a subject and a body. Click **Save emails**.
+On the **Announcements/Emails** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete, and a **Welcome email**, sent when a member starts following your guild. Each one only goes out when it's switched on and has both a subject and a body. Click **Save emails**.
 
 Only leads, staff, and admins see the Guild Settings button. Everything a staff member can do here, they can do with your full authority; see the guild staff roles guide before adding anyone.""",
         "screenshots": [
@@ -1973,7 +1959,7 @@ Linking tells the Member Portal which Discord user is you. Two ways:
 
 ## What Linking Gets You
 
-- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in the Member Portal. Join or leave a guild in the Member Portal and your Discord roles follow.
+- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in the Member Portal. Follow or unfollow a guild in the Member Portal and your Discord roles update to match.
 - One identity across both systems, so your guild channels, roles, and Member Portal account always agree.
 
 Linking is safe by design: a Discord account can only ever be linked to one member, and the Member Portal will never silently swap or reassign a link. You can disconnect anytime from the same settings tab.""",

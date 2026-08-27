@@ -508,7 +508,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=GUILD_ANNOUNCEMENT,
         label="Guild announcement",
-        description="A guild you're in posted an announcement.",
+        description="A guild you follow posted an announcement. Pick which guilds in your hub Settings.",
         category="Guilds",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -624,7 +624,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=EVENT_GUILD_PUBLISHED,
         label="New guild event",
-        description="A guild you're in scheduled a meeting or event.",
+        description="A guild you follow scheduled a meeting or event.",
         category="Events",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -905,7 +905,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=MEETING_MINUTES_APPROVED,
         label="Meeting minutes approved",
-        description="A guild you're in approved and locked a meeting's minutes.",
+        description="A guild you follow approved and locked a meeting's minutes.",
         category="Meetings",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),

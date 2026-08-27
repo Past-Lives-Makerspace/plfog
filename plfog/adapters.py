@@ -156,11 +156,20 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         """Land on the right place based on surface.
 
         - Public/book surface → /account/ overview (no onboarding step).
-        - Members surface (anywhere else) → the member Home / Dashboard.
+        - Members surface: a member who has never chosen their guild updates (no
+          answered-stamp, no subscriptions) → the one-time guild updates prompt;
+          everyone else → the member Home / Dashboard. Known, accepted gap: allauth
+          only consults this when no ``?next=`` is present, so a deep-linked login
+          skips the prompt that session (the onboarding checklist is the backstop).
         """
         surface = getattr(request, "surface", "members")
         if surface == "public":
             return reverse("account:overview")
+        # Same resolution pattern as hub.views._get_member: the reverse one-to-one
+        # accessor, AttributeError-safe (RelatedObjectDoesNotExist subclasses it).
+        member = getattr(request.user, "member", None)
+        if member is not None and member.needs_guild_updates_prompt:
+            return reverse("hub_guild_updates_prompt")
         return reverse("hub_home")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:

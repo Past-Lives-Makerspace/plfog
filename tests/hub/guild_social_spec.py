@@ -30,8 +30,8 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
     return user
 
 
-def describe_guild_join_welcome_email():
-    def it_emails_a_new_member_on_join(client: Client):
+def describe_guild_subscribe_welcome_email():
+    def it_emails_a_new_subscriber(client: Client):
         _user_with_role("gj1")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(
@@ -42,10 +42,10 @@ def describe_guild_join_welcome_email():
             join_email_body="So glad you're here.",
         )
         client.login(username="gj1", password="pass")
-        client.post(reverse("hub_guild_join", args=[guild.pk]))
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]), {"joined": "on"})
         assert any(m.subject == "Welcome aboard!" for m in mail.outbox)
 
-    def it_does_not_email_on_rejoin(client: Client):
+    def it_does_not_email_on_resubscribe(client: Client):
         user = _user_with_role("gj2")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(
@@ -58,7 +58,7 @@ def describe_guild_join_welcome_email():
         GuildMembership.objects.create(guild=guild, member=user.member)
         mail.outbox.clear()
         client.login(username="gj2", password="pass")
-        client.post(reverse("hub_guild_join", args=[guild.pk]))
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]), {"joined": "on"})
         assert mail.outbox == []
 
 

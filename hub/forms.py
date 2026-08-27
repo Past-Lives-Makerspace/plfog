@@ -223,8 +223,8 @@ class GuildEditForm(forms.ModelForm):
                 "Blank = nothing posts to your channel."
             ),
             "discord_welcome_message": (
-                "Posted to your guild's Discord channel and sent to the member when someone joins "
-                "via /join-guild. Blank = a generic welcome."
+                "Posted to your guild's Discord channel and sent to the member when someone starts "
+                "following your guild via /join-guild. Blank = a generic welcome."
             ),
         }
 
@@ -542,6 +542,28 @@ class DeleteAccountConfirmForm(forms.Form):
         if value != self.CONFIRM_TEXT:
             raise forms.ValidationError("Type DELETE (all capitals) to confirm.")
         return value
+
+
+class GuildUpdatesPromptForm(forms.Form):
+    """Validates the first-login guild updates picks (active guild pks only).
+
+    Validation only — the template renders the toggle rows itself (service-built grid,
+    same as the notifications matrix and the settings Guilds tab), so the field's
+    widget is a hidden multi-select rather than a rendered control. An inactive or
+    bogus pk fails with a single plain message; real members can't reach that state
+    from the UI.
+    """
+
+    guilds = forms.ModelMultipleChoiceField(
+        queryset=Guild.objects.filter(is_active=True),
+        required=False,
+        widget=forms.MultipleHiddenInput,
+        error_messages={
+            "invalid_choice": "Pick guilds from the list.",
+            "invalid_pk_value": "Pick guilds from the list.",
+            "invalid_list": "Pick guilds from the list.",
+        },
+    )
 
 
 class BetaFeedbackForm(forms.Form):
