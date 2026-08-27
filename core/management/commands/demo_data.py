@@ -77,6 +77,15 @@ GUEST_ORDER_NUMBER = "PL-DEM2-26"
 STUDENT_PAST_ORDER_NUMBER = "PL-DMP2-26"
 STUDENT_FUTURE_ORDER_NUMBER = "PL-DMF2-26"
 
+# A capacity-filled class with a real waitlist behind it, so an admin/instructor can
+# demo removing a confirmed student and promoting ("notify next in line") the next
+# person off the waitlist. CONFIRMED count equals capacity → the class reads as full
+# (spots_remaining == 0); the WAITLISTED rows sit genuinely beyond capacity. It is
+# prod-safe like the rest (demo- slug + @pastlives.demo emails, direct ORM, no
+# Stripe/email), so it lives outside the DEBUG-gated local-dev extras.
+FULL_WAITLIST_CAPACITY = 4
+FULL_WAITLIST_WAITLISTED = 3
+
 # --- Local-dev-only personas + data (gated on settings.DEBUG) ----------------
 # The blocks below create ACTIVE demo Members, push orientation config onto real
 # guilds, and trigger no external side effects. They run on local dev only so a
@@ -141,6 +150,7 @@ class Command(BaseCommand):
         self._ensure_student_registrations(student, past_class, future_paid_class)
         self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
         self._ensure_guest_registration(current_free_class)
+        full_waitlist_class = self._ensure_full_waitlist_class(category, instructor)
         self._ensure_discount_codes()
 
         # Everything below is local-dev only. Registration questions are global
@@ -176,6 +186,11 @@ class Command(BaseCommand):
             self.stdout.write(f"  Member (orientations): {PERSONA_MEMBER_EMAIL}  /  password: {password}")
         self.stdout.write("\nGuest lookup (no login):")
         self.stdout.write(f"  Last name: Guest    Order #: {GUEST_ORDER_NUMBER}")
+        self.stdout.write(f"\nFull class + waitlist: {full_waitlist_class.title}  (slug: {full_waitlist_class.slug})")
+        self.stdout.write(
+            f"  {full_waitlist_class.capacity} confirmed = capacity (full), "
+            f"{FULL_WAITLIST_WAITLISTED} waitlisted. Remove a confirmed student, then notify the next in line."
+        )
         if pending_class is not None:
             self.stdout.write(f"\nPending admin approval: {pending_class.title}  (slug: {pending_class.slug})")
         if orientation_summary:
@@ -434,6 +449,57 @@ class Command(BaseCommand):
             confirmed_at=timezone.now() - timedelta(hours=6),
             amount_paid_cents=0,
         )
+
+    def _ensure_full_waitlist_class(self, category: Category, instructor: Any) -> ClassOffering:
+        """A published, upcoming class filled to capacity with a genuine waitlist behind it.
+
+        CONFIRMED registrations exactly equal ``capacity`` so the class reads as full
+        (``ClassOffering.spots_remaining == 0``), and ``FULL_WAITLIST_WAITLISTED`` extra
+        rows sit beyond capacity as ``WAITLISTED`` — unpaid, unconfirmed, and with
+        ``waitlist_notified_at`` left at its ``None`` default. That state lets an
+        admin/instructor demo removing a confirmed student and promoting ("notify next
+        in line") the first person off the waitlist.
+
+        Prod-safe like the rest of the seed: demo- slug + @pastlives.demo emails, direct
+        ORM, no Stripe/email side effects. Idempotent — every row is keyed on its
+        ``order_number`` via :meth:`_upsert_registration`.
+        """
+        now = timezone.now()
+        offering = self._upsert_class(
+            slug=f"{DEMO_SLUG_PREFIX}full-waitlist",
+            title="[DEMO] Screen Printing Intensive (Full + Waitlist)",
+            category=category,
+            instructor=instructor,
+            price_cents=9000,
+            capacity=FULL_WAITLIST_CAPACITY,
+            session_start=now + timedelta(days=10),
+        )
+        # Fill to capacity with CONFIRMED, paid registrants → spots_remaining == 0.
+        for i in range(1, offering.capacity + 1):
+            self._upsert_registration(
+                offering=offering,
+                order_number=f"PL-DMW{i + 1}-26",
+                email=f"wl-confirmed{i}@{DEMO_EMAIL_DOMAIN}",
+                first_name="Waitlist",
+                last_name=f"Confirmed{i}",
+                status=Registration.Status.CONFIRMED,
+                confirmed_at=now - timedelta(days=1),
+                amount_paid_cents=offering.price_cents,
+            )
+        # A genuine waitlist beyond capacity: unpaid, unconfirmed, and never notified
+        # (waitlist_notified_at defaults to None and _upsert_registration never sets it).
+        for i in range(1, FULL_WAITLIST_WAITLISTED + 1):
+            self._upsert_registration(
+                offering=offering,
+                order_number=f"PL-DMX{i + 1}-26",
+                email=f"wl-waiting{i}@{DEMO_EMAIL_DOMAIN}",
+                first_name="Waitlist",
+                last_name=f"Waiting{i}",
+                status=Registration.Status.WAITLISTED,
+                confirmed_at=None,
+                amount_paid_cents=0,
+            )
+        return offering
 
     def _upsert_registration(
         self,

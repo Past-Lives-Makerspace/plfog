@@ -82,6 +82,7 @@ urlpatterns = [
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),
     path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),
+    path("guilds/<int:pk>/visibility/save/", views.guild_visibility_save, name="hub_guild_visibility_save"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),

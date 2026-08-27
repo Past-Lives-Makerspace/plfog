@@ -223,6 +223,25 @@
 
 {% if is_admin %}
 {% comment %}
+Guild Visibility (admin only) — show/hide the guild from every listing. Its own form
+and endpoint, sitting outside the main form. A guild lead never sees this: it is gated
+on is_admin (the same effective-admin gate as the Danger Zone below), and the save view
+403s anyone who is not an actual admin.
+{% endcomment %}
+<form method="post" action="{% url 'hub_guild_visibility_save' guild.pk %}" class="hub-form" x-show="section === 'basic'" x-cloak>
+  {% csrf_token %}
+  <div class="hub-card" style="padding:1.5rem; margin-top:2.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Visibility</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem; max-width:46rem;">
+      Turn a guild off to hide it while you get it ready, then back on to launch it. Hiding removes it
+      from the sidebar, the guild directory, the community calendar, and voting. The guild page and this
+      settings page stay reachable by direct link, so an admin can always turn it back on.
+    </p>
+    {% include "components/form_field.html" with field=visibility_form.is_active %}
+    <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
+  </div>
+</form>
+{% comment %}
 Danger Zone (admin only) — soft-delete the guild. Sits outside the main form; the
 confirm modal carries its own POST form, and template content can't nest a form.
 {% endcomment %}

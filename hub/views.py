@@ -686,6 +686,7 @@ def _guild_edit_context(
         GuildOrientationSettingsForm,
         GuildStaffAddForm,
         GuildThankyouEmailForm,
+        GuildVisibilityForm,
         OrientationAvailabilityFormSet,
         OrientationSlotForm,
         StudioHoursFormSet,
@@ -747,6 +748,7 @@ def _guild_edit_context(
         ),
         "staff_by_member": guild.staff_by_member(),
         "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
+        "visibility_form": GuildVisibilityForm(instance=guild),
         "is_admin": _viewing_as_admin(request),
         "google_sync_enabled": _google_sync_enabled(),
         "notes": guild.meeting_notes.prefetch_related("attachments"),
@@ -858,6 +860,35 @@ def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
     guild.soft_delete()
     messages.success(request, f"“{guild.name}” has been deleted.")
     return redirect("home")
+
+
+@login_required
+@require_POST
+def guild_visibility_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Show/hide a guild from the Basic tab of the guild editor. Actual admin only.
+
+    Flips ``Guild.is_active`` via a single-boolean :class:`~hub.forms.GuildVisibilityForm`.
+    Gated with ``_require_admin`` (the same effective-admin gate as the Danger Zone
+    delete on this page), so a guild lead or staffer gets a 403 and never sees the
+    control. Turning it off removes the guild from the sidebar, directory, community
+    calendar, and voting (existing ``is_active`` behavior); the guild page and this
+    settings page stay reachable by direct link so an admin can turn it back on.
+    Redirects back to the Basic tab.
+    """
+    from hub.forms import GuildVisibilityForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    form = GuildVisibilityForm(request.POST, instance=guild)
+    form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
+    form.save()
+    messages.success(
+        request,
+        "This guild is now visible to members." if guild.is_active else "This guild is now hidden from members.",
+    )
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=basic")
 
 
 @login_required
