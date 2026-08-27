@@ -124,10 +124,10 @@ def describe_staff_section():
             assert settings_matrix.STAFF_SECTION not in _sections(user)
 
     def describe_a_fog_admin_without_capabilities():
-        def it_sees_the_section_for_admin_alerts_rendered_first(db):
+        def it_sees_the_section_for_admin_alerts_rendered_last(db):
             user = _member_user("admin1", fog_role=Member.FogRole.ADMIN)
             sections = _sections(user)
-            assert sections[0] == settings_matrix.STAFF_SECTION
+            assert sections[-1] == settings_matrix.STAFF_SECTION
             assert _section_of(user, ADMIN_ALERT_EVENT) == settings_matrix.STAFF_SECTION
 
         def it_does_not_see_a_capability_it_does_not_hold(db):

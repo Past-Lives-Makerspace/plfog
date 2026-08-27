@@ -6,6 +6,13 @@
     operational notices (receipts, security, booking and orientation updates) are always on and
     can't be turned off.
   </p>
+  {% if not prefs_token %}
+  <nav class="pl-notif-jump" aria-label="Jump to a notification section">
+    {% for category, rows in notif_matrix %}
+      <a class="pl-notif-jump__chip" href="#notif-{{ category|slugify }}">{{ category }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
   {% if member %}
     {% comment %}
       Shared Discord CTA. It (and the confirm modal) sit OUTSIDE the notifications

@@ -40,7 +40,7 @@
       </div>
       <p class="hub-text-muted" style="margin-top:1rem; font-size:0.85rem;">
         How updates reach you (email, in app, Discord) is set on the
-        <a href="?tab=notifications" @click.prevent="tab = 'notifications'">Notifications tab</a>.
+        <a href="?tab=notifications" @click.prevent="go('notifications')">Notifications tab</a>.
       </p>
     {% else %}
       <p class="hub-text-muted">No guilds have been set up yet. Check back soon.</p>

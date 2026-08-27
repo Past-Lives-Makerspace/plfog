@@ -7109,3 +7109,35 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex-wrap: wrap;
     margin: 0 0 0.5rem;
 }
+
+/* Floating back-to-top button on the User Settings page (hub-tokenized; deliberately
+   NOT the public-CMS #scroll-top-btn styles). z-index sits above page content and the
+   sticky topbar but below the modal backdrop (500), so the discard confirm covers it. */
+.pl-scroll-top {
+    position: fixed;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    z-index: 90;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--hub-border);
+    cursor: pointer;
+    background: var(--hub-elevated);
+    color: var(--color-tuscan-yellow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.pl-scroll-top:hover {
+    transform: translateY(-2px);
+}
+
+/* Phone clearance: the fixed back-to-top FAB floats over a padded strip, never over the
+   page's last row of controls (Guilds toggles, danger-zone footer, Tours Save). */
+@media (max-width: 768px) {
+    #pl-settings-root {
+        padding-bottom: 4.5rem;
+    }
+}
