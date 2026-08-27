@@ -9,6 +9,11 @@ Parameters (pass via {% include ... with %}):
   confirm_button_text  — optional, button label (default: "Confirm")
   confirm_button_style — optional, "danger" (default) or "primary"
   confirm_cancel_text  — optional, label for the dismiss button (default: "Cancel")
+  confirm_no_boost     — optional (plain-POST mode); when set, the form carries
+                         hx-boost="false" so it submits as a genuine full-page POST.
+                         Required when the target view redirects cross-origin (e.g. to
+                         Stripe Checkout): a boosted form issues an XHR that cannot follow
+                         a cross-origin 302, which the browser blocks as a CORS error.
 
   On open the modal records the triggering element and moves focus to the Cancel/dismiss
   button; every close path (Cancel, Escape, ×, click-outside) restores focus to the opener.
@@ -100,7 +105,7 @@ Parameters (pass via {% include ... with %}):
                     </button>
                 </form>
                 {% else %}
-                <form method="post" action="{{ confirm_action_url }}" style="flex:1;">
+                <form method="post" action="{{ confirm_action_url }}"{% if confirm_no_boost %} hx-boost="false"{% endif %} style="flex:1;">
                     {% csrf_token %}
                     {% if confirm_field_name %}<input type="hidden" name="{{ confirm_field_name }}" value="{{ confirm_field_value }}">{% endif %}
                     {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
