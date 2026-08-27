@@ -1121,6 +1121,57 @@
 [data-theme="light"] .pl-status-badge--fail { background: rgba(200, 50, 50, 0.1); color: #b32d2d; }
 [data-theme="light"] .pl-status-badge--muted { background: rgba(0, 0, 0, 0.06); color: var(--hub-text-muted); }
 
+/* ===== Roster & waitlist management (teach + admin Workspace tabs) ===== */
+
+/* Filter-bar / inline-action control on admin pages (selects + text inputs).
+   Theme input tokens per FRONTEND.md Rule 13 — never inline background/color. */
+.pl-admin-control {
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--hub-input-border, var(--hub-border));
+    border-radius: 6px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    font-size: 0.875rem;
+}
+/* Native option popups don't inherit the select's colors (Rule 13). */
+.pl-admin-control option {
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+}
+
+/* The Actions cell — small inline buttons that wrap instead of stretching the row. */
+.pl-roster-actions {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Muted sub-line under the Paid badge ("Link sent Aug 26" / "No email sent yet"). */
+.pl-paid-note {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin-top: 0.2rem;
+    white-space: nowrap;
+}
+.pl-paid-note--warn { color: #fbbf24; }
+[data-theme="light"] .pl-paid-note--warn { color: #8a5b06; }
+
+/* Warn-toned line inside a confirm modal (over-capacity, in-flight payment). */
+.pl-confirm-warn {
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+}
+[data-theme="light"] .pl-confirm-warn {
+    background: rgba(180, 120, 10, 0.1);
+    color: #8a5b06;
+}
+
 /* The refund modal body — context header, consequence line, busy state. */
 .pl-refund-context {
     margin: 0 0 1rem;

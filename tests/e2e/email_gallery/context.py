@@ -352,6 +352,81 @@ def waitlist_spot_opened_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def _promoted_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails._promoted_template_context`` for the promoted pair."""
+    from classes.emails import _absolute_url
+
+    registration = data.waitlisted
+    return {
+        "registration": registration,
+        "offering": data.offering,
+        "upcoming_sessions": _upcoming_sessions(data),
+        "pay_url": _absolute_url(
+            reverse("classes:my_registration_pay", kwargs={"token": registration.self_serve_token})
+        ),
+        "amount_due_dollars": "45.00",
+        **_class_urls(data, registration),
+    }
+
+
+def promoted_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_waitlist_promoted``."""
+    return {
+        "subject": f"You're in! {data.offering.title}",
+        "template_context": _promoted_context(data),
+    }
+
+
+def promoted_pay_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_payment_link_email``."""
+    return {
+        "subject": f"You're in! Complete your payment for {data.offering.title}",
+        "template_context": _promoted_context(data),
+    }
+
+
+def removed_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_removal_notice`` — the paid seat-holder variant."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    return {
+        "subject": f"Your registration for {data.offering.title} was cancelled",
+        "template_context": {
+            "registration": registration,
+            "offering": data.offering,
+            "was_waitlisted": False,
+            "show_refund_note": True,
+            "amount_paid_dollars": "45.00",
+            "class_url": _class_urls(data, registration)["class_url"],
+            "browse_url": _absolute_url(reverse("classes:public_list")),
+        },
+    }
+
+
+def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_duplicate_payment_alert`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_duplicate"
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    return {
+        "subject": f"Duplicate payment: {name}, {offering.title}",
+        "text_body": (
+            f"{name} ({registration.email}) paid $45.00 online for "
+            f'"{offering.title}" AFTER the balance was already settled (marked paid by staff, '
+            f"or an earlier payment landed first).\n\n"
+            f"A refund is owed for one of the two payments.\n\n"
+            f"Registration: {detail_url}\n"
+            f"Stripe payment: {stripe_url}\n"
+            f"Checkout session: cs_sample_duplicate"
+        ),
+    }
+
+
 def reminder_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.build_class_reminder_occurrence``."""
     session = _upcoming_sessions(data)[0]

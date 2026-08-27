@@ -21,7 +21,7 @@ def tab_context(request: HttpRequest) -> dict[str, Any]:
 
     from core.models import SiteConfiguration
 
-    if not SiteConfiguration.load().tab_payments_enabled:
+    if not SiteConfiguration.load().my_tab_enabled:
         return {}
 
     from membership.models import Member

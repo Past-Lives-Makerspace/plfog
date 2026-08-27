@@ -21,6 +21,9 @@
             <div style="padding:10px 12px;margin-bottom:10px;background:rgba(45,212,160,.08);border:1px solid rgba(45,212,160,.25);border-radius:6px;color:var(--green);font-size:12px">{{ msg }}</div>
           {% endfor %}
         {% endif %}
+        {% if paid_banner %}
+          <div style="padding:10px 12px;margin-bottom:10px;background:rgba(45,212,160,.08);border:1px solid rgba(45,212,160,.25);border-radius:6px;color:var(--green);font-size:12px">Thanks! Your payment is processing. You'll get a receipt by email.</div>
+        {% endif %}
 
         <div class="dc-igrid">
           <div class="dc-icard">

@@ -893,7 +893,7 @@ def describe_admin_site_settings_features():
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         assert response.status_code == 200
         assert response.context["active_tab"] == "features"
-        assert b"Enable My Tab &amp; Payments" in response.content
+        assert b"Enable My Tab" in response.content
         assert b"Allow class registration" in response.content
 
     def it_renders_the_help_and_wiki_sidebar_toggles(client):
@@ -907,7 +907,7 @@ def describe_admin_site_settings_features():
         # Excluded from the General loop — each control renders only in the Features panel.
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings"))
-        assert response.content.count(b'id="id_tab_payments_enabled"') == 1
+        assert response.content.count(b'id="id_my_tab_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
@@ -940,7 +940,7 @@ def describe_admin_site_settings_features():
         assert response.status_code == 302
         assert "tab=features" in response["Location"]
         config = SiteConfiguration.load()
-        assert config.tab_payments_enabled is False
+        assert config.my_tab_enabled is False
         assert config.class_registration_enabled is False
         assert config.class_registration_disabled_note == "We'll be back soon."
 
@@ -958,7 +958,7 @@ def describe_admin_site_settings_features():
                 "google_analytics_measurement_id": "",
                 "signage_default_slide_seconds": "12",
                 "signage_event_days_ahead": "30",
-                "tab_payments_enabled": "on",
+                "my_tab_enabled": "on",
                 "class_registration_enabled": "on",
                 "class_registration_disabled_note": "",
                 "feeds-TOTAL_FORMS": "0",
@@ -969,7 +969,7 @@ def describe_admin_site_settings_features():
         )
         assert response.status_code == 302
         config = SiteConfiguration.load()
-        assert config.tab_payments_enabled is True
+        assert config.my_tab_enabled is True
         assert config.class_registration_enabled is True
 
 

@@ -19,22 +19,24 @@ def _login_admin(client: Client) -> User:
 
 
 def describe_hub_nav_feature_flags():
-    def it_shows_tab_and_payments_nav_when_enabled(client: Client):
+    def it_shows_my_tab_and_payments_nav_when_enabled(client: Client):
         _login_admin(client)
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/tab/"' in body
         assert reverse("billing_admin_dashboard").encode() in body
         assert reverse("billing_admin_reports").encode() in body
 
-    def it_hides_tab_and_payments_nav_when_disabled(client: Client):
+    def it_hides_only_my_tab_when_disabled_payments_nav_stays(client: Client):
+        # The flag scopes the MEMBER My Tab surfaces; the admin Payments/Reports
+        # nav is permission-scoped and never feature-toggled.
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
+        config.my_tab_enabled = False
         config.save()
         _login_admin(client)
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/tab/"' not in body
-        assert reverse("billing_admin_dashboard").encode() not in body
-        assert reverse("billing_admin_reports").encode() not in body
+        assert reverse("billing_admin_dashboard").encode() in body
+        assert reverse("billing_admin_reports").encode() in body
 
 
 def describe_hub_nav_help_and_wiki_flags():

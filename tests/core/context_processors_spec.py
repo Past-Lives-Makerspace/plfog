@@ -59,7 +59,7 @@ def describe_feature_flags():
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
-        assert result["tab_payments_enabled"] is True
+        assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
         assert (
             result["class_registration_disabled_note"]
@@ -68,7 +68,7 @@ def describe_feature_flags():
 
     def it_reflects_toggled_values():
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
+        config.my_tab_enabled = False
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
@@ -80,7 +80,7 @@ def describe_feature_flags():
         request = rf.get("/")
         result = feature_flags(request)
         assert result == {
-            "tab_payments_enabled": False,
+            "my_tab_enabled": False,
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,

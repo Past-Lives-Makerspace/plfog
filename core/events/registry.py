@@ -444,6 +444,9 @@ MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
+WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
+WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
+REGISTRATION_REMOVED = "registration_removed"  # staff removed a registrant (seat-holder or waitlister)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -944,6 +947,38 @@ _NEW_EVENTS: list[EventType] = [
         description="A member's monthly tab charge failed — the admin heads-up to follow up.",
         category="Billing",
         recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # Roster management — staff promote / remove notices to the registrant. The email
+    # goes to the registration's raw address via ``email_to`` (guest-safe, never
+    # pref-gated); the REGISTRANT resolver posts the bell row to the linked member
+    # when one exists — exactly the ``waitlist_spot_available`` pattern. No activity
+    # row from emit: the classes app writes its own CmsActivity at each workflow point.
+    EventType(
+        key=WAITLIST_PROMOTED,
+        label="Added from the waitlist",
+        description="Staff added you to a class straight from the waitlist — you're in.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=WAITLIST_PROMOTED_PAY,
+        label="Added from the waitlist (payment due)",
+        description="Staff added you to a paid class from the waitlist — your seat is held; a payment link is included.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=REGISTRATION_REMOVED,
+        label="Removed from a class",
+        description="Staff removed your registration or waitlist spot for a class.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

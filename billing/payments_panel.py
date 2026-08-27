@@ -187,7 +187,12 @@ def _tab_rows(window: PanelWindow) -> list[PaymentRow]:
 
 
 def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
-    """Paid class registration rows, with refund state derived from the ledger."""
+    """Paid class registration rows, with refund state derived from the ledger.
+
+    Includes rows with NO ``stripe_payment_id`` — a staff Mark as Paid (cash,
+    comped) is money collected and belongs in the ledger. Those rows carry no
+    refund action: there is nothing on Stripe to refund.
+    """
     from django.urls import reverse
 
     from billing.models import PaymentRefund
@@ -195,7 +200,6 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
 
     registrations = (
         Registration.objects.filter(amount_paid_cents__gt=0)
-        .exclude(stripe_payment_id="")
         .filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt)
         .select_related("class_offering", "member")
         .prefetch_related("refunds")
@@ -233,7 +237,7 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
                 status=status,
                 date=registration.confirmed_at,
                 refund_rows=refunds,
-                can_refund=registration.refundable_cents > 0,
+                can_refund=bool(registration.stripe_payment_id) and registration.refundable_cents > 0,
                 pending_age=pending_age,
             )
         )

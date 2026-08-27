@@ -83,16 +83,36 @@ def describe_build_payments_ledger():
         ledger = build_payments_ledger(window=_WINDOW)
         assert ledger.rows == ()
 
-    def it_excludes_unpaid_and_paymentless_registrations():
+    def it_excludes_unpaid_registrations():
         RegistrationFactory(status=Registration.Status.CONFIRMED, amount_paid_cents=0, confirmed_at=_aware(2026, 8, 3))
+        ledger = build_payments_ledger(window=_WINDOW)
+        assert ledger.rows == ()
+
+    def it_excludes_provisional_pending_checkouts_with_no_confirmed_at():
+        # The register flow stamps a provisional amount before Stripe confirms;
+        # those rows have no confirmed_at and are not collected money yet.
         RegistrationFactory(
-            status=Registration.Status.CONFIRMED,
+            status=Registration.Status.PENDING,
             amount_paid_cents=1000,
             stripe_payment_id="",
-            confirmed_at=_aware(2026, 8, 3),
+            confirmed_at=None,
         )
         ledger = build_payments_ledger(window=_WINDOW)
         assert ledger.rows == ()
+
+    def it_includes_manually_settled_rows_with_no_stripe_payment():
+        # A staff Mark as Paid (cash, comped) records money with no Stripe intent —
+        # it belongs in the ledger as a paid class row with NO refund action.
+        _paid_registration(stripe_payment_id="")
+        (row,) = build_payments_ledger(window=_WINDOW).rows
+        assert row.source_kind == "class"
+        assert row.status == "paid"
+        assert row.can_refund is False
+
+    def it_keeps_the_refund_action_on_stripe_paid_rows():
+        _paid_registration()
+        (row,) = build_payments_ledger(window=_WINDOW).rows
+        assert row.can_refund is True
 
     def describe_class_status_derivation():
         def it_shows_paid_with_no_refunds():

@@ -740,7 +740,7 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
-            "tab_payments_enabled",
+            "my_tab_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
             "help_page_enabled",

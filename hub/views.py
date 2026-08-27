@@ -3873,7 +3873,7 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET"])
 def tab_detail(request: HttpRequest) -> HttpResponse:
     """My Tab page — shows current balance, pending entries, and saved payment method."""
-    if not SiteConfiguration.load().tab_payments_enabled:
+    if not SiteConfiguration.load().my_tab_enabled:
         messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -3926,7 +3926,7 @@ def void_tab_entry(request: HttpRequest, entry_pk: int) -> HttpResponse:
 @login_required
 def tab_history(request: HttpRequest) -> HttpResponse:
     """Tab History page — shows past billing charges with expandable details."""
-    if not SiteConfiguration.load().tab_payments_enabled:
+    if not SiteConfiguration.load().my_tab_enabled:
         messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 

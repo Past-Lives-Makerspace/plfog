@@ -34,6 +34,9 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     """
     session = event["data"]["object"]
     metadata = session.get("metadata") or {}
+    if metadata.get("kind") == "class_payment_link":
+        _handle_class_payment_link(session)
+        return
     if metadata.get("kind") != "class_registration":
         return
 
@@ -104,6 +107,100 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     from core.services.guest_account import ensure_account_for_registration
 
     ensure_account_for_registration(registration)
+
+
+def _handle_class_payment_link(session: dict[str, Any]) -> None:
+    """Record a balance payment made through the promoted-registration pay page.
+
+    The main handler early-returns on CONFIRMED rows, so balance payments get
+    their own path. Ordered checks (idempotent — Stripe re-delivers):
+
+    1. ``stripe_payment_id`` already equals this session's ``payment_intent`` →
+       re-delivery of an already-recorded payment (including a duplicate one) — return.
+    2. Row already settled (``balance_due_cents == 0``) — staff hit Mark as Paid
+       (or an earlier link payment landed) while this Checkout was in flight. The
+       studio has now collected twice: do NOT overwrite ``amount_paid_cents``
+       (the ledger keeps the first settlement on purpose), send no receipt.
+       Record ``stripe_payment_id`` (so check 1 makes re-deliveries idempotent),
+       log a DUPLICATE_PAYMENT activity row, and alert the admins that a refund
+       is owed.
+    3. Normal path: record the payment (Checkout charged the full balance — no
+       partials possible), bump the stored discount code's use count once, and
+       send the standard confirmation as the paid-in-full receipt (its
+       ``reg:{pk}:confirmation`` period has never fired for a promoted row, so it
+       delivers exactly once across retries).
+    """
+    from classes import activity
+    from classes.emails import send_duplicate_payment_alert
+    from classes.models import CmsActivity
+
+    registration_id = (session.get("metadata") or {}).get("registration_id")
+    if not registration_id:
+        logger.warning("checkout.session.completed (class_payment_link): missing registration_id in metadata")
+        return
+    if session.get("payment_status") != "paid":
+        logger.info(
+            "checkout.session.completed (class_payment_link): ignoring session %s with payment_status=%s",
+            session.get("id"),
+            session.get("payment_status"),
+        )
+        return
+
+    is_duplicate = False
+    duplicate_amount_cents = 0
+    with transaction.atomic():
+        try:
+            registration = Registration.objects.select_for_update().get(pk=registration_id)
+        except Registration.DoesNotExist:
+            logger.warning("checkout.session.completed (class_payment_link): no registration %s", registration_id)
+            return
+
+        payment_intent = session.get("payment_intent", "") or ""
+        if payment_intent and registration.stripe_payment_id == payment_intent:
+            return  # Stripe re-delivery of an already-recorded payment
+
+        amount_total = session.get("amount_total")
+        if registration.balance_due_cents == 0:
+            # Already settled — a duplicate payment. Record it distinctly, never overwrite.
+            is_duplicate = True
+            duplicate_amount_cents = amount_total if isinstance(amount_total, int) else 0
+            registration.stripe_payment_id = payment_intent
+            registration.save(update_fields=["stripe_payment_id"])
+            activity.log(
+                CmsActivity.Kind.DUPLICATE_PAYMENT,
+                class_offering=registration.class_offering,
+                registration=registration,
+                payload={
+                    "payment_intent": payment_intent,
+                    "amount_cents": duplicate_amount_cents,
+                    "session_id": session.get("id", ""),
+                },
+            )
+        else:
+            code_not_yet_counted = registration.amount_paid_cents == 0
+            if isinstance(amount_total, int):
+                registration.amount_paid_cents = amount_total
+            registration.stripe_session_id = session.get("id", registration.stripe_session_id)
+            registration.stripe_payment_id = payment_intent
+            registration.save(update_fields=["amount_paid_cents", "stripe_session_id", "stripe_payment_id"])
+            if registration.discount_code_id and code_not_yet_counted:
+                DiscountCode.objects.filter(pk=registration.discount_code_id).update(use_count=F("use_count") + 1)
+                activity.log(
+                    CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+                    class_offering=registration.class_offering,
+                    registration=registration,
+                    payload={"code": registration.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
+                )
+
+    if is_duplicate:
+        send_duplicate_payment_alert(
+            registration,
+            amount_cents=duplicate_amount_cents,
+            payment_intent=session.get("payment_intent", "") or "",
+            session_id=session.get("id", ""),
+        )
+    else:
+        send_registration_confirmation(registration)
 
 
 def _refundable_source_for_payment_intent(payment_intent_id: str) -> Registration | None:

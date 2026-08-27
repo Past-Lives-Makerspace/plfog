@@ -50,7 +50,7 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
 
     config = SiteConfiguration.load()
     return {
-        "tab_payments_enabled": config.tab_payments_enabled,
+        "my_tab_enabled": config.my_tab_enabled,
         "class_registration_enabled": config.class_registration_enabled,
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,

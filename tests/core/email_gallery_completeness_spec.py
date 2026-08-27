@@ -33,6 +33,9 @@ EXPECTED_PAIRS = {
     "waitlist_joined",
     "waitlist_spot_opened",
     "welcome",
+    "promoted",
+    "promoted_pay",
+    "removed",
     # membership
     "discord_guilds_imported",
     "guild_welcome",
@@ -62,10 +65,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_23_pairs():
+    def it_discovers_the_expected_26_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 23
+        assert len(EXPECTED_PAIRS) == 26
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()
@@ -89,6 +92,7 @@ def describe_email_gallery_completeness():
         assert set(literal_kinds) == {
             "core.find_account",
             "classes.welcome_email",
+            "classes.duplicate_payment_alert",
             "classes.welcome_email_test",
             "classes.instructor_message",
             "classes.admin_message",

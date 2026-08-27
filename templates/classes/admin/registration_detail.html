@@ -10,6 +10,20 @@
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_registrations' %}">← All Registrations</a>
 </div>
 
+{% if duplicate_payment %}
+<div style="margin-bottom:1rem; padding:0.85rem 1rem; border:1px solid rgba(220,60,60,0.4); border-radius:8px; background:rgba(220,60,60,0.08);">
+    <strong style="color:var(--hub-danger, #f87171);">Duplicate payment received.</strong>
+    <span style="font-size:0.9rem;">This person paid online after the balance was already settled. A refund is owed.</span>
+    <div style="margin-top:0.35rem; font-size:0.85rem;">
+        {% if duplicate_payment.payload.payment_intent %}
+        <a href="https://dashboard.stripe.com/payments/{{ duplicate_payment.payload.payment_intent }}" target="_blank" rel="noopener">View the Stripe payment</a>
+        &nbsp;·&nbsp;
+        {% endif %}
+        <a href="{% url 'classes:admin_activity' %}">Activity log</a>
+    </div>
+</div>
+{% endif %}
+
 <div class="admin-table-wrap" style="margin-bottom:1rem;">
 <table>
     <thead><tr><th colspan="2">Registration Details</th></tr></thead>
@@ -36,6 +50,21 @@
             <td style="font-weight:600; color:var(--hub-text-muted);">Paid</td>
             <td>{{ registration.amount_paid_cents|cents_as_dollars }}{% if registration.discount_code %} <span style="font-size:0.8rem; color:var(--hub-text-muted);">(code: {{ registration.discount_code.code }})</span>{% endif %}</td>
         </tr>
+        {% if registration.payment_due_cents > 0 %}
+        <tr>
+            <td style="font-weight:600; color:var(--hub-text-muted);">Balance</td>
+            <td>
+                {% if registration.is_unpaid %}
+                <span class="pl-status-badge pl-status-badge--warn">Owes {{ registration.balance_due_cents|cents_as_dollars }} · Unpaid</span>
+                {% else %}
+                <span class="pl-status-badge pl-status-badge--ok">Paid in full</span>
+                {% endif %}
+                {% if registration.payment_link_sent_at %}
+                <span style="font-size:0.8rem; color:var(--hub-text-muted);">Payment link last sent {{ registration.payment_link_sent_at|date:"M j" }}</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endif %}
         {% if registration.stripe_payment_id %}
         <tr>
             <td style="font-weight:600; color:var(--hub-text-muted);">Stripe</td>
@@ -153,6 +182,19 @@
 {% if request.view_as.actual_is_admin %}
 <div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px; display:grid; gap:1rem;">
     <h3 style="margin:0; font-size:0.95rem;">Admin Actions</h3>
+    {% if registration.is_unpaid %}
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <form method="post" action="{% url 'classes:registration_send_payment_link' pk=registration.pk %}">
+            {% csrf_token %}
+            <button class="hub-btn hub-btn--sm hub-btn--ghost" type="submit">Send Payment Link</button>
+        </form>
+        <form method="post" action="{% url 'classes:registration_mark_paid' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+            {% csrf_token %}
+            <input name="note" placeholder="How was this paid? (for the activity log)" class="pl-admin-control" style="min-width:200px;">
+            <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Mark as Paid</button>
+        </form>
+    </div>
+    {% endif %}
     {% if registration.status != 'cancelled' and registration.status != 'refunded' %}
     <form method="post" action="{% url 'classes:admin_registration_move' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
         {% csrf_token %}
@@ -162,7 +204,7 @@
     </form>
     <form method="post" action="{% url 'classes:admin_registration_cancel' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
         {% csrf_token %}
-        <input name="reason" placeholder="Cancellation reason (internal)" style="padding:0.45rem 0.75rem; flex:1; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+        <input name="reason" placeholder="Cancellation reason (internal)" class="pl-admin-control" style="flex:1; min-width:200px;">
         <button class="hub-btn hub-btn--sm hub-btn--danger" type="submit">Cancel Registration</button>
     </form>
     {% else %}

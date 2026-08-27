@@ -19,7 +19,7 @@ pytestmark = pytest.mark.django_db
 
 def _disable_tab_payments():
     config = SiteConfiguration.load()
-    config.tab_payments_enabled = False
+    config.my_tab_enabled = False
     config.save()
 
 

@@ -23,9 +23,21 @@ Parameters (pass via {% include ... with %}):
                               disabled until the typed text matches this value exactly.
   confirm_typed_placeholder — input placeholder + label (default: "Type to confirm").
   confirm_typed_field_name  — POST field name carrying the typed value (default: "confirm").
+
+  Note-input mode (optional, opt-in — mirrors the typed-confirmation pattern; works in
+  both plain-POST and HTMX modes):
+  confirm_note_name        — when set, an optional single-line text input renders above the
+                             buttons and posts under this name (e.g. "reason", "note").
+  confirm_note_label       — the input's label (default: "Note (optional)").
+  confirm_note_placeholder — the input's placeholder (default: empty).
+  confirm_note_hint        — optional hint line under the input.
+
+  Rich-body mode (optional): confirm_body_include — a template path included after the
+  message, rendered with the including context (per-row conditional copy, links).
+  confirm_warn_message     — optional warn-toned line rendered above the buttons.
 {% endcomment %}
 <template x-teleport="body">
-<div x-data="{ open: false, typed: '' }"
+<div x-data="{ open: false, typed: '', note: '' }"
      x-show="open"
      x-transition:enter="modal-enter"
      x-transition:leave="modal-leave"
@@ -41,7 +53,18 @@ Parameters (pass via {% include ... with %}):
             <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
-            <p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>
+            {% if confirm_message %}<p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>{% endif %}
+            {% if confirm_body_include %}{% include confirm_body_include %}{% endif %}
+            {% if confirm_note_name %}
+            <label class="pl-form-label" for="{{ confirm_id }}-note">{{ confirm_note_label|default:"Note (optional)" }}</label>
+            <input type="text" id="{{ confirm_id }}-note" x-model="note" autocomplete="off"
+                   placeholder="{{ confirm_note_placeholder|default:'' }}"
+                   class="pl-input" style="width:100%; margin:0 0 1rem;">
+            {% if confirm_note_hint %}<p class="pl-field-hint" style="margin:-0.5rem 0 1rem;">{{ confirm_note_hint }}</p>{% endif %}
+            {% endif %}
+            {% if confirm_warn_message %}
+            <p class="pl-confirm-warn">{{ confirm_warn_message }}</p>
+            {% endif %}
             {% if confirm_typed_value %}
             <label class="pl-form-label" for="{{ confirm_id }}-typed">{{ confirm_typed_placeholder|default:"Type to confirm" }}</label>
             <input type="text" id="{{ confirm_id }}-typed" x-model="typed" autocomplete="off"
@@ -56,6 +79,7 @@ Parameters (pass via {% include ... with %}):
                       @htmx:after-request="open = false"
                       style="flex:1;">
                     {% csrf_token %}
+                    {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;" hx-disabled-elt="this">
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>
@@ -64,6 +88,7 @@ Parameters (pass via {% include ... with %}):
                 <form method="post" action="{{ confirm_action_url }}" style="flex:1;">
                     {% csrf_token %}
                     {% if confirm_field_name %}<input type="hidden" name="{{ confirm_field_name }}" value="{{ confirm_field_value }}">{% endif %}
+                    {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     {% if confirm_typed_value %}<input type="hidden" name="{{ confirm_typed_field_name|default:'confirm' }}" :value="typed">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;"
                             {% if confirm_typed_value %}:disabled="typed !== '{{ confirm_typed_value }}'"{% endif %}>

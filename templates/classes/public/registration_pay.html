@@ -1,0 +1,59 @@
+{% extends "classes/base_public.html" %}
+{% load classes_tags %}
+
+{% block title %}Complete your payment — {{ offering.title }}{% endblock %}
+
+{% block portal_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card">
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Payment due</div>
+          <div class="dc-title"><a href="{% url 'classes:public_class_detail' slug=offering.slug %}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a></div>
+          <div class="dc-inst">with {{ offering.instructor.display_name }}</div>
+        </div>
+        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class page →</a>
+      </div>
+      <div class="detail-body">
+        {% if under_minimum %}
+          <div style="padding:10px 12px;margin-bottom:10px;background:rgba(220,60,60,.08);border:1px solid rgba(220,60,60,.25);border-radius:6px;color:var(--red,#e5484d);font-size:12px">
+            This balance is under $0.50, which we can't charge online. Please contact the studio.
+          </div>
+        {% endif %}
+        {% if payment_in_flight %}
+          <div style="padding:10px 12px;margin-bottom:10px;background:rgba(238,180,75,.08);border:1px solid rgba(238,180,75,.25);border-radius:6px;color:var(--gold,#EEB44B);font-size:12px">
+            If you just paid, give it a minute. Payments can take a moment to land.
+          </div>
+        {% endif %}
+
+        {% if upcoming_sessions %}
+          <div class="dc-sec">
+            <div class="dc-lbl">Schedule</div>
+            {% for session in upcoming_sessions %}
+              <div class="dc-srow">
+                {% if upcoming_sessions|length > 1 %}<span class="dc-snum">{{ forloop.counter }}</span>{% endif %}
+                <span class="dc-sdate">{{ session.starts_at|date:"l, F j, Y" }}</span>
+                <span class="dc-stime">{{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div class="dc-sec">
+          <div class="dc-lbl">Amount due</div>
+          <div class="dc-txt" style="font-size:20px;font-weight:800">${{ balance_due_dollars }}</div>
+        </div>
+
+        <form method="post" action="{% url 'classes:my_registration_pay' token=registration.self_serve_token %}" style="margin-top:18px">
+          {% csrf_token %}
+          <button type="submit" class="hub-btn hub-btn--primary">Pay Now</button>
+        </form>
+        <div style="margin-top:12px">
+          <a class="back-link" href="{% url 'classes:my_registration' token=registration.self_serve_token %}">View your registration</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
