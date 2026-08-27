@@ -114,6 +114,17 @@ def describe_promote_from_waitlist():
         reg.promote_from_waitlist(actor=None)
         assert len(mailoutbox) == 0
 
+    def it_guards_on_a_locked_refetch_so_concurrent_promotes_cannot_both_pass(db):
+        # A second staff member's stale in-memory copy still reads WAITLISTED;
+        # the select_for_update refetch inside promote sees the flipped row.
+        reg = _waitlisted(class_offering=ClassOfferingFactory(price_cents=5000, member_discount_pct=0))
+        stale = Registration.objects.get(pk=reg.pk)
+        reg.promote_from_waitlist(actor=None)
+        assert stale.status == Registration.Status.WAITLISTED  # the stale copy would pass an in-memory guard
+        with pytest.raises(RegistrationStateError):
+            stale.promote_from_waitlist(actor=None)
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_PROMOTED, registration=reg).count() == 1
+
 
 def describe_is_unpaid_and_balance():
     def it_derives_the_balance_from_due_minus_paid(db):
@@ -185,6 +196,20 @@ def describe_mark_paid():
         reg.mark_paid(actor=None)
         with pytest.raises(RegistrationStateError):
             reg.mark_paid(actor=None)
+
+    def it_guards_on_a_locked_refetch_when_an_online_payment_settled_the_row_first(db):
+        # The webhook committed between the view's fetch and this call: the stale
+        # in-memory copy still reads unpaid, but the select_for_update refetch
+        # sees the settled row — cash + online can never both record silently.
+        reg = RegistrationFactory(status=Registration.Status.CONFIRMED, payment_due_cents=4500, amount_paid_cents=0)
+        stale = Registration.objects.get(pk=reg.pk)
+        Registration.objects.filter(pk=reg.pk).update(amount_paid_cents=4500)  # the webhook's settlement
+        assert stale.is_unpaid  # the stale copy would pass an in-memory guard
+        with pytest.raises(RegistrationStateError):
+            stale.mark_paid(actor=None)
+        reg.refresh_from_db()
+        assert reg.amount_paid_cents == 4500  # the online settlement stands, recorded once
+        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.REGISTRATION_MARKED_PAID, registration=reg).exists()
 
     def it_sends_no_email(db, mailoutbox):
         reg = RegistrationFactory(status=Registration.Status.CONFIRMED, payment_due_cents=4500, amount_paid_cents=0)

@@ -552,14 +552,17 @@ def _stale_claim_link_redirect(request: HttpRequest, offering: ClassOffering) ->
     """Claim-link collision guard: bounce a stale ``?waitlist_token=`` click, or ``None``.
 
     A manually promoted person may still hold an un-clicked auto claim link. If
-    their registration is no longer WAITLISTED, a stale claim click must never
-    create a duplicate registration row — redirect to their self-serve page.
+    their registration already holds a seat (CONFIRMED / PENDING), a stale claim
+    click must never create a duplicate registration row — redirect to their
+    self-serve page. A CANCELLED / REFUNDED registrant falls through to the
+    register form: they were told they're out (removal email) and may
+    legitimately sign up again.
     """
     waitlist_token = request.GET.get("waitlist_token", "")
     if not waitlist_token:
         return None
     claiming = Registration.objects.filter(self_serve_token=waitlist_token, class_offering=offering).first()
-    if claiming is None or claiming.status == Registration.Status.WAITLISTED:
+    if claiming is None or claiming.status not in (Registration.Status.CONFIRMED, Registration.Status.PENDING):
         return None
     messages.success(request, "Good news! You're already in this class.")
     return redirect("classes:my_registration", token=claiming.self_serve_token)

@@ -49,9 +49,11 @@ spots_remaining, and registrations OR waitlist_registrations (whichever tab).
   document.body.addEventListener('promote-followup', function (evt) {
     var pk = evt.detail && evt.detail.pk;
     if (!pk) { return; }
+    var row = document.getElementById('wl-row-' + pk);
+    var url = row && row.dataset.followupUrl;
+    if (!url) { return; }
     var body = document.getElementById('promote-followup-body');
     body.innerHTML = 'Loading…';
-    var url = '{% url "classes:registration_promote_followup" 0 %}'.replace('/0/promote/', '/' + pk + '/promote/');
     htmx.ajax('GET', url, '#promote-followup-body');
     window.dispatchEvent(new CustomEvent('open-modal', { detail: 'promote-followup' }));
   });

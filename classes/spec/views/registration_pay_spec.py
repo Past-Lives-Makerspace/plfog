@@ -219,60 +219,72 @@ def describe_duplicate_payment():
         assert "https://dashboard.stripe.com/payments/pi_banner" in content
 
 
+def _bookable_offering(**kwargs):
+    """A published, bookable free class with one upcoming session (the register-page shape)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from classes.factories import ClassSessionFactory
+
+    kwargs.setdefault("status", "published")
+    kwargs.setdefault("price_cents", 0)
+    kwargs.setdefault("capacity", 5)
+    offering = ClassOfferingFactory(**kwargs)
+    ClassSessionFactory(
+        class_offering=offering,
+        starts_at=timezone.now() + timedelta(days=3),
+        ends_at=timezone.now() + timedelta(days=3, hours=2),
+    )
+    return offering
+
+
 def describe_claim_link_guard():
-    def it_bounces_a_stale_claim_link_for_a_promoted_registration(db, client):
-        offering = ClassOfferingFactory(status="published", price_cents=0)
-        from classes.factories import ClassSessionFactory
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        ClassSessionFactory(
-            class_offering=offering,
-            starts_at=timezone.now() + timedelta(days=3),
-            ends_at=timezone.now() + timedelta(days=3, hours=2),
-        )
-        reg = RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
-        before = Registration.objects.count()
-        response = client.get(
+    def _claim_click(client, offering, reg, *, follow=False):
+        return client.get(
             reverse("classes:register", kwargs={"slug": offering.slug}),
             {"waitlist_token": reg.self_serve_token},
-            follow=True,
+            follow=follow,
         )
+
+    def it_bounces_a_stale_claim_link_for_a_promoted_registration(db, client):
+        offering = _bookable_offering()
+        reg = RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        before = Registration.objects.count()
+        response = _claim_click(client, offering, reg, follow=True)
         assert "already in this class." in response.content.decode()
         assert Registration.objects.count() == before
 
+    def it_bounces_a_pending_seat_holder_too(db, client):
+        offering = _bookable_offering()
+        reg = RegistrationFactory(class_offering=offering, status=Registration.Status.PENDING)
+        response = _claim_click(client, offering, reg)
+        assert response.status_code == 302
+        assert response["Location"] == reverse("classes:my_registration", kwargs={"token": reg.self_serve_token})
+
+    def it_lets_a_cancelled_registrant_reach_the_register_form(db, client):
+        # A staff-removed person was just told they're out — a stale claim click
+        # must NOT congratulate them, and must let them legitimately re-register.
+        offering = _bookable_offering()
+        reg = RegistrationFactory(class_offering=offering, status=Registration.Status.CANCELLED)
+        response = _claim_click(client, offering, reg)
+        assert response.status_code == 200  # the register form renders normally
+        assert "already in this class." not in response.content.decode()
+
+    def it_lets_a_refunded_registrant_reach_the_register_form(db, client):
+        offering = _bookable_offering()
+        reg = RegistrationFactory(class_offering=offering, status=Registration.Status.REFUNDED)
+        response = _claim_click(client, offering, reg)
+        assert response.status_code == 200
+        assert "already in this class." not in response.content.decode()
+
     def it_leaves_a_still_waitlisted_claim_click_alone(db, client):
-        offering = ClassOfferingFactory(status="published", price_cents=0, capacity=5)
-        from classes.factories import ClassSessionFactory
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        ClassSessionFactory(
-            class_offering=offering,
-            starts_at=timezone.now() + timedelta(days=3),
-            ends_at=timezone.now() + timedelta(days=3, hours=2),
-        )
+        offering = _bookable_offering()
         reg = RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
-        response = client.get(
-            reverse("classes:register", kwargs={"slug": offering.slug}),
-            {"waitlist_token": reg.self_serve_token},
-        )
+        response = _claim_click(client, offering, reg)
         assert response.status_code == 200  # the register form renders normally
 
     def it_ignores_an_unknown_token(db, client):
-        offering = ClassOfferingFactory(status="published", price_cents=0, capacity=5)
-        from datetime import timedelta
-
-        from django.utils import timezone
-
-        from classes.factories import ClassSessionFactory
-
-        ClassSessionFactory(
-            class_offering=offering,
-            starts_at=timezone.now() + timedelta(days=3),
-            ends_at=timezone.now() + timedelta(days=3, hours=2),
-        )
+        offering = _bookable_offering()
         response = client.get(reverse("classes:register", kwargs={"slug": offering.slug}), {"waitlist_token": "nope"})
         assert response.status_code == 200

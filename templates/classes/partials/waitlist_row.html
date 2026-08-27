@@ -13,7 +13,7 @@ Context:
                swapped rows fall back to reg.waitlist_position)
 {% endcomment %}
 {% if reg.status == 'waitlisted' %}
-<tr id="wl-row-{{ reg.pk }}">
+<tr id="wl-row-{{ reg.pk }}" data-followup-url="{% url 'classes:registration_promote_followup' reg.pk %}">
     <td>{% if position %}{{ position }}{% else %}{{ reg.waitlist_position }}{% endif %}</td>
     <td>{{ reg.first_name }} {{ reg.last_name }}</td>
     <td>{{ reg.email }}</td>
@@ -41,7 +41,9 @@ Context:
     {% endif %}
 </tr>
 {% elif reg.status == 'confirmed' or reg.status == 'pending' %}
-<tr id="wl-row-{{ reg.pk }}">
+{# The promoted stub keeps data-followup-url so the modal opener works whether #}
+{# the HX-Trigger event fires before or after the row swap settles. #}
+<tr id="wl-row-{{ reg.pk }}" data-followup-url="{% url 'classes:registration_promote_followup' reg.pk %}">
     <td><span style="color:var(--color-tuscan-yellow);">✓</span></td>
     <td>{{ reg.first_name }} {{ reg.last_name }}</td>
     <td>{{ reg.email }}</td>

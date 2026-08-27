@@ -2199,21 +2199,25 @@ class Registration(models.Model):
 
         Raises:
             RegistrationStateError: If this registration is not WAITLISTED (a
-                double-click or stale row — first click wins).
+                double-click, stale row, or concurrent promote — first one wins).
         """
         from classes.exceptions import RegistrationStateError
 
-        if self.status != self.Status.WAITLISTED:
-            raise RegistrationStateError("Only waitlisted registrations can be added to the class.")
-        self.payment_due_cents = self.compute_promote_price_cents()
-        self.status = self.Status.CONFIRMED
-        self.confirmed_at = timezone.now()
-        self._acting_user = actor
-        self._promoting = True
-        try:
-            self.save(update_fields=["payment_due_cents", "status", "confirmed_at"])
-        finally:
-            self._promoting = False
+        with transaction.atomic():
+            # Guard on a locked refetch, not the in-memory copy — two concurrent
+            # promotes serialize here and the second sees the flipped status.
+            current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+            if current.status != self.Status.WAITLISTED:
+                raise RegistrationStateError("Only waitlisted registrations can be added to the class.")
+            self.payment_due_cents = self.compute_promote_price_cents()
+            self.status = self.Status.CONFIRMED
+            self.confirmed_at = timezone.now()
+            self._acting_user = actor
+            self._promoting = True
+            try:
+                self.save(update_fields=["payment_due_cents", "status", "confirmed_at"])
+            finally:
+                self._promoting = False
 
     def mark_paid(self, actor: "User | None", note: str = "") -> None:
         """Settle an unpaid promoted registration by hand (cash, comped, check).
@@ -2225,33 +2229,40 @@ class Registration(models.Model):
         standing next to the cash box; the activity feed is the record.
 
         Raises:
-            RegistrationStateError: If nothing is owed (unpaid → paid is one-way).
+            RegistrationStateError: If nothing is owed (unpaid → paid is one-way) —
+                including when an in-flight online payment settled the row between
+                the caller's fetch and this call (the webhook holds the same lock,
+                so the two settlements serialize and the loser hears about it).
         """
         from classes import activity
         from classes.exceptions import RegistrationStateError
 
-        if not self.is_unpaid:
-            raise RegistrationStateError("This registration has no outstanding balance.")
-        code_not_yet_counted = self.amount_paid_cents == 0
-        self.amount_paid_cents = self.payment_due_cents
-        self.save(update_fields=["amount_paid_cents"])
-        activity.log(
-            CmsActivity.Kind.REGISTRATION_MARKED_PAID,
-            class_offering=self.class_offering,
-            registration=self,
-            actor=actor,
-            payload={"note": note},
-        )
-        if self.discount_code_id and code_not_yet_counted:
-            from django.db.models import F
-
-            DiscountCode.objects.filter(pk=self.discount_code_id).update(use_count=F("use_count") + 1)
+        with transaction.atomic():
+            # Guard on a locked refetch, not the in-memory copy — the balance
+            # webhook runs under the same select_for_update, so a cash mark-paid
+            # racing an online payment can never record both silently.
+            current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+            if not current.is_unpaid:
+                raise RegistrationStateError("This registration has no outstanding balance.")
+            code_not_yet_counted = current.amount_paid_cents == 0
+            self.payment_due_cents = current.payment_due_cents
+            self.amount_paid_cents = current.payment_due_cents
+            self.save(update_fields=["amount_paid_cents"])
             activity.log(
-                CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+                CmsActivity.Kind.REGISTRATION_MARKED_PAID,
                 class_offering=self.class_offering,
                 registration=self,
-                payload={"code": self.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
+                actor=actor,
+                payload={"note": note},
             )
+            if self.discount_code_id and code_not_yet_counted:
+                DiscountCode.objects.filter(pk=self.discount_code_id).update(use_count=F("use_count") + 1)
+                activity.log(
+                    CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    payload={"code": self.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
+                )
 
     def remove_by_staff(self, actor: "User | None", reason: str = "") -> None:
         """Staff-remove this registrant: wraps :meth:`cancel`, then sends the removal notice.

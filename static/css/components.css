@@ -1123,6 +1123,22 @@
 
 /* ===== Roster & waitlist management (teach + admin Workspace tabs) ===== */
 
+/* Filter-bar / inline-action control on admin pages (selects + text inputs).
+   Theme input tokens per FRONTEND.md Rule 13 — never inline background/color. */
+.pl-admin-control {
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--hub-input-border, var(--hub-border));
+    border-radius: 6px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    font-size: 0.875rem;
+}
+/* Native option popups don't inherit the select's colors (Rule 13). */
+.pl-admin-control option {
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+}
+
 /* The Actions cell — small inline buttons that wrap instead of stretching the row. */
 .pl-roster-actions {
     display: flex;

@@ -190,7 +190,7 @@
         </form>
         <form method="post" action="{% url 'classes:registration_mark_paid' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
             {% csrf_token %}
-            <input name="note" placeholder="How was this paid? (for the activity log)" style="padding:0.45rem 0.75rem; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+            <input name="note" placeholder="How was this paid? (for the activity log)" class="pl-admin-control" style="min-width:200px;">
             <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Mark as Paid</button>
         </form>
     </div>
@@ -204,7 +204,7 @@
     </form>
     <form method="post" action="{% url 'classes:admin_registration_cancel' pk=registration.pk %}" style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
         {% csrf_token %}
-        <input name="reason" placeholder="Cancellation reason (internal)" style="padding:0.45rem 0.75rem; flex:1; min-width:200px; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
+        <input name="reason" placeholder="Cancellation reason (internal)" class="pl-admin-control" style="flex:1; min-width:200px;">
         <button class="hub-btn hub-btn--sm hub-btn--danger" type="submit">Cancel Registration</button>
     </form>
     {% else %}

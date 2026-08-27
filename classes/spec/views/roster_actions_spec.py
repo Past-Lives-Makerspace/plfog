@@ -377,6 +377,19 @@ def describe_waitlist_tab():
         RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
         assert "already full" in client.get(url).content.decode()
 
+    def it_carries_the_followup_url_on_the_row_and_on_the_promoted_stub(admin_user, client):
+        # The modal opener reads data-followup-url off the row — both the live
+        # waitlist row and the post-promote stub carry it, so the follow-up loads
+        # whether the HX-Trigger event fires before or after the swap settles.
+        client.force_login(admin_user)
+        offering = ClassOfferingFactory(price_cents=4500, member_discount_pct=0, capacity=5)
+        reg = _waitlisted(offering)
+        followup_url = reverse("classes:registration_promote_followup", args=[reg.pk])
+        page = client.get(reverse("classes:admin_class_waitlist", args=[offering.pk])).content.decode()
+        assert f'data-followup-url="{followup_url}"' in page
+        swap = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX).content.decode()
+        assert f'data-followup-url="{followup_url}"' in swap
+
     def it_renders_the_same_actions_on_the_admin_waitlist_tab(admin_user, client):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(capacity=5)
@@ -512,6 +525,13 @@ def describe_admin_registrations_instructor_filter():
         content = client.get(reverse("classes:admin_registrations"), {"instructor": teacher.pk}).content.decode()
         assert "mine@example.com" in content
         assert "other@example.com" not in content
+
+    def it_styles_the_filter_controls_with_the_shared_theme_class(admin_user, client):
+        # Rule 13: no inline background/color on controls — the filter bar's
+        # selects share one pl- class with theme tokens.
+        client.force_login(admin_user)
+        content = client.get(reverse("classes:admin_registrations")).content.decode()
+        assert content.count('class="pl-admin-control"') >= 3  # status, class, instructor
 
     def it_ignores_a_bogus_instructor_value(admin_user, client):
         client.force_login(admin_user)
