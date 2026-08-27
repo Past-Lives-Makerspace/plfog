@@ -4,15 +4,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('membership', '0140_alter_admincapability_capability'),
+        ("membership", "0140_alter_admincapability_capability"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='member',
-            name='guild_updates_prompt_answered_at',
-            field=models.DateTimeField(blank=True, help_text='When the member answered or skipped the first-login guild updates prompt. Null means they have never been asked.', null=True),
+            model_name="member",
+            name="guild_updates_prompt_answered_at",
+            field=models.DateTimeField(
+                blank=True,
+                help_text="When the member answered or skipped the first-login guild updates prompt. Null means they have never been asked.",
+                null=True,
+            ),
         ),
     ]
