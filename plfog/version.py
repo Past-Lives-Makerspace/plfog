@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.17.0"
+VERSION = "1.18.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.18.0",
+        "date": "2026-08-27",
+        "title": "A friendlier Settings page",
+        "changes": [
+            "Settings is easier to get around now. Guilds is the first tab, and the notifications "
+            "list is reordered with orientations, guilds, and events up top plus quick links to "
+            "jump between sections and a back to top button. Your email addresses now live with "
+            "your account details, and if you change a bunch of notification toggles we ask before "
+            "you leave so you do not lose them.",
+        ],
+    },
     {
         "version": "1.17.0",
         "date": "2026-08-27",
