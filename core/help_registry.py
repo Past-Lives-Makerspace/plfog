@@ -558,8 +558,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "nav.guilds": {
         "title": "Guilds in the sidebar",
         "short_text": (
-            "Every guild has its own page. Open one to see meetings, orientations, and how to join — "
-            "this section collapses if you want it out of the way."
+            "Every guild has its own page. Open one to see meetings, orientations, and how to follow "
+            "its updates — this section collapses if you want it out of the way."
         ),
         "article_slug": None,
         "anchor": None,

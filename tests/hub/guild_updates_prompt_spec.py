@@ -194,6 +194,10 @@ def describe_guild_updates_prompt_post():
         html = response.content.decode()
         tag = next(t for t in _checkbox_tags(html) if f'value="{active.pk}"' in t)
         assert re.search(r"\schecked", tag)
+        # The Alpine picked counter seeds from the VALID rendered checks only (1, not
+        # the raw POST's 2) — otherwise Skip would stay stuck disabled after the
+        # member unchecks every visible box.
+        assert 'x-data="{ picked: 1 }"' in html
 
     def it_redirects_an_ineligible_post_home_without_changes(client: Client):
         _user, member = _linked_user(client)

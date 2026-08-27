@@ -703,12 +703,14 @@ class Member(models.Model):
     def mark_guild_updates_answered(self) -> None:
         """Stamp :attr:`guild_updates_prompt_answered_at` once; no-op if already stamped.
 
-        The shared "this member has made a choice" recorder. Called from the prompt
-        (:meth:`answer_guild_updates_prompt`), every settings-toggle subscribe or
-        unsubscribe, and a settings GET landing on the Guilds tab via ``?tab=guilds`` —
+        The shared "this member has made a choice" recorder. Called from every
+        settings-toggle subscribe or unsubscribe, a settings GET landing on the Guilds
+        tab via ``?tab=guilds``, and the prompt view's zero-active-guilds redirect —
         any of those means the member has seen the control and chosen, so the one-time
         prompt must never resurrect (including for a legacy member who unsubscribes
-        from their last guild).
+        from their last guild). A real prompt answer goes through
+        :meth:`answer_guild_updates_prompt` instead, which stamps unconditionally
+        (a re-answer refreshes the timestamp).
         """
         if self.guild_updates_prompt_answered_at is None:
             self.guild_updates_prompt_answered_at = timezone.now()
@@ -745,7 +747,9 @@ class Member(models.Model):
         """Record the member's first-login guild updates answer (idempotent to re-call).
 
         Subscribes to each picked guild (an empty pick IS the Skip case) and stamps
-        :attr:`guild_updates_prompt_answered_at` so the prompt never shows again.
+        :attr:`guild_updates_prompt_answered_at` directly — unconditionally, so a
+        re-answer refreshes the timestamp (unlike the one-way
+        :meth:`mark_guild_updates_answered`) — so the prompt never shows again.
 
         Args:
             guilds: The guilds the member picked; may be empty.

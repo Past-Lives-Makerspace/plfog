@@ -1623,8 +1623,12 @@ def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
             else:
                 messages.info(request, "You didn't pick any guilds. You can choose some anytime in Settings.")
             return redirect("hub_home")
-        # Re-render with the member's checks preserved (raw values — validation failed).
-        picked = request.POST.getlist("guilds")
+        # Re-render with the member's checks preserved. Keep only pks that render a
+        # real checked row (valid, active, deduped) — the template seeds the Alpine
+        # ``picked`` counter from this list's length, and counting invalid pks would
+        # leave Skip stuck disabled after unchecking every visible box.
+        valid_pks = {str(pk) for pk in Guild.objects.filter(is_active=True).values_list("pk", flat=True)}
+        picked = [pk for pk in dict.fromkeys(request.POST.getlist("guilds")) if pk in valid_pks]
 
     ctx = _get_hub_context(request)
     return render(

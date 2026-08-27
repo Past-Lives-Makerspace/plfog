@@ -79,6 +79,23 @@ def describe_get_login_redirect_url():
             adapter = AdminRedirectAccountAdapter()
             assert adapter.get_login_redirect_url(members_request(user)) == reverse("hub_home")
 
+        def it_never_routes_the_guilds_surface_to_the_prompt(rf, db):
+            # The interstitial is members-hub chrome and its URL is not in the
+            # guilds-host allowlist — a login on the guest host must land where it
+            # always did (hub home), even for a prompt-eligible member.
+            from plfog.adapters import AdminRedirectAccountAdapter
+
+            from tests.membership.factories import MembershipPlanFactory
+
+            MembershipPlanFactory()
+            user = UserFactory()
+            assert user.member.needs_guild_updates_prompt is True
+            req = rf.get("/accounts/login/")
+            req.surface = "guilds"
+            req.user = user
+            adapter = AdminRedirectAccountAdapter()
+            assert adapter.get_login_redirect_url(req) == reverse("hub_home")
+
         def it_leaves_the_public_surface_alone(rf, db):
             from plfog.adapters import AdminRedirectAccountAdapter
 

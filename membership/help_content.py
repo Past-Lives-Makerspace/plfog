@@ -351,7 +351,7 @@ On the guild page, your booking shows under **Your orientation** with a **Cancel
             {
                 "file": "01-join-an-orientation.png",
                 "page": "/guilds/ceramics-guild/",
-                "selector": '.hub-card:has(form[action$="/join/"])',
+                "selector": '.hub-card:has([data-help-key="orientation.book-slot"])',
                 "caption": "Join an Orientation in the Get Involved panel jumps to the booking section.",
                 "as_role": "member",
             },
