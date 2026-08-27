@@ -33,6 +33,9 @@
     <p class="pl-text-muted">
       Tab entries and guild payout breakdown. Defaults to the current month.
     </p>
+    {% if not my_tab_enabled %}
+    <p class="pl-text-muted">My Tab is off, so no new tab entries accrue. Pick an earlier date range to see history.</p>
+    {% endif %}
   </div>
 
   {# Filters #}

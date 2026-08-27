@@ -171,9 +171,6 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-_VALID_TABS = {"overview", "open-tabs", "payments", "settings", "stripe"}
-
-
 def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
     """Shared context for the Payments tab and its standalone table partial.
 
@@ -218,72 +215,65 @@ def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
 
 @billing_admin_access_required
 def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
-    """Admin payments dashboard — five-tab view of billing data."""
+    """Admin payments dashboard — tabbed view of billing data.
+
+    The tab set is a function of ``(my_tab_enabled, role)``. With My Tab off, the
+    Overview and Open Tabs tabs (100% tab-ledger content) disappear and Payments
+    becomes the first and default tab; the Settings and Stripe tabs stay admin-only
+    in every state (they configure Stripe, which powers class and orientation
+    payments regardless of the flag — config never hides behind its own feature).
+    """
     from django.contrib import admin as django_admin
-    from billing.forms import BillingSettingsForm
+
+    from billing.forms import BillingSettingsForm, ConnectPlatformSettingsForm
     from billing.models import BillingSettings, Product
+    from core.models import SiteConfiguration
     from membership.models import Guild
 
-    active_tab = request.GET.get("tab", "overview")
-    if active_tab not in _VALID_TABS:
-        active_tab = "overview"
-
-    # A non-admin Billing Administrator sees Overview / Open Tabs; the Settings and
-    # Stripe tabs (billing config + credentials) stay admin-only — nav links hidden
-    # AND the tab itself 403s on a direct URL hit.
     view_as = request.view_as  # type: ignore[attr-defined]
     viewer_is_fog_admin = view_as.has_actual("admin")
+
+    # Tab set as a function of (flag, role). Settings/Stripe stay admin-only in every state.
+    tabs_on = SiteConfiguration.load().my_tab_enabled
+    default_tab = "overview" if tabs_on else "payments"
+    allowed = {"overview", "open-tabs", "payments"} if tabs_on else {"payments"}
+    if viewer_is_fog_admin:
+        allowed |= {"settings", "stripe"}
+
+    active_tab = request.GET.get("tab", default_tab)
+    # A non-admin probing Settings/Stripe is an access question → 403 (unchanged); a
+    # feature-hidden tab (?tab=overview with tabs off) is a feature question → fall back.
     if active_tab in {"settings", "stripe"} and not viewer_is_fog_admin:
         return HttpResponse("Admin access required.", status=403)
+    if active_tab not in allowed:
+        active_tab = default_tab
 
-    now = timezone.now()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    context: dict[str, object] = {
+        **django_admin.site.each_context(request),
+        "active_tab": active_tab,
+        "viewer_is_fog_admin": viewer_is_fog_admin,
+    }
 
-    # --- Overview stats ---
-    total_outstanding = TabEntry.objects.pending().aggregate(
-        total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField())
-    )["total"]
+    # --- Overview + Open Tabs context (tab-ledger tables — only when My Tab is on) ---
+    # No point walking three Tab tables for tabs that cannot render with the flag off; the
+    # template never references these keys when tabs_on is false (the guarding {% if %} is false).
+    if tabs_on:
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    collected_this_month = TabCharge.objects.filter(
-        status=TabCharge.Status.SUCCEEDED,
-        charged_at__gte=month_start,
-    ).aggregate(total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField()))["total"]
+        total_outstanding = TabEntry.objects.pending().aggregate(
+            total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField())
+        )["total"]
 
-    failed_count = TabCharge.objects.filter(status=TabCharge.Status.FAILED).count()
-    locked_count = Tab.objects.filter(is_locked=True).count()
+        collected_this_month = TabCharge.objects.filter(
+            status=TabCharge.Status.SUCCEEDED,
+            charged_at__gte=month_start,
+        ).aggregate(total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField()))["total"]
 
-    outstanding_tabs = (
-        Tab.objects.filter(
-            entries__tab_charge__isnull=True,
-            entries__voided_at__isnull=True,
-        )
-        .distinct()
-        .select_related("member")
-    )
+        failed_count = TabCharge.objects.filter(status=TabCharge.Status.FAILED).count()
+        locked_count = Tab.objects.filter(is_locked=True).count()
 
-    failed_charges = (
-        TabCharge.objects.filter(status=TabCharge.Status.FAILED)
-        .select_related("tab__member")
-        .order_by("-created_at")[:20]
-    )
-
-    # --- Open Tabs tab ---
-    # Annotate with pending balance so we can exclude $0 tabs
-    _pending_balance = Coalesce(
-        Sum(
-            "entries__amount",
-            filter=Q(entries__tab_charge__isnull=True, entries__voided_at__isnull=True),
-        ),
-        Value(Decimal("0.00")),
-        output_field=DecimalField(),
-    )
-    tab_filter = request.GET.get("filter", "outstanding")
-    if tab_filter == "all":
-        open_tabs = Tab.objects.select_related("member").order_by("member__full_legal_name")
-    elif tab_filter == "failed":
-        open_tabs = Tab.objects.filter(charges__status=TabCharge.Status.FAILED).distinct().select_related("member")
-    else:  # outstanding (default)
-        open_tabs = (
+        outstanding_tabs = (
             Tab.objects.filter(
                 entries__tab_charge__isnull=True,
                 entries__voided_at__isnull=True,
@@ -291,53 +281,74 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
             .distinct()
             .select_related("member")
         )
-    open_tabs = open_tabs.annotate(_balance=_pending_balance).exclude(_balance__lte=Decimal("0.00"))
 
-    # --- Settings tab ---
-    from billing.forms import ConnectPlatformSettingsForm
+        failed_charges = (
+            TabCharge.objects.filter(status=TabCharge.Status.FAILED)
+            .select_related("tab__member")
+            .order_by("-created_at")[:20]
+        )
 
+        # --- Open Tabs tab ---
+        # Annotate with pending balance so we can exclude $0 tabs
+        _pending_balance = Coalesce(
+            Sum(
+                "entries__amount",
+                filter=Q(entries__tab_charge__isnull=True, entries__voided_at__isnull=True),
+            ),
+            Value(Decimal("0.00")),
+            output_field=DecimalField(),
+        )
+        tab_filter = request.GET.get("filter", "outstanding")
+        if tab_filter == "all":
+            open_tabs = Tab.objects.select_related("member").order_by("member__full_legal_name")
+        elif tab_filter == "failed":
+            open_tabs = Tab.objects.filter(charges__status=TabCharge.Status.FAILED).distinct().select_related("member")
+        else:  # outstanding (default)
+            open_tabs = (
+                Tab.objects.filter(
+                    entries__tab_charge__isnull=True,
+                    entries__voided_at__isnull=True,
+                )
+                .distinct()
+                .select_related("member")
+            )
+        open_tabs = open_tabs.annotate(_balance=_pending_balance).exclude(_balance__lte=Decimal("0.00"))
+
+        # --- Add Charge modal form ---
+        add_charge_form = TabItemForm(context=CONTEXT_ADMIN_DASHBOARD, user=request.user)
+
+        context.update(
+            {
+                "tab_filter": tab_filter,
+                # Overview
+                "total_outstanding": total_outstanding,
+                "collected_this_month": collected_this_month,
+                "failed_count": failed_count,
+                "locked_count": locked_count,
+                "outstanding_tabs": outstanding_tabs,
+                "failed_charges": failed_charges,
+                # Open Tabs
+                "open_tabs": open_tabs,
+                # Shared
+                "add_charge_form": add_charge_form,
+            }
+        )
+
+    # --- Settings + Stripe tab context (admin config + product overview; flag-independent) ---
     settings_obj = BillingSettings.load()
-    settings_form = BillingSettingsForm(instance=settings_obj)
-    connect_platform_form = ConnectPlatformSettingsForm(instance=settings_obj)
-
-    # --- Stripe tab (Settings tab since v1.5.0 — single platform account) ---
-    products = Product.objects.select_related("guild").order_by("guild__name", "name")
-    guilds = Guild.objects.filter(is_active=True).order_by("name")
-
-    # --- Add Charge modal form ---
-    add_charge_form = TabItemForm(context=CONTEXT_ADMIN_DASHBOARD, user=request.user)
+    context.update(
+        {
+            "settings_form": BillingSettingsForm(instance=settings_obj),
+            "connect_platform_form": ConnectPlatformSettingsForm(instance=settings_obj),
+            "billing_settings": settings_obj,
+            "products": Product.objects.select_related("guild").order_by("guild__name", "name"),
+            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+        }
+    )
 
     # --- Payments tab (built only when active — it walks two money tables) ---
-    payments_context: dict[str, object] = {}
     if active_tab == "payments":
-        payments_context = _payments_panel_context(request)
-
-    context = {
-        **django_admin.site.each_context(request),
-        "active_tab": active_tab,
-        "tab_filter": tab_filter,
-        # Overview
-        "total_outstanding": total_outstanding,
-        "collected_this_month": collected_this_month,
-        "failed_count": failed_count,
-        "locked_count": locked_count,
-        "outstanding_tabs": outstanding_tabs,
-        "failed_charges": failed_charges,
-        # Open Tabs
-        "open_tabs": open_tabs,
-        # Settings
-        "settings_form": settings_form,
-        "connect_platform_form": connect_platform_form,
-        "billing_settings": settings_obj,
-        # Stripe (platform settings + product overview)
-        "products": products,
-        "guilds": guilds,
-        # Shared
-        "add_charge_form": add_charge_form,
-        "viewer_is_fog_admin": viewer_is_fog_admin,
-        # Payments (overrides nothing when inactive; viewer_is_fog_admin agrees)
-        **payments_context,
-    }
+        context.update(_payments_panel_context(request))
 
     return render(request, "billing/admin_dashboard.html", context)
 
@@ -480,7 +491,16 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     from django.contrib import admin
 
     from billing.forms import CustomSplitFormSet
+    from core.models import SiteConfiguration
     from membership.models import Guild
+
+    # New tab charges make no sense with My Tab off — members cannot see or pay them and
+    # bill_tabs skips the run. Gate the view server-side so a mid-session flag flip cannot
+    # leave an already-open dashboard POSTing entries onto a frozen ledger. Covers both the
+    # modal POST and the standalone add-entry page. (Flag on = structural no-op.)
+    if not SiteConfiguration.load().my_tab_enabled:
+        django_messages.info(request, "My Tab is off, so new tab charges can't be added right now.")
+        return redirect("billing_admin_dashboard")
 
     def _render(form: TabItemForm, splits_formset: Any) -> HttpResponse:
         context = {
