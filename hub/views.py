@@ -717,9 +717,11 @@ def _guild_edit_context(
     rules_by_orienter: dict[int, list[Any]] = {}
     orphan_orienters: dict[int, Any] = {}
     for rule in guild.orientation_rules.exclude(orienter=None).select_related("orienter"):
-        rules_by_orienter.setdefault(rule.orienter_id, []).append(rule)
-        if rule.orienter_id not in leadership_ids:
-            orphan_orienters[rule.orienter_id] = rule.orienter
+        orienter_id = rule.orienter_id
+        assert orienter_id is not None  # guaranteed by the exclude(orienter=None) filter
+        rules_by_orienter.setdefault(orienter_id, []).append(rule)
+        if orienter_id not in leadership_ids:
+            orphan_orienters[orienter_id] = rule.orienter
     orienter_overview = [(m, rules_by_orienter.get(m.pk, [])) for m in leadership]
     former_staff_overview = sorted(
         ((m, rules_by_orienter[pk]) for pk, m in orphan_orienters.items()),
