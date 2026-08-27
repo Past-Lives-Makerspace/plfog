@@ -49,6 +49,9 @@ _BRAND_NEW_KEYS = {
     "discount_code.requested",
     "billing.charge_failed_admin",
     "class_announcement",
+    "waitlist_promoted",
+    "waitlist_promoted_pay",
+    "registration_removed",
 }
 
 

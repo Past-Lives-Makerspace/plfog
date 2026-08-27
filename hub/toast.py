@@ -18,8 +18,8 @@ def trigger_toast(response: HttpResponse, message: str, toast_type: str = "succe
     response["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": toast_type}})
 
 
-def trigger_client_event(response: HttpResponse, event_name: str) -> None:
-    """Merge a bare HTMX client event into the response's HX-Trigger header.
+def trigger_client_event(response: HttpResponse, event_name: str, payload: object = True) -> None:
+    """Merge an HTMX client event into the response's HX-Trigger header.
 
     Keeps any toast already set by :func:`trigger_toast` — HX-Trigger is a single
     header, so both payloads must share one JSON object.
@@ -27,7 +27,9 @@ def trigger_client_event(response: HttpResponse, event_name: str) -> None:
     Args:
         response: The HttpResponse to add the header to.
         event_name: The client event name (e.g. ``"refund-done"``).
+        payload: Optional JSON-serializable event detail (e.g. ``{"pk": 42}``);
+            defaults to ``True`` for a bare signal event.
     """
     existing = json.loads(response["HX-Trigger"]) if response.has_header("HX-Trigger") else {}
-    existing[event_name] = True
+    existing[event_name] = payload
     response["HX-Trigger"] = json.dumps(existing)

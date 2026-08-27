@@ -192,6 +192,71 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="waitlist_spot_opened_context",
     ),
     GalleryEmail(
+        key="promoted",
+        name="Added from the waitlist (no balance)",
+        section="Classes",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when staff hand-pick a waitlisted person into a class and nothing is owed — a free "
+            "class, or staff chose Not Now on the payment link (the seat is held either way). Goes to "
+            "the registrant's email address."
+        ),
+        edit_pointer=_tpl("classes/emails", "promoted"),
+        audience="The promoted registrant (member or guest).",
+        event_keys=frozenset({"waitlist_promoted"}),
+        text_template="classes/emails/promoted.txt",
+        html_template="classes/emails/promoted.html",
+        context_builder="promoted_context",
+    ),
+    GalleryEmail(
+        key="promoted_pay",
+        name="Added from the waitlist (payment link)",
+        section="Classes",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when staff promote someone into a paid class and choose to send (or later re-send) "
+            "the payment link. Carries the amount due and the pay page link; the seat is held without "
+            "payment. Goes to the registrant's email address."
+        ),
+        edit_pointer=_tpl("classes/emails", "promoted_pay"),
+        audience="The promoted registrant who still owes for the class.",
+        event_keys=frozenset({"waitlist_promoted_pay"}),
+        text_template="classes/emails/promoted_pay.txt",
+        html_template="classes/emails/promoted_pay.html",
+        context_builder="promoted_pay_context",
+    ),
+    GalleryEmail(
+        key="removed",
+        name="Removed by staff (seat or waitlist)",
+        section="Classes",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when staff remove a registrant from a class roster or waitlist. One template pair, "
+            "forked on whether they held a seat — the waitlist variant carries no seat or refund "
+            "language. Goes to the registrant's email address."
+        ),
+        edit_pointer=_tpl("classes/emails", "removed"),
+        audience="The removed registrant (member or guest).",
+        event_keys=frozenset({"registration_removed"}),
+        text_template="classes/emails/removed.txt",
+        html_template="classes/emails/removed.html",
+        context_builder="removed_context",
+    ),
+    GalleryEmail(
+        key="duplicate_payment_alert",
+        name="Duplicate payment alert (admin)",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a promoted registrant's online balance payment lands AFTER the row was already "
+            "settled (staff marked it paid, or an earlier payment landed first) — a refund is owed. "
+            "Goes to the admin notification addresses."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::send_duplicate_payment_alert)",
+        audience="The admin notification addresses.",
+        context_builder="duplicate_payment_alert_context",
+    ),
+    GalleryEmail(
         key="reminder",
         name="Class reminder",
         section="Classes",
@@ -769,6 +834,7 @@ _SKIP_DIR_NAMES: frozenset[str] = frozenset({"tests", "spec", "migrations"})
 _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "core.find_account": "the find_account INLINE_STRING card",
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
+    "classes.duplicate_payment_alert": "the duplicate_payment_alert INLINE_STRING card",
 }
 
 # trigger_kinds deliberately NOT carded, each with the reason.

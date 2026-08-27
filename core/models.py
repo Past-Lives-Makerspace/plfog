@@ -293,11 +293,12 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on every page, this admin included. Leave blank to disable.",
     )
-    tab_payments_enabled = models.BooleanField(
+    my_tab_enabled = models.BooleanField(
         default=True,
-        verbose_name="Enable My Tab & Payments",
-        help_text="When off, hides My Tab, the balance pill, the Buyables tab on guild pages, "
-        "and the admin Payments/Reports nav. Members visiting the Tab pages are redirected.",
+        verbose_name="Enable My Tab",
+        help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab "
+        "on guild pages. Members visiting the Tab pages are redirected. The admin Payments and "
+        "Reports pages are always available to billing admins.",
     )
     class_registration_enabled = models.BooleanField(
         default=True,

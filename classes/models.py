@@ -1926,6 +1926,10 @@ class Registration(models.Model):
     # save() to attribute a confirm/refund action in the audit feed. Unset on a
     # fresh instance — read via getattr(..., None).
     _acting_user: "User | None"
+    # Transient flag ``promote_from_waitlist`` sets around its save() so the
+    # CONFIRMED-transition dispatch logs WAITLIST_PROMOTED instead of the
+    # payment-flavored REGISTRATION_CONFIRMED. Unset elsewhere — read via getattr.
+    _promoting: bool
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending payment"
@@ -1969,6 +1973,21 @@ class Registration(models.Model):
         help_text="Discount code used at registration, if any.",
     )
     amount_paid_cents = models.PositiveIntegerField(default=0, help_text="Amount actually paid (after discount).")
+    payment_due_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "What this registration owes, stamped at promote time. 0 = nothing owed "
+            "(normal flow, free class, or fully settled at registration)."
+        ),
+    )
+    payment_link_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Last time a payment-link email was sent for this registration. Display-only "
+            "('Link sent Aug 26'); dedupe lives in the emit period."
+        ),
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -2069,12 +2088,24 @@ class Registration(models.Model):
                 )
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:
-                activity.log(
-                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
-                    class_offering=self.class_offering,
-                    registration=self,
-                    actor=acting,
-                )
+                if getattr(self, "_promoting", False):
+                    # A staff promote is not a "Payment confirmed" event — log the
+                    # dedicated WAITLIST_PROMOTED row (with what the seat now owes)
+                    # instead, so the feed never double-rows the transition.
+                    activity.log(
+                        CmsActivity.Kind.WAITLIST_PROMOTED,
+                        class_offering=self.class_offering,
+                        registration=self,
+                        actor=acting,
+                        payload={"due_cents": self.payment_due_cents},
+                    )
+                else:
+                    activity.log(
+                        CmsActivity.Kind.REGISTRATION_CONFIRMED,
+                        class_offering=self.class_offering,
+                        registration=self,
+                        actor=acting,
+                    )
                 # The in-app "Registration confirmed" row + the confirmation email now
                 # both fan out from a single ``registration_confirmed`` event emitted by
                 # ``classes.emails.send_registration_confirmation`` (called right after
@@ -2123,6 +2154,125 @@ class Registration(models.Model):
         if match is not None:
             self.member = match
             super().save(update_fields=["member"])
+
+    # --- Roster management (staff promote / mark-paid / remove) -------------
+
+    @property
+    def balance_due_cents(self) -> int:
+        """Cents still owed — the stamped promote-time price minus what has been paid."""
+        return max(0, self.payment_due_cents - self.amount_paid_cents)
+
+    @property
+    def is_unpaid(self) -> bool:
+        """True for a CONFIRMED seat-holder who still owes money (promoted, not yet settled)."""
+        return self.status == self.Status.CONFIRMED and self.balance_due_cents > 0
+
+    def compute_promote_price_cents(self) -> int:
+        """What this registrant owes if promoted now — mirrors the register form's price engine.
+
+        Uses STORED state (the offering's sale price, this registration's linked
+        member, and any discount code stored at waitlist join): sale price first,
+        then the member percentage, then the code — unless an active sale blocks
+        codes (``sale_allow_discount_codes`` off), in which case the stored code is
+        ignored exactly as the form would have refused it. The code is applied as
+        stored, with no re-validation — the person entered it in good faith.
+        """
+        offering = self.class_offering
+        price = offering.sale_price_cents
+        if self.member is not None and offering.member_discount_pct:
+            price = int(price * (100 - offering.member_discount_pct) / 100)
+        sale_blocks_codes = offering.sale_is_active and not offering.sale_allow_discount_codes
+        if self.discount_code is not None and not sale_blocks_codes:
+            price = self.discount_code.apply_to(price)
+        return max(0, price)
+
+    def promote_from_waitlist(self, actor: "User | None") -> None:
+        """Staff-pick this waitlisted person straight into the class — instantly CONFIRMED.
+
+        Stamps ``payment_due_cents`` from :meth:`compute_promote_price_cents` so the
+        deal is frozen at promote time, and logs WAITLIST_PROMOTED (via the
+        ``_promoting`` dispatch branch) instead of the payment-flavored confirm row.
+        Sends NO email — the caller chooses which promoted email goes out (pay-link
+        vs plain), keeping "the registrant hears exactly once" honest. Never fires
+        claim links (confirming consumes a seat; only cancel/refund paths promote).
+        Over-capacity is allowed — the UI warns, staff know the room.
+
+        Raises:
+            RegistrationStateError: If this registration is not WAITLISTED (a
+                double-click or stale row — first click wins).
+        """
+        from classes.exceptions import RegistrationStateError
+
+        if self.status != self.Status.WAITLISTED:
+            raise RegistrationStateError("Only waitlisted registrations can be added to the class.")
+        self.payment_due_cents = self.compute_promote_price_cents()
+        self.status = self.Status.CONFIRMED
+        self.confirmed_at = timezone.now()
+        self._acting_user = actor
+        self._promoting = True
+        try:
+            self.save(update_fields=["payment_due_cents", "status", "confirmed_at"])
+        finally:
+            self._promoting = False
+
+    def mark_paid(self, actor: "User | None", note: str = "") -> None:
+        """Settle an unpaid promoted registration by hand (cash, comped, check).
+
+        Sets ``amount_paid_cents`` to the stamped ``payment_due_cents``, logs
+        REGISTRATION_MARKED_PAID (actor + optional method note — who/when live on
+        the activity row), and bumps the stored discount code's use count exactly
+        once, matching the online-payment path. No email — the staff member is
+        standing next to the cash box; the activity feed is the record.
+
+        Raises:
+            RegistrationStateError: If nothing is owed (unpaid → paid is one-way).
+        """
+        from classes import activity
+        from classes.exceptions import RegistrationStateError
+
+        if not self.is_unpaid:
+            raise RegistrationStateError("This registration has no outstanding balance.")
+        code_not_yet_counted = self.amount_paid_cents == 0
+        self.amount_paid_cents = self.payment_due_cents
+        self.save(update_fields=["amount_paid_cents"])
+        activity.log(
+            CmsActivity.Kind.REGISTRATION_MARKED_PAID,
+            class_offering=self.class_offering,
+            registration=self,
+            actor=actor,
+            payload={"note": note},
+        )
+        if self.discount_code_id and code_not_yet_counted:
+            from django.db.models import F
+
+            DiscountCode.objects.filter(pk=self.discount_code_id).update(use_count=F("use_count") + 1)
+            activity.log(
+                CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+                class_offering=self.class_offering,
+                registration=self,
+                payload={"code": self.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
+            )
+
+    def remove_by_staff(self, actor: "User | None", reason: str = "") -> None:
+        """Staff-remove this registrant: wraps :meth:`cancel`, then sends the removal notice.
+
+        The removal email lives at THIS layer only, so self-serve cancels and
+        refund flows keep their current email behavior untouched. ``cancel`` frees
+        the seat, logs the cancel/waitlist-left activity, and fires the auto
+        claim-link email to the next un-notified waitlister when a seat opens.
+
+        Raises:
+            RegistrationStateError: If this registration is already cancelled/refunded.
+        """
+        from classes.exceptions import RegistrationStateError
+
+        if self.status not in (self.Status.CONFIRMED, self.Status.PENDING, self.Status.WAITLISTED):
+            raise RegistrationStateError(f"This registration is already {self.get_status_display().lower()}.")
+        was_waitlisted = self.status == self.Status.WAITLISTED
+        self.cancel(reason=reason, actor=actor)
+        from classes.emails import send_removal_notice
+
+        send_removal_notice(self, was_waitlisted=was_waitlisted)
 
     def cancel(self, reason: str = "", actor: "User | None" = None) -> None:
         """Cancel this registration and record who did it.
@@ -2512,9 +2662,13 @@ class CmsActivity(models.Model):
         REGISTRATION_PARTIAL_REFUND = "registration_partial_refund", "Partially refunded"
         REGISTRATION_REFUND_FAILED = "registration_refund_failed", "Refund failed"
         REGISTRATION_MOVED = "registration_moved", "Moved"
+        REGISTRATION_MARKED_PAID = "registration_marked_paid", "Marked paid"
+        PAYMENT_LINK_SENT = "payment_link_sent", "Payment link sent"
+        DUPLICATE_PAYMENT = "duplicate_payment", "Duplicate payment received"
         WAITLIST_JOINED = "waitlist_joined", "Joined waitlist"
         WAITLIST_NOTIFIED = "waitlist_notified", "Notified of open spot"
         WAITLIST_LEFT = "waitlist_left", "Left waitlist"
+        WAITLIST_PROMOTED = "waitlist_promoted", "Promoted from waitlist"
         DISCOUNT_CODE_CREATED = "discount_code_created", "Discount code created"
         DISCOUNT_CODE_REDEEMED = "discount_code_redeemed", "Discount code redeemed"
 

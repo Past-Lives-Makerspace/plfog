@@ -16,9 +16,24 @@
         <option value="{{ offering.pk }}"{% if offering.pk|stringformat:'s' == class_filter %} selected{% endif %}>{{ offering.title }}</option>
         {% endfor %}
     </select>
+    {% if show_instructor_filter %}
+    <select name="instructor" style="padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;">
+        <option value="">All instructors</option>
+        {% for teacher in instructors %}
+        <option value="{{ teacher.pk }}"{% if teacher.pk|stringformat:'s' == instructor_filter %} selected{% endif %}>{{ teacher.display_name }}</option>
+        {% endfor %}
+    </select>
+    {% endif %}
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
+    {% if mine_only_pk %}
+        {% if instructor_filter == mine_only_pk %}
+        <a href="?{{ mine_only_params }}" class="hub-btn hub-btn--sm hub-btn--primary">Mine Only ✓</a>
+        {% else %}
+        <a href="?{% if mine_only_params %}{{ mine_only_params }}&amp;{% endif %}instructor={{ mine_only_pk }}" class="hub-btn hub-btn--sm">Mine Only</a>
+        {% endif %}
+    {% endif %}
     <a href="{% url 'classes:admin_registrations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export CSV</a>
 </form>
 <div class="admin-table-wrap">

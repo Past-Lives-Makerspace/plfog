@@ -1,0 +1,81 @@
+{% load classes_tags %}
+{% comment %}
+Shared roster row — included by the teach + admin Registrations tabs and returned
+standalone by the roster action endpoints (hx-target="#reg-row-<pk>", outerHTML).
+
+Context:
+  reg                         — Registration, annotated with promoted_email_sent
+  can_manage                  — the viewer may act on this row (all four tabs pass True)
+  viewer_has_refund_authority — fog-admin or REFUNDS holder (refund buttons)
+{% endcomment %}
+<tr id="reg-row-{{ reg.pk }}"{% if reg.status == 'cancelled' or reg.status == 'refunded' %} style="opacity:0.5;"{% endif %}>
+    <td>
+        <a href="{% url 'classes:admin_registration_detail' pk=reg.pk %}">{{ reg.first_name }} {{ reg.last_name }}</a>
+        {% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}
+    </td>
+    <td style="font-size:0.9rem;">{{ reg.email }}</td>
+    <td>
+        {{ reg.get_status_display }}
+        {% if reg.refund_state == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Refund failed</span>
+        {% elif reg.refund_state == "partial" %}<span class="pl-status-badge pl-status-badge--warn">Partially refunded</span>{% endif %}
+    </td>
+    <td>
+        {% if reg.payment_due_cents > 0 %}
+            {% if reg.is_unpaid %}
+                <span class="pl-status-badge pl-status-badge--warn">Unpaid · {{ reg.balance_due_cents|cents_as_dollars }}</span>
+            {% else %}
+                <span class="pl-status-badge pl-status-badge--ok">Paid {{ reg.amount_paid_cents|cents_as_dollars }}</span>
+            {% endif %}
+            {% if reg.payment_link_sent_at %}
+                <div class="pl-paid-note">Link sent {{ reg.payment_link_sent_at|date:"M j" }}</div>
+            {% elif not reg.promoted_email_sent %}
+                <div class="pl-paid-note pl-paid-note--warn">No email sent yet</div>
+            {% endif %}
+        {% else %}
+            {{ reg.amount_paid_cents|cents_as_dollars }}
+        {% endif %}
+    </td>
+    <td>{{ reg.registered_at|date:"M j, Y" }}</td>
+    {% if can_manage or viewer_has_refund_authority %}
+    <td>
+        <div class="pl-roster-actions">
+            {% if can_manage and reg.is_unpaid %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
+                    hx-post="{% url 'classes:registration_send_payment_link' reg.pk %}"
+                    hx-target="#reg-row-{{ reg.pk }}" hx-swap="outerHTML" hx-disabled-elt="this">
+                Send Payment Link
+            </button>
+            <button type="button" class="hub-btn hub-btn--sm"
+                    @click="$dispatch('open-confirm', 'markpaid-reg-{{ reg.pk }}')">
+                Mark as Paid
+            </button>
+            {% endif %}
+            {% if viewer_has_refund_authority %}
+                {% if reg.refund_state == "failed" %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
+                        hx-target="#refund-modal-body" hx-swap="innerHTML"
+                        @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+                    Retry Refund
+                </button>
+                {% elif reg.refundable_cents > 0 %}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        hx-get="{% url 'classes:admin_registration_refund_form' reg.pk %}"
+                        hx-target="#refund-modal-body" hx-swap="innerHTML"
+                        @click="document.getElementById('refund-modal-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'refund-modal')">
+                    Refund
+                </button>
+                {% endif %}
+            {% endif %}
+            {% if can_manage %}
+                {% if reg.status == 'confirmed' or reg.status == 'pending' %}
+                <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
+                        @click="$dispatch('open-confirm', 'remove-reg-{{ reg.pk }}')">
+                    Remove
+                </button>
+                {% endif %}
+            {% endif %}
+        </div>
+    </td>
+    {% endif %}
+</tr>

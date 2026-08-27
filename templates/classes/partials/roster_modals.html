@@ -1,0 +1,60 @@
+{% comment %}
+All roster/waitlist action modals for one Workspace tab (teach + admin share this).
+Rendered once per page, one confirm modal per actionable row; the single
+promote-followup shell + its loader script render on waitlist tabs only.
+
+Context: can_manage, offering, viewer_has_refund_authority, claim_email_will_fire,
+spots_remaining, and registrations OR waitlist_registrations (whichever tab).
+{% endcomment %}
+{% if can_manage %}
+{% for reg in registrations %}
+    {% if reg.status == 'confirmed' or reg.status == 'pending' %}
+        {% with pk_str=reg.pk|stringformat:"s" %}
+        {% with full_name=reg.first_name|add:" "|add:reg.last_name %}
+        {% url 'classes:registration_remove' reg.pk as remove_url %}
+        {% with remove_title="Remove "|add:full_name|add:" from This Class?" %}
+        {% include "components/confirm_modal.html" with confirm_id="remove-reg-"|add:pk_str confirm_title=remove_title confirm_message="" confirm_body_include="classes/partials/remove_confirm_body.html" confirm_note_name="reason" confirm_note_label="Reason (internal, optional)" confirm_note_placeholder="Reason (internal, optional)" confirm_hx_post=remove_url confirm_hx_target="#reg-row-"|add:pk_str confirm_hx_vals='{"row":"reg"}' confirm_button_text="Remove" %}
+        {% endwith %}
+        {% if reg.is_unpaid %}
+        {% url 'classes:registration_mark_paid' reg.pk as markpaid_url %}
+        {% with markpaid_title="Mark "|add:full_name|add:" as Paid?" %}
+        {% if reg.stripe_session_id %}
+        {% include "components/confirm_modal.html" with confirm_id="markpaid-reg-"|add:pk_str confirm_title=markpaid_title confirm_message="Records the outstanding balance as collected by hand. No email is sent." confirm_note_name="note" confirm_note_label="How was this paid?" confirm_note_hint="For the activity log. For example cash, comped, check." confirm_warn_message="Heads up: an online payment was started for this registration. If they also pay online, you will get an alert to refund one of the payments." confirm_hx_post=markpaid_url confirm_hx_target="#reg-row-"|add:pk_str confirm_hx_vals='{"row":"reg"}' confirm_button_text="Mark as Paid" confirm_button_style="primary" %}
+        {% else %}
+        {% include "components/confirm_modal.html" with confirm_id="markpaid-reg-"|add:pk_str confirm_title=markpaid_title confirm_message="Records the outstanding balance as collected by hand. No email is sent." confirm_note_name="note" confirm_note_label="How was this paid?" confirm_note_hint="For the activity log. For example cash, comped, check." confirm_hx_post=markpaid_url confirm_hx_target="#reg-row-"|add:pk_str confirm_hx_vals='{"row":"reg"}' confirm_button_text="Mark as Paid" confirm_button_style="primary" %}
+        {% endif %}
+        {% endwith %}
+        {% endif %}
+        {% endwith %}
+        {% endwith %}
+    {% endif %}
+{% endfor %}
+{% for reg in waitlist_registrations %}
+    {% with pk_str=reg.pk|stringformat:"s" %}
+    {% with full_name=reg.first_name|add:" "|add:reg.last_name %}
+    {% url 'classes:registration_promote' reg.pk as promote_url %}
+    {% url 'classes:registration_remove' reg.pk as remove_url %}
+    {% with promote_title="Add "|add:full_name|add:" to the Class?" %}
+    {% include "components/confirm_modal.html" with confirm_id="promote-reg-"|add:pk_str confirm_title=promote_title confirm_message="" confirm_body_include="classes/partials/promote_confirm_body.html" confirm_hx_post=promote_url confirm_hx_target="#wl-row-"|add:pk_str confirm_button_text="Add to Class" confirm_button_style="primary" %}
+    {% endwith %}
+    {% with remove_title="Remove "|add:full_name|add:" from the Waitlist?" %}
+    {% include "components/confirm_modal.html" with confirm_id="remove-reg-"|add:pk_str confirm_title=remove_title confirm_message="" confirm_body_include="classes/partials/remove_confirm_body.html" confirm_note_name="reason" confirm_note_label="Reason (internal, optional)" confirm_note_placeholder="Reason (internal, optional)" confirm_hx_post=remove_url confirm_hx_target="#wl-row-"|add:pk_str confirm_hx_vals='{"row":"wl"}' confirm_button_text="Remove" %}
+    {% endwith %}
+    {% endwith %}
+    {% endwith %}
+{% endfor %}
+{% if waitlist_registrations %}
+{% include "components/modal.html" with modal_id="promote-followup" modal_title="Send Them a Payment Link?" modal_size="sm" %}
+<script>
+  document.body.addEventListener('promote-followup', function (evt) {
+    var pk = evt.detail && evt.detail.pk;
+    if (!pk) { return; }
+    var body = document.getElementById('promote-followup-body');
+    body.innerHTML = 'Loading…';
+    var url = '{% url "classes:registration_promote_followup" 0 %}'.replace('/0/promote/', '/' + pk + '/promote/');
+    htmx.ajax('GET', url, '#promote-followup-body');
+    window.dispatchEvent(new CustomEvent('open-modal', { detail: 'promote-followup' }));
+  });
+</script>
+{% endif %}
+{% endif %}
