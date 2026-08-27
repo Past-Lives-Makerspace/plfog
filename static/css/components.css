@@ -1139,12 +1139,97 @@
     color: var(--hub-text);
 }
 
-/* The Actions cell — small inline buttons that wrap instead of stretching the row. */
-.pl-roster-actions {
-    display: flex;
-    gap: 0.35rem;
-    flex-wrap: wrap;
+/* ========================================
+   Row actions overflow menu (.pl-row-menu)
+   Kebab trigger + fixed-position dropdown for table-row actions. The menu is
+   position:fixed (placed from JS in components/row_actions.html) so it escapes
+   the roster table wrapper's overflow:hidden clip. Both themes.
+   ======================================== */
+.pl-row-menu {
+    display: inline-flex;
+}
+
+.pl-row-menu__trigger {
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.pl-row-menu__trigger:hover,
+.pl-row-menu__trigger:focus-visible {
+    color: var(--hub-text);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .pl-row-menu__trigger:hover,
+[data-theme="light"] .pl-row-menu__trigger:focus-visible {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.pl-row-menu__menu {
+    position: fixed;
+    display: block;
+    min-width: 200px;
+    background-color: var(--hub-dropdown-bg);
+    border: 1px solid var(--hub-dropdown-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    z-index: 150;
+}
+
+.pl-row-menu__item {
+    display: block;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-family: var(--font-body);
+    color: var(--hub-text);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    text-decoration: none;
+    transition: background-color 0.15s ease;
+}
+
+.pl-row-menu__item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--hub-text);
+}
+
+[data-theme="light"] .pl-row-menu__item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.pl-row-menu__item:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: -2px;
+}
+
+.pl-row-menu__item--danger { color: #e05555; }
+.pl-row-menu__item--danger:hover { color: #e05555; }
+
+.pl-row-menu__divider {
+    height: 1px;
+    background-color: var(--hub-dropdown-border);
+    margin: 0.25rem 0;
+}
+
+@media (max-width: 768px) {
+    .pl-row-menu__trigger {
+        width: 2.75rem;
+        height: 2.75rem;
+    }
 }
 
 /* Muted sub-line under the Paid badge ("Link sent Aug 26" / "No email sent yet"). */

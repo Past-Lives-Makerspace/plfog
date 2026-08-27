@@ -27,16 +27,7 @@ Context:
     </td>
     {% if can_manage %}
     <td>
-        <div class="pl-roster-actions">
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary"
-                    @click="$dispatch('open-confirm', 'promote-reg-{{ reg.pk }}')">
-                Add to Class
-            </button>
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
-                    @click="$dispatch('open-confirm', 'remove-reg-{{ reg.pk }}')">
-                Remove
-            </button>
-        </div>
+        {% include "components/row_actions.html" with menu_include="classes/partials/waitlist_row_menu.html" menu_label="Actions for "|add:reg.first_name|add:" "|add:reg.last_name %}
     </td>
     {% endif %}
 </tr>

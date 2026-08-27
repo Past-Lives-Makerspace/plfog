@@ -400,14 +400,15 @@ def describe_waitlist_tab():
 
 
 def describe_roster_tab_surfaces():
-    def it_renders_action_buttons_on_the_admin_registrations_tab(admin_user, client):
+    def it_renders_action_buttons_on_the_admin_registrations_tab(admin_user, client, menu_region):
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
-        _unpaid(offering)
+        reg = _unpaid(offering)
         content = client.get(reverse("classes:admin_class_registrations", args=[offering.pk])).content.decode()
-        assert "Send Payment Link" in content
-        assert "Mark as Paid" in content
-        assert "Remove" in content
+        menu = menu_region(content, f"reg-row-{reg.pk}")
+        assert ">Send Payment Link</button>" in menu
+        assert ">Mark as Paid</button>" in menu
+        assert ">Remove Student</button>" in menu  # renamed from the bare "Remove" button
 
     def it_carries_the_refund_action_on_the_admin_registrations_tab(admin_user, client):
         client.force_login(admin_user)
@@ -422,17 +423,21 @@ def describe_roster_tab_surfaces():
         assert reverse("classes:admin_registration_refund_form", args=[reg.pk]) in content
         assert "refund-modal" in content
 
-    def it_hides_the_refund_action_from_an_instructor_without_the_grant(client):
+    def it_hides_the_refund_action_from_an_instructor_without_the_grant(client, menu_region):
         member = _login_instructor(client, "norefund@example.com", "norefund")
         offering = ClassOfferingFactory(instructor=member)
-        RegistrationFactory(
+        reg = RegistrationFactory(
             class_offering=offering,
             status=Registration.Status.CONFIRMED,
             amount_paid_cents=5000,
             stripe_payment_id="pi_no_grant",
         )
         content = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
-        assert "Retry Refund" not in content
+        menu = menu_region(content, f"reg-row-{reg.pk}")
+        # "Retry Refund" scoped to the row menu — bare-phrase page negatives are
+        # exposed to unrelated content (the changelog-renders-everywhere gotcha).
+        assert ">Retry Refund</button>" not in menu
+        assert ">Refund</button>" not in menu
         assert 'hx-get="/classes/admin/registrations/' not in content  # no refund-form loads without the grant
 
     def it_serves_the_admin_table_partial_for_the_refund_refresh(admin_user, client):
