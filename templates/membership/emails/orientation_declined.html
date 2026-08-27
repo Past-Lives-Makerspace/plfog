@@ -7,6 +7,7 @@
     <p style="margin: 0 0 4px; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">A note from {% if slot.orienter %}{{ slot.orienter_first_name }}{% else %}the guild lead{% endif %}</p>
     <p style="margin: 0; font-size: 14px; color: #33424f; line-height: 1.6;">{{ booking.lead_note }}</p>
 </div>{% endif %}
+{% if booking.amount_paid_cents %}{% load classes_tags %}<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if booking.refund_state == "failed" %}Your <strong>{{ booking.amount_paid_cents|cents_as_price }}</strong> refund is being processed. We will make sure it reaches your card.{% else %}Your <strong>{{ booking.amount_paid_cents|cents_as_price }}</strong> refund is on its way. Refunds usually reach your card in 5 to 10 business days.{% endif %}</p>{% endif %}
 <p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">We'd love to get you oriented ASAP. Please click below to pick another time.</p>
 <div style="text-align: center; margin: 24px 0 0;">
     <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Pick another time</a>

@@ -1,0 +1,53 @@
+{% load classes_tags %}
+{% comment %}
+Orientation refund modal body — the Payments panel's per-row Refund action for
+orientation rows. Served by billing_orientation_refund_form (GET, refund
+authority required). Mirrors classes/partials/refund_form.html: a FAILED latest
+attempt renders the slim Retry confirm; otherwise the editable form.
+{% endcomment %}
+{% if failed_refund %}
+<div class="pl-refund-context">
+    <p class="pl-refund-context__payer">{{ booking.member.display_name }}</p>
+    <p class="pl-refund-context__meta">Orientation — {{ booking.guild.name }}</p>
+</div>
+<p style="margin:0 0 0.25rem;">Retry the failed refund of <strong>{{ failed_refund.amount_cents|cents_as_dollars }}</strong>{% if failed_refund.attempt > 1 %} <span class="pl-refund-history__meta">(attempt {{ failed_refund.attempt }})</span>{% endif %}.</p>
+<p class="pl-refund-failure">{{ failed_refund.failure_reason|default:"Stripe did not give a reason." }}</p>
+<form class="pl-refund-form"
+      hx-post="{% url 'billing_payment_refund_retry' failed_refund.pk %}"
+      hx-swap="none">
+    {% csrf_token %}
+    <p class="pl-refund-consequence">This sends money back to the payer's card. The booking itself is unchanged.</p>
+    <div class="pl-modal__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'refund-modal')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--danger">Retry Refund</button>
+    </div>
+</form>
+{% else %}
+<div class="pl-refund-context">
+    <p class="pl-refund-context__payer">{{ booking.member.display_name }}</p>
+    <p class="pl-refund-context__meta">
+        Orientation — {{ booking.guild.name }} ·
+        Paid {{ booking.amount_paid_cents|cents_as_dollars }} · {{ booking.slot.starts_at|date:"M j" }}
+    </p>
+    {% if booking.amount_refunded_cents %}
+    <p class="pl-refund-context__meta">{{ booking.amount_refunded_cents|cents_as_dollars }} already refunded</p>
+    {% endif %}
+</div>
+<form class="pl-refund-form"
+      x-data="{ amt: '{{ form.amount.value|default_if_none:'' }}' }"
+      @input="if ($event.target.name === 'amount') amt = $event.target.value"
+      hx-post="{% url 'billing_orientation_refund' booking.pk %}"
+      hx-target="#refund-modal-body"
+      hx-swap="innerHTML">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=form.amount %}
+    {% include "components/form_field.html" with field=form.reason %}
+    <p class="pl-refund-consequence">This sends money back to the payer's card. The booking itself is unchanged — cancel or decline it from its respond page if that's the intent.</p>
+    <div class="pl-modal__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'refund-modal')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--danger">
+            <span x-text="(function () { var v = parseFloat(amt); return (isNaN(v) || v <= 0) ? 'Issue Refund' : 'Refund $' + v.toFixed(2); })()">Issue Refund</span>
+        </button>
+    </div>
+</form>
+{% endif %}

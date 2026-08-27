@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from stripe.params import RefundCreateParams
+from stripe.params.checkout import SessionCreateParams
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
@@ -160,6 +161,58 @@ def create_payment_intent(
     }
 
 
+def create_checkout_session(
+    *,
+    amount_cents: int,
+    product_name: str,
+    customer_email: str,
+    success_url: str,
+    cancel_url: str,
+    metadata: dict[str, str],
+    idempotency_key: str,
+    expires_at: int | None = None,
+) -> dict[str, str]:
+    """Create a hosted Stripe Checkout Session for a one-off payment.
+
+    Purpose-neutral: callers convey what is being bought via ``metadata["kind"]``
+    (``"class_registration"``, ``"orientation_booking"``, …) and the matching
+    ``checkout.session.completed`` handler self-filters on it. Stripe collects
+    card details on its hosted page, then redirects back to ``success_url``.
+
+    ``expires_at`` is an optional unix timestamp (Stripe allows 30 min–24 h out)
+    after which the session dies server-side and fires ``checkout.session.expired``.
+
+    Returns dict with 'id' and 'url' (the hosted Checkout page).
+    The idempotency_key is REQUIRED to prevent duplicate sessions on retry.
+    """
+    client = _get_stripe_client()
+    params: SessionCreateParams = {
+        "mode": "payment",
+        "customer_email": customer_email,
+        "line_items": [
+            {
+                "quantity": 1,
+                "price_data": {
+                    "currency": "usd",
+                    "unit_amount": amount_cents,
+                    "product_data": {"name": product_name},
+                },
+            }
+        ],
+        "metadata": metadata,
+        "payment_intent_data": {"metadata": metadata},
+        "success_url": success_url,
+        "cancel_url": cancel_url,
+    }
+    if expires_at is not None:
+        params["expires_at"] = expires_at
+    session = client.v1.checkout.sessions.create(
+        params=params,
+        options={"idempotency_key": idempotency_key},
+    )
+    return {"id": session.id, "url": session.url or ""}
+
+
 def create_class_checkout_session(
     *,
     amount_cents: int,
@@ -170,38 +223,47 @@ def create_class_checkout_session(
     metadata: dict[str, str],
     idempotency_key: str,
 ) -> dict[str, str]:
-    """Create a Stripe Checkout Session for a one-off class registration.
+    """Create a Checkout Session for a class registration — delegates to :func:`create_checkout_session`."""
+    return create_checkout_session(
+        amount_cents=amount_cents,
+        product_name=product_name,
+        customer_email=customer_email,
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata=metadata,
+        idempotency_key=idempotency_key,
+    )
 
-    Used by the public class registration flow — Stripe collects card details
-    on its hosted page, then redirects back to ``success_url``. The webhook
-    handler for ``checkout.session.completed`` confirms the registration.
 
-    Returns dict with 'id' and 'url' (the hosted Checkout page).
-    The idempotency_key is REQUIRED to prevent duplicate sessions on retry.
+def expire_checkout_session(*, session_id: str) -> None:
+    """Expire an open Checkout Session so its hosted page can no longer take payment.
+
+    Called best-effort when a seat hold is released — an open Stripe tab must not
+    be able to pay for a booking that no longer exists. Stripe errors propagate;
+    callers swallow them (the session's own ``expires_at`` is the backstop).
     """
     client = _get_stripe_client()
-    session = client.v1.checkout.sessions.create(
-        params={
-            "mode": "payment",
-            "customer_email": customer_email,
-            "line_items": [
-                {
-                    "quantity": 1,
-                    "price_data": {
-                        "currency": "usd",
-                        "unit_amount": amount_cents,
-                        "product_data": {"name": product_name},
-                    },
-                }
-            ],
-            "metadata": metadata,
-            "payment_intent_data": {"metadata": metadata},
-            "success_url": success_url,
-            "cancel_url": cancel_url,
-        },
-        options={"idempotency_key": idempotency_key},
-    )
-    return {"id": session.id, "url": session.url or ""}
+    client.v1.checkout.sessions.expire(session_id)
+
+
+def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
+    """Retrieve a Checkout Session — the Stripe-verified hold-release check.
+
+    Returns dict with 'id', 'url', 'status' (``open`` / ``complete`` / ``expired``),
+    'payment_status' (``paid`` / ``unpaid`` / ``no_payment_required``),
+    'payment_intent', and 'amount_total'. Stripe errors propagate — callers
+    treat an unreachable Stripe as "unknown" and keep the hold.
+    """
+    client = _get_stripe_client()
+    session = client.v1.checkout.sessions.retrieve(session_id)
+    return {
+        "id": session.id,
+        "url": session.url or "",
+        "status": session.status or "",
+        "payment_status": session.payment_status or "",
+        "payment_intent": str(session.payment_intent) if session.payment_intent else "",
+        "amount_total": session.amount_total,
+    }
 
 
 def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, idempotency_key: str) -> dict[str, Any]:

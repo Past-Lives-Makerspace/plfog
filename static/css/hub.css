@@ -7039,3 +7039,58 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-form-actions__danger {
     margin-left: auto;
 }
+
+/* --- Paid orientations ------------------------------------------------------ */
+/* Price chip shown beside orientation headings, on paid dashboard rows, and on
+   the respond screen's Paid indicator. Tokens only — themes for free. */
+.pl-price-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    background: var(--hub-surface);
+    color: var(--color-tuscan-yellow);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-price-chip--ok {
+    color: #7bdcb5;
+}
+.pl-price-chip--danger {
+    color: #e05d5d;
+}
+/* The refund-consequence one-liner above Decline/Cancel controls. */
+.pl-refund-note {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+/* Full-width failed-refund alert card on the respond screen. */
+.pl-refund-failed-banner {
+    border: 1px solid rgba(224, 93, 93, 0.55);
+    background: rgba(224, 93, 93, 0.12);
+    border-radius: 8px;
+    padding: 0.9rem 1.25rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.95rem;
+}
+/* Checkout return page: one centered card. */
+.pl-checkout-return {
+    display: flex;
+    justify-content: center;
+    padding: 2rem 0;
+}
+.pl-checkout-return__card {
+    max-width: 560px;
+    width: 100%;
+    padding: 1.5rem;
+}
+/* Guild-page heading row wraps the chip under the title on phones. */
+.pl-orient-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.5rem;
+}

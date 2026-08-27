@@ -426,7 +426,7 @@ def describe_orientation_seam():
 
         assert calls == [("", None)]
 
-    def it_alerts_with_the_manage_url_when_no_admin_page_exists(orientation_refund, settings):
+    def it_alerts_with_the_respond_page_as_the_admin_url(orientation_refund, settings):
         from django.contrib.auth.models import User
         from django.db.models.signals import post_save
         from factory.django import mute_signals
@@ -446,4 +446,10 @@ def describe_orientation_seam():
 
         sent = _emails_to("billingadmin@example.com")
         assert len(sent) == 1
-        assert "https://pastlives.example/orientations/manage/1/" in sent[0].body
+        from django.conf import settings as django_settings
+        from django.urls import reverse
+
+        respond_url = f"{django_settings.MEMBER_BASE_URL.rstrip('/')}" + reverse(
+            "hub_orientation_respond", args=[orientation_refund.orientation_booking_id]
+        )
+        assert respond_url in sent[0].body

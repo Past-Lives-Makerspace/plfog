@@ -25,7 +25,9 @@
       {% for b in upcoming %}
       <li style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.5rem 0; border-top:1px solid var(--hub-border);">
         <span>
-          <strong>{{ b.member.display_name }}</strong> · {{ b.guild.name }}
+          <strong>{{ b.member.display_name }}</strong>
+          {% if b.amount_paid_cents %}<span class="pl-price-chip">{{ b.amount_paid_cents|cents_as_price }}</span>{% endif %}
+          · {{ b.guild.name }}
           {% if b.slot.with_label %}<span class="hub-text-muted">· {{ b.slot.with_label }}</span>{% endif %}
           <span class="hub-text-muted">· {{ b.slot.starts_at|date:"D M j, g:i A" }}</span>
           {% if b.status == "requested" %}<span class="hub-badge" style="background:rgba(238,180,75,0.18); color:#EEB44B;">Pending</span>{% endif %}
@@ -73,6 +75,7 @@
         {% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}
         {% sort_header "Guild" "guild__name" sort sort_dir base_params %}
         <th>Orienter</th>
+        <th>Paid</th>
         {% sort_header "Status" "status" sort sort_dir base_params %}
         <th>Oriented by</th>
         <th>Completed</th>
@@ -85,6 +88,16 @@
         <td><a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a></td>
         <td>{{ b.guild.name }}</td>
         <td>{{ b.slot.orienter.display_name|default:"—" }}</td>
+        <td>
+          {% if not b.amount_paid_cents %}—
+          {% elif b.refund_state == "failed" %}
+          {{ b.amount_paid_cents|cents_as_price }} ·
+          {% if viewer_has_refund_authority %}<a href="{% url 'billing_admin_dashboard' %}?tab=payments&source=orientation&status=failed" style="color:#e05d5d; font-weight:700;">Refund failed</a>{% else %}<strong style="color:#e05d5d;">Refund failed</strong>{% endif %}
+          {% elif b.refund_state == "full" or b.refund_state == "partial" %}
+          <span class="hub-text-muted">{{ b.amount_paid_cents|cents_as_price }} · Refunded</span>
+          {% else %}{{ b.amount_paid_cents|cents_as_price }}
+          {% endif %}
+        </td>
         <td>{{ b.get_status_display }}</td>
         <td>{{ b.oriented_by.display_name|default:"—" }}</td>
         <td>
@@ -99,7 +112,7 @@
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="7" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
+      <tr><td colspan="8" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -108,12 +121,17 @@
 
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-top:1.5rem;">
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Add a member to a slot</h2>
-    <form method="post" action="{% url 'hub_orientation_add_member' %}" class="hub-form">
+    <form method="post" action="{% url 'hub_orientation_add_member' %}" class="hub-form"
+          x-data='{ prices: {{ paid_slot_prices_json }}, sel: "" }'
+          @change="if ($event.target.name === 'slot') sel = $event.target.value">
       {% csrf_token %}
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
         <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=add_member_form.member %}</div>
         <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=add_member_form.slot %}</div>
       </div>
+      <p class="hub-text-muted" style="font-size:0.85rem; margin:0.5rem 0 0;" x-show="prices[sel]" x-cloak>
+        This guild charges <span x-text="prices[sel]"></span> for orientations. Members you add here are not charged.
+      </p>
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" style="margin-top:0.75rem;">Add member</button>
     </form>
   </div>

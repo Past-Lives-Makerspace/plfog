@@ -8,12 +8,14 @@ transition logs ``SiteActivity`` and fires an in-app notification.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import icalendar
 from django.conf import settings
 from django.core import signing
+from django.db import transaction
 from django.urls import reverse
 from django.utils import timezone
 
@@ -22,11 +24,20 @@ from core.events.senders import emit_with_email_shell
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from membership.models import Guild, Member, OrientationAvailability, OrientationBooking, OrientationSlot
+
+logger = logging.getLogger(__name__)
 
 _ACTION_SALT = "orientation-action"
 _ACTION_MAX_AGE = 90 * 24 * 3600  # 90 days — long enough to schedule, bounded for safety
 _ACTIONS = frozenset({"confirm", "decline", "cancel"})
+
+_CHECKOUT_SALT = "orientation-checkout"
+_CHECKOUT_MAX_AGE = 30 * 24 * 3600  # 30 days — outlives any Checkout session by a wide margin
+_CHECKOUT_SESSION_LIFETIME = timedelta(hours=1)  # Stripe expires_at; abandoned checkouts die server-side
+_HOLD_SWEEP_AGE = timedelta(hours=2)  # strictly after session expiry, so the sweep never races a live checkout
 
 
 def _absolute_url(path: str) -> str:
@@ -35,40 +46,56 @@ def _absolute_url(path: str) -> str:
     return f"{base}{path}"
 
 
-def make_action_token(booking: OrientationBooking, action: str) -> str:
-    """Sign a no-login token authorizing one ``action`` on one ``booking`` (for email links)."""
-    return signing.dumps({"booking": booking.pk, "action": action}, salt=_ACTION_SALT)
+def make_action_token(booking: OrientationBooking, action: str, *, recipient: Member | None = None) -> str:
+    """Sign a no-login token authorizing one ``action`` on one ``booking`` (for email links).
+
+    ``recipient`` stamps the link's addressee into the payload so a no-login
+    decline/cancel can credit the person who clicked it (refund attribution).
+    """
+    payload: dict[str, Any] = {"booking": booking.pk, "action": action}
+    if recipient is not None:
+        payload["recipient"] = recipient.pk
+    return signing.dumps(payload, salt=_ACTION_SALT)
 
 
-def read_action_token(token: str) -> tuple[OrientationBooking, str]:
-    """Decode an action token to its (booking, action).
+def read_action_token(token: str) -> tuple[OrientationBooking, str, Member | None]:
+    """Decode an action token to its (booking, action, recipient).
+
+    ``recipient`` is the Member the link was addressed to, or ``None`` for
+    payloads that predate the field (or whose member has since been deleted).
 
     Raises:
         signing.BadSignature: If the token is invalid, expired, or names an unknown action.
         OrientationBooking.DoesNotExist: If the booking no longer exists.
     """
-    from membership.models import OrientationBooking
+    from membership.models import Member, OrientationBooking
 
     data = signing.loads(token, salt=_ACTION_SALT, max_age=_ACTION_MAX_AGE)
     action = data["action"]
     if action not in _ACTIONS:
         raise signing.BadSignature("unknown orientation action")
     booking = OrientationBooking.objects.select_related("slot", "guild", "member").get(pk=data["booking"])
-    return booking, action
+    recipient = Member.objects.filter(pk=data["recipient"]).first() if "recipient" in data else None
+    return booking, action, recipient
 
 
-def apply_token_action(booking: OrientationBooking, action: str) -> str:
+def apply_token_action(booking: OrientationBooking, action: str, *, recipient: Member | None = None) -> str:
     """Apply an email-link action, honoring valid state transitions.
+
+    ``recipient`` (from the token payload) attributes side effects — a paid
+    booking's automatic refund credits the person whose link was clicked;
+    ``None`` leaves the refund initiator as "System".
 
     Returns a short status: "confirmed", "declined", "cancelled", or "already"
     (when the booking was no longer in a state the action applies to).
     """
     from membership.models import OrientationBooking
 
+    actor = recipient.user if recipient is not None else None
     statuses = OrientationBooking.Status
     if action == "cancel":
         if booking.status in (statuses.REQUESTED, statuses.CONFIRMED):
-            cancel_orientation(booking, actor_label=booking.member.display_name)
+            cancel_orientation(booking, actor_label=booking.member.display_name, actor=actor)
             return "cancelled"
         return "already"
     if booking.status != statuses.REQUESTED:
@@ -76,12 +103,14 @@ def apply_token_action(booking: OrientationBooking, action: str) -> str:
     if action == "confirm":
         confirm_orientation(booking)
         return "confirmed"
-    decline_orientation(booking)
+    decline_orientation(booking, actor=actor)
     return "declined"
 
 
-def _action_url(booking: OrientationBooking, action: str) -> str:
-    return _absolute_url(reverse("hub_orientation_action", args=[make_action_token(booking, action)]))
+def _action_url(booking: OrientationBooking, action: str, *, recipient: Member | None = None) -> str:
+    return _absolute_url(
+        reverse("hub_orientation_action", args=[make_action_token(booking, action, recipient=recipient)])
+    )
 
 
 def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes:
@@ -126,7 +155,7 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "guild": booking.guild,
         "greeting_name": member.display_name,
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild.slug])),
-        "cancel_url": _action_url(booking, "cancel"),
+        "cancel_url": _action_url(booking, "cancel", recipient=member),
         **extra,
     }
 
@@ -181,13 +210,15 @@ def _ics(booking: OrientationBooking, *, method: str, status: str) -> tuple[str,
     return ("orientation.ics", build_ics(booking, method=method, status=status), "text/calendar")
 
 
-def request_orientation(slot: OrientationSlot, member: Member, *, note: str = "") -> OrientationBooking:
-    """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
+def _fan_out_request(booking: OrientationBooking) -> None:
+    """The full request fan-out: member "request received" email (+ TENTATIVE ``.ics``),
+    the ``ORIENTATION_REQUESTED`` activity row, and the lead/orienter request email + in-app.
 
-    Raises:
-        OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
+    Callable on an existing booking so the paid flow can fire it from the webhook —
+    for a paid booking, emails only ever go out for money in hand. The ``emit``
+    ``period`` dedupe (``booking:{pk}:request``) makes webhook re-delivery
+    double-send-proof even beyond the status guard.
     """
-    booking = slot.book(member, note=note)
     _emit_member_email(
         booking,
         action="request",
@@ -195,8 +226,18 @@ def request_orientation(slot: OrientationSlot, member: Member, *, note: str = ""
         template="orientation_request",
         ics=_ics(booking, method="REQUEST", status="TENTATIVE"),
     )
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=member.user, target=booking)
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=booking.member.user, target=booking)
     _emit_lead_request(booking)
+
+
+def request_orientation(slot: OrientationSlot, member: Member, *, note: str = "") -> OrientationBooking:
+    """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
+
+    Raises:
+        OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
+    """
+    booking = slot.book(member, note=note)
+    _fan_out_request(booking)
     return booking
 
 
@@ -277,6 +318,308 @@ def parse_proposed_time(date_str: str, time_str: str) -> datetime:
     return starts_at
 
 
+# ── Paid orientations: Stripe Checkout orchestration ─────────────────────────
+
+
+def make_checkout_token(booking: OrientationBooking) -> str:
+    """Sign a token authorizing the Checkout return/cancelled pages for one booking."""
+    return signing.dumps({"booking": booking.pk}, salt=_CHECKOUT_SALT)
+
+
+def read_checkout_token(token: str) -> OrientationBooking:
+    """Decode a checkout token to its booking.
+
+    Raises:
+        signing.BadSignature: If the token is invalid or expired.
+        OrientationBooking.DoesNotExist: If the booking no longer exists.
+    """
+    from membership.models import OrientationBooking
+
+    data = signing.loads(token, salt=_CHECKOUT_SALT, max_age=_CHECKOUT_MAX_AGE)
+    return OrientationBooking.objects.select_related("slot", "guild", "member").get(pk=data["booking"])
+
+
+def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: str = "") -> str:
+    """Open a Stripe Checkout for a paid guild's slot and return the hosted Checkout URL.
+
+    Creates the seat-holding ``PENDING_PAYMENT`` booking first (no emails, no
+    activity, no notifications — nothing has happened yet), then the Checkout
+    Session. A Stripe API failure deletes the hold (and its orphan custom slot)
+    and re-raises, mirroring the classes rollback.
+
+    Raises:
+        OrientationError: Propagated from the ``slot.book()`` guards — including
+            the friendly "checkout in progress" duplicate at ``seat_holding()`` scope.
+    """
+    from billing import stripe_utils
+    from membership.models import GuildOrientationSettings, OrientationBooking, OrientationError
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=slot.guild).first()
+    if settings_obj is None or not settings_obj.is_paid:
+        raise OrientationError("This guild doesn't charge for orientations.")
+    slot.ensure_bookable_for(member)
+    # amount_paid_cents stays 0 until money is actually in hand — the finalize
+    # step stamps it from the session's amount_total. A provisional amount here
+    # would make never-paid holds render as paid rows in staff surfaces.
+    booking = OrientationBooking.objects.create(
+        slot=slot,
+        guild=slot.guild,
+        member=member,
+        member_note=note,
+        status=OrientationBooking.Status.PENDING_PAYMENT,
+    )
+    token = make_checkout_token(booking)
+    metadata = {"kind": "orientation_booking", "booking_id": str(booking.pk)}
+    try:
+        session = stripe_utils.create_checkout_session(
+            amount_cents=settings_obj.price_cents,
+            product_name=f"Orientation — {slot.guild.name}",
+            customer_email=member.primary_email,
+            success_url=_absolute_url(reverse("hub_orientation_checkout_return", args=[token])),
+            cancel_url=_absolute_url(reverse("hub_orientation_checkout_cancelled", args=[token])),
+            metadata=metadata,
+            # Stripe idempotency replays the original response, so this can never
+            # revive an expired session — Resume mints fresh via re-booking instead.
+            idempotency_key=f"orientation-checkout-{booking.pk}",
+            expires_at=int((timezone.now() + _CHECKOUT_SESSION_LIFETIME).timestamp()),
+        )
+    except Exception:
+        _delete_hold(booking)
+        raise
+    booking.stripe_session_id = session["id"]
+    booking.save(update_fields=["stripe_session_id"])
+    return session["url"]
+
+
+def start_custom_orientation_checkout(guild: Guild, member: Member, starts_at: datetime, *, note: str = "") -> str:
+    """Custom-time variant of :func:`start_orientation_checkout` — pay-to-book at the same guild price.
+
+    Creates the one-off 1-seat MANUAL slot (like :func:`request_custom_orientation`),
+    then delegates. Any failure deletes the orphan slot (and the hold, handled by
+    the delegate) before re-raising.
+
+    Raises:
+        OrientationError: If the guild isn't taking custom requests, or booking fails.
+    """
+    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
+        raise OrientationError("This guild isn't taking custom orientation requests right now.")
+    slot = OrientationSlot.objects.create(
+        guild=guild,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=settings_obj.default_duration_minutes),
+        seats=1,
+        location=settings_obj.default_location,
+        source=OrientationSlot.Source.MANUAL,
+    )
+    try:
+        return start_orientation_checkout(slot, member, note=note)
+    except Exception:
+        # The delegate already deleted its hold; remove the orphan slot if it survived.
+        if OrientationSlot.objects.filter(pk=slot.pk).exists() and not slot.bookings.exists():
+            slot.delete()
+        raise
+
+
+def finalize_paid_booking(
+    booking: OrientationBooking, *, payment_intent: str, amount_total: int | None, session_id: str = ""
+) -> str:
+    """Flip a ``PENDING_PAYMENT`` hold to ``REQUESTED`` with the full request fan-out.
+
+    THE single "money is in hand" transition — the webhook handler, the
+    Stripe-verified release paths, Resume, and the sweep's lost-webhook recovery
+    all funnel through here, and it is safe to race: the row is re-fetched under
+    ``select_for_update`` and only a still-``PENDING_PAYMENT`` hold is flipped,
+    so a sweep-vs-late-webhook race finalizes exactly once (one activity row,
+    one fan-out) and can never resurrect a declined/cancelled/refunded booking.
+
+    ``amount_total`` (from the session/webhook) is canonical; ``session_id``
+    backfills a hold whose session id never got saved (crash mid-start).
+
+    A hold whose slot was cancelled while the member was paying is finalized and
+    then immediately cancelled with the slot-cancelled fan-out (member email +
+    automatic full refund) — money is recorded first so the refund has a real
+    payment to anchor to, and the member gets exactly one email (no request
+    fan-out for a booking that is dead on arrival).
+
+    Returns:
+        ``"finalized"`` — this call flipped the hold (fan-out fired);
+        ``"cancelled_slot"`` — flipped, then auto-cancelled + refunded;
+        ``"already"`` — the row is no longer ``PENDING_PAYMENT`` (someone else
+        finalized it, or it was resolved); nothing changed;
+        ``"gone"`` — the row no longer exists; nothing changed.
+    """
+    from membership.models import OrientationBooking
+
+    with transaction.atomic():
+        locked = (
+            OrientationBooking.objects.select_for_update()
+            .select_related("slot", "guild", "member")
+            .filter(pk=booking.pk)
+            .first()
+        )
+        if locked is None:
+            return "gone"
+        if locked.status != OrientationBooking.Status.PENDING_PAYMENT:
+            return "already"
+        locked.status = OrientationBooking.Status.REQUESTED
+        locked.stripe_payment_id = payment_intent
+        if session_id and not locked.stripe_session_id:
+            locked.stripe_session_id = session_id
+        if amount_total is not None:
+            locked.amount_paid_cents = amount_total
+        locked.save(update_fields=["status", "stripe_payment_id", "stripe_session_id", "amount_paid_cents"])
+        slot_cancelled = locked.slot.is_cancelled
+    if slot_cancelled:
+        # Fan-out outside the lock. The request fan-out is skipped on purpose —
+        # the member gets one honest email: cancelled, with the refund promise.
+        cancel_orientation(locked, actor_label="the guild")
+        return "cancelled_slot"
+    _fan_out_request(locked)
+    return "finalized"
+
+
+def _expire_session_best_effort(booking: OrientationBooking) -> None:
+    """Expire the hold's Checkout Session so an open Stripe tab can't pay a dead booking.
+
+    Best-effort by design: the session may already be expired or Stripe may be
+    down — either way the release proceeds (the session's own ``expires_at`` and
+    the webhook/sweep recovery paths are the backstop).
+    """
+    from billing import stripe_utils
+
+    if not booking.stripe_session_id:
+        return
+    try:
+        stripe_utils.expire_checkout_session(session_id=booking.stripe_session_id)
+    except Exception:
+        logger.info("Could not expire Checkout session for orientation hold %s (best effort).", booking.pk)
+
+
+def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) -> None:
+    """Delete a checkout hold — never CANCELLED: no fan-out ever fired, nothing should remember it.
+
+    Expires the hold's Checkout Session first (best-effort) unless the caller
+    knows it is already expired. The delete itself is status-guarded so a row a
+    concurrent webhook just finalized is never destroyed (and a row already gone
+    is a quiet no-op). A custom-request hold also deletes its orphan 1-seat
+    MANUAL slot.
+    """
+    from membership.models import OrientationBooking, OrientationSlot
+
+    if expire_session:
+        _expire_session_best_effort(booking)
+    slot = booking.slot
+    deleted, _detail = OrientationBooking.objects.filter(
+        pk=booking.pk, status=OrientationBooking.Status.PENDING_PAYMENT
+    ).delete()
+    if not deleted:
+        return
+    if slot.seats == 1 and slot.source == OrientationSlot.Source.MANUAL and not slot.bookings.exists():
+        slot.delete()
+
+
+def release_hold_if_unpaid(booking: OrientationBooking) -> str:
+    """Release a ``PENDING_PAYMENT`` hold — but only after verifying with Stripe.
+
+    A hold can be paid-but-webhook-lagged, and deleting it would eat the member's
+    money. Returns ``"released"`` (unpaid — hold deleted, session expired
+    best-effort, orphan custom slot too), ``"paid"`` (kept and flipped to
+    REQUESTED with the full fan-out — the same recovery as the sweep), or
+    ``"unknown"`` (Stripe unreachable — hold kept). A hold with no stored
+    session id (crash between session create and save) is released outright —
+    there is nothing to verify or pay.
+    """
+    from billing import stripe_utils
+
+    if not booking.stripe_session_id:
+        _delete_hold(booking, expire_session=False)
+        return "released"
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+    except Exception:
+        logger.exception("Could not verify Checkout session for orientation hold %s; keeping it.", booking.pk)
+        return "unknown"
+    if session["payment_status"] == "paid":
+        finalize_paid_booking(booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"])
+        return "paid"
+    _delete_hold(booking)
+    return "released"
+
+
+def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
+    """Sweep abandoned checkout holds — Stripe-verified, never on age alone.
+
+    For each ``PENDING_PAYMENT`` booking older than two hours (strictly after the
+    one-hour session expiry, so a live checkout is never raced), retrieve its
+    Checkout Session and act on Stripe's answer: paid → flip to REQUESTED with
+    the full fan-out (**the sweep IS the lost-webhook recovery path**); expired
+    or unpaid → delete the hold and its orphan custom slot; Stripe unreachable →
+    skip this tick and log, the next tick retries. Idempotent.
+
+    Returns:
+        ``(released, recovered)`` counts.
+    """
+    from billing import stripe_utils
+    from membership.models import OrientationBooking
+
+    cutoff = (now or timezone.now()) - _HOLD_SWEEP_AGE
+    stale = OrientationBooking.objects.filter(
+        status=OrientationBooking.Status.PENDING_PAYMENT, requested_at__lt=cutoff
+    ).select_related("slot", "guild", "member")
+    released = 0
+    recovered = 0
+    for booking in stale:
+        if not booking.stripe_session_id:
+            # Crash between session create and save: no session ever attached, so
+            # there is nothing to verify — a blind delete is safe and frees the
+            # otherwise forever-stranded seat.
+            _delete_hold(booking, expire_session=False)
+            released += 1
+            continue
+        try:
+            session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+        except Exception:
+            logger.exception("Hold sweep: could not verify session for booking %s; retrying next tick.", booking.pk)
+            continue
+        if session["payment_status"] == "paid":
+            outcome = finalize_paid_booking(
+                booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+            )
+            if outcome in ("finalized", "cancelled_slot"):
+                recovered += 1
+            # "already"/"gone": a concurrent webhook or release won the race —
+            # nothing changed here, so nothing to count.
+        else:
+            _delete_hold(booking)
+            released += 1
+    return released, recovered
+
+
+def _refund_if_paid(booking: OrientationBooking, *, actor: User | None) -> None:
+    """Auto-refund a paid booking in full on decline/cancel — flag, don't block, on failure.
+
+    A refund API failure never blocks the decline/cancel: the state change is
+    already saved, the member email still goes out ("your refund is being
+    processed"), and the booking lands at ``refund_state == "failed"`` with the
+    Payments panel's loud Retry action — a member is never silently unrefunded.
+    Free bookings and already-refunded bookings never touch the engine.
+    """
+    from billing.exceptions import RefundError
+
+    if booking.amount_paid_cents <= 0 or booking.refund_state != "none":
+        return
+    try:
+        booking.issue_refund(actor=actor)
+    except RefundError:
+        logger.exception(
+            "Automatic refund failed for orientation booking %s; flagged for retry in the Payments panel.",
+            booking.pk,
+        )
+
+
 def _request_audience(booking: OrientationBooking) -> list[Member]:
     """Who hears about a request: the slot's orienter + the lead (personal), or all leadership.
 
@@ -306,11 +649,15 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     for member in _request_audience(booking):
         if member.primary_email and member.primary_email not in recipients:
             recipients.append(member.primary_email)
+    # One body goes to the whole audience, so the confirm/decline links carry the
+    # slot's primary responder (personal slot: the orienter; guild slot: the lead)
+    # as the token recipient — a paid booking's email-link decline credits them.
+    primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else booking.guild.guild_lead
     ctx = _context(
         booking,
         respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
-        confirm_url=_action_url(booking, "confirm"),
-        decline_url=_action_url(booking, "decline"),
+        confirm_url=_action_url(booking, "confirm", recipient=primary_responder),
+        decline_url=_action_url(booking, "decline", recipient=primary_responder),
     )
     emit_with_email_shell(
         "orientation_requested",
@@ -347,9 +694,14 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
     )
 
 
-def decline_orientation(booking: OrientationBooking, *, note: str = "") -> None:
-    """Decline a request: update state, email the member, log + notify."""
+def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: User | None = None) -> None:
+    """Decline a request: update state, auto-refund a paid booking, email the member, log + notify.
+
+    ``actor`` attributes the automatic refund (the acting user for authenticated
+    declines; the token recipient's user for email-link declines; ``None`` = System).
+    """
     booking.decline(note=note)
+    _refund_if_paid(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=None, target=booking)
     _emit_member_email(
         booking,
@@ -362,9 +714,14 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "") -> None:
     )
 
 
-def cancel_orientation(booking: OrientationBooking, *, actor_label: str) -> None:
-    """Cancel a booking: update state, email the member, notify the orienters, log."""
+def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: User | None = None) -> None:
+    """Cancel a booking: update state, auto-refund a paid booking, email the member, notify, log.
+
+    Member cancels, lead cancels, slot cancels, and no-login token cancels all route
+    through here — so every cancellation path refunds a paid booking automatically.
+    """
     booking.cancel()
+    _refund_if_paid(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
     _emit_member_email(
         booking,
@@ -390,9 +747,22 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str) -> None
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
-    """Cancel a slot and run the full cancel fan-out for each of its active bookings."""
+    """Cancel a slot and run the full cancel fan-out for each of its active bookings.
+
+    ``PENDING_PAYMENT`` checkout holds on the slot are released too, through the
+    Stripe-verified release path: an unpaid hold has its session expired
+    (best-effort, so an open Checkout tab can't pay for a cancelled slot) and its
+    row deleted — no fan-out ever fired for it, so nothing should remember it.
+    A hold Stripe reports as already paid routes into the finalize path, which
+    sees the cancelled slot and auto-cancels + refunds with one honest email.
+    """
+    from membership.models import OrientationBooking
+
     active = list(slot.bookings.active())
+    holds = list(slot.bookings.filter(status=OrientationBooking.Status.PENDING_PAYMENT))
     slot.mark_cancelled(reason=reason)
+    for hold in holds:
+        release_hold_if_unpaid(hold)
     for booking in active:
         cancel_orientation(booking, actor_label="the guild")
 
@@ -518,10 +888,9 @@ def retire_rule(rule: OrientationAvailability) -> tuple[int, int]:
     goes SET_NULL) to be handled individually via the Upcoming Slots card. Past and
     MANUAL slots are never touched. Replaces the old silent slot-stranding.
 
-    Paid-orientations seam (named in both specs): once ``PENDING_PAYMENT`` checkout
-    holds land, the keep/delete guard MUST switch from ``bookings.active()`` to
-    ``bookings.seat_holding()`` — an ``active()``-only test would cascade a live paid
-    hold away with the slot.
+    The keep/delete guard runs at ``bookings.seat_holding()`` scope — an
+    ``active()``-only test would cascade a live paid ``PENDING_PAYMENT`` hold away
+    with the slot, eating a checkout mid-payment.
 
     Returns:
         ``(open_slots_removed, kept_with_bookings)`` for the success message.
@@ -532,7 +901,7 @@ def retire_rule(rule: OrientationAvailability) -> tuple[int, int]:
     kept = 0
     future = rule.slots.filter(starts_at__gte=timezone.now(), source=OrientationSlot.Source.GENERATED)
     for slot in future:
-        if slot.bookings.active().exists():
+        if slot.bookings.seat_holding().exists():
             kept += 1
         else:
             slot.delete()

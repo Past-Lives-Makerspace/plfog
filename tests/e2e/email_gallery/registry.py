@@ -454,6 +454,20 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="orientation_lead_request_context",
     ),
     GalleryEmail(
+        key="orientation_orphan_payment_alert",
+        name="Orphaned orientation payment alert (admin)",
+        section="Guilds & Orientations",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when a paid orientation Checkout lands with no live booking to credit (the hold "
+            "was released while Stripe reported it unpaid, or resolved without recording a payment) "
+            "— the refund must happen from the Stripe dashboard. Goes to the Billing Administrators."
+        ),
+        edit_pointer="Text authored in code (membership/webhook_handlers.py::_send_orphan_payment_alert)",
+        audience="Holders of the Billing Administrator capability.",
+        context_builder="orientation_orphan_payment_alert_context",
+    ),
+    GalleryEmail(
         key="guild_welcome",
         name="Guild welcome (guild-authored)",
         section="Guilds & Orientations",
@@ -835,6 +849,7 @@ _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "core.find_account": "the find_account INLINE_STRING card",
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
     "classes.duplicate_payment_alert": "the duplicate_payment_alert INLINE_STRING card",
+    "membership.orientation_orphan_payment": "the orientation_orphan_payment_alert INLINE_STRING card",
 }
 
 # trigger_kinds deliberately NOT carded, each with the reason.

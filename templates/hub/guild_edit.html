@@ -341,6 +341,23 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=orientation_form.default_seats %}
       {% include "components/form_field.html" with field=orientation_form.default_location %}
       {% include "components/form_field.html" with field=orientation_form.default_duration_minutes %}
+      {# Hand-rolled group (matches form_field.html's classes) because the label carries a .pl-help bubble. #}
+      <div class="pl-form-group">
+        <label for="{{ orientation_form.price.id_for_label }}" class="pl-form-label">
+          Orientation price
+          <span class="pl-help">
+            <span class="pl-help__icon" tabindex="0" role="img" aria-label="Orientation price: leave blank for free orientations.">?</span>
+            <span class="pl-help__bubble">Leave this blank for free orientations (the default). Set a price and members pay by card when they book. If you decline or the orientation is cancelled, they're refunded automatically. Applies to posted slots and custom time requests.</span>
+          </span>
+        </label>
+        {{ orientation_form.price }}
+        {% if orientation_form.price.errors %}
+        <ul class="pl-field-errors">
+          {% for error in orientation_form.price.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        <p class="pl-field-hint">In dollars, e.g. 15 or 15.50.</p>
+      </div>
     </div>
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -558,7 +575,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
             <span class="hub-text-muted">Any orienter</span>
           {% endif %}
         </span>
-        <span class="pl-slot-admin__seats">{{ slot.active_booking_count }} of {{ slot.seats }} booked</span>
+        <span class="pl-slot-admin__seats">{{ slot.active_booking_count }} of {{ slot.seats }} booked{% if slot.hold_count %} <span class="hub-text-muted">· {{ slot.hold_count }} seat{{ slot.hold_count|pluralize }} held by a checkout in progress</span>{% endif %}</span>
         <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one-off{% endif %}</span>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'slot-cancel-{{ slot.pk }}')">Cancel</button>
         {% url 'hub_guild_orientation_slot_cancel' guild.pk slot.pk as slot_cancel_url %}

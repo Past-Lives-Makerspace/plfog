@@ -427,6 +427,24 @@ def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def orientation_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``membership.webhook_handlers._send_orphan_payment_alert`` exactly."""
+    booking = data.booking
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_orphan"
+    return {
+        "subject": "Orphaned orientation payment needs a manual refund",
+        "text_body": (
+            f"A paid orientation Checkout landed with no booking to credit.\n\n"
+            f"Booking {booking.pk} no longer exists.\n\n"
+            f"The member paid $15.00 and has nothing in the app to show for it. "
+            f"Refund the payment from the Stripe dashboard.\n\n"
+            f"Stripe payment: {stripe_url}\n"
+            f"Checkout session: cs_sample_orphan\n"
+            f"Customer email: {data.member.primary_email}"
+        ),
+    }
+
+
 def reminder_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.build_class_reminder_occurrence``."""
     session = _upcoming_sessions(data)[0]

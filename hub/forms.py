@@ -1517,7 +1517,41 @@ class GuildOrientationSettingsForm(forms.ModelForm):
 
     The two lead-authored follow-up emails (thank-you + welcome) live on their own
     :class:`GuildEmailsForm` (Announcements/Emails tab); only the booking config is here.
+
+    ``price`` is entered in dollars ("15" or "15.50", never cents) and mapped to
+    ``price_cents`` on save. Blank normalizes to 0 (free), and a free guild renders
+    the field empty, not "0". Price changes affect future checkouts only — live
+    holds and paid bookings keep the amount they paid.
     """
+
+    price = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Orientation price",
+        widget=forms.NumberInput(attrs={"placeholder": "Free", "min": "0", "step": "0.01"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.price_cents:
+            self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
+
+    def clean_price(self) -> int:
+        """Normalize the dollar input to cents — blank means free."""
+        price = self.cleaned_data["price"]
+        if price in (None, ""):
+            return 0
+        if not Decimal("0") <= price <= Decimal("500"):
+            raise forms.ValidationError("Enter a price between $0 and $500.")
+        return int(price * 100)
+
+    def save(self, commit: bool = True) -> GuildOrientationSettings:
+        instance = super().save(commit=False)
+        instance.price_cents = self.cleaned_data["price"]
+        if commit:
+            instance.save()
+        return instance
 
     class Meta:
         model = GuildOrientationSettings
@@ -1992,6 +2026,24 @@ class OrientationCustomRequestForm(forms.Form):
         return starts
 
 
+class OrientationSlotChoiceField(forms.ModelChoiceField):
+    """Slot dropdown whose labels surface seats held by checkouts in progress.
+
+    Without this a lead sees a slot mysteriously full: holds consume seats but
+    never appear in ``active()`` queries. Prefers the ``hold_count`` annotation
+    (``with_pending_hold_count``); falls back to the per-row property.
+    """
+
+    def label_from_instance(self, obj: Any) -> str:
+        holds = getattr(obj, "hold_count", None)
+        if holds is None:
+            holds = obj.pending_hold_count
+        if not holds:
+            return str(obj)
+        noun = "seat" if holds == 1 else "seats"
+        return f"{obj} — {holds} {noun} held by a checkout in progress"
+
+
 class OrientationAddMemberForm(forms.Form):
     """Admin/lead adds a member to an orientation slot from the dashboard."""
 
@@ -1999,7 +2051,7 @@ class OrientationAddMemberForm(forms.Form):
         queryset=Member.objects.filter(status=Member.Status.ACTIVE).order_by("full_legal_name"),
         label="Member",
     )
-    slot = forms.ModelChoiceField(queryset=OrientationSlot.objects.none(), label="Slot")
+    slot = OrientationSlotChoiceField(queryset=OrientationSlot.objects.none(), label="Slot")
 
     def __init__(self, *args: Any, slot_queryset: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

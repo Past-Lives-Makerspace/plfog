@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load classes_tags %}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -28,6 +28,11 @@
     <p style="font-size:14px; color:#F4EFDD; margin:0 0 20px;">
       {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}
     </p>
+    {% if booking.amount_paid_cents and action != "confirm" %}
+    <p style="font-size:13px; color:#96ACBB; margin:0 0 20px;">
+      {% if action == "decline" %}Declining refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.{% else %}Cancelling refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.{% endif %}
+    </p>
+    {% endif %}
     <form method="post">
       {% csrf_token %}
       <button type="submit" style="display:inline-block; padding:12px 32px; background:#EEB44B; color:#092E4C; font-size:14px; font-weight:700; border:none; border-radius:6px; cursor:pointer;">

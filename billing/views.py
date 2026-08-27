@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from typing import Any
 
 from django.contrib import messages as django_messages
 from django.contrib.auth.decorators import login_required
@@ -17,12 +18,36 @@ from django.views.decorators.http import require_POST
 
 from billing import stripe_utils, webhook_handlers
 from classes import webhook_handlers as classes_webhook_handlers
+from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
 from billing.models import BillingSettings, Tab, TabCharge, TabEntry
 from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
 
 logger = logging.getLogger(__name__)
+
+# Fan-in lists for Checkout events: each registered handler self-filters on
+# ``metadata.kind``, so one Stripe event reaches every app that might own it.
+_CHECKOUT_COMPLETED_HANDLERS = [
+    classes_webhook_handlers.handle_checkout_session_completed,
+    membership_webhook_handlers.handle_checkout_session_completed,
+]
+_CHECKOUT_EXPIRED_HANDLERS = [
+    membership_webhook_handlers.handle_checkout_session_expired,
+]
+
+
+def _dispatch_checkout_completed(event: dict[str, Any]) -> None:
+    """Deliver ``checkout.session.completed`` to each registered kind-filtered handler."""
+    for handler in _CHECKOUT_COMPLETED_HANDLERS:
+        handler(event)
+
+
+def _dispatch_checkout_expired(event: dict[str, Any]) -> None:
+    """Deliver ``checkout.session.expired`` to each registered kind-filtered handler."""
+    for handler in _CHECKOUT_EXPIRED_HANDLERS:
+        handler(event)
+
 
 # Map Stripe event types to handler functions
 _WEBHOOK_HANDLERS = {
@@ -32,7 +57,8 @@ _WEBHOOK_HANDLERS = {
     "payment_method.detached": webhook_handlers.handle_payment_method_detached,
     "payment_method.updated": webhook_handlers.handle_payment_method_updated,
     "charge.dispute.created": webhook_handlers.handle_charge_dispute_created,
-    "checkout.session.completed": classes_webhook_handlers.handle_checkout_session_completed,
+    "checkout.session.completed": _dispatch_checkout_completed,
+    "checkout.session.expired": _dispatch_checkout_expired,
     "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
     "refund.updated": classes_webhook_handlers.handle_refund_updated,
 }
@@ -338,6 +364,78 @@ def admin_payments_csv(request: HttpRequest) -> StreamingHttpResponse:
     return stream_payments_csv(ledger)
 
 
+def _render_orientation_refund_form(request: HttpRequest, booking: Any, form: Any) -> HttpResponse:
+    """Render the orientation refund modal body — the retry confirm when the latest attempt failed.
+
+    Mirrors the classes refund partial: the FAILED state's only action is Retry
+    (the failed row is the anchor); otherwise the editable amount/reason form.
+    """
+    from billing.models import PaymentRefund
+
+    failed_refund = None
+    if booking.refund_state == "failed":
+        failed_refund = booking.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+    return render(
+        request,
+        "billing/partials/orientation_refund_form.html",
+        {"booking": booking, "form": form, "failed_refund": failed_refund},
+    )
+
+
+@refund_authority_required
+def payment_orientation_refund_form(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """GET partial — the orientation refund modal body, loaded via HTMX by the Payments panel."""
+    from django.shortcuts import get_object_or_404
+
+    from billing.forms import OrientationRefundForm
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    return _render_orientation_refund_form(request, booking, OrientationRefundForm(booking=booking))
+
+
+@refund_authority_required
+@require_POST
+def payment_orientation_refund(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Issue a real Stripe refund for an orientation booking — 204 + toast + ``refund-done``.
+
+    Validation errors re-render the form partial in place. A Stripe rejection is
+    loud: an error toast carries Stripe's message and the modal stays open,
+    re-rendered in the failed state whose action is Retry.
+    """
+    from django.shortcuts import get_object_or_404
+
+    from billing.exceptions import RefundError
+    from billing.forms import OrientationRefundForm
+    from billing.models import PaymentRefund
+    from hub.toast import trigger_client_event, trigger_toast
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    form = OrientationRefundForm(request.POST, booking=booking)
+    if not form.is_valid():
+        return _render_orientation_refund_form(request, booking, form)
+    try:
+        refund = booking.issue_refund(
+            amount_cents=form.amount_cents,
+            reason=form.cleaned_data["reason"],
+            actor=request.user,
+        )
+    except RefundError as exc:
+        booking.refresh_from_db()
+        response = _render_orientation_refund_form(request, booking, OrientationRefundForm(booking=booking))
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
 @refund_authority_required
 @require_POST
 def payment_refund_retry(request: HttpRequest, refund_pk: int) -> HttpResponse:
@@ -380,8 +478,6 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
         validated before any entry is created.
     """
     from django.contrib import admin
-
-    from typing import Any
 
     from billing.forms import CustomSplitFormSet
     from membership.models import Guild

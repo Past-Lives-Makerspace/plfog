@@ -131,6 +131,26 @@ urlpatterns = [
         name="hub_orientation_cancel_mine",
     ),
     path("orientation/act/<str:token>/", views.orientation_action, name="hub_orientation_action"),
+    path(
+        "orientation/checkout/return/<str:token>/",
+        views.orientation_checkout_return,
+        name="hub_orientation_checkout_return",
+    ),
+    path(
+        "orientation/checkout/cancelled/<str:token>/",
+        views.orientation_checkout_cancelled,
+        name="hub_orientation_checkout_cancelled",
+    ),
+    path(
+        "orientation/checkout/<int:booking_pk>/cancel-hold/",
+        views.orientation_checkout_cancel_hold,
+        name="hub_orientation_checkout_cancel_hold",
+    ),
+    path(
+        "orientation/checkout/<int:booking_pk>/resume/",
+        views.orientation_checkout_resume,
+        name="hub_orientation_checkout_resume",
+    ),
     path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),

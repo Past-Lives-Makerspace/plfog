@@ -5,7 +5,11 @@ for {{ guild.name }}.
 
   Was: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
 
-We'd love to get you oriented ASAP, so visit your Guild's page to choose
+{% if booking.amount_paid_cents %}{% load classes_tags %}{% if booking.refund_state == "failed" %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is being processed. We will make sure
+it reaches your card.{% else %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually
+reach your card in 5 to 10 business days.{% endif %}
+
+{% endif %}We'd love to get you oriented ASAP, so visit your Guild's page to choose
 a new time:
 {{ guild_url }}
 
