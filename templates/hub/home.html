@@ -121,8 +121,8 @@
     </ul>
     {% else %}
     <p class="pl-home-empty">
-        No announcements from your guilds right now. Join a guild to hear from its lead —
-        <a href="{% url 'hub_member_directory' %}">explore members and guilds</a>.
+        No announcements from your guilds right now. Follow a guild to hear from its lead:
+        <a href="{% url 'hub_user_settings' %}?tab=guilds">choose your guild updates</a>.
     </p>
     {% endif %}
 </div>
@@ -146,8 +146,8 @@
     </div>
     {% else %}
     <p class="pl-home-empty">
-        You haven't joined any guilds yet — <a href="{% url 'hub_community_calendar' %}">see what's happening</a>
-        or find a guild that fits and join from its page.
+        You aren't following any guilds yet. <a href="{% url 'hub_user_settings' %}?tab=guilds">Choose your guild updates</a>
+        in Settings, or <a href="{% url 'hub_community_calendar' %}">see what's happening</a> first.
     </p>
     {% endif %}
 </div>

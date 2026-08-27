@@ -1,0 +1,53 @@
+{% extends "hub/base.html" %}
+{% block title %}Guild Updates{% endblock %}
+
+{% block content %}
+{% comment %}First-login guild updates picker (one-time). Reuses the settings-tab toggle rows,
+   but as plain checkboxes in one batch-save form — no HTMX, no per-row mutation — so the
+   first-run pick feels like one decision. Skip discards any checks (the server ignores
+   "guilds" when "skip" is present), so the Skip button disables the moment anything is
+   checked; unchecking everything re-enables it.{% endcomment %}
+<div class="pl-guild-prompt" x-data="{ picked: {{ picked|length }} }">
+    <div class="hub-card">
+        <h1 class="hub-page-title pl-guild-prompt__title">Which Guilds Do You Want Updates From?</h1>
+        <p class="hub-text-muted pl-guild-prompt__intro">
+            Guilds are the craft groups that run each studio. Pick the ones you want announcements from.
+            Following a guild also puts you on its roster and gives you its Discord role.
+            You can change your picks anytime in Settings.
+        </p>
+        <form method="post">
+            {% csrf_token %}
+            {% if form.guilds.errors %}
+            <p class="hub-form-error pl-guild-prompt__error" role="alert">{{ form.guilds.errors.0 }}</p>
+            {% endif %}
+            <div class="pl-guild-toggle-list">
+                {% for row in guild_rows %}
+                <div class="pl-guild-toggle-row">
+                    <div class="pl-guild-toggle-row__info">
+                        <div class="pl-guild-toggle-row__name">{{ row.guild.name }}</div>
+                        {% if row.meeting_hint %}
+                        <div class="hub-text-muted pl-guild-toggle-row__hint">{{ row.meeting_hint|truncatechars:60 }}</div>
+                        {% endif %}
+                    </div>
+                    <label class="pl-toggle pl-toggle--sm">
+                        <input type="checkbox"
+                               name="guilds"
+                               value="{{ row.guild.pk }}"
+                               aria-label="Get updates from {{ row.guild.name }}"
+                               @change="picked += $event.target.checked ? 1 : -1"
+                               {% if row.guild.pk|stringformat:'s' in picked %}checked{% endif %}>
+                        <span class="pl-toggle__slider"></span>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="pl-guild-prompt__actions">
+                <button type="submit" name="skip" value="1" class="pl-btn pl-btn--secondary" :disabled="picked > 0">
+                    I'll Pick Later
+                </button>
+                <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

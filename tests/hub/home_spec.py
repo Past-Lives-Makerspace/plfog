@@ -255,7 +255,7 @@ def describe_hub_home_view():
             response = client.get(reverse("hub_home"))
 
             assert response.context["my_guilds"] == []
-            assert b"haven't joined any guilds yet" in response.content
+            assert b"aren't following any guilds yet" in response.content
 
     def describe_onboarding_card():
         def _onboard(member: Member) -> None:

@@ -528,7 +528,9 @@ def describe_member_joined_guild():
         assert mail.outbox[0].to == [member.primary_email]
         assert mail.outbox[0].subject == "Welcome!"
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
-        assert Notification.objects.filter(user=lead.user, trigger="guild_joined").exists()
+        notice = Notification.objects.get(user=lead.user, trigger="guild_joined")
+        assert notice.title == "New follower"
+        assert notice.body == f"{member.display_name} now follows {guild.name}."
 
     def it_skips_the_email_when_not_configured():
         guild = GuildFactory()

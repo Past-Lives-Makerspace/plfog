@@ -69,14 +69,17 @@ def _extract_bodies(msg: object) -> tuple[str, str | None]:
 
 
 class AdminRedirectAccountAdapter(DefaultAccountAdapter):
-    """Grant admin privileges on login and redirect staff users to /admin/.
+    """Grant admin privileges on login and route each surface to its landing page.
 
     On every login, if the user's email domain matches any domain in the
     ADMIN_DOMAINS setting (case-insensitive), the user gets is_staff=True
     and is_superuser=True.
 
-    After login, staff users are redirected to the admin panel; everyone
-    else goes to the member hub.
+    After login (no ``?next=``), the public/book surface lands on the /account/
+    overview; the members surface lands on the member Home — except a member who
+    has never chosen their guild updates, who gets the one-time
+    /welcome/guild-updates/ prompt; any other surface (e.g. the guilds guest
+    host) lands on the member Home. See ``get_login_redirect_url``.
 
     Signup gating: when registration_mode is invite_only, only emails with
     a pending Invite record can sign up.
@@ -156,11 +159,25 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         """Land on the right place based on surface.
 
         - Public/book surface → /account/ overview (no onboarding step).
-        - Members surface (anywhere else) → the member Home / Dashboard.
+        - Members surface: a member who has never chosen their guild updates (no
+          answered-stamp, no subscriptions) → the one-time guild updates prompt;
+          everyone else → the member Home / Dashboard. Known, accepted gap: allauth
+          only consults this when no ``?next=`` is present, so a deep-linked login
+          skips the prompt that session (the onboarding checklist is the backstop).
+        - Any other surface (e.g. the guilds guest host) → the member Home /
+          Dashboard, never the prompt: the interstitial renders members-hub chrome
+          and its URL is not in the guilds-host allowlist, so routing there from
+          the guest surface would 404.
         """
         surface = getattr(request, "surface", "members")
         if surface == "public":
             return reverse("account:overview")
+        if surface == "members":
+            # Same resolution pattern as hub.views._get_member: the reverse one-to-one
+            # accessor, AttributeError-safe (RelatedObjectDoesNotExist subclasses it).
+            member = getattr(request.user, "member", None)
+            if member is not None and member.needs_guild_updates_prompt:
+                return reverse("hub_guild_updates_prompt")
         return reverse("hub_home")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:

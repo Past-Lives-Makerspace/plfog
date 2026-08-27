@@ -288,9 +288,6 @@ def member_directory(request: HttpRequest) -> HttpResponse:
         member_qs = Member.objects.filter(status=Member.Status.ACTIVE).distinct()
     else:
         member_qs = Member.objects.directory_visible()
-    guild_filter = request.GET.get("guild", "")
-    if guild_filter.isdigit():
-        member_qs = member_qs.filter(guild_memberships__guild_id=int(guild_filter))
     skill_slug = request.GET.get("skill", "")
     if skill_slug:
         member_qs = member_qs.with_skill(skill_slug)
@@ -308,7 +305,6 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 queryset=EmailAddress.objects.filter(primary=True),
                 to_attr="_primary_emailaddresses",
             ),
-            "guild_memberships__guild",
             "skills__skill__category",
             Prefetch(
                 "contacts",
@@ -326,8 +322,6 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             "members": members,
             "current_member": current_member,
             "is_admin": is_admin,
-            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
-            "guild_filter": guild_filter,
             "skill_categories": _skill_categories_with_approved(),
             "selected_skill": skill_slug,
             "commissions_only": commissions_only,
@@ -408,15 +402,16 @@ def hub_hero_adjust(request: HttpRequest) -> JsonResponse:
 
 
 def _guild_pulse(guild: "Guild", limit: int = 6) -> list[dict[str, Any]]:
-    """A short 'what's happening' feed for a guild: recent joins, announcements, and new classes.
+    """A short 'what's happening' feed for a guild: recent announcements and new classes.
 
     Synthesized from existing rows (no new activity table) and merged newest-first.
+    Deliberately carries NO membership-derived lines: who follows a guild is a
+    notification preference, not social content, so new subscriptions are never
+    broadcast here by name.
     """
     from classes.models import ClassOffering
 
     items: list[dict[str, Any]] = []
-    for membership in guild.memberships.select_related("member").order_by("-joined_at")[:limit]:
-        items.append({"when": membership.joined_at, "text": f"{membership.member.display_name} joined the guild"})
     for announcement in guild.announcements.published().active().order_by("-published_at")[:limit]:
         items.append({"when": announcement.published_at, "text": f"Announcement: {announcement.title}"})
     classes = (
@@ -1583,6 +1578,72 @@ def _notification_prefs_via_token(request: HttpRequest) -> HttpResponse:
     )
 
 
+@login_required
+def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
+    """First-login interstitial: pick which guilds you want updates from (one-time).
+
+    Routed here by the allauth adapter for members with no answered-stamp and no
+    subscriptions. GET renders the multi-select picker; POST Save subscribes to the
+    picks and stamps, POST Skip (``skip`` in POST) stamps with zero picks — Skip
+    deliberately discards any boxes checked alongside it (the UI disables Skip once
+    anything is picked, but the server pins the semantics). Ineligible visits redirect
+    home silently: the page is one-time and a bookmark never resurrects it. Zero active
+    guilds → stamp and redirect (never trap a member on an empty picker). Full-page
+    form, so feedback is Django messages, not toasts.
+    """
+    from hub.forms import GuildUpdatesPromptForm
+    from hub.guild_membership import build_my_guilds_rows
+
+    member = _get_member(request)
+    if member is None:
+        messages.info(request, "Your account is not linked to a membership.")
+        return redirect("hub_home")
+    if not member.needs_guild_updates_prompt:
+        return redirect("hub_home")
+    if not Guild.objects.filter(is_active=True).exists():
+        member.mark_guild_updates_answered()
+        return redirect("hub_home")
+
+    form = GuildUpdatesPromptForm()
+    picked: list[str] = []
+    if request.method == "POST":
+        if "skip" in request.POST:
+            member.answer_guild_updates_prompt([])
+            messages.info(request, "No problem. You can pick guilds anytime in Settings.")
+            return redirect("hub_home")
+        form = GuildUpdatesPromptForm(request.POST)
+        if form.is_valid():
+            count = member.answer_guild_updates_prompt(form.cleaned_data["guilds"])
+            if count:
+                plural = "" if count == 1 else "s"
+                messages.success(
+                    request,
+                    f"You'll get updates from {count} guild{plural}. Change your picks anytime in Settings.",
+                )
+            else:
+                messages.info(request, "You didn't pick any guilds. You can choose some anytime in Settings.")
+            return redirect("hub_home")
+        # Re-render with the member's checks preserved. Keep only pks that render a
+        # real checked row (valid, active, deduped) — the template seeds the Alpine
+        # ``picked`` counter from this list's length, and counting invalid pks would
+        # leave Skip stuck disabled after unchecking every visible box.
+        valid_pks = {str(pk) for pk in Guild.objects.filter(is_active=True).values_list("pk", flat=True)}
+        picked = [pk for pk in dict.fromkeys(request.POST.getlist("guilds")) if pk in valid_pks]
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/guild_updates_prompt.html",
+        {
+            **ctx,
+            "member": member,
+            "form": form,
+            "guild_rows": build_my_guilds_rows(member),
+            "picked": picked,
+        },
+    )
+
+
 def user_settings(request: HttpRequest) -> HttpResponse:
     """Tabbed user settings page — Profile + Emails + Notifications.
 
@@ -1654,10 +1715,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
     primary_verified_json = "true" if primary_email is None or primary_email.verified else "false"
 
-    # Whitelist the tab param — it flows into an Alpine x-data JS expression, so
-    # HTML escaping alone isn't enough to stop a payload like ?tab='+alert(1)+'.
-    tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds", "account"} else "profile"
+    active_tab = _resolve_settings_tab(request, member)
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
@@ -1707,6 +1765,24 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             ),
         },
     )
+
+
+def _resolve_settings_tab(request: HttpRequest, member: Member | None) -> str:
+    """Whitelist the settings ``tab`` param and record a Guilds-tab landing.
+
+    The whitelist matters because the tab flows into an Alpine x-data JS expression —
+    HTML escaping alone isn't enough to stop a payload like ``?tab='+alert(1)+'``.
+
+    Landing on the Guilds tab via its ``?tab=guilds`` deep link counts as having seen
+    and chosen your guild updates — the checklist step, the prompt's Skip fallback, and
+    every cross-link arrive this way. A deliberate idempotent write-on-GET (login-gated,
+    one-way, no-op after the first hit); see ``Member.mark_guild_updates_answered``.
+    """
+    tab_param = request.GET.get("tab", "profile")
+    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds", "account"} else "profile"
+    if active_tab == "guilds" and member is not None:
+        member.mark_guild_updates_answered()
+    return active_tab
 
 
 def _log_profile_updated(user: User, member: Member) -> None:
@@ -1840,53 +1916,17 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 @require_POST
-def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
-    """Current member joins this guild (idempotent)."""
-    from core.events import discord_roles
-    from membership import orientations
-    from membership.models import GuildMembership
-
-    guild = get_object_or_404(Guild, pk=pk)
-    member = _get_member(request)
-    if member is not None:
-        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
-        if created or upgraded:
-            orientations.member_joined_guild(guild, member)
-        discord_roles.on_membership_changed(guild, member, joined=True)
-        messages.success(request, f"You joined {guild.name}.")
-    return redirect("hub_guild_detail", slug=guild.slug)
-
-
-@login_required
-@require_POST
-def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
-    """Current member leaves this guild."""
-    from core.events import discord_roles
-    from membership.models import GuildMembership
-
-    guild = get_object_or_404(Guild, pk=pk)
-    member = _get_member(request)
-    if member is not None:
-        GuildMembership.objects.filter(guild=guild, member=member).delete()
-        discord_roles.on_membership_changed(guild, member, joined=False)
-        messages.success(request, f"You left {guild.name}.")
-    return redirect("hub_guild_detail", slug=guild.slug)
-
-
-@login_required
-@require_POST
 def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
-    """Join or leave a guild from the My Guilds settings toggle (HTMX; 204 + toast).
+    """Subscribe to / unsubscribe from a guild's updates via the settings toggle (HTMX; 204 + toast).
 
-    Runs the same idempotent join/leave logic as ``guild_join`` / ``guild_leave`` but
-    returns a toast instead of a full-page redirect. The toggle's checkbox posts
-    ``joined`` when checked (join) and omits the field when unchecked (leave), so the
-    presence of ``joined`` in POST is the switch state.
+    Delegates to the fat-model subscribe/unsubscribe path and returns a toast instead
+    of a full-page redirect. The toggle's checkbox posts ``joined`` when checked
+    (subscribe) and omits the field when unchecked (unsubscribe), so the presence of
+    ``joined`` in POST is the switch state. Every hit — either direction — stamps
+    ``guild_updates_prompt_answered_at``: flipping any toggle is an answer, so the
+    first-login prompt never resurrects (including for a legacy member unsubscribing
+    from their last guild).
     """
-    from core.events import discord_roles
-    from membership import orientations
-    from membership.models import GuildMembership
-
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
     response = HttpResponse(status=204)
@@ -1894,19 +1934,16 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
         trigger_toast(response, "Your account is not linked to a membership.", "error")
         return response
     if "joined" in request.POST:
-        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
-        if created or upgraded:
-            orientations.member_joined_guild(guild, member)
-        discord_roles.on_membership_changed(guild, member, joined=True)
-        trigger_toast(response, f"You joined {guild.name}.", "success")
+        member.subscribe_to_guild(guild)
+        trigger_toast(response, f"You'll get updates from {guild.name}.", "success")
     else:
-        GuildMembership.objects.filter(guild=guild, member=member).delete()
-        discord_roles.on_membership_changed(guild, member, joined=False)
+        member.unsubscribe_from_guild(guild)
         trigger_toast(
             response,
-            f"You left {guild.name}. You'll stop getting its announcements — rejoin anytime.",
+            f"You won't get updates from {guild.name} anymore. Turn them back on anytime.",
             "info",
         )
+    member.mark_guild_updates_answered()
     return response
 
 

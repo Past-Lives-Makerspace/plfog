@@ -90,14 +90,32 @@ def describe_guild_detail():
             assert response.status_code == 200
             assert response.context["tab"] is None
 
-    def describe_join_button():
-        def it_shows_a_join_button_to_a_linked_member_not_in_the_guild(client: Client):
+    def describe_get_involved_subscription_states():
+        def it_never_shows_a_join_button(client: Client):
             guild = GuildFactory()
             _linked_user(client)
             response = client.get(f"/guilds/{guild.slug}/")
-            assert b"Join This Guild" in response.content
+            assert b"Join This Guild" not in response.content
 
-        def it_hides_the_join_button_from_unlinked_accounts(client: Client):
+        def it_points_an_unsubscribed_member_at_the_settings_guilds_tab(client: Client):
+            guild = GuildFactory()
+            _linked_user(client)
+            response = client.get(f"/guilds/{guild.slug}/")
+            assert b"Want announcements from this guild?" in response.content
+            assert b"?tab=guilds" in response.content
+
+        def it_shows_the_updates_line_and_manage_link_to_a_subscriber(client: Client):
+            from membership.models import GuildMembership
+
+            guild = GuildFactory()
+            user, _ = _linked_user(client)
+            GuildMembership.objects.create(guild=guild, member=user.member)
+            response = client.get(f"/guilds/{guild.slug}/")
+            assert b"You get this guild's updates" in response.content
+            assert b"Manage in Settings" in response.content
+            assert b"Want announcements from this guild?" not in response.content
+
+        def it_shows_no_subscription_line_to_unlinked_accounts(client: Client):
             guild = GuildFactory()
             user = User.objects.create_user(username="unlinked_join", password="pass")
             from membership.models import Member
@@ -106,6 +124,7 @@ def describe_guild_detail():
             client.login(username="unlinked_join", password="pass")
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"Join This Guild" not in response.content
+            assert b"Want announcements from this guild?" not in response.content
 
     def describe_stat_chips():
         def it_hides_member_and_class_chips_when_zero(client: Client):
@@ -123,6 +142,19 @@ def describe_guild_detail():
             GuildMembership.objects.create(guild=guild, member=user.member)
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"1 member" in response.content
+
+        def it_renders_the_member_count_as_a_plain_badge_not_a_directory_link(client: Client):
+            from membership.models import GuildMembership
+
+            guild = GuildFactory()
+            user, _ = _linked_user(client)
+            GuildMembership.objects.create(guild=guild, member=user.member)
+            response = client.get(f"/guilds/{guild.slug}/")
+            from django.urls import reverse
+
+            html = response.content.decode()
+            assert '<span class="hub-badge">1 member</span>' in html
+            assert f"{reverse('hub_member_directory')}?guild=" not in html
 
     def describe_faq_tab():
         def it_shows_a_faq_tab_when_the_guild_has_faqs(client: Client):

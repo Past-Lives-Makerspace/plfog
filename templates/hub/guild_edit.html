@@ -579,11 +579,11 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </span>
     </div>
     {% if announcement_recipient_count %}
-    <p style="margin:0 0 0.75rem;"><strong>{{ announcement_recipient_count }} member{{ announcement_recipient_count|pluralize }}</strong> {{ announcement_recipient_count|pluralize:"is,are" }} on your list automatically.</p>
+    <p style="margin:0 0 0.75rem;"><strong>{{ announcement_recipient_count }} follower{{ announcement_recipient_count|pluralize }}</strong> {{ announcement_recipient_count|pluralize:"is,are" }} on your list automatically.</p>
     <div x-data="{ showRecipients: false }">
       <button type="button" class="hub-btn hub-btn--sm" @click="showRecipients = !showRecipients">
-        <span x-show="!showRecipients">Show members</span>
-        <span x-show="showRecipients" x-cloak>Hide members</span>
+        <span x-show="!showRecipients">Show followers</span>
+        <span x-show="showRecipients" x-cloak>Hide followers</span>
       </button>
       <div x-show="showRecipients" x-cloak class="pl-recipient-list">
         <ul>

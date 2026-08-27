@@ -95,7 +95,7 @@ TRIGGERS: list[Trigger] = [
         email_default=True,
     ),
     # Guild activity
-    Trigger("guild_announcement", "Guild announcement", "A guild you're in posted an announcement.", "Guilds"),
+    Trigger("guild_announcement", "Guild announcement", "A guild you follow posted an announcement.", "Guilds"),
     Trigger(
         "orientation_requested",
         "Orientation requested",
@@ -110,8 +110,8 @@ TRIGGERS: list[Trigger] = [
     ),
     Trigger(
         "guild_joined",
-        "New guild member",
-        "A new member joined a guild you lead.",
+        "New follower",
+        "Someone new is following your guild.",
         "Guilds",
     ),
     # Billing / tab

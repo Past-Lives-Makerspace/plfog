@@ -107,12 +107,11 @@
 
 {# ── STAT CHIPS ── #}
 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
-    {% if member_count %}{% if is_guilds_surface %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% else %}<a href="{% url 'hub_member_directory' %}?guild={{ guild.pk }}" class="hub-badge" style="text-decoration:none;" title="See these members in the directory">{{ member_count }} member{{ member_count|pluralize }}</a>{% endif %}{% endif %}
+    {% if member_count %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% endif %}
     {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
     {% with next_meeting=guild.next_meeting_occurrence %}{% if next_meeting %}<span class="hub-badge">Next meeting {{ next_meeting.when|date:"M j" }}</span>{% endif %}{% endwith %}
 </div>
 
-{# Join lives in the "Get Involved" panel; leaving a guild is disabled for now. #}
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
      x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings'">
@@ -288,26 +287,20 @@
         <div class="hub-card">
             <h3 class="hub-detail-label">Get Involved</h3>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                {# Join / Leave — three-way on auth + membership. "Log in to join" carries a GET-path next so the member lands right back here. #}
+                {# No join button here by design — subscription management lives in Settings. An unlinked account (member is None, authenticated) hits no branch and just sees the card's other actions. #}
                 {% if not user.is_authenticated %}
-                <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to join</a>
-                {% elif member and not is_member_of_guild %}
-                <form method="post" action="{% url 'hub_guild_join' guild.pk %}" data-help-key="guild.join-leave">
-                    {% csrf_token %}
-                    <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;">Join This Guild</button>
-                </form>
-                {% elif member and is_member_of_guild and is_guilds_surface %}
-                {# Leave is guilds-surface-only (per coordinator decision — do not add it to the members hub). #}
-                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="width:100%;" data-help-key="guild.join-leave" @click="$dispatch('open-confirm', 'leave-guild')">Leave this guild</button>
-                {% url 'hub_guild_leave' guild.pk as leave_url %}
-                {% include "components/confirm_modal.html" with confirm_id="leave-guild" confirm_title="Leave "|add:guild.name|add:"?" confirm_message="You can rejoin any time. Your orientation history stays." confirm_action_url=leave_url confirm_button_text="Leave guild" %}
+                <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to the members hub</a>
                 {% elif member and is_member_of_guild %}
-                {# Already in this guild on the members hub — joining/leaving lives on the Guilds settings tab. #}
                 <div class="hub-text-muted" style="display:flex; align-items:center; gap:0.4rem; font-size:0.9rem;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-                    You're in this guild
+                    You get this guild's updates
                 </div>
-                <a href="{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;">Manage in Settings</a>
+                <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;" data-help-key="guild.join-leave" {% if is_guilds_surface %}hx-boost="false"{% endif %}>Manage in Settings</a>
+                {% elif member %}
+                <p class="hub-text-muted" style="font-size:0.9rem; margin:0;" data-help-key="guild.join-leave">
+                    Want announcements from this guild? Choose your guild updates in
+                    <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_user_settings' %}?tab=guilds" {% if is_guilds_surface %}hx-boost="false"{% endif %}>Settings</a>.
+                </p>
                 {% endif %}
                 {% if show_orientation and not is_oriented %}
                 <button type="button" class="pl-btn pl-btn--primary" style="width:100%;" data-help-key="orientation.book-slot"

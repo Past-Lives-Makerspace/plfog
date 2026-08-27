@@ -90,7 +90,7 @@ def describe_join_guild_handler():
             member = MemberFactory(discord_user_id="555")
             result = _join_guild(_interaction(guild.slug), member)
             assert result["data"]["flags"] == 64
-            assert "You're in **Forge**" in result["data"]["content"]
+            assert "You now follow **Forge**" in result["data"]["content"]
             assert "From the lead!" in result["data"]["content"]
 
     def describe_welcome_copy():
@@ -112,7 +112,7 @@ def describe_join_guild_handler():
             spies.role.assert_called_once_with(guild, member, joined=True)
             spies.post.assert_not_called()
             spies.fanout.assert_not_called()
-            assert "You're in" in result["data"]["content"]
+            assert "You now follow" in result["data"]["content"]
 
     def describe_an_existing_app_member_self_heal():
         def it_re_ensures_the_role_and_says_already_in(spies):
@@ -124,7 +124,7 @@ def describe_join_guild_handler():
             spies.role.assert_called_once_with(guild, member, joined=True)
             spies.post.assert_not_called()
             spies.fanout.assert_not_called()
-            assert "already in" in result["data"]["content"]
+            assert "already follow" in result["data"]["content"]
 
     def describe_when_the_welcome_fanout_raises():
         def it_still_returns_the_confirmation_with_the_role_already_assigned(spies):
@@ -132,7 +132,7 @@ def describe_join_guild_handler():
             guild = GuildFactory(name="Forge", discord_webhook_url=_WEBHOOK)
             member = MemberFactory(discord_user_id="1")
             result = _join_guild(_interaction(guild.slug), member)  # must not raise
-            assert "You're in **Forge**" in result["data"]["content"]
+            assert "You now follow **Forge**" in result["data"]["content"]
             spies.role.assert_called_once_with(guild, member, joined=True)
 
     def describe_an_unknown_or_inactive_guild():
@@ -160,7 +160,7 @@ def describe_join_guild_handler():
             result = _join_guild(_interaction(guild.slug), member)
             spies.post.assert_not_called()  # guild_webhook() returns "" when posting is off
             spies.fanout.assert_called_once()  # the fan-out still runs on a brand-new join
-            assert "You're in" in result["data"]["content"]
+            assert "You now follow" in result["data"]["content"]
 
         def it_joins_without_a_public_post_when_the_webhook_is_blank(spies):
             guild = GuildFactory(discord_webhook_url="")
@@ -168,7 +168,7 @@ def describe_join_guild_handler():
             result = _join_guild(_interaction(guild.slug), member)
             spies.post.assert_not_called()
             spies.fanout.assert_called_once()
-            assert "You're in" in result["data"]["content"]
+            assert "You now follow" in result["data"]["content"]
 
 
 def describe_join_guild_end_to_end():
@@ -206,7 +206,7 @@ def describe_join_guild_end_to_end():
         # No user ping rides along — neither a raw content mention nor parse:everyone.
         assert "content" not in payload
         assert "allowed_mentions" not in payload
-        assert "You're in **Forge**" in result["data"]["content"]
+        assert "You now follow **Forge**" in result["data"]["content"]
 
 
 def describe_guild_choices():
@@ -261,6 +261,11 @@ def describe_JOIN_GUILD_command():
         from core.events.discord_commands import all_commands
 
         assert "join-guild" in [c.name for c in all_commands()]
+
+    def it_keeps_the_command_name_but_describes_following():
+        # Deliberate: the NAME stays /join-guild (muscle memory); the copy carries the reframe.
+        assert JOIN_GUILD.name == "join-guild"
+        assert JOIN_GUILD.description == "Follow a Past Lives guild to get its updates."
 
     def it_requires_a_link_defers_and_is_ephemeral():
         assert JOIN_GUILD.requires_link is True

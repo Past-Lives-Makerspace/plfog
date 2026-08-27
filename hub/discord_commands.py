@@ -1,4 +1,4 @@
-"""The hub app's member slash commands — ``/link`` (connect), ``/join-guild`` (join), and ``/vote`` (ballot).
+"""The hub app's member slash commands — ``/link`` (connect), ``/join-guild`` (follow a guild), and ``/vote`` (ballot).
 
 ``/link`` is the highest-leverage command: it's how a member in Discord connects their
 account to Past Lives, which gates *every* other part of the integration (guild sync, DMs,
@@ -14,9 +14,9 @@ configured, already linked, and not-yet-linked (the connect link). Any unexpecte
 is turned into the friendly error reply by :func:`core.events.discord_commands.dispatch`'s
 per-command guard, so Discord never sees a 500.
 
-``/join-guild`` mirrors the in-app :func:`hub.views.guild_join` sequence over Discord: it
-records the app-side membership, self-heals the Discord role on every path, and — only for a
-brand-new join — posts a public welcome to the guild's channel and fires the join fan-out
+``/join-guild`` mirrors the in-app subscribe path (:meth:`membership.models.Member.subscribe_to_guild`)
+over Discord: it records the app-side subscription row, self-heals the Discord role on every path, and — only
+for a brand-new subscription — posts a public welcome to the guild's channel and fires the fan-out
 (activity + lead notice + optional welcome email). It is ``defer=True`` because that fan-out
 can send email; all Discord side-effects are best-effort, so the ``GuildMembership`` row is
 the source of truth. It complements (never replaces) the emoji reaction-role flow.
@@ -137,7 +137,7 @@ def _guild_choices() -> list[dict]:
             [g.name for g in guilds[_MAX_CHOICES:]],
         )
         guilds = guilds[:_MAX_CHOICES]
-    option: dict = {"name": "guild", "description": "Which guild to join.", "type": 3, "required": True}
+    option: dict = {"name": "guild", "description": "Which guild to follow.", "type": 3, "required": True}
     if guilds:
         option["choices"] = [{"name": g.name, "value": g.slug} for g in guilds]
     return [option]
@@ -149,11 +149,13 @@ def _welcome_body(guild: Guild) -> str:
 
 
 def _join_guild(interaction: Interaction, member: Member | None) -> dict:
-    """Join the caller to their chosen guild and welcome them (spec §5).
+    """Subscribe the caller to their chosen guild's updates and welcome them (spec §5).
 
-    Mirrors :func:`hub.views.guild_join`: ``record_app_join`` → ensure the Discord role on
-    **every** path (idempotent self-heal) → and, **only for a brand-new join**, post the
-    public channel welcome and fire the join fan-out. An ``upgraded`` reaction-join (already
+    Mirrors the in-app subscribe path (:meth:`membership.models.Member.subscribe_to_guild`), but keeps
+    its own inline sequence because the public channel welcome interleaves with ``created``:
+    ``record_app_join`` → ensure the Discord role on **every** path (idempotent self-heal) → and,
+    **only for a brand-new subscription**, post the public channel welcome and fire the fan-out.
+    An ``upgraded`` reaction-join (already
     in the guild/channel) gets neither the public post nor the fan-out — no surprise
     re-welcome. Every Discord side-effect is best-effort; the ``GuildMembership`` row is the
     source of truth, so the ephemeral confirmation always returns.
@@ -197,13 +199,13 @@ def _join_guild(interaction: Interaction, member: Member | None) -> dict:
             logger.exception("join-guild: welcome fan-out failed for guild=%s member=%s", guild.pk, member.pk)
 
     if created or upgraded:
-        return reply(f"You're in **{guild.name}**! 🎉\n\n{_welcome_body(guild)}", ephemeral=True)
-    return reply(f"You're already in **{guild.name}** — nothing to do.", ephemeral=True)
+        return reply(f"You now follow **{guild.name}**! 🎉\n\n{_welcome_body(guild)}", ephemeral=True)
+    return reply(f"You already follow **{guild.name}**. Nothing to do.", ephemeral=True)
 
 
 JOIN_GUILD = SlashCommand(
     name="join-guild",
-    description="Join a Past Lives guild.",
+    description="Follow a Past Lives guild to get its updates.",
     handler=_join_guild,
     options_builder=_guild_choices,
     requires_link=True,

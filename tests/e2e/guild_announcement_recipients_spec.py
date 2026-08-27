@@ -50,17 +50,17 @@ def describe_guild_announcement_recipients():
         page.goto(f"{live_server.url}{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
         # The count reflects only the reachable members; the list starts hidden.
-        expect(page.locator("body")).to_contain_text("2 members")
+        expect(page.locator("body")).to_contain_text("2 followers")
         recipient_list = page.locator(".pl-recipient-list")
         expect(recipient_list).to_be_hidden()
 
         # Reveal the list: both addresses show and the button flips to Hide.
-        # (The roster moved into the "Your Mailing List" section in v23, relabeled Show/Hide members.)
-        page.get_by_role("button", name="Show members", exact=True).click()
+        # (The roster lives in the "Your Mailing List" section, labeled Show/Hide followers.)
+        page.get_by_role("button", name="Show followers", exact=True).click()
         expect(recipient_list).to_be_visible()
         expect(recipient_list).to_contain_text("weaver@example.com")
         expect(recipient_list).to_contain_text("spinner@example.com")
-        expect(page.get_by_role("button", name="Hide members", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="Hide followers", exact=True)).to_be_visible()
 
         # The compose call-to-action carries the guild audience into the wizard.
         compose_href = f"{reverse('hub_compose')}?audience=guild:{guild.pk}"

@@ -4302,6 +4302,44 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     text-overflow: ellipsis;
 }
 
+/* ── First-login guild updates prompt (/welcome/guild-updates/) ────────────
+   Layout only (max-width, spacing) — the card, rows, toggles, and buttons are
+   all existing themed components, so no colors belong here. */
+.pl-guild-prompt {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.pl-guild-prompt__title {
+    font-size: 1.4rem;
+}
+
+.pl-guild-prompt__intro {
+    margin-bottom: 1.25rem;
+}
+
+.pl-guild-prompt__error {
+    margin-bottom: 0.75rem;
+}
+
+/* Button row clears the last guild row (Rule 18); Save sits last/rightmost. */
+.pl-guild-prompt__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 480px) {
+    .pl-guild-prompt__actions {
+        flex-direction: column-reverse;
+    }
+
+    .pl-guild-prompt__actions .pl-btn {
+        width: 100%;
+    }
+}
+
 /* ── Guild-announcement Discord channel picker ─────────────────────────────
    A single-choice radio group (one-of-N destination). Theme tokens only — no
    inline background/color, no --surface. Verified on dark (Obsidian) + light

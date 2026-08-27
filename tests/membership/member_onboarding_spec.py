@@ -56,6 +56,14 @@ def describe_member_is_onboarded():
         GuildMembershipFactory(member=member)
         assert member.is_onboarded is True
 
+    def it_is_true_with_a_ready_profile_and_an_answered_prompt_with_zero_guilds():
+        # Subscribing to nothing is a legitimate, deliberate answer — a member must not
+        # be permanently un-onboardable for making it.
+        member = _profile_ready_member()
+        member.answer_guild_updates_prompt([])
+        assert member.guild_memberships.count() == 0
+        assert member.is_onboarded is True
+
     def it_counts_a_directory_opt_out_member_as_onboarded():
         # The one subtle rule: hiding from the directory must NOT block onboarding.
         member = _profile_ready_member()
@@ -87,6 +95,16 @@ def describe_member_onboarding():
         checklist = MemberFactory().onboarding
         optional = {step.key: step.optional for step in checklist.steps}
         assert optional == {"profile": False, "guilds": False, "discord": True, "voting": True}
+
+    def it_labels_the_guilds_step_choose_your_guild_updates():
+        step = next(s for s in MemberFactory().onboarding.steps if s.key == "guilds")
+        assert step.label == "Choose your guild updates"
+
+    def it_completes_the_guilds_step_on_a_stamped_answer_with_zero_subscriptions():
+        member = MemberFactory()
+        member.mark_guild_updates_answered()
+        step = next(s for s in member.onboarding.steps if s.key == "guilds")
+        assert step.done is True
 
     def it_links_each_step_to_its_page():
         checklist = MemberFactory().onboarding
