@@ -481,6 +481,207 @@ def describe_edit_class():
         assert offering.slug == "original-2025-01-01"
 
 
+def describe_mine_filter():
+    def it_filters_to_classes_taught_by_me(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Mine Taught", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Not Mine Taught", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert b"Mine Taught" in response.content
+        assert b"Not Mine Taught" not in response.content
+
+    def it_includes_classes_i_authored_but_do_not_teach(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        # created_by=me, instructor is a different member (factory default) → still mine.
+        ClassOfferingFactory(title="I Authored This", created_by=me, status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert b"I Authored This" in response.content
+
+    def it_excludes_classes_where_i_am_neither(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Keep Mine", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        # NULL instructor AND NULL author — a memberful "mine" must not match these either.
+        ClassOfferingFactory(
+            title="Orphan Class", instructor=None, created_by=None, status=ClassOffering.Status.PUBLISHED
+        )
+        ClassOfferingFactory(title="Someone Elses", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert b"Keep Mine" in response.content
+        assert b"Orphan Class" not in response.content
+        assert b"Someone Elses" not in response.content
+
+    def it_composes_with_status_and_search(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Alpha Published", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Alpha Draft", instructor=me, status=ClassOffering.Status.DRAFT)
+        ClassOfferingFactory(title="Zeta Published", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Alpha NotMine", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&status=published&q=Alpha")
+        assert b"Alpha Published" in response.content
+        assert b"Alpha Draft" not in response.content  # wrong status
+        assert b"Zeta Published" not in response.content  # does not match q
+        assert b"Alpha NotMine" not in response.content  # not mine
+
+    def it_shows_the_pill_without_an_instructor_slug(admin_user, client, db):
+        # The admin_user's member has no instructor_slug — the exact condition that
+        # hid the old toggle. The pill must render anyway.
+        assert not admin_user.member.instructor_slug
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes"))
+        assert b"My Classes" in response.content
+
+    def it_returns_empty_for_a_user_with_no_member(client, db):
+        from classes.factories import ClassOfferingFactory, UserFactory
+        from classes.models import ClassOffering
+
+        # A superuser passes the admin gate even with no linked Member.
+        user = UserFactory(username="super-nomember@example.com", is_superuser=True, is_staff=True)
+        user.member.delete()
+        # A NULL-instructor/NULL-author class must NOT leak to a memberless "mine".
+        ClassOfferingFactory(
+            title="Orphan Leak", instructor=None, created_by=None, status=ClassOffering.Status.PUBLISHED
+        )
+        client.force_login(user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert response.status_code == 200
+        assert b"Orphan Leak" not in response.content
+        assert response.context["mine_count"] == 0
+
+    def it_ignores_bogus_mine_values(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="My One", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Other One", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=yes")
+        assert response.context["mine_active"] is False
+        assert b"My One" in response.content
+        assert b"Other One" in response.content
+
+    def it_counts_my_classes_across_all_statuses(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(instructor=me, status=ClassOffering.Status.DRAFT)
+        ClassOfferingFactory(instructor=me, status=ClassOffering.Status.ARCHIVED)
+        ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)  # not mine
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?status=published")
+        # Count is global — all three of mine, not just the published one.
+        assert response.context["mine_count"] == 3
+
+    def it_counts_my_classes_ignoring_the_search_box(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Findable Mine", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Hidden By Search", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?q=Findable")
+        assert response.context["mine_count"] == 2
+
+    def it_preserves_mine_in_status_pill_urls(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&q=pottery")
+        for url, _label, _count, _selected in response.context["status_filters"]:
+            assert "mine=1" in url
+            assert "q=pottery" in url
+
+    def it_preserves_mine_in_base_params(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert "mine=1" in response.context["base_params"]
+
+    def it_preserves_mine_when_searching(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&status=published&instructor=5")
+        html = response.content.decode()
+        # The search form carries the sibling filters as hidden inputs.
+        assert '<input type="hidden" name="mine" value="1">' in html
+        assert '<input type="hidden" name="status" value="published">' in html
+        assert '<input type="hidden" name="instructor" value="5">' in html
+        # Clearing the search drops only q, keeping mine and the rest.
+        clear = response.context["search_clear_url"]
+        assert "mine=1" in clear
+        assert "status=published" in clear
+        assert "q=" not in clear
+
+    def it_strips_bogus_mine_from_computed_urls(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=yes&status=published")
+        # No pill / clear URL echoes the bogus value or carries a mine at all (it is off).
+        for url, _label, _count, _selected in response.context["status_filters"]:
+            assert "mine" not in url
+        assert "mine" not in response.context["search_clear_url"]
+        assert "mine" not in response.context["mine_clear_url"]
+        assert "mine" not in response.context["instructor_clear_url"]
+        # The toggle is the turn-ON link → a clean mine=1, never mine=yes.
+        assert "mine=yes" not in response.context["mine_toggle_url"]
+        assert "mine=1" in response.context["mine_toggle_url"]
+
+    def it_renders_the_mine_empty_state_with_a_clear_link(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        # The admin owns no classes → mine=1 is empty.
+        ClassOfferingFactory(title="Someone Elses Only", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        html = response.content.decode()
+        assert "not listed as instructor or author" in html
+        assert "Show all classes" in html
+        # The clear link drops only mine.
+        assert "mine" not in response.context["mine_clear_url"]
+
+    def it_uses_the_real_user_under_view_as_preview(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Real Mine", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Not Real Mine", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        session = client.session
+        session["view_as_role"] = "member"
+        session.save()
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        # Mine follows the real request.user.member, not the previewed role.
+        assert b"Real Mine" in response.content
+        assert b"Not Real Mine" not in response.content
+
+
+def describe_table_search_component():
+    def it_leaves_other_table_search_callers_unchanged():
+        from django.template.loader import render_to_string
+
+        # A caller that passes neither preserved_fields nor clear_url (e.g. the
+        # categories admin) gets no hidden inputs and the bare href="?" clear link.
+        html = render_to_string("components/table_search.html", {"q": "anything", "placeholder": "Search…"})
+        assert 'type="hidden"' not in html
+        assert 'href="?"' in html
+
+
 def describe_class_detail():
     def it_shows_the_detail_page(admin_user, client, db):
         from classes.factories import ClassOfferingFactory

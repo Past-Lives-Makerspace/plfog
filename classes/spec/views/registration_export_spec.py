@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from django.urls import NoReverseMatch, reverse
 
-from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
+from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -59,3 +59,29 @@ def describe_teach_class_export_removed():
         resp = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": mine.pk}))
         assert resp.status_code == 200
         assert b"Export Data" not in resp.content
+
+
+def describe_mine_filter_in_export():
+    def it_respects_the_mine_filter(admin_user, client):
+        me = admin_user.member
+        mine = ClassOfferingFactory(slug="exp-mine", instructor=me)
+        other = ClassOfferingFactory(slug="exp-not-mine")
+        RegistrationFactory(class_offering=mine, email="mine-export@example.com")
+        RegistrationFactory(class_offering=other, email="notmine-export@example.com")
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_registrations_export") + "?mine=1")
+        body = b"".join(resp.streaming_content).decode()
+        assert "mine-export@example.com" in body
+        assert "notmine-export@example.com" not in body
+
+    def it_exports_nothing_for_a_memberless_user_with_mine(client):
+        # The None-guard asserted through the export path: a dropped guard would leak
+        # every registration of NULL-instructor/NULL-author classes into a download.
+        user = UserFactory(username="exp-super-nomember@example.com", is_superuser=True, is_staff=True)
+        user.member.delete()
+        orphan = ClassOfferingFactory(slug="exp-orphan", instructor=None, created_by=None)
+        RegistrationFactory(class_offering=orphan, email="orphan-export@example.com")
+        client.force_login(user)
+        resp = client.get(reverse("classes:admin_registrations_export") + "?mine=1")
+        body = b"".join(resp.streaming_content).decode()
+        assert "orphan-export@example.com" not in body

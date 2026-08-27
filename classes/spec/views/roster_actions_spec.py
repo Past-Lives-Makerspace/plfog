@@ -544,26 +544,27 @@ def describe_admin_registrations_instructor_filter():
         content = client.get(reverse("classes:admin_registrations"), {"instructor": "bogus"}).content.decode()
         assert "anyone@example.com" in content
 
-    def it_renders_mine_only_for_an_admin_with_an_instructor_profile(admin_user, client):
+    def it_renders_my_classes_for_an_admin_with_an_instructor_profile(admin_user, client):
         member = admin_user.member
         member.instructor_slug = "admin-teaches"
         member.save(update_fields=["instructor_slug"])
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_registrations")).content.decode()
-        assert "Mine Only" in content
+        assert "My Classes" in content
 
-    def it_hides_mine_only_for_an_admin_with_no_instructor_profile(admin_user, client):
+    def it_still_shows_my_classes_for_an_admin_with_no_instructor_profile(admin_user, client):
+        # The old Mine Only toggle was gated on instructor_slug — that gate was the
+        # bug. My Classes is always visible now.
+        assert not admin_user.member.instructor_slug
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_registrations")).content.decode()
-        assert "Mine Only" not in content
+        assert "My Classes" in content
 
     def it_preserves_other_get_params_on_the_toggle(admin_user, client):
-        member = admin_user.member
-        member.instructor_slug = "admin-teaches2"
-        member.save(update_fields=["instructor_slug"])
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_registrations"), {"status": "confirmed"}).content.decode()
-        assert f"status=confirmed&amp;instructor={member.pk}" in content
+        # The My Classes toggle keeps the active status filter and turns mine on.
+        assert "status=confirmed&amp;mine=1" in content
 
     def it_applies_the_filter_to_the_csv_export(admin_user, client):
         client.force_login(admin_user)
@@ -581,6 +582,8 @@ def describe_admin_registrations_instructor_filter():
         RegistrationFactory(email="unscoped@example.com")
         content = client.get(reverse("classes:admin_registrations")).content.decode()
         assert 'name="instructor"' not in content
-        assert "Mine Only" not in content
+        # The instructor <select> stays admin-only, but My Classes is shown to
+        # everyone who reaches the page (the non-admin instructor can narrow too).
+        assert "My Classes" in content
         assert "scoped@example.com" in content
         assert "unscoped@example.com" not in content

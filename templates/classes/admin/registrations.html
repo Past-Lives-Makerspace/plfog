@@ -27,13 +27,17 @@
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Apply</button>
-    {% if mine_only_pk %}
-        {% if instructor_filter == mine_only_pk %}
-        <a href="?{{ mine_only_params }}" class="hub-btn hub-btn--sm hub-btn--primary">Mine Only ✓</a>
-        {% else %}
-        <a href="?{% if mine_only_params %}{{ mine_only_params }}&amp;{% endif %}instructor={{ mine_only_pk }}" class="hub-btn hub-btn--sm">Mine Only</a>
-        {% endif %}
+    {% if mine_active %}
+        <input type="hidden" name="mine" value="1">
+        <a href="?{{ mine_toggle_url }}" class="hub-btn hub-btn--sm hub-btn--primary">My Classes ✓</a>
+    {% else %}
+        <a href="?{{ mine_toggle_url }}" class="hub-btn hub-btn--sm">My Classes</a>
     {% endif %}
+    <span class="pl-help">
+      <span class="pl-help__icon" tabindex="0" role="img"
+            aria-label="My Classes: shows only registrations for classes where you are the instructor or the class author.">?</span>
+      <span class="pl-help__bubble">Shows only registrations for classes where you are the instructor or the class author.</span>
+    </span>
     <a href="{% url 'classes:admin_registrations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export CSV</a>
 </form>
 <div class="admin-table-wrap">
@@ -63,7 +67,7 @@
     {% empty %}
         <tr>
             <td colspan="7" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
-                {% if q %}No registrations matching "{{ q }}".{% else %}No registrations yet.{% endif %}
+                {% if mine_active %}No registrations match. None of these belong to a class where you are the instructor or author. <a href="?{{ mine_clear_url }}">Show all registrations</a>{% elif q %}No registrations matching "{{ q }}".{% else %}No registrations yet.{% endif %}
             </td>
         </tr>
     {% endfor %}

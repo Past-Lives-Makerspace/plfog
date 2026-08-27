@@ -1078,11 +1078,12 @@ def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
 
 
 def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> QuerySet[Registration]:
-    """Apply the optional ``status``, ``class``, and ``instructor`` GET filters to a registration queryset.
+    """Apply the optional ``status``, ``class``, ``instructor``, and ``mine`` GET filters.
 
     ``instructor`` mirrors the ``admin_classes`` pattern: validated as an int and
-    silently ignored when bogus. The CSV export reuses this, so every filter
-    applies there for free.
+    silently ignored when bogus. ``mine=1`` narrows to registrations of classes the
+    real logged-in user teaches or authored (via ``ClassOffering.hosted_by``). The
+    CSV export reuses this, so every filter — including ``mine`` — applies there for free.
     """
     status = request.GET.get("status", "")
     if status in Registration.Status.values:
@@ -1093,6 +1094,17 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
     raw_instructor = request.GET.get("instructor", "")
     if raw_instructor.isdigit():
         qs = qs.filter(class_offering__instructor_id=int(raw_instructor))
+    if request.GET.get("mine", "") == "1":
+        # "Mine" is defined once, on the queryset — reuse it via class_offering__in
+        # rather than inlining a second copy of the Q. A memberless viewer gets
+        # qs.none(): hosted_by(None) would match NULL-instructor/NULL-author classes
+        # and leak their registrations (including through the CSV export).
+        own_member = getattr(request.user, "member", None)
+        qs = (
+            qs.filter(class_offering__in=ClassOffering.objects.hosted_by(own_member))
+            if own_member is not None
+            else qs.none()
+        )
     return qs
 
 
@@ -2086,10 +2098,54 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     if instructor_filter:
         qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
+    # "My Classes": classes I teach or authored. Always available; "me" is the real
+    # logged-in user's member even under a view-as preview. A bogus mine value is
+    # off (matching how the sibling filters ignore junk). The memberless guard is
+    # load-bearing: hosted_by(None) would match every NULL-instructor/NULL-author class.
+    mine_active = request.GET.get("mine", "") == "1"
+    own_member = getattr(request.user, "member", None)
+    if mine_active:
+        # hosted_by / none() return the base queryset type; qs carries annotate() aliases.
+        qs = qs.hosted_by(own_member) if own_member is not None else qs.none()  # type: ignore[assignment]
+
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
-    filters = [("", "All", base.count())] + [
-        (choice.value, choice.label, status_counts.get(choice.value, 0)) for choice in ClassOffering.Status
+    # mine_count is global — all statuses, ignoring q and the Instructor dropdown —
+    # to match how the status-pill counts ignore the search box and each other.
+    mine_count = base.hosted_by(own_member).count() if own_member is not None else 0
+
+    # Every view-computed URL starts from a normalized copy of the GET params: a
+    # bogus mine value (anything but "1") is stripped, not echoed, so cruft never
+    # rides along on subsequent links.
+    normalized = request.GET.copy()
+    if normalized.get("mine", "") != "1":
+        normalized.pop("mine", None)
+
+    def _url_without(*drop: str, **add: str) -> str:
+        params = normalized.copy()
+        for key in ("page", *drop):
+            params.pop(key, None)
+        for key, value in add.items():
+            params[key] = value
+        return params.urlencode()
+
+    mine_toggle_url = _url_without("mine") if mine_active else _url_without(mine="1")
+    status_filters = [
+        (
+            _url_without("status", **({"status": value} if value else {})),
+            label,
+            base.count() if not value else status_counts.get(value, 0),
+            status_filter == value,
+        )
+        for value, label in [("", "All"), *[(c.value, c.label) for c in ClassOffering.Status]]
     ]
+    search_clear_url = _url_without("q")
+    _search_preserved = normalized.copy()
+    for key in ("q", "page"):
+        _search_preserved.pop(key, None)
+    search_preserved_fields = list(_search_preserved.items())
+    mine_clear_url = _url_without("mine")
+    instructor_clear_url = _url_without("instructor")
+
     from membership.models import Member as MemberModel
 
     instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
@@ -2106,10 +2162,17 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         {
             "active_tab": "classes",
             "pending_count": ClassOffering.objects.pending_review().count(),
-            "status_filters": filters,
+            "status_filters": status_filters,
             "selected_status": status_filter,
             "instructors": instructors,
             "selected_instructor": instructor_filter,
+            "mine_active": mine_active,
+            "mine_count": mine_count,
+            "mine_toggle_url": mine_toggle_url,
+            "mine_clear_url": mine_clear_url,
+            "instructor_clear_url": instructor_clear_url,
+            "search_preserved_fields": search_preserved_fields,
+            "search_clear_url": search_clear_url,
             **table,
         },
     )
@@ -2838,23 +2901,36 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
 
     # The instructor filter UI is for actual admins only — non-admin visitors are
     # already scoped to their own classes, so a filter that can't widen anything
-    # would just confuse. "Mine Only" renders when the acting admin also teaches.
+    # would just confuse.
     view_as = getattr(request, "view_as", None)
     is_actual_admin = view_as is not None and view_as.has_actual("admin")
     instructors = None
-    mine_only_pk = ""
-    mine_only_params = ""
     if is_actual_admin:
         from membership.models import Member as MemberModel
 
         instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
-        own_member = getattr(request.user, "member", None)
-        if own_member is not None and own_member.instructor_slug:
-            mine_only_pk = str(own_member.pk)
-            preserved = request.GET.copy()
-            preserved.pop("instructor", None)
-            preserved.pop("page", None)
-            mine_only_params = preserved.urlencode()
+
+    # "My Classes": registrations for classes the real logged-in user teaches or
+    # authored. Always rendered — no instructor_slug gate (that gate was the bug that
+    # hid the old toggle) — and "me" is the real user even under a view-as preview.
+    # A bogus mine value is off and stripped from the computed URLs so cruft never
+    # rides along. The actual filtering (and its memberless guard) lives in
+    # _filter_registrations so the CSV export inherits it.
+    mine_active = request.GET.get("mine", "") == "1"
+    normalized = request.GET.copy()
+    if normalized.get("mine", "") != "1":
+        normalized.pop("mine", None)
+    toggle = normalized.copy()
+    toggle.pop("page", None)
+    if mine_active:
+        toggle.pop("mine", None)
+    else:
+        toggle["mine"] = "1"
+    mine_toggle_url = toggle.urlencode()
+    mine_clear = normalized.copy()
+    mine_clear.pop("mine", None)
+    mine_clear.pop("page", None)
+    mine_clear_url = mine_clear.urlencode()
     return render(
         request,
         "classes/admin/registrations.html",
@@ -2867,8 +2943,9 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "show_instructor_filter": is_actual_admin,
             "instructors": instructors,
             "instructor_filter": request.GET.get("instructor", ""),
-            "mine_only_pk": mine_only_pk,
-            "mine_only_params": mine_only_params,
+            "mine_active": mine_active,
+            "mine_toggle_url": mine_toggle_url,
+            "mine_clear_url": mine_clear_url,
             **table,
         },
     )
