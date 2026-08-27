@@ -19,24 +19,26 @@ def _login_admin(client: Client) -> User:
 
 
 def describe_hub_nav_feature_flags():
-    def it_shows_my_tab_and_payments_nav_when_enabled(client: Client):
+    def it_shows_the_my_tab_link_when_enabled_and_no_billing_nav(client: Client):
+        # My Tab enabled → the member My Tab link shows. Payments and Reports no longer
+        # live in the sidebar in either flag state — they moved to Admin Tools cards.
         _login_admin(client)
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/tab/"' in body
-        assert reverse("billing_admin_dashboard").encode() in body
-        assert reverse("billing_admin_reports").encode() in body
+        assert reverse("billing_admin_dashboard").encode() not in body
+        assert reverse("billing_admin_reports").encode() not in body
 
-    def it_hides_only_my_tab_when_disabled_payments_nav_stays(client: Client):
-        # The flag scopes the MEMBER My Tab surfaces; the admin Payments/Reports
-        # nav is permission-scoped and never feature-toggled.
+    def it_hides_the_my_tab_link_when_disabled_and_still_no_billing_nav(client: Client):
+        # The flag scopes the MEMBER My Tab surfaces; the Payments/Reports sidebar links
+        # are simply gone (relocated to Admin Tools), independent of the flag.
         config = SiteConfiguration.load()
         config.my_tab_enabled = False
         config.save()
         _login_admin(client)
         body = client.get(reverse("hub_member_directory")).content
         assert b'href="/tab/"' not in body
-        assert reverse("billing_admin_dashboard").encode() in body
-        assert reverse("billing_admin_reports").encode() in body
+        assert reverse("billing_admin_dashboard").encode() not in body
+        assert reverse("billing_admin_reports").encode() not in body
 
 
 def describe_hub_nav_help_and_wiki_flags():

@@ -15,7 +15,13 @@ from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory
 from factory.django import mute_signals
 
-from hub.view_as import ViewAs, billing_admin_access_required, refund_authority_required
+from hub.view_as import (
+    ROLE_MEMBER,
+    ViewAs,
+    billing_admin_access_required,
+    has_billing_admin_access,
+    refund_authority_required,
+)
 from membership.models import AdminCapability
 
 pytestmark = pytest.mark.django_db
@@ -83,3 +89,29 @@ def describe_billing_admin_access_required():
         user.member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)  # type: ignore[attr-defined]
         response = _billing_probe(_request_as(user))
         assert response.status_code == 200
+
+
+def describe_has_billing_admin_access():
+    def it_is_true_for_a_fog_admin():
+        admin = User.objects.create_superuser(username="hba_admin", email="hba_admin@example.com", password="x")
+        assert has_billing_admin_access(_request_as(admin)) is True
+
+    def it_stays_true_for_a_fog_admin_previewing_as_a_member():
+        # It reads has_actual, so a view-as preview neither grants nor revokes it.
+        admin = User.objects.create_superuser(username="hba_admin2", email="hba_admin2@example.com", password="x")
+        request = _request_as(admin)
+        request.view_as = ViewAs(actual=request.view_as.actual, picked=ROLE_MEMBER)  # type: ignore[attr-defined]
+        assert has_billing_admin_access(request) is True
+
+    def it_is_true_for_a_billing_administrator():
+        user = _plain_user("hba_biller")
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)  # type: ignore[attr-defined]
+        assert has_billing_admin_access(_request_as(user)) is True
+
+    def it_is_false_for_a_plain_member():
+        assert has_billing_admin_access(_request_as(_plain_user("hba_plain"))) is False
+
+    def it_is_false_for_a_memberless_user():
+        with mute_signals(post_save):
+            user = User.objects.create_user(username="hba_memberless", email="hba_memberless@example.com")
+        assert has_billing_admin_access(_request_as(user)) is False

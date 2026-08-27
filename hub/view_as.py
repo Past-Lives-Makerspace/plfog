@@ -302,6 +302,22 @@ def has_refund_authority(request: "HttpRequest") -> bool:
     return member is not None and member.has_admin_capability(AdminCapability.Capability.REFUNDS)
 
 
+def has_billing_admin_access(request: "HttpRequest") -> bool:
+    """True when the user may reach the billing admin pages — fog-admin (actual) or ``BILLING_APPROVER`` holder.
+
+    The template-side twin of :func:`billing_admin_access_required`: it computes
+    the visibility of the Admin Tools Payments and Reports cards without granting
+    anything — the views stay decorator-gated regardless.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+        return True
+    member = getattr(request.user, "member", None)
+    return member is not None and member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
+
+
 class ViewAsMiddleware:
     """Attach ``request.view_as`` to every request.
 

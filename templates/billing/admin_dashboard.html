@@ -112,19 +112,29 @@
 
   <div>
     <h1 class="pl-card__title">Payments Dashboard</h1>
+    {% if my_tab_enabled %}
     <p class="pl-text-muted">Tab billing, charge history, and Stripe configuration.</p>
+    {% elif viewer_is_fog_admin %}
+    <p class="pl-text-muted">Payment history and Stripe configuration.</p>
+    {% else %}
+    <p class="pl-text-muted">Payment history across the makerspace.</p>
+    {% endif %}
   </div>
 
-  {# --- Tab navigation --- #}
+  {# --- Tab navigation (suppressed when only one tab would render) --- #}
+  {% if my_tab_enabled or viewer_is_fog_admin %}
   <div class="pl-tab-nav">
+    {% if my_tab_enabled %}
     <a href="?tab=overview" class="{% if active_tab == 'overview' %}active{% endif %}">Overview</a>
     <a href="?tab=open-tabs" class="{% if active_tab == 'open-tabs' %}active{% endif %}">Open Tabs</a>
+    {% endif %}
     <a href="?tab=payments" class="{% if active_tab == 'payments' %}active{% endif %}">Payments</a>
     {% if viewer_is_fog_admin %}
     <a href="?tab=settings" class="{% if active_tab == 'settings' %}active{% endif %}">Settings</a>
     <a href="?tab=stripe" class="{% if active_tab == 'stripe' %}active{% endif %}">Stripe</a>
     {% endif %}
   </div>
+  {% endif %}
 
   {# ================================================================ #}
   {# OVERVIEW TAB                                                      #}
@@ -574,16 +584,24 @@
         <tbody id="tdm-history"></tbody>
       </table>
     </div>
+    {# Footer only when it can hold something: the admin link (fog-admins) or the injected #}
+    {# "+ Add Charge" button (My Tab on). Both gone → no empty strip under a border. #}
+    {% if my_tab_enabled or viewer_is_fog_admin %}
     <div class="pl-modal__footer">
       <div style="display:flex;gap:0.5rem" id="tdm-actions"></div>
+      {% if viewer_is_fog_admin %}
       <a id="tdm-admin-link" href="#" class="pl-btn pl-btn--sm pl-btn--secondary">View in Admin →</a>
+      {% endif %}
     </div>
+    {% endif %}
   </div>
 </div>
 
 {# ================================================================ #}
-{# ADD CHARGE MODAL                                                   #}
+{# ADD CHARGE MODAL (only with My Tab on — adding tab entries makes  #}
+{# no sense when members can't see or pay them)                      #}
 {# ================================================================ #}
+{% if my_tab_enabled %}
 <div id="add-charge-modal" class="pl-modal-overlay" style="display:none"
      onclick="if(event.target===this)this.style.display='none'">
   <div class="pl-modal" style="max-width:480px">
@@ -621,8 +639,11 @@
     </form>
   </div>
 </div>
+{% endif %}{# /add-charge modal (my_tab_enabled) #}
 
 <script>
+  {# When My Tab is off the add-charge modal is not rendered, so the tab-detail footer must not inject its opener. #}
+  const TABS_ON = {{ my_tab_enabled|yesno:"true,false" }};
   let _currentTabPk = null;
 
   function getCsrfToken() {
@@ -662,11 +683,15 @@
           : '<tr><td colspan="4" style="color:#96ACBB;text-align:center;padding:0.75rem">No charge history.</td></tr>';
 
         const adminLink = document.getElementById('tdm-admin-link');
-        adminLink.href = '/admin/billing/tab/' + tabPk + '/change/';
+        if (adminLink) {
+          adminLink.href = '/admin/billing/tab/' + tabPk + '/change/';
+        }
 
         const actionsEl = document.getElementById('tdm-actions');
-        actionsEl.innerHTML =
-          '<button class="pl-btn pl-btn--sm pl-btn--secondary" onclick="document.getElementById(\'add-charge-modal\').style.display=\'flex\'">+ Add Charge</button>';
+        if (actionsEl && TABS_ON) {
+          actionsEl.innerHTML =
+            '<button class="pl-btn pl-btn--sm pl-btn--secondary" onclick="document.getElementById(\'add-charge-modal\').style.display=\'flex\'">+ Add Charge</button>';
+        }
 
         document.getElementById('tab-detail-modal').style.display = 'flex';
       });

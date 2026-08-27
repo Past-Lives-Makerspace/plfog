@@ -297,8 +297,9 @@ class SiteConfiguration(models.Model):
         default=True,
         verbose_name="Enable My Tab",
         help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab "
-        "on guild pages. Members visiting the Tab pages are redirected. The admin Payments and "
-        "Reports pages are always available to billing admins.",
+        "on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard "
+        "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
+        "Reports page and payment history are unaffected.",
     )
     class_registration_enabled = models.BooleanField(
         default=True,

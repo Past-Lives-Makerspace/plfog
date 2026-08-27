@@ -32,6 +32,24 @@
     <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
   </a>
   {% endif %}
+  {% if tool_payments %}
+  <a class="hub-card pl-tool-card" href="{% url 'billing_admin_dashboard' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Payments</span>
+    <span class="pl-tool-card__desc">Review payments across the makerspace, with refund history and CSV export.</span>
+  </a>
+  {% endif %}
+  {% if tool_reports %}
+  <a class="hub-card pl-tool-card" href="{% url 'billing_admin_reports' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Reports</span>
+    <span class="pl-tool-card__desc">Revenue reports and guild payout summaries, with CSV export.</span>
+  </a>
+  {% endif %}
   {% if tool_activity %}
   <a class="hub-card pl-tool-card" href="{% url 'manage_activity' %}">
     <span class="pl-tool-card__icon">

@@ -2524,14 +2524,20 @@ def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
     """True when the Admin Tools hub (sidebar entry + page) is available to this request.
 
     Anyone with elevated permissions that unlock a tool it collects sees it — a site admin, a
-    guild lead/staff (Announcements + Orientations), or an instructor (Announcements). For an
-    ACTUAL admin it is view-as-aware: an admin previewing the site as a plain member does NOT see
-    it, while a real (non-admin) lead or instructor always does.
+    guild lead/staff (Announcements + Orientations), an instructor (Announcements), or a Billing
+    Administrator (Payments + Reports). For an ACTUAL admin it is view-as-aware: an admin previewing
+    the site as a plain member does NOT see it, while a real (non-admin) lead, instructor, or
+    Billing Administrator always does.
     """
     is_actual_admin = getattr(request.user, "is_superuser", False) or (member is not None and member.is_fog_admin)
     if is_actual_admin:
         return _viewing_as_admin(request)
-    return member is not None and (member.is_guild_lead or member.is_guild_staff or member.is_instructor)
+    return member is not None and (
+        member.is_guild_lead
+        or member.is_guild_staff
+        or member.is_instructor
+        or member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
+    )
 
 
 def _compose_form_kwargs(request: HttpRequest) -> dict[str, Any]:
@@ -2928,11 +2934,18 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     each card shows only to whoever can use it. View-as-aware for actual admins — an admin
     previewing as a plain member is bounced home. Others are bounced home too.
     """
+    from hub.view_as import has_billing_admin_access
+
     member = _get_member(request)
     if not _can_use_admin_tools(request, member):
         return redirect("hub_home")
     is_admin = _viewing_as_admin(request)
     can_orient = is_admin or (member is not None and (member.is_guild_lead or member.is_guild_staff))
+    # The billing cards use has_billing_admin_access (has_actual-based) rather than is_admin
+    # (view-as-aware) like the other tool_* flags. No leak: an actual admin previewing as a
+    # member is bounced home above before these flags matter, and a non-admin capability holder
+    # has no view-as machinery. Do not "fix" this to is_admin.
+    tool_payments = tool_reports = has_billing_admin_access(request)
     ctx = _get_hub_context(request)
     return render(
         request,
@@ -2942,6 +2955,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_announcements": _can_compose(request, member),
             "tool_orientations": can_orient,
             "tool_manage_members": is_admin,
+            "tool_payments": tool_payments,
+            "tool_reports": tool_reports,
             "tool_activity": is_admin,
             "tool_notifications": is_admin,
             "tool_site_settings": is_admin,
