@@ -666,7 +666,6 @@ def _guild_edit_context(
     form: GuildEditForm | None = None,
     orientation_form: Any = None,
     thankyou_email_form: Any = None,
-    rule_formset: Any = None,
     guild_rule_formset: Any = None,
     studio_hours_formset: Any = None,
     mailing_list_formset: Any = None,
@@ -675,8 +674,8 @@ def _guild_edit_context(
 
     Shared by ``guild_edit`` (GET + invalid-POST re-render) and ``guild_orientation_edit``'s
     invalid-POST re-render, so the inlined Orientations / Meeting Notes / Events tabs always
-    have their data. Pass a bound ``form`` / ``orientation_form`` / ``rule_formset`` to surface
-    validation errors; unbound defaults are built otherwise. Orientation, FAQ, and Links each
+    have their data. Pass a bound ``form`` / ``orientation_form`` / ``guild_rule_formset`` to
+    surface validation errors; unbound defaults are built otherwise. Orientation, FAQ, and Links each
     save via their own endpoint (the FAQ/Links idiom), so their formsets are unbound here.
     """
     from hub.forms import (
@@ -698,19 +697,17 @@ def _guild_edit_context(
     ctx = _get_hub_context(request)
     recipients = guild.announcement_recipients()
 
-    # ── Orientations tab: the viewer's own hours + overview + slots ───────────
-    # Editing another staffer's hours happens in the Edit Hours modal (its own GET
-    # partial + save prefix), never by reloading this page with a ?orienter= param.
+    # ── Orientations tab: the Orientation Schedule overview + slots ───────────
+    # Every orienter edits their own recurring hours through the Edit Hours modal (its own
+    # GET partial + save prefix) from their row in the overview — never by reloading this page.
     viewer = _get_member(request)
     can_edit_others_hours = can_edit_orienter_hours(request, guild, None)
-    personal_rules_qs = (
-        guild.orientation_rules.for_orienter(viewer) if viewer is not None else guild.orientation_rules.none()
-    )
     leadership = guild.leadership_members()
     leadership_ids = {m.pk for m in leadership}
-    # An admin/officer who is not on this guild's leadership gets no self-scoped My Hours
-    # card — their personal rules would never generate slots (the save 403s that scope
-    # too). They clean up any leftover rows via the Edit Hours modal on the Former Staff row.
+    # An admin/officer who is not on this guild's leadership gets no self row in the overview —
+    # their personal rules would never generate slots (the save 403s that scope too). They clean
+    # up any leftover rows via the Edit Hours modal on the Former Staff row. show_my_hours_card
+    # now gates whether the viewer sees the Orientation Schedule (their own row within it).
     show_my_hours_card = viewer is not None and viewer.pk in leadership_ids
     rules_by_orienter: dict[int, list[Any]] = {}
     orphan_orienters: dict[int, Any] = {}
@@ -769,11 +766,6 @@ def _guild_edit_context(
             thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
         ),
         "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
-        "rule_formset": (
-            rule_formset
-            if rule_formset is not None
-            else OrientationAvailabilityFormSet(instance=guild, prefix="rules", queryset=personal_rules_qs)
-        ),
         "viewer_member_pk": viewer.pk if viewer is not None else None,
         "show_my_hours_card": show_my_hours_card,
         "can_edit_others_hours": can_edit_others_hours,
@@ -931,15 +923,15 @@ def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, 
 def _personal_hours_prefix(request: HttpRequest, *, is_htmx: bool) -> str:
     """Pick the whitelisted formset prefix for a personal-scope hours save.
 
-    The page's own My Hours card posts ``rules`` (a plain POST); the Edit Hours modal posts
-    ``modal_rules`` over HTMX. ``modal_rules`` is only accepted WITH the ``HX-Request`` header,
-    so its DOM ids never collide with the always-rendered ``rules`` formset. Any other value,
-    or ``modal_rules`` on a non-HTMX request, is a 404 (fail loudly).
+    Personal hours are edited ONLY through the Edit Hours modal, which posts ``modal_rules``
+    over HTMX. It is accepted only WITH the ``HX-Request`` header, so its DOM ids never
+    collide with anything else on the page. Any other prefix, or ``modal_rules`` on a
+    non-HTMX request, is a 404 (fail loudly).
     """
-    prefix = request.POST.get("formset_prefix", "rules")
-    if prefix not in {"rules", "modal_rules"}:
+    prefix = request.POST.get("formset_prefix", "")
+    if prefix != "modal_rules":
         raise Http404("Unknown formset prefix.")
-    if prefix == "modal_rules" and not is_htmx:
+    if not is_htmx:
         raise Http404("The modal hours editor requires an HTMX request.")
     return prefix
 
@@ -951,12 +943,11 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
 
     The posted hidden ``orienter_scope`` field is read FIRST and selects the target — a
     member pk scopes to that person's rows; an empty scope binds the legacy
-    ``guild_rules`` prefix to the guild-level rows. For a personal scope the ``formset_prefix``
-    field picks the prefix: the page's own My Hours card posts ``rules`` (a plain POST); the
-    Edit Hours modal posts ``modal_rules`` over HTMX (whitelisted, and only accepted WITH the
-    ``HX-Request`` header, so its DOM ids never collide with the always-rendered ``rules``
-    formset on the page). An unlisted prefix, or ``modal_rules`` on a non-HTMX request, is a
-    404 (fail loudly). Gate is ``can_edit_orienter_hours``. Deleted rows retire via
+    ``guild_rules`` prefix to the guild-level rows. A personal scope is edited ONLY through the
+    Edit Hours modal, which posts ``modal_rules`` over HTMX (the sole whitelisted personal
+    prefix, and only accepted WITH the ``HX-Request`` header). An unlisted prefix, or
+    ``modal_rules`` on a non-HTMX request, is a 404 (fail loudly). Gate is
+    ``can_edit_orienter_hours``. Deleted rows retire via
     ``retire_rule``, new rows are stamped with the scope's orienter, and saved hours
     materialize slots immediately. A valid HTMX (modal) save answers 204 + ``HX-Redirect``
     to reload the tab; an invalid modal save re-renders the bound formset inside the modal.
@@ -1005,17 +996,15 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect(orientations_tab)
 
     if prefix == "modal_rules":
-        # Invalid modal POST: re-render the bound partial so field / non-form errors appear
-        # inside the open modal with everything the lead typed preserved.
+        # Invalid modal POST (the only personal-scope path now): re-render the bound partial so
+        # field / non-form errors appear inside the open modal with everything typed preserved.
         return render(
             request,
             "hub/partials/_orienter_hours_modal_form.html",
             {"guild": guild, "target": target, "formset": formset},
         )
-    if target is not None:
-        ctx = _guild_edit_context(request, guild, rule_formset=formset)
-    else:
-        ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
+    # Guild scope is the only other path here — re-render the full page with the bound formset.
+    ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
     # The invalid POST lands on the hours-save URL (no ?tab) — keep the Orientations tab open.
     ctx["active_tab"] = "orientations"
     return render(request, "hub/guild_edit.html", ctx)

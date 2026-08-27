@@ -15,6 +15,7 @@ from membership import orientations
 from membership.models import OrientationBooking, OrientationSlot
 from tests.membership.factories import (
     GuildOrientationSettingsFactory,
+    MemberFactory,
     MembershipPlanFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
@@ -122,8 +123,44 @@ def describe_orientation_checkout_return():
             reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(booking)])
         )
         assert response.status_code == 200
-        assert "Pending Confirmation" in response.content.decode()
-        assert "$15" in response.content.decode()
+        content = response.content.decode()
+        assert "Pending Confirmation" in content
+        assert "$15" in content
+        # A guild slot (no named orienter) falls back to "the guild".
+        assert "We sent your request to the guild" in content
+        assert "Watch for them to confirm your spot" in content
+
+    def it_names_the_orienter_in_the_requested_confirmation(client: Client):
+        user = _user("ret_named")
+        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orienter=MemberFactory(full_legal_name="Zoe Zenith"))
+        booking = OrientationBookingFactory(
+            slot=slot, member=user.member, amount_paid_cents=1500, stripe_payment_id="pi_named"
+        )
+        client.login(username="ret_named", password="pass")
+        response = client.get(
+            reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(booking)])
+        )
+        assert response.status_code == 200
+        assert "We sent your request to Zoe" in response.content.decode()
+
+    def it_shows_the_all_set_copy_for_a_confirmed_booking(client: Client):
+        user = _user("ret_confirmed")
+        booking = OrientationBookingFactory(
+            slot=_paid_slot(),
+            member=user.member,
+            amount_paid_cents=1500,
+            stripe_payment_id="pi_conf",
+            status=OrientationBooking.Status.CONFIRMED,
+        )
+        client.login(username="ret_confirmed", password="pass")
+        response = client.get(
+            reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(booking)])
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "You're all set." in content
+        assert "Pending Confirmation" not in content
 
     def it_renders_the_polling_state_while_the_webhook_lags(client: Client):
         user = _user("ret2")

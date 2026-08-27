@@ -26,8 +26,10 @@ The checkout landing card. States:
   </p>
   {% if booking.status == "declined" or booking.status == "cancelled" %}
   <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">This booking was {{ booking.get_status_display|lower }}. Your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically as a full refund.</p>
+  {% elif booking.status == "confirmed" %}
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. You're all set. We've emailed you the details and a calendar invite.</p>
   {% else %}
-  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. The guild will confirm or decline your request. <strong>If they can't make it work, your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically.</strong> We've emailed you the details and a calendar invite.</p>
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. We sent your request to {% if booking.slot.orienter_first_name %}{{ booking.slot.orienter_first_name }}{% else %}the guild{% endif %}. Watch for them to confirm your spot. <strong>If they can't make it work, your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically.</strong> We've emailed you the details and a calendar invite.</p>
   {% endif %}
   <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
     <a href="{% url 'hub_guild_detail' booking.guild.slug %}" class="pl-btn pl-btn--primary">Back to {{ booking.guild.name }}</a>
