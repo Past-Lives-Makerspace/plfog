@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.16.0"
+VERSION = "1.17.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.17.0",
+        "date": "2026-08-27",
+        "title": "Cleaner admin Payments area",
+        "changes": [
+            "For admins and billing helpers, the Payments dashboard now hides the member Tab "
+            "sections when My Tab is switched off, so the page shows only what applies. Payments "
+            "and Reports also moved into Admin Tools instead of the sidebar.",
+        ],
+    },
     {
         "version": "1.16.0",
         "date": "2026-08-27",

@@ -4,15 +4,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('core', '0067_rename_tab_payments_enabled_my_tab_enabled'),
+        ("core", "0067_rename_tab_payments_enabled_my_tab_enabled"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='siteconfiguration',
-            name='my_tab_enabled',
-            field=models.BooleanField(default=True, help_text='When off, hides the member My Tab pages, the balance pill, and the Buyables tab on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The Reports page and payment history are unaffected.', verbose_name='Enable My Tab'),
+            model_name="siteconfiguration",
+            name="my_tab_enabled",
+            field=models.BooleanField(
+                default=True,
+                help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The Reports page and payment history are unaffected.",
+                verbose_name="Enable My Tab",
+            ),
         ),
     ]
