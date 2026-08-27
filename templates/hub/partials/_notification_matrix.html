@@ -13,7 +13,7 @@ Context:
                      Staff & leadership note (only shown on one's own page).
   prefs_token    — optional no-login token carried through on the email-link flow.
 {% endcomment %}
-<form method="post" class="hub-form">
+<form method="post" class="hub-form"{% if matrix_self and not prefs_token %} data-dirty-key="notifications" @input="dirty.notifications = true" @change="dirty.notifications = true" @submit="dirty.notifications = false"{% endif %}>
   {% csrf_token %}
   <input type="hidden" name="form_id" value="notifications">
   {% if prefs_token %}<input type="hidden" name="t" value="{{ prefs_token }}">{% endif %}
@@ -24,7 +24,7 @@ Context:
     <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('form'), false)">All off</button>
   </div>
   {% for category, rows in notif_matrix %}
-    <div class="pl-notif-section">
+    <div class="pl-notif-section" id="notif-{{ category|slugify }}">
     <div class="pl-notif-category-head">
       <h3 class="hub-detail-label pl-notif-category">{{ category }}</h3>
       <div class="pl-notif-bulk pl-notif-bulk--section">
@@ -39,6 +39,16 @@ Context:
       {% else %}
         <p class="hub-text-muted pl-notif-section-note">This member sees a row here only for a duty they hold or a role they have. The five capability alerts follow their admin capabilities on the Permissions tab.</p>
       {% endif %}
+    {% endif %}
+    {% if category == 'Guilds' and matrix_self and not prefs_token %}
+      <p class="hub-text-muted pl-notif-section-note">
+        <a href="?tab=guilds" @click.prevent="go('guilds')">Manage which guilds send you updates →</a>
+      </p>
+    {% endif %}
+    {% if category == 'Meetings' and matrix_self and not prefs_token %}
+      <p class="hub-text-muted pl-notif-section-note">
+        <a href="{% url 'hub_meetings' %}">View upcoming meetings →</a>
+      </p>
     {% endif %}
     <div class="pl-notif-matrix__scroll">
       <div class="pl-notif-matrix" role="table" aria-label="{{ category }} notification preferences"
@@ -99,5 +109,10 @@ Context:
     scope.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(function (cb) {
       cb.checked = on;
     });
+    // Flipping .checked fires no change event, so the dirty guard would miss a bulk flip.
+    // Dispatch one bubbling change on the owning form. Inert where no Alpine listener exists
+    // (the admin member-edit and token pages), safe to share.
+    var form = scope.closest ? (scope.closest('form') || scope) : scope;
+    form.dispatchEvent(new Event('change', { bubbles: true }));
   }
 </script>

@@ -8,6 +8,10 @@ Parameters (pass via {% include ... with %}):
   confirm_action_url   — required (plain-POST mode), form POST target
   confirm_button_text  — optional, button label (default: "Confirm")
   confirm_button_style — optional, "danger" (default) or "primary"
+  confirm_cancel_text  — optional, label for the dismiss button (default: "Cancel")
+
+  On open the modal records the triggering element and moves focus to the Cancel/dismiss
+  button; every close path (Cancel, Escape, ×, click-outside) restores focus to the opener.
   confirm_field_name   — optional (plain-POST mode), name of one hidden field to carry with
   confirm_field_value    the POST (e.g. run_job=bill_tabs), so the teleported form — which posts
                          OUTSIDE its trigger's form — can still reach a named handler.
@@ -42,8 +46,9 @@ Parameters (pass via {% include ... with %}):
   confirm_js — inline JS the Confirm button runs.
 {% endcomment %}
 <template x-teleport="body">
-<div x-data="{ open: false, typed: '', note: '' }"
+<div x-data="{ open: false, typed: '', note: '', opener: null }"
      x-show="open"
+     x-init="$watch('open', (value) => { if (value) { opener = document.activeElement; $nextTick(() => $el.querySelector('.pl-btn--secondary')?.focus()); } else if (opener) { opener.focus(); opener = null; } })"
      x-transition:enter="modal-enter"
      x-transition:leave="modal-leave"
      @open-confirm.window="if ($event.detail === '{{ confirm_id }}') open = true"
@@ -106,7 +111,7 @@ Parameters (pass via {% include ... with %}):
                     </button>
                 </form>
                 {% endif %}
-                <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+                <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">{{ confirm_cancel_text|default:"Cancel" }}</button>
             </div>
         </div>
     </div>

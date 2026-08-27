@@ -419,6 +419,76 @@
     font-size: 0.85rem;
 }
 
+/* Anchor offset so a jumped-to section clears the sticky topbar. */
+.pl-notif-section {
+    scroll-margin-top: calc(var(--topbar-height) + 1rem);
+}
+
+/* Jump-to-section chips above the notification matrix. */
+.pl-notif-jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+}
+.pl-notif-jump__chip {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    border: 1px solid transparent;
+    text-decoration: none;
+}
+.pl-notif-jump__chip:hover,
+.pl-notif-jump__chip:focus-visible {
+    color: var(--hub-text);
+    border-color: var(--color-tuscan-yellow);
+    text-decoration: none;
+}
+
+/* Danger-zone card treatment: red-tinted border + background in both themes, warning
+   icon, right-aligned footer button. Reusable, so it lives with the components. */
+.pl-danger-zone {
+    border: 1px solid rgba(220, 38, 38, 0.45);
+    background: rgba(220, 38, 38, 0.07);
+}
+.pl-danger-zone__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.pl-danger-zone__icon {
+    color: #f0a0a0;
+    flex-shrink: 0;
+}
+.pl-danger-zone__title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+    color: #f0a0a0;
+}
+.pl-danger-zone__text {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+}
+.pl-danger-zone__footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(220, 38, 38, 0.25);
+}
+[data-theme="light"] .pl-danger-zone {
+    border-color: rgba(220, 38, 38, 0.35);
+    background: rgba(220, 38, 38, 0.05);
+}
+[data-theme="light"] .pl-danger-zone__icon,
+[data-theme="light"] .pl-danger-zone__title {
+    color: #b03030;
+}
+
 /* Bulk on/off controls (the top "Everything" row and each section's). */
 .pl-notif-bulk {
     display: inline-flex;

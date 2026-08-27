@@ -100,13 +100,13 @@ TRIGGERS: list[Trigger] = [
         "orientation_requested",
         "Orientation requested",
         "Someone requested an orientation for a guild you lead.",
-        "Guilds",
+        "Orientations",
     ),
     Trigger(
         "orientation_update",
         "Orientation updates",
         "Your orientation request was confirmed, declined, or cancelled.",
-        "Guilds",
+        "Orientations",
     ),
     Trigger(
         "guild_joined",

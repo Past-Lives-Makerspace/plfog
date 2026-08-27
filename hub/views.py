@@ -32,7 +32,7 @@ from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabL
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.models import Category, ClassOffering
 from core.models import HeroCropMixin, SiteConfiguration
-from hub.view_as import ALL_ROLES, SESSION_ROLE_KEY, fog_admin_required
+from hub.view_as import ALL_ROLES, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
@@ -2069,14 +2069,15 @@ def guild_updates_prompt(request: HttpRequest) -> HttpResponse:
 
 
 def user_settings(request: HttpRequest) -> HttpResponse:
-    """Tabbed user settings page — Profile + Emails + Notifications.
+    """Tabbed user settings page — Guilds, Notifications, Profile, Account.
 
     Three concerns POST to this endpoint, disambiguated by the ``form_id`` hidden
-    field: ``profile`` (member info) and ``notifications`` (the event × channel
-    preference matrix). Email address management (add, primary, verify, remove) POSTs
-    to allauth's ``account_email`` URL, which is overridden in ``plfog.urls`` to
-    redirect back here after each action. The Notifications tab is the unified
-    preferences matrix (design §2.7) sourced from the event registry.
+    field: ``profile`` (member info), ``notifications`` (the event × channel preference
+    matrix), and ``tours``. Email address management (add, primary, verify, remove) lives
+    on the Account tab and POSTs to allauth's ``account_email`` URL, which is overridden
+    in ``plfog.urls`` to redirect back here (``?tab=account``) after each action. The
+    Notifications tab is the unified preferences matrix (design §2.7) sourced from the
+    event registry.
     """
     if not request.user.is_authenticated:
         # Logged-out visitors are bounced to login, except the email "manage preferences"
@@ -2123,10 +2124,11 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         contact_formset = None
 
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
+    include_staff = _settings_include_staff(request)
     if request.method == "POST" and request.POST.get("form_id") == "notifications":
         from core.events import settings_matrix
 
-        settings_matrix.save_matrix(user, request.POST)
+        settings_matrix.save_matrix(user, request.POST, include_staff_section=include_staff)
         messages.success(request, "Notification preferences updated.")
         return redirect(f"{request.path}?tab=notifications")
 
@@ -2139,7 +2141,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
     primary_verified_json = "true" if primary_email is None or primary_email.verified else "false"
 
-    active_tab = _resolve_settings_tab(request, member)
+    active_tab = _settings_active_tab(request, member)
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
         messages.info(request, "Your account is not linked to a membership.")
@@ -2147,9 +2149,10 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     from core.events import settings_matrix
     from hub.guild_membership import build_my_guilds_rows
 
-    notif_matrix = settings_matrix.build_matrix(user)
+    notif_matrix = settings_matrix.build_matrix(user, include_staff_section=include_staff)
     notif_channels = [
-        (channel, settings_matrix.CHANNEL_LABELS[channel]) for channel in settings_matrix.visible_channels(user)
+        (channel, settings_matrix.CHANNEL_LABELS[channel])
+        for channel in settings_matrix.visible_channels(user, include_staff_section=include_staff)
     ]
     # Channel labels keyed by channel value, so each matrix cell can build its own
     # screen-reader name (event × channel) via the get_item template filter.
@@ -2191,19 +2194,59 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _settings_include_staff(request: HttpRequest) -> bool:
+    """Whether the Staff & Leadership notification section should render (and save).
+
+    An admin/officer previewing the page as a Member or Guest must not see — or, on save,
+    wipe — the section. The flag flips only when a higher-role holder is previewing down; an
+    actual plain member (incl. a guild lead whose ``fog_role`` is member) always keeps their
+    staff rows. GET and the subsequent POST share the session-backed view-as choice, so build
+    and save agree (§5.2 — the save-without-flag wipe trap).
+    """
+    va = getattr(request, "view_as", None)
+    if va is None:
+        return True
+    previewing_down = va.view_as_role in (ROLE_MEMBER, ROLE_GUEST)
+    higher_role_holder = va.actual_is_admin or va.actual_is_guild_officer
+    return not (previewing_down and higher_role_holder)
+
+
+def _settings_active_tab(request: HttpRequest, member: Member | None) -> str:
+    """Resolve the active settings tab for a request.
+
+    On POST, derive the tab from the submitted ``form_id`` so a failed save re-renders on the
+    tab that failed (not the guilds default) and never stamps the guild-updates answer on a
+    landing the user didn't navigate to. The mapping covers all three save forms so any future
+    validating handler inherits the right tab for free. On GET, defer to
+    :func:`_resolve_settings_tab` (which whitelists the param and stamps a Guilds landing). (§5.3)
+    """
+    if request.method == "POST":
+        return {"profile": "profile", "tours": "notifications", "notifications": "notifications"}.get(
+            request.POST.get("form_id", ""), "guilds"
+        )
+    return _resolve_settings_tab(request, member)
+
+
 def _resolve_settings_tab(request: HttpRequest, member: Member | None) -> str:
     """Whitelist the settings ``tab`` param and record a Guilds-tab landing.
 
     The whitelist matters because the tab flows into an Alpine x-data JS expression —
     HTML escaping alone isn't enough to stop a payload like ``?tab='+alert(1)+'``.
 
-    Landing on the Guilds tab via its ``?tab=guilds`` deep link counts as having seen
-    and chosen your guild updates — the checklist step, the prompt's Skip fallback, and
-    every cross-link arrive this way. A deliberate idempotent write-on-GET (login-gated,
-    one-way, no-op after the first hit); see ``Member.mark_guild_updates_answered``.
+    Guilds is now the default (and unknown-value fallback) tab. The legacy ``?tab=emails``
+    deep link resolves to ``account`` — its Manage Email Addresses card moved there — so old
+    links keep working.
+
+    Landing on the Guilds tab counts as having seen and chosen your guild updates — the
+    checklist step, the prompt's Skip fallback, and every cross-link arrive this way. With
+    guilds as the default, this now fires on every bare ``/settings/`` GET, not just the
+    ``?tab=guilds`` deep link. A deliberate idempotent write-on-GET (login-gated, one-way,
+    no-op after the first hit); see ``Member.mark_guild_updates_answered``.
     """
-    tab_param = request.GET.get("tab", "profile")
-    active_tab = tab_param if tab_param in {"profile", "emails", "notifications", "guilds", "account"} else "profile"
+    tab_param = request.GET.get("tab", "guilds")
+    if tab_param == "emails":  # legacy deep links land on the email card's new home
+        tab_param = "account"
+    active_tab = tab_param if tab_param in {"profile", "notifications", "guilds", "account"} else "guilds"
     if active_tab == "guilds" and member is not None:
         member.mark_guild_updates_answered()
     return active_tab

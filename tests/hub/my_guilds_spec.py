@@ -244,9 +244,11 @@ def describe_user_settings_guilds_tab():
         assert step.done is True
 
     def it_does_not_stamp_on_other_tabs(client: Client):
+        # A bare /settings/ now lands on (and stamps) the Guilds default tab, so only the
+        # explicit non-guilds tabs must leave the answer unstamped.
         _user, member = _linked_user(client)
         client.get(reverse("hub_user_settings") + "?tab=notifications")
-        client.get(reverse("hub_user_settings"))
+        client.get(reverse("hub_user_settings") + "?tab=profile")
         member.refresh_from_db()
         assert member.guild_updates_prompt_answered_at is None
 
@@ -255,10 +257,10 @@ def describe_user_settings_guilds_tab():
         response = client.get(reverse("hub_user_settings") + "?tab=guilds")
         assert response.status_code == 200
 
-    def it_falls_back_to_profile_for_a_bogus_tab(client: Client):
+    def it_falls_back_to_guilds_for_a_bogus_tab(client: Client):
         _linked_user(client)
         response = client.get(reverse("hub_user_settings") + "?tab=bogus")
-        assert response.context["active_tab"] == "profile"
+        assert response.context["active_tab"] == "guilds"
 
     def it_passes_the_guild_rows_in_context(client: Client):
         _linked_user(client)

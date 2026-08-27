@@ -4,34 +4,30 @@
 {% block content %}
 <h1 class="hub-page-title">User Settings</h1>
 
-<div x-data="{ tab: '{{ active_tab|default:"profile" }}' }">
+<div id="pl-settings-root"
+     x-data="plSettingsRoot('{{ active_tab|default:"guilds" }}')"
+     @pl-settings-discard.window="discard()">
     <div class="pl-tabs">
         <button type="button"
-                @click="tab = 'profile'"
-                :class="{ 'vote-tab--active': tab === 'profile' }"
-                class="vote-tab">
-            Profile
-        </button>
-        <button type="button"
-                @click="tab = 'emails'"
-                :class="{ 'vote-tab--active': tab === 'emails' }"
-                class="vote-tab">
-            Emails
-        </button>
-        <button type="button"
-                @click="tab = 'notifications'"
-                :class="{ 'vote-tab--active': tab === 'notifications' }"
-                class="vote-tab">
-            Notifications
-        </button>
-        <button type="button"
-                @click="tab = 'guilds'"
+                @click="go('guilds')"
                 :class="{ 'vote-tab--active': tab === 'guilds' }"
                 class="vote-tab">
             Guilds
         </button>
         <button type="button"
-                @click="tab = 'account'"
+                @click="go('notifications')"
+                :class="{ 'vote-tab--active': tab === 'notifications' }"
+                class="vote-tab">
+            Notifications
+        </button>
+        <button type="button"
+                @click="go('profile')"
+                :class="{ 'vote-tab--active': tab === 'profile' }"
+                class="vote-tab">
+            Profile
+        </button>
+        <button type="button"
+                @click="go('account')"
                 :class="{ 'vote-tab--active': tab === 'account' }"
                 class="vote-tab">
             Account
@@ -51,6 +47,11 @@
         </div>
         {% endif %}
         <form method="post" enctype="multipart/form-data" class="hub-form pl-profile-edit"
+              data-dirty-key="profile"
+              @input="dirty.profile = true"
+              @change="dirty.profile = true"
+              @submit="dirty.profile = false"
+              @click="if ($event.target.closest('[data-arm-dirty]')) dirty.profile = true"
               x-data="{
                 listed: {% if profile_form.show_in_directory.value %}true{% else %}false{% endif %},
                 vis: {
@@ -99,6 +100,7 @@
                            class="pl-profile-master__seg-input">
                     <button type="button"
                             class="pl-profile-master__seg-btn"
+                            data-arm-dirty
                             :class="{ 'pl-profile-master__seg-btn--active': !listed }"
                             :disabled="forceListed"
                             @click="if (!forceListed) listed = false"
@@ -109,6 +111,7 @@
                     </button>
                     <button type="button"
                             class="pl-profile-master__seg-btn"
+                            data-arm-dirty
                             :class="{ 'pl-profile-master__seg-btn--active': listed }"
                             @click="listed = true"
                             role="radio"
@@ -133,6 +136,7 @@
                             <label for="email" class="pl-profile-row__label">Email</label>
                             <button type="button"
                                     class="pl-vis-toggle"
+                                    data-arm-dirty
                                     :class="{ 'pl-vis-toggle--on': vis.email, 'pl-vis-toggle--off': !vis.email, 'pl-vis-toggle--disabled': !listed }"
                                     :disabled="!listed"
                                     @click="vis.email = !vis.email"
@@ -144,7 +148,7 @@
                             <input type="hidden" name="show_email" :value="vis.email ? 'on' : ''">
                         </div>
                         <input type="email" id="email" value="{{ user.email }}" disabled>
-                        <span class="hub-field-hint">Manage your emails in the Emails tab.</span>
+                        <span class="hub-field-hint">Manage your emails in the Account tab.</span>
                     </div>
 
                     {# Profile photo #}
@@ -154,6 +158,7 @@
                             <span class="pl-profile-row__label">Profile photo</span>
                             <button type="button"
                                     class="pl-vis-toggle"
+                                    data-arm-dirty
                                     :class="{ 'pl-vis-toggle--on': vis.profile_photo, 'pl-vis-toggle--off': !vis.profile_photo, 'pl-vis-toggle--disabled': !listed }"
                                     :disabled="!listed"
                                     @click="vis.profile_photo = !vis.profile_photo">
@@ -327,12 +332,12 @@
                         {{ ef.id }}
                         {{ ef.sort_order }}
                         {{ ef.kind }}
-                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-arm-dirty style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
                         {% endwith %}
                     </div>
                 </template>
 
-                <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                <button type="button" class="hub-btn hub-btn--sm" data-arm-dirty style="margin-top:1rem;"
                         onclick="
                           const tpl = document.getElementById('contact-empty-template-website');
                           const total = document.getElementById('id_contacts-TOTAL_FORMS');
@@ -399,12 +404,12 @@
                         {{ ef.id }}
                         {{ ef.sort_order }}
                         {{ ef.kind }}
-                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-arm-dirty style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
                         {% endwith %}
                     </div>
                 </template>
 
-                <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                <button type="button" class="hub-btn hub-btn--sm" data-arm-dirty style="margin-top:1rem;"
                         onclick="
                           const tpl = document.getElementById('contact-empty-template-social');
                           const total = document.getElementById('id_contacts-TOTAL_FORMS');
@@ -471,12 +476,12 @@
                         {{ ef.id }}
                         {{ ef.sort_order }}
                         {{ ef.kind }}
-                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" data-arm-dirty style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
                         {% endwith %}
                     </div>
                 </template>
 
-                <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                <button type="button" class="hub-btn hub-btn--sm" data-arm-dirty style="margin-top:1rem;"
                         onclick="
                           const tpl = document.getElementById('contact-empty-template-other');
                           const total = document.getElementById('id_contacts-TOTAL_FORMS');
@@ -576,9 +581,22 @@
         {% endif %}
     </div>
 
-    {# -------- Emails tab -------- #}
-    <div x-show="tab === 'emails'" x-cloak>
-        {# --- Manage Email Addresses card --- #}
+    {# -------- Notifications tab -------- #}
+    <div x-show="tab === 'notifications'" x-cloak data-help-key="settings.notifications">
+        {% include "hub/_notifications_settings.html" %}
+        {% include "hub/_tour_settings.html" %}
+    </div>
+
+    {# -------- Guilds tab -------- #}
+    {% comment %}Sits outside every <form>: its per-row toggles carry their own hx-post, so a
+       wrapping <form> would orphan them (the nested-form/submit bug). No page Save.{% endcomment %}
+    <div x-show="tab === 'guilds'" x-cloak data-help-key="settings.your-guilds">
+        {% include "hub/partials/_my_guilds.html" %}
+    </div>
+
+    {# -------- Account tab -------- #}
+    <div x-show="tab === 'account'" x-cloak>
+        {# --- Manage Email Addresses card (moved here from the former Emails tab) --- #}
         <div class="hub-card" style="margin-bottom: 1.5rem;" data-help-key="settings.email-addresses"
              x-data='{ selectedVerified: {{ primary_verified_json|default:"true" }} }'>
             <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem;">Manage Email Addresses</h2>
@@ -635,37 +653,145 @@
             </form>
             <p class="hub-text-muted" style="margin-top:1.25rem;font-size:0.8rem;">
                 Choose which emails you receive in the
-                <button type="button" @click="tab = 'notifications'"
+                <button type="button" @click="go('notifications')"
                         style="background:none;border:0;padding:0;color:var(--color-tuscan-yellow);cursor:pointer;font:inherit;text-decoration:underline;">Notifications</button>
                 tab.
             </p>
         </div>
-    </div>
 
-    {# -------- Notifications tab -------- #}
-    <div x-show="tab === 'notifications'" x-cloak data-help-key="settings.notifications">
-        {% include "hub/_notifications_settings.html" %}
-        {% include "hub/_tour_settings.html" %}
-    </div>
-
-    {# -------- Guilds tab -------- #}
-    {% comment %}Sits outside every <form>: its per-row toggles carry their own hx-post, so a
-       wrapping <form> would orphan them (the nested-form/submit bug). No page Save.{% endcomment %}
-    <div x-show="tab === 'guilds'" x-cloak data-help-key="settings.your-guilds">
-        {% include "hub/partials/_my_guilds.html" %}
-    </div>
-
-    {# -------- Account tab -------- #}
-    <div x-show="tab === 'account'" x-cloak>
-        <h2 class="pl-profile-heading">Delete Your Account</h2>
-        <div class="hub-card">
-            <h3>Danger Zone</h3>
-            <p>Deleting your account removes your personal info (name, photo, contact details, bio) from Past Lives for good and signs you out everywhere. It does not cancel any paid subscription managed outside this site.</p>
-            <p><strong>This can't be undone from here.</strong> To use Past Lives again, a guild lead or admin will need to send you a new invite.</p>
+        {# --- Danger Zone --- #}
+        <div class="hub-card pl-danger-zone">
+            <div class="pl-danger-zone__head">
+                <svg class="pl-danger-zone__icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                     aria-hidden="true">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <h2 class="pl-danger-zone__title">Danger Zone</h2>
+            </div>
+            <p class="pl-danger-zone__text">
+                Deleting your account permanently removes your personal info (name, photo, contact details, bio)
+                from Past Lives and signs you out everywhere. It does not cancel any paid subscription managed
+                outside this site.
+            </p>
+            <p class="pl-danger-zone__text">
+                <strong>This can't be undone from here.</strong> To use Past Lives again, a guild lead or admin
+                will need to send you a new invite.
+            </p>
+            <div class="pl-danger-zone__footer">
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                        @click="$dispatch('open-confirm', 'delete-account')">Delete My Account</button>
+            </div>
             {% url 'hub_account_delete' as account_delete_url %}
-            <button type="button" class="pl-btn pl-btn--danger" @click="$dispatch('open-confirm', 'delete-account')">Delete My Account</button>
             {% include "components/confirm_modal.html" with confirm_id="delete-account" confirm_title="Delete your account?" confirm_message="This permanently removes your personal info from Past Lives and signs you out. This can't be undone from here." confirm_action_url=account_delete_url confirm_button_text="Delete My Account" confirm_typed_value="DELETE" confirm_typed_placeholder="Type DELETE" confirm_typed_field_name="confirm_text" %}
         </div>
     </div>
+
+    {# Discard-unsaved-changes confirm (dirty guard §6.6) — teleports to body; the confirm_js #}
+    {# dispatches a window event the root's @pl-settings-discard listener turns into discard(). #}
+    {% include "components/confirm_modal.html" with confirm_id="discard-settings-changes" confirm_title="Discard unsaved changes?" confirm_message="You have unsaved changes on this page. If you leave now they will be lost." confirm_button_text="Discard Changes" confirm_cancel_text="Stay" confirm_js="window.dispatchEvent(new CustomEvent('pl-settings-discard'))" %}
+
+    {# Floating back-to-top — page-scoped, shows past ~400px; below the modal layer (§6.4). #}
+    <button type="button" class="pl-scroll-top"
+            x-data="{ show: false }" x-show="show" x-cloak
+            x-init="window.addEventListener('scroll', () => { show = window.scrollY > 400 }, { passive: true })"
+            @click="window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })"
+            aria-label="Back to top">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 15l-6-6-6 6"/></svg>
+    </button>
 </div>
+
+{# Dirty-guard runtime (§6.6): the Alpine root component + the beforeunload / htmx:confirm #}
+{# holds for hard and boosted navigations. Defined before Alpine (deferred) initializes the #}
+{# x-data; the listeners read Alpine.$data at event time, so they need no load ordering. #}
+<script>
+    function plSettingsRoot(activeTab) {
+        return {
+            tab: activeTab,
+            dirty: { notifications: false, tours: false, profile: false },
+            pending: null,   // { type: 'tab', tab } | { type: 'nav', proceed }
+            isDirty() { return this.dirty.notifications || this.dirty.tours || this.dirty.profile; },
+            go(next) {
+                this.pending = null;   // drop any stale held navigation before deciding
+                if (this.tab === next) return;
+                if (this.isDirty()) {
+                    this.pending = { type: 'tab', tab: next };
+                    this.$dispatch('open-confirm', 'discard-settings-changes');
+                } else {
+                    this.tab = next;
+                }
+            },
+            discard() {
+                const p = this.pending; this.pending = null;
+                if (p && p.type === 'nav') {
+                    // The page is about to unload — nothing to reset.
+                    this.dirty = { notifications: false, tours: false, profile: false };
+                    p.proceed();
+                    return;
+                }
+                if (this.dirty.profile) {
+                    // Profile edits live partly in Alpine state — a full re-render is the only honest
+                    // reset. Clear the flags BEFORE navigating so beforeunload doesn't stack a native
+                    // "Leave site?" prompt on top of the discard the user just confirmed.
+                    this.dirty = { notifications: false, tours: false, profile: false };
+                    window.location.assign('?tab=' + ((p && p.tab) || this.tab));
+                    return;
+                }
+                // Reset ONLY the forms whose flag was actually set. A blanket reset would include a
+                // clean profile form, whose reset() corrupts the x-model directory checkbox and would
+                // silently delist the member on their next Save — so profile is structurally excluded
+                // here (its discard is always the reload branch above).
+                ['notifications', 'tours'].filter((k) => this.dirty[k]).forEach((k) => {
+                    document.querySelector('form[data-dirty-key="' + k + '"]')?.reset();
+                });
+                this.dirty = { notifications: false, tours: false, profile: false };
+                if (p && p.type === 'tab') this.tab = p.tab;
+            },
+        };
+    }
+
+    // hx-boost re-executes this inline script every time the page is (re)swapped in, and the
+    // window/body listeners below outlive a boosted swap — so bind them exactly once to avoid
+    // stacking duplicate handlers across a settings -> other -> settings round-trip. Guard on
+    // pl-settings-root existence keeps them inert on every non-settings page.
+    if (!window.__plSettingsGuardBound) {
+        window.__plSettingsGuardBound = true;
+
+    // Hard navigations (sidebar links hx-boost="false", address bar, refresh, tab close):
+    // the browser-native prompt is the only guard available there.
+    window.addEventListener('beforeunload', (e) => {
+        const root = window.Alpine && Alpine.$data(document.getElementById('pl-settings-root'));
+        if (root && root.isDirty()) { e.preventDefault(); e.returnValue = ''; }
+    });
+
+    // Boosted navigations (body hx-boost="true", where beforeunload does NOT fire): htmx 2.0.4's
+    // cancelable htmx:confirm with async issueRequest resume.
+    document.body.addEventListener('htmx:confirm', (evt) => {
+        const rootEl = document.getElementById('pl-settings-root');
+        const root = rootEl && window.Alpine && Alpine.$data(rootEl);
+        if (!root || !root.isDirty()) return;
+        const elt = evt.detail.elt;
+        const boostedLink = elt instanceof HTMLAnchorElement;
+        const hasHxVerb = ['hx-get', 'hx-post', 'hx-put', 'hx-patch', 'hx-delete']
+            .some((a) => elt.hasAttribute(a));
+        const boostedForm = elt instanceof HTMLFormElement
+            && !elt.hasAttribute('data-dirty-key') && !hasHxVerb;
+        const crossFormSave = elt instanceof HTMLFormElement && elt.dataset.dirtyKey
+            && Object.entries(root.dirty).some(([k, v]) => v && k !== elt.dataset.dirtyKey);
+        if (!boostedLink && !boostedForm && !crossFormSave) return;
+        root.pending = null;                       // drop any stale held navigation before holding a new one
+        evt.preventDefault();                      // hold the request
+        // Re-arm the held form's OWN flag: its @submit already cleared it in this submit dispatch,
+        // but the hold cancelled the POST — without this a Stay would leave that pane's never-saved
+        // edits unguarded and invisible to a later Discard's flag-filtered reset. No-op for the link
+        // and boosted-form branches (no data-dirty-key).
+        if (elt instanceof HTMLFormElement && elt.dataset.dirtyKey) root.dirty[elt.dataset.dirtyKey] = true;
+        root.pending = { type: 'nav', proceed: () => evt.detail.issueRequest(true) };
+        window.dispatchEvent(new CustomEvent('open-confirm', { detail: 'discard-settings-changes' }));
+    });
+
+    }
+</script>
 {% endblock %}
