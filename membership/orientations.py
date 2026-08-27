@@ -22,7 +22,7 @@ from core.events.senders import emit_with_email_shell
 from core.models import SiteActivity
 
 if TYPE_CHECKING:
-    from membership.models import Guild, Member, OrientationBooking, OrientationSlot
+    from membership.models import Guild, Member, OrientationAvailability, OrientationBooking, OrientationSlot
 
 _ACTION_SALT = "orientation-action"
 _ACTION_MAX_AGE = 90 * 24 * 3600  # 90 days — long enough to schedule, bounded for safety
@@ -109,7 +109,11 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
     event.add("status", status)
     if slot.location:
         event.add("location", slot.location)
-    event.add("description", f"Orientation for {booking.guild.name} at Past Lives Makerspace.")
+    description = f"Orientation for {booking.guild.name} at Past Lives Makerspace."
+    label = slot.with_label
+    if label:
+        description += f" {label[0].upper()}{label[1:]}."
+    event.add("description", description)
     cal.add_component(event)
     return cal.to_ical()
 
@@ -273,17 +277,33 @@ def parse_proposed_time(date_str: str, time_str: str) -> datetime:
     return starts_at
 
 
-def _emit_lead_request(booking: OrientationBooking) -> None:
-    """Email lead + all staff the request, and in-app-notify ALL orienters (Decision 7).
+def _request_audience(booking: OrientationBooking) -> list[Member]:
+    """Who hears about a request: the slot's orienter + the lead (personal), or all leadership.
 
-    Email recipients are the guild's whole leadership team (lead + staff), addressed as
-    explicit addresses so the email recipient set is byte-identical to today. The in-app
-    ``orientation_requested`` row now fans out to every orienter (the lead plus the
-    ORIENTER-role staff) via the ``guild_orienters`` resolver — fixing the lead-only
-    asymmetry the audit found. The activity row is logged by the caller.
+    A personal slot routes to the person the member actually booked, with the guild lead
+    kept in the loop (deduped); a guild slot keeps the full leadership fan-out.
+    """
+    slot = booking.slot
+    if slot.orienter_id is not None and slot.orienter is not None:
+        audience = [slot.orienter]
+        lead = booking.guild.guild_lead
+        if lead is not None and lead.pk != slot.orienter_id:
+            audience.append(lead)
+        return audience
+    return booking.guild.leadership_members()
+
+
+def _emit_lead_request(booking: OrientationBooking) -> None:
+    """Email the request's audience, and in-app-notify the matching orienters (Decision 7).
+
+    For a guild slot the email recipients are the guild's whole leadership team (lead +
+    staff), byte-identical to before. For a personal slot both the email and the in-app
+    ``orientation_requested`` row route to the slot's orienter + the guild lead (deduped)
+    — the ``guild_orienters`` resolver honors the slot passed in context. The activity
+    row is logged by the caller.
     """
     recipients: list[str] = []
-    for member in booking.guild.leadership_members():
+    for member in _request_audience(booking):
         if member.primary_email and member.primary_email not in recipients:
             recipients.append(member.primary_email)
     ctx = _context(
@@ -294,7 +314,7 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     )
     emit_with_email_shell(
         "orientation_requested",
-        context={"guild": booking.guild},
+        context={"guild": booking.guild, "slot": booking.slot},
         subject=f"New orientation request — {booking.guild.name}",
         text_template="membership/emails/orientation_lead_request.txt",
         html_template="membership/emails/orientation_lead_request.html",
@@ -361,7 +381,7 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str) -> None
     # old dispatch (in-app always; generic email only for an opted-in orienter).
     emit(
         "orientation_requested",
-        context={"guild": booking.guild},
+        context={"guild": booking.guild, "slot": booking.slot},
         title="Orientation cancelled",
         body=f"{actor_label} cancelled the orientation for {booking.guild.name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
@@ -459,6 +479,13 @@ def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: da
         settings_obj = GuildOrientationSettings.objects.filter(guild=rule.guild).first()
         if settings_obj is None or not settings_obj.is_accepting:
             continue
+        # Stale personal rule — its orienter left the guild's leadership without the
+        # hub's retirement flow (e.g. a lead-FK change or a Django-admin removal).
+        # Belt-and-braces: never materialize new slots for a departed staffer.
+        if rule.orienter_id is not None and rule.orienter_id not in {
+            member.pk for member in rule.guild.leadership_members()
+        }:
+            continue
         for offset in range(window_weeks * 7):
             day = today + timedelta(days=offset)
             if day.weekday() != rule.weekday:
@@ -471,6 +498,7 @@ def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: da
                 starts_at=start_dt,
                 defaults={
                     "guild": rule.guild,
+                    "orienter": rule.orienter,
                     "ends_at": timezone.make_aware(datetime.combine(day, rule.end_time)),
                     "seats": rule.seats,
                     "location": rule.location or settings_obj.default_location,
@@ -480,6 +508,68 @@ def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: da
             if was_created:
                 created += 1
     return created
+
+
+def retire_rule(rule: OrientationAvailability) -> tuple[int, int]:
+    """Delete a recurring rule AND its future open generated slots — the honest delete path.
+
+    Future GENERATED slots holding no seat-holding booking are removed with the rule;
+    slots someone already booked survive (keeping their ``orienter``; ``availability``
+    goes SET_NULL) to be handled individually via the Upcoming Slots card. Past and
+    MANUAL slots are never touched. Replaces the old silent slot-stranding.
+
+    Paid-orientations seam (named in both specs): once ``PENDING_PAYMENT`` checkout
+    holds land, the keep/delete guard MUST switch from ``bookings.active()`` to
+    ``bookings.seat_holding()`` — an ``active()``-only test would cascade a live paid
+    hold away with the slot.
+
+    Returns:
+        ``(open_slots_removed, kept_with_bookings)`` for the success message.
+    """
+    from membership.models import OrientationSlot
+
+    removed = 0
+    kept = 0
+    future = rule.slots.filter(starts_at__gte=timezone.now(), source=OrientationSlot.Source.GENERATED)
+    for slot in future:
+        if slot.bookings.active().exists():
+            kept += 1
+        else:
+            slot.delete()
+            removed += 1
+    rule.delete()
+    return removed, kept
+
+
+def retire_orienter(guild: Guild, member: Member) -> tuple[int, int]:
+    """Retire all of ``member``'s personal rules in ``guild`` (they left its leadership).
+
+    Runs :func:`retire_rule` over each of their rules in this guild only — other guilds'
+    rules are untouched. Their booked future slots stay theirs (the ex-staffer may still
+    honor them, or a lead cancels each from the Upcoming Slots card).
+
+    Returns:
+        ``(open_slots_removed, booked_future_slots_remaining)`` — the second number
+        feeds the staff-remove flash message.
+    """
+    from membership.models import OrientationAvailability, OrientationBooking, OrientationSlot
+
+    removed = 0
+    for rule in OrientationAvailability.objects.filter(guild=guild, orienter=member):
+        rule_removed, _kept = retire_rule(rule)
+        removed += rule_removed
+    booked_remaining = (
+        OrientationSlot.objects.filter(
+            guild=guild,
+            orienter=member,
+            is_cancelled=False,
+            starts_at__gte=timezone.now(),
+            bookings__status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        )
+        .distinct()
+        .count()
+    )
+    return removed, booked_remaining
 
 
 def member_joined_guild(guild: Guild, member: Member) -> None:

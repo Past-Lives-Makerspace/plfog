@@ -1654,35 +1654,96 @@ OrientationAvailabilityFormSet = forms.inlineformset_factory(
 )
 
 
+_SLOT_DURATION_CHOICES: list[tuple[str, str]] = [
+    ("30", "30 minutes"),
+    ("45", "45 minutes"),
+    ("60", "1 hour"),
+    ("90", "1.5 hours"),
+    ("120", "2 hours"),
+    ("180", "3 hours"),
+]
+
+
 class OrientationSlotForm(forms.ModelForm):
-    """Add a one-off orientation slot from the config editor."""
+    """Add a one-off orientation slot from the Upcoming Slots card.
+
+    First surfaced with per-orienter availability: date + half-hour start + duration
+    dropdowns (Rule 20 — no per-minute pickers), plus an Orienter select whose choices
+    are the guild's leadership and an "Any orienter (guild slot)" empty choice. A plain
+    staff member gets the field locked to themselves (a crafted POST cannot override it).
+    """
+
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker, and .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    duration_minutes = forms.TypedChoiceField(
+        coerce=int, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
+    )
+    orienter = forms.ModelChoiceField(
+        queryset=Member.objects.none(),
+        required=False,
+        label="Orienter",
+        empty_label="Any orienter (guild slot)",
+    )
 
     class Meta:
         model = OrientationSlot
-        fields = ["starts_at", "ends_at", "seats", "location"]
-        widgets = {
-            "starts_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
-            ),
-            "ends_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
-            ),
-        }
+        fields = ["seats", "location"]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        guild: Guild,
+        acting_member: Member | None = None,
+        lock_to_acting: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
-        for name in ("starts_at", "ends_at"):
-            cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self._acting_member = acting_member
+        self._lock_to_acting = lock_to_acting
+        leadership_ids = {member.pk for member in guild.leadership_members()}
+        orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])
+        orienter_field.queryset = Member.objects.filter(pk__in=leadership_ids).order_by("full_legal_name")
+        orienter_field.error_messages["invalid_choice"] = "Pick someone on this guild's staff."
+        if acting_member is not None and acting_member.pk in leadership_ids:
+            orienter_field.initial = acting_member.pk
+        if lock_to_acting:
+            orienter_field.widget = forms.HiddenInput()
+
+    def clean_orienter(self) -> Member | None:
+        if self._lock_to_acting:
+            # Plain staff add slots for themselves only — whatever the POST carried.
+            return self._acting_member
+        return cast("Member | None", self.cleaned_data.get("orienter"))
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        starts = cleaned.get("starts_at")
-        ends = cleaned.get("ends_at")
-        if starts and ends and ends <= starts:
-            self.add_error("ends_at", "End must be after the start.")
-        if starts and starts <= timezone.now():
-            self.add_error("starts_at", "Pick a time in the future.")
+        day = cleaned.get("date")
+        start_raw = cleaned.get("start_time")
+        duration = cleaned.get("duration_minutes")
+        if day and start_raw and duration:
+            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_raw)))
+            if starts_at <= timezone.now():
+                self.add_error("date", "Pick a time in the future.")
+            else:
+                cleaned["starts_at"] = starts_at
+                cleaned["ends_at"] = starts_at + timedelta(minutes=duration)
         return cleaned
+
+    def save(self, commit: bool = True) -> OrientationSlot:
+        slot = cast(OrientationSlot, super().save(commit=False))
+        slot.starts_at = self.cleaned_data["starts_at"]
+        slot.ends_at = self.cleaned_data["ends_at"]
+        slot.orienter = self.cleaned_data["orienter"]
+        if commit:
+            slot.save()
+        return slot
 
 
 class CommunityEventForm(forms.ModelForm):

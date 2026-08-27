@@ -737,7 +737,7 @@ def describe_guild_edit_tabs():
         # The formerly-standalone sections now render inline on the same page.
         assert b"+ Add meeting notes" in response.content
         assert b"+ Add event" in response.content
-        assert b"Recurring hours" in response.content
+        assert b"My Orientation Hours" in response.content
         assert b"Save orientation settings" in response.content
 
     def it_lays_short_inputs_out_in_two_columns(client: Client):

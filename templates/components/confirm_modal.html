@@ -35,6 +35,11 @@ Parameters (pass via {% include ... with %}):
   Rich-body mode (optional): confirm_body_include — a template path included after the
   message, rendered with the including context (per-row conditional copy, links).
   confirm_warn_message     — optional warn-toned line rendered above the buttons.
+
+  JS mode (optional — when confirm_js is set, Confirm runs that inline JS and closes
+  instead of POSTing a form; used when the confirm must act on the page, e.g. flip a
+  formset row's hidden DELETE field and requestSubmit() its form):
+  confirm_js — inline JS the Confirm button runs.
 {% endcomment %}
 <template x-teleport="body">
 <div x-data="{ open: false, typed: '', note: '' }"
@@ -72,7 +77,12 @@ Parameters (pass via {% include ... with %}):
                    class="pl-input" style="width:100%; margin:0 0 1.5rem;">
             {% endif %}
             <div class="pl-modal__actions">
-                {% if confirm_hx_post %}
+                {% if confirm_js %}
+                <button type="button" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="flex:1;"
+                        @click="open = false" onclick="{{ confirm_js }}">
+                    {{ confirm_button_text|default:"Confirm" }}
+                </button>
+                {% elif confirm_hx_post %}
                 <form hx-post="{{ confirm_hx_post }}"
                       {% if confirm_hx_target %}hx-target="{{ confirm_hx_target }}" hx-swap="outerHTML"{% endif %}
                       {% if confirm_hx_vals %}hx-vals='{{ confirm_hx_vals|safe }}'{% endif %}

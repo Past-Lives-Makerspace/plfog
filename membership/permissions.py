@@ -68,6 +68,23 @@ def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
     return can_edit_guild(request, guild)
 
 
+def can_edit_orienter_hours(request: HttpRequest, guild: Guild, orienter: Member | None) -> bool:
+    """True when this request may edit ``orienter``'s recurring orientation hours in ``guild``.
+
+    Own hours: anyone who may manage the guild's orientations (lead, staff, admin,
+    officer). Someone else's hours, or the guild-level rows (``orienter is None``):
+    admin/officer or the ``guild_lead`` holder only. This is deliberately the first
+    intra-staff authority distinction (a locked spec decision) — widening it later is
+    a one-line change here.
+    """
+    member = _editing_member(request)
+    if orienter is not None and member is not None and orienter.pk == member.pk:
+        return can_manage_orientations(request, guild)
+    if is_effective_staff(request):
+        return True
+    return member is not None and guild.guild_lead_id == member.pk
+
+
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     """True when this request may edit the class offering.
 

@@ -5,6 +5,19 @@
 <div x-data="{}">
   {% include "components/page_header.html" with title="Orientations" description="Track and manage orientation requests and completions for the guilds you lead or staff. Members request an orientation from each guild's own page — this is where leads and staff respond to, schedule, and record them." %}
 
+  {% if hours_nudge_guilds %}
+  <div class="hub-card pl-hours-nudge">
+    <p style="margin:0; font-size:0.9rem;">
+      You have not posted any orientation hours yet.
+      {% if hours_nudge_guilds|length == 1 %}
+      {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_edit' g.pk %}?tab=orientations"><strong>Post your orientation hours</strong></a>{% endfor %}
+      {% else %}
+      <strong>Post your orientation hours</strong>: {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_edit' g.pk %}?tab=orientations">{{ g.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
+      {% endif %}
+    </p>
+  </div>
+  {% endif %}
+
   {% if upcoming %}
   <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Upcoming</h2>
@@ -13,6 +26,7 @@
       <li style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; padding:0.5rem 0; border-top:1px solid var(--hub-border);">
         <span>
           <strong>{{ b.member.display_name }}</strong> · {{ b.guild.name }}
+          {% if b.slot.with_label %}<span class="hub-text-muted">· {{ b.slot.with_label }}</span>{% endif %}
           <span class="hub-text-muted">· {{ b.slot.starts_at|date:"D M j, g:i A" }}</span>
           {% if b.status == "requested" %}<span class="hub-badge" style="background:rgba(238,180,75,0.18); color:#EEB44B;">Pending</span>{% endif %}
         </span>
@@ -58,6 +72,7 @@
         {% sort_header "When" "slot__starts_at" sort sort_dir base_params %}
         {% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}
         {% sort_header "Guild" "guild__name" sort sort_dir base_params %}
+        <th>Orienter</th>
         {% sort_header "Status" "status" sort sort_dir base_params %}
         <th>Oriented by</th>
         <th>Completed</th>
@@ -69,6 +84,7 @@
         <td>{{ b.slot.starts_at|date:"Y-m-d H:i" }}</td>
         <td><a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a></td>
         <td>{{ b.guild.name }}</td>
+        <td>{{ b.slot.orienter.display_name|default:"—" }}</td>
         <td>{{ b.get_status_display }}</td>
         <td>{{ b.oriented_by.display_name|default:"—" }}</td>
         <td>
@@ -83,7 +99,7 @@
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
+      <tr><td colspan="7" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

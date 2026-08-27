@@ -1,7 +1,7 @@
 {% extends "membership/emails/_base.html" %}
 {% block content %}
 <p style="margin: 0 0 8px; font-size: 12px; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">New orientation request</p>
-<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{{ booking.member.display_name }} wants to be oriented for <a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a></p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if slot.orienter %}{{ booking.member.display_name }} requested one of {{ slot.orienter_first_name }}'s orientation slots for <a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a>{% else %}{{ booking.member.display_name }} wants to be oriented for <a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a>{% endif %}</p>
 {% include "membership/emails/_slot.html" %}
 {% if booking.member_note %}<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;"><span style="color: #55697a;">Note:</span> {{ booking.member_note }}</p>{% endif %}
 <div style="text-align: center; margin: 24px 0 0;">
