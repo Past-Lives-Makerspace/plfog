@@ -205,6 +205,16 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
+    def hosted_by(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Classes this member teaches or authored (instructor OR created_by).
+
+        Both are direct single-valued FK comparisons on the row, so no join can
+        multiply rows — no ``.distinct()`` needed. ``member`` must be a real
+        Member: callers guard ``None`` (passing ``None`` would match every class
+        with a NULL instructor/author, the opposite of intended).
+        """
+        return self.filter(Q(instructor=member) | Q(created_by=member))
+
     def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
         """Offerings this member may edit.
 

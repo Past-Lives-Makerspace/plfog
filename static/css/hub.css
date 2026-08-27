@@ -3133,6 +3133,21 @@ a:hover { color: var(--hub-link-hover); }
     margin-bottom: 0.75rem;
 }
 
+/* Thin vertical rule separating the exclusive status pills from the orthogonal
+   "My Classes" toggle. Hidden on phones (below) where the flex-wrap already
+   provides visual separation and the divider can orphan at a line edge. */
+.pl-filter-divider {
+    width: 1px;
+    height: 1.25rem;
+    background: var(--hub-border);
+}
+
+@media (max-width: 640px) {
+    .pl-filter-divider {
+        display: none;
+    }
+}
+
 .admin-table-wrap {
     border: 1px solid var(--hub-border);
     border-radius: 8px;

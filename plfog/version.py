@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.15.0"
+VERSION = "1.16.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.16.0",
+        "date": "2026-08-27",
+        "title": "See just the classes you teach or run",
+        "changes": [
+            "The admin class list and the registrations list now have a My Classes filter, so if "
+            "you teach or run classes you can jump straight to only yours instead of scrolling the "
+            "whole makerspace. It stays put as you search, sort, and page through the results.",
+        ],
+    },
     {
         "version": "1.15.0",
         "date": "2026-08-27",

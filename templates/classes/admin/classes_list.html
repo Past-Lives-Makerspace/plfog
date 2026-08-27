@@ -2,16 +2,26 @@
 {% load classes_tags %}
 {% block tab_content %}
 <div class="admin-toolbar">
-    {% include "components/table_search.html" with q=q placeholder="Search classes…" %}
+    {% include "components/table_search.html" with q=q placeholder="Search classes…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_create' %}">+ New Class</a>
 </div>
 <div class="admin-filters">
-    {% for value, label, count in status_filters %}
-        <a class="hub-btn hub-btn--sm {% if selected_status == value %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}"
-           href="{% if value %}?status={{ value }}{% else %}.{% endif %}">
+    {% for url, label, count, is_selected in status_filters %}
+        <a class="hub-btn hub-btn--sm {% if is_selected %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}"
+           href="?{{ url }}">
             {{ label }} <span style="opacity:0.6; font-weight:400;">{{ count }}</span>
         </a>
     {% endfor %}
+    <span class="pl-filter-divider"></span>
+    <a class="hub-btn hub-btn--sm {% if mine_active %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}"
+       href="?{{ mine_toggle_url }}">
+        My Classes <span style="opacity:0.6; font-weight:400;">{{ mine_count }}</span>
+    </a>
+    <span class="pl-help">
+      <span class="pl-help__icon" tabindex="0" role="img"
+            aria-label="My Classes: shows only classes where you are the instructor or the class author.">?</span>
+      <span class="pl-help__bubble">Shows only classes where you are the instructor or the class author.</span>
+    </span>
     {% if pending_count %}
         <span style="margin-left:0.5rem; display:inline-block; background:var(--color-tuscan-yellow,#EEB44B); color:#000; font-size:0.75rem; font-weight:600; padding:0.15rem 0.55rem; border-radius:9999px;">
             {{ pending_count }} pending review
@@ -22,13 +32,17 @@
 <div class="admin-filters" style="margin-top:0.5rem;">
     <form method="get" style="display:flex;align-items:center;gap:0.5rem;">
         {% if selected_status %}<input type="hidden" name="status" value="{{ selected_status }}">{% endif %}
+        {% if mine_active %}<input type="hidden" name="mine" value="1">{% endif %}
+        {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+        {% if sort_dir %}<input type="hidden" name="dir" value="{{ sort_dir }}">{% endif %}
         <select name="instructor" onchange="this.form.submit()" style="font-size:0.875rem;padding:0.25rem 0.5rem;background:var(--hub-card-bg,#0c2236);color:var(--hub-text,#f4efdd);border:1px solid var(--hub-border);border-radius:4px;">
             <option value="">All instructors</option>
             {% for inst in instructors %}
             <option value="{{ inst.pk }}"{% if selected_instructor == inst.pk|stringformat:"s" %} selected{% endif %}>{{ inst.display_name }}</option>
             {% endfor %}
         </select>
-        {% if selected_instructor %}<a href="?{% if selected_status %}status={{ selected_status }}&{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">✕ Clear</a>{% endif %}
+        {% if selected_instructor %}<a href="?{{ instructor_clear_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">✕ Clear</a>{% endif %}
     </form>
 </div>
 {% endif %}
@@ -63,7 +77,7 @@
     {% empty %}
         <tr>
             <td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
-                {% if q %}No classes matching "{{ q }}".{% elif selected_status %}No {{ selected_status }} classes.{% else %}No classes yet.{% endif %}
+                {% if mine_active %}No classes match. You are not listed as instructor or author on any classes that match the current filters. <a href="?{{ mine_clear_url }}">Show all classes</a>{% elif q %}No classes matching "{{ q }}".{% elif selected_status %}No {{ selected_status }} classes.{% else %}No classes yet.{% endif %}
             </td>
         </tr>
     {% endfor %}
