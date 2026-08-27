@@ -90,7 +90,7 @@ Member-facing orientation section on the guild page. Context:
             {% if orientation.is_paid %}
             {% with price=orientation.price_cents|cents_as_price %}
             {% with paid_msg="You'll pay "|add:price|add:" now through our secure checkout. Your booking is a request until the guild confirms it. If they decline, or it's cancelled, you get an automatic full refund." %}
-            {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Book This Orientation?" confirm_message=paid_msg confirm_action_url=book_url confirm_button_text="Continue to Payment" confirm_button_style="primary" %}
+            {% include "components/confirm_modal.html" with confirm_id="book-slot-"|add:pks confirm_title="Book This Orientation?" confirm_message=paid_msg confirm_action_url=book_url confirm_button_text="Continue to Payment" confirm_button_style="primary" confirm_no_boost=True %}
             {% endwith %}
             {% endwith %}
             {% elif slot.orienter %}
@@ -125,7 +125,7 @@ Member-facing orientation section on the guild page. Context:
       </button>
       <div x-show="showCustom" x-cloak style="max-width:420px;">
         <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Propose your own time and the guild lead will confirm it.</p>
-        <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form">
+        <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form"{% if orientation.is_paid %} hx-boost="false"{% endif %}>
           {% csrf_token %}
           {% include "components/form_field.html" with field=custom_request_form.starts_at %}
           {% include "components/form_field.html" with field=custom_request_form.note %}

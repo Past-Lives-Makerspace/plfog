@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.19.0"
+VERSION = "1.19.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.19.1",
+        "date": "2026-08-27",
+        "title": "Smoother orientation checkout",
+        "changes": [
+            "If your guild charges for orientations, tapping Continue to Payment now opens our "
+            "secure checkout right away. We also tidied up how guild calendars respond when you "
+            "hover over an event.",
+        ],
+    },
     {
         "version": "1.19.0",
         "date": "2026-08-27",
