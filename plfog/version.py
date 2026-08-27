@@ -12,8 +12,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "Guild staff can each post their own orientation hours, so booking a slot now tells "
             "you exactly who you will meet. Your request goes straight to that person, and your "
-            "confirmation email says who is expecting you. Guild pages also nudge staff who have "
-            "not posted hours yet.",
+            "confirmation email says who is expecting you. Staff who have not posted hours yet "
+            "get a nudge on the orientations dashboard.",
         ],
     },
     {

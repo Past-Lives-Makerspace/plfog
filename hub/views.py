@@ -714,6 +714,10 @@ def _guild_edit_context(
     )
     leadership = guild.leadership_members()
     leadership_ids = {m.pk for m in leadership}
+    # An admin/officer who is not on this guild's leadership gets no self-scoped My Hours
+    # card — their personal rules would never generate slots (the save 403s that scope
+    # too). Edit-on-behalf (?orienter=, incl. Former Staff cleanup) still renders.
+    show_my_hours_card = hours_editing_other or (viewer is not None and viewer.pk in leadership_ids)
     rules_by_orienter: dict[int, list[Any]] = {}
     orphan_orienters: dict[int, Any] = {}
     for rule in guild.orientation_rules.exclude(orienter=None).select_related("orienter"):
@@ -729,7 +733,12 @@ def _guild_edit_context(
     )
     guild_rules_qs = guild.orientation_rules.guild_level()
     has_guild_rules = guild_rules_qs.exists()
-    upcoming_slots_admin = list(guild.orientation_slots.upcoming().select_related("orienter").order_by("starts_at"))
+    upcoming_slots_admin = list(
+        guild.orientation_slots.upcoming()
+        .with_active_booking_count()  # one aggregate, not a COUNT per row — the list is unbounded
+        .select_related("orienter")
+        .order_by("starts_at")
+    )
 
     return {
         **ctx,
@@ -769,6 +778,7 @@ def _guild_edit_context(
         ),
         "hours_scope_member": hours_scope,
         "hours_editing_other": hours_editing_other,
+        "show_my_hours_card": show_my_hours_card,
         "can_edit_others_hours": can_edit_others_hours,
         "orienter_overview": orienter_overview,
         "former_staff_overview": former_staff_overview,

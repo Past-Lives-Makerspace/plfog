@@ -8295,6 +8295,21 @@ class OrientationSlotQuerySet(models.QuerySet):
         """Future, uncancelled slots."""
         return self.filter(is_cancelled=False, starts_at__gte=timezone.now())
 
+    def with_active_booking_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``active_booking_count`` (requested + confirmed).
+
+        The list-render companion to the ``seats_taken`` property: one aggregate in the
+        slot query instead of a COUNT per row (the Upcoming Slots card is unbounded).
+        """
+        return self.annotate(
+            active_booking_count=Count(
+                "bookings",
+                filter=Q(
+                    bookings__status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
+                ),
+            )
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots at guilds currently accepting bookings (does not check seats).
 
@@ -8321,6 +8336,8 @@ class OrientationSlot(models.Model):
     # View-attached display label ("with Bob P.") — set where a slot list is built
     # with the guild-wide duplicate-first-name disambiguation map.
     with_display: str
+    # Queryset annotation (set by OrientationSlotQuerySet.with_active_booking_count)
+    active_booking_count: int
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"

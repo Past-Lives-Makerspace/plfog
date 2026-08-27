@@ -205,6 +205,68 @@ def describe_my_hours_rendering():
         assert b"No hours yet. Add your first window and members can start booking you." in response.content
 
 
+def describe_non_leadership_admin_self_scope():
+    def it_hides_the_my_hours_card_and_shows_the_overview(client: Client):
+        # An admin off this guild's leadership would only make rules generate_slots
+        # silently skips — no self-scoped card for them, just the overview.
+        _member_user("nl_admin", name="Site Admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="nl_admin", password="pass")
+        response = client.get(_tab_url(guild))
+        assert response.status_code == 200
+        assert b"My Orientation Hours" not in response.content
+        assert b"All Orientation Hours" in response.content
+        assert b"+ Add A Slot" in response.content  # the rest of the tab is intact
+
+    def it_403s_a_self_scope_save(client: Client):
+        user = _member_user("nl_save", name="Site Admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="nl_save", password="pass")
+        response = client.post(_hours_url(guild), _rule_payload(str(user.member.pk)))
+        assert response.status_code == 403
+        assert not OrientationAvailability.objects.filter(guild=guild).exists()
+
+    def it_still_lets_them_edit_on_behalf(client: Client):
+        _member_user("nl_behalf", name="Site Admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        bob = MemberFactory(full_legal_name="Bob Placeholder")
+        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
+        client.login(username="nl_behalf", password="pass")
+        response = client.post(_hours_url(guild), _rule_payload(str(bob.pk)))
+        assert response.status_code == 302
+        assert OrientationAvailability.objects.get(guild=guild).orienter == bob
+
+    def it_shows_the_card_again_when_the_admin_is_also_on_staff(client: Client):
+        guild = GuildFactory()
+        user = _member_user("nl_staffed", name="Staffed Admin", fog_role=Member.FogRole.ADMIN)
+        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
+        client.login(username="nl_staffed", password="pass")
+        response = client.get(_tab_url(guild))
+        assert b"My Orientation Hours" in response.content
+
+
+def describe_upcoming_slots_query_count():
+    def it_stays_constant_as_the_slot_list_grows(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        user = _member_user("qc_lead", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        OrientationSlotFactory(guild=guild)
+        booked = OrientationSlotFactory(guild=guild)
+        OrientationBookingFactory(slot=booked)
+        client.login(username="qc_lead", password="pass")
+        client.get(_tab_url(guild))  # warm-up (content types, sessions)
+        with CaptureQueriesContext(connection) as small:
+            assert client.get(_tab_url(guild)).status_code == 200
+        for _ in range(6):
+            OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+        with CaptureQueriesContext(connection) as large:
+            assert client.get(_tab_url(guild)).status_code == 200
+        # The booked-seat counts come from one annotated query, not a COUNT per row.
+        assert len(large) == len(small)
+
+
 def describe_edit_on_behalf_via_the_orienter_param():
     def it_scopes_the_editor_for_the_lead(client: Client):
         user = _member_user("ob_lead", name="Lead Person")
@@ -237,6 +299,18 @@ def describe_edit_on_behalf_via_the_orienter_param():
         response = client.get(f"{_tab_url(guild)}&orienter=999999")
         assert response.status_code == 200
         assert b"My Orientation Hours" in response.content
+
+    def it_renders_the_editor_for_a_former_staff_member(client: Client):
+        # The Former Staff group's Edit Hours link must still open the on-behalf editor
+        # (the non-leadership guard applies to SELF scope only).
+        user = _member_user("ob_former", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        gone = MemberFactory(full_legal_name="Gone Person")
+        OrientationAvailabilityFactory(guild=guild, orienter=gone)
+        client.login(username="ob_former", password="pass")
+        response = client.get(f"{_tab_url(guild)}&orienter={gone.pk}")
+        assert response.status_code == 200
+        assert b"Editing Gone Person" in response.content
 
     def it_ignores_a_non_numeric_param(client: Client):
         user = _member_user("ob_nondigit", name="Lead Person")

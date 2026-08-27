@@ -183,6 +183,37 @@ def describe_with_copy_deltas():
         assert "one of Bob's orientation slots" in lead_email.body
         assert "one of Bob's orientation slots" in lead_email.alternatives[0][0]
 
+    def it_names_the_decliner_on_a_personal_slot():
+        guild, _lead, bob, _other = _routed_guild("cp_d")
+        requester = _member_with_user("cp_d_member")
+        slot = OrientationSlotFactory(guild=guild, orienter=bob, enabled_settings=False)
+        booking = OrientationBookingFactory(slot=slot, member=requester)
+        mail.outbox.clear()
+
+        orientations.decline_orientation(booking, note="Try next week")
+
+        member_email = next(m for m in mail.outbox if m.to == [requester.primary_email])
+        html = member_email.alternatives[0][0]
+        assert "Bob wasn't able to confirm your requested orientation time." in member_email.body
+        assert "Bob wasn't able to confirm your requested time." in html
+        assert "A note from Bob" in member_email.body
+        assert "A note from Bob" in html
+        assert "guild lead wasn't able" not in member_email.body
+
+    def it_keeps_the_guild_lead_copy_on_a_guild_slot_decline():
+        guild, _lead, _bob, _other = _routed_guild("cp_dg")
+        requester = _member_with_user("cp_dg_member")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        booking = OrientationBookingFactory(slot=slot, member=requester)
+        mail.outbox.clear()
+
+        orientations.decline_orientation(booking, note="Ping us again soon")
+
+        member_email = next(m for m in mail.outbox if m.to == [requester.primary_email])
+        assert "The guild lead wasn't able to confirm your requested orientation time." in member_email.body
+        assert "The guild lead wasn't able to confirm your requested time." in member_email.alternatives[0][0]
+        assert "A note from the guild lead" in member_email.body
+
     def it_names_the_orienter_in_the_cancellation_email():
         guild, _lead, bob, _other = _routed_guild("cp_x")
         requester = _member_with_user("cp_x_member")

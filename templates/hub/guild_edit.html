@@ -366,6 +366,8 @@ confirm modal carries its own POST form, and template content can't nest a form.
   </form>
 
   {# My Orientation Hours — the viewer's personal formset (or edit-on-behalf via ?orienter=). #}
+  {# Hidden for an admin/officer not on this guild's leadership: their own rules would never generate slots. #}
+  {% if show_my_hours_card %}
   <form id="my-hours-form" method="post" action="{% url 'hub_guild_orientation_hours_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
     <input type="hidden" name="orienter_scope" value="{{ hours_scope_member.pk|default:'' }}">
@@ -441,6 +443,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </div>
     </div>
   </form>
+  {% endif %}
 
   {# All Orientation Hours — lead/admin overview grouped by person, with edit-on-behalf links. #}
   {% if can_edit_others_hours %}
@@ -555,11 +558,11 @@ confirm modal carries its own POST form, and template content can't nest a form.
             <span class="hub-text-muted">Any orienter</span>
           {% endif %}
         </span>
-        <span class="pl-slot-admin__seats">{{ slot.seats_taken }} of {{ slot.seats }} booked</span>
+        <span class="pl-slot-admin__seats">{{ slot.active_booking_count }} of {{ slot.seats }} booked</span>
         <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one-off{% endif %}</span>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'slot-cancel-{{ slot.pk }}')">Cancel</button>
         {% url 'hub_guild_orientation_slot_cancel' guild.pk slot.pk as slot_cancel_url %}
-        {% if slot.seats_taken %}
+        {% if slot.active_booking_count %}
         {% include "components/confirm_modal.html" with confirm_id="slot-cancel-"|add:spks confirm_title="Cancel this slot?" confirm_message="Anyone booked on it will be emailed that it is off." confirm_action_url=slot_cancel_url confirm_button_text="Cancel slot" %}
         {% else %}
         {% include "components/confirm_modal.html" with confirm_id="slot-cancel-"|add:spks confirm_title="Cancel this open slot?" confirm_message="No one is booked on it yet." confirm_action_url=slot_cancel_url confirm_button_text="Cancel slot" %}

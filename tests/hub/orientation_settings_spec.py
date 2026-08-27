@@ -78,8 +78,9 @@ def _future_date(days: int = 2) -> str:
 def describe_guild_orientation_edit():
     def it_renders_the_editor_inside_the_orientations_tab(client: Client):
         # The editor is now an in-page tab on the guild edit page, not a standalone page.
-        _user_with_role("ed_admin", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
+        # (The viewer leads the guild — My Hours only renders for its leadership.)
+        user = _user_with_role("ed_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(guild_lead=user.member)
         client.login(username="ed_admin", password="pass")
         response = client.get(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
         assert response.status_code == 200
@@ -185,8 +186,9 @@ def describe_guild_orientation_hours_save():
     """Recurring hours save through their own form/view, separate from the settings form."""
 
     def it_saves_a_recurring_rule_and_redirects_to_the_tab(client: Client):
-        user = _user_with_role("hrs_add", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
+        # Self-scope saves require being on the guild's leadership — hence the lead here.
+        user = _user_with_role("hrs_add", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
         client.login(username="hrs_add", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
@@ -298,8 +300,8 @@ def describe_guild_orientation_hours_save():
 
     def it_keeps_existing_settings_when_only_hours_are_saved(client: Client):
         # Saving hours through its own form must not disturb the guild's orientation settings.
-        user = _user_with_role("hrs_keep", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
+        user = _user_with_role("hrs_keep", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
         settings_obj = GuildOrientationSettingsFactory(guild=guild, is_enabled=True, default_location="Front desk")
         client.login(username="hrs_keep", password="pass")
         response = client.post(
@@ -323,8 +325,8 @@ def describe_guild_orientation_hours_save():
 
     def it_rejects_a_rule_whose_end_is_before_its_start(client: Client):
         # The bad time range re-renders the page with the field error and saves nothing.
-        user = _user_with_role("hrs_bad", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
+        user = _user_with_role("hrs_bad", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
         client.login(username="hrs_bad", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
