@@ -74,6 +74,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="take_reconciliation_snapshot",
+        name="Reconciliation month-end snapshots",
+        description="Freezes the prior month's per-recipient payout allocation once, at month end.",
+        command="take_reconciliation_snapshot",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_lease_expiry_reminders",
         name="Lease-expiry reminders",
         description="Warns members whose studio lease is about to end.",

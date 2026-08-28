@@ -13,7 +13,7 @@ from membership.models import AdminCapability, Member
 
 pytestmark = pytest.mark.django_db
 
-ALL_TABS = ("overview", "open-tabs", "payments", "settings", "stripe")
+ALL_TABS = ("overview", "open-tabs", "payments", "reconciliation", "settings", "stripe")
 
 
 def _login_user(client: Client, username: str) -> Member:
@@ -84,10 +84,11 @@ def describe_billing_admin_access():
         response = client.get("/billing/admin/dashboard/")
         assert response.status_code == 403
 
-    def it_admits_a_billing_administrator_to_reports(client: Client):
+    def it_redirects_the_retired_reports_url_to_the_reconciliation_tab(client: Client):
         _login_billing_approver(client, "biller2")
         response = client.get("/billing/admin/reports/")
-        assert response.status_code == 200
+        assert response.status_code == 301
+        assert "tab=reconciliation" in response["Location"]
 
     def it_still_admits_a_fog_admin(client: Client):
         User.objects.create_superuser(username="fogadmin", password="pass", email="fogadmin@example.com")
@@ -132,13 +133,13 @@ def describe_tab_link_reachability_parity():
     def it_matches_for_a_fog_admin_with_the_flag_on(client: Client):
         _login_superuser(client, "parity_admin_on")
         reachable = _assert_link_reachability_parity(client)
-        assert reachable == {"overview", "open-tabs", "payments", "settings", "stripe"}
+        assert reachable == {"overview", "open-tabs", "payments", "reconciliation", "settings", "stripe"}
 
     def it_matches_for_a_fog_admin_with_the_flag_off(client: Client):
         _disable_my_tab()
         _login_superuser(client, "parity_admin_off")
         reachable = _assert_link_reachability_parity(client)
-        assert reachable == {"payments", "settings", "stripe"}
+        assert reachable == {"payments", "reconciliation", "settings", "stripe"}
 
     def it_matches_for_an_approver_with_the_flag_on(client: Client):
         _login_billing_approver(client, "parity_appr_on")

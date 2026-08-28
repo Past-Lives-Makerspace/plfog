@@ -683,29 +683,11 @@ def describe_admin_reports():
         response = client.get("/billing/admin/reports/")
         assert response.status_code == 302
 
-    def it_renders_with_default_current_month_when_no_filters(client: Client):
+    def it_permanently_redirects_to_the_reconciliation_tab(client: Client):
         _create_superuser(client)
         response = client.get("/billing/admin/reports/")
-        assert response.status_code == 200
-        assert "rows" in response.context
-        assert "payout_summary" in response.context
-        assert "admin_total" in response.context
-
-    def it_renders_with_explicit_filters(client: Client):
-        from tests.billing.factories import ProductFactory
-
-        BillingSettingsFactory()
-        _create_superuser(client)
-        product = ProductFactory()
-        tab = TabFactory()
-        tab.add_entry(description="x", amount=Decimal("10.00"), product=product)
-        response = client.get(
-            "/billing/admin/reports/?start_date=2020-01-01&end_date=2099-12-31&guilds=99&charge_type=product&status=pending"
-        )
-        assert response.status_code == 200
-        assert response.context["selected_charge_types"] == ["product"]
-        assert response.context["selected_statuses"] == ["pending"]
-        assert response.context["selected_guilds"] == ["99"]
+        assert response.status_code == 301
+        assert "tab=reconciliation" in response["Location"]
 
 
 def describe_admin_reports_csv():
@@ -713,19 +695,11 @@ def describe_admin_reports_csv():
         response = client.get("/billing/admin/reports/export/csv/")
         assert response.status_code == 302
 
-    def it_streams_csv(client: Client):
-        from tests.billing.factories import ProductFactory
-
-        BillingSettingsFactory()
+    def it_permanently_redirects_to_the_reconciliation_csv(client: Client):
         _create_superuser(client)
-        product = ProductFactory()
-        tab = TabFactory()
-        tab.add_entry(description="bag", amount=Decimal("10.00"), product=product)
         response = client.get("/billing/admin/reports/export/csv/")
-        assert response.status_code == 200
-        body = b"".join(response.streaming_content).decode()
-        assert "date,member,description" in body
-        assert "bag" in body
+        assert response.status_code == 301
+        assert "/billing/admin/reconciliation/export/csv/" in response["Location"]
 
 
 def describe_billing_test_platform_connection():

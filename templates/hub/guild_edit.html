@@ -378,6 +378,22 @@ confirm modal carries its own POST form, and template content can't nest a form.
         {% endif %}
         <p class="pl-field-hint">In dollars, e.g. 15 or 15.50.</p>
       </div>
+
+      {% if orientation_is_paid %}
+      {# Read-only: the split is set by an admin on the Payments Dashboard, not here. #}
+      <div class="hub-text-muted" style="margin-top:1rem; font-size:0.9rem;">
+        <strong>Orientation payment split:</strong>
+        {{ orientation_split.orientator|floatformat:"-2" }}% orientator ·
+        {{ orientation_split.guild|floatformat:"-2" }}% guild ·
+        {{ orientation_split.pl|floatformat:"-2" }}% Past Lives.
+        <span class="pl-help">
+          <span class="pl-help__icon" tabindex="0" role="img" aria-label="Orientation split: how a paid orientation's fee is divided.">?</span>
+          <span class="pl-help__bubble">This is how a paid orientation's fee is divided. Only an admin can change it, on the Payments Dashboard settings.</span>
+        </span>
+        <br>
+        <span style="font-size:0.85rem;">Set by an admin on the Payments Dashboard settings. Applies when this orientation has a price.</span>
+      </div>
+      {% endif %}
     </div>
 
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">

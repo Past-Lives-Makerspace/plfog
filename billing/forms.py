@@ -328,6 +328,116 @@ class BillingSettingsForm(forms.ModelForm):
         return value
 
 
+def _format_percent(total: Decimal) -> str:
+    """Render a percent sum without scientific notation or trailing zeros (105.00 -> "105")."""
+    return f"{total:.2f}".rstrip("0").rstrip(".")
+
+
+class ReconciliationSettingsForm(forms.ModelForm):
+    """Editable split percentages on BillingSettings — each triad must sum to 100.00."""
+
+    _ORIENTATION = ["orientation_orientator_percent", "orientation_guild_percent", "orientation_pl_percent"]
+    _CLASS = ["class_instructor_percent", "class_guild_percent", "class_pl_percent"]
+
+    class Meta:
+        model = BillingSettings
+        fields = [
+            "orientation_orientator_percent",
+            "orientation_guild_percent",
+            "orientation_pl_percent",
+            "class_instructor_percent",
+            "class_guild_percent",
+            "class_pl_percent",
+        ]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        self._check_triad(cleaned, self._ORIENTATION, "Orientation")
+        self._check_triad(cleaned, self._CLASS, "Class")
+        return cleaned
+
+    def _check_triad(self, cleaned: dict[str, Any], fields: list[str], label: str) -> None:
+        raw = [cleaned.get(name) for name in fields]
+        if any(value is None for value in raw):
+            return  # a per-field bound error already fired
+        values = [Decimal(str(value)) for value in raw]
+        total = sum(values, Decimal("0"))
+        if total != Decimal("100"):
+            message = f"{label} percentages must add up to 100 (currently {_format_percent(total)})."
+            for name in fields:
+                self.add_error(name, message)
+
+
+class TransactionAdjustmentForm(forms.Form):
+    """Per-transaction reconciliation override: omit the transaction or re-split it.
+
+    Class / orientation transactions expose one percent field per recipient (the
+    triad must sum to 100 unless omitted). Tab charges are omit-only.
+    """
+
+    _PERCENT_KEYS: dict[str, list[tuple[str, str]]] = {
+        "class": [("instructor", "Instructor"), ("guild", "Guild"), ("pl", "Past Lives")],
+        "orientation": [("orientator", "Orientator"), ("guild", "Guild"), ("pl", "Past Lives")],
+        "tab": [],
+    }
+
+    is_omitted = forms.BooleanField(required=False, label="Do not count this transaction")
+    reason = forms.CharField(required=False, widget=forms.TextInput, label="Reason")
+
+    def __init__(self, *args: Any, source_kind: str, source_pk: int, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if source_kind not in self._PERCENT_KEYS:
+            raise ValueError(f"Unknown source_kind: {source_kind}")
+        self.source_kind = source_kind
+        self.source_pk = source_pk
+        self.percent_keys = [key for key, _ in self._PERCENT_KEYS[source_kind]]
+        for key, label in self._PERCENT_KEYS[source_kind]:
+            self.fields[f"percent_{key}"] = forms.DecimalField(
+                max_digits=5,
+                decimal_places=2,
+                min_value=Decimal("0"),
+                max_value=Decimal("100"),
+                required=False,
+                label=f"{label} %",
+            )
+        self.fields["reason"].help_text = "Internal note. Members never see this."
+
+    @property
+    def percent_fields(self) -> list[Any]:
+        """The bound percent fields for this source kind (empty for tab charges)."""
+        return [self[f"percent_{key}"] for key in self.percent_keys]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if cleaned.get("is_omitted") or not self.percent_keys:
+            return cleaned
+        raw = [cleaned.get(f"percent_{key}") for key in self.percent_keys]
+        if any(value is None for value in raw):
+            raise forms.ValidationError("Enter all three percentages.")
+        if sum((Decimal(str(value)) for value in raw), Decimal("0")) != Decimal("100"):
+            raise forms.ValidationError("The three percentages must add up to 100.")
+        return cleaned
+
+    def save(self, *, actor: Any) -> Any:
+        from billing.models import TransactionAdjustment
+
+        is_omitted = bool(self.cleaned_data["is_omitted"])
+        override: dict[str, str] | None = None
+        if not is_omitted and self.percent_keys:
+            override = {key: str(self.cleaned_data[f"percent_{key}"]) for key in self.percent_keys}
+        adjustment, _created = TransactionAdjustment.objects.update_or_create(
+            source_kind=self.source_kind,
+            source_pk=self.source_pk,
+            defaults={
+                "is_omitted": is_omitted,
+                "override_percents": override,
+                "reason": self.cleaned_data.get("reason", ""),
+                "created_by": actor if getattr(actor, "pk", None) else None,
+            },
+        )
+        return adjustment
+
+
 class ConnectPlatformSettingsForm(forms.ModelForm):
     """Admin form for editing the platform Stripe credentials on BillingSettings.
 

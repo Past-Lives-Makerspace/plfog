@@ -12,7 +12,7 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 from django.http import StreamingHttpResponse
 from django.utils import timezone
@@ -237,7 +237,8 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
                 item=registration.class_offering.title,
                 amount_cents=registration.amount_paid_cents,
                 status=status,
-                date=registration.confirmed_at,
+                # confirmed_at is non-null here — the queryset filters on it above.
+                date=cast(datetime, registration.confirmed_at),
                 refund_rows=refunds,
                 can_refund=bool(registration.stripe_payment_id) and registration.refundable_cents > 0,
                 pending_age=pending_age,

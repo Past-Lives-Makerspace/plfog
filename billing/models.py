@@ -87,6 +87,53 @@ class BillingSettings(models.Model):
         ),
     )
 
+    # ---- Reconciliation split percentages ----
+    # How a paid orientation / class payment is divided among its recipients on the
+    # Reconciliation tab. Each triad must sum to 100.00 — enforced in
+    # ReconciliationSettingsForm.clean(), never in the model (validation lives in forms).
+    orientation_orientator_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("70.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid orientation that goes to the orientator (0-100).",
+    )
+    orientation_guild_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid orientation that goes to the guild (0-100).",
+    )
+    orientation_pl_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("15.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid orientation that goes to Past Lives (0-100).",
+    )
+    class_instructor_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("70.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid class registration that goes to the instructor (0-100).",
+    )
+    class_guild_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("10.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid class registration that goes to the guild (0-100).",
+    )
+    class_pl_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("20.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="Percent of each paid class registration that goes to Past Lives (0-100).",
+    )
+
     # ---- Stripe platform configuration ----
     # Credentials for the single Past Lives platform Stripe account. All charges
     # and SetupIntents run through these keys.
@@ -1287,3 +1334,175 @@ class PaymentRefund(models.Model):
     def source_kind(self) -> str:
         """``"class"`` for registration refunds, ``"orientation"`` for orientation-booking refunds."""
         return "class" if self.registration_id is not None else "orientation"
+
+
+# ---------------------------------------------------------------------------
+# TransactionAdjustment — per-transaction reconciliation override (Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class TransactionAdjustmentQuerySet(models.QuerySet["TransactionAdjustment"]):
+    """Query helpers for reconciliation adjustments."""
+
+    def as_map(self) -> dict[tuple[str, int], TransactionAdjustment]:
+        """One-query lookup keyed by ``(source_kind, source_pk)`` so the engine avoids N queries."""
+        return {(adj.source_kind, adj.source_pk): adj for adj in self}
+
+
+class TransactionAdjustment(models.Model):
+    """An admin correction to a single transaction's reconciliation treatment.
+
+    Either omits the transaction from the allocation entirely, or (class /
+    orientation only) overrides its split percentages. Tab charges are omit-only
+    — a tab charge spans many frozen ``TabEntrySplit`` rows, so re-splitting it
+    from here is out of scope.
+    """
+
+    class SourceKind(models.TextChoices):
+        TAB = "tab", "Tab"
+        CLASS = "class", "Class"
+        ORIENTATION = "orientation", "Orientation"
+
+    source_kind = models.CharField(
+        max_length=20,
+        choices=SourceKind.choices,
+        help_text="Which payment stream the target transaction lives in.",
+    )
+    source_pk = models.PositiveIntegerField(
+        help_text="PK of the TabCharge / Registration / OrientationBooking being adjusted.",
+    )
+    is_omitted = models.BooleanField(
+        default=False,
+        help_text="When on, the transaction is excluded from the allocation entirely.",
+    )
+    override_percents = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Null uses the configured split. Otherwise a per-recipient percent map "
+            '(e.g. {"instructor": 60, "guild": 20, "pl": 20}) whose keys match the source '
+            "kind. Tab charges stay null (omit-only)."
+        ),
+    )
+    reason = models.TextField(
+        blank=True,
+        default="",
+        help_text="Internal note on why this transaction was adjusted. Members never see it.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Who created or last edited this adjustment.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this adjustment was first created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this adjustment was last edited.")
+
+    objects = TransactionAdjustmentQuerySet.as_manager()
+
+    class Meta:
+        verbose_name = "Transaction Adjustment"
+        verbose_name_plural = "Transaction Adjustments"
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["source_kind", "source_pk"], name="uq_txnadj_source"),
+        ]
+
+    def __str__(self) -> str:
+        state = "omitted" if self.is_omitted else "adjusted"
+        return f"{self.get_source_kind_display()} #{self.source_pk} ({state})"
+
+
+# ---------------------------------------------------------------------------
+# ReconciliationSnapshot — a frozen month-end allocation record (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+class ReconciliationSnapshot(models.Model):
+    """An immutable record of one month's reconciliation allocation.
+
+    Deliberately simpler than ``FundingSnapshot``: taking one emits no event,
+    sends no email, and touches no Airtable. It is a plain internal bookkeeping
+    record of what was owed to whom for a closed month.
+    """
+
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Optional label, e.g. 'August 2026'.",
+    )
+    period_start = models.DateField(help_text="First day of the window this snapshot froze.")
+    period_end = models.DateField(help_text="Last day of the window this snapshot froze.")
+    results = models.JSONField(
+        default=dict,
+        help_text="The frozen allocation: per-recipient totals, each guild's voting figure, and the split % in force.",
+    )
+    grand_total_cents = models.PositiveIntegerField(
+        default=0,
+        help_text="Total net collected in the window, denormalized for the history list.",
+    )
+    is_auto = models.BooleanField(
+        default=False,
+        help_text="True when the month-end job took it; False for a manual take.",
+    )
+    taken_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Who took the snapshot. Null for the automated month-end job.",
+    )
+    taken_at = models.DateTimeField(auto_now_add=True, help_text="When this snapshot was taken (ordering key).")
+
+    class Meta:
+        verbose_name = "Reconciliation Snapshot"
+        verbose_name_plural = "Reconciliation Snapshots"
+        ordering = ["-taken_at"]
+
+    def __str__(self) -> str:
+        return f"Reconciliation {self.period_start:%b %Y} (${self.grand_total_cents / 100:,.2f})"
+
+    @property
+    def delete_url(self) -> str:
+        """POST target for the confirm-delete modal on the history list."""
+        from django.urls import reverse
+
+        return reverse("billing_reconciliation_snapshot_delete", args=[self.pk])
+
+    @classmethod
+    def take(
+        cls,
+        *,
+        period_start: Any,
+        period_end: Any,
+        title: str = "",
+        is_auto: bool = False,
+        actor: Any | None = None,
+    ) -> ReconciliationSnapshot:
+        """Freeze the reconciliation for ``[period_start, period_end]``.
+
+        A plain create plus one ``SiteActivity`` audit row — no event, no email,
+        no Airtable, unlike ``FundingSnapshot.take()``.
+        """
+        from core.models import SiteActivity
+
+        from billing.payments_panel import PanelWindow
+        from billing.reconciliation import build_reconciliation
+
+        window = PanelWindow(start=period_start, end=period_end)
+        result = build_reconciliation(window=window)
+        snapshot = cls.objects.create(
+            title=title.strip(),
+            period_start=period_start,
+            period_end=period_end,
+            results=result.to_snapshot_dict(),
+            grand_total_cents=result.grand_total_cents,
+            is_auto=is_auto,
+            taken_by=actor if (actor is not None and getattr(actor, "pk", None)) else None,
+        )
+        SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_TAKEN, actor=actor, target=snapshot)
+        return snapshot

@@ -1,0 +1,51 @@
+{# Reconciliation split-percentage config — lives on the admin Settings tab. #}
+<div class="pl-card">
+  <div class="pl-section-label">Reconciliation Splits</div>
+  <p class="pl-text-muted" style="margin:0 0 1.25rem">
+    How each paid orientation and class payment is divided among its recipients. These percentages also show,
+    read-only, on each guild's Orientation settings. Each set must add up to 100%. A change affects future
+    reconciliation reads only; already-taken snapshots keep their frozen percentages.
+  </p>
+
+  <form method="post" action="{% url 'billing_admin_save_reconciliation_settings' %}">
+    {% csrf_token %}
+
+    <div class="pl-section-label" style="margin-top:0.25rem">Orientation Splits (= 100%)</div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.orientation_orientator_percent.id_for_label }}">Orientator %</label>
+      {{ reconciliation_settings_form.orientation_orientator_percent }}
+      {% if reconciliation_settings_form.orientation_orientator_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.orientation_orientator_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.orientation_guild_percent.id_for_label }}">Guild %</label>
+      {{ reconciliation_settings_form.orientation_guild_percent }}
+      {% if reconciliation_settings_form.orientation_guild_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.orientation_guild_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.orientation_pl_percent.id_for_label }}">Past Lives %</label>
+      {{ reconciliation_settings_form.orientation_pl_percent }}
+      {% if reconciliation_settings_form.orientation_pl_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.orientation_pl_percent.errors }}</div>{% endif %}
+    </div>
+
+    <div class="pl-section-label" style="margin-top:1.25rem">Class Splits (= 100%)</div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.class_instructor_percent.id_for_label }}">Instructor %</label>
+      {{ reconciliation_settings_form.class_instructor_percent }}
+      {% if reconciliation_settings_form.class_instructor_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.class_instructor_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.class_guild_percent.id_for_label }}">Guild %</label>
+      {{ reconciliation_settings_form.class_guild_percent }}
+      {% if reconciliation_settings_form.class_guild_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.class_guild_percent.errors }}</div>{% endif %}
+    </div>
+    <div class="pl-form-row">
+      <label for="{{ reconciliation_settings_form.class_pl_percent.id_for_label }}">Past Lives %</label>
+      {{ reconciliation_settings_form.class_pl_percent }}
+      {% if reconciliation_settings_form.class_pl_percent.errors %}<div class="pl-form-errors">{{ reconciliation_settings_form.class_pl_percent.errors }}</div>{% endif %}
+    </div>
+
+    <div class="pl-form-actions">
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
