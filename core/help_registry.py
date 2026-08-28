@@ -621,6 +621,89 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    # ── Annotation-only keys (auto-navigating guided tours) ─────────────────
+    # Tour step targets on the demo path; article_slug=None until a section
+    # exists, so url_for degrades to /help/.
+    "catalog.filter": {
+        "title": "Filter the catalog",
+        "short_text": (
+            "Every class and workshop lives here. Filter by guild or date, then open one to see the details."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "catalog.class-card": {
+        "title": "A class card",
+        "short_text": "Each card is a class. Click it to read what you will make and to sign up.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "spaces.map": {
+        "title": "The spaces map",
+        "short_text": (
+            "Studios, storage, parking, and desks live on this map. Click any open space to ask about renting it."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-basics": {
+        "title": "Title and description",
+        "short_text": "Give your class a clear title and describe what members will make and learn.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-gallery": {
+        "title": "Class photos",
+        "short_text": "Add photos of the finished project and the space. Good images fill seats.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster-table": {
+        "title": "Your class roster",
+        "short_text": "Everyone who signed up. Open a person's menu to remove them and a seat frees up.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster-waitlist": {
+        "title": "The waitlist",
+        "short_text": "Promote someone from the waitlist and they take the open seat and get a confirmation.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.welcome-email": {
+        "title": "The welcome email",
+        "short_text": (
+            "The email new members get when they join your guild. Leave the subject and body blank to send the standard welcome."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.wishlist": {
+        "title": "Your guild wishlist",
+        "short_text": (
+            "List the tools and supplies your guild wants. Add a donate link and members get a Donate button too."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.refunds": {
+        "title": "Payments and refunds",
+        "short_text": "Every charge is here. Open one to issue a refund; the member gets it back and a receipt.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.discount-codes": {
+        "title": "Discount codes",
+        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.reconciliation": {
+        "title": "Reconciliation",
+        "short_text": "Breaks down what each guild, instructor, and orientator is owed so you can reconcile payouts.",
+        "article_slug": None,
+        "anchor": None,
+    },
 }
 
 # THE key regex — Specs B/C import this instead of restating their own.

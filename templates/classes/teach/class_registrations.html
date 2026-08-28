@@ -2,7 +2,8 @@
 {% load classes_tags %}
 {% block detail_content %}
 <div>
-    <div hx-get="{% url 'classes:teach_class_registrations_table' offering.pk %}"
+    <div data-help-key="teach.roster-table"
+         hx-get="{% url 'classes:teach_class_registrations_table' offering.pk %}"
          hx-trigger="refund-done from:body"
          hx-swap="innerHTML">
         {% include "classes/teach/partials/class_registrations_table.html" %}

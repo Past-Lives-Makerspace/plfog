@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.20.0"
+VERSION = "1.21.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.21.0",
+        "date": "2026-08-28",
+        "title": "Take a guided tour",
+        "changes": [
+            "New guided tours walk you through the member portal and drive the navigation for "
+            "you, hopping from page to page while they explain each part. There is a tour for "
+            "members, one for instructors, one for guild leads, and one for admins. Click Show "
+            "me around on your home page, or start one any time from the Help page, and you can "
+            "turn tours on or off in Settings.",
+        ],
+    },
     {
         "version": "1.20.0",
         "date": "2026-08-27",

@@ -394,7 +394,7 @@
             {% endif %}
           </div>
           {% if spots_remaining > 0 %}
-            <a class="cp-detail__cta" href="{% url 'classes:register' slug=offering.slug %}">
+            <a class="cp-detail__cta" data-help-key="class.register" href="{% url 'classes:register' slug=offering.slug %}">
               {% if offering.price_cents == 0 %}Register — Free{% else %}Register now{% endif %}
             </a>
           {% else %}

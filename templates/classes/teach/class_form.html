@@ -11,7 +11,7 @@
     {% csrf_token %}
     {# Identity fields (left) + the Share & Print card (right), 6/6 on desktop, stacked on mobile. #}
     <div class="pl-edit-split">
-        <div class="pl-edit-split__main">
+        <div class="pl-edit-split__main" data-help-key="teach.class-basics">
             {% for field in form %}
                 {% if field.name == 'title' or field.name == 'category' %}
                     {% include "components/form_field.html" with field=field %}

@@ -110,6 +110,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
 
 {% if offering and offering.pk %}
 <div id="gallery-manager"
+     data-help-key="teach.class-gallery"
      data-upload-url="{% url 'classes:admin_class_image_upload' pk=offering.pk %}"
      data-reorder-url="{% url 'classes:admin_class_image_reorder' pk=offering.pk %}"
      data-csrf="{{ csrf_token }}">

@@ -49,7 +49,7 @@
       {% include "components/form_field.html" with field=form.show_members %}
     </div>
 
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.wishlist">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Wishlist</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Tools, materials, or equipment the guild is hoping to receive as donations. Shown on a Wishlist tab on your guild page. Add a donate link and members get a Donate button too.</p>
       {% include "components/form_field.html" with field=form.wishlist %}
@@ -126,7 +126,7 @@
 <div x-show="section === 'studio_hours'" x-cloak>
   <form method="post" action="{% url 'hub_guild_studio_hours_save' guild.pk %}" class="hub-form">
     {% csrf_token %}
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.studio-hours">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Studio Hours</h2>
       <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Weekly windows when you're around for members to drop by — shown on your guild page. Add one row per window (e.g. Tuesdays and Saturdays are two rows).</p>
       {{ studio_hours_formset.management_form }}
@@ -264,7 +264,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Meeting Notes (list only; per-record add/edit live on their own small pages) ──── #}
 <div x-show="section === 'meeting_notes'" x-cloak>
-  <div class="hub-card" style="padding:1.5rem;">
+  <div class="hub-card" style="padding:1.5rem;" data-help-key="guild.meeting-notes">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Meeting Notes</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
       Post your meeting agendas and recaps so members can catch up — with a date, a write-up, and any files or links.
@@ -303,7 +303,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Events (list only; per-record add/edit live on their own small pages) ──── #}
 <div x-show="section === 'events'" x-cloak>
-  <div class="hub-card" style="padding:1.5rem;">
+  <div class="hub-card" style="padding:1.5rem;" data-help-key="guild.events">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Events</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
       Schedule your guild's meetings and events. They show on the Community Calendar and the guild's own calendar, and members get a heads-up when a new one goes up.
@@ -624,7 +624,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 {# Immediate-effect controls (Preview + Send test) sit ABOVE the batch Save form so Save is the #}
 {# last thing on the tab with nothing under it (Rule 21). #}
 <div x-show="section === 'welcome_email'" x-cloak>
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.welcome-email">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome Email</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to a member when they deliberately join this guild (the Join This Guild button, or the Discord /join-guild command). On by default; leave the subject and body blank to send the standard welcome.</p>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
@@ -1002,5 +1002,3 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 </div>{# /x-data #}
 {% endblock %}
-
-{% block extra_js %}{% include "hub/partials/_tour.html" %}{% endblock %}

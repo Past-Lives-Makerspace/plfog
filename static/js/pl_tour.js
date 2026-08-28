@@ -1,35 +1,43 @@
 /*
- * Guided tours bootstrap (Spec C §6.2). Loaded only on tour entry pages via
- * templates/hub/partials/_tour.html; Driver.js itself (static/js/driver.min.js +
- * static/css/driver.css, vendored v1.3.6) is injected lazily the moment a tour
- * starts — ordinary pageviews never pay for it.
+ * Guided tours runtime — a SEGMENT PLAYER over a persisted itinerary.
+ *
+ * A tour narrates a step, then drives the browser to the next screen for you:
+ * a page hop (a full navigation carrying the resume param) or a same-page
+ * Alpine tab flip, detects the new surface has loaded, and keeps narrating.
+ * Driver.js (static/js/driver.min.js + static/css/driver.css, vendored v1.3.6)
+ * is the spotlight lib, injected lazily the moment a tour starts.
+ *
+ * Persistence: the running tour survives navigation via BOTH sessionStorage
+ * ("plTourRun") and a "?tour=<key>&step=<n>" URL param the navigation carries,
+ * so the tour re-hydrates and resumes at the right step on the destination.
+ *
+ * Robustness posture (this runs live on a demo stage): nothing should freeze.
+ * Every hop is guarded — a waitFor cap (~4s) lets async content paint, a
+ * missing target degrades to a centered popover (never a hang), a wrong-page
+ * 302 aborts cleanly, and Esc / the ✕ / an overlay click always end the tour
+ * and strip the URL param so a refresh does not silently restart it.
  *
  * hx-boost re-executes this script on boosted navigations, so it is a guarded
  * window.plTour IIFE with no top-level const/let: the module is defined once,
- * and every execution just calls init() to re-read the page's payload and bind
- * fresh DOM (the data-pl-tour-init attribute guards event binding; the
- * window.plTour check guards re-declaration — both guards are needed).
- *
- * Recording contract (locked): all state recording lives in onDestroyStarted.
- * Driver.js 1.x suppresses its default teardown when that hook is provided, so
- * the hook MUST call driverObj.destroy() itself — destroy() bypasses the hook
- * and runs the real teardown. Esc / the popover ✕ / an overlay click all route
- * through the hook (dismissed unless on the last step); htmx history/swap
- * teardown calls destroy() directly and records nothing (navigating away is
- * not deciding). Focus management is ours, not the library's: Driver.js 1.x
- * neither focuses the popover nor restores focus on close.
+ * and every execution just calls init() to re-read the payload and resume.
  */
 (function () {
     "use strict";
 
     if (!window.plTour) {
         window.plTour = (function () {
+            var RUN_KEY = "plTourRun";
+            var WAIT_CAP_MS = 4000;
+
             var assetsPromise = null; // cached so double-start is safe
             var current = null; // this page's payload (re-read on every init)
             var csrf = "";
-            var active = null; // { driverObj, sidebarPrev, restoreFocus }
+            var active = null; // { driverObj, segStart, segEnd } for the running segment
+            var session = null; // cross-segment state: { sidebarPrev, restoreFocus }
             var htmxBound = false;
+            var ending = false; // the tour is finishing (restore sidebar/focus on destroy)
 
+            // ── payload + assets ────────────────────────────────────────────
             function readPayload() {
                 var data = document.getElementById("pl-tour-data");
                 var root = document.getElementById("pl-tour-root");
@@ -37,7 +45,12 @@
                     current = null;
                     return;
                 }
-                current = JSON.parse(data.textContent);
+                try {
+                    current = JSON.parse(data.textContent);
+                } catch (e) {
+                    current = null;
+                    return;
+                }
                 csrf = root.getAttribute("data-csrf") || "";
             }
 
@@ -45,6 +58,10 @@
                 if (assetsPromise) return assetsPromise;
                 assetsPromise = new Promise(function (resolve, reject) {
                     var root = document.getElementById("pl-tour-root");
+                    if (!root) {
+                        reject(new Error("no tour root"));
+                        return;
+                    }
                     if (!document.querySelector("link[data-pl-driver-css]")) {
                         var link = document.createElement("link");
                         link.rel = "stylesheet";
@@ -71,6 +88,12 @@
             }
 
             function postState(status) {
+                if (!current) return;
+                // A normal, normally-prioritized fetch. We do NOT use keepalive: every
+                // caller (finish on completed / Esc / the close button) fires while the
+                // page stays loaded, so there is no unload to survive — and keepalive
+                // requests are deprioritized by the browser, which delayed this POST and
+                // left the recorded state lagging.
                 fetch(current.state_url, {
                     method: "POST",
                     headers: {
@@ -78,13 +101,45 @@
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
                     body: "status=" + encodeURIComponent(status),
-                    keepalive: true,
                 }).catch(function () {
                     // Worst case on a lost dismiss: the row stays OFFERED and the
                     // offer reappears next visit — honest and self-healing.
                 });
             }
 
+            // ── persisted running state ─────────────────────────────────────
+            function saveRun(index) {
+                try {
+                    var payload = {
+                        key: current.key,
+                        index: index,
+                        total: current.steps.length,
+                        sidebarPrev: session ? session.sidebarPrev : undefined,
+                    };
+                    window.sessionStorage.setItem(RUN_KEY, JSON.stringify(payload));
+                } catch (e) {
+                    /* private mode / no storage — the URL param still carries resume */
+                }
+            }
+
+            function readRun() {
+                try {
+                    var raw = window.sessionStorage.getItem(RUN_KEY);
+                    return raw ? JSON.parse(raw) : null;
+                } catch (e) {
+                    return null;
+                }
+            }
+
+            function clearRun() {
+                try {
+                    window.sessionStorage.removeItem(RUN_KEY);
+                } catch (e) {
+                    /* nothing to clear */
+                }
+            }
+
+            // ── Alpine helpers (tab flips + sidebar) ────────────────────────
             function bodyAlpineState() {
                 if (!window.Alpine || !window.Alpine.$data) return null;
                 try {
@@ -94,80 +149,380 @@
                 }
             }
 
-            function cleanup() {
-                if (!active) return;
-                var finished = active;
-                active = null;
-                if (finished.sidebarPrev !== undefined) {
-                    var bodyState = bodyAlpineState();
-                    if (bodyState) bodyState.sidebarOpen = finished.sidebarPrev;
+            function findAlpineOwner(varName) {
+                // The element whose Alpine scope owns varName (e.g. the guild
+                // editor root owns `section`; <body> owns `sidebarOpen`).
+                if (!window.Alpine || !window.Alpine.$data) return null;
+                var nodes = document.querySelectorAll("[x-data]");
+                for (var i = 0; i < nodes.length; i++) {
+                    var data = null;
+                    try {
+                        data = window.Alpine.$data(nodes[i]);
+                    } catch (e) {
+                        data = null;
+                    }
+                    if (data && varName in data) return data;
                 }
-                if (finished.restoreFocus && document.contains(finished.restoreFocus)) {
-                    finished.restoreFocus.focus({ preventScroll: true });
+                return null;
+            }
+
+            function applyTabOrClick(step) {
+                if (step.tab_set) {
+                    var owner = findAlpineOwner(step.tab_set[0]);
+                    if (owner) {
+                        try {
+                            owner[step.tab_set[0]] = step.tab_set[1];
+                        } catch (e) {
+                            /* scope went away — the target simply won't show; waitFor handles it */
+                        }
+                    }
+                } else if (step.click) {
+                    var el = document.querySelector(step.click);
+                    if (el) el.click();
                 }
             }
 
-            function buildSteps() {
-                // Missing/hidden targets are dropped BEFORE the driver is built, so
-                // progress numbering stays contiguous — a renamed element degrades
-                // to a shorter tour, never a broken one. Element-less (centered)
-                // steps always survive.
-                var steps = [];
-                current.steps.forEach(function (step) {
-                    if (!step.target) {
-                        steps.push({ popover: { title: step.title, description: step.body } });
+            // ── the async guard ─────────────────────────────────────────────
+            function isVisible(el) {
+                return !!(el && el.offsetParent !== null);
+            }
+
+            function waitFor(step) {
+                return new Promise(function (resolve) {
+                    var selector = step.wait_for || step.target;
+                    if (!selector) {
+                        resolve(true); // centered step — nothing to wait on
                         return;
                     }
-                    var el = document.querySelector(step.target);
-                    if (el && el.offsetParent !== null) {
-                        steps.push({ element: step.target, popover: { title: step.title, description: step.body } });
-                    }
+                    var startedAt = Date.now();
+                    (function poll() {
+                        if (isVisible(document.querySelector(selector))) {
+                            resolve(true);
+                            return;
+                        }
+                        if (Date.now() - startedAt > WAIT_CAP_MS) {
+                            resolve(false); // never hang — the step degrades to centered
+                            return;
+                        }
+                        requestAnimationFrame(poll);
+                    })();
                 });
-                return steps;
             }
 
-            function runTour(auto, sidebarPrev, restoreFocus) {
-                var steps = buildSteps();
-                // <2 surviving steps aborts an auto-offered start silently (records
-                // nothing); a manual start still shows what remains.
-                if (steps.length === 0 || (auto && steps.length < 2)) {
-                    active = { sidebarPrev: sidebarPrev, restoreFocus: null };
-                    cleanup();
+            // ── the advancing affordance ────────────────────────────────────
+            function advancingEl() {
+                return document.getElementById("pl-tour-advancing");
+            }
+
+            function showAdvancing() {
+                var el = advancingEl();
+                if (el) el.hidden = false;
+            }
+
+            function hideAdvancing() {
+                var el = advancingEl();
+                if (el) el.hidden = true;
+            }
+
+            // ── segments ────────────────────────────────────────────────────
+            function stepStartsSegment(i) {
+                if (i === 0) return true;
+                var s = current.steps[i];
+                return !!(s.navigate || s.tab_set || s.click);
+            }
+
+            function segmentBounds(globalIndex) {
+                var start = globalIndex;
+                while (start > 0 && !stepStartsSegment(start)) start--;
+                var end = start;
+                while (end + 1 < current.steps.length && !stepStartsSegment(end + 1)) end++;
+                return { start: start, end: end };
+            }
+
+            function clampIndex(index) {
+                var last = current.steps.length - 1;
+                if (last < 0) return 0;
+                if (index < 0) return 0;
+                if (index > last) return last;
+                return index;
+            }
+
+            // ── URL param plumbing ──────────────────────────────────────────
+            function withTourParams(href, key, step) {
+                var sep = href.indexOf("?") === -1 ? "?" : "&";
+                return href + sep + "tour=" + encodeURIComponent(key) + "&step=" + step;
+            }
+
+            function stripTourParams() {
+                try {
+                    var url = new URL(window.location.href);
+                    url.searchParams.delete("tour");
+                    url.searchParams.delete("step");
+                    var qs = url.searchParams.toString();
+                    var clean = url.pathname + (qs ? "?" + qs : "") + url.hash;
+                    window.history.replaceState(window.history.state, "", clean);
+                } catch (e) {
+                    /* best effort — leaving the param only risks a re-offer, not a break */
+                }
+            }
+
+            function boostedGet(url) {
+                // A full navigation is the reliable hop between tour pages. The runtime
+                // is built to survive it: the destination reloads pl_tour.js and resumes
+                // from the "?tour=&step=" param (and sessionStorage). We deliberately do
+                // NOT drive tour hops through an hx-boost swap — a synthetic boosted <a>
+                // click does not reliably trigger htmx's boosted navigation, which strands
+                // the tour on the origin page (the popover tears down but nothing loads).
+                window.location.assign(url);
+            }
+
+            // ── teardown / restore ──────────────────────────────────────────
+            function restoreSession() {
+                if (!session) return;
+                if (session.sidebarPrev !== undefined) {
+                    var bodyState = bodyAlpineState();
+                    if (bodyState) bodyState.sidebarOpen = session.sidebarPrev;
+                }
+                if (session.restoreFocus && document.contains(session.restoreFocus)) {
+                    try {
+                        session.restoreFocus.focus({ preventScroll: true });
+                    } catch (e) {
+                        /* element unfocusable — harmless */
+                    }
+                }
+            }
+
+            function onSegmentDestroyed() {
+                active = null;
+                if (ending) {
+                    ending = false;
+                    restoreSession();
+                    session = null;
+                }
+            }
+
+            function finish(status) {
+                if (!active && !session) return;
+                ending = true;
+                postState(status);
+                clearRun();
+                stripTourParams();
+                if (active && active.driverObj) {
+                    active.driverObj.destroy();
+                } else {
+                    ending = false;
+                    restoreSession();
+                    session = null;
+                }
+            }
+
+            // ── driving a segment ───────────────────────────────────────────
+            function popoverFor(step) {
+                return { title: step.title, description: step.body };
+            }
+
+            function driveSegment(globalIndex) {
+                if (!current) return;
+                var bounds = segmentBounds(globalIndex);
+                var driverSteps = [];
+                for (var i = bounds.start; i <= bounds.end; i++) {
+                    var s = current.steps[i];
+                    if (s.target && isVisible(document.querySelector(s.target))) {
+                        driverSteps.push({ element: s.target, popover: popoverFor(s) });
+                    } else {
+                        driverSteps.push({ popover: popoverFor(s) }); // missing target -> centered, never a hang
+                    }
+                }
+                if (driverSteps.length === 0) {
+                    finishSilently();
                     return;
                 }
                 var theme = document.documentElement.getAttribute("data-theme") || window.__plTheme || "dark";
+                var localOffset = clampIndex(globalIndex) - bounds.start;
+                // Driver.js labels the LAST step of each per-page instance with doneBtnText.
+                // A segment that is NOT the final one hops to the next page, so its last
+                // step must read "Next", not "Done" — set that at config time so the button
+                // is correct the instant it renders (decoratePopover's later override would
+                // otherwise leave a race window where a single-step segment briefly shows
+                // "Done"). Only the final segment's last step gets the real "Done".
+                var isFinalSegment = bounds.end >= current.steps.length - 1;
                 var driverObj = window.driver.js.driver({
-                    steps: steps,
+                    steps: driverSteps,
                     popoverClass: "pl-tour",
                     showProgress: true,
+                    showButtons: ["next", "previous", "close"],
                     allowClose: true,
                     animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
                     overlayColor: theme === "light" ? "rgba(29, 30, 30, 0.45)" : "rgba(4, 5, 8, 0.72)",
                     overlayOpacity: 1,
                     nextBtnText: "Next",
                     prevBtnText: "Back",
-                    doneBtnText: "Done",
+                    doneBtnText: isFinalSegment ? "Done" : "Next",
                     onHighlighted: function () {
-                        var popover = document.querySelector(".driver-popover");
-                        if (popover) {
-                            popover.setAttribute("tabindex", "-1");
-                            popover.focus({ preventScroll: true });
-                        }
+                        decoratePopover();
+                    },
+                    onNextClick: function () {
+                        handleNext();
+                    },
+                    onPrevClick: function () {
+                        handlePrev();
+                    },
+                    onCloseClick: function () {
+                        finish("dismissed"); // the ✕ — an explicit stop
                     },
                     onDestroyStarted: function () {
-                        // Providing this hook suppresses Driver's default teardown —
-                        // record, then destroy ourselves (destroy() bypasses the hook).
-                        postState(driverObj.isLastStep() ? "completed" : "dismissed");
-                        driverObj.destroy();
+                        // Esc / overlay click. Providing this hook suppresses Driver's
+                        // default teardown, so finish() must call destroy() itself
+                        // (which then bypasses this hook — no re-entry).
+                        finish("dismissed");
                     },
-                    onDestroyed: cleanup,
+                    onDestroyed: onSegmentDestroyed,
                 });
-                active = { driverObj: driverObj, sidebarPrev: sidebarPrev, restoreFocus: restoreFocus };
-                driverObj.drive();
+                active = { driverObj: driverObj, segStart: bounds.start, segEnd: bounds.end };
+                driverObj.drive(localOffset);
             }
 
-            function start(auto) {
-                if (!current || active) return;
+            function globalIndexNow() {
+                if (!active || !active.driverObj) return 0;
+                var local = 0;
+                try {
+                    local = active.driverObj.getActiveIndex() || 0;
+                } catch (e) {
+                    local = 0;
+                }
+                return active.segStart + local;
+            }
+
+            function decoratePopover() {
+                var popover = document.querySelector(".driver-popover");
+                if (!popover) return;
+                popover.setAttribute("tabindex", "-1");
+                try {
+                    popover.focus({ preventScroll: true });
+                } catch (e) {
+                    /* ignore */
+                }
+                var total = current.steps.length;
+                var gi = globalIndexNow();
+                var progress = popover.querySelector(".driver-popover-progress-text");
+                if (progress) progress.textContent = gi + 1 + " of " + total;
+                var nextBtn = popover.querySelector(".driver-popover-next-btn");
+                if (nextBtn) nextBtn.textContent = gi >= total - 1 ? "Done" : "Next";
+                var prevBtn = popover.querySelector(".driver-popover-prev-btn");
+                if (prevBtn) {
+                    if (gi <= 0) {
+                        prevBtn.style.display = "none";
+                    } else {
+                        prevBtn.style.display = "";
+                        // Driver.js disables the prev button on the first step of each
+                        // per-page instance via "driver-popover-btn-disabled"; a segment
+                        // that is not the first still has a global Back, so re-enable it.
+                        prevBtn.classList.remove("driver-popover-btn-disabled");
+                        prevBtn.removeAttribute("disabled");
+                    }
+                }
+            }
+
+            function handleNext() {
+                if (!active || !active.driverObj) return;
+                var local = active.driverObj.getActiveIndex() || 0;
+                var segLen = active.segEnd - active.segStart + 1;
+                if (local < segLen - 1) {
+                    active.driverObj.moveNext(); // within the segment
+                    return;
+                }
+                var gi = active.segStart + local;
+                if (gi >= current.steps.length - 1) {
+                    finish("completed");
+                } else {
+                    hopTo(gi + 1);
+                }
+            }
+
+            function handlePrev() {
+                if (!active || !active.driverObj) return;
+                var local = active.driverObj.getActiveIndex() || 0;
+                if (local > 0) {
+                    active.driverObj.movePrevious(); // within the segment
+                    return;
+                }
+                var gi = active.segStart + local;
+                if (gi <= 0) return; // already at the very first step
+                hopTo(gi - 1);
+            }
+
+            // ── hopping between segments ────────────────────────────────────
+            function hopTo(targetIndex) {
+                var bounds = segmentBounds(targetIndex);
+                var leader = current.steps[bounds.start];
+                ending = false;
+                var d = active && active.driverObj;
+                // A hop NAVIGATES when the target segment lives on another page: a forward
+                // step carries a resolved `navigate` href; a BACKWARD hop into the entry-page
+                // segment has no `navigate` (its page was reached by the initial load, not an
+                // action) yet still sits on a different pathname. Both full-navigate carrying
+                // `?tour=&step=` so the destination re-hydrates and resumes. Only a truly
+                // same-page leader (a tab flip / click) stays put.
+                var destPath = leader.navigate || leader.page_path;
+                var needsNav =
+                    !!leader.navigate ||
+                    (!!leader.page_path && leader.page_path !== window.location.pathname);
+                if (needsNav && destPath) {
+                    saveRun(targetIndex);
+                    if (d) d.destroy(); // silent (bypasses onDestroyStarted); onSegmentDestroyed keeps session
+                    showAdvancing();
+                    boostedGet(withTourParams(destPath, current.key, targetIndex));
+                } else {
+                    saveRun(targetIndex);
+                    if (d) d.destroy();
+                    applyTabOrClick(leader);
+                    requestAnimationFrame(function () {
+                        waitFor(current.steps[targetIndex]).then(function () {
+                            driveSegment(targetIndex);
+                        });
+                    });
+                }
+            }
+
+            function finishSilently() {
+                // No drivable steps at all (a resolver stripped everything): end
+                // without recording, restore any sidebar/focus, clear the run.
+                ending = false;
+                clearRun();
+                stripTourParams();
+                restoreSession();
+                session = null;
+                active = null;
+                hideAdvancing();
+            }
+
+            // ── resume / start ──────────────────────────────────────────────
+            function resumeAt(globalIndex) {
+                if (!current) return;
+                var idx = clampIndex(globalIndex);
+                var bounds = segmentBounds(idx);
+                var leader = current.steps[bounds.start];
+                // Location assertion: a 302 (e.g. a locked area) must not leave us
+                // spotlighting the wrong page. page_path is the pathname the step
+                // belongs to; if we are not there, stop cleanly.
+                if (leader.page_path && window.location.pathname.indexOf(leader.page_path) !== 0) {
+                    clearRun();
+                    session = null;
+                    hideAdvancing();
+                    return;
+                }
+                var navigated = !!leader.navigate;
+                if (!leader.navigate) applyTabOrClick(leader); // same-page leader on a fresh load
+                if (navigated) showAdvancing();
+                requestAnimationFrame(function () {
+                    waitFor(current.steps[idx]).then(function () {
+                        hideAdvancing();
+                        driveSegment(idx);
+                    });
+                });
+            }
+
+            function beginSession(auto) {
                 var sidebarPrev; // undefined = nothing to restore
                 if (current.opens_sidebar) {
                     var bodyState = bodyAlpineState();
@@ -176,13 +531,19 @@
                         bodyState.sidebarOpen = true;
                     }
                 }
-                var restoreFocus = document.activeElement;
+                session = { sidebarPrev: sidebarPrev, restoreFocus: document.activeElement };
+                return sidebarPrev;
+            }
+
+            function start(auto) {
+                if (!current || active) return;
+                if (current.steps.length === 0 || (auto && current.steps.length < 2)) return;
+                var sidebarPrev = beginSession(auto);
+                saveRun(0);
                 loadAssets().then(
                     function () {
-                        // One frame so the sidebar flip has painted before the
-                        // visibility filter runs (sidebar targets must count as visible).
                         requestAnimationFrame(function () {
-                            runTour(auto, sidebarPrev, restoreFocus);
+                            resumeAt(0);
                         });
                     },
                     function () {
@@ -190,30 +551,84 @@
                             var bodyState = bodyAlpineState();
                             if (bodyState) bodyState.sidebarOpen = sidebarPrev;
                         }
+                        session = null;
+                        clearRun();
                     }
                 );
             }
 
-            function teardown() {
-                // htmx history snapshot / swap: kill the tour without recording —
-                // the member navigated, they didn't decide. destroy() bypasses
-                // onDestroyStarted; onDestroyed still runs cleanup().
-                if (active && active.driverObj) active.driverObj.destroy();
+            function resumeFromContext() {
+                // 1. Authoritative seed: an autostart payload (?tour= present) —
+                //    resume at the server-clamped resume_step on THIS page.
+                if (current.autostart) {
+                    var seed = clampIndex(current.resume_step || 0);
+                    if (current.steps.length === 0) return;
+                    beginSession(false);
+                    saveRun(seed);
+                    loadAssets().then(
+                        function () {
+                            resumeAt(seed);
+                        },
+                        function () {
+                            session = null;
+                            clearRun();
+                        }
+                    );
+                    return;
+                }
+                // 2. A running tour continued onto this page via sessionStorage
+                //    (covers an accidental same-page reload without the URL param).
+                var run = readRun();
+                if (run && run.key === current.key) {
+                    var idx = clampIndex(run.index);
+                    var bounds = segmentBounds(idx);
+                    var leader = current.steps[bounds.start];
+                    if (leader.page_path && window.location.pathname.indexOf(leader.page_path) !== 0) {
+                        clearRun(); // the user navigated away on their own — end cleanly
+                        return;
+                    }
+                    session = { sidebarPrev: run.sidebarPrev, restoreFocus: document.activeElement };
+                    loadAssets().then(
+                        function () {
+                            resumeAt(idx);
+                        },
+                        function () {
+                            session = null;
+                        }
+                    );
+                }
             }
 
+            // ── offer card ──────────────────────────────────────────────────
             function bindOffer() {
                 var offer = document.querySelector("[data-pl-tour-offer]");
                 if (!offer || offer.hasAttribute("data-pl-tour-init")) return;
                 offer.setAttribute("data-pl-tour-init", "");
-                offer.querySelector("[data-tour-accept]").addEventListener("click", function () {
-                    offer.remove();
-                    start(true);
-                });
-                offer.querySelector("[data-tour-decline]").addEventListener("click", function () {
-                    // Remove immediately — don't wait on the response. Quiet: no toast.
-                    postState("dismissed");
-                    offer.remove();
-                });
+                var accept = offer.querySelector("[data-tour-accept]");
+                var decline = offer.querySelector("[data-tour-decline]");
+                if (accept) {
+                    accept.addEventListener("click", function () {
+                        offer.remove();
+                        start(true);
+                    });
+                }
+                if (decline) {
+                    decline.addEventListener("click", function () {
+                        postState("dismissed");
+                        offer.remove();
+                    });
+                }
+            }
+
+            // ── htmx teardown split ─────────────────────────────────────────
+            function teardownForHtmx() {
+                if (!active || !active.driverObj) return;
+                // Tour hops are full navigations, not htmx swaps, so this only fires when the
+                // user themselves boosts away mid-tour (a link click) — abandon the tour.
+                ending = false;
+                clearRun();
+                active.driverObj.destroy();
+                session = null;
             }
 
             function init() {
@@ -221,15 +636,16 @@
                 if (!htmxBound) {
                     htmxBound = true;
                     ["htmx:beforeHistorySave", "htmx:beforeSwap"].forEach(function (name) {
-                        document.body.addEventListener(name, teardown);
+                        document.body.addEventListener(name, teardownForHtmx);
                     });
                 }
                 if (!current) return;
                 bindOffer();
-                if (current.autostart) start(false); // ?tour= manual start
+                if (active) return; // already running (e.g. a mid-tab-hop re-init)
+                resumeFromContext();
             }
 
-            return { init: init, start: start, teardown: teardown };
+            return { init: init, start: start };
         })();
     }
 

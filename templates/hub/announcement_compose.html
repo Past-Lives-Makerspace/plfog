@@ -44,7 +44,7 @@
             :class="{ 'pl-phase-tab--active': phase === 2 }" @click="goPreview()">2. Preview &amp; send</button>
   </div>
 
-  <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm">
+  <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm" data-help-key="announcements.compose">
     {% csrf_token %}
     <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
 

@@ -27,7 +27,7 @@ exist (see hub_space_request_review_queue) but the entry point here is intention
 Requests now notify the makerspace admins directly by email and in the bell.{% endcomment %}
 
 {% if floorplans %}
-<div class="pl-map" x-data="plMap({{ floorplans.0.pk }}, '{{ active_tab }}')">
+<div class="pl-map" data-help-key="spaces.map" x-data="plMap({{ floorplans.0.pk }}, '{{ active_tab }}')">
 
     <nav class="pl-space-tabs" role="tablist" aria-label="Spaces views" x-cloak>
         <button type="button" role="tab" class="vote-tab"
