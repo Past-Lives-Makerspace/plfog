@@ -450,6 +450,7 @@ BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab ch
 WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
 WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
 REGISTRATION_REMOVED = "registration_removed"  # staff removed a registrant (seat-holder or waitlister)
+GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — email only via email_to, no matrix row
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -779,6 +780,22 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.REGISTRANT,
         channels=(_EMAIL_FORCED,),
+        activity_kind=None,
+    ),
+    # 20b. guild_welcome — the per-guild join welcome email. Transactional: addressed with an
+    #      explicit ``email_to`` (sends regardless of preferences — the member deliberately
+    #      joined), so it declares NO channel at all. The REGISTRANT resolver reads
+    #      ``context["member"]`` = None, so the unused in-app/push fan-out finds nobody, and
+    #      declaring no EMAIL channel keeps it off the member settings matrix (like the
+    #      orientation thank-you, which piggybacks on orientation_update). ``activity_kind``
+    #      stays None — member_joined_guild's guild_joined emit already logs GUILD_JOINED.
+    EventType(
+        key=GUILD_WELCOME,
+        label="Welcome to the guild",
+        description="A warm welcome when a member joins one of your guilds.",
+        category="Guilds",
+        recipient=Recipients.REGISTRANT,
+        channels=(),
         activity_kind=None,
     ),
     # 21. orientation.completed — a member finished their orientation; welcome them to the

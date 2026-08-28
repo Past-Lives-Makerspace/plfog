@@ -1620,6 +1620,60 @@ class GuildThankyouEmailForm(forms.ModelForm):
         return cast(GuildOrientationSettings, super().save(commit=commit))
 
 
+class GuildWelcomeEmailForm(forms.ModelForm):
+    """Edit a guild's lead-authored welcome email.
+
+    Lives on the Welcome Email tab of the guild editor — it is the join-lifecycle email,
+    sent once a member deliberately joins (the "Join This Guild" button with the welcome
+    box checked, or the Discord ``/join-guild`` command). The email *data* stays on
+    :class:`~membership.models.GuildOrientationSettings`; only the editing UI lives here.
+    The welcome email is on by default and falls back to the standard copy, so enabling it
+    needs no subject or body. Saving stamps ``welcome_email_updated_at`` when a welcome
+    field changed.
+    """
+
+    class Meta:
+        model = GuildOrientationSettings
+        fields = [
+            "welcome_email_enabled",
+            "welcome_email_subject",
+            "welcome_email_body",
+        ]
+        widgets = {
+            "welcome_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+        }
+        labels = {
+            "welcome_email_enabled": "Send a welcome email when a member joins this guild",
+            "welcome_email_subject": "Welcome subject",
+            "welcome_email_body": "Welcome message",
+        }
+
+    def clean_welcome_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("welcome_email_body") or "")
+
+    _WELCOME_EMAIL_FIELDS = ("welcome_email_enabled", "welcome_email_subject", "welcome_email_body")
+
+    def save(self, commit: bool = True) -> GuildOrientationSettings:
+        if set(self.changed_data).intersection(self._WELCOME_EMAIL_FIELDS):
+            self.instance.welcome_email_updated_at = timezone.now()
+        return cast(GuildOrientationSettings, super().save(commit=commit))
+
+
+class GuildJoinForm(forms.Form):
+    """The join-modal opt-in: one toggle for the welcome email.
+
+    Not persisted — it only carries the member's welcome-packet choice with the join POST.
+    The toggle is checked by default (opt-out within the deliberate join, honoring "ask
+    first"). The view reads ``send_welcome`` off the POST directly.
+    """
+
+    send_welcome = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Email me the guild welcome guide",
+    )
+
+
 class OrientationAvailabilityForm(forms.ModelForm):
     """A single recurring orientation-availability row.
 

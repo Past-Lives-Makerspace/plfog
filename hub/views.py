@@ -291,12 +291,20 @@ def member_directory(request: HttpRequest) -> HttpResponse:
     skill_slug = request.GET.get("skill", "")
     if skill_slug:
         member_qs = member_qs.with_skill(skill_slug)
+    # Guild filter: an unknown slug is ignored (show all), never an error.
+    guilds = Guild.objects.filter(is_active=True).order_by("name")
+    guild_slug = request.GET.get("guild", "")
+    selected_guild = guilds.filter(slug=guild_slug).first() if guild_slug else None
+    if selected_guild is not None:
+        member_qs = member_qs.filter(guild_memberships__guild=selected_guild)
     commissions_only = request.GET.get("commissions") == "1"
     if commissions_only:
         member_qs = member_qs.open_for_commissions()
     query = request.GET.get("q", "").strip()
     if query:
         member_qs = member_qs.search_skills(query)
+    from membership.models import GuildMembership
+
     members = (
         member_qs.select_related("membership_plan", "user")
         .prefetch_related(
@@ -311,6 +319,14 @@ def member_directory(request: HttpRequest) -> HttpResponse:
                 queryset=MemberContact.objects.filter(show_in_directory=True),
                 to_attr="visible_contacts",
             ),
+            # Per-card guild badges, N+1-free: active guilds only, name-ordered.
+            Prefetch(
+                "guild_memberships",
+                queryset=GuildMembership.objects.filter(guild__is_active=True)
+                .select_related("guild")
+                .order_by("guild__name"),
+                to_attr="directory_guild_memberships",
+            ),
         )
         .order_by("full_legal_name")
     )
@@ -324,6 +340,8 @@ def member_directory(request: HttpRequest) -> HttpResponse:
             "is_admin": is_admin,
             "skill_categories": _skill_categories_with_approved(),
             "selected_skill": skill_slug,
+            "guilds": guilds,
+            "selected_guild": selected_guild,
             "commissions_only": commissions_only,
             "query": query,
         },
@@ -564,9 +582,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             label = orienter_labels.get(slot.orienter_id, "")
             slot.with_display = f"with {label}" if label else slot.with_label
 
-    from hub.forms import OrientationCustomRequestForm
+    from hub.forms import GuildJoinForm, OrientationCustomRequestForm
 
     custom_request_form = OrientationCustomRequestForm()
+    join_form = GuildJoinForm()
 
     guild_ct = ContentType.objects.get_for_model(Guild)
 
@@ -609,6 +628,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "show_orientation": show_orientation,
             "orientation_slots": orientation_slots,
             "custom_request_form": custom_request_form,
+            "join_form": join_form,
         },
     )
 
@@ -666,6 +686,7 @@ def _guild_edit_context(
     form: GuildEditForm | None = None,
     orientation_form: Any = None,
     thankyou_email_form: Any = None,
+    welcome_email_form: Any = None,
     guild_rule_formset: Any = None,
     studio_hours_formset: Any = None,
     mailing_list_formset: Any = None,
@@ -687,6 +708,7 @@ def _guild_edit_context(
         GuildStaffAddForm,
         GuildThankyouEmailForm,
         GuildVisibilityForm,
+        GuildWelcomeEmailForm,
         OrientationAvailabilityFormSet,
         OrientationSlotForm,
         StudioHoursFormSet,
@@ -763,6 +785,9 @@ def _guild_edit_context(
         ),
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
+        ),
+        "welcome_email_form": (
+            welcome_email_form if welcome_email_form is not None else GuildWelcomeEmailForm(instance=settings_obj)
         ),
         "thankyou_email_form": (
             thankyou_email_form if thankyou_email_form is not None else GuildThankyouEmailForm(instance=settings_obj)
@@ -2492,6 +2517,129 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
     return response
 
 
+def _guild_cta_context(request: HttpRequest, guild: Guild, member: Member | None) -> dict[str, Any]:
+    """Shared context for the hero Join/Member CTA partial and its OOB sibling fragments.
+
+    Recomputed after a join/leave so the swapped fragments (hero CTA, sticky mini-CTA,
+    member-count chip, roster card, Get Involved status) each render standalone and in
+    sync. The initial page render reuses the keys ``guild_detail`` already builds.
+    """
+    is_member = member is not None and guild.memberships.filter(member=member).exists()
+    roster = guild.roster_members() if guild.show_members and member is not None else None
+    return {
+        "guild": guild,
+        "member": member,
+        "is_member_of_guild": is_member,
+        "member_count": guild.memberships.count(),
+        "roster": roster,
+    }
+
+
+@login_required
+@require_POST
+def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
+    """Join a guild from the hero button (HTMX). Members-surface only.
+
+    The one deliberate web join path: records the subscription (fat model), stamps the
+    first-login prompt as answered, and — only when the member is newly joined AND left
+    the modal's "send welcome packet" box checked — sends the guild's welcome email once.
+    Returns the flipped CTA plus the OOB sibling fragments and a success toast. An
+    unlinked account gets a guarded error toast and no row.
+    """
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is None:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "Your account is not linked to a membership.", "error")
+        return response
+    joined = member.subscribe_to_guild(guild)
+    member.mark_guild_updates_answered()
+    welcomed = bool(joined and request.POST.get("send_welcome"))
+    if welcomed:
+        member.send_guild_welcome(guild)
+    ctx = _guild_cta_context(request, guild, member)
+    ctx["oob"] = True
+    response = render(request, "hub/partials/_guild_join_cta.html", ctx)
+    message = f"You joined {guild.name}! Check your inbox for a welcome." if welcomed else f"You joined {guild.name}!"
+    trigger_toast(response, message, "success")
+    return response
+
+
+@login_required
+@require_POST
+def guild_leave(request: HttpRequest, pk: int) -> HttpResponse:
+    """Leave a guild from the Member-state overflow (HTMX). Members-surface only.
+
+    Deletes the subscription (fat model, drops the Discord role) and returns the CTA
+    flipped back to the Join state plus the OOB sibling fragments and an info toast.
+    """
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is None:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "Your account is not linked to a membership.", "error")
+        return response
+    member.unsubscribe_from_guild(guild)
+    ctx = _guild_cta_context(request, guild, member)
+    ctx["oob"] = True
+    response = render(request, "hub/partials/_guild_join_cta.html", ctx)
+    trigger_toast(response, f"You left {guild.name}. You can rejoin any time.", "info")
+    return response
+
+
+@login_required
+@require_POST
+def guild_welcome_test(request: HttpRequest, pk: int) -> HttpResponse:
+    """Send the guild's welcome email to the editing lead's own inbox (HTMX; 204 + toast).
+
+    Editor only. Fires the real welcome send to the lead's ``primary_email`` so they can
+    proof the exact banner + copy members receive.
+    """
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    member = _get_member(request)
+    response = HttpResponse(status=204)
+    if member is None:
+        trigger_toast(response, "Your account is not linked to a membership.", "error")
+        return response
+    from membership.orientations import send_guild_welcome_test
+
+    send_guild_welcome_test(guild, member)
+    trigger_toast(response, f"Test sent to {member.primary_email}.", "success")
+    return response
+
+
+@login_required
+def guild_welcome_preview(request: HttpRequest, pk: int) -> HttpResponse:
+    """Render the guild's welcome email into the editor preview modal (editor only).
+
+    Renders the real ``guild_welcome.html`` shell with the guild's *current saved* copy and a
+    sample greeting name, so a lead proofs the exact banner + copy without sending. Reuses the
+    announcement composer's iframe preview partial.
+    """
+    from django.template.loader import render_to_string
+
+    from membership.models import GuildOrientationSettings
+    from membership.orientations import _guild_welcome_context
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_edit_guild(request, guild)
+    if forbidden is not None:
+        return forbidden
+    settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    member = _get_member(request)
+    sample_name = member.display_name if member is not None else "Sample Member"
+    email_ctx = _guild_welcome_context(guild, sample_name, settings_obj.welcome_email_body_resolved)
+    preview_html = render_to_string("membership/emails/guild_welcome.html", email_ctx)
+    return render(
+        request,
+        "hub/partials/_compose_email_preview.html",
+        {"preview_html": preview_html, "preview_subject": settings_obj.welcome_email_subject_resolved},
+    )
+
+
 @login_required
 @require_POST
 def guild_image_delete(request: HttpRequest, pk: int, image_pk: int) -> HttpResponse:
@@ -3177,7 +3325,7 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
     guild edit page on the Orientations tab with the form's errors. An unknown or missing
     ``form_id`` on a POST is a 404 (fail loudly).
     """
-    from hub.forms import GuildThankyouEmailForm
+    from hub.forms import GuildThankyouEmailForm, GuildWelcomeEmailForm
     from membership.models import GuildOrientationSettings
 
     guild = get_object_or_404(Guild, pk=pk)
@@ -3187,19 +3335,28 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
     orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
     if request.method != "POST":
         return redirect(orientations_tab)
-    if request.POST.get("form_id") != "thankyou_email":
-        raise Http404("Unknown email form.")
-
+    form_id = request.POST.get("form_id")
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
-    form = GuildThankyouEmailForm(request.POST, instance=settings_obj)
-    if form.is_valid():
-        form.save()
-        messages.success(request, "Thank-you email saved.")
-        return redirect(orientations_tab)
-
-    ctx = _guild_edit_context(request, guild, thankyou_email_form=form)
-    ctx["active_tab"] = "orientations"
-    return render(request, "hub/guild_edit.html", ctx)
+    if form_id == "thankyou_email":
+        form = GuildThankyouEmailForm(request.POST, instance=settings_obj)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Thank-you email saved.")
+            return redirect(orientations_tab)
+        ctx = _guild_edit_context(request, guild, thankyou_email_form=form)
+        ctx["active_tab"] = "orientations"
+        return render(request, "hub/guild_edit.html", ctx)
+    if form_id == "welcome_email":
+        welcome_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=welcome_email"
+        welcome_form = GuildWelcomeEmailForm(request.POST, instance=settings_obj)
+        if welcome_form.is_valid():
+            welcome_form.save()
+            messages.success(request, "Welcome email saved.")
+            return redirect(welcome_tab)
+        ctx = _guild_edit_context(request, guild, welcome_email_form=welcome_form)
+        ctx["active_tab"] = "welcome_email"
+        return render(request, "hub/guild_edit.html", ctx)
+    raise Http404("Unknown email form.")
 
 
 @login_required

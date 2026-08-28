@@ -60,6 +60,7 @@
         </div>
         {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
         <div style="display:flex; gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap; align-items:center;">
+            {% include "hub/partials/_guild_join_cta.html" %}
             {% if can_edit_this_guild %}
             <a href="{% url 'hub_guild_edit' guild.pk %}" class="pl-btn pl-btn--secondary" title="Guild Settings" x-show="!isAdjusting">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem;"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
@@ -107,7 +108,7 @@
 
 {# ── STAT CHIPS ── #}
 <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin:0 0 1rem;">
-    {% if member_count %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% endif %}
+    {% include "hub/partials/_guild_member_count.html" %}
     {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
     {% with next_meeting=guild.next_meeting_occurrence %}{% if next_meeting %}<span class="hub-badge">Next meeting {{ next_meeting.when|date:"M j" }}</span>{% endif %}{% endwith %}
 </div>
@@ -290,21 +291,11 @@
         <div class="hub-card">
             <h3 class="hub-detail-label">Get Involved</h3>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
-                {# No join button here by design — subscription management lives in Settings. An unlinked account (member is None, authenticated) hits no branch and just sees the card's other actions. #}
+                {# Joining lives in the hero Join button now; this panel keeps the member's quiet updates confirmation + channel prefs link. An unlinked account (member is None, authenticated) just sees the card's other actions. #}
                 {% if not user.is_authenticated %}
                 <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to the members hub</a>
-                {% elif member and is_member_of_guild %}
-                <div class="hub-text-muted" style="display:flex; align-items:center; gap:0.4rem; font-size:0.9rem;">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-                    You get this guild's updates
-                </div>
-                <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;" data-help-key="guild.join-leave" {% if is_guilds_surface %}hx-boost="false"{% endif %}>Manage in Settings</a>
-                {% elif member %}
-                <p class="hub-text-muted" style="font-size:0.9rem; margin:0;" data-help-key="guild.join-leave">
-                    Want announcements from this guild? Choose your guild updates in
-                    <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_user_settings' %}?tab=guilds" {% if is_guilds_surface %}hx-boost="false"{% endif %}>Settings</a>.
-                </p>
                 {% endif %}
+                {% include "hub/partials/_guild_get_involved_status.html" %}
                 {% if show_orientation and not is_oriented %}
                 <button type="button" class="pl-btn pl-btn--primary" style="width:100%;" data-help-key="orientation.book-slot"
                         @click="section = 'orientations'; $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView({ behavior: 'smooth' }))">
@@ -352,19 +343,7 @@
         </div>
         {% endif %}
 
-        {% if user.is_authenticated and guild.show_members and roster %}
-        <div class="hub-card">
-            <h3 class="hub-detail-label">Members</h3>
-            <div class="pl-guild-roster">
-                {% for m in roster %}
-                <div class="hub-member-row">
-                    <div class="hub-member-avatar">{{ m.display_name|make_list|first|upper }}</div>
-                    <span class="hub-member-name">{{ m.display_name }}</span>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+        {% include "hub/partials/_guild_roster_card.html" %}
 
         {% if links %}
         <div class="hub-card">
@@ -753,6 +732,95 @@
         </div>
     </div>
 </div>
+{% endif %}
+
+{# Join / Leave front door — members surface only (joins happen on the hub). #}
+{% if member and not is_guilds_surface %}
+{# Benefit-framed join modal. Mirrors components/modal.html's pl-modal structure (this file's convention for static-body modals, e.g. the lead-profile + EYOP modals above). #}
+<div x-data="{ open: false }"
+     x-show="open"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-modal.window="if ($event.detail === 'join-guild') open = true"
+     @close-modal.window="if ($event.detail === 'join-guild') open = false"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="join-guild-title">
+    <div class="pl-modal pl-modal--md" @click.outside="open = false">
+        <div class="pl-modal__header">
+            <h2 class="pl-modal__title" id="join-guild-title">Join {{ guild.name }}?</h2>
+            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="pl-modal__body" id="join-guild-body">
+            <p class="hub-text-muted" style="margin:0 0 1rem;">Here's what joining {{ guild.name }} gets you.</p>
+            <div class="pl-benefit-rows">
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    <span>You're added to the guild roster.</span>
+                </div>
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V8a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    <span>A {{ guild.name }} badge appears on <a href="{% url 'hub_member_directory' %}?guild={{ guild.slug }}">your profile</a>.</span>
+                </div>
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                    <span>You get this guild's updates and announcements (email, in app, or Discord, your choice in Settings).</span>
+                </div>
+                {% if show_orientation %}
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span>You can book <a href="{% url 'hub_guild_detail' guild.slug %}?tab=orientations" @click="open = false">orientations</a> for this guild.</span>
+                </div>
+                {% endif %}
+                {% if guild.discord_role_ids %}
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                    <span>You get the guild's Discord role automatically.</span>
+                </div>
+                {% endif %}
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    <span>See the guild's events, meetings, and calendar.</span>
+                </div>
+                {% if gallery_images %}
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <span>Browse the guild's gallery.</span>
+                </div>
+                {% endif %}
+                {% if guild.wishlist or guild.donate_url %}
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                    <span>See the guild's wishlist.</span>
+                </div>
+                {% endif %}
+                <div class="pl-benefit-row">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                    <span>You're eligible to vote on guild funding.</span>
+                </div>
+            </div>
+            <form hx-post="{% url 'hub_guild_join' guild.pk %}" hx-target="#guild-join-cta" hx-swap="outerHTML"
+                  @htmx:after-request="if ($event.detail.successful) $dispatch('close-modal', 'join-guild')"
+                  style="margin-top:1.25rem;">
+                {% csrf_token %}
+                {% include "components/toggle.html" with field=join_form.send_welcome toggle_label="Email me the "|add:guild.name|add:" welcome guide" toggle_description="A warm welcome with everything your guild page can do." %}
+                <div class="pl-modal__actions" style="margin-top:1rem;">
+                    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;" hx-disabled-elt="this">Join {{ guild.name }}</button>
+                    <button type="button" class="pl-btn pl-btn--secondary" style="flex:1;" @click="$dispatch('close-modal', 'join-guild')">Not now</button>
+                </div>
+                <p class="hub-text-muted" style="font-size:0.85rem; margin:0.75rem 0 0;">You can leave any time.</p>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% url 'hub_guild_leave' guild.pk as leave_guild_url %}
+{% include "components/confirm_modal.html" with confirm_id="leave-guild" confirm_title="Leave "|add:guild.name|add:"?" confirm_message="You'll stop getting this guild's updates, drop off its roster, and lose its Discord role. You can rejoin any time." confirm_button_text="Leave guild" confirm_button_style="danger" confirm_hx_post=leave_guild_url confirm_hx_target="#guild-join-cta" %}
+
+{% include "hub/partials/_guild_join_fab.html" %}
 {% endif %}
 
 </div>{# /x-data guildCart #}

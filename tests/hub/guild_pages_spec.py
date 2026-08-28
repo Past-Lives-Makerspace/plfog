@@ -91,18 +91,19 @@ def describe_guild_detail():
             assert response.context["tab"] is None
 
     def describe_get_involved_subscription_states():
-        def it_never_shows_a_join_button(client: Client):
+        def it_shows_the_join_button_to_a_non_member(client: Client):
             guild = GuildFactory()
             _linked_user(client)
             response = client.get(f"/guilds/{guild.slug}/")
-            assert b"Join This Guild" not in response.content
+            assert b"Join This Guild" in response.content
 
-        def it_points_an_unsubscribed_member_at_the_settings_guilds_tab(client: Client):
+        def it_drops_the_old_settings_pointer_copy_for_a_non_member(client: Client):
+            # The hero Join now owns "how do I get updates," so the Get Involved panel no
+            # longer nags a non-member with the "Want announcements ... Settings" paragraph.
             guild = GuildFactory()
             _linked_user(client)
             response = client.get(f"/guilds/{guild.slug}/")
-            assert b"Want announcements from this guild?" in response.content
-            assert b"?tab=guilds" in response.content
+            assert b"Want announcements from this guild?" not in response.content
 
         def it_shows_the_updates_line_and_manage_link_to_a_subscriber(client: Client):
             from membership.models import GuildMembership
@@ -123,7 +124,9 @@ def describe_guild_detail():
             Member.objects.filter(user=user).delete()
             client.login(username="unlinked_join", password="pass")
             response = client.get(f"/guilds/{guild.slug}/")
-            assert b"Join This Guild" not in response.content
+            # Assert absence by the button class, not the bare label (the changelog text
+            # "Join This Guild" renders into every page's context).
+            assert b"pl-guild-cta__join" not in response.content
             assert b"Want announcements from this guild?" not in response.content
 
     def describe_stat_chips():
@@ -150,11 +153,11 @@ def describe_guild_detail():
             user, _ = _linked_user(client)
             GuildMembership.objects.create(guild=guild, member=user.member)
             response = client.get(f"/guilds/{guild.slug}/")
-            from django.urls import reverse
-
             html = response.content.decode()
             assert '<span class="hub-badge">1 member</span>' in html
-            assert f"{reverse('hub_member_directory')}?guild=" not in html
+            # The count chip is plain text, not a link (the directory ?guild= link that now
+            # appears elsewhere on the page is the join modal's "your profile" benefit row).
+            assert "1 member</a>" not in html
 
     def describe_faq_tab():
         def it_shows_a_faq_tab_when_the_guild_has_faqs(client: Client):

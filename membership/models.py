@@ -721,9 +721,12 @@ class Member(models.Model):
         """Subscribe this member to ``guild``'s updates (idempotent).
 
         The one subscribe path: records the app-sourced :class:`GuildMembership` row,
-        fires the ``guild_joined`` fan-out (welcome email when configured, lead notice,
-        activity row) only when the row is new or upgraded from a Discord reaction, and
-        always self-heals the Discord role (idempotent, best-effort).
+        fires the ``guild_joined`` fan-out (lead "New follower" notice + activity row, no
+        email) only when the row is new or upgraded from a Discord reaction, and always
+        self-heals the Discord role (idempotent, best-effort). The member-facing welcome
+        email is a *separate*, deliberate-join-only send (:meth:`send_guild_welcome`) — it
+        is intentionally not fired here, so the first-login picker and Settings toggle stay
+        silent.
 
         Returns:
             Whether this was a new or upgraded subscription (the fan-out fired).
@@ -736,6 +739,19 @@ class Member(models.Model):
             orientations.member_joined_guild(guild, self)
         discord_roles.on_membership_changed(guild, self, joined=True)
         return created or upgraded
+
+    def send_guild_welcome(self, guild: Guild) -> None:
+        """Send this member the guild's welcome email once (idempotent per (member, guild)).
+
+        The deliberate-join welcome. Called by the hero Join view (only when the member
+        left the modal's welcome box checked) and the Discord ``/join-guild`` command —
+        never by :meth:`subscribe_to_guild`, so the first-login picker and Settings toggle
+        never trigger it. Gated on the guild's ``welcome_email_enabled``; deduped forever
+        per (member, guild).
+        """
+        from membership import orientations
+
+        orientations.send_guild_welcome(guild, self)
 
     def unsubscribe_from_guild(self, guild: Guild) -> None:
         """Remove this member's subscription to ``guild`` (idempotent) and drop the Discord role."""
@@ -8182,6 +8198,22 @@ class GuildOrientationSettings(models.Model):
     thankyou_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the thank-you email was last edited."
     )
+    welcome_email_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Send a welcome email when a member joins this guild. On by default; "
+            "leave the subject and body blank to send the standard welcome, or write your own."
+        ),
+    )
+    welcome_email_subject = models.CharField(
+        max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
+    )
+    welcome_email_body = models.TextField(
+        blank=True, default="", help_text="Body of the welcome email (your personal note; line breaks preserved)."
+    )
+    welcome_email_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the welcome email was last edited."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -8205,6 +8237,25 @@ class GuildOrientationSettings(models.Model):
         from membership.orientation_copy import STANDARD_THANKYOU_BODY
 
         return self.thankyou_email_body or STANDARD_THANKYOU_BODY
+
+    @property
+    def welcome_email_subject_resolved(self) -> str:
+        """The guild's custom welcome subject, or the standard one when they left it blank."""
+        from membership.guild_welcome_copy import standard_welcome_subject
+
+        return self.welcome_email_subject or standard_welcome_subject(self.guild.name)
+
+    @property
+    def welcome_email_body_resolved(self) -> str:
+        """The guild's custom welcome body, or the standard copy when they left it blank."""
+        from membership.guild_welcome_copy import STANDARD_WELCOME_BODY
+
+        return self.welcome_email_body or STANDARD_WELCOME_BODY
+
+    @property
+    def welcome_email_ready(self) -> bool:
+        """On + always has resolvable copy, so ``enabled`` alone is enough to send."""
+        return self.welcome_email_enabled
 
     @property
     def is_accepting(self) -> bool:

@@ -18,6 +18,7 @@
   <button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'">Meeting Notes</button>
   <button type="button" class="vote-tab" :class="section === 'events' ? 'vote-tab--active' : ''" @click="section = 'events'">Events</button>
   <button type="button" class="vote-tab" data-help-key="guild.run-orientations" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
+  <button type="button" class="vote-tab" :class="section === 'welcome_email' ? 'vote-tab--active' : ''" @click="section = 'welcome_email'">Welcome Email</button>
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ &amp; Links</button>
   <button type="button" class="vote-tab" data-help-key="guild.announcements" :class="section === 'announcements' ? 'vote-tab--active' : ''" @click="section = 'announcements'">Announcements</button>
@@ -600,6 +601,37 @@ confirm modal carries its own POST form, and template content can't nest a form.
       </div>
     </div>
   </div>
+</div>
+
+{# ── Welcome Email — the join-lifecycle email; own form + endpoint (multi-form via form_id). ──── #}
+{# Immediate-effect controls (Preview + Send test) sit ABOVE the batch Save form so Save is the #}
+{# last thing on the tab with nothing under it (Rule 21). #}
+<div x-show="section === 'welcome_email'" x-cloak>
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome Email</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to a member when they deliberately join this guild (the Join This Guild button, or the Discord /join-guild command). On by default; leave the subject and body blank to send the standard welcome.</p>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <button type="button" class="pl-btn pl-btn--secondary"
+              @click="$dispatch('open-modal', 'welcome-preview')"
+              hx-get="{% url 'hub_guild_welcome_preview' guild.pk %}"
+              hx-target="#welcome-preview-body" hx-swap="innerHTML">Preview</button>
+      <button type="button" class="pl-btn pl-btn--secondary"
+              hx-post="{% url 'hub_guild_welcome_test' guild.pk %}" hx-swap="none">Send test to me</button>
+    </div>
+  </div>
+
+  <form method="post" action="{% url 'hub_guild_emails_save' guild.pk %}" class="hub-form">
+    {% csrf_token %}
+    <input type="hidden" name="form_id" value="welcome_email">
+    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+      {% include "components/form_field.html" with field=welcome_email_form.welcome_email_enabled %}
+      {% include "components/form_field.html" with field=welcome_email_form.welcome_email_subject field_hint="Leave blank to use: Welcome to "|add:guild.name|add:"!" %}
+      {% include "components/form_field.html" with field=welcome_email_form.welcome_email_body field_hint="Your personal welcome note. Leave blank to use the standard welcome." %}
+      <button type="submit" class="pl-btn pl-btn--primary" style="margin-top:1rem;">Save</button>
+    </div>
+  </form>
+
+  {% include "components/modal.html" with modal_id="welcome-preview" modal_title="Welcome Email Preview" modal_size="lg" %}
 </div>
 
 {# ── FAQ & Links (each its own form, outside the main form — you can't nest forms) ──── #}

@@ -166,15 +166,18 @@ def describe_guest_guild_page():
             guild = GuildFactory(name="Join Guild")
             body = _guest_get(client, guild).content.decode()
             assert "Log in to the members hub" in body
-            assert "Join This Guild" not in body
+            # Assert the hero-join element's absence by its class, not the bare label
+            # (the release-notes changelog renders "Join This Guild" into every page).
+            assert "pl-guild-cta__join" not in body
 
-        def it_points_a_logged_in_non_subscriber_at_settings_instead_of_a_join_form(client: Client):
+        def it_hides_the_hero_join_button_on_the_guest_surface(client: Client):
+            # Joins happen on the members hub, so the guest surface never shows the hero Join
+            # (the is_guilds_surface gate) nor the old "Want announcements" settings pointer.
             guild = GuildFactory(name="Join Guild")
             _login_member(client)
             body = _guest_get(client, guild).content.decode()
-            assert "Want announcements from this guild?" in body
-            assert "?tab=guilds" in body
-            assert "Join This Guild" not in body
+            assert "pl-guild-cta__join" not in body
+            assert "Want announcements from this guild?" not in body
             assert "Log in to the members hub" not in body
 
         def it_shows_the_updates_line_and_no_leave_button_to_a_subscriber(client: Client):

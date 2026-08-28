@@ -52,6 +52,7 @@ _BRAND_NEW_KEYS = {
     "waitlist_promoted",
     "waitlist_promoted_pay",
     "registration_removed",
+    "guild_welcome",
 }
 
 
@@ -89,6 +90,7 @@ def describe_event_registry():
                 "member.invited",
                 "member.login_invite",
                 "discord_guilds_imported",
+                "guild_welcome",
                 "voting.discord_reminder",
                 "voting.results_discord",
             }

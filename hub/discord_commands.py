@@ -191,10 +191,13 @@ def _join_guild(interaction: Interaction, member: Member | None) -> dict:
                 hook,
                 Message(title=f"Welcome {member.display_name} to {guild.name}!", body=_welcome_body(guild)),
             )
-        # Welcome fan-out (activity + lead notification + optional welcome email), wrapped so
-        # an email hiccup can never swallow the member's confirmation.
+        # Welcome fan-out (activity + lead "New follower" notice), wrapped so an email hiccup
+        # can never swallow the member's confirmation. /join-guild is a deliberate join, so the
+        # member-facing welcome email fires too (there is no opt-out checkbox in Discord — a
+        # member who typed the command wants in). Both are wrapped best-effort.
         try:
             orientations.member_joined_guild(guild, member)
+            member.send_guild_welcome(guild)
         except Exception:
             logger.exception("join-guild: welcome fan-out failed for guild=%s member=%s", guild.pk, member.pk)
 

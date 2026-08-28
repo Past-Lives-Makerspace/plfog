@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
-from django.urls import NoReverseMatch, reverse
+from django.urls import reverse
 
 from membership.models import GuildImage, GuildMembership, Member
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
@@ -42,10 +42,10 @@ def describe_subscribe_unsubscribe():
         client.post(reverse("hub_guild_membership_set", args=[guild.pk]))
         assert not GuildMembership.objects.filter(guild=guild, member__user=user).exists()
 
-    def it_no_longer_routes_the_removed_join_and_leave_urls():
+    def it_routes_the_revived_join_and_leave_urls():
+        # Revived with the "Join This Guild" front door (they were briefly removed).
         for name in ("hub_guild_join", "hub_guild_leave"):
-            with pytest.raises(NoReverseMatch):
-                reverse(name, args=[1])
+            assert reverse(name, args=[1]) != ""
 
 
 @pytest.mark.django_db
