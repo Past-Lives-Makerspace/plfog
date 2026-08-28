@@ -1299,7 +1299,7 @@ Wondering how far you can take the page? The [Cartographers Guild](/guilds/carto
 
 ### The Tabs {#guild-edit-page}
 
-Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Images**, **FAQ & Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
+Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Welcome Email**, **Images**, **FAQ**, **Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
 
 This guide covers the page itself. Orientations, announcements, events, studio hours, and staff each have their own guide.
 
@@ -1325,13 +1325,13 @@ The **Gallery** section on the Images tab holds up to 10 photos. They save the m
 
 ### FAQ
 
-On the **FAQ & Links** tab, click **+ Add a question**. Each answer can also embed a YouTube video and attach one document: upload a file or paste a link, not both. **Delete this question** saves the whole page right away, so nothing else you typed is lost. Click **Save FAQ** when you're done. Want the section called something other than FAQ? Rename it on the **Basic Information** tab.
+On the **FAQ** tab, click **+ Add a question**. Each answer can also embed a YouTube video and attach one document: upload a file or paste a link, not both. **Delete this question** saves the whole page right away, so nothing else you typed is lost. Click **Save FAQ** when you're done. Want the section called something other than FAQ? Rename it on the **Basic Information** tab.
 
-![The FAQ & Links tab. Each answer can carry a video and a document.](/static/help/your-guild-page/03-faq-and-links.png)
+![The FAQ tab. Each answer can carry a video and a document.](/static/help/your-guild-page/03-faq-and-links.png)
 
 ### Links
 
-Below the FAQ editor, add links with a label and a URL, then click **Save Links**. They show on your guild page.
+On the **Links** tab, add links with a label and a URL, then click **Save Links**. They show on your guild page.
 
 ### Your Automatic Email
 
@@ -1357,7 +1357,7 @@ Only leads, staff, and admins see the Guild Settings button. Everything a staff 
                 "file": "03-faq-and-links.png",
                 "page": "/guilds/1/edit/?tab=content",
                 "selector": "[x-show=\"section === 'content'\"]",
-                "caption": "The FAQ & Links tab. Each answer can carry a video and a document.",
+                "caption": "The FAQ tab. Each answer can carry a video and a document.",
                 "as_role": "guild_lead",
             },
         ],

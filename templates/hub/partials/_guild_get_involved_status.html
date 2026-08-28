@@ -3,7 +3,7 @@
 {# that job now). Kept in an OOB-swappable wrapper so it flips with join/leave. #}
 <div id="guild-get-involved-status"{% if oob %} hx-swap-oob="true"{% endif %}>
     {% if member and is_member_of_guild %}
-    <div class="hub-text-muted" style="display:flex; align-items:center; gap:0.4rem; font-size:0.9rem;">
+    <div class="hub-text-muted pl-guild-updates-note">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
         You get this guild's updates
     </div>

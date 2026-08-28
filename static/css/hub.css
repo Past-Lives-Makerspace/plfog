@@ -7186,6 +7186,23 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     background: var(--hub-surface);
 }
 
+/* ── Guild stat-chips row: chips on the left, Join/Member CTA on the right ──
+   Wraps on narrow viewports so the CTA drops under the chips instead of overflowing. */
+.pl-guild-statbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+}
+.pl-guild-statbar__chips {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
 /* ── Sticky mini Join CTA (clones .pl-scroll-top placement) ──────────────── */
 .pl-guild-join-fab {
     position: fixed;
@@ -7242,6 +7259,16 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-benefit-row a {
     color: var(--color-tuscan-yellow);
+}
+
+/* ── "You get this guild's updates" note — top+bottom breathing room (8px grid) so it
+   doesn't butt against the confirmation icon above or the "Manage in Settings" button below. */
+.pl-guild-updates-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
 }
 
 /* ── Member Directory guild badges ───────────────────────────────────────── */
