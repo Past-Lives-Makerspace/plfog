@@ -1005,6 +1005,8 @@ class SiteActivity(models.Model):
         MEETING_UNLOCKED = "meeting_unlocked", "Meeting minutes unlocked"
         MEETING_UNPUBLISHED = "meeting_unpublished", "Meeting agenda unpublished"
         ACCOUNT_DELETED = "account_deleted", "Deleted account"
+        RECONCILIATION_SNAPSHOT_TAKEN = "reconciliation_snapshot_taken", "Reconciliation snapshot taken"
+        RECONCILIATION_SNAPSHOT_DELETED = "reconciliation_snapshot_deleted", "Reconciliation snapshot deleted"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,

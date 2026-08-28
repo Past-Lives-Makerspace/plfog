@@ -32,6 +32,49 @@ urlpatterns = [
     ),
     path("admin/reports/", views.admin_reports, name="billing_admin_reports"),
     path("admin/reports/export/csv/", views.admin_reports_csv, name="billing_admin_reports_csv"),
+    # --- Reconciliation (admin-only) ---
+    path("admin/reconciliation/table/", views.reconciliation_table, name="billing_admin_reconciliation_table"),
+    path(
+        "admin/reconciliation/export/csv/",
+        views.admin_reconciliation_csv,
+        name="billing_admin_reconciliation_csv",
+    ),
+    path("admin/reconciliation/print/", views.reconciliation_print, name="billing_admin_reconciliation_print"),
+    path(
+        "admin/reconciliation/settings/save/",
+        views.billing_admin_save_reconciliation_settings,
+        name="billing_admin_save_reconciliation_settings",
+    ),
+    path(
+        "admin/reconciliation/adjust/<str:source_kind>/<int:source_pk>/form/",
+        views.reconciliation_adjust_form,
+        name="billing_reconciliation_adjust_form",
+    ),
+    path(
+        "admin/reconciliation/adjust/<str:source_kind>/<int:source_pk>/",
+        views.reconciliation_adjust,
+        name="billing_reconciliation_adjust",
+    ),
+    path(
+        "admin/reconciliation/clear/<str:source_kind>/<int:source_pk>/",
+        views.reconciliation_clear,
+        name="billing_reconciliation_clear",
+    ),
+    path(
+        "admin/reconciliation/snapshots/take/",
+        views.reconciliation_snapshot_take,
+        name="billing_reconciliation_snapshot_take",
+    ),
+    path(
+        "admin/reconciliation/snapshots/<int:pk>/",
+        views.reconciliation_snapshot_detail,
+        name="billing_reconciliation_snapshot_detail",
+    ),
+    path(
+        "admin/reconciliation/snapshots/<int:pk>/delete/",
+        views.reconciliation_snapshot_delete,
+        name="billing_reconciliation_snapshot_delete",
+    ),
     path(
         "admin/connect-platform/test/",
         views.billing_test_platform_connection,

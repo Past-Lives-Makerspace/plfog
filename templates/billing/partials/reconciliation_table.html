@@ -1,0 +1,176 @@
+{% load classes_tags %}
+{# Reconciliation allocation table — HTMX refresh target; re-fetched on reconciliation-changed. #}
+
+{% if reconciliation_date_error %}
+<div class="pl-form-errors" style="margin-bottom:1rem">{{ reconciliation_date_error }}</div>
+{% endif %}
+
+<div class="pl-stats" style="margin-bottom:1.5rem">
+  <div class="pl-stat">
+    <div class="pl-stat__value">{{ reconciliation.grand_total_cents|cents_as_dollars }}</div>
+    <div class="pl-stat__label">Collected (Net)</div>
+  </div>
+  <div class="pl-stat">
+    <div class="pl-stat__value">{{ reconciliation.producers_total_cents|cents_as_dollars }}</div>
+    <div class="pl-stat__label">Disbursed To Producers</div>
+  </div>
+  <div class="pl-stat">
+    <div class="pl-stat__value">{{ reconciliation.pl_total_cents|cents_as_dollars }}</div>
+    <div class="pl-stat__label">Past Lives Cut</div>
+  </div>
+  <div class="pl-stat">
+    <div class="pl-stat__value">{{ reconciliation.voting_total_cents|cents_as_dollars }}</div>
+    <div class="pl-stat__label">Voting Allocated</div>
+  </div>
+</div>
+
+{% if reconciliation.unassigned_note_count %}
+<div class="pl-badge pl-badge--warn" style="display:block;padding:0.75rem 1rem;margin-bottom:1rem;border-radius:6px">
+  {{ reconciliation.unassigned_note_count }} payment(s) had no instructor or guild set, so that share went to Past Lives.
+  Set them on the class or booking to reattribute.
+</div>
+{% endif %}
+{% if reconciliation.omitted_count %}
+<div class="pl-text-muted" style="margin-bottom:1rem">{{ reconciliation.omitted_count }} transaction(s) omitted from this allocation.</div>
+{% endif %}
+
+{% if not reconciliation.has_any %}
+<div class="pl-card" style="text-align:center">
+  <p class="pl-text-muted">No payments to reconcile in this window. Pick a different month.</p>
+</div>
+{% else %}
+
+{% for kind, heading, rows in reconciliation.ordered_groups %}
+<div class="pl-card" style="margin-bottom:1.25rem">
+  <div class="pl-section-label">{{ heading }}</div>
+  {% if rows %}
+  <div class="pl-table-scroll">
+    <table class="pl-table">
+      <thead>
+        <tr>
+          <th>Recipient</th>
+          <th class="text-right">Transactions</th>
+          <th class="text-right">Amount</th>
+          {% if kind.value == "guild" %}
+          <th class="text-right">Voting</th>
+          <th class="text-right">Total</th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for alloc in rows %}
+        <tr style="cursor:default">
+          <td>{{ alloc.label }}</td>
+          <td class="text-right">{{ alloc.transaction_count }}</td>
+          <td class="text-right">{{ alloc.total_cents|cents_as_dollars }}</td>
+          {% if kind.value == "guild" %}
+          <td class="text-right">
+            {{ alloc.voting_cents|cents_as_dollars }}
+            {% if alloc.voting_projected %}
+            <span class="pl-badge pl-badge--muted">Projected</span>
+            {% elif alloc.voting_cents %}
+            <span class="pl-badge pl-badge--ok">Snapshotted</span>
+            {% endif %}
+          </td>
+          <td class="text-right">{{ alloc.combined_cents|cents_as_dollars }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="pl-text-muted">No {{ heading }} in this window.</p>
+  {% endif %}
+</div>
+{% endfor %}
+
+<div class="pl-card" style="margin-bottom:1.25rem">
+  <div class="pl-section-label">Grand Total (Net Collected)</div>
+  <div class="pl-stat__value">{{ reconciliation.grand_total_cents|cents_as_dollars }}</div>
+</div>
+
+{# Contributing transactions — collapsed by default (optional-secondary-form pattern). #}
+<div class="pl-card" style="margin-bottom:1.25rem" x-data="{ open: false }">
+  <div class="pl-toolbar" style="margin-bottom:0">
+    <div class="pl-section-label" style="margin-bottom:0">Transaction Detail</div>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="open = !open" x-text="open ? 'Hide' : 'Show'">Show</button>
+  </div>
+  <div x-show="open" x-cloak style="margin-top:1rem">
+    <div class="pl-table-scroll">
+      <table class="pl-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Source</th>
+            <th>Payer</th>
+            <th>Item</th>
+            <th class="text-right">Gross</th>
+            <th class="text-right">Refunded</th>
+            <th class="text-right">Net</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for line in reconciliation.lines %}
+          <tr style="cursor:default{% if line.omitted %};opacity:0.5;text-decoration:line-through{% endif %}">
+            <td>{{ line.date|date:"M j" }}</td>
+            <td><span class="pl-badge pl-badge--muted">{{ line.source_kind|capfirst }}</span></td>
+            <td>{{ line.payer_name }}</td>
+            <td>
+              {{ line.item }}
+              {% if line.overridden %}<span class="pl-badge pl-badge--warn">Adjusted</span>{% endif %}
+              {% if line.omitted %}<span class="pl-badge pl-badge--fail">Omitted</span>{% endif %}
+              {% if line.note %}<span class="pl-text-muted" style="font-size:0.75rem">({{ line.note }})</span>{% endif %}
+            </td>
+            <td class="text-right">{{ line.gross_cents|cents_as_dollars }}</td>
+            <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>
+            <td class="text-right">{{ line.net_cents|cents_as_dollars }}</td>
+            <td class="text-right">
+              {% if line.omitted %}
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                      hx-post="{% url 'billing_reconciliation_clear' line.source_kind line.source_pk %}"
+                      hx-swap="none">Undo</button>
+              {% else %}
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
+                      @click="$dispatch('open-modal', 'txn-adjust')"
+                      hx-get="{% url 'billing_reconciliation_adjust_form' line.source_kind line.source_pk %}"
+                      hx-target="#txn-adjust-body" hx-swap="innerHTML">Adjust</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="8" class="pl-text-muted" style="text-align:center;padding:1rem">No transactions in this window.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% endif %}{# /has_any #}
+
+{# Tab payout summary (fold-in of the retired Reports page). #}
+<div class="pl-card">
+  <div class="pl-section-label">Guild Payout (Tab Charges)</div>
+  {% if reconciliation_payout_summary %}
+  <div class="pl-table-scroll">
+    <table class="pl-table">
+      <thead>
+        <tr><th>Recipient</th><th class="text-right">Entries</th><th class="text-right">Amount</th></tr>
+      </thead>
+      <tbody>
+        {% for payout in reconciliation_payout_summary %}
+        <tr style="cursor:default">
+          <td>{{ payout.recipient_label }}</td>
+          <td class="text-right">{{ payout.entry_count }}</td>
+          <td class="text-right">${{ payout.amount }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="pl-text-muted">No tab charges in this window.</p>
+  {% endif %}
+</div>

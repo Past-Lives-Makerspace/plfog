@@ -679,6 +679,18 @@ def _google_sync_enabled() -> bool:
     return env_on and SiteConfiguration.load().google_calendar_sync_enabled
 
 
+def _orientation_split_percents() -> dict[str, Any]:
+    """The orientation payment split from BillingSettings — shown read-only on the guild page."""
+    from billing.models import BillingSettings
+
+    settings_obj = BillingSettings.load()
+    return {
+        "orientator": settings_obj.orientation_orientator_percent,
+        "guild": settings_obj.orientation_guild_percent,
+        "pl": settings_obj.orientation_pl_percent,
+    }
+
+
 def _guild_edit_context(
     request: HttpRequest,
     guild: Guild,
@@ -786,6 +798,8 @@ def _guild_edit_context(
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
+        "orientation_is_paid": settings_obj.is_paid,
+        "orientation_split": _orientation_split_percents(),
         "welcome_email_form": (
             welcome_email_form if welcome_email_form is not None else GuildWelcomeEmailForm(instance=settings_obj)
         ),

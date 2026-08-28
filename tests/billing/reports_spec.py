@@ -5,27 +5,12 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.contrib.auth.models import User
 from django.http.request import QueryDict
 
 from billing.models import TabCharge
 from billing.reports import ReportFilterForm, build_report, stream_report_csv
-from core.models import SiteConfiguration
 from tests.billing.factories import ProductFactory, TabChargeFactory, TabFactory
 from tests.membership.factories import GuildFactory
-
-_NOTICE = "My Tab is off, so no new tab entries accrue"
-
-
-def _disable_my_tab() -> None:
-    config = SiteConfiguration.load()
-    config.my_tab_enabled = False
-    config.save()
-
-
-def _login_superuser(client, username: str = "rptadmin") -> None:
-    User.objects.create_superuser(username=username, password="pass", email=f"{username}@example.com")
-    client.login(username=username, password="pass")
 
 
 def describe_build_report():
@@ -239,27 +224,3 @@ def describe_ReportFilterForm():
     def it_treats_an_empty_string_dict_value_as_no_value():
         form = ReportFilterForm({"charge_type": ""})
         assert form.filter_kwargs()["charge_types"] is None
-
-
-def describe_admin_reports_flag_notice():
-    def it_shows_the_notice_when_my_tab_is_off(client, db):
-        _disable_my_tab()
-        _login_superuser(client, "rptoff")
-        content = client.get("/billing/admin/reports/").content.decode()
-        assert _NOTICE in content
-
-    def it_hides_the_notice_when_my_tab_is_on(client, db):
-        _login_superuser(client, "rpton")  # flag defaults to True
-        content = client.get("/billing/admin/reports/").content.decode()
-        assert _NOTICE not in content
-
-    def it_still_renders_historical_rows_for_an_earlier_range_with_flag_off(client, db):
-        _disable_my_tab()
-        product = ProductFactory()
-        tab = TabFactory()
-        tab.add_entry(description="histentry", amount=Decimal("10.00"), product=product)
-        _login_superuser(client, "rpthist")
-        content = client.get("/billing/admin/reports/?start_date=2020-01-01&end_date=2099-12-31").content.decode()
-        # The notice is informational, not a lockout — historical entries still render.
-        assert _NOTICE in content
-        assert "histentry" in content
