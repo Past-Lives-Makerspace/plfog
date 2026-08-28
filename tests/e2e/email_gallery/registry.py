@@ -483,6 +483,27 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         html_template="membership/emails/discord_guilds_imported.html",
         context_builder="discord_guilds_imported_context",
     ),
+    GalleryEmail(
+        key="guild_welcome",
+        name="Guild welcome (member joined)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a member deliberately joins a guild (the Join This Guild button with the "
+            "welcome box checked, or the Discord /join-guild command). ON by default: every guild "
+            "sends it unless they turn it off. This card shows the standard copy; a guild may write "
+            "its own subject and body to override it. Goes to the member who just joined."
+        ),
+        edit_pointer=(
+            "Guild-authored (guild editor → Welcome Email tab); "
+            "shell in templates/membership/emails/guild_welcome.{txt,html}"
+        ),
+        audience="The member who just joined the guild.",
+        event_keys=frozenset({"guild_welcome"}),
+        text_template="membership/emails/guild_welcome.txt",
+        html_template="membership/emails/guild_welcome.html",
+        context_builder="guild_welcome_context",
+    ),
     # --- Billing ---------------------------------------------------------------
     GalleryEmail(
         key="receipt",

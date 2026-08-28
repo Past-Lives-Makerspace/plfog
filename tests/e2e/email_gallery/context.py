@@ -531,6 +531,24 @@ def discord_guilds_imported_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def guild_welcome_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.orientations.send_guild_welcome``.
+
+    The sample guild leaves the welcome copy blank, so this renders the STANDARD welcome
+    (the on-by-default copy) via the resolved_* fallbacks — what most members receive.
+    """
+    from membership.models import GuildOrientationSettings
+    from membership.orientations import _guild_welcome_context
+
+    settings_obj, _created = GuildOrientationSettings.objects.get_or_create(guild=data.guild)
+    return {
+        "subject": settings_obj.welcome_email_subject_resolved,
+        "template_context": _guild_welcome_context(
+            data.guild, data.member.display_name, settings_obj.welcome_email_body_resolved
+        ),
+    }
+
+
 # --- Billing --------------------------------------------------------------------
 
 

@@ -239,7 +239,11 @@ urlpatterns = [
         views.guild_announcement_review_decision,
         name="hub_guild_announcement_review_decision",
     ),
+    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
+    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
+    path("guilds/<int:pk>/welcome-email/test/", views.guild_welcome_test, name="hub_guild_welcome_test"),
+    path("guilds/<int:pk>/welcome-email/preview/", views.guild_welcome_preview, name="hub_guild_welcome_preview"),
     path(
         "guilds/<int:pk>/announcement-settings/save/",
         views.guild_announcement_settings_save,

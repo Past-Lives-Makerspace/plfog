@@ -322,10 +322,13 @@ def describe_guild_detail_subscription_touch():
         assert reverse("hub_user_settings") + "?tab=guilds" in html
         assert "Manage in Settings" in html
 
-    def it_points_a_non_subscriber_at_settings_instead_of_a_join_button(client: Client):
+    def it_shows_a_non_member_the_hero_join_button(client: Client):
+        # A linked member who has not joined this guild now gets the hero Join button
+        # (asserted by its class, since the changelog text renders "Join This Guild" into
+        # every page); the member-only updates confirmation stays hidden until they join.
         _linked_user(client)
         guild = GuildFactory()
         html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        assert "Join This Guild" not in html
-        assert "Want announcements from this guild?" in html
-        assert reverse("hub_user_settings") + "?tab=guilds" in html
+        assert "pl-guild-cta__join" in html
+        # The joined-state "Member" badge stays absent until they actually join.
+        assert "pl-guild-cta__badge" not in html

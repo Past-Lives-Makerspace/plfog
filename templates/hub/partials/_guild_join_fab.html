@@ -1,0 +1,17 @@
+{# Sticky mini-CTA that follows the reader down long guild pages (clones .pl-scroll-top). #}
+{# Reveals past ~400px so it never covers the hero's own Join button. Mirrors the hero #}
+{# state: Join pill for a non-member, quiet Member pill for a member. Members surface only. #}
+<div id="guild-join-fab" class="pl-guild-join-fab"{% if oob %} hx-swap-oob="true"{% endif %}
+     x-data="{ show: false }" x-show="show" x-cloak
+     x-init="window.addEventListener('scroll', () => { show = window.scrollY > 400 }, { passive: true })">
+    {% if member and not is_guilds_surface %}
+        {% if is_member_of_guild %}
+        <span class="pl-guild-join-fab__pill pl-guild-join-fab__pill--member">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Member
+        </span>
+        {% else %}
+        <button type="button" class="pl-guild-join-fab__pill pl-guild-join-fab__pill--join" @click="$dispatch('open-modal', 'join-guild')">Join {{ guild.name }}</button>
+        {% endif %}
+    {% endif %}
+</div>

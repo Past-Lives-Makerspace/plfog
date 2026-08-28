@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.19.1"
+VERSION = "1.20.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.20.0",
+        "date": "2026-08-27",
+        "title": "Join your favorite guilds",
+        "changes": [
+            "Every guild page now has a Join This Guild button. Joining adds you to the guild's "
+            "roster, puts a badge on your member directory card, keeps you in the loop on that "
+            "guild's announcements, and lets you sign up for its orientations. When you join you "
+            "can choose to get a welcome guide by email, and guild leads can write their own "
+            "welcome note. You can leave a guild any time.",
+        ],
+    },
     {
         "version": "1.19.1",
         "date": "2026-08-27",

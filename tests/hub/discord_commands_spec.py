@@ -16,13 +16,20 @@ from unittest import mock
 import httpx
 import pytest
 import respx
+from django.contrib.auth.models import User
+from django.core import mail
 
 from core.events import discord as discord_module
 from core.events import discord_roles
 from hub.discord_commands import JOIN_GUILD, _guild_choices, _join_guild, _welcome_body
 from membership import orientations
 from membership.models import GuildMembership
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import (
+    GuildFactory,
+    GuildOrientationSettingsFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -92,6 +99,31 @@ def describe_join_guild_handler():
             assert result["data"]["flags"] == 64
             assert "You now follow **Forge**" in result["data"]["content"]
             assert "From the lead!" in result["data"]["content"]
+
+    def describe_the_member_welcome_email():
+        def _linked_member(username: str, discord_id: str) -> object:
+            MembershipPlanFactory()
+            user = User.objects.create_user(username=username, password="pw", email=f"{username}@example.com")
+            member = user.member
+            member.discord_user_id = discord_id
+            member.save(update_fields=["discord_user_id"])
+            return member
+
+        def it_sends_the_welcome_on_a_brand_new_join(spies):
+            member = _linked_member("dcw1", "901")
+            guild = GuildFactory(discord_webhook_url=_WEBHOOK)
+            GuildOrientationSettingsFactory(guild=guild)
+            _join_guild(_interaction(guild.slug), member)
+            assert len(mail.outbox) == 1
+            assert mail.outbox[0].to == [member.primary_email]
+
+        def it_does_not_welcome_on_an_upgraded_reaction_join(spies):
+            member = _linked_member("dcw2", "902")
+            guild = GuildFactory(discord_webhook_url=_WEBHOOK)
+            GuildOrientationSettingsFactory(guild=guild)
+            GuildMembership.objects.record_discord_join(guild, member)
+            _join_guild(_interaction(guild.slug), member)
+            assert mail.outbox == []
 
     def describe_welcome_copy():
         def it_uses_the_generic_fallback_when_blank(spies):

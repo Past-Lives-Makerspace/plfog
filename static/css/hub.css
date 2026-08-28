@@ -7134,6 +7134,135 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     transform: translateY(-2px);
 }
 
+/* ── Guild Join / Member hero CTA ────────────────────────────────────────── */
+.pl-guild-cta {
+    display: inline-flex;
+}
+.pl-guild-cta__member {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.pl-guild-cta__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: default;
+}
+.pl-guild-cta__overflow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+}
+.pl-guild-cta__menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 40;
+    min-width: 160px;
+    padding: 0.35rem;
+    border-radius: 8px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-elevated);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.pl-guild-cta__menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text);
+    text-align: left;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.pl-guild-cta__menu-item:hover {
+    background: var(--hub-surface);
+}
+
+/* ── Sticky mini Join CTA (clones .pl-scroll-top placement) ──────────────── */
+.pl-guild-join-fab {
+    position: fixed;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    z-index: 90;
+}
+.pl-guild-join-fab__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.7rem 1.15rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+.pl-guild-join-fab__pill--join {
+    border: 1px solid var(--color-tuscan-yellow);
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-guild-join-fab__pill--join:hover {
+    transform: translateY(-2px);
+}
+.pl-guild-join-fab__pill--member {
+    border: 1px solid var(--hub-border);
+    background: var(--hub-elevated);
+    color: var(--hub-text-muted);
+    cursor: default;
+}
+
+/* ── Join-modal benefit rows ─────────────────────────────────────────────── */
+.pl-benefit-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-benefit-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 0.92rem;
+    color: var(--hub-text);
+    line-height: 1.4;
+}
+.pl-benefit-row svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 0.1rem;
+    color: var(--color-tuscan-yellow);
+}
+.pl-benefit-row a {
+    color: var(--color-tuscan-yellow);
+}
+
+/* ── Member Directory guild badges ───────────────────────────────────────── */
+.pl-directory-guilds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+}
+.pl-directory-guild {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    text-decoration: none;
+}
+.pl-directory-guild img {
+    display: block;
+    width: 14px;
+    height: 14px;
+}
+
 /* Phone clearance: the fixed back-to-top FAB floats over a padded strip, never over the
    page's last row of controls (Guilds toggles, danger-zone footer, Tours Save). */
 @media (max-width: 768px) {

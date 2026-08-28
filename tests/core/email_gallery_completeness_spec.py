@@ -44,6 +44,7 @@ EXPECTED_PAIRS = {
     "orientation_cancelled",
     "orientation_lead_request",
     "orientation_thankyou",
+    "guild_welcome",
     # billing
     "charge_failed_admin",
     "receipt",
@@ -64,10 +65,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_25_pairs():
+    def it_discovers_the_expected_26_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 25
+        assert len(EXPECTED_PAIRS) == 26
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

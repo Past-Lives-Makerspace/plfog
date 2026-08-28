@@ -960,3 +960,78 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
         url=reverse("hub_guild_detail", args=[guild.slug]),
         period=f"guild:{guild.pk}:join:{member.pk}",
     )
+
+
+def _guild_welcome_context(guild: Guild, greeting_name: str, body: str) -> dict[str, Any]:
+    """Build the render context for the guild-welcome email shell.
+
+    The editable ``body`` is the lead's note (or the standard default); the static
+    "what you can do" section + help link live in the template. ``help_url`` points at
+    the member-facing guilds guide (the lead-authoring "your guild page" article is a
+    different, guild_lead-audience page).
+    """
+    return {
+        "guild": guild,
+        "greeting_name": greeting_name,
+        "body": body,
+        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
+        "banner_url": _absolute_url(guild.banner_image.url) if guild.banner_image else "",
+        "help_url": _absolute_url(reverse("hub_help_article", args=["guilds", "guilds-and-guild-pages"])),
+    }
+
+
+def send_guild_welcome(guild: Guild, member: Member) -> None:
+    """Send a member the guild's welcome email once, on a deliberate join (idempotent).
+
+    Fired ONLY on a deliberate join: the hero "Join This Guild" button with the welcome
+    box checked, or the Discord ``/join-guild`` command. It is deliberately NOT called
+    from :meth:`Member.subscribe_to_guild` / :func:`member_joined_guild`, so the
+    first-login interest picker and the Settings notification toggle subscribe silently.
+
+    Transactional, addressed with an explicit ``email_to`` (bypasses preferences — the
+    member just asked to join). Deduped once per (member, guild) forever via the ``period``
+    key, so a leave-then-rejoin months later never re-welcomes. Gated on the guild's
+    ``welcome_email_enabled``; a guild with no settings row sends nothing.
+    """
+    from membership.models import GuildOrientationSettings
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is None or not settings_obj.welcome_email_ready:
+        return
+    emit_with_email_shell(
+        "guild_welcome",
+        target=guild,
+        context={"member": None},  # resolver finds nobody → email-only, no in-app/push dup
+        subject=settings_obj.welcome_email_subject_resolved,
+        text_template="membership/emails/guild_welcome.txt",
+        html_template="membership/emails/guild_welcome.html",
+        template_context=_guild_welcome_context(guild, member.display_name, settings_obj.welcome_email_body_resolved),
+        email_to=member.primary_email,
+        email_trigger_kind="guild_welcome",
+        period=f"guild:{guild.pk}:welcome:{member.pk}",
+    )
+
+
+def send_guild_welcome_test(guild: Guild, member: Member) -> None:
+    """Send the guild's welcome email to a lead's own inbox as a proof (always sends).
+
+    Powers the "Send test to me" button on the Welcome Email editor tab. Unlike the
+    member-facing send it ignores the enabled gate (a lead may proof a draft before turning
+    it on) and uses a per-instant idempotency bucket so repeated proofs all go out.
+    """
+    from membership.models import GuildOrientationSettings
+
+    settings_obj, _created = GuildOrientationSettings.objects.get_or_create(guild=guild)
+    stamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
+    emit_with_email_shell(
+        "guild_welcome",
+        target=guild,
+        context={"member": None},
+        subject=settings_obj.welcome_email_subject_resolved,
+        text_template="membership/emails/guild_welcome.txt",
+        html_template="membership/emails/guild_welcome.html",
+        template_context=_guild_welcome_context(guild, member.display_name, settings_obj.welcome_email_body_resolved),
+        email_to=member.primary_email,
+        email_trigger_kind="guild_welcome",
+        period=f"guild:{guild.pk}:welcome:test:{member.pk}:{stamp}",
+    )

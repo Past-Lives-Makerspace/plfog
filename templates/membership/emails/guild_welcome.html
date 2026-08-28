@@ -1,0 +1,30 @@
+{% extends "membership/emails/_base.html" %}
+{% load rich_text %}
+{% block content %}
+{% if banner_url %}
+<div style="margin: 0 0 24px; border-radius: 10px; overflow: hidden;">
+    <img src="{{ banner_url }}" width="100%" alt="{{ guild.name }}" style="display: block; width: 100%; max-width: 100%; height: auto; border-radius: 10px;">
+</div>
+{% else %}
+<div style="margin: 0 0 24px; border-radius: 10px; background: linear-gradient(135deg, #092E4C, #0d4876); padding: 28px 20px; text-align: center;">
+    <span style="font-size: 18px; font-weight: 700; color: #FFFFFF; letter-spacing: 0.02em;">{{ guild.name }}</span>
+</div>
+{% endif %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Welcome to <a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a>!</p>
+<div style="font-size: 14px; color: #33424f; line-height: 1.7;">{{ body|rich_email_body }}</div>
+<div style="margin: 28px 0 0; padding: 20px 22px; background-color: #eef4f9; border-radius: 10px;">
+    <p style="margin: 0 0 12px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">What You Can Do On Your Guild Page</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px; color: #33424f; line-height: 1.6;">
+        <tr><td style="padding: 3px 0;">Read the guild's announcements</td></tr>
+        <tr><td style="padding: 3px 0;">Book an orientation</td></tr>
+        <tr><td style="padding: 3px 0;">See meetings and the calendar</td></tr>
+        <tr><td style="padding: 3px 0;">Meet the roster</td></tr>
+        <tr><td style="padding: 3px 0;">Check the wishlist</td></tr>
+    </table>
+</div>
+<p style="margin: 20px 0 0; font-size: 14px; color: #55697a;">New here? Read the <a href="{{ help_url }}" style="color: #0d4876;">quick guide to your guild page</a>.</p>
+<div style="text-align: center; margin: 28px 0 0;">
+    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View Guild Page</a>
+</div>
+{% endblock %}
