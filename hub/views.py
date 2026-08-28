@@ -852,12 +852,10 @@ def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("hub_guild_detail", slug=guild.slug)
         return render(request, "hub/guild_edit.html", _guild_edit_context(request, guild, form=form))
 
-    from core.tours import tour_offer_context
-
     return render(
         request,
         "hub/guild_edit.html",
-        {**_guild_edit_context(request, guild), **tour_offer_context(request, "guild-lead")},
+        _guild_edit_context(request, guild),
     )
 
 
@@ -4995,13 +4993,12 @@ def home(request: HttpRequest) -> HttpResponse:
     ctx = _get_hub_context(request)
     if member is None:
         return render(request, "hub/home.html", {**ctx, "member": None})
-    from core.tours import tour_offer_context
     from hub.home import build_home_context
 
     return render(
         request,
         "hub/home.html",
-        {**ctx, "member": member, **build_home_context(member), **tour_offer_context(request, "member-welcome")},
+        {**ctx, "member": member, **build_home_context(member)},
     )
 
 

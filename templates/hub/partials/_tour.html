@@ -13,5 +13,10 @@ Boosted swaps re-execute the script; it is a guarded window.plTour IIFE, safe to
      data-driver-js="{% static 'js/driver.min.js' %}"></div>
 {{ tour_json|json_script:"pl-tour-data" }}
 {% if show_tour_offer %}{% include "hub/partials/_tour_offer.html" %}{% endif %}
+{% comment %} The advancing affordance: a brief scrim + spinner shown by pl_tour.js during a hop so the destination never flashes bare. {% endcomment %}
+<div id="pl-tour-advancing" class="pl-tour-advancing" role="status" aria-live="polite" hidden>
+    <span class="pl-tour-advancing__spinner" aria-hidden="true"></span>
+    <span class="pl-tour-advancing__label">Taking you there...</span>
+</div>
 <script src="{% static 'js/pl_tour.js' %}"></script>
 {% endif %}

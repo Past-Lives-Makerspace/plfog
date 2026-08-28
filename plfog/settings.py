@@ -241,6 +241,7 @@ TEMPLATES = [
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
                 "core.context_processors.notification_badge",
+                "core.context_processors.tour_runtime",
             ],
         },
     },

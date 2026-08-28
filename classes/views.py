@@ -1210,13 +1210,10 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     is_guild_lead = teaching_member.is_guild_lead
     guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
 
-    from core.tours import tour_offer_context
-
     return render(
         request,
         "classes/teach/overview.html",
         {
-            **tour_offer_context(request, "instructor"),
             "active_tab": "overview",
             "instructor": teaching_member,
             "drafts": drafts,
