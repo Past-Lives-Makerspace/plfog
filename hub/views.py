@@ -2549,6 +2549,27 @@ def _guild_cta_context(request: HttpRequest, guild: Guild, member: Member | None
     }
 
 
+def _announce_join_to_discord(guild: Guild, member: Member) -> None:
+    """Best-effort: post a short celebratory note to the guild's own Discord channel.
+
+    Mirrors the ``/join-guild`` slash command's public welcome (``guild_webhook`` +
+    ``post_embed``, `hub/discord_commands.py`): the same per-guild webhook gate (posting
+    enabled AND a non-blank webhook URL), the member named in the embed title, no @-mention.
+    Wrapped so a Discord hiccup can never fail or roll back the join — the ``GuildMembership``
+    row is the source of truth. Only the deliberate web join with the box ticked reaches here;
+    the silent paths (first-login picker, Settings toggle) never announce.
+    """
+    from core.events.channels import Message
+    from core.events.discord import guild_webhook, post_embed
+
+    try:
+        hook = guild_webhook(guild)
+        if hook:
+            post_embed(hook, Message(title=f"{member.display_name} just joined {guild.name}!", body=""))
+    except Exception:
+        logger.exception("guild_join: Discord announce failed for guild=%s member=%s", guild.pk, member.pk)
+
+
 @login_required
 @require_POST
 def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
@@ -2571,6 +2592,8 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     welcomed = bool(joined and request.POST.get("send_welcome"))
     if welcomed:
         member.send_guild_welcome(guild)
+    if joined and request.POST.get("announce_discord"):
+        _announce_join_to_discord(guild, member)
     ctx = _guild_cta_context(request, guild, member)
     ctx["oob"] = True
     response = render(request, "hub/partials/_guild_join_cta.html", ctx)
@@ -3417,7 +3440,7 @@ def guild_announcement_delete(request: HttpRequest, pk: int, announcement_pk: in
 @login_required
 @require_POST
 def guild_faq_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the guild's FAQ rows from their own form on the FAQ & Links tab. Editor only.
+    """Save the guild's FAQ rows from their own form on the FAQ tab. Editor only.
 
     The FAQ section is its own ``<form>`` (it can't be nested in the main edit form), so it
     persists here independently and redirects back to the same tab with a Django message.
@@ -3440,7 +3463,7 @@ def guild_faq_save(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the guild's Links rows from their own form on the FAQ & Links tab. Editor only."""
+    """Save the guild's Links rows from their own form on the Links tab. Editor only."""
     from hub.forms import GuildLinkFormSet
 
     guild = get_object_or_404(Guild, pk=pk)
@@ -3453,7 +3476,7 @@ def guild_links_save(request: HttpRequest, pk: int) -> HttpResponse:
         messages.success(request, "Links saved.")
     else:
         messages.error(request, "Couldn't save the links — check the highlighted fields.")
-    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=content")
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=links")
 
 
 @login_required

@@ -1660,17 +1660,24 @@ class GuildWelcomeEmailForm(forms.ModelForm):
 
 
 class GuildJoinForm(forms.Form):
-    """The join-modal opt-in: one toggle for the welcome email.
+    """The join-modal opt-ins: the welcome email plus an optional Discord announcement.
 
-    Not persisted — it only carries the member's welcome-packet choice with the join POST.
-    The toggle is checked by default (opt-out within the deliberate join, honoring "ask
-    first"). The view reads ``send_welcome`` off the POST directly.
+    Not persisted — it only carries the member's choices with the join POST. ``send_welcome``
+    is checked by default (opt-out within the deliberate join, honoring "ask first").
+    ``announce_discord`` is OFF by default (opt-in): it only posts a short celebratory message
+    to the guild's own Discord channel when the member deliberately ticks it, and the toggle is
+    only rendered for guilds that actually post to a channel. The view reads both off the POST.
     """
 
     send_welcome = forms.BooleanField(
         required=False,
         initial=True,
         label="Email me the guild welcome guide",
+    )
+    announce_discord = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Announce on the guild's Discord channel",
     )
 
 

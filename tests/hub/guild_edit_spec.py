@@ -395,9 +395,9 @@ def describe_guild_edit():
         assert response.status_code == 302
         assert response["Location"] == reverse("hub_guild_detail", args=[guild.slug])
 
-    def it_deletes_a_link_via_its_own_save_view_and_returns_to_the_content_tab(client: Client):
+    def it_deletes_a_link_via_its_own_save_view_and_returns_to_the_links_tab(client: Client):
         # Link deletion moved OUT of the main edit form into guild_links_save, which posts to its
-        # own action and redirects back to ?tab=content. (Was the old main-form `after=edit` flow.)
+        # own action and redirects back to ?tab=links (its own tab since the FAQ/Links split).
         _user_with_role("admin_lnk", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory(name="Forge")
         link = GuildLinkFactory(guild=guild, label="Old Discord", url="https://discord.gg/x")
@@ -416,8 +416,8 @@ def describe_guild_edit():
         }
         response = client.post(url, data=data)
         assert response.status_code == 302
-        # Lands back on the FAQ & Links tab ...
-        assert response["Location"] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=content"
+        # Lands back on the Links tab ...
+        assert response["Location"] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=links"
         # ... and the link is gone.
         assert not guild.links.filter(pk=link.pk).exists()
 
@@ -727,13 +727,15 @@ def describe_guild_edit_tabs():
             b"orientations",
             b"images",
             b"content",
+            b"links",
             b"announcements",
             b"staff",
         ):
             assert b"section = '" + tab + b"'" in response.content
-        # Calendar Integration and FAQ/Links live under tabs (using discretion).
+        # Calendar Integration lives under a tab; FAQ and Links are now two separate tabs.
         assert b"Calendar Integration" in response.content
-        assert b"FAQ &amp; Links" in response.content
+        assert b">FAQ</button>" in response.content
+        assert b">Links</button>" in response.content
         # The formerly-standalone sections now render inline on the same page.
         assert b"+ Add meeting notes" in response.content
         assert b"+ Add event" in response.content
@@ -961,7 +963,7 @@ def describe_guild_faq_save():
 def describe_guild_links_save():
     """Links now saves through its own form/view, separate from the main edit form."""
 
-    def it_adds_a_new_link_row_and_redirects_to_the_content_tab(client: Client):
+    def it_adds_a_new_link_row_and_redirects_to_the_links_tab(client: Client):
         _user_with_role("lnk_add", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="lnk_add", password="pass")
@@ -976,7 +978,7 @@ def describe_guild_links_save():
         }
         response = client.post(reverse("hub_guild_links_save", args=[guild.pk]), data=data, follow=True)
         assert response.status_code == 200
-        assert response.redirect_chain[-1][0] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=content"
+        assert response.redirect_chain[-1][0] == reverse("hub_guild_edit", args=[guild.pk]) + "?tab=links"
         assert GuildLink.objects.filter(guild=guild, label="Discord").exists()
         assert "Links saved." in [str(m) for m in response.context["messages"]]
 
@@ -1047,7 +1049,7 @@ def describe_guild_links_save():
 
 @pytest.mark.django_db
 def describe_guild_content_tab_template():
-    """Template-level guarantees for the FAQ & Links tab after the form split."""
+    """Template-level guarantees for the FAQ and Links tabs after the form + tab split."""
 
     def it_renders_each_section_as_its_own_form_posting_to_its_save_view(client: Client):
         _user_with_role("ct_forms", fog_role=Member.FogRole.ADMIN)
