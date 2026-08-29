@@ -73,6 +73,28 @@ def describe_Floorplan():
         floor = Floorplan.objects.create(name="Drawn only")
         assert not floor.image
 
+    def describe_has_cubbies():
+        def it_is_true_when_the_floor_has_a_cubby_marker():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, kind=MapHotspot.Kind.CUBBY, label="S1-1")
+            assert floor.has_cubbies is True
+
+        def it_is_false_when_the_floor_has_no_cubbies():
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, kind=MapHotspot.Kind.STUDIO)
+            assert floor.has_cubbies is False
+
+        def it_is_true_when_only_some_markers_are_cubbies():
+            # Mixed floor: any() is True but all() is False, so this kills an any->all mutant.
+            floor = FloorplanFactory()
+            MapHotspotFactory(floorplan=floor, kind=MapHotspot.Kind.CUBBY, label="S1-1")
+            MapHotspotFactory(floorplan=floor, kind=MapHotspot.Kind.STUDIO)
+            assert floor.has_cubbies is True
+
+        def it_is_false_for_a_floor_with_no_markers():
+            # Empty floor: any([]) is False but all([]) is True, another any->all mutant kill.
+            assert FloorplanFactory().has_cubbies is False
+
     def describe_legend():
         def it_counts_the_rooms_behind_each_colour():
             floor = FloorplanFactory()

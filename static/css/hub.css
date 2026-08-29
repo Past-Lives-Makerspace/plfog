@@ -5493,7 +5493,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
      rather than filling the page — the crop is what gives drag and two-finger
      swipe somewhere to go before any zoom. Centring the stage keeps the crop
      symmetric, matching the JS clamp's centre-origin maths. */
-  max-height: min(60vh, 480px);
+  max-height: min(85vh, 900px);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -5536,8 +5536,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    it at MOBILE_BASE_SCALE. Keep this breakpoint in sync with space_map.js. */
 @media (max-width: 768px) {
   .pl-map-viewport {
-    height: min(60vh, 480px);
+    height: min(70vh, 560px);
   }
+}
+/* Caption clarifying the S1-x markers are cubby shelves. */
+.pl-map-cubby-note {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.8125rem;
 }
 /* Legend — the colour key, with live counts */
 .pl-map-legend {

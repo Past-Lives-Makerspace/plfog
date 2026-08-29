@@ -34,6 +34,10 @@ Context: floorplans, pending_space_ids, can_edit.
     </ul>
     {% endif %}
 
+    {% if f.has_cubbies %}
+    <p class="pl-map-cubby-note hub-text-muted">The <strong>S1</strong> markers (S1-1, S1-2, …) are cubby shelves — small personal storage cubbies members can request.</p>
+    {% endif %}
+
     {% comment %}data-floor lets the JS measure THIS floor's viewport — a shared x-ref
     resolved to whichever floor rendered last, so pan-clamping measured a display:none
     box (0×0) and froze panning on every other floor.{% endcomment %}
