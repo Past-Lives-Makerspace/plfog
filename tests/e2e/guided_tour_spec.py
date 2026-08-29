@@ -150,6 +150,106 @@ def describe_member_welcome_tour():
         expect(popover).to_contain_text("Your Get Started List")  # step index 2, back on home
 
 
+def _start_mid_tour(live_server, page, login_via_code, email: str):
+    """Land directly on step 1 — an element-anchored popover on hub home.
+
+    Step 0 is a *centered* popover whose Driver.js placement is not what these
+    tests exercise; starting on the sidebar-anchored step 1 (the same reliable
+    entry the resume test uses) keeps the popover on-screen and clickable.
+    """
+    _seed_member_world()
+    login_via_code(email)
+    page.goto(f"{live_server.url}{reverse('hub_home')}?tour=member-welcome&step=1")
+    popover = page.locator(".driver-popover.pl-tour")
+    popover.wait_for(state="visible", timeout=10000)
+    expect(popover).to_contain_text("Everything in One Place")  # step index 1
+    return popover
+
+
+def describe_pausing_a_tour():
+    def it_pauses_and_resumes_on_the_same_page(live_server, page, login_via_code):
+        email = "tour-pause@example.com"
+        popover = _start_mid_tour(live_server, page, login_via_code, email)
+        progress = popover.locator(".driver-popover-progress-text").inner_text().strip()
+
+        # Pause lifts the spotlight without ending the tour: popover gone, pill shown.
+        popover.locator(".pl-tour-pause-btn").click()
+        expect(popover).not_to_be_visible()
+        pill = page.locator("#pl-tour-resume")
+        expect(pill).to_be_visible()
+
+        # Resume brings the popover back at the SAME step (progress text matches).
+        pill.locator("[data-tour-resume]").click()
+        popover.wait_for(state="visible", timeout=10000)
+        expect(popover).to_contain_text("Everything in One Place")
+        assert popover.locator(".driver-popover-progress-text").inner_text().strip() == progress
+        expect(page.locator("#pl-tour-resume")).not_to_be_visible()
+
+    def it_keeps_the_pill_while_you_wander_to_another_page(live_server, page, login_via_code):
+        email = "tour-wander@example.com"
+        popover = _start_mid_tour(live_server, page, login_via_code, email)
+        popover.locator(".pl-tour-pause-btn").click()
+        expect(page.locator("#pl-tour-resume")).to_be_visible()
+
+        # Wander to a normal member page that carries NO tour payload. The paused
+        # run lives in sessionStorage, so the pill follows the presenter there —
+        # and the page shows neither the offer nor a spotlight.
+        page.goto(f"{live_server.url}{reverse('hub_community_calendar')}")
+        expect(page.locator("#pl-tour-resume")).to_be_visible()
+        expect(page.locator(".driver-popover.pl-tour")).not_to_be_visible()
+        expect(page.locator("[data-pl-tour-offer]")).not_to_be_visible()
+
+        # Resume drives back to the paused step's page and re-spotlights it.
+        page.locator("#pl-tour-resume [data-tour-resume]").click()
+        page.wait_for_url("**/home/**", timeout=10000)
+        popover.wait_for(state="visible", timeout=10000)
+        expect(popover).to_contain_text("Everything in One Place")
+
+    def it_preserves_the_page_query_string_on_resume(live_server, page, login_via_code):
+        # A step whose page depends on a query (?audience=..., ?tab=payments) must
+        # resume onto the SAME view. Prove a benign query survives pause -> resume.
+        email = "tour-query@example.com"
+        _seed_member_world()
+        login_via_code(email)
+        page.goto(f"{live_server.url}{reverse('hub_home')}?tour=member-welcome&step=1&demo=keepme")
+        popover = page.locator(".driver-popover.pl-tour")
+        popover.wait_for(state="visible", timeout=10000)
+        popover.locator(".pl-tour-pause-btn").click()
+        pill = page.locator("#pl-tour-resume")
+        expect(pill).to_be_visible()
+
+        pill.locator("[data-tour-resume]").click()
+        page.wait_for_url("**demo=keepme**", timeout=10000)
+        popover.wait_for(state="visible", timeout=10000)
+        assert "demo=keepme" in page.url
+
+    def it_lets_an_explicit_tour_link_win_over_a_paused_run(live_server, page, login_via_code):
+        # A stale paused run must not swallow a deliberate ?tour= start (e.g. the
+        # presenter opens a different role tour). The explicit autostart wins.
+        email = "tour-win@example.com"
+        popover = _start_mid_tour(live_server, page, login_via_code, email)
+        popover.locator(".pl-tour-pause-btn").click()
+        expect(page.locator("#pl-tour-resume")).to_be_visible()
+
+        page.goto(f"{live_server.url}{reverse('classes:public_list')}?tour=member-welcome&step=3")
+        popover.wait_for(state="visible", timeout=10000)
+        expect(popover).to_contain_text("Browse Classes")  # step index 3, on the catalog
+        expect(page.locator("#pl-tour-resume")).not_to_be_visible()
+
+    def it_ends_a_paused_tour_from_the_pill(live_server, page, login_via_code):
+        email = "tour-pause-end@example.com"
+        popover = _start_mid_tour(live_server, page, login_via_code, email)
+        popover.locator(".pl-tour-pause-btn").click()
+        pill = page.locator("#pl-tour-resume")
+        expect(pill).to_be_visible()
+
+        # The pill's end button ends the tour for good: pill gone, dismissal recorded.
+        pill.locator("[data-tour-resume-end]").click()
+        expect(pill).not_to_be_visible()
+        user = _user_for(email)
+        _wait_for_status(page, user, "member-welcome", TourState.Status.DISMISSED)
+
+
 def _user_for(email: str):
     from django.contrib.auth import get_user_model
 

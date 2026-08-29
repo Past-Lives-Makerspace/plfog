@@ -6097,6 +6097,80 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
+/* ── Paused-tour pill (§6.2) — a persistent Resume affordance that survives
+   navigation while a tour is paused, so the presenter can roam and come back ── */
+.pl-tour-resume {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.875rem;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+    border-left: 3px solid var(--color-tuscan-yellow);
+    border-radius: 999px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    max-width: calc(100vw - 2rem);
+}
+.pl-tour-resume[hidden] { display: none; }
+
+.pl-tour-resume__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pl-tour-resume__end {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.pl-tour-resume__end:hover,
+.pl-tour-resume__end:focus {
+    background: var(--hub-border);
+    color: var(--hub-text);
+}
+
+@media (max-width: 480px) {
+    .pl-tour-resume {
+        left: 1rem;
+        right: 1rem;
+        justify-content: space-between;
+    }
+}
+
+/* The Pause control inside the Driver.js popover footer (left of Back/Next). */
+.pl-tour .pl-tour-pause-btn {
+    margin-right: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+.pl-tour .pl-tour-pause-btn:hover,
+.pl-tour .pl-tour-pause-btn:focus {
+    color: var(--color-tuscan-yellow);
+}
+
 /* ── "Show me around" entry link under a page header (§6.3) ── */
 .pl-tour-entry-link {
     margin: -0.75rem 0 1.25rem;
