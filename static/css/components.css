@@ -1091,10 +1091,12 @@
 [data-theme="light"] .pl-btn--secondary {
     background: #f3f4f6;
     color: #1f2937;
+    border-color: #cbd0d6;
 }
 
 [data-theme="light"] .pl-btn--secondary:hover {
     background: #e5e7eb;
+    border-color: #9ca3af;
 }
 
 [data-theme="light"] .pl-cart {

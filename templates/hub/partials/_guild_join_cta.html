@@ -6,12 +6,10 @@
     {% if member and not is_guilds_surface %}
         {% if is_member_of_guild %}
         <div class="pl-guild-cta__member" x-data="{ menu: false }">
-            <span class="pl-btn pl-btn--secondary pl-guild-cta__badge">
+            <button type="button" class="pl-btn pl-btn--secondary pl-guild-cta__badge" @click="menu = !menu" @click.outside="menu = false" aria-haspopup="true" :aria-expanded="menu" aria-label="Guild membership options">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
                 Member
-            </span>
-            <button type="button" class="pl-btn pl-btn--secondary pl-guild-cta__overflow" @click="menu = !menu" @click.outside="menu = false" aria-haspopup="true" :aria-expanded="menu" aria-label="Guild membership options">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                <svg class="pl-guild-cta__caret" :class="{ 'pl-guild-cta__caret--open': menu }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
             </button>
             <div class="pl-guild-cta__menu" x-show="menu" x-cloak @click="menu = false">
                 <button type="button" class="pl-guild-cta__menu-item" @click="$dispatch('open-confirm', 'leave-guild')">Leave guild</button>
