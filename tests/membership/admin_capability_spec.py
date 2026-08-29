@@ -124,3 +124,9 @@ def describe_set_admin_capability():
         member.set_admin_capability(AdminCapability.Capability.EVENTS_APPROVER, True)
         held = set(member.admin_capabilities.values_list("capability", flat=True))
         assert held == {"class_approver", "events_approver"}
+
+    def it_raises_on_an_unknown_capability():
+        member = _member("set6")
+        with pytest.raises(ValueError, match="Unknown admin capability"):
+            member.set_admin_capability("not_a_real_capability", True)
+        assert member.admin_capabilities.count() == 0

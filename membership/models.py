@@ -1062,7 +1062,12 @@ class Member(models.Model):
                 (idempotent: revoking an absent grant is a no-op).
             granted_by: The user performing the grant, recorded for audit. Applied
                 only when a new grant row is created.
+
+        Raises:
+            ValueError: If ``capability`` is not a known ``AdminCapability.Capability``.
         """
+        if capability not in AdminCapability.Capability.values:
+            raise ValueError(f"Unknown admin capability: {capability!r}")
         if enabled:
             self.admin_capabilities.get_or_create(capability=capability, defaults={"granted_by": granted_by})
         else:
