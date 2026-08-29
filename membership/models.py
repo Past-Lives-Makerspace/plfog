@@ -1045,6 +1045,29 @@ class Member(models.Model):
         for capability in desired - current:
             self.admin_capabilities.create(capability=capability, granted_by=granted_by)
 
+    def set_admin_capability(self, capability: str, enabled: bool, *, granted_by: "User | None" = None) -> None:
+        """Grant or revoke a single :class:`AdminCapability` on this member.
+
+        A capability is a scoped admin duty (approve classes, spaces, discount codes,
+        calendar proposals, billing alerts, or issue refunds) that decouples one duty
+        from the all-or-nothing ``fog_role == admin`` tier. Unlike
+        :meth:`sync_admin_capabilities`, which reconciles the whole set, this flips
+        exactly one capability and leaves every other grant untouched — it backs the
+        quick self-service toggles in the "View As" dropdown.
+
+        Args:
+            capability: One of :class:`AdminCapability.Capability` values.
+            enabled: ``True`` to grant (idempotent: a duplicate grant is a no-op, so
+                the existing ``granted_by`` is preserved), ``False`` to revoke
+                (idempotent: revoking an absent grant is a no-op).
+            granted_by: The user performing the grant, recorded for audit. Applied
+                only when a new grant row is created.
+        """
+        if enabled:
+            self.admin_capabilities.get_or_create(capability=capability, defaults={"granted_by": granted_by})
+        else:
+            self.admin_capabilities.filter(capability=capability).delete()
+
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
 

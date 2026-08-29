@@ -32,7 +32,7 @@ from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabL
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.models import Category, ClassOffering
 from core.models import HeroCropMixin, SiteConfiguration
-from hub.view_as import ALL_ROLES, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
+from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
     CalendarFeedFormSet,
@@ -5294,6 +5294,60 @@ def view_as_set(request: HttpRequest) -> JsonResponse:
     request.session[SESSION_ROLE_KEY] = role
 
     return JsonResponse({"role": role})
+
+
+def _coerce_enabled(raw: object) -> bool:
+    """Coerce a posted ``enabled`` value into a bool, accepting JSON bools, ints, and strings.
+
+    The dropdown posts a real JSON boolean, but tolerate ``1``/``"true"``/``"on"`` etc.
+    so a hand-crafted client can't slip through with a truthy string that Python would
+    otherwise treat as always-``True``.
+    """
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
+@require_POST
+@login_required
+def view_as_capability_set(request: HttpRequest) -> JsonResponse:
+    """Grant or revoke one of the CURRENT admin's OWN admin capabilities.
+
+    Body: ``{"capability": "billing_approver", "enabled": true}``. Lets a full admin
+    self-grant or self-revoke a scoped duty (e.g. Billing Administrator) straight from
+    the "View As" dropdown without visiting their member-edit page. This is a REAL grant,
+    not a preview — a full ``fog_role=admin`` must still opt into each capability to
+    receive its notifications and actions, so self-granting is meaningful.
+
+    SECURITY: gated on the caller's ACTUAL admin role (``view_as.has_actual(ROLE_ADMIN)``),
+    never the view-as *effective* role — a session view-as preview can neither grant this
+    access nor let a non-admin through (a non-admin, or an admin previewing down, gets 403).
+    The capability is validated against ``AdminCapability.Capability.values`` (else 400) and
+    only ever applied to the caller's OWN linked member; no target member id is accepted.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.has_actual(ROLE_ADMIN):
+        return JsonResponse({"error": "Admin access required."}, status=403)
+
+    try:
+        payload = json.loads(request.body or b"{}")
+        capability = payload["capability"]
+        enabled = _coerce_enabled(payload["enabled"])
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
+    if capability not in AdminCapability.Capability.values:
+        return JsonResponse({"error": f"Unknown capability '{capability}'"}, status=400)
+
+    member = _get_member(request)
+    if member is None:
+        return JsonResponse({"error": "No member on this account."}, status=403)
+
+    member.set_admin_capability(capability, enabled, granted_by=cast(User, request.user))
+
+    return JsonResponse({"ok": True, "capability": capability, "enabled": enabled})
 
 
 @fog_admin_required
