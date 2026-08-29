@@ -9159,6 +9159,14 @@ class Floorplan(models.Model):
         listed = (hotspot for hotspot in self.hotspots.all() if not hotspot.is_decorative)
         return sorted(listed, key=lambda hotspot: rank[hotspot.availability_class or "info"])
 
+    @property
+    def has_cubbies(self) -> bool:
+        """True when this floor has any cubby (shelf) markers, so the map can caption them.
+
+        Counted over the already-prefetched hotspots, so it adds no query.
+        """
+        return any(hotspot.kind == hotspot.Kind.CUBBY for hotspot in self.hotspots.all())
+
 
 class MapHotspotQuerySet(models.QuerySet):
     def for_map(self) -> MapHotspotQuerySet:
