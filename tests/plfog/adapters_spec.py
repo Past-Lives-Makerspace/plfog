@@ -23,6 +23,8 @@ def _make_request_with_user(rf: RequestFactory, *, is_staff: bool, is_superuser:
     user = MagicMock()
     user.is_staff = is_staff
     user.is_superuser = is_superuser
+    # No linked Member — the guild-updates prompt routing only fires for real members.
+    user.member = None
     request.user = user
     return request
 
@@ -895,6 +897,9 @@ def describe_get_login_redirect_url_public_surface():
 
         adapter = AdminRedirectAccountAdapter()
         user = User.objects.create_user(username="membsurf", email="membsurf@example.com", password="pass")
+        # Stamped = has already answered the guild-updates prompt; the unanswered
+        # first-login routing has its own specs (guild_updates_prompt_spec).
+        user.member.mark_guild_updates_answered()
 
         request = rf.get("/")
         request.surface = "members"

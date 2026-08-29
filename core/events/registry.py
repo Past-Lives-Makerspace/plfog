@@ -248,14 +248,17 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
     faithful structural copy:
 
     * In-app is always present and on (``dispatch`` always writes a bell row).
-    * Email is ``FORCED`` for ``force_email`` triggers, else default from
+    * Email is omitted entirely for ``no_email`` triggers (in-app / push / Discord
+      DM only), ``FORCED`` for ``force_email`` triggers, else default from
       ``email_default`` (on/off).
     * Push default from ``push_default`` (on/off).
     * Discord DM is always offered, default OFF — every member may opt into a
       personal DM for any of these events once they've linked their Discord account.
     """
     specs: list[ChannelSpec] = [_IN_APP_ON]
-    if trigger.force_email:
+    if trigger.no_email:
+        pass  # this trigger sends no email at all — no EMAIL channel is declared
+    elif trigger.force_email:
         specs.append(_EMAIL_FORCED)
     else:
         specs.append(_EMAIL_ON if trigger.email_default else _EMAIL_OFF)
@@ -286,9 +289,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "instructor_changes_requested": Recipients.INSTRUCTOR,
     "instructor_new_registration": Recipients.INSTRUCTOR,
     # A guild-led class routes to that guild's leadership; a lead-less category (guild
-    # is None in context) routes to the Class Administrators (composition, not union).
+    # is None in context) routes to the CMS Administrators (composition, not union).
     "class_review_requested": Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
-    # The admin validation stage always routes to the Class Administrators.
+    # The admin validation stage always routes to the CMS Administrators.
     "class_validation_requested": Recipients.CLASS_APPROVERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
@@ -298,6 +301,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     # orientation Decision-7 fan-out fix is scoped to orientation events, not this one.
     "guild_joined": Recipients.GUILD_LEAD,
     # Billing / tab
+    # refund_failed is the admin-facing async-refund-failure alert — it routes to
+    # the Billing Administrators (holders only), like billing.charge_failed_admin.
+    "refund_failed": Recipients.BILLING_APPROVERS,
     "tab_charged": Recipients.TAB_MEMBER,
     "tab_charge_failed": Recipients.TAB_MEMBER,
     "tab_entry_added": Recipients.TAB_MEMBER,
@@ -338,6 +344,9 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "waitlist_spot_available": None,
     "waitlist_confirmed": None,
     "refund_issued": None,
+    # refund_failed logs no SiteActivity: the refund service writes the CmsActivity
+    # (REGISTRATION_REFUND_FAILED) itself, deliberately unmirrored to the site feed.
+    "refund_failed": None,
     "instructor_class_approved": None,
     "instructor_changes_requested": None,
     "instructor_new_registration": None,
@@ -438,6 +447,10 @@ MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
+WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
+WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
+REGISTRATION_REMOVED = "registration_removed"  # staff removed a registrant (seat-holder or waitlister)
+GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — email only via email_to, no matrix row
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -499,7 +512,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=GUILD_ANNOUNCEMENT,
         label="Guild announcement",
-        description="A guild you're in posted an announcement.",
+        description="A guild you follow posted an announcement. Pick which guilds in your hub Settings.",
         category="Guilds",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -615,7 +628,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=EVENT_GUILD_PUBLISHED,
         label="New guild event",
-        description="A guild you're in scheduled a meeting or event.",
+        description="A guild you follow scheduled a meeting or event.",
         category="Events",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -769,6 +782,22 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_EMAIL_FORCED,),
         activity_kind=None,
     ),
+    # 20b. guild_welcome — the per-guild join welcome email. Transactional: addressed with an
+    #      explicit ``email_to`` (sends regardless of preferences — the member deliberately
+    #      joined), so it declares NO channel at all. The REGISTRANT resolver reads
+    #      ``context["member"]`` = None, so the unused in-app/push fan-out finds nobody, and
+    #      declaring no EMAIL channel keeps it off the member settings matrix (like the
+    #      orientation thank-you, which piggybacks on orientation_update). ``activity_kind``
+    #      stays None — member_joined_guild's guild_joined emit already logs GUILD_JOINED.
+    EventType(
+        key=GUILD_WELCOME,
+        label="Welcome to the guild",
+        description="A warm welcome when a member joins one of your guilds.",
+        category="Guilds",
+        recipient=Recipients.REGISTRANT,
+        channels=(),
+        activity_kind=None,
+    ),
     # 21. orientation.completed — a member finished their orientation; welcome them to the
     #     guild. Goes to the guild's existing members (GUILD_MEMBERS); in-app on + the guild's
     #     own Discord channel on (no email — a light social nudge, not an inbox item). Carries
@@ -896,7 +925,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=MEETING_MINUTES_APPROVED,
         label="Meeting minutes approved",
-        description="A guild you're in approved and locked a meeting's minutes.",
+        description="A guild you follow approved and locked a meeting's minutes.",
         category="Meetings",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
@@ -938,6 +967,38 @@ _NEW_EVENTS: list[EventType] = [
         description="A member's monthly tab charge failed — the admin heads-up to follow up.",
         category="Billing",
         recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # Roster management — staff promote / remove notices to the registrant. The email
+    # goes to the registration's raw address via ``email_to`` (guest-safe, never
+    # pref-gated); the REGISTRANT resolver posts the bell row to the linked member
+    # when one exists — exactly the ``waitlist_spot_available`` pattern. No activity
+    # row from emit: the classes app writes its own CmsActivity at each workflow point.
+    EventType(
+        key=WAITLIST_PROMOTED,
+        label="Added from the waitlist",
+        description="Staff added you to a class straight from the waitlist — you're in.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=WAITLIST_PROMOTED_PAY,
+        label="Added from the waitlist (payment due)",
+        description="Staff added you to a paid class from the waitlist — your seat is held; a payment link is included.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=REGISTRATION_REMOVED,
+        label="Removed from a class",
+        description="Staff removed your registration or waitlist spot for a class.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

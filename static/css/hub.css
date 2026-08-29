@@ -3133,6 +3133,21 @@ a:hover { color: var(--hub-link-hover); }
     margin-bottom: 0.75rem;
 }
 
+/* Thin vertical rule separating the exclusive status pills from the orthogonal
+   "My Classes" toggle. Hidden on phones (below) where the flex-wrap already
+   provides visual separation and the divider can orphan at a line edge. */
+.pl-filter-divider {
+    width: 1px;
+    height: 1.25rem;
+    background: var(--hub-border);
+}
+
+@media (max-width: 640px) {
+    .pl-filter-divider {
+        display: none;
+    }
+}
+
 .admin-table-wrap {
     border: 1px solid var(--hub-border);
     border-radius: 8px;
@@ -3626,6 +3641,62 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-orient-slots__action { flex: 0 0 7rem; text-align: right; }
 .pl-orient-slots__action .hub-btn { width: 100%; }
 .pl-orient-slots__pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+.pl-orient-slots__with { flex: 1; display: flex; align-items: center; gap: 0.4rem; min-width: 0; font-size: 0.9rem; }
+@media (max-width: 640px) {
+    .pl-orient-slots__row { flex-wrap: wrap; }
+    .pl-orient-slots__with { flex-basis: 100%; }
+}
+
+/* Small orienter avatar chip ("with Bob") — theme tokens, initials fallback */
+.pl-orient-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+.pl-orient-avatar--initials {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* Orientations tab — hours rows, the All Orientation Hours overview, Upcoming Slots card */
+.pl-hours-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-orient-overview__group { padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
+.pl-orient-overview__person { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.pl-orient-overview__rules {
+    list-style: none;
+    padding: 0.4rem 0 0;
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
+.pl-slot-admin__row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-slot-admin__when { font-weight: 500; }
+.pl-slot-admin__with { display: flex; align-items: center; gap: 0.4rem; flex: 1; min-width: 140px; }
+.pl-slot-admin__seats { color: var(--hub-text-muted); font-size: 0.85rem; }
+.pl-slot-admin__source { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Add A Slot date input — Rule 14 dark-mode picker icon */
+.pl-slot-date::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-slot-date::-webkit-calendar-picker-indicator { filter: none; }
+
+/* "Post your hours" nudge banner on the orientations dashboard */
+.pl-hours-nudge { padding: 0.9rem 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid var(--color-tuscan-yellow); }
+.pl-hours-nudge a { color: var(--color-tuscan-yellow); }
 
 /* ============================================================
    Skills directory — filter bar, chips, commission badge, editor
@@ -4300,6 +4371,44 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ── First-login guild updates prompt (/welcome/guild-updates/) ────────────
+   Layout only (max-width, spacing) — the card, rows, toggles, and buttons are
+   all existing themed components, so no colors belong here. */
+.pl-guild-prompt {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.pl-guild-prompt__title {
+    font-size: 1.4rem;
+}
+
+.pl-guild-prompt__intro {
+    margin-bottom: 1.25rem;
+}
+
+.pl-guild-prompt__error {
+    margin-bottom: 0.75rem;
+}
+
+/* Button row clears the last guild row (Rule 18); Save sits last/rightmost. */
+.pl-guild-prompt__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 480px) {
+    .pl-guild-prompt__actions {
+        flex-direction: column-reverse;
+    }
+
+    .pl-guild-prompt__actions .pl-btn {
+        width: 100%;
+    }
 }
 
 /* ── Guild-announcement Discord channel picker ─────────────────────────────
@@ -5950,6 +6059,118 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
+/* ── Guided-tour "advancing" affordance: a brief scrim + spinner during a hop,
+      so a boosted swap or tab flip never flashes the destination bare. ── */
+.pl-tour-advancing {
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    background: color-mix(in srgb, var(--hub-bg) 72%, transparent);
+    backdrop-filter: blur(2px);
+    color: var(--hub-text);
+    font-size: 0.9rem;
+}
+.pl-tour-advancing[hidden] { display: none; }
+
+.pl-tour-advancing__spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--hub-border);
+    border-top-color: var(--color-tuscan-yellow);
+    border-radius: 50%;
+    animation: pl-spin 0.7s linear infinite;
+}
+
+.pl-tour-advancing__label {
+    color: var(--hub-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pl-tour-advancing__spinner {
+        animation: none;
+        border-color: var(--color-tuscan-yellow);
+    }
+}
+
+/* ── Paused-tour pill (§6.2) — a persistent Resume affordance that survives
+   navigation while a tour is paused, so the presenter can roam and come back ── */
+.pl-tour-resume {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.875rem;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+    border-left: 3px solid var(--color-tuscan-yellow);
+    border-radius: 999px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    max-width: calc(100vw - 2rem);
+}
+.pl-tour-resume[hidden] { display: none; }
+
+.pl-tour-resume__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pl-tour-resume__end {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.pl-tour-resume__end:hover,
+.pl-tour-resume__end:focus {
+    background: var(--hub-border);
+    color: var(--hub-text);
+}
+
+@media (max-width: 480px) {
+    .pl-tour-resume {
+        left: 1rem;
+        right: 1rem;
+        justify-content: space-between;
+    }
+}
+
+/* The Pause control inside the Driver.js popover footer (left of Back/Next). */
+.pl-tour .pl-tour-pause-btn {
+    margin-right: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--hub-text-muted);
+    font: inherit;
+    font-size: 0.8125rem;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+}
+.pl-tour .pl-tour-pause-btn:hover,
+.pl-tour .pl-tour-pause-btn:focus {
+    color: var(--color-tuscan-yellow);
+}
+
 /* ── "Show me around" entry link under a page header (§6.3) ── */
 .pl-tour-entry-link {
     margin: -0.75rem 0 1.25rem;
@@ -6944,4 +7165,247 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-form-actions__danger {
     margin-left: auto;
+}
+
+/* --- Paid orientations ------------------------------------------------------ */
+/* Price chip shown beside orientation headings, on paid dashboard rows, and on
+   the respond screen's Paid indicator. Tokens only — themes for free. */
+.pl-price-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    background: var(--hub-surface);
+    color: var(--color-tuscan-yellow);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-price-chip--ok {
+    color: #7bdcb5;
+}
+.pl-price-chip--danger {
+    color: #e05d5d;
+}
+/* The refund-consequence one-liner above Decline/Cancel controls. */
+.pl-refund-note {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+/* Full-width failed-refund alert card on the respond screen. */
+.pl-refund-failed-banner {
+    border: 1px solid rgba(224, 93, 93, 0.55);
+    background: rgba(224, 93, 93, 0.12);
+    border-radius: 8px;
+    padding: 0.9rem 1.25rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.95rem;
+}
+/* Checkout return page: one centered card. */
+.pl-checkout-return {
+    display: flex;
+    justify-content: center;
+    padding: 2rem 0;
+}
+.pl-checkout-return__card {
+    max-width: 560px;
+    width: 100%;
+    padding: 1.5rem;
+}
+/* Guild-page heading row wraps the chip under the title on phones. */
+.pl-orient-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.5rem;
+}
+
+/* Floating back-to-top button on the User Settings page (hub-tokenized; deliberately
+   NOT the public-CMS #scroll-top-btn styles). z-index sits above page content and the
+   sticky topbar but below the modal backdrop (500), so the discard confirm covers it. */
+.pl-scroll-top {
+    position: fixed;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    z-index: 90;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--hub-border);
+    cursor: pointer;
+    background: var(--hub-elevated);
+    color: var(--color-tuscan-yellow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.pl-scroll-top:hover {
+    transform: translateY(-2px);
+}
+
+/* ── Guild Join / Member hero CTA ────────────────────────────────────────── */
+.pl-guild-cta {
+    display: inline-flex;
+}
+.pl-guild-cta__member {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.pl-guild-cta__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: default;
+}
+.pl-guild-cta__overflow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+}
+.pl-guild-cta__menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 40;
+    min-width: 160px;
+    padding: 0.35rem;
+    border-radius: 8px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-elevated);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.pl-guild-cta__menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text);
+    text-align: left;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.pl-guild-cta__menu-item:hover {
+    background: var(--hub-surface);
+}
+
+/* ── Guild stat-chips row: chips on the left, Join/Member CTA on the right ──
+   Wraps on narrow viewports so the CTA drops under the chips instead of overflowing. */
+.pl-guild-statbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+}
+.pl-guild-statbar__chips {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* ── Sticky mini Join CTA (clones .pl-scroll-top placement) ──────────────── */
+.pl-guild-join-fab {
+    position: fixed;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    z-index: 90;
+}
+.pl-guild-join-fab__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.7rem 1.15rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+.pl-guild-join-fab__pill--join {
+    border: 1px solid var(--color-tuscan-yellow);
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-guild-join-fab__pill--join:hover {
+    transform: translateY(-2px);
+}
+.pl-guild-join-fab__pill--member {
+    border: 1px solid var(--hub-border);
+    background: var(--hub-elevated);
+    color: var(--hub-text-muted);
+    cursor: default;
+}
+
+/* ── Join-modal benefit rows ─────────────────────────────────────────────── */
+.pl-benefit-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-benefit-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 0.92rem;
+    color: var(--hub-text);
+    line-height: 1.4;
+}
+.pl-benefit-row svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 0.1rem;
+    color: var(--color-tuscan-yellow);
+}
+.pl-benefit-row a {
+    color: var(--color-tuscan-yellow);
+}
+
+/* ── "You get this guild's updates" note — top+bottom breathing room (8px grid) so it
+   doesn't butt against the confirmation icon above or the "Manage in Settings" button below. */
+.pl-guild-updates-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+}
+
+/* ── Member Directory guild badges ───────────────────────────────────────── */
+.pl-directory-guilds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+}
+.pl-directory-guild {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    text-decoration: none;
+}
+.pl-directory-guild img {
+    display: block;
+    width: 14px;
+    height: 14px;
+}
+
+/* Phone clearance: the fixed back-to-top FAB floats over a padded strip, never over the
+   page's last row of controls (Guilds toggles, danger-zone footer, Tours Save). */
+@media (max-width: 768px) {
+    #pl-settings-root {
+        padding-bottom: 4.5rem;
+    }
 }

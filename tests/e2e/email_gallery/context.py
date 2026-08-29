@@ -79,12 +79,6 @@ def build_sample_data() -> SampleData:
         thankyou_email_enabled=True,
         thankyou_email_subject="",
         thankyou_email_body="",
-        join_email_enabled=True,
-        join_email_subject="Welcome to the Ceramics Guild!",
-        join_email_body=(
-            "We're so glad you've joined us. Glazes and community clay live on the shelves by the "
-            "kilns; book an orientation from the guild page and we'll show you around. — Mara"
-        ),
     )
 
     instructor = InstructorFactory(
@@ -352,6 +346,99 @@ def waitlist_spot_opened_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def _promoted_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails._promoted_template_context`` for the promoted pair."""
+    from classes.emails import _absolute_url
+
+    registration = data.waitlisted
+    return {
+        "registration": registration,
+        "offering": data.offering,
+        "upcoming_sessions": _upcoming_sessions(data),
+        "pay_url": _absolute_url(
+            reverse("classes:my_registration_pay", kwargs={"token": registration.self_serve_token})
+        ),
+        "amount_due_dollars": "45.00",
+        **_class_urls(data, registration),
+    }
+
+
+def promoted_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_waitlist_promoted``."""
+    return {
+        "subject": f"You're in! {data.offering.title}",
+        "template_context": _promoted_context(data),
+    }
+
+
+def promoted_pay_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_payment_link_email``."""
+    return {
+        "subject": f"You're in! Complete your payment for {data.offering.title}",
+        "template_context": _promoted_context(data),
+    }
+
+
+def removed_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_removal_notice`` — the paid seat-holder variant."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    return {
+        "subject": f"Your registration for {data.offering.title} was cancelled",
+        "template_context": {
+            "registration": registration,
+            "offering": data.offering,
+            "was_waitlisted": False,
+            "show_refund_note": True,
+            "amount_paid_dollars": "45.00",
+            "class_url": _class_urls(data, registration)["class_url"],
+            "browse_url": _absolute_url(reverse("classes:public_list")),
+        },
+    }
+
+
+def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_duplicate_payment_alert`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_duplicate"
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    return {
+        "subject": f"Duplicate payment: {name}, {offering.title}",
+        "text_body": (
+            f"{name} ({registration.email}) paid $45.00 online for "
+            f'"{offering.title}" AFTER the balance was already settled (marked paid by staff, '
+            f"or an earlier payment landed first).\n\n"
+            f"A refund is owed for one of the two payments.\n\n"
+            f"Registration: {detail_url}\n"
+            f"Stripe payment: {stripe_url}\n"
+            f"Checkout session: cs_sample_duplicate"
+        ),
+    }
+
+
+def orientation_orphan_payment_alert_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``membership.webhook_handlers._send_orphan_payment_alert`` exactly."""
+    booking = data.booking
+    stripe_url = "https://dashboard.stripe.com/payments/pi_sample_orphan"
+    return {
+        "subject": "Orphaned orientation payment needs a manual refund",
+        "text_body": (
+            f"A paid orientation Checkout landed with no booking to credit.\n\n"
+            f"Booking {booking.pk} no longer exists.\n\n"
+            f"The member paid $15.00 and has nothing in the app to show for it. "
+            f"Refund the payment from the Stripe dashboard.\n\n"
+            f"Stripe payment: {stripe_url}\n"
+            f"Checkout session: cs_sample_orphan\n"
+            f"Customer email: {data.member.primary_email}"
+        ),
+    }
+
+
 def reminder_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.build_class_reminder_occurrence``."""
     session = _upcoming_sessions(data)[0]
@@ -427,23 +514,6 @@ def orientation_lead_request_context(data: SampleData) -> dict[str, Any]:
     }
 
 
-def guild_welcome_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``membership.orientations.member_joined_guild`` (guild-authored)."""
-    from membership.models import GuildOrientationSettings
-    from membership.orientations import _absolute_url
-
-    settings_obj = GuildOrientationSettings.objects.get(guild=data.guild)
-    return {
-        "subject": settings_obj.join_email_subject,
-        "template_context": {
-            "guild": data.guild,
-            "greeting_name": data.member.display_name,
-            "body": settings_obj.join_email_body,
-            "guild_url": _absolute_url(reverse("hub_guild_detail", args=[data.guild.slug])),
-        },
-    }
-
-
 def discord_guilds_imported_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.discord_sync._send_import_confirmation``."""
     from membership.orientations import _absolute_url
@@ -458,6 +528,24 @@ def discord_guilds_imported_context(data: SampleData) -> dict[str, Any]:
             "manage_url": _absolute_url(f"{reverse('hub_user_settings')}?tab=guilds"),
             "complete": True,
         },
+    }
+
+
+def guild_welcome_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.orientations.send_guild_welcome``.
+
+    The sample guild leaves the welcome copy blank, so this renders the STANDARD welcome
+    (the on-by-default copy) via the resolved_* fallbacks — what most members receive.
+    """
+    from membership.models import GuildOrientationSettings
+    from membership.orientations import _guild_welcome_context
+
+    settings_obj, _created = GuildOrientationSettings.objects.get_or_create(guild=data.guild)
+    return {
+        "subject": settings_obj.welcome_email_subject_resolved,
+        "template_context": _guild_welcome_context(
+            data.guild, data.member.display_name, settings_obj.welcome_email_body_resolved
+        ),
     }
 
 

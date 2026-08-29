@@ -238,7 +238,7 @@ def guild_disambiguation_reply(member: Member | None) -> dict:
         "I couldn't tell which guild you mean. Run this in your guild's Discord channel, or add the `guild` option."
     )
     if guilds:
-        content += "\n\nYou're in: " + ", ".join(g.name for g in guilds) + "."
+        content += "\n\nYou follow: " + ", ".join(g.name for g in guilds) + "."
     return reply(content, ephemeral=True)
 
 

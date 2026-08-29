@@ -1419,7 +1419,9 @@ def describe_workspace_lifecycle_rendering():
             content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
             assert "Approve minutes" in content
             assert "Delete meeting" in content
-            assert "Guild members will be notified." in content
+            # confirm_message renders through a template variable (autoescaped), so
+            # assert an apostrophe-free substring of the new follower-language line.
+            assert "followers will be notified." in content
             assert "Deletes this meeting, its agenda, attendance, and action items." in content
 
         def it_shows_the_council_audience_line(client: Client):

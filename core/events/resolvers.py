@@ -167,14 +167,14 @@ def _capability_recipients(capability: str) -> list[Recipient]:
 
 
 def class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Class Administrators — holders only; a plain admin gets nothing until granted."""
+    """CMS Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
 
 
 def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """COMPOSITION — a guild's leadership when present, else the Class Administrators.
+    """COMPOSITION — a guild's leadership when present, else the CMS Administrators.
 
     A guild-led class routes to that guild's lead + staff ONLY (via
     :func:`guild_leadership`); a lead-less category (``context["guild"]`` is ``None``)
@@ -269,10 +269,21 @@ def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
     Used for "an orientation needs a runner" fan-out (Decision 7): every orienter
     is pinged, not just the lead. The lead is always included (the lead can run
     orientations and carries full authority).
+
+    Personal-slot scoping: when the context carries a ``slot`` with an ``orienter``,
+    the audience narrows to that orienter + the guild lead (deduped) — the request
+    belongs to the person the member booked, with the lead kept in the loop.
     """
     from membership.models import GuildStaffMembership
 
     guild: Guild = _require(context, "guild")
+    slot = context.get("slot")
+    if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
+        scoped: list[Member] = [slot.orienter]
+        lead = guild.guild_lead
+        if guild.guild_lead_id is not None and lead is not None and guild.guild_lead_id != slot.orienter_id:
+            scoped.append(lead)
+        return _members_to_recipients(scoped, "guild_orienter")
     members: list[Member] = []
     seen: set[int] = set()
     if guild.guild_lead_id is not None and guild.guild_lead is not None:

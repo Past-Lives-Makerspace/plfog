@@ -2,11 +2,12 @@
 {% block content %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">About your orientation request</p>
-<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">Thanks for your interest in <strong><a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a></strong>. The guild lead wasn't able to confirm your requested time.</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">Thanks for your interest in <strong><a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a></strong>. {% if slot.orienter %}{{ slot.orienter_first_name }} wasn't able to confirm your requested time.{% else %}The guild lead wasn't able to confirm your requested time.{% endif %}</p>
 {% if booking.lead_note %}<div style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px;">
-    <p style="margin: 0 0 4px; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">A note from the guild lead</p>
+    <p style="margin: 0 0 4px; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">A note from {% if slot.orienter %}{{ slot.orienter_first_name }}{% else %}the guild lead{% endif %}</p>
     <p style="margin: 0; font-size: 14px; color: #33424f; line-height: 1.6;">{{ booking.lead_note }}</p>
 </div>{% endif %}
+{% if booking.amount_paid_cents %}{% load classes_tags %}<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if booking.refund_state == "failed" %}Your <strong>{{ booking.amount_paid_cents|cents_as_price }}</strong> refund is being processed. We will make sure it reaches your card.{% else %}Your <strong>{{ booking.amount_paid_cents|cents_as_price }}</strong> refund is on its way. Refunds usually reach your card in 5 to 10 business days.{% endif %}</p>{% endif %}
 <p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">We'd love to get you oriented ASAP. Please click below to pick another time.</p>
 <div style="text-align: center; margin: 24px 0 0;">
     <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Pick another time</a>

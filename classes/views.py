@@ -13,7 +13,7 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
 from django.http import (
     Http404,
@@ -32,7 +32,10 @@ from django.views.decorators.http import require_POST
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
 
+    from classes.forms import PaymentRefundForm
     from membership.models import Member
+
+from hub.view_as import refund_authority_required
 
 from classes.emails import (
     emit_instructor_new_registration,
@@ -545,6 +548,61 @@ def _register_prefill(request: HttpRequest) -> tuple[str, dict[int, str], bool, 
     return bound_email, custom_answers_initial, answers_prefilled, field_initial
 
 
+def _stale_claim_link_redirect(request: HttpRequest, offering: ClassOffering) -> HttpResponse | None:
+    """Claim-link collision guard: bounce a stale ``?waitlist_token=`` click, or ``None``.
+
+    A manually promoted person may still hold an un-clicked auto claim link. If
+    their registration already holds a seat (CONFIRMED / PENDING), a stale claim
+    click must never create a duplicate registration row — redirect to their
+    self-serve page. A CANCELLED / REFUNDED registrant falls through to the
+    register form: they were told they're out (removal email) and may
+    legitimately sign up again.
+    """
+    waitlist_token = request.GET.get("waitlist_token", "")
+    if not waitlist_token:
+        return None
+    claiming = Registration.objects.filter(self_serve_token=waitlist_token, class_offering=offering).first()
+    if claiming is None or claiming.status not in (Registration.Status.CONFIRMED, Registration.Status.PENDING):
+        return None
+    messages.success(request, "Good news! You're already in this class.")
+    return redirect("classes:my_registration", token=claiming.self_serve_token)
+
+
+def _confirm_free_registration(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Free class — confirm + email immediately, no Stripe round-trip.
+
+    Attributes the confirmation to the acting user (registrant) so the audit
+    feed records who confirmed, not "System".
+    """
+    registration._acting_user = (
+        request.user
+        if request.user.is_authenticated
+        else (registration.member.user if registration.member and registration.member.user else None)
+    )
+    registration.status = Registration.Status.CONFIRMED
+    registration.confirmed_at = timezone.now()
+    registration.amount_paid_cents = 0
+    registration.save(update_fields=["status", "confirmed_at", "amount_paid_cents"])
+    if registration.discount_code_id:
+        _bump_discount_use_count(registration.discount_code_id)
+        _log_discount_redeemed(registration)
+    send_registration_confirmation(registration)
+    send_class_welcome_email(registration)
+    emit_instructor_new_registration(registration)
+    send_admin_registration_notification(registration)
+    from classes.services.mailchimp_subscribe import subscribe_registration
+
+    # Subscribe BEFORE account creation: derive_tags decides
+    # `first-time-student` by asking whether this email is already a known
+    # member, and ensure_account_for_registration is what makes it one.
+    # The profile opt-in stamp is mirrored afterwards, inside that call.
+    subscribe_registration(registration)
+    from core.services.guest_account import ensure_account_for_registration
+
+    ensure_account_for_registration(registration)
+    return redirect("classes:register_success", slug=registration.class_offering.slug)
+
+
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
@@ -556,6 +614,11 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         ClassOffering.objects.public().select_related("category", "instructor"),
         slug=slug,
     )
+
+    stale_claim = _stale_claim_link_redirect(request, offering)
+    if stale_claim is not None:
+        return stale_claim
+
     settings_obj = ClassSettings.load()
 
     # You can't join a class once it has started — a series can't be entered
@@ -617,36 +680,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         final_price = form.compute_final_price_cents()
 
         if final_price == 0:
-            # Free class — confirm + email immediately, no Stripe round-trip.
-            # Attribute the confirmation to the acting user (registrant) so the
-            # audit feed records who confirmed, not "System".
-            registration._acting_user = (
-                request.user
-                if request.user.is_authenticated
-                else (registration.member.user if registration.member and registration.member.user else None)
-            )
-            registration.status = Registration.Status.CONFIRMED
-            registration.confirmed_at = timezone.now()
-            registration.amount_paid_cents = 0
-            registration.save(update_fields=["status", "confirmed_at", "amount_paid_cents"])
-            if registration.discount_code_id:
-                _bump_discount_use_count(registration.discount_code_id)
-                _log_discount_redeemed(registration)
-            send_registration_confirmation(registration)
-            send_class_welcome_email(registration)
-            emit_instructor_new_registration(registration)
-            send_admin_registration_notification(registration)
-            from classes.services.mailchimp_subscribe import subscribe_registration
-
-            # Subscribe BEFORE account creation: derive_tags decides
-            # `first-time-student` by asking whether this email is already a known
-            # member, and ensure_account_for_registration is what makes it one.
-            # The profile opt-in stamp is mirrored afterwards, inside that call.
-            subscribe_registration(registration)
-            from core.services.guest_account import ensure_account_for_registration
-
-            ensure_account_for_registration(registration)
-            return redirect("classes:register_success", slug=offering.slug)
+            return _confirm_free_registration(request, registration)
 
         # Paid class — kick off Stripe Checkout.
         from billing import stripe_utils
@@ -782,6 +816,7 @@ def my_registration(request: HttpRequest, token: str) -> HttpResponse:
             "offering": offering,
             "upcoming_sessions": upcoming_sessions,
             "can_self_cancel": can_self_cancel,
+            "paid_banner": request.GET.get("paid") == "1",
             "settings_obj": ClassSettings.load(),
             "site_config": SiteConfiguration.load(),
         },
@@ -806,6 +841,74 @@ def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:
     )
     messages.success(request, "Your registration is cancelled.")
     return redirect("classes:my_registration", token=token)
+
+
+def my_registration_pay(request: HttpRequest, token: str) -> HttpResponse:
+    """Token-rails pay page for a promoted registration's outstanding balance.
+
+    GET renders the page and NEVER creates a Stripe session (mail-scanner
+    prefetch must not mint Checkout sessions); a settled or inactive
+    registration redirects to the self-serve page with a state-aware message.
+    POST creates the Checkout session for the full balance and redirects to
+    Stripe's hosted page.
+    """
+    from classes.forms import STRIPE_MIN_CHARGE_CENTS
+
+    registration = get_object_or_404(
+        Registration.objects.select_related("class_offering", "class_offering__instructor"),
+        self_serve_token=token,
+    )
+    if not registration.is_unpaid:
+        if registration.status in (Registration.Status.CANCELLED, Registration.Status.REFUNDED):
+            messages.info(request, "This registration is no longer active.")
+        else:
+            messages.info(request, "Nothing owed. You're all set.")
+        return redirect("classes:my_registration", token=token)
+    offering = registration.class_offering
+    balance = registration.balance_due_cents
+
+    def _render_pay_page(under_minimum: bool) -> HttpResponse:
+        return render(
+            request,
+            "classes/public/registration_pay.html",
+            {
+                "registration": registration,
+                "offering": offering,
+                "upcoming_sessions": list(
+                    offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at")
+                ),
+                "balance_due_dollars": f"{balance / 100:.2f}",
+                "payment_in_flight": bool(registration.stripe_session_id),
+                "under_minimum": under_minimum,
+                "settings_obj": ClassSettings.load(),
+                "site_config": SiteConfiguration.load(),
+            },
+        )
+
+    if request.method != "POST":
+        return _render_pay_page(under_minimum=False)
+    if balance < STRIPE_MIN_CHARGE_CENTS:
+        return _render_pay_page(under_minimum=True)
+    from billing import stripe_utils
+
+    success_url = request.build_absolute_uri(reverse("classes:my_registration", kwargs={"token": token})) + "?paid=1"
+    cancel_url = request.build_absolute_uri(reverse("classes:my_registration_pay", kwargs={"token": token}))
+    checkout = stripe_utils.create_class_checkout_session(
+        amount_cents=balance,
+        product_name=f"{offering.title} (balance)",
+        customer_email=registration.email,
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={
+            "registration_id": str(registration.pk),
+            "class_slug": offering.slug,
+            "kind": "class_payment_link",
+        },
+        idempotency_key=f"class-paylink-reg-{registration.pk}-{balance}",
+    )
+    registration.stripe_session_id = checkout["id"]
+    registration.save(update_fields=["stripe_session_id"])
+    return redirect(checkout["url"])
 
 
 def _log_discount_redeemed(registration: Registration) -> None:
@@ -975,13 +1078,33 @@ def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
 
 
 def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> QuerySet[Registration]:
-    """Apply the optional ``status`` and ``class`` GET filters to a registration queryset."""
+    """Apply the optional ``status``, ``class``, ``instructor``, and ``mine`` GET filters.
+
+    ``instructor`` mirrors the ``admin_classes`` pattern: validated as an int and
+    silently ignored when bogus. ``mine=1`` narrows to registrations of classes the
+    real logged-in user teaches or authored (via ``ClassOffering.hosted_by``). The
+    CSV export reuses this, so every filter — including ``mine`` — applies there for free.
+    """
     status = request.GET.get("status", "")
     if status in Registration.Status.values:
         qs = qs.filter(status=status)
     raw_class = request.GET.get("class", "")
     if raw_class.isdigit():
         qs = qs.filter(class_offering_id=int(raw_class))
+    raw_instructor = request.GET.get("instructor", "")
+    if raw_instructor.isdigit():
+        qs = qs.filter(class_offering__instructor_id=int(raw_instructor))
+    if request.GET.get("mine", "") == "1":
+        # "Mine" is defined once, on the queryset — reuse it via class_offering__in
+        # rather than inlining a second copy of the Q. A memberless viewer gets
+        # qs.none(): hosted_by(None) would match NULL-instructor/NULL-author classes
+        # and leak their registrations (including through the CSV export).
+        own_member = getattr(request.user, "member", None)
+        qs = (
+            qs.filter(class_offering__in=ClassOffering.objects.hosted_by(own_member))
+            if own_member is not None
+            else qs.none()
+        )
     return qs
 
 
@@ -1087,13 +1210,10 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     is_guild_lead = teaching_member.is_guild_lead
     guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
 
-    from core.tours import tour_offer_context
-
     return render(
         request,
         "classes/teach/overview.html",
         {
-            **tour_offer_context(request, "instructor"),
             "active_tab": "overview",
             "instructor": teaching_member,
             "drafts": drafts,
@@ -1506,14 +1626,86 @@ def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+def _refunds_prefetch() -> Prefetch:
+    """Refunds prefetch with the issuer joined — the card/history templates read initiated_by names."""
+    from billing.models import PaymentRefund
+
+    return Prefetch("refunds", queryset=PaymentRefund.objects.select_related("initiated_by"))
+
+
+def _roster_registrations(offering: ClassOffering) -> QuerySet[Registration]:
+    """The roster queryset for one class, annotated for the shared row partial.
+
+    ``promoted_email_sent`` is one ``Exists()`` subquery on the event spine's
+    delivery ledger (the ``reg:{pk}:promoted`` period) so the "No email sent yet"
+    chip costs no per-row query.
+    """
+    from django.db.models import CharField, Exists, Value
+    from django.db.models.functions import Cast, Concat
+
+    from core.models import EventDelivery
+
+    promoted_delivery = EventDelivery.objects.filter(
+        event_key="waitlist_promoted",
+        period=Concat(Value("reg:"), Cast(OuterRef("pk"), output_field=CharField()), Value(":promoted")),
+    )
+    return (
+        offering.registrations.select_related("member")
+        .prefetch_related("custom_answers__question", _refunds_prefetch())
+        .annotate(promoted_email_sent=Exists(promoted_delivery))
+        .order_by("-registered_at")
+    )
+
+
+def _claim_email_will_fire(offering: ClassOffering) -> bool:
+    """Whether removing a seat-holder right now would fire an auto claim-link email.
+
+    True only when the removal frees a seat that leaves ``spots_remaining > 0``
+    after the cancel (an over-full class can free a seat and still be full) AND an
+    un-notified WAITLISTED row exists. Computed once per page for the remove
+    modals' conditional copy.
+    """
+    held = offering.registrations.filter(
+        status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
+    ).count()
+    if held - 1 >= offering.capacity:
+        return False
+    return offering.registrations.filter(
+        status=Registration.Status.WAITLISTED, waitlist_notified_at__isnull=True
+    ).exists()
+
+
+def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:
+    """Shared context for the roster (registrations) tabs and the ``refund-done`` table partial."""
+    from hub.view_as import has_refund_authority
+
+    return {
+        "offering": offering,
+        "registrations": _roster_registrations(offering),
+        "viewer_has_refund_authority": has_refund_authority(request),
+        "can_manage": True,
+        "claim_email_will_fire": _claim_email_will_fire(offering),
+    }
+
+
+def _waitlist_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:
+    """Shared context for the waitlist tabs (teach + admin) with the action modals' inputs."""
+    waitlist_registrations = list(
+        offering.registrations.filter(status=Registration.Status.WAITLISTED)
+        .select_related("member", "discount_code")
+        .order_by("registered_at")
+    )
+    return {
+        "offering": offering,
+        "waitlist_registrations": waitlist_registrations,
+        "can_manage": True,
+        "spots_remaining": offering.spots_remaining,
+    }
+
+
 @teaching_member_required
 def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
     offering = _teach_class_or_404(request, pk)
-    registrations = (
-        offering.registrations.select_related("member")
-        .prefetch_related("custom_answers__question")
-        .order_by("-registered_at")
-    )
     return render(
         request,
         "classes/teach/class_registrations.html",
@@ -1521,10 +1713,20 @@ def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
             "active_tab": "classes",
             "active_subtab": "registrations",
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
-            "offering": offering,
-            "registrations": registrations,
+            **_teach_registrations_context(request, offering),
             **_class_workspace_counts(offering),
         },
+    )
+
+
+@teaching_member_required
+def teach_class_registrations_table(request: HttpRequest, pk: int) -> HttpResponse:
+    """The registrations table alone — re-fetched by the ``refund-done`` refresh container."""
+    offering = _teach_class_or_404(request, pk)
+    return render(
+        request,
+        "classes/teach/partials/class_registrations_table.html",
+        _teach_registrations_context(request, offering),
     )
 
 
@@ -1562,9 +1764,6 @@ def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
 @teaching_member_required
 def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
     offering = _teach_class_or_404(request, pk)
-    waitlist_registrations = list(
-        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
-    )
     return render(
         request,
         "classes/teach/class_waitlist.html",
@@ -1572,8 +1771,7 @@ def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
             "active_tab": "classes",
             "active_subtab": "waitlist",
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
-            "offering": offering,
-            "waitlist_registrations": waitlist_registrations,
+            **_waitlist_context(request, offering),
             **_class_workspace_counts(offering),
         },
     )
@@ -1897,10 +2095,54 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     if instructor_filter:
         qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
+    # "My Classes": classes I teach or authored. Always available; "me" is the real
+    # logged-in user's member even under a view-as preview. A bogus mine value is
+    # off (matching how the sibling filters ignore junk). The memberless guard is
+    # load-bearing: hosted_by(None) would match every NULL-instructor/NULL-author class.
+    mine_active = request.GET.get("mine", "") == "1"
+    own_member = getattr(request.user, "member", None)
+    if mine_active:
+        # hosted_by / none() return the base queryset type; qs carries annotate() aliases.
+        qs = qs.hosted_by(own_member) if own_member is not None else qs.none()  # type: ignore[assignment]
+
     status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
-    filters = [("", "All", base.count())] + [
-        (choice.value, choice.label, status_counts.get(choice.value, 0)) for choice in ClassOffering.Status
+    # mine_count is global — all statuses, ignoring q and the Instructor dropdown —
+    # to match how the status-pill counts ignore the search box and each other.
+    mine_count = base.hosted_by(own_member).count() if own_member is not None else 0
+
+    # Every view-computed URL starts from a normalized copy of the GET params: a
+    # bogus mine value (anything but "1") is stripped, not echoed, so cruft never
+    # rides along on subsequent links.
+    normalized = request.GET.copy()
+    if normalized.get("mine", "") != "1":
+        normalized.pop("mine", None)
+
+    def _url_without(*drop: str, **add: str) -> str:
+        params = normalized.copy()
+        for key in ("page", *drop):
+            params.pop(key, None)
+        for key, value in add.items():
+            params[key] = value
+        return params.urlencode()
+
+    mine_toggle_url = _url_without("mine") if mine_active else _url_without(mine="1")
+    status_filters = [
+        (
+            _url_without("status", **({"status": value} if value else {})),
+            label,
+            base.count() if not value else status_counts.get(value, 0),
+            status_filter == value,
+        )
+        for value, label in [("", "All"), *[(c.value, c.label) for c in ClassOffering.Status]]
     ]
+    search_clear_url = _url_without("q")
+    _search_preserved = normalized.copy()
+    for key in ("q", "page"):
+        _search_preserved.pop(key, None)
+    search_preserved_fields = list(_search_preserved.items())
+    mine_clear_url = _url_without("mine")
+    instructor_clear_url = _url_without("instructor")
+
     from membership.models import Member as MemberModel
 
     instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
@@ -1917,10 +2159,17 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         {
             "active_tab": "classes",
             "pending_count": ClassOffering.objects.pending_review().count(),
-            "status_filters": filters,
+            "status_filters": status_filters,
             "selected_status": status_filter,
             "instructors": instructors,
             "selected_instructor": instructor_filter,
+            "mine_active": mine_active,
+            "mine_count": mine_count,
+            "mine_toggle_url": mine_toggle_url,
+            "mine_clear_url": mine_clear_url,
+            "instructor_clear_url": instructor_clear_url,
+            "search_preserved_fields": search_preserved_fields,
+            "search_clear_url": search_clear_url,
             **table,
         },
     )
@@ -2099,47 +2348,39 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
 @classes_admin_access_required
 def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
-    registrations = (
-        offering.registrations.select_related("member")
-        .prefetch_related("custom_answers__question")
-        .order_by("-registered_at")
-    )
     return render(
         request,
         "classes/admin/class_registrations.html",
         {
             "active_tab": "classes",
             "active_subtab": "registrations",
-            "offering": offering,
-            "registrations": registrations,
+            **_teach_registrations_context(request, offering),
             **_class_workspace_counts(offering),
         },
     )
 
 
-@classes_admin_access_required  # type: ignore[arg-type]  # StreamingHttpResponse is HttpResponseBase, not HttpResponse
-def admin_class_export(request: HttpRequest, pk: int) -> StreamingHttpResponse:
-    """Download a CSV of every registration for one class (admin — any class)."""
-    from classes.exports import stream_registrations_csv
-
+@classes_admin_access_required
+def admin_class_registrations_table(request: HttpRequest, pk: int) -> HttpResponse:
+    """The admin roster table alone — re-fetched by the ``refund-done`` refresh container."""
     offering = get_object_or_404(ClassOffering, pk=pk)
-    return stream_registrations_csv(offering)
+    return render(
+        request,
+        "classes/teach/partials/class_registrations_table.html",
+        _teach_registrations_context(request, offering),
+    )
 
 
 @classes_admin_access_required
 def admin_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
-    waitlist_registrations = list(
-        offering.registrations.filter(status=Registration.Status.WAITLISTED).order_by("registered_at")
-    )
     return render(
         request,
         "classes/admin/class_waitlist.html",
         {
             "active_tab": "classes",
             "active_subtab": "waitlist",
-            "offering": offering,
-            "waitlist_registrations": waitlist_registrations,
+            **_waitlist_context(request, offering),
             **_class_workspace_counts(offering),
         },
     )
@@ -2248,6 +2489,9 @@ _ACTIVITY_GROUPS = {
     "registrations": [
         CmsActivity.Kind.REGISTRATION_CREATED,
         CmsActivity.Kind.REGISTRATION_CONFIRMED,
+        CmsActivity.Kind.REGISTRATION_MARKED_PAID,
+        CmsActivity.Kind.PAYMENT_LINK_SENT,
+        CmsActivity.Kind.DUPLICATE_PAYMENT,
         CmsActivity.Kind.REGISTRATION_CANCELLED,
         CmsActivity.Kind.REGISTRATION_REFUNDED,
     ],
@@ -2255,6 +2499,7 @@ _ACTIVITY_GROUPS = {
         CmsActivity.Kind.WAITLIST_JOINED,
         CmsActivity.Kind.WAITLIST_NOTIFIED,
         CmsActivity.Kind.WAITLIST_LEFT,
+        CmsActivity.Kind.WAITLIST_PROMOTED,
     ],
     "discount_codes": [
         CmsActivity.Kind.DISCOUNT_CODE_CREATED,
@@ -2650,6 +2895,39 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
         default_dir="desc",
     )
     class_options = ClassOffering.objects.filter(registrations__in=scoped).distinct().order_by("title")
+
+    # The instructor filter UI is for actual admins only — non-admin visitors are
+    # already scoped to their own classes, so a filter that can't widen anything
+    # would just confuse.
+    view_as = getattr(request, "view_as", None)
+    is_actual_admin = view_as is not None and view_as.has_actual("admin")
+    instructors = None
+    if is_actual_admin:
+        from membership.models import Member as MemberModel
+
+        instructors = MemberModel.objects.filter(instructor_slug__gt="").order_by("full_legal_name")
+
+    # "My Classes": registrations for classes the real logged-in user teaches or
+    # authored. Always rendered — no instructor_slug gate (that gate was the bug that
+    # hid the old toggle) — and "me" is the real user even under a view-as preview.
+    # A bogus mine value is off and stripped from the computed URLs so cruft never
+    # rides along. The actual filtering (and its memberless guard) lives in
+    # _filter_registrations so the CSV export inherits it.
+    mine_active = request.GET.get("mine", "") == "1"
+    normalized = request.GET.copy()
+    if normalized.get("mine", "") != "1":
+        normalized.pop("mine", None)
+    toggle = normalized.copy()
+    toggle.pop("page", None)
+    if mine_active:
+        toggle.pop("mine", None)
+    else:
+        toggle["mine"] = "1"
+    mine_toggle_url = toggle.urlencode()
+    mine_clear = normalized.copy()
+    mine_clear.pop("mine", None)
+    mine_clear.pop("page", None)
+    mine_clear_url = mine_clear.urlencode()
     return render(
         request,
         "classes/admin/registrations.html",
@@ -2659,6 +2937,12 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
             "status_filter": request.GET.get("status", ""),
             "class_options": class_options,
             "class_filter": request.GET.get("class", ""),
+            "show_instructor_filter": is_actual_admin,
+            "instructors": instructors,
+            "instructor_filter": request.GET.get("instructor", ""),
+            "mine_active": mine_active,
+            "mine_toggle_url": mine_toggle_url,
+            "mine_clear_url": mine_clear_url,
             **table,
         },
     )
@@ -2677,11 +2961,16 @@ def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse:
 def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
     from classes.forms import RegistrationMoveForm
 
+    from hub.view_as import has_refund_authority
+
     registration = get_object_or_404(
         _scoped_registrations(request)
         .select_related("discount_code")
-        .prefetch_related("waivers", "custom_answers__question"),
+        .prefetch_related("waivers", "custom_answers__question", _refunds_prefetch()),
         pk=pk,
+    )
+    duplicate_payment = (
+        registration.activity.filter(kind=CmsActivity.Kind.DUPLICATE_PAYMENT).order_by("-created_at").first()
     )
     return render(
         request,
@@ -2690,6 +2979,8 @@ def admin_registration_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "active_tab": "registrations",
             "registration": registration,
             "move_form": RegistrationMoveForm(current=registration.class_offering),
+            "viewer_has_refund_authority": has_refund_authority(request),
+            "duplicate_payment": duplicate_payment,
         },
     )
 
@@ -2720,14 +3011,324 @@ def admin_registration_move(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_registration_detail", pk=pk)
 
 
-@classes_admin_access_required
+def _render_refund_form(request: HttpRequest, registration: Registration, form: "PaymentRefundForm") -> HttpResponse:
+    """Render the shared refund modal body — the retry confirm when the latest attempt failed.
+
+    One partial serves every host (dashboard, CMS detail, teach portal): the
+    ``failed`` refund state's only action is Retry (§5.3), so the partial picks
+    the variant from the registration's state, not from a host parameter.
+    """
+    failed_refund = None
+    if registration.refund_state == "failed":
+        from billing.models import PaymentRefund
+
+        failed_refund = registration.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+    return render(
+        request,
+        "classes/partials/refund_form.html",
+        {
+            "registration": registration,
+            "form": form,
+            "failed_refund": failed_refund,
+            "first_session_at": registration.class_offering.earliest_session_at,
+        },
+    )
+
+
+@refund_authority_required
+def admin_registration_refund_form(request: HttpRequest, pk: int) -> HttpResponse:
+    """GET partial — the refund modal body, loaded via HTMX by every host page."""
+    from classes.forms import PaymentRefundForm
+
+    registration = get_object_or_404(Registration, pk=pk)
+    return _render_refund_form(request, registration, PaymentRefundForm(registration=registration))
+
+
+@refund_authority_required
 @require_POST
 def admin_registration_refund(request: HttpRequest, pk: int) -> HttpResponse:
+    """Issue a real Stripe refund — 204 + toast + ``refund-done`` on success.
+
+    Validation errors re-render the form partial in place. A Stripe rejection is
+    loud: an error toast carries Stripe's message and the modal stays open —
+    re-rendered in the failed state, whose action is Retry (the FAILED audit row
+    is the anchor). A ``REFUNDS`` holder may refund any registration — that is
+    what the grant means (§5.6).
+    """
+    from billing.exceptions import RefundError
+    from classes.forms import PaymentRefundForm
+    from hub.toast import trigger_client_event, trigger_toast
+
     registration = get_object_or_404(Registration, pk=pk)
-    actor = request.user if request.user.is_authenticated else None
-    registration.mark_refunded(reason=request.POST.get("reason", ""), actor=actor)
-    messages.success(request, "Registration marked as refunded.")
-    return redirect("classes:admin_registration_detail", pk=pk)
+    form = PaymentRefundForm(request.POST, registration=registration)
+    if not form.is_valid():
+        return _render_refund_form(request, registration, form)
+    try:
+        refund = registration.issue_refund(
+            amount_cents=form.amount_cents,
+            reason=form.cleaned_data["reason"],
+            actor=request.user,
+        )
+    except RefundError as exc:
+        registration.refresh_from_db()
+        response = _render_refund_form(request, registration, PaymentRefundForm(registration=registration))
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    from billing.models import PaymentRefund
+
+    response = HttpResponse(status=204)
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
+@classes_registrations_access_required
+def admin_registration_refunds_card(request: HttpRequest, pk: int) -> HttpResponse:
+    """The detail page's Refunds card — also the ``refund-done`` refresh target."""
+    from hub.view_as import has_refund_authority
+
+    registration = get_object_or_404(_scoped_registrations(request).prefetch_related(_refunds_prefetch()), pk=pk)
+    return render(
+        request,
+        "classes/admin/partials/registration_refunds_card.html",
+        {
+            "registration": registration,
+            "viewer_has_refund_authority": has_refund_authority(request),
+        },
+    )
+
+
+# --- Roster & waitlist management actions (shared teach + admin surface) -----
+
+
+def _registration_manageable_or_403(request: HttpRequest, pk: int) -> Registration:
+    """Fetch a registration the request may manage, or raise ``PermissionDenied``.
+
+    Actual admins (preview-independent) manage any registration; everyone else
+    must have the class in ``ClassOffering.objects.editable_by`` — the same
+    population as the read gate: instructors for their own classes, guild
+    leads/staff for their guild's classes, guild officers everywhere.
+    """
+    from django.core.exceptions import PermissionDenied
+
+    registration = get_object_or_404(
+        Registration.objects.select_related("class_offering", "member", "discount_code"), pk=pk
+    )
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return registration
+    member = getattr(request.user, "member", None)
+    if (
+        member is not None
+        and ClassOffering.objects.editable_by(member).filter(pk=registration.class_offering_id).exists()
+    ):
+        return registration
+    raise PermissionDenied("You don't have access to manage this registration.")
+
+
+def _registration_row_response(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Render the shared roster row partial for one registration (fresh, annotated)."""
+    from hub.view_as import has_refund_authority
+
+    offering = registration.class_offering
+    reg = _roster_registrations(offering).get(pk=registration.pk)
+    return render(
+        request,
+        "classes/partials/registration_row.html",
+        {
+            "reg": reg,
+            "offering": offering,
+            "can_manage": True,
+            "viewer_has_refund_authority": has_refund_authority(request),
+        },
+    )
+
+
+def _waitlist_row_response(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Render the shared waitlist row partial for one registration (fresh)."""
+    return render(
+        request,
+        "classes/partials/waitlist_row.html",
+        {
+            "reg": registration,
+            "offering": registration.class_offering,
+            "can_manage": True,
+        },
+    )
+
+
+def _row_response(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """The right row partial for the surface that posted — ``row=wl`` targets a waitlist row."""
+    if request.POST.get("row") == "wl":
+        return _waitlist_row_response(request, registration)
+    return _registration_row_response(request, registration)
+
+
+@login_required
+@require_POST
+def registration_promote(request: HttpRequest, pk: int) -> HttpResponse:
+    """Staff-pick a waitlisted person into the class — CONFIRMED immediately.
+
+    Branches on the COMPUTED ``payment_due_cents`` (not the class's sticker
+    price): due 0 → the plain promoted email goes out now; due > 0 → no email
+    yet, the response opens the pay-link follow-up modal via ``HX-Trigger``.
+    """
+    from classes.exceptions import RegistrationStateError
+    from hub.toast import trigger_client_event, trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    try:
+        registration.promote_from_waitlist(actor=request.user)
+    except RegistrationStateError as exc:
+        response = _waitlist_row_response(request, registration)
+        trigger_toast(response, str(exc), "error")
+        return response
+    response = _waitlist_row_response(request, registration)
+    if registration.payment_due_cents == 0:
+        from classes.emails import send_waitlist_promoted
+
+        send_waitlist_promoted(registration)
+        trigger_toast(response, f"{registration.first_name} added to the class. Confirmation sent.", "success")
+    else:
+        trigger_toast(response, f"{registration.first_name} added to the class.", "success")
+        trigger_client_event(response, "promote-followup", {"pk": registration.pk})
+    return response
+
+
+@login_required
+def registration_promote_followup(request: HttpRequest, pk: int) -> HttpResponse:
+    """GET partial — the pay-link follow-up modal body for one just-promoted row."""
+    registration = _registration_manageable_or_403(request, pk)
+    return render(
+        request,
+        "classes/partials/promote_followup_body.html",
+        {
+            "registration": registration,
+            "amount_due_dollars": f"{registration.balance_due_cents / 100:.2f}",
+        },
+    )
+
+
+@login_required
+@require_POST
+def registration_promote_notify(request: HttpRequest, pk: int) -> HttpResponse:
+    """The follow-up modal's choice endpoint: ``send`` the pay link or ``skip`` to the plain email.
+
+    ``skip`` is a 204 no-op when either promoted email already went out
+    (``payment_link_sent_at`` set OR the ``reg:{pk}:promoted`` delivery exists) —
+    the modal-close fallback can never stack a second email onto an explicit Send.
+    """
+    from classes.exceptions import RegistrationStateError
+    from core.models import EventDelivery
+    from hub.toast import trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    choice = request.POST.get("choice", "")
+    if choice == "send":
+        from classes.emails import send_payment_link_email
+
+        response = HttpResponse(status=204)
+        try:
+            send_payment_link_email(registration, actor=request.user)
+        except RegistrationStateError as exc:
+            trigger_toast(response, str(exc), "error")
+            return response
+        trigger_toast(response, f"Payment link sent to {registration.email}.", "success")
+        return response
+    if choice == "skip":
+        already_notified = (
+            registration.payment_link_sent_at is not None
+            or EventDelivery.objects.filter(
+                event_key="waitlist_promoted", period=f"reg:{registration.pk}:promoted"
+            ).exists()
+        )
+        if already_notified:
+            return HttpResponse(status=204)
+        from classes.emails import send_waitlist_promoted
+
+        send_waitlist_promoted(registration)
+        response = HttpResponse(status=204)
+        trigger_toast(response, "Confirmation sent, no payment link.", "success")
+        return response
+    return HttpResponse("Unknown choice.", status=400)
+
+
+@login_required
+@require_POST
+def registration_send_payment_link(request: HttpRequest, pk: int) -> HttpResponse:
+    """Send (or re-send) the payment-link email from a roster row or the detail page."""
+    from classes.exceptions import RegistrationStateError
+    from classes.emails import send_payment_link_email
+    from hub.toast import trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    try:
+        send_payment_link_email(registration, actor=request.user)
+    except RegistrationStateError as exc:
+        if not is_htmx:
+            messages.error(request, str(exc))
+            return redirect("classes:admin_registration_detail", pk=pk)
+        response = _row_response(request, registration)
+        trigger_toast(response, str(exc), "error")
+        return response
+    if not is_htmx:
+        messages.success(request, f"Payment link sent to {registration.email}.")
+        return redirect("classes:admin_registration_detail", pk=pk)
+    response = _row_response(request, registration)
+    trigger_toast(response, f"Payment link sent to {registration.email}.", "success")
+    return response
+
+
+@login_required
+@require_POST
+def registration_mark_paid(request: HttpRequest, pk: int) -> HttpResponse:
+    """Record a by-hand payment (cash, comped) for an unpaid promoted registration."""
+    from classes.exceptions import RegistrationStateError
+    from hub.toast import trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    try:
+        registration.mark_paid(actor=request.user, note=request.POST.get("note", ""))
+    except RegistrationStateError as exc:
+        if not is_htmx:
+            messages.error(request, str(exc))
+            return redirect("classes:admin_registration_detail", pk=pk)
+        response = _row_response(request, registration)
+        trigger_toast(response, str(exc), "error")
+        return response
+    if not is_htmx:
+        messages.success(request, "Marked paid.")
+        return redirect("classes:admin_registration_detail", pk=pk)
+    response = _row_response(request, registration)
+    trigger_toast(response, "Marked paid.", "success")
+    return response
+
+
+@login_required
+@require_POST
+def registration_remove(request: HttpRequest, pk: int) -> HttpResponse:
+    """Staff-remove a registrant (seat-holder or waitlister) behind the confirm modal."""
+    from classes.exceptions import RegistrationStateError
+    from hub.toast import trigger_toast
+
+    registration = _registration_manageable_or_403(request, pk)
+    was_waitlisted = registration.status == Registration.Status.WAITLISTED
+    try:
+        registration.remove_by_staff(actor=request.user, reason=request.POST.get("reason", ""))
+    except RegistrationStateError as exc:
+        response = _row_response(request, registration)
+        trigger_toast(response, str(exc), "error")
+        return response
+    response = _row_response(request, registration)
+    where = "waitlist" if was_waitlisted else "class"
+    trigger_toast(response, f"{registration.first_name} removed from the {where}.", "success")
+    return response
 
 
 @classes_admin_access_required

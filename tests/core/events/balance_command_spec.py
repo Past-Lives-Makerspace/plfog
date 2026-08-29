@@ -74,8 +74,8 @@ def describe_balance():
     def describe_when_tab_payments_are_disabled():
         def it_returns_the_gate_reply_without_touching_the_tab(linked_member):
             config = SiteConfiguration.load()
-            config.tab_payments_enabled = False
-            config.save(update_fields=["tab_payments_enabled"])
+            config.my_tab_enabled = False
+            config.save(update_fields=["my_tab_enabled"])
             member = linked_member()
 
             content = _content(member)

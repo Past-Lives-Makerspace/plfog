@@ -50,7 +50,7 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
 
     config = SiteConfiguration.load()
     return {
-        "tab_payments_enabled": config.tab_payments_enabled,
+        "my_tab_enabled": config.my_tab_enabled,
         "class_registration_enabled": config.class_registration_enabled,
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,
@@ -167,3 +167,65 @@ def persona(request: HttpRequest) -> dict[str, str | bool]:
     }
     request._persona = result  # type: ignore[attr-defined]
     return result
+
+
+def _apply_resume_step(request: HttpRequest, ctx: dict[str, Any]) -> None:
+    """Fold a clamped ``?step=`` into the payload so a driven hop resumes mid-tour."""
+    payload = ctx.get("tour_json")
+    if not payload:
+        return
+    try:
+        step = int(request.GET.get("step", "0"))
+    except ValueError:
+        step = 0
+    last = len(payload["steps"]) - 1
+    payload["resume_step"] = max(0, min(step, last)) if last >= 0 else 0
+
+
+def tour_runtime(request: HttpRequest) -> dict[str, Any]:
+    """Make a guided-tour payload available on every page a tour can land on.
+
+    The single choke-point that decides, per request, whether the page emits a
+    tour payload (so ``static/js/pl_tour.js`` can start, resume, or offer a tour):
+
+    1. A ``?tour=<key>`` for an *eligible* member -> autostart/resume payload with
+       a clamped ``resume_step`` (works on any page, which is what lets a driven
+       multi-page hop re-hydrate). No ``TourState`` write.
+    2. Otherwise, on a tour's entry page -> the usual offer/auto-offer guards
+       (first eligible GET writes the ``offered`` row).
+    3. Else nothing.
+
+    ``request.user`` / ``request.resolver_match`` are read defensively: themed
+    404s render every context processor before auth and URL resolution have run.
+    """
+    from core.tours import TOURS, tour_offer_context
+
+    empty: dict[str, Any] = {
+        "tour": None,
+        "tour_json": None,
+        "show_tour_offer": False,
+        "tour_autostart": False,
+    }
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return empty
+    if getattr(request, "method", "GET") != "GET":
+        # Tours only ride GET renders — a POST re-render (e.g. a form error) must
+        # not write an ``offered`` row or emit a payload.
+        return empty
+
+    requested = request.GET.get("tour")
+    if requested in TOURS:
+        ctx = tour_offer_context(request, requested)
+        if ctx["tour_autostart"]:
+            _apply_resume_step(request, ctx)
+            return ctx
+        # Ineligible or foreign ?tour= — the param is ignored; fall through so an
+        # entry page still shows its own offer.
+
+    match = getattr(request, "resolver_match", None)
+    if match is not None:
+        for tour in TOURS.values():
+            if match.view_name == tour.entry_url_name:
+                return tour_offer_context(request, tour.key)
+    return empty

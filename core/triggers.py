@@ -26,6 +26,11 @@ class Trigger:
     description: str
     category: str
     audience: Audience = Audience.ALL_MEMBERS
+    # Declared here (after ``audience``) on purpose: several Trigger() calls pass
+    # ``audience`` positionally at index 4, so a new positional field must sit past it.
+    # ``no_email`` suppresses the EMAIL channel entirely (in-app / push / Discord DM only).
+    # Mutually exclusive with ``force_email`` — a trigger cannot both force and suppress email.
+    no_email: bool = False
     force_email: bool = False
     push_default: bool = False
     email_default: bool = False
@@ -53,7 +58,7 @@ TRIGGERS: list[Trigger] = [
     Trigger(
         "refund_issued",
         "Refund issued",
-        "A refund was processed for a registration.",
+        "A refund was processed for a payment you made.",
         "Classes",
         force_email=True,
     ),
@@ -95,28 +100,40 @@ TRIGGERS: list[Trigger] = [
         email_default=True,
     ),
     # Guild activity
-    Trigger("guild_announcement", "Guild announcement", "A guild you're in posted an announcement.", "Guilds"),
+    Trigger("guild_announcement", "Guild announcement", "A guild you follow posted an announcement.", "Guilds"),
     Trigger(
         "orientation_requested",
         "Orientation requested",
         "Someone requested an orientation for a guild you lead.",
-        "Guilds",
+        "Orientations",
     ),
     Trigger(
         "orientation_update",
         "Orientation updates",
         "Your orientation request was confirmed, declined, or cancelled.",
-        "Guilds",
+        "Orientations",
     ),
     Trigger(
         "guild_joined",
-        "New guild member",
-        "A new member joined a guild you lead.",
+        "New follower",
+        "Someone new is following your guild.",
         "Guilds",
+        no_email=True,
     ),
     # Billing / tab
     Trigger("tab_charged", "Tab charged", "Your monthly tab was charged.", "Billing"),
     Trigger("tab_charge_failed", "Tab charge failed", "A charge failed — update your payment method.", "Billing"),
+    # Transactional admin alert: a Stripe refund failed after the fact — the Billing
+    # Administrators must hear about it (the payer may already hold a receipt for
+    # money that never arrived). Routed to the BILLING_APPROVERS resolver.
+    Trigger(
+        "refund_failed",
+        "A refund failed",
+        "A Stripe refund did not go through and needs a retry.",
+        "Billing",
+        Audience.STAFF_ONLY,
+        force_email=True,
+    ),
     # Transactional: both concern money owed on the member's tab — a charge they did not
     # enter themselves, and the warning before the tab locks. Neither is opt-out-able.
     Trigger(

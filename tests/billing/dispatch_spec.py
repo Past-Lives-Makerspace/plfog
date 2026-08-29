@@ -143,8 +143,8 @@ def describe_tab_approaching_limit_dispatch():
         tab = TabFactory(member=member, tab_limit=Decimal("100.00"))
         product = ProductFactory()
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
-        config.save(update_fields=["tab_payments_enabled"])
+        config.my_tab_enabled = False
+        config.save(update_fields=["my_tab_enabled"])
 
         tab.add_entry(description="Should not notify", amount=Decimal("80.00"), product=product)
 
@@ -160,8 +160,8 @@ def describe_tab_entry_added_when_payments_disabled():
         admin = User.objects.create_user(username="admin_disabled", email="admin_disabled@example.com")
         product = ProductFactory()
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
-        config.save(update_fields=["tab_payments_enabled"])
+        config.my_tab_enabled = False
+        config.save(update_fields=["my_tab_enabled"])
 
         tab.add_entry(
             description="Should not notify",

@@ -1,13 +1,36 @@
 {% extends "hub/base.html" %}
+{% load classes_tags %}
 {% block title %}Orientation request · {{ booking.guild.name }}{% endblock %}
 {% block content %}
 <div x-data="{}">
   <h1 class="hub-page-title">Orientation Request</h1>
 
+  {% if refund_state == "failed" %}
+  <div class="pl-refund-failed-banner">
+    This member's {{ booking.amount_paid_cents|cents_as_price }} refund failed.
+    {% if viewer_has_refund_authority %}<a href="{% url 'billing_admin_dashboard' %}?tab=payments&source=orientation&status=failed">Retry it in the Payments panel.</a>{% else %}An admin can retry it in the Payments panel.{% endif %}
+  </div>
+  {% endif %}
+
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <p style="margin:0 0 0.25rem; font-size:1.05rem;"><strong>{{ booking.member.display_name }}</strong> · {{ booking.guild.name }}</p>
     <p style="margin:0 0 0.25rem;">{{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}</p>
+    <p class="hub-text-muted" style="margin:0 0 0.25rem;">Runs with: {% if booking.slot.orienter %}{{ booking.slot.orienter.display_name }}{% else %}Any orienter{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Status: {{ booking.get_status_display }}</p>
+    {% if booking.amount_paid_cents %}
+    <p style="margin:0.5rem 0 0.25rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+      <span class="pl-price-chip">Paid {{ booking.amount_paid_cents|cents_as_price }}</span>
+      {% if refund_state == "full" or refund_state == "partial" %}
+      <span class="pl-price-chip pl-price-chip--ok">Refunded</span>
+      {% elif refund_state == "failed" %}
+      {% if viewer_has_refund_authority %}
+      <a href="{% url 'billing_admin_dashboard' %}?tab=payments&source=orientation&status=failed" class="pl-price-chip pl-price-chip--danger">Refund failed</a>
+      {% else %}
+      <span class="pl-price-chip pl-price-chip--danger">Refund failed</span>
+      {% endif %}
+      {% endif %}
+    </p>
+    {% endif %}
     {% if booking.member_note %}<p class="hub-text-muted" style="margin:0;">Note: {{ booking.member_note }}</p>{% endif %}
   </div>
 
@@ -25,6 +48,9 @@
         <label for="decline-note">Decline with an optional note (e.g. suggest another time):</label>
         <textarea id="decline-note" name="note" rows="3"></textarea>
       </div>
+      {% if booking.amount_paid_cents %}
+      <p class="pl-refund-note">Declining refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.</p>
+      {% endif %}
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Decline request</button>
     </form>
   </div>
@@ -32,7 +58,15 @@
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" @click="$dispatch('open-confirm', 'respond-cancel')">Cancel this orientation</button>
     {% url 'hub_orientation_lead_cancel' booking.pk as lead_cancel_url %}
+    {% if booking.amount_paid_cents %}
+    {% with cancel_price=booking.amount_paid_cents|cents_as_price %}
+    {% with cancel_msg="Cancelling refunds their "|add:cancel_price|add:" automatically. The member will be notified by email." %}
+    {% include "components/confirm_modal.html" with confirm_id="respond-cancel" confirm_title="Cancel this orientation?" confirm_message=cancel_msg confirm_action_url=lead_cancel_url confirm_button_text="Cancel orientation" %}
+    {% endwith %}
+    {% endwith %}
+    {% else %}
     {% include "components/confirm_modal.html" with confirm_id="respond-cancel" confirm_title="Cancel this orientation?" confirm_message="The member will be notified by email." confirm_action_url=lead_cancel_url confirm_button_text="Cancel orientation" %}
+    {% endif %}
   </div>
   {% else %}
   <p class="hub-text-muted">This request was {{ booking.get_status_display|lower }}.</p>

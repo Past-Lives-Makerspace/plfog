@@ -2,10 +2,15 @@ Hi {{ greeting_name }},
 
 We received your orientation request for {{ guild.name }}.
 
-  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}
+  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
 {% if slot.location %}  Where: {{ slot.location }}
 {% endif %}
-*** THIS IS NOT AN OFFICIAL BOOKING YET. ***
+{% if booking.amount_paid_cents %}{% load classes_tags %}You paid {{ booking.amount_paid_cents|cents_as_price }}.
+Your booking is a request until {{ guild.name }} confirms it. If they decline,
+or it's cancelled, your {{ booking.amount_paid_cents|cents_as_price }} comes back
+automatically as a full refund to your card.
+
+{% endif %}*** THIS IS NOT AN OFFICIAL BOOKING YET. ***
 The Guild Lead will review your request and respond ASAP to confirm. We've
 attached a tentative calendar invite so you can hold the date.
 

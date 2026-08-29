@@ -99,10 +99,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "home-dashboard",
     },
     "guild.join-leave": {
-        "title": "Join or leave a guild",
+        "title": "Follow a guild",
         "short_text": (
-            "Join free from any guild page — you're on the roster and its announcement emails. "
-            "Leave any time from the Guilds tab in Settings."
+            "Following a guild gets you its announcements, puts you on its roster, and gives you "
+            "its Discord role. Choose your guilds from the Guilds tab in Settings."
         ),
         "article_slug": "guilds-and-guild-pages",
         "anchor": "guild-join-leave",
@@ -518,8 +518,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "settings.your-guilds": {
-        "title": "Your guilds",
-        "short_text": ("The guilds you belong to. Join or leave here — leaving keeps your orientation history."),
+        "title": "Your guild updates",
+        "short_text": (
+            "Choose which guilds you get updates from. Flip one off to stop — your orientation history stays."
+        ),
         "article_slug": None,
         "anchor": None,
     },
@@ -556,8 +558,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "nav.guilds": {
         "title": "Guilds in the sidebar",
         "short_text": (
-            "Every guild has its own page. Open one to see meetings, orientations, and how to join — "
-            "this section collapses if you want it out of the way."
+            "Every guild has its own page. Open one to see meetings, orientations, and how to follow "
+            "its updates — this section collapses if you want it out of the way."
         ),
         "article_slug": None,
         "anchor": None,
@@ -616,6 +618,133 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.roster": {
         "title": "Your classes and rosters",
         "short_text": ("Click any class to see who signed up, manage the waitlist, and email your registrants."),
+        "article_slug": None,
+        "anchor": None,
+    },
+    # ── Annotation-only keys (auto-navigating guided tours) ─────────────────
+    # Tour step targets on the demo path; article_slug=None until a section
+    # exists, so url_for degrades to /help/.
+    "catalog.filter": {
+        "title": "Filter the catalog",
+        "short_text": (
+            "Every class and workshop lives here. Filter by guild or date, then open one to see the details."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "catalog.class-card": {
+        "title": "A class card",
+        "short_text": "Each card is a class. Click it to read what you will make and to sign up.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "spaces.map": {
+        "title": "The spaces map",
+        "short_text": (
+            "Studios, storage, parking, and desks live on this map. Click any open space to ask about renting it."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-basics": {
+        "title": "Title and description",
+        "short_text": "Give your class a clear title and describe what members will make and learn.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-gallery": {
+        "title": "Class photos",
+        "short_text": "Add photos of the finished project and the space. Good images fill seats.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster-table": {
+        "title": "Your class roster",
+        "short_text": "Everyone who signed up. Open a person's menu to remove them and a seat frees up.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster-waitlist": {
+        "title": "The waitlist",
+        "short_text": "Promote someone from the waitlist and they take the open seat and get a confirmation.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.welcome-email": {
+        "title": "The welcome email",
+        "short_text": (
+            "The email new members get when they join your guild. Leave the subject and body blank to send the standard welcome."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.wishlist": {
+        "title": "Your guild wishlist",
+        "short_text": (
+            "List the tools and supplies your guild wants. Add a donate link and members get a Donate button too."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.refunds": {
+        "title": "Payments and refunds",
+        "short_text": "Every charge is here. Open one to issue a refund; the member gets it back and a receipt.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.discount-codes": {
+        "title": "Discount codes",
+        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.reconciliation": {
+        "title": "Reconciliation",
+        "short_text": "Breaks down what each guild, instructor, and orientator is owed so you can reconcile payouts.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-overview": {
+        "title": "Your class home base",
+        "short_text": (
+            "Everything about one class in one place: who is instructing, the price, seats filled, and every session date."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-qr": {
+        "title": "Flyer and QR code",
+        "short_text": "Open a printable one page flyer or download a QR code that links straight to your class sign up page.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.thankyou-email": {
+        "title": "Orientation thank you email",
+        "short_text": "The note that goes out after someone finishes their orientation. Turn it on and make it your own.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.qr-codes": {
+        "title": "Guild flyer and QR",
+        "short_text": "Print a flyer or download a QR code that points people at your guild page. Great for the studio wall.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.event-review": {
+        "title": "Event approvals",
+        "short_text": "Member proposed events wait here. Review the details, then approve to publish or send it back with a note.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.activity": {
+        "title": "Site activity",
+        "short_text": "A running feed of what is happening across the site: sign ups, bookings, approvals, and more.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.quickstart-guides": {
+        "title": "Quickstart guides",
+        "short_text": "Short role guides for guild leads and instructors. Point new staff here so they can get going fast.",
         "article_slug": None,
         "anchor": None,
     },

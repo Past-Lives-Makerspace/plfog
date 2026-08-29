@@ -1205,3 +1205,38 @@ class TeachWelcomeEmailForm(forms.ModelForm):
     def save(self, commit: bool = True) -> ClassOffering:
         self.instance.welcome_email_updated_at = timezone.now()
         return super().save(commit=commit)
+
+
+class PaymentRefundForm(forms.Form):
+    """Validates the refund modal — amount bounds live here, not in the view.
+
+    ``amount`` is pre-filled with the full refundable remainder (full refund is
+    the default; editing it down makes it partial). ``reason`` is an optional
+    internal note stored on the ``PaymentRefund`` row — the payer never sees it.
+    """
+
+    amount = forms.DecimalField(max_digits=8, decimal_places=2)
+    reason = forms.CharField(required=False, widget=forms.TextInput)
+
+    def __init__(self, *args: Any, registration: Registration, **kwargs: Any) -> None:
+        self.registration = registration
+        refundable = (Decimal(registration.refundable_cents) / 100).quantize(Decimal("0.01"))
+        kwargs.setdefault("initial", {})
+        kwargs["initial"].setdefault("amount", refundable)
+        super().__init__(*args, **kwargs)
+        self.fields["amount"].label = "Amount"
+        self.fields["amount"].help_text = f"Up to ${refundable:.2f}. Edit for a partial refund."
+        self.fields["reason"].label = "Reason"
+        self.fields["reason"].help_text = "Internal note. The payer never sees this."
+
+    def clean_amount(self) -> Decimal:
+        amount: Decimal = self.cleaned_data["amount"]
+        refundable = Decimal(self.registration.refundable_cents) / 100
+        if not Decimal("0.01") <= amount <= refundable:
+            raise ValidationError(f"Enter an amount between $0.01 and ${refundable:.2f}.")
+        return amount
+
+    @property
+    def amount_cents(self) -> int:
+        """The validated refund amount in cents — what ``issue_refund`` takes."""
+        return int(self.cleaned_data["amount"] * 100)

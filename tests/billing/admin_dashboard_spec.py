@@ -10,6 +10,8 @@ from django.contrib.auth.models import User
 from django.test import Client
 
 from billing.models import BillingSettings, TabCharge
+from core.models import SiteConfiguration
+from membership.models import AdminCapability
 from tests.billing.factories import BillingSettingsFactory, TabChargeFactory, TabEntryFactory, TabFactory
 from tests.membership.factories import MemberFactory
 
@@ -20,6 +22,20 @@ def _create_superuser(client: Client) -> User:
     user = User.objects.create_superuser(username="admin", password="pass", email="admin@example.com")
     client.login(username="admin", password="pass")
     return user
+
+
+def _login_billing_approver(client: Client, username: str = "biller") -> User:
+    """A non-admin member holding only the BILLING_APPROVER capability."""
+    user = User.objects.create_user(username=username, password="pass", email=f"{username}@example.com")
+    client.login(username=username, password="pass")
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)  # type: ignore[attr-defined]
+    return user
+
+
+def _disable_my_tab() -> None:
+    config = SiteConfiguration.load()
+    config.my_tab_enabled = False
+    config.save()
 
 
 def describe_admin_tab_dashboard():
@@ -161,6 +177,146 @@ def describe_admin_tab_dashboard_extended():
         content = response.content.decode()
         assert "LIVE MODE" in content
         assert "TEST MODE" not in content
+
+
+def describe_when_my_tab_disabled():
+    def it_defaults_to_payments_tab(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        response = client.get("/billing/admin/dashboard/")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "payments"
+
+    def it_falls_back_to_payments_for_overview(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        response = client.get("/billing/admin/dashboard/?tab=overview")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "payments"
+
+    def it_falls_back_to_payments_for_open_tabs(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        response = client.get("/billing/admin/dashboard/?tab=open-tabs")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "payments"
+
+    def it_falls_back_cleanly_for_open_tabs_with_filter(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        response = client.get("/billing/admin/dashboard/?tab=open-tabs&filter=failed")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "payments"
+
+    def it_falls_back_to_payments_for_unknown_tab(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        response = client.get("/billing/admin/dashboard/?tab=nonsense")
+        assert response.status_code == 200
+        assert response.context["active_tab"] == "payments"
+
+    def it_hides_overview_and_open_tabs_nav_but_keeps_the_rest_for_admin(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert "?tab=overview" not in content
+        assert "?tab=open-tabs" not in content
+        assert "?tab=payments" in content
+        assert "?tab=settings" in content
+        assert "?tab=stripe" in content
+
+    def it_shows_the_admin_flag_off_subtitle(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert "Payment history and Stripe configuration." in content
+
+    def it_shows_the_approver_flag_off_subtitle_without_stripe(client: Client):
+        _disable_my_tab()
+        _login_billing_approver(client, "subapprover")
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert "Payment history across the makerspace." in content
+        # The approver's subtitle omits Stripe; the admin-flavored sentence must not appear.
+        # (A bare "Stripe configuration" check collides with the CHANGELOG rendered into context.)
+        assert "Payment history and Stripe configuration." not in content
+
+    def it_omits_the_add_charge_modal(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'id="add-charge-modal"' not in content
+        assert "Add Charge to Tab" not in content
+
+    def it_keeps_the_tab_detail_modal(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'id="tab-detail-modal"' in content
+
+    def it_pins_the_tabs_off_js_flag(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert "const TABS_ON = false" in content
+
+    def it_pins_the_tabs_on_js_flag_when_enabled(client: Client):
+        _create_superuser(client)  # flag defaults to True
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert "const TABS_ON = true" in content
+
+    def it_suppresses_the_single_tab_nav_for_an_approver(client: Client):
+        _disable_my_tab()
+        _login_billing_approver(client, "navapprover")
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'class="pl-tab-nav"' not in content
+
+    def it_keeps_the_tab_nav_for_an_admin_with_flag_off(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'class="pl-tab-nav"' in content
+
+    def it_keeps_the_tab_nav_for_an_approver_with_flag_on(client: Client):
+        _login_billing_approver(client, "navapproveron")  # flag defaults True → 3 tabs
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'class="pl-tab-nav"' in content
+
+    def it_shows_view_in_admin_for_a_fog_admin(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'id="tdm-admin-link"' in content
+
+    def it_hides_view_in_admin_for_an_approver(client: Client):
+        _disable_my_tab()
+        _login_billing_approver(client, "vialink")
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'id="tdm-admin-link"' not in content
+
+    def it_hides_view_in_admin_for_an_approver_with_flag_on(client: Client):
+        _login_billing_approver(client, "vialinkon")  # flag defaults True
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'id="tdm-admin-link"' not in content
+
+    def it_shows_view_in_admin_for_a_fog_admin_with_flag_on(client: Client):
+        _create_superuser(client)  # flag defaults True
+        content = client.get("/billing/admin/dashboard/").content.decode()
+        assert 'id="tdm-admin-link"' in content
+
+    def it_omits_overview_context_keys(client: Client):
+        _disable_my_tab()
+        _create_superuser(client)
+        response = client.get("/billing/admin/dashboard/")
+        assert "outstanding_tabs" not in response.context
+        assert "total_outstanding" not in response.context
+        assert "open_tabs" not in response.context
+        assert "add_charge_form" not in response.context
+
+    def it_still_403s_the_settings_tab_for_a_non_admin_approver(client: Client):
+        _disable_my_tab()
+        _login_billing_approver(client, "settings403")
+        response = client.get("/billing/admin/dashboard/?tab=settings")
+        assert response.status_code == 403
 
 
 def describe_billing_admin_tab_detail_api():
@@ -332,6 +488,22 @@ def describe_billing_admin_retry_charge():
         charge.refresh_from_db()
         assert charge.status == TabCharge.Status.FAILED
 
+    def it_still_retries_with_my_tab_disabled(client: Client):
+        # Collecting existing debt is legitimate with the feature off — retry is NOT gated.
+        _create_superuser(client)
+        _disable_my_tab()
+        tab = TabFactory(stripe_customer_id="cus_test", stripe_payment_method_id="pm_test")
+        charge = TabChargeFactory(tab=tab, status=TabCharge.Status.FAILED, amount=Decimal("25.00"))
+
+        mock_result = {"id": "pi_retry_off", "charge_id": "ch_off", "receipt_url": "https://receipt.test"}
+        with patch("billing.views.stripe_utils.create_payment_intent", return_value=mock_result):
+            response = client.post(f"/billing/admin/retry-charge/{charge.pk}/")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "succeeded"
+        charge.refresh_from_db()
+        assert charge.status == TabCharge.Status.SUCCEEDED
+
 
 def describe_admin_add_tab_entry():
     def it_requires_staff(client: Client):
@@ -463,35 +635,59 @@ def describe_admin_add_tab_entry():
         )
         assert response.status_code == 200
 
+    def describe_when_my_tab_disabled():
+        def it_redirects_a_valid_post_without_creating_an_entry(client: Client):
+            from tests.billing.factories import ProductFactory
+
+            BillingSettingsFactory()
+            _create_superuser(client)
+            _disable_my_tab()
+            member = MemberFactory(status="active")
+            product = ProductFactory()
+            response = client.post(
+                "/billing/admin/add-entry/",
+                data={
+                    "member": str(member.pk),
+                    "product": str(product.pk),
+                    "description": "would be valid",
+                    "amount": "1.00",
+                    "splits-TOTAL_FORMS": "0",
+                    "splits-INITIAL_FORMS": "0",
+                    "splits-MIN_NUM_FORMS": "1",
+                    "splits-MAX_NUM_FORMS": "1000",
+                },
+            )
+            assert response.status_code == 302
+            assert response.url == "/billing/admin/dashboard/"
+            from billing.models import TabEntry
+
+            assert TabEntry.objects.filter(tab__member=member).count() == 0
+
+        def it_redirects_the_standalone_get_page(client: Client):
+            _create_superuser(client)
+            _disable_my_tab()
+            response = client.get("/billing/admin/add-entry/")
+            assert response.status_code == 302
+            assert response.url == "/billing/admin/dashboard/"
+
+        def it_sets_an_info_message(client: Client):
+            _create_superuser(client)
+            _disable_my_tab()
+            response = client.get("/billing/admin/add-entry/", follow=True)
+            messages = [str(m) for m in response.context["messages"]]
+            assert any("My Tab is off" in m for m in messages)
+
 
 def describe_admin_reports():
     def it_requires_staff(client: Client):
         response = client.get("/billing/admin/reports/")
         assert response.status_code == 302
 
-    def it_renders_with_default_current_month_when_no_filters(client: Client):
+    def it_permanently_redirects_to_the_reconciliation_tab(client: Client):
         _create_superuser(client)
         response = client.get("/billing/admin/reports/")
-        assert response.status_code == 200
-        assert "rows" in response.context
-        assert "payout_summary" in response.context
-        assert "admin_total" in response.context
-
-    def it_renders_with_explicit_filters(client: Client):
-        from tests.billing.factories import ProductFactory
-
-        BillingSettingsFactory()
-        _create_superuser(client)
-        product = ProductFactory()
-        tab = TabFactory()
-        tab.add_entry(description="x", amount=Decimal("10.00"), product=product)
-        response = client.get(
-            "/billing/admin/reports/?start_date=2020-01-01&end_date=2099-12-31&guilds=99&charge_type=product&status=pending"
-        )
-        assert response.status_code == 200
-        assert response.context["selected_charge_types"] == ["product"]
-        assert response.context["selected_statuses"] == ["pending"]
-        assert response.context["selected_guilds"] == ["99"]
+        assert response.status_code == 301
+        assert "tab=reconciliation" in response["Location"]
 
 
 def describe_admin_reports_csv():
@@ -499,19 +695,11 @@ def describe_admin_reports_csv():
         response = client.get("/billing/admin/reports/export/csv/")
         assert response.status_code == 302
 
-    def it_streams_csv(client: Client):
-        from tests.billing.factories import ProductFactory
-
-        BillingSettingsFactory()
+    def it_permanently_redirects_to_the_reconciliation_csv(client: Client):
         _create_superuser(client)
-        product = ProductFactory()
-        tab = TabFactory()
-        tab.add_entry(description="bag", amount=Decimal("10.00"), product=product)
         response = client.get("/billing/admin/reports/export/csv/")
-        assert response.status_code == 200
-        body = b"".join(response.streaming_content).decode()
-        assert "date,member,description" in body
-        assert "bag" in body
+        assert response.status_code == 301
+        assert "/billing/admin/reconciliation/export/csv/" in response["Location"]
 
 
 def describe_billing_test_platform_connection():

@@ -13,6 +13,7 @@ urlpatterns = [
     # Self-serve registration management (token-based, no auth)
     path("my/<str:token>/", views.my_registration, name="my_registration"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
+    path("my/<str:token>/pay/", views.my_registration_pay, name="my_registration_pay"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
     # Instructor orientation — reachable by any active member (it IS the unlock).
@@ -32,6 +33,11 @@ urlpatterns = [
         "teach/classes/<int:pk>/registrations/",
         views.teach_class_registrations,
         name="teach_class_registrations",
+    ),
+    path(
+        "teach/classes/<int:pk>/registrations/table/",
+        views.teach_class_registrations_table,
+        name="teach_class_registrations_table",
     ),
     path(
         "teach/classes/<int:pk>/registrations/email/",
@@ -78,7 +84,11 @@ urlpatterns = [
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
     path("admin/<int:pk>/registrations/", views.admin_class_registrations, name="admin_class_registrations"),
-    path("admin/<int:pk>/registrations/export/", views.admin_class_export, name="admin_class_export"),
+    path(
+        "admin/<int:pk>/registrations/table/",
+        views.admin_class_registrations_table,
+        name="admin_class_registrations_table",
+    ),
     path("admin/<int:pk>/waitlist/", views.admin_class_waitlist, name="admin_class_waitlist"),
     path("admin/<int:pk>/discount-codes/", views.admin_class_discount_codes, name="admin_class_discount_codes"),
     path("admin/<int:pk>/emails/", views.admin_class_emails, name="admin_class_emails"),
@@ -111,6 +121,35 @@ urlpatterns = [
     path("admin/registrations/<int:pk>/cancel/", views.admin_registration_cancel, name="admin_registration_cancel"),
     path("admin/registrations/<int:pk>/move/", views.admin_registration_move, name="admin_registration_move"),
     path("admin/registrations/<int:pk>/refund/", views.admin_registration_refund, name="admin_registration_refund"),
+    path(
+        "admin/registrations/<int:pk>/refund/form/",
+        views.admin_registration_refund_form,
+        name="admin_registration_refund_form",
+    ),
+    path(
+        "admin/registrations/<int:pk>/refunds-card/",
+        views.admin_registration_refunds_card,
+        name="admin_registration_refunds_card",
+    ),
+    # Roster & waitlist management actions (shared teach + admin surface, HTMX POST)
+    path("registrations/<int:pk>/remove/", views.registration_remove, name="registration_remove"),
+    path("registrations/<int:pk>/promote/", views.registration_promote, name="registration_promote"),
+    path(
+        "registrations/<int:pk>/promote/followup/",
+        views.registration_promote_followup,
+        name="registration_promote_followup",
+    ),
+    path(
+        "registrations/<int:pk>/promote/notify/",
+        views.registration_promote_notify,
+        name="registration_promote_notify",
+    ),
+    path(
+        "registrations/<int:pk>/send-payment-link/",
+        views.registration_send_payment_link,
+        name="registration_send_payment_link",
+    ),
+    path("registrations/<int:pk>/mark-paid/", views.registration_mark_paid, name="registration_mark_paid"),
     path("admin/discount-codes/", views.admin_discount_codes, name="admin_discount_codes"),
     path("admin/discount-codes/new/", views.admin_discount_code_create, name="admin_discount_code_create"),
     path("admin/discount-codes/<int:pk>/edit/", views.admin_discount_code_edit, name="admin_discount_code_edit"),

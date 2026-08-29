@@ -1,0 +1,60 @@
+{% load classes_tags %}
+{% comment %}
+The checkout landing card. States:
+  booked           — the webhook landed; the booking is REQUESTED (or beyond)
+  pending          — webhook lag; polls this same URL every 3 s via HTMX
+  still_processing — ~60 s of pending; calm fallback, polling stops
+  cancel_confirm   — the Stripe cancel_url GET step (POST actually releases)
+  invalid          — bad/expired token or the booking is gone (HTTP 400)
+{% endcomment %}
+{% if state == "invalid" %}
+  <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">We Couldn't Find That Booking</h1>
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">If you were charged, the payment will appear in your email receipt and we'll sort it out.</p>
+  <a href="{% url 'hub_guild_directory' %}" class="pl-btn pl-btn--primary">Browse Guilds</a>
+
+{% elif state == "booked" %}
+  {% if booking.status == "requested" %}
+  <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">You're Booked, Pending Confirmation</h1>
+  {% elif booking.status == "confirmed" %}
+  <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">You're Booked</h1>
+  {% else %}
+  <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">About This Booking</h1>
+  {% endif %}
+  <p style="margin:0 0 0.5rem; font-size:1rem;">
+    {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}
+    {% if booking.slot.location %}<span class="hub-text-muted">· {{ booking.slot.location }}</span>{% endif %}
+  </p>
+  {% if booking.status == "declined" or booking.status == "cancelled" %}
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">This booking was {{ booking.get_status_display|lower }}. Your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically as a full refund.</p>
+  {% elif booking.status == "confirmed" %}
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. You're all set. We've emailed you the details and a calendar invite.</p>
+  {% else %}
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. We sent your request to {% if booking.slot.orienter_first_name %}{{ booking.slot.orienter_first_name }}{% else %}the guild{% endif %}. Watch for them to confirm your spot. <strong>If they can't make it work, your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically.</strong> We've emailed you the details and a calendar invite.</p>
+  {% endif %}
+  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+    <a href="{% url 'hub_guild_detail' booking.guild.slug %}" class="pl-btn pl-btn--primary">Back to {{ booking.guild.name }}</a>
+    <a href="{% url 'hub_orientation_info' booking.guild.pk %}" class="hub-text-muted" style="font-size:0.9rem;">What to expect at your orientation</a>
+  </div>
+
+{% elif state == "pending" %}
+  <div hx-get="{% url 'hub_orientation_checkout_return' token %}?n={{ next_poll }}" hx-trigger="every 3s" hx-target="#orientation-checkout-card" hx-swap="innerHTML">
+    <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">Finalizing Your Payment…</h1>
+    <p class="hub-text-muted" style="margin:0; font-size:0.95rem;">This usually takes a few seconds.</p>
+  </div>
+
+{% elif state == "still_processing" %}
+  <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">Still Processing</h1>
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You'll get a confirmation email the moment it clears. Safe to close this page.</p>
+  <a href="{% url 'hub_guild_detail' booking.guild.slug %}" class="pl-btn pl-btn--primary">Back to {{ booking.guild.name }}</a>
+
+{% elif state == "cancel_confirm" %}
+  <h1 class="hub-detail-label" style="margin:0 0 0.75rem;">Cancel This Booking?</h1>
+  <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">If you haven't paid, nothing is charged. If your payment already went through, your booking request stays in.</p>
+  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+    <form method="post" style="margin:0;">
+      {% csrf_token %}
+      <button type="submit" class="pl-btn pl-btn--danger">Cancel Booking</button>
+    </form>
+    <a href="{% url 'hub_guild_detail' booking.guild.slug %}" class="pl-btn pl-btn--secondary">Keep It</a>
+  </div>
+{% endif %}

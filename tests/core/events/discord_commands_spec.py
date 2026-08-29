@@ -153,6 +153,8 @@ def describe_guild_disambiguation_reply():
         GuildMembership.objects.record_app_join(GuildFactory(name="Beta"), member)
         result = guild_disambiguation_reply(member)
         assert result["data"]["flags"] == 64
+        assert "You follow: " in result["data"]["content"]
+        assert "You're in" not in result["data"]["content"]
         assert "Alpha" in result["data"]["content"]
         assert "Beta" in result["data"]["content"]
 

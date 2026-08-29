@@ -12,6 +12,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import User
+
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
     from core.events.scheduler import ScheduledOccurrence
     from membership.models import Guild, Member
@@ -57,9 +59,15 @@ def _guild_leadership_recipients(guild: "Guild | None") -> list[str]:
 
 
 def _absolute_url(path: str) -> str:
-    """Turn a relative path into an absolute URL using the book site base URL."""
-    base = getattr(settings, "BOOK_BASE_URL", "https://book.pastlives.space").rstrip("/")
-    return f"{base}{path}"
+    """Turn a relative path into an absolute URL using the book site base URL.
+
+    Thin delegate — the public helper lives in :func:`core.urls_util.book_absolute_url`
+    so other apps don't import a private classes helper. Kept for this module's
+    many internal call sites.
+    """
+    from core.urls_util import book_absolute_url
+
+    return book_absolute_url(path)
 
 
 def _flat_text_email_html(text: str) -> str:
@@ -382,11 +390,11 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
 
 
 def send_admin_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one for lead-less categories: notify the Class Administrators.
+    """Stage one for lead-less categories: notify the CMS Administrators.
 
-    Used when a category has no guild lead, so the Class Administrator gate is stage one.
+    Used when a category has no guild lead, so the CMS Administrator gate is stage one.
     The review email + in-app row ride the ``class_review_requested`` resolver — with a
-    ``None`` guild it composes to the Class Administrators (holders only) instead of
+    ``None`` guild it composes to the CMS Administrators (holders only) instead of
     blasting a static admin address list. The instructor still gets the explainer.
     """
     instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
@@ -407,7 +415,7 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves and the
     Admin gate opens. One ``class_validation_requested`` event: the structural
     ``admin_validation_request.{txt,html}`` shell is preserved as the email, and both the
-    email and in-app row ride the CLASS_APPROVERS resolver — the Class Administrators
+    email and in-app row ride the CLASS_APPROVERS resolver — the CMS Administrators
     (holders only) get it, replacing the static
     ``_admin_recipients()`` blast. ``class_validation_requested`` logs no SiteActivity, so
     the emit introduces no activity-row duplication.
@@ -603,6 +611,175 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
         url="/classes/account/",
         email_to=registration.email,
         period=f"reg:{registration.pk}:waitlist_spot_opened",
+    )
+
+
+def _promoted_template_context(registration: "Registration") -> dict[str, object]:
+    """Shared template context for the two promoted-from-waitlist emails."""
+    offering = registration.class_offering
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    return {
+        "registration": registration,
+        "offering": offering,
+        "upcoming_sessions": upcoming_sessions,
+        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "self_serve_url": _absolute_url(
+            reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
+        ),
+        "pay_url": _absolute_url(
+            reverse("classes:my_registration_pay", kwargs={"token": registration.self_serve_token})
+        ),
+        "amount_due_dollars": f"{registration.balance_due_cents / 100:.2f}",
+    }
+
+
+def send_waitlist_promoted(registration: "Registration") -> None:
+    """Emit the plain "You're in" notice after a staff promote (no payment link).
+
+    Sent for free promotes (computed due of 0) and when staff picks "Not now" on
+    the pay-link follow-up. The ``reg:{pk}:promoted`` period delivers it once
+    ever — the modal-close fallback can never stack a second copy.
+    """
+    from core.events.senders import emit_with_email_shell
+
+    offering = registration.class_offering
+    template_context = _promoted_template_context(registration)
+    emit_with_email_shell(
+        "waitlist_promoted",
+        actor=registration.member.user if registration.member is not None else None,
+        target=registration,
+        context={"member": registration.member},
+        subject=f"You're in! {offering.title}",
+        text_template="classes/emails/promoted.txt",
+        html_template="classes/emails/promoted.html",
+        template_context=template_context,
+        in_app_title="You're in the class",
+        in_app_body=offering.title,
+        url="/classes/account/",
+        email_to=registration.email,
+        period=f"reg:{registration.pk}:promoted",
+    )
+
+
+def send_payment_link_email(registration: "Registration", actor: "User | None") -> None:
+    """Send (or deliberately re-send) the "You're in! Complete your payment" email.
+
+    Emits the ``waitlist_promoted_pay`` event with the pay-page CTA, stamps
+    ``payment_link_sent_at``, and logs PAYMENT_LINK_SENT attributed to ``actor``.
+    The minute-bucketed period collapses a double-click into one delivery while a
+    deliberate re-send in a later minute delivers again.
+
+    Raises:
+        RegistrationStateError: If the registration has no outstanding balance.
+    """
+    from classes import activity
+    from classes.exceptions import RegistrationStateError
+    from classes.models import CmsActivity
+    from core.events.senders import emit_with_email_shell
+
+    if not registration.is_unpaid:
+        raise RegistrationStateError("This registration has no outstanding balance.")
+    offering = registration.class_offering
+    template_context = _promoted_template_context(registration)
+    now = timezone.now()
+    emit_with_email_shell(
+        "waitlist_promoted_pay",
+        actor=registration.member.user if registration.member is not None else None,
+        target=registration,
+        context={"member": registration.member},
+        subject=f"You're in! Complete your payment for {offering.title}",
+        text_template="classes/emails/promoted_pay.txt",
+        html_template="classes/emails/promoted_pay.html",
+        template_context=template_context,
+        in_app_title="You're in — complete your payment",
+        in_app_body=offering.title,
+        url="/classes/account/",
+        email_to=registration.email,
+        period=f"reg:{registration.pk}:paylink:{now:%Y%m%d%H%M}",
+    )
+    registration.payment_link_sent_at = now
+    registration.save(update_fields=["payment_link_sent_at"])
+    activity.log(
+        CmsActivity.Kind.PAYMENT_LINK_SENT,
+        class_offering=offering,
+        registration=registration,
+        actor=actor,
+    )
+
+
+def send_removal_notice(registration: "Registration", *, was_waitlisted: bool) -> None:
+    """Emit the staff-removal notice — seat-holder and waitlist variants, one template pair.
+
+    Called only from ``Registration.remove_by_staff`` so self-serve cancels and
+    refund flows keep their current email behavior. The waitlist variant carries
+    no seat, cancellation-of-a-confirmed-spot, or refund language — none of it is
+    true for someone who never held a seat.
+    """
+    from core.events.senders import emit_with_email_shell
+
+    offering = registration.class_offering
+    if was_waitlisted:
+        subject = f"You've been removed from the waitlist for {offering.title}"
+        in_app_title = "Removed from a waitlist"
+    else:
+        subject = f"Your registration for {offering.title} was cancelled"
+        in_app_title = "Your registration was cancelled"
+    template_context = {
+        "registration": registration,
+        "offering": offering,
+        "was_waitlisted": was_waitlisted,
+        "show_refund_note": not was_waitlisted and registration.amount_paid_cents > 0,
+        "amount_paid_dollars": f"{registration.amount_paid_cents / 100:.2f}",
+        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "browse_url": _absolute_url(reverse("classes:public_list")),
+    }
+    emit_with_email_shell(
+        "registration_removed",
+        actor=registration.member.user if registration.member is not None else None,
+        target=registration,
+        context={"member": registration.member},
+        subject=subject,
+        text_template="classes/emails/removed.txt",
+        html_template="classes/emails/removed.html",
+        template_context=template_context,
+        in_app_title=in_app_title,
+        in_app_body=offering.title,
+        url="/classes/account/",
+        email_to=registration.email,
+        period=f"reg:{registration.pk}:removed",
+    )
+
+
+def send_duplicate_payment_alert(
+    registration: "Registration", *, amount_cents: int, payment_intent: str, session_id: str
+) -> None:
+    """Alert the admins that a balance payment landed AFTER the row was already settled.
+
+    The studio has collected twice and a refund is owed — silence is unacceptable.
+    Flat-text body wrapped in the branded shell, addressed to the admin rails.
+    """
+    admin_emails = _admin_recipients()
+    if not admin_emails:
+        return
+    offering = registration.class_offering
+    detail_url = _absolute_url(reverse("classes:admin_registration_detail", kwargs={"pk": registration.pk}))
+    stripe_url = f"https://dashboard.stripe.com/payments/{payment_intent}"
+    name = f"{registration.first_name} {registration.last_name}".strip() or registration.email
+    body = (
+        f"{name} ({registration.email}) paid ${amount_cents / 100:.2f} online for "
+        f'"{offering.title}" AFTER the balance was already settled (marked paid by staff, '
+        f"or an earlier payment landed first).\n\n"
+        f"A refund is owed for one of the two payments.\n\n"
+        f"Registration: {detail_url}\n"
+        f"Stripe payment: {stripe_url}\n"
+        f"Checkout session: {session_id}"
+    )
+    core_email.send(
+        to=admin_emails,
+        subject=f"Duplicate payment: {name}, {offering.title}",
+        trigger_kind="classes.duplicate_payment_alert",
+        text_body=body,
+        html_body=_flat_text_email_html(body),
     )
 
 

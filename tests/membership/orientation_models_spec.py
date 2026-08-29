@@ -51,17 +51,6 @@ def describe_GuildOrientationSettings():
             settings = GuildOrientationSettingsFactory(thankyou_email_body="")
             assert settings.resolved_thankyou_body == STANDARD_THANKYOU_BODY
 
-    def describe_join_email_ready():
-        def it_requires_enabled_subject_and_body():
-            ready = GuildOrientationSettingsFactory(
-                join_email_enabled=True, join_email_subject="Hi", join_email_body="Welcome"
-            )
-            assert ready.join_email_ready is True
-            missing_subject = GuildOrientationSettingsFactory(
-                join_email_enabled=True, join_email_subject="", join_email_body="Welcome"
-            )
-            assert missing_subject.join_email_ready is False
-
     def describe_is_accepting():
         def it_is_true_when_enabled_and_open():
             assert GuildOrientationSettingsFactory(is_enabled=True, is_closed=False).is_accepting is True

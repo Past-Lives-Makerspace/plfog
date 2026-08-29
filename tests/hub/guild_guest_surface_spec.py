@@ -162,25 +162,32 @@ def describe_guest_guild_page():
             assert b"hub-sidebar" not in body
             assert b"cp-topbar" in body
 
-        def it_offers_log_in_to_join_to_anonymous_guests(client: Client):
+        def it_offers_a_members_hub_login_button_to_anonymous_guests(client: Client):
             guild = GuildFactory(name="Join Guild")
             body = _guest_get(client, guild).content.decode()
-            assert "Log in to join" in body
-            assert f'action="/guilds/{guild.pk}/join/"' not in body
+            assert "Log in to the members hub" in body
+            # Assert the hero-join element's absence by its class, not the bare label
+            # (the release-notes changelog renders "Join This Guild" into every page).
+            assert "pl-guild-cta__join" not in body
 
-        def it_offers_a_join_form_to_a_logged_in_non_member(client: Client):
+        def it_hides_the_hero_join_button_on_the_guest_surface(client: Client):
+            # Joins happen on the members hub, so the guest surface never shows the hero Join
+            # (the is_guilds_surface gate) nor the old "Want announcements" settings pointer.
             guild = GuildFactory(name="Join Guild")
             _login_member(client)
             body = _guest_get(client, guild).content.decode()
-            assert f'action="/guilds/{guild.pk}/join/"' in body
-            assert "Log in to join" not in body
+            assert "pl-guild-cta__join" not in body
+            assert "Want announcements from this guild?" not in body
+            assert "Log in to the members hub" not in body
 
-        def it_offers_a_leave_confirm_to_a_member_on_the_guilds_surface(client: Client):
+        def it_shows_the_updates_line_and_no_leave_button_to_a_subscriber(client: Client):
             guild = GuildFactory(name="Leave Guild")
             _, member = _login_member(client)
             GuildMembership.objects.create(guild=guild, member=member)
             body = _guest_get(client, guild).content
-            assert b"Leave this guild" in body
+            assert b"You get this guild's updates" in body
+            assert b"Manage in Settings" in body
+            assert b"Leave this guild" not in body
 
         def it_never_shows_leave_on_the_members_surface(client: Client):
             guild = GuildFactory(name="Leave Guild")
@@ -210,28 +217,18 @@ def describe_guest_guild_page():
             assert 'name="starts_at"' in body
 
     def describe_in_place_action_gating():
-        def it_bounces_anonymous_join_to_login_with_next(client: Client):
-            guild = GuildFactory(name="Act Guild")
-            resp = client.post(f"/guilds/{guild.pk}/join/", HTTP_HOST=GUILDS_HOST)
-            assert resp.status_code == 302
-            assert "/accounts/login/" in resp["Location"]
-            assert "next=" in resp["Location"]
-
+        # The join/leave endpoints are gone with the subscription reframe — the guest
+        # surface has no in-place membership mutations left, so the old URLs 404.
         @pytest.mark.parametrize("action", ["join", "leave"])
-        def it_bounces_anonymous_membership_actions_to_login(client: Client, action):
+        def it_404s_the_removed_membership_action_urls(client: Client, action):
             guild = GuildFactory(name="Act Guild")
             resp = client.post(f"/guilds/{guild.pk}/{action}/", HTTP_HOST=GUILDS_HOST)
-            assert resp.status_code == 302
-            assert "/accounts/login/" in resp["Location"]
+            assert resp.status_code == 404
 
-        def it_performs_a_member_join_and_redirects_relative_staying_on_the_host(client: Client):
+        def it_carries_next_back_to_the_guild_page_on_the_login_button(client: Client):
             guild = GuildFactory(name="Act Guild")
-            _, member = _login_member(client)
-            resp = client.post(f"/guilds/{guild.pk}/join/", HTTP_HOST=GUILDS_HOST)
-            assert resp.status_code == 302
-            assert resp["Location"] == f"/guilds/{guild.slug}/"  # relative -> stays on .app
-            assert "://" not in resp["Location"]
-            assert GuildMembership.objects.filter(guild=guild, member=member).exists()
+            body = _guest_get(client, guild).content.decode()
+            assert f"?next=/guilds/{guild.slug}/" in body
 
     def describe_guild_visibility():
         # Every active guild is public and visible on every surface — the old

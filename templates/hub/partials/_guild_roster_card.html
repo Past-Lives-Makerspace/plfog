@@ -1,0 +1,17 @@
+{# The Members roster card. Wrapper always renders so the OOB swap after a join/leave #}
+{# always lands; the card itself appears once the guild opts in and has a roster. #}
+<div id="guild-roster-card"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if user.is_authenticated and guild.show_members and roster %}
+    <div class="hub-card">
+        <h3 class="hub-detail-label">Members</h3>
+        <div class="pl-guild-roster">
+            {% for m in roster %}
+            <div class="hub-member-row">
+                <div class="hub-member-avatar">{{ m.display_name|make_list|first|upper }}</div>
+                <span class="hub-member-name">{{ m.display_name }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>

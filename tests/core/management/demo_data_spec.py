@@ -40,6 +40,18 @@ def _write_demo_image(path) -> None:
     path.write_bytes(buf.getvalue())
 
 
+@pytest.fixture(autouse=True)
+def _isolate_media(settings, tmp_path):
+    """Point MEDIA_ROOT at a throwaway dir for every demo_data spec.
+
+    The seed now attaches a repo-committed hero to the showcase class on every run
+    (the prod-image path), which writes through the storage backend. Without this,
+    those writes would land in the real ``media/`` tree and accumulate. Tests that
+    need their own media dir (the image spec) reassign MEDIA_ROOT in their body.
+    """
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+
+
 def describe_demo_data_seed():
     def it_creates_student_instructor_and_guest_registrations():
         call_command("demo_data")
@@ -51,11 +63,13 @@ def describe_demo_data_seed():
         assert not User.objects.filter(email__startswith="guest@").exists()
         assert Registration.objects.filter(order_number=GUEST_ORDER_NUMBER, last_name="Guest").exists()
 
-    def it_creates_three_demo_classes_with_sessions():
+    def it_creates_the_published_demo_classes_with_sessions():
         call_command("demo_data")
 
+        # Four published classes seed outside DEBUG: past, current-free, future-paid,
+        # and the full+waitlist class (the pending-approval class is DEBUG-only).
         demo_classes = ClassOffering.objects.filter(slug__startswith=DEMO_SLUG_PREFIX)
-        assert demo_classes.count() == 3
+        assert demo_classes.count() == 4
         # Every demo class has at least one session so the public list shows them.
         for c in demo_classes:
             assert c.sessions.count() >= 1
@@ -77,6 +91,122 @@ def describe_demo_data_seed():
         call_command("demo_data")
         assert get_user_model().objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == first_user_count
         assert Registration.objects.filter(class_offering__slug__startswith=DEMO_SLUG_PREFIX).count() == first_reg_count
+
+
+def describe_demo_data_full_waitlist_class():
+    def it_creates_a_full_class_with_a_waitlist_behind_it():
+        from core.management.commands.demo_data import FULL_WAITLIST_CAPACITY, FULL_WAITLIST_WAITLISTED
+
+        call_command("demo_data")
+
+        offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
+        assert offering.status == ClassOffering.Status.PUBLISHED
+        assert offering.capacity == FULL_WAITLIST_CAPACITY
+
+        confirmed = offering.registrations.filter(status=Registration.Status.CONFIRMED)
+        waitlisted = offering.registrations.filter(status=Registration.Status.WAITLISTED)
+        # Confirmed count equals capacity → the class reads as full.
+        assert confirmed.count() == FULL_WAITLIST_CAPACITY
+        assert offering.spots_remaining == 0
+        # The waitlist sits genuinely beyond capacity.
+        assert waitlisted.count() == FULL_WAITLIST_WAITLISTED
+
+        for reg in confirmed:
+            # A paid seat-holder.
+            assert reg.amount_paid_cents == offering.price_cents
+            assert reg.confirmed_at is not None
+        for reg in waitlisted:
+            # Unpaid, unconfirmed, and never notified — so "notify next in line" is demoable.
+            assert reg.amount_paid_cents == 0
+            assert reg.confirmed_at is None
+            assert reg.waitlist_notified_at is None
+
+    def it_is_idempotent_for_the_full_waitlist_class():
+        call_command("demo_data")
+        offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
+        first = offering.registrations.count()
+
+        call_command("demo_data")
+        offering.refresh_from_db()
+        assert offering.registrations.count() == first
+        # Still exactly full — no duplicate confirmed rows crept over capacity.
+        assert offering.spots_remaining == 0
+
+    def it_is_torn_down_by_remove():
+        call_command("demo_data")
+        assert ClassOffering.objects.filter(slug=f"{DEMO_SLUG_PREFIX}full-waitlist").exists()
+
+        call_command("demo_data", "--remove")
+        assert not ClassOffering.objects.filter(slug=f"{DEMO_SLUG_PREFIX}full-waitlist").exists()
+        # Its confirmed + waitlisted registrations are gone too (demo-email sweep).
+        assert not Registration.objects.filter(email__startswith="wl-").exists()
+
+    def it_reports_the_full_class_in_seed_and_status_output():
+        seed_out = io.StringIO()
+        call_command("demo_data", stdout=seed_out)
+        assert "Full class + waitlist" in seed_out.getvalue()
+
+        status_out = io.StringIO()
+        call_command("demo_data", "--status", stdout=status_out)
+        assert f"{DEMO_SLUG_PREFIX}full-waitlist" in status_out.getvalue()
+
+
+def describe_demo_data_showcase_class():
+    def it_makes_the_full_class_a_believable_standalone_showcase(settings):
+        # DEBUG off = the prod path: the committed hero must still attach.
+        settings.DEBUG = False
+        call_command("demo_data")
+
+        offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
+        # A real, prefix-free title in its own standalone (non lamp-working) category.
+        # The category name keeps a [DEMO] prefix because Category.name is unique and a
+        # real "Woodworking" category may already own the bare name on production.
+        assert "[DEMO]" not in offering.title
+        assert offering.category.slug == f"{DEMO_SLUG_PREFIX}woodworking"
+        assert offering.category.name == "[DEMO] Woodworking"
+        # A rich description, not the generic seed placeholder.
+        assert "Seeded demo class" not in offering.description
+        assert len(offering.description) > 200
+        # A hero attached from the committed asset even with DEBUG off (the prod path).
+        assert offering.image
+        # Real-looking roster names, not "Waitlist ConfirmedN".
+        names = {(r.first_name, r.last_name) for r in offering.registrations.all()}
+        assert ("Maya", "Thompson") in names  # a confirmed seat holder
+        assert ("Jordan", "Kim") in names  # first in line on the waitlist
+
+    def it_makes_the_showcase_the_instructors_newest_class(settings):
+        from membership.models import Member
+
+        # The instructor tour targets the instructor's NEWEST class. The showcase must
+        # win even on local dev (DEBUG on), where a pending-approval class is also
+        # created; otherwise the tour strands on that empty class's roster.
+        settings.DEBUG = True
+        call_command("demo_data")
+        instructor = Member.objects.get(user__email=PERSONA_INSTRUCTOR_EMAIL)
+        newest = instructor.classes.order_by("-created_at", "-pk").first()
+        assert newest is not None
+        assert newest.slug == f"{DEMO_SLUG_PREFIX}full-waitlist"
+
+    def it_leaves_the_hero_in_place_on_reseed(settings):
+        settings.DEBUG = False
+        call_command("demo_data")
+        offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
+        first = offering.image.name
+
+        call_command("demo_data")
+        offering.refresh_from_db()
+        # Idempotent: the existing hero is kept, not re-saved under a new name.
+        assert offering.image.name == first
+
+    def it_removes_the_showcase_category_on_remove(settings):
+        from classes.models import Category
+
+        settings.DEBUG = False
+        call_command("demo_data")
+        assert Category.objects.filter(slug=f"{DEMO_SLUG_PREFIX}woodworking").exists()
+
+        call_command("demo_data", "--remove")
+        assert not Category.objects.filter(slug=f"{DEMO_SLUG_PREFIX}woodworking").exists()
 
 
 def describe_demo_data_registration_questions():

@@ -1,8 +1,9 @@
-"""BDD specs for the "My Guilds" settings tab.
+"""BDD specs for the settings Guild Updates tab (the ``guilds`` tab).
 
-Covers the grid-data service (``build_my_guilds_rows``), the join/leave HTMX endpoint
-(``guild_membership_set``), the Guilds tab wiring in ``user_settings``, the rendered
-toggle grid, and the guild-page "you're in this guild" touch.
+Covers the grid-data service (``build_my_guilds_rows``), the subscribe/unsubscribe
+HTMX endpoint (``guild_membership_set``) including its answered-stamp, the Guilds tab
+wiring in ``user_settings`` (deep-link stamp included), the rendered toggle grid, and
+the guild-page subscription touch.
 """
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
-from django.core import mail
 from django.test import Client
 from django.urls import reverse
 
@@ -23,7 +23,6 @@ from membership.models import GuildMembership, Member
 from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
-    GuildOrientationSettingsFactory,
     MemberFactory,
     MembershipPlanFactory,
 )
@@ -105,7 +104,7 @@ def describe_build_my_guilds_rows():
 
 
 def describe_guild_membership_set():
-    def it_creates_the_membership_and_fires_the_join_side_effect(client: Client):
+    def it_creates_the_subscription_and_fires_the_welcome_side_effect(client: Client):
         _user, member = _linked_user(client)
         guild = GuildFactory()
         with patch("membership.orientations.member_joined_guild") as joined:
@@ -114,7 +113,7 @@ def describe_guild_membership_set():
         assert GuildMembership.objects.filter(guild=guild, member=member).exists()
         joined.assert_called_once_with(guild, member)
         assert _toast(response)["type"] == "success"
-        assert f"You joined {guild.name}." == _toast(response)["message"]
+        assert f"You'll get updates from {guild.name}." == _toast(response)["message"]
 
     def it_is_idempotent_and_does_not_refire_when_already_joined(client: Client):
         _user, member = _linked_user(client)
@@ -126,7 +125,7 @@ def describe_guild_membership_set():
         assert GuildMembership.objects.filter(guild=guild, member=member).count() == 1
         joined.assert_not_called()
 
-    def it_leaves_when_the_joined_field_is_absent(client: Client):
+    def it_unsubscribes_when_the_joined_field_is_absent(client: Client):
         _user, member = _linked_user(client)
         guild = GuildFactory()
         GuildMembershipFactory(guild=guild, member=member)
@@ -135,7 +134,33 @@ def describe_guild_membership_set():
         assert not GuildMembership.objects.filter(guild=guild, member=member).exists()
         toast = _toast(response)
         assert toast["type"] == "info"
-        assert "You left" in toast["message"] and "rejoin anytime" in toast["message"]
+        assert "You won't get updates from" in toast["message"]
+        assert "Turn them back on anytime." in toast["message"]
+
+    def it_stamps_the_guild_updates_answer_on_subscribe_and_unsubscribe(client: Client):
+        _user, member = _linked_user(client)
+        guild = GuildFactory()
+        assert member.guild_updates_prompt_answered_at is None
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]), data={"joined": "on"})
+        member.refresh_from_db()
+        first_stamp = member.guild_updates_prompt_answered_at
+        assert first_stamp is not None
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]), data={})
+        member.refresh_from_db()
+        # The stamp is one-way — a later flip never overwrites it.
+        assert member.guild_updates_prompt_answered_at == first_stamp
+
+    def it_stamps_a_legacy_member_who_unsubscribes_their_last_guild(client: Client):
+        # The leave-last-guild edge: without the stamp this member (no stamp, zero rows)
+        # would become prompt-eligible again right after deliberately choosing none.
+        _user, member = _linked_user(client)
+        guild = GuildFactory()
+        GuildMembershipFactory(guild=guild, member=member)
+        assert member.guild_updates_prompt_answered_at is None
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]), data={})
+        member.refresh_from_db()
+        assert member.guild_updates_prompt_answered_at is not None
+        assert not member.needs_guild_updates_prompt
 
     def it_is_idempotent_on_leave_when_not_a_member(client: Client):
         _user, _member = _linked_user(client)
@@ -170,22 +195,6 @@ def describe_guild_membership_set():
 
 
 def describe_leave_then_rejoin():
-    def it_does_not_resend_the_welcome_email_on_rejoin(client: Client):
-        _user, _member = _linked_user(client)
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome to the guild!",
-            join_email_body="So glad you're here.",
-        )
-        url = reverse("hub_guild_membership_set", args=[guild.pk])
-        client.post(url, data={"joined": "on"})  # join → welcome email
-        client.post(url, data={})  # leave
-        client.post(url, data={"joined": "on"})  # rejoin — period dedupe suppresses a 2nd email
-        assert sum(1 for m in mail.outbox if m.subject == "Welcome to the guild!") == 1
-
     def it_refires_the_join_activity_on_each_rejoin(client: Client):
         # Documented decision (§9): a rejoin's get_or_create returns created=True, so the
         # non-period-guarded side effects (activity row, lead notice) fire again — an
@@ -205,16 +214,61 @@ def describe_user_settings_guilds_tab():
         response = client.get(reverse("hub_user_settings") + "?tab=guilds")
         assert response.context["active_tab"] == "guilds"
 
-    def it_falls_back_to_profile_for_a_bogus_tab(client: Client):
+    def it_stamps_the_guild_updates_answer_on_the_deep_link(client: Client):
+        # The dead-end regression: a member who wants updates from zero guilds completes
+        # the "Choose your guild updates" checklist step from the exact page it points at.
+        _user, member = _linked_user(client)
+        assert member.guild_updates_prompt_answered_at is None
+        client.get(reverse("hub_user_settings") + "?tab=guilds")
+        member.refresh_from_db()
+        assert member.guild_updates_prompt_answered_at is not None
+        step = next(s for s in member.onboarding.steps if s.key == "guilds")
+        assert step.done is True
+
+    def it_does_not_stamp_on_other_tabs(client: Client):
+        # A bare /settings/ now lands on (and stamps) the Guilds default tab, so only the
+        # explicit non-guilds tabs must leave the answer unstamped.
+        _user, member = _linked_user(client)
+        client.get(reverse("hub_user_settings") + "?tab=notifications")
+        client.get(reverse("hub_user_settings") + "?tab=profile")
+        member.refresh_from_db()
+        assert member.guild_updates_prompt_answered_at is None
+
+    def it_survives_the_deep_link_for_an_unlinked_account(client: Client):
+        _unlinked_user(client, "nomember_tab")
+        response = client.get(reverse("hub_user_settings") + "?tab=guilds")
+        assert response.status_code == 200
+
+    def it_falls_back_to_guilds_for_a_bogus_tab(client: Client):
         _linked_user(client)
         response = client.get(reverse("hub_user_settings") + "?tab=bogus")
-        assert response.context["active_tab"] == "profile"
+        assert response.context["active_tab"] == "guilds"
 
     def it_passes_the_guild_rows_in_context(client: Client):
         _linked_user(client)
         GuildFactory(name="Ceramics")
         response = client.get(reverse("hub_user_settings") + "?tab=guilds")
         assert [row.guild.name for row in response.context["my_guilds_rows"]] == ["Ceramics"]
+
+
+def describe_guild_announcement_matrix_copy():
+    SURFACE_NEUTRAL = "A guild you follow posted an announcement. Pick which guilds in your hub Settings."
+
+    def it_renders_the_follow_description_on_the_notifications_tab(client: Client):
+        _linked_user(client)
+        html = client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
+        assert SURFACE_NEUTRAL in html
+
+    def it_renders_the_same_description_on_the_token_no_login_prefs_page(client: Client):
+        # The description is deliberately surface-neutral: this page has no Guilds tab,
+        # and "in your hub Settings" stays true from here too.
+        from core.email_prefs import make_prefs_token
+
+        MembershipPlanFactory()
+        user = User.objects.create_user(username="tok", password="pass", email="tok@example.com")
+        response = client.get(reverse("hub_user_settings"), {"t": make_prefs_token(user)})
+        assert response.status_code == 200
+        assert SURFACE_NEUTRAL in response.content.decode()
 
 
 def describe_guilds_tab_template():
@@ -235,6 +289,16 @@ def describe_guilds_tab_template():
         assert 'hx-trigger="change"' in tag
         assert 'hx-disabled-elt="this"' in tag
 
+    def it_renders_the_guild_updates_heading_explainer_and_notifications_cross_link(client: Client):
+        _linked_user(client)
+        GuildFactory(name="Ceramics")
+        html = client.get(reverse("hub_user_settings") + "?tab=guilds").content.decode()
+        assert "Guild Updates" in html
+        assert "Choose which guilds you get announcements from." in html
+        assert "Flip one on to follow it, off to stop." in html
+        assert "How updates reach you (email, in app, Discord) is set on the" in html
+        assert "Notifications tab" in html
+
     def it_shows_the_empty_message_when_no_guilds_exist(client: Client):
         _linked_user(client)
         html = client.get(reverse("hub_user_settings") + "?tab=guilds").content.decode()
@@ -248,19 +312,23 @@ def describe_guilds_tab_template():
         assert "/settings/guilds/" not in html
 
 
-def describe_guild_detail_membership_touch():
-    def it_shows_youre_in_this_guild_with_a_manage_link_for_a_member(client: Client):
+def describe_guild_detail_subscription_touch():
+    def it_shows_the_updates_line_with_a_manage_link_for_a_subscriber(client: Client):
         _user, member = _linked_user(client)
         guild = GuildFactory()
         GuildMembershipFactory(guild=guild, member=member)
         html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        assert "You're in this guild" in html
+        assert "You get this guild's updates" in html
         assert reverse("hub_user_settings") + "?tab=guilds" in html
         assert "Manage in Settings" in html
 
-    def it_still_shows_join_for_a_member_not_in_the_guild(client: Client):
+    def it_shows_a_non_member_the_hero_join_button(client: Client):
+        # A linked member who has not joined this guild now gets the hero Join button
+        # (asserted by its class, since the changelog text renders "Join This Guild" into
+        # every page); the member-only updates confirmation stays hidden until they join.
         _linked_user(client)
         guild = GuildFactory()
         html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
-        assert "Join This Guild" in html
-        assert "You're in this guild" not in html
+        assert "pl-guild-cta__join" in html
+        # The joined-state "Member" badge stays absent until they actually join.
+        assert "pl-guild-cta__badge" not in html

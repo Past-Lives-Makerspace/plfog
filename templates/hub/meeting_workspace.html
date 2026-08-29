@@ -307,7 +307,7 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
     {% if not pending_proposals %}
     {% url 'hub_meeting_approve' meeting.pk as approve_url %}
     {% if meeting.guild %}
-    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. Guild members will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="success" %}
+    {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. The guild's followers will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="success" %}
     {% else %}
     {% include "components/confirm_modal.html" with confirm_id="approve-meeting" confirm_title="Approve and lock these minutes?" confirm_message="This locks the whole page as the permanent record. No further edits without an admin unlock. All guild leads will be notified." confirm_action_url="" confirm_hx_post=approve_url confirm_button_text="Approve minutes" confirm_button_style="success" %}
     {% endif %}

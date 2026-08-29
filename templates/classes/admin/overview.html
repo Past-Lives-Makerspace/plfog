@@ -6,7 +6,7 @@
 
   {# ① Classes awaiting approval — full width #}
   <section class="hub-card" style="margin:0;">
-    <h2 class="overview-title">Needs your attention <span class="overview-title__count">({{ stats.pending }})</span></h2>
+    <h2 class="overview-title" data-help-key="admin.review-queue">Needs your attention <span class="overview-title__count">({{ stats.pending }})</span></h2>
     {% for c in pending_classes %}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
         <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>

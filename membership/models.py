@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from django import forms
     from django.contrib.auth.models import User
 
+    from billing.models import PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
 
@@ -544,6 +546,14 @@ class Member(models.Model):
             "dismissed. Does NOT affect is_onboarded — only hides the card."
         ),
     )
+    guild_updates_prompt_answered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member answered or skipped the first-login guild updates prompt. "
+            "Null means they have never been asked."
+        ),
+    )
     guided_tours_enabled = models.BooleanField(
         default=True,
         help_text="When off, tours are never auto-offered. Manual starts from the Help page still work.",
@@ -672,9 +682,102 @@ class Member(models.Model):
         return self.profile_completeness.essentials_complete
 
     @cached_property
-    def _has_joined_guild(self) -> bool:
-        """Whether the member has officially joined at least one guild. Cached (one query)."""
-        return self.joined_guilds.exists()
+    def _has_chosen_guild_updates(self) -> bool:
+        """Whether the member has chosen their guild updates. Cached (at most one query).
+
+        True once they've answered (or skipped) the first-login guild updates prompt —
+        subscribing to *nothing* is a legitimate, deliberate answer — or hold at least
+        one subscription (a :class:`GuildMembership` row, however it was created).
+        """
+        return self.guild_updates_prompt_answered_at is not None or self.joined_guilds.exists()
+
+    @property
+    def needs_guild_updates_prompt(self) -> bool:
+        """Whether the first-login guild updates prompt should be shown on next login.
+
+        True only for a member who has never answered/skipped the prompt AND holds no
+        subscription at all. A member with any :class:`GuildMembership` row (legacy
+        join, Discord reaction) has effectively answered and is never prompted.
+        """
+        return self.guild_updates_prompt_answered_at is None and not self.guild_memberships.exists()
+
+    def mark_guild_updates_answered(self) -> None:
+        """Stamp :attr:`guild_updates_prompt_answered_at` once; no-op if already stamped.
+
+        The shared "this member has made a choice" recorder. Called from every
+        settings-toggle subscribe or unsubscribe, a settings GET landing on the Guilds
+        tab via ``?tab=guilds``, and the prompt view's zero-active-guilds redirect —
+        any of those means the member has seen the control and chosen, so the one-time
+        prompt must never resurrect (including for a legacy member who unsubscribes
+        from their last guild). A real prompt answer goes through
+        :meth:`answer_guild_updates_prompt` instead, which stamps unconditionally
+        (a re-answer refreshes the timestamp).
+        """
+        if self.guild_updates_prompt_answered_at is None:
+            self.guild_updates_prompt_answered_at = timezone.now()
+            self.save(update_fields=["guild_updates_prompt_answered_at"])
+
+    def subscribe_to_guild(self, guild: Guild) -> bool:
+        """Subscribe this member to ``guild``'s updates (idempotent).
+
+        The one subscribe path: records the app-sourced :class:`GuildMembership` row,
+        fires the ``guild_joined`` fan-out (lead "New follower" notice + activity row, no
+        email) only when the row is new or upgraded from a Discord reaction, and always
+        self-heals the Discord role (idempotent, best-effort). The member-facing welcome
+        email is a *separate*, deliberate-join-only send (:meth:`send_guild_welcome`) — it
+        is intentionally not fired here, so the first-login picker and Settings toggle stay
+        silent.
+
+        Returns:
+            Whether this was a new or upgraded subscription (the fan-out fired).
+        """
+        from core.events import discord_roles
+        from membership import orientations
+
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, self)
+        if created or upgraded:
+            orientations.member_joined_guild(guild, self)
+        discord_roles.on_membership_changed(guild, self, joined=True)
+        return created or upgraded
+
+    def send_guild_welcome(self, guild: Guild) -> None:
+        """Send this member the guild's welcome email once (idempotent per (member, guild)).
+
+        The deliberate-join welcome. Called by the hero Join view (only when the member
+        left the modal's welcome box checked) and the Discord ``/join-guild`` command —
+        never by :meth:`subscribe_to_guild`, so the first-login picker and Settings toggle
+        never trigger it. Gated on the guild's ``welcome_email_enabled``; deduped forever
+        per (member, guild).
+        """
+        from membership import orientations
+
+        orientations.send_guild_welcome(guild, self)
+
+    def unsubscribe_from_guild(self, guild: Guild) -> None:
+        """Remove this member's subscription to ``guild`` (idempotent) and drop the Discord role."""
+        from core.events import discord_roles
+
+        GuildMembership.objects.filter(guild=guild, member=self).delete()
+        discord_roles.on_membership_changed(guild, self, joined=False)
+
+    def answer_guild_updates_prompt(self, guilds: Iterable[Guild]) -> int:
+        """Record the member's first-login guild updates answer (idempotent to re-call).
+
+        Subscribes to each picked guild (an empty pick IS the Skip case) and stamps
+        :attr:`guild_updates_prompt_answered_at` directly — unconditionally, so a
+        re-answer refreshes the timestamp (unlike the one-way
+        :meth:`mark_guild_updates_answered`) — so the prompt never shows again.
+
+        Args:
+            guilds: The guilds the member picked; may be empty.
+
+        Returns:
+            How many picks were new or upgraded subscriptions.
+        """
+        subscribed = sum(1 for guild in guilds if self.subscribe_to_guild(guild))
+        self.guild_updates_prompt_answered_at = timezone.now()
+        self.save(update_fields=["guild_updates_prompt_answered_at"])
+        return subscribed
 
     @property
     def _has_voting_preference(self) -> bool:
@@ -685,12 +788,14 @@ class Member(models.Model):
     def is_onboarded(self) -> bool:
         """Whether the member has finished the required first-week setup.
 
-        True once their profile **content essentials** are filled AND they've joined at
-        least one guild. Voting is a recommended, **optional** step and does NOT affect
-        this. Uses ``_profile_essentials_done`` (not ``profile_completeness.complete``) so
-        the directory-listing opt-out can never make a member permanently un-onboardable.
+        True once their profile **content essentials** are filled AND they've chosen
+        their guild updates (answered the prompt, even with zero picks, or hold at
+        least one subscription). Voting is a recommended, **optional** step and does NOT
+        affect this. Uses ``_profile_essentials_done`` (not
+        ``profile_completeness.complete``) so the directory-listing opt-out can never
+        make a member permanently un-onboardable.
         """
-        return self._profile_essentials_done and self._has_joined_guild
+        return self._profile_essentials_done and self._has_chosen_guild_updates
 
     @property
     def onboarding(self) -> OnboardingChecklist:
@@ -716,8 +821,8 @@ class Member(models.Model):
             ),
             OnboardingStep(
                 key="guilds",
-                label="Join your guilds",
-                done=self._has_joined_guild,
+                label="Choose your guild updates",
+                done=self._has_chosen_guild_updates,
                 url=f"{reverse('hub_user_settings')}?tab=guilds",
                 optional=False,
                 hint="",
@@ -918,9 +1023,10 @@ class Member(models.Model):
         """True when this member holds the given :class:`AdminCapability` grant.
 
         A capability is a scoped admin authority (approve classes, spaces, discount
-        codes, calendar proposals, or billing alerts) that both routes the matching
-        notifications to the holder and lets them act on that object type — decoupling
-        those duties from the all-or-nothing ``fog_role == admin`` tier.
+        codes, calendar proposals, billing alerts, or issue refunds) that decouples
+        one duty from the all-or-nothing ``fog_role == admin`` tier. Most both route
+        the matching notifications to the holder and let them act on that object
+        type; see :class:`AdminCapability` for the exceptions.
         """
         return self.admin_capabilities.filter(capability=capability).exists()
 
@@ -1142,6 +1248,10 @@ class Member(models.Model):
             guild=guild,
             status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
         ).first()
+
+    def pending_payment_orientation_for(self, guild: Guild) -> OrientationBooking | None:
+        """The member's live checkout hold (``PENDING_PAYMENT``) for this guild, if any."""
+        return self.orientation_bookings.filter(guild=guild, status=OrientationBooking.Status.PENDING_PAYMENT).first()
 
     @property
     def must_be_listed_in_directory(self) -> bool:
@@ -1453,19 +1563,42 @@ class VirtualLink:
     url: str
 
 
+# The fictional example/demo guild (Cartographers), seeded by
+# ``membership.example_guild.seed_example_guild`` with ``is_active=False`` so it stays out
+# of voting/funding. ``GuildManager.visible`` reveals it on the directory + sidebar only
+# when the ``display_demo_guild`` site setting is on.
+EXAMPLE_GUILD_SLUG = "cartographers-guild"
+
+
 class GuildManager(models.Manager["Guild"]):
     """Default manager that hides soft-deleted guilds from every query."""
 
     def get_queryset(self) -> models.QuerySet[Guild]:
         return super().get_queryset().filter(deleted_at__isnull=True)
 
-    def directory(self) -> models.QuerySet[Guild]:
-        """Active guilds for the directory: featured first, then alphabetical.
+    def visible(self) -> models.QuerySet[Guild]:
+        """Guilds shown on member-facing lists (the directory and the sidebar).
 
-        Every active guild is public and appears everywhere; soft-deleting or
-        deactivating a guild (``is_active=False``) is the only way to hide it.
+        Active guilds always. The example/demo guild is added only when the
+        ``display_demo_guild`` site setting is on, so it can sit seeded on production
+        hidden until an admin reveals it for a demo. Voting, the ballot, and every other
+        ``is_active`` filter deliberately do NOT route through here, so the example guild
+        never leaks into funding no matter this setting.
         """
-        return self.filter(is_active=True).order_by("-is_featured", "name")
+        from core.models import SiteConfiguration
+
+        if SiteConfiguration.load().display_demo_guild:
+            return self.filter(models.Q(is_active=True) | models.Q(slug=EXAMPLE_GUILD_SLUG))
+        return self.filter(is_active=True)
+
+    def directory(self) -> models.QuerySet[Guild]:
+        """Guilds for the directory: featured first, then alphabetical.
+
+        Routed through ``visible()`` so the example/demo guild appears here only when the
+        ``display_demo_guild`` site setting is on; otherwise only active guilds show, and
+        soft-deleting or deactivating a guild is still the way to hide a real one.
+        """
+        return self.visible().order_by("-is_featured", "name")
 
     def for_discord_channel(self, channel_id: str) -> Guild | None:
         """The active guild whose Discord channel is ``channel_id``, or ``None`` if unmapped.
@@ -1682,6 +1815,10 @@ class Guild(HeroCropMixin, models.Model):
         max_length=50,
         default="FAQ",
         help_text="Heading for this guild's FAQ / info section on the guild page — e.g. 'Ceramics Info'.",
+    )
+    allow_member_announcement_suggestions = models.BooleanField(
+        default=True,
+        help_text="Let members suggest announcements for this guild from its guild page.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
@@ -1980,6 +2117,33 @@ class Guild(HeroCropMixin, models.Model):
                 seen.add(staff.member_id)
         return members
 
+    def orienter_name_labels(self) -> dict[int, str]:
+        """Short display labels for the current leadership, keyed by member pk.
+
+        The label is the first name ("Bob"); when two current leadership members share a
+        first name it gains a last initial ("Bob P.") so slot lists stay unambiguous.
+        Computed guild-wide here because only a guild-wide view can see the collision;
+        ``OrientationSlot.with_label`` stays the cheap first-name form. A member with no
+        splittable name yields no entry (callers fall back to ``with_label``).
+        """
+        members = self.leadership_members()
+        tokens: dict[int, list[str]] = {}
+        counts: dict[str, int] = {}
+        for member in members:
+            parts = (member.display_name or "").strip().split()
+            if not parts:
+                continue
+            tokens[member.pk] = parts
+            counts[parts[0]] = counts.get(parts[0], 0) + 1
+        labels: dict[int, str] = {}
+        for member_pk, parts in tokens.items():
+            first = parts[0]
+            if counts[first] > 1 and len(parts) > 1:
+                labels[member_pk] = f"{first} {parts[-1][0].upper()}."
+            else:
+                labels[member_pk] = first
+        return labels
+
     def announcement_recipients(self) -> list[tuple["User", str]]:
         """The exact ``(User, reason)`` list a guild announcement email fans out to.
 
@@ -2112,11 +2276,14 @@ class GuildStaffMembership(models.Model):
 class AdminCapability(models.Model):
     """A scoped admin authority granted to a member, beyond the ``fog_role`` tier.
 
-    Each capability both *routes* the matching approval/alert notifications to the
+    Most capabilities both *route* the matching approval/alert notifications to the
     holder (so the right people hear about a class awaiting review, a space request, a
-    discount code, a calendar proposal, or a failed charge) and *grants the action* —
+    discount code, a calendar proposal, or a failed charge) and *grant the action* —
     a holder can approve or decline that object type. This lets the makerspace hand out
     a single duty (e.g. "you review classes") without promoting someone to full admin.
+    Two exceptions: ``REFUNDS`` is action-only (it routes no notifications — refund
+    failure alerts go to the Billing Administrators), and ``BILLING_APPROVER``
+    additionally gates the admin Payments dashboard views.
     The capability is the master switch: ONLY holders receive the matching notifications
     (and see them on the settings page). A plain Admin who does not hold it gets nothing
     until it is granted — they can self-grant on their own member page. See
@@ -2124,11 +2291,12 @@ class AdminCapability(models.Model):
     """
 
     class Capability(models.TextChoices):
-        CLASS_APPROVER = "class_approver", "Class Administrator"
+        CLASS_APPROVER = "class_approver", "CMS Administrator"
         SPACE_APPROVER = "space_approver", "Space & Cubby Administrator"
         DISCOUNT_APPROVER = "discount_approver", "Discount Code Administrator"
         EVENTS_APPROVER = "events_approver", "Calendar Administrator"
         BILLING_APPROVER = "billing_approver", "Billing Administrator"
+        REFUNDS = "refunds", "Refunds"
 
     member = models.ForeignKey(
         Member,
@@ -8003,7 +8171,7 @@ class OrientationError(Exception):
 
 
 class GuildOrientationSettings(models.Model):
-    """Per-guild orientation configuration plus two lead-editable follow-up emails.
+    """Per-guild orientation configuration plus the lead-editable thank-you email.
 
     A guild offers orientation booking only when ``is_enabled`` is on; a lead can
     temporarily stop taking bookings with ``is_closed`` + a ``closed_message``
@@ -8030,6 +8198,9 @@ class GuildOrientationSettings(models.Model):
     default_duration_minutes = models.PositiveSmallIntegerField(
         default=60, help_text="Length of a slot generated from a recurring rule, in minutes."
     )
+    price_cents = models.PositiveIntegerField(
+        default=0, help_text="Price to book an orientation, in cents. 0 = free (the default)."
+    )
     is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
     closed_message = models.CharField(
         max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
@@ -8050,16 +8221,20 @@ class GuildOrientationSettings(models.Model):
     thankyou_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the thank-you email was last edited."
     )
-    join_email_enabled = models.BooleanField(
-        default=False, help_text="Send a welcome email when a member joins this guild."
+    welcome_email_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Send a welcome email when a member joins this guild. On by default; "
+            "leave the subject and body blank to send the standard welcome, or write your own."
+        ),
     )
-    join_email_subject = models.CharField(
+    welcome_email_subject = models.CharField(
         max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
     )
-    join_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the welcome email (plain text, line breaks preserved)."
+    welcome_email_body = models.TextField(
+        blank=True, default="", help_text="Body of the welcome email (your personal note; line breaks preserved)."
     )
-    join_email_updated_at = models.DateTimeField(
+    welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email was last edited."
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -8087,21 +8262,52 @@ class GuildOrientationSettings(models.Model):
         return self.thankyou_email_body or STANDARD_THANKYOU_BODY
 
     @property
-    def join_email_ready(self) -> bool:
-        """True when the welcome email is enabled and has both subject and body."""
-        return self.join_email_enabled and bool(self.join_email_subject) and bool(self.join_email_body)
+    def welcome_email_subject_resolved(self) -> str:
+        """The guild's custom welcome subject, or the standard one when they left it blank."""
+        from membership.guild_welcome_copy import standard_welcome_subject
+
+        return self.welcome_email_subject or standard_welcome_subject(self.guild.name)
+
+    @property
+    def welcome_email_body_resolved(self) -> str:
+        """The guild's custom welcome body, or the standard copy when they left it blank."""
+        from membership.guild_welcome_copy import STANDARD_WELCOME_BODY
+
+        return self.welcome_email_body or STANDARD_WELCOME_BODY
+
+    @property
+    def welcome_email_ready(self) -> bool:
+        """On + always has resolvable copy, so ``enabled`` alone is enough to send."""
+        return self.welcome_email_enabled
 
     @property
     def is_accepting(self) -> bool:
         """True when this guild is taking orientation bookings right now."""
         return self.is_enabled and not self.is_closed
 
+    @property
+    def is_paid(self) -> bool:
+        """True when this guild charges for orientations (price set above zero)."""
+        return self.price_cents > 0
+
+
+class OrientationAvailabilityQuerySet(models.QuerySet):
+    def for_orienter(self, member: Member) -> OrientationAvailabilityQuerySet:
+        """The member's personal recurring-hours rules."""
+        return self.filter(orienter=member)
+
+    def guild_level(self) -> OrientationAvailabilityQuerySet:
+        """Legacy shared rules with no personal orienter ("any orienter")."""
+        return self.filter(orienter__isnull=True)
+
 
 class OrientationAvailability(models.Model):
     """A weekly recurring window during which a guild offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
-    each active rule across a rolling window.
+    each active rule across a rolling window. A rule with an ``orienter`` is one
+    staff member's personal hours; ``orienter=NULL`` is a legacy guild-level rule
+    ("any orienter").
     """
 
     class Weekday(models.IntegerChoices):
@@ -8116,6 +8322,17 @@ class OrientationAvailability(models.Model):
     guild = models.ForeignKey(
         Guild, on_delete=models.CASCADE, related_name="orientation_rules", help_text="Parent guild."
     )
+    orienter = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_availability_rules",
+        help_text=(
+            "The staff member who personally gives orientations during this window. "
+            "Empty means any orienter (legacy guild hours)."
+        ),
+    )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
     )
@@ -8128,6 +8345,8 @@ class OrientationAvailability(models.Model):
     is_active = models.BooleanField(default=True, help_text="Generate slots from this rule.")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = OrientationAvailabilityQuerySet.as_manager()
+
     class Meta:
         ordering = ["weekday", "start_time"]
         constraints = [
@@ -8138,7 +8357,8 @@ class OrientationAvailability(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M}"
+        who = self.orienter.display_name if self.orienter is not None else "any orienter"
+        return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M} ({who})"
 
 
 class OrientationSlotQuerySet(models.QuerySet):
@@ -8149,16 +8369,65 @@ class OrientationSlotQuerySet(models.QuerySet):
         """Future, uncancelled slots."""
         return self.filter(is_cancelled=False, starts_at__gte=timezone.now())
 
+    def with_active_booking_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``active_booking_count`` (requested + confirmed).
+
+        The list-render companion to the ``seats_taken`` property: one aggregate in the
+        slot query instead of a COUNT per row (the Upcoming Slots card is unbounded).
+        """
+        return self.annotate(
+            active_booking_count=Count(
+                "bookings",
+                filter=Q(
+                    bookings__status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
+                ),
+            )
+        )
+
+    def with_pending_hold_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``hold_count`` — seats held by checkouts in progress.
+
+        The list-render companion to the ``pending_hold_count`` property, so staff
+        surfaces can show "1 seat held by a checkout in progress" without a COUNT
+        per row.
+        """
+        return self.annotate(
+            hold_count=Count(
+                "bookings",
+                filter=Q(bookings__status=OrientationBooking.Status.PENDING_PAYMENT),
+            )
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
-        """Upcoming slots at guilds currently accepting bookings (does not check seats)."""
-        return self.upcoming().filter(
-            guild__orientation_settings__is_enabled=True,
-            guild__orientation_settings__is_closed=False,
+        """Upcoming slots at guilds currently accepting bookings (does not check seats).
+
+        A personal slot whose orienter has left the guild's leadership (no longer the
+        lead nor on staff) is excluded — a departed staffer's surviving slot must not
+        reappear in the member list the moment its booking is declined or cancelled.
+        """
+        still_on_staff = GuildStaffMembership.objects.filter(
+            guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
+        )
+        return (
+            self.upcoming()
+            .filter(
+                guild__orientation_settings__is_enabled=True,
+                guild__orientation_settings__is_closed=False,
+            )
+            .filter(Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
         )
 
 
 class OrientationSlot(models.Model):
     """A concrete, bookable orientation appointment with a seat cap."""
+
+    # View-attached display label ("with Bob P.") — set where a slot list is built
+    # with the guild-wide duplicate-first-name disambiguation map.
+    with_display: str
+    # Queryset annotation (set by OrientationSlotQuerySet.with_active_booking_count)
+    active_booking_count: int
+    # Queryset annotation (set by OrientationSlotQuerySet.with_pending_hold_count)
+    hold_count: int
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
@@ -8177,6 +8446,14 @@ class OrientationSlot(models.Model):
     )
     source = models.CharField(
         max_length=10, choices=Source.choices, default=Source.MANUAL, help_text="How this slot was created."
+    )
+    orienter = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_slots_offered",
+        help_text="The staff member this slot is booked with. Empty means any orienter.",
     )
     starts_at = models.DateTimeField(help_text="When the orientation starts.")
     ends_at = models.DateTimeField(help_text="When the orientation ends.")
@@ -8203,10 +8480,17 @@ class OrientationSlot(models.Model):
 
     @property
     def seats_taken(self) -> int:
-        """Active (requested or confirmed) bookings — declined/cancelled free their seat."""
-        return self.bookings.filter(
-            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
-        ).count()
+        """Seat-holding bookings — a live paid checkout holds its seat like a real booking.
+
+        Counts ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` so two members can't buy the
+        last seat at once; declined/cancelled (and deleted holds) free their seat.
+        """
+        return self.bookings.seat_holding().count()
+
+    @property
+    def pending_hold_count(self) -> int:
+        """Seats held by checkouts in progress (``PENDING_PAYMENT``) — for staff visibility."""
+        return self.bookings.filter(status=OrientationBooking.Status.PENDING_PAYMENT).count()
 
     @property
     def seats_remaining(self) -> int:
@@ -8226,12 +8510,61 @@ class OrientationSlot(models.Model):
         return self.ends_at <= timezone.now()
 
     @property
+    def orienter_first_name(self) -> str:
+        """The orienter's first name ("Bob"), or "" for a guild slot or a nameless member."""
+        if self.orienter is None:
+            return ""
+        name = (self.orienter.display_name or "").strip()
+        if not name:
+            return ""
+        return name.split()[0]
+
+    @property
+    def with_label(self) -> str:
+        """The member-facing "with Bob" phrase — "" for a guild slot (never a bare "with")."""
+        first = self.orienter_first_name
+        return f"with {first}" if first else ""
+
+    @property
     def is_bookable(self) -> bool:
-        """Future, uncancelled, has a free seat, and the guild is accepting bookings."""
+        """Future, uncancelled, has a free seat, guild accepting, and the orienter still on staff.
+
+        A personal slot whose orienter is no longer in the guild's leadership blocks NEW
+        bookings only — existing bookings on it are untouched.
+        """
         if self.is_cancelled or self.has_started or self.is_full:
+            return False
+        if self.orienter_id is not None and self.orienter_id not in {m.pk for m in self.guild.leadership_members()}:
             return False
         settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
         return settings_obj is not None and settings_obj.is_accepting
+
+    def ensure_bookable_for(self, member: Member) -> None:
+        """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
+
+        The duplicate guard runs at the ``seat_holding()`` scope — a member with a
+        live ``PENDING_PAYMENT`` checkout is caught here with a friendly error, never
+        by the widened DB constraint as a raw ``IntegrityError`` (the constraint stays
+        as the concurrent-race backstop only). A full slot whose remaining seats are
+        held by in-progress checkouts names that cause, so staff aren't left guessing.
+
+        Raises:
+            OrientationError: If the slot can't be booked, or the member is already
+                oriented for, mid-checkout on, or actively booked on this guild.
+        """
+        if not self.is_bookable:
+            if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
+                raise OrientationError(
+                    "That slot's remaining seat is held by a member finishing checkout. "
+                    "It frees up within an hour if they don't complete payment."
+                )
+            raise OrientationError("This orientation slot is not available to book.")
+        if member.is_oriented_for(self.guild):
+            raise OrientationError("You're already oriented for this guild.")
+        if member.pending_payment_orientation_for(self.guild) is not None:
+            raise OrientationError("You already have a checkout in progress for this guild. Resume or cancel it first.")
+        if member.active_orientation_for(self.guild) is not None:
+            raise OrientationError("You already have a pending orientation for this guild.")
 
     def book(self, member: Member, *, note: str = "") -> OrientationBooking:
         """Create a requested booking for ``member`` on this slot.
@@ -8247,12 +8580,7 @@ class OrientationSlot(models.Model):
             OrientationError: If the slot can't be booked, or the member is
                 already oriented for or already has a live booking on this guild.
         """
-        if not self.is_bookable:
-            raise OrientationError("This orientation slot is not available to book.")
-        if member.is_oriented_for(self.guild):
-            raise OrientationError("You're already oriented for this guild.")
-        if member.active_orientation_for(self.guild) is not None:
-            raise OrientationError("You already have a pending orientation for this guild.")
+        self.ensure_bookable_for(member)
         return OrientationBooking.objects.create(slot=self, guild=self.guild, member=member, member_note=note)
 
     def mark_cancelled(self, *, reason: str = "") -> None:
@@ -8279,8 +8607,18 @@ class OrientationBookingQuerySet(models.QuerySet):
         return self.filter(guild=guild)
 
     def active(self) -> OrientationBookingQuerySet:
-        """Requested or confirmed — i.e. still occupying a seat."""
+        """Requested or confirmed — real bookings. Deliberately excludes payment holds."""
         return self.filter(status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED])
+
+    def seat_holding(self) -> OrientationBookingQuerySet:
+        """Everything occupying a seat — real bookings plus live ``PENDING_PAYMENT`` checkout holds."""
+        return self.filter(
+            status__in=[
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.CONFIRMED,
+            ]
+        )
 
     def upcoming(self) -> OrientationBookingQuerySet:
         return self.active().filter(slot__starts_at__gte=timezone.now())
@@ -8303,6 +8641,7 @@ class OrientationBooking(models.Model):
     """
 
     class Status(models.TextChoices):
+        PENDING_PAYMENT = "pending_payment", "Pending payment"
         REQUESTED = "requested", "Requested"
         CONFIRMED = "confirmed", "Confirmed"
         DECLINED = "declined", "Declined"
@@ -8321,7 +8660,7 @@ class OrientationBooking(models.Model):
         Member, on_delete=models.CASCADE, related_name="orientation_bookings", help_text="Who's getting oriented."
     )
     status = models.CharField(
-        max_length=10, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
+        max_length=20, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
     )
     is_completed = models.BooleanField(
         default=False,
@@ -8337,6 +8676,22 @@ class OrientationBooking(models.Model):
     )
     member_note = models.TextField(blank=True, default="", help_text="Optional note from the member when requesting.")
     lead_note = models.TextField(blank=True, default="", help_text="Note from the lead when declining or following up.")
+    amount_paid_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Amount paid to book, in cents. 0 for free bookings. Set provisionally at "
+            "checkout start; the webhook's amount_total is canonical."
+        ),
+    )
+    stripe_session_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="Stripe Checkout Session ID."
+    )
+    stripe_payment_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Stripe PaymentIntent ID, stamped by the webhook on payment.",
+    )
     requested_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
@@ -8349,7 +8704,10 @@ class OrientationBooking(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["guild", "member"],
-                condition=Q(status__in=["requested", "confirmed"]),
+                # Includes pending_payment so a member can't open two checkouts (or a
+                # checkout plus a live booking) for one guild — the race backstop behind
+                # the friendly ensure_bookable_for guard.
+                condition=Q(status__in=["pending_payment", "requested", "confirmed"]),
                 name="uq_orientationbooking_active_per_guild",
             ),
         ]
@@ -8367,15 +8725,35 @@ class OrientationBooking(models.Model):
         """Still live (requested/confirmed) and the slot is in the future."""
         return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and self.slot.starts_at >= timezone.now()
 
+    def _refuse_checkout_hold(self) -> None:
+        """Guard every lifecycle transition against a live ``PENDING_PAYMENT`` hold.
+
+        A hold is not a booking yet — declining or cancelling one would leave its
+        Stripe session payable for up to an hour, and the webhook's non-pending
+        branch would then eat the member's money with no refund anchor. Holds
+        resolve themselves: payment lands (webhook flips to REQUESTED) or the
+        seat frees automatically (session expiry / the sweep).
+
+        Raises:
+            OrientationError: If this booking is a checkout hold.
+        """
+        if self.status == self.Status.PENDING_PAYMENT:
+            raise OrientationError(
+                "This booking is still finishing checkout. It becomes a real request when the "
+                "payment lands, and the seat frees automatically if it doesn't."
+            )
+
     def confirm(self, *, oriented_by: Member | None = None) -> None:
-        """Accept the request; default the giver to the guild lead."""
+        """Accept the request; default the giver to the slot's orienter, then the guild lead."""
+        self._refuse_checkout_hold()
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
-        self.oriented_by = oriented_by or self.guild.guild_lead
+        self.oriented_by = oriented_by or self.slot.orienter or self.guild.guild_lead
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self, *, note: str = "") -> None:
         """Turn down the request, optionally with a note for the member."""
+        self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
         self.lead_note = note
@@ -8383,6 +8761,7 @@ class OrientationBooking(models.Model):
 
     def cancel(self) -> None:
         """Cancel the booking, freeing its seat."""
+        self._refuse_checkout_hold()
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
         self.save(update_fields=["status", "cancelled_at"])
@@ -8393,13 +8772,94 @@ class OrientationBooking(models.Model):
         if oriented_by is not None:
             self.oriented_by = oriented_by
         elif self.oriented_by is None:
-            self.oriented_by = self.guild.guild_lead
+            self.oriented_by = self.slot.orienter or self.guild.guild_lead
         self.save(update_fields=["is_completed", "oriented_by"])
 
     def uncomplete(self) -> None:
         """Undo a completion (a lead correcting an auto-completed no-show)."""
         self.is_completed = False
         self.save(update_fields=["is_completed"])
+
+    # --- Refund engine surface (billing.refunds.RefundableSource) -----------
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this booking's payment.
+
+        Iterates ``refunds.all()`` (not an aggregate) so a ``prefetch_related``
+        caller pays no extra query per row.
+        """
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefundModel.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund — the paid amount minus succeeded refunds."""
+        return self.amount_paid_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"`` — the panel/badge vocabulary.
+
+        ``"failed"``: the latest refund attempt is FAILED and no succeeded refund
+        has since covered that amount. Mirrors ``Registration.refund_state`` —
+        deliberately not a booking ``Status``; money and scheduling stay
+        independently controlled.
+        """
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefundModel.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent id refunds are issued against (blank when unpaid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol)."""
+        from membership.orientations import _absolute_url
+
+        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+        return {
+            "item_title": f"Orientation — {self.guild.name}",
+            "recipient_email": self.member.primary_email,
+            "recipient_name": self.member.display_name,
+            "payer_name": self.member.display_name,
+            "member": self.member,
+            "manage_url": guild_url,
+            "in_app_url": reverse("hub_guild_detail", args=[self.guild.slug]),
+        }
+
+    def on_fully_refunded(self, reason: str, actor: User | None) -> None:
+        """Full-refund bookkeeping — deliberately nothing to do for orientations.
+
+        A manual full refund on a still-live booking does NOT auto-cancel it:
+        money and scheduling stay independently controlled (the admin cancels
+        separately when that's the intent), and decline/cancel already changed
+        state before their automatic refund fired.
+        """
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: User | None = None
+    ) -> PaymentRefund:
+        """Send a real Stripe refund for this booking — full when ``amount_cents`` is ``None``.
+
+        Thin delegate: the shared billing-side service owns locking, the Stripe
+        call, ledger-row lifecycle, the receipt email, and full-refund
+        bookkeeping. See :func:`billing.refunds.issue_refund` for the exceptions.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
 
 # ── Signage slideshow ─────────────────────────────────────────────────────────

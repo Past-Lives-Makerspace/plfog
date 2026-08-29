@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
+from typing import Any
 
 from django.contrib import messages as django_messages
 from django.contrib.auth.decorators import login_required
@@ -17,12 +18,36 @@ from django.views.decorators.http import require_POST
 
 from billing import stripe_utils, webhook_handlers
 from classes import webhook_handlers as classes_webhook_handlers
+from membership import webhook_handlers as membership_webhook_handlers
 from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
 from billing.models import BillingSettings, Tab, TabCharge, TabEntry
-from hub.view_as import fog_admin_required
+from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
 
 logger = logging.getLogger(__name__)
+
+# Fan-in lists for Checkout events: each registered handler self-filters on
+# ``metadata.kind``, so one Stripe event reaches every app that might own it.
+_CHECKOUT_COMPLETED_HANDLERS = [
+    classes_webhook_handlers.handle_checkout_session_completed,
+    membership_webhook_handlers.handle_checkout_session_completed,
+]
+_CHECKOUT_EXPIRED_HANDLERS = [
+    membership_webhook_handlers.handle_checkout_session_expired,
+]
+
+
+def _dispatch_checkout_completed(event: dict[str, Any]) -> None:
+    """Deliver ``checkout.session.completed`` to each registered kind-filtered handler."""
+    for handler in _CHECKOUT_COMPLETED_HANDLERS:
+        handler(event)
+
+
+def _dispatch_checkout_expired(event: dict[str, Any]) -> None:
+    """Deliver ``checkout.session.expired`` to each registered kind-filtered handler."""
+    for handler in _CHECKOUT_EXPIRED_HANDLERS:
+        handler(event)
+
 
 # Map Stripe event types to handler functions
 _WEBHOOK_HANDLERS = {
@@ -32,7 +57,10 @@ _WEBHOOK_HANDLERS = {
     "payment_method.detached": webhook_handlers.handle_payment_method_detached,
     "payment_method.updated": webhook_handlers.handle_payment_method_updated,
     "charge.dispute.created": webhook_handlers.handle_charge_dispute_created,
-    "checkout.session.completed": classes_webhook_handlers.handle_checkout_session_completed,
+    "checkout.session.completed": _dispatch_checkout_completed,
+    "checkout.session.expired": _dispatch_checkout_expired,
+    "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
+    "refund.updated": classes_webhook_handlers.handle_refund_updated,
 }
 
 
@@ -41,7 +69,7 @@ def setup_payment_method(request: HttpRequest) -> HttpResponse:
     """Page with Stripe Elements for adding/replacing a payment method."""
     from core.models import SiteConfiguration
 
-    if not SiteConfiguration.load().tab_payments_enabled:
+    if not SiteConfiguration.load().my_tab_enabled:
         django_messages.info(request, "My Tab isn't available right now.")
         return redirect("home")
 
@@ -143,69 +171,110 @@ def stripe_webhook(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-_VALID_TABS = {"overview", "open-tabs", "settings", "stripe"}
+def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
+    """Shared context for the Payments tab and its standalone table partial.
+
+    The same filters feed the page render, the ``refund-done`` HTMX refresh, and
+    the CSV export, so all three always agree on what "the current view" means.
+    """
+    from urllib.parse import urlencode
+
+    from billing.payments_panel import build_payments_ledger, parse_window
+    from hub.view_as import has_refund_authority
+
+    source = request.GET.get("source", "all")
+    status = request.GET.get("status", "all")
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    view_as = request.view_as  # type: ignore[attr-defined]
+    viewer_is_fog_admin = view_as.has_actual("admin")
+    ledger = build_payments_ledger(
+        window=window,
+        source=source,
+        status=status,
+        viewer_is_admin=viewer_is_fog_admin,
+    )
+    payments_query = urlencode(
+        {
+            "source": source,
+            "status": status,
+            "start": window.start.isoformat(),
+            "end": window.end.isoformat(),
+        }
+    )
+    return {
+        "ledger": ledger,
+        "payments_source": source,
+        "payments_status": status,
+        "payments_start": window.start.isoformat(),
+        "payments_end": window.end.isoformat(),
+        "payments_query": payments_query,
+        "viewer_has_refund_authority": has_refund_authority(request),
+        "viewer_is_fog_admin": viewer_is_fog_admin,
+    }
 
 
-@fog_admin_required
+@billing_admin_access_required
 def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
-    """Admin payments dashboard — five-tab view of billing data."""
+    """Admin payments dashboard — tabbed view of billing data.
+
+    The tab set is a function of ``(my_tab_enabled, role)``. With My Tab off, the
+    Overview and Open Tabs tabs (100% tab-ledger content) disappear and Payments
+    becomes the first and default tab; the Settings and Stripe tabs stay admin-only
+    in every state (they configure Stripe, which powers class and orientation
+    payments regardless of the flag — config never hides behind its own feature).
+    """
     from django.contrib import admin as django_admin
-    from billing.forms import BillingSettingsForm
+
+    from billing.forms import BillingSettingsForm, ConnectPlatformSettingsForm, ReconciliationSettingsForm
     from billing.models import BillingSettings, Product
+    from core.models import SiteConfiguration
     from membership.models import Guild
 
-    active_tab = request.GET.get("tab", "overview")
-    if active_tab not in _VALID_TABS:
-        active_tab = "overview"
+    view_as = request.view_as  # type: ignore[attr-defined]
+    viewer_is_fog_admin = view_as.has_actual("admin")
 
-    now = timezone.now()
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Tab set as a function of (flag, role). Settings/Stripe stay admin-only in every state.
+    tabs_on = SiteConfiguration.load().my_tab_enabled
+    default_tab = "overview" if tabs_on else "payments"
+    allowed = {"overview", "open-tabs", "payments"} if tabs_on else {"payments"}
+    if viewer_is_fog_admin:
+        allowed |= {"settings", "stripe", "reconciliation"}
 
-    # --- Overview stats ---
-    total_outstanding = TabEntry.objects.pending().aggregate(
-        total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField())
-    )["total"]
+    active_tab = request.GET.get("tab", default_tab)
+    # A non-admin probing Settings/Stripe/Reconciliation is an access question → 403
+    # (money-disbursement config stays actual-admin only); a feature-hidden tab
+    # (?tab=overview with tabs off) is a feature question → fall back.
+    if active_tab in {"settings", "stripe", "reconciliation"} and not viewer_is_fog_admin:
+        return HttpResponse("Admin access required.", status=403)
+    if active_tab not in allowed:
+        active_tab = default_tab
 
-    collected_this_month = TabCharge.objects.filter(
-        status=TabCharge.Status.SUCCEEDED,
-        charged_at__gte=month_start,
-    ).aggregate(total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField()))["total"]
+    context: dict[str, object] = {
+        **django_admin.site.each_context(request),
+        "active_tab": active_tab,
+        "viewer_is_fog_admin": viewer_is_fog_admin,
+    }
 
-    failed_count = TabCharge.objects.filter(status=TabCharge.Status.FAILED).count()
-    locked_count = Tab.objects.filter(is_locked=True).count()
+    # --- Overview + Open Tabs context (tab-ledger tables — only when My Tab is on) ---
+    # No point walking three Tab tables for tabs that cannot render with the flag off; the
+    # template never references these keys when tabs_on is false (the guarding {% if %} is false).
+    if tabs_on:
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    outstanding_tabs = (
-        Tab.objects.filter(
-            entries__tab_charge__isnull=True,
-            entries__voided_at__isnull=True,
-        )
-        .distinct()
-        .select_related("member")
-    )
+        total_outstanding = TabEntry.objects.pending().aggregate(
+            total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField())
+        )["total"]
 
-    failed_charges = (
-        TabCharge.objects.filter(status=TabCharge.Status.FAILED)
-        .select_related("tab__member")
-        .order_by("-created_at")[:20]
-    )
+        collected_this_month = TabCharge.objects.filter(
+            status=TabCharge.Status.SUCCEEDED,
+            charged_at__gte=month_start,
+        ).aggregate(total=Coalesce(Sum("amount"), Value(Decimal("0.00")), output_field=DecimalField()))["total"]
 
-    # --- Open Tabs tab ---
-    # Annotate with pending balance so we can exclude $0 tabs
-    _pending_balance = Coalesce(
-        Sum(
-            "entries__amount",
-            filter=Q(entries__tab_charge__isnull=True, entries__voided_at__isnull=True),
-        ),
-        Value(Decimal("0.00")),
-        output_field=DecimalField(),
-    )
-    tab_filter = request.GET.get("filter", "outstanding")
-    if tab_filter == "all":
-        open_tabs = Tab.objects.select_related("member").order_by("member__full_legal_name")
-    elif tab_filter == "failed":
-        open_tabs = Tab.objects.filter(charges__status=TabCharge.Status.FAILED).distinct().select_related("member")
-    else:  # outstanding (default)
-        open_tabs = (
+        failed_count = TabCharge.objects.filter(status=TabCharge.Status.FAILED).count()
+        locked_count = Tab.objects.filter(is_locked=True).count()
+
+        outstanding_tabs = (
             Tab.objects.filter(
                 entries__tab_charge__isnull=True,
                 entries__voided_at__isnull=True,
@@ -213,47 +282,268 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
             .distinct()
             .select_related("member")
         )
-    open_tabs = open_tabs.annotate(_balance=_pending_balance).exclude(_balance__lte=Decimal("0.00"))
 
-    # --- Settings tab ---
-    from billing.forms import ConnectPlatformSettingsForm
+        failed_charges = (
+            TabCharge.objects.filter(status=TabCharge.Status.FAILED)
+            .select_related("tab__member")
+            .order_by("-created_at")[:20]
+        )
 
+        # --- Open Tabs tab ---
+        # Annotate with pending balance so we can exclude $0 tabs
+        _pending_balance = Coalesce(
+            Sum(
+                "entries__amount",
+                filter=Q(entries__tab_charge__isnull=True, entries__voided_at__isnull=True),
+            ),
+            Value(Decimal("0.00")),
+            output_field=DecimalField(),
+        )
+        tab_filter = request.GET.get("filter", "outstanding")
+        if tab_filter == "all":
+            open_tabs = Tab.objects.select_related("member").order_by("member__full_legal_name")
+        elif tab_filter == "failed":
+            open_tabs = Tab.objects.filter(charges__status=TabCharge.Status.FAILED).distinct().select_related("member")
+        else:  # outstanding (default)
+            open_tabs = (
+                Tab.objects.filter(
+                    entries__tab_charge__isnull=True,
+                    entries__voided_at__isnull=True,
+                )
+                .distinct()
+                .select_related("member")
+            )
+        open_tabs = open_tabs.annotate(_balance=_pending_balance).exclude(_balance__lte=Decimal("0.00"))
+
+        # --- Add Charge modal form ---
+        add_charge_form = TabItemForm(context=CONTEXT_ADMIN_DASHBOARD, user=request.user)
+
+        context.update(
+            {
+                "tab_filter": tab_filter,
+                # Overview
+                "total_outstanding": total_outstanding,
+                "collected_this_month": collected_this_month,
+                "failed_count": failed_count,
+                "locked_count": locked_count,
+                "outstanding_tabs": outstanding_tabs,
+                "failed_charges": failed_charges,
+                # Open Tabs
+                "open_tabs": open_tabs,
+                # Shared
+                "add_charge_form": add_charge_form,
+            }
+        )
+
+    # --- Settings + Stripe tab context (admin config + product overview; flag-independent) ---
     settings_obj = BillingSettings.load()
-    settings_form = BillingSettingsForm(instance=settings_obj)
-    connect_platform_form = ConnectPlatformSettingsForm(instance=settings_obj)
+    context.update(
+        {
+            "settings_form": BillingSettingsForm(instance=settings_obj),
+            "connect_platform_form": ConnectPlatformSettingsForm(instance=settings_obj),
+            "reconciliation_settings_form": ReconciliationSettingsForm(instance=settings_obj),
+            "billing_settings": settings_obj,
+            "products": Product.objects.select_related("guild").order_by("guild__name", "name"),
+            "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+        }
+    )
 
-    # --- Stripe tab (Settings tab since v1.5.0 — single platform account) ---
-    products = Product.objects.select_related("guild").order_by("guild__name", "name")
-    guilds = Guild.objects.filter(is_active=True).order_by("name")
+    # --- Payments tab (built only when active — it walks two money tables) ---
+    if active_tab == "payments":
+        context.update(_payments_panel_context(request))
 
-    # --- Add Charge modal form ---
-    add_charge_form = TabItemForm(context=CONTEXT_ADMIN_DASHBOARD, user=request.user)
-
-    context = {
-        **django_admin.site.each_context(request),
-        "active_tab": active_tab,
-        "tab_filter": tab_filter,
-        # Overview
-        "total_outstanding": total_outstanding,
-        "collected_this_month": collected_this_month,
-        "failed_count": failed_count,
-        "locked_count": locked_count,
-        "outstanding_tabs": outstanding_tabs,
-        "failed_charges": failed_charges,
-        # Open Tabs
-        "open_tabs": open_tabs,
-        # Settings
-        "settings_form": settings_form,
-        "connect_platform_form": connect_platform_form,
-        "billing_settings": settings_obj,
-        # Stripe (platform settings + product overview)
-        "products": products,
-        "guilds": guilds,
-        # Shared
-        "add_charge_form": add_charge_form,
-    }
+    # --- Reconciliation tab (admin-only; walks all three streams + voting) ---
+    if active_tab == "reconciliation":
+        context.update(_reconciliation_context(request))
 
     return render(request, "billing/admin_dashboard.html", context)
+
+
+def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
+    """Shared context for the Reconciliation tab, its table partial, and the print/CSV exports."""
+    from urllib.parse import urlencode
+
+    from billing.models import ReconciliationSnapshot
+    from billing.payments_panel import parse_window
+    from billing.reconciliation import build_reconciliation
+    from billing.reports import build_report
+
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    view_as = request.view_as  # type: ignore[attr-defined]
+    viewer_is_fog_admin = view_as.has_actual("admin")
+    result = build_reconciliation(window=window)
+    _rows, payout_summary, admin_total = build_report(start_date=window.start, end_date=window.end)
+    query = urlencode({"start": window.start.isoformat(), "end": window.end.isoformat()})
+    return {
+        "reconciliation": result,
+        "reconciliation_start": window.start.isoformat(),
+        "reconciliation_end": window.end.isoformat(),
+        "reconciliation_query": query,
+        "reconciliation_date_error": (
+            "End date must be on or after the start date." if window.end < window.start else ""
+        ),
+        "reconciliation_payout_summary": payout_summary,
+        "reconciliation_admin_total": admin_total,
+        "reconciliation_snapshots": ReconciliationSnapshot.objects.all(),
+        "viewer_is_fog_admin": viewer_is_fog_admin,
+    }
+
+
+@fog_admin_required
+def reconciliation_table(request: HttpRequest) -> HttpResponse:
+    """The reconciliation allocation table alone — the HTMX refresh target."""
+    return render(request, "billing/partials/reconciliation_table.html", _reconciliation_context(request))
+
+
+@fog_admin_required
+def admin_reconciliation_csv(request: HttpRequest) -> StreamingHttpResponse:
+    """Streaming CSV of the per-recipient allocation for the current window."""
+    from billing.payments_panel import parse_window
+    from billing.reconciliation import build_reconciliation, stream_reconciliation_csv
+
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    return stream_reconciliation_csv(build_reconciliation(window=window))
+
+
+@fog_admin_required
+def reconciliation_print(request: HttpRequest) -> HttpResponse:
+    """Print-optimized allocation table (Print -> Save as PDF from the browser)."""
+    from billing.payments_panel import parse_window
+    from billing.reconciliation import build_reconciliation
+
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    result = build_reconciliation(window=window)
+    return render(
+        request,
+        "billing/reconciliation_print.html",
+        {"reconciliation": result, "generated_at": timezone.now()},
+    )
+
+
+@billing_admin_access_required
+def billing_admin_payments_table(request: HttpRequest) -> HttpResponse:
+    """The payments ledger table alone — the ``refund-done`` HTMX refresh target."""
+    return render(request, "billing/partials/payments_table.html", _payments_panel_context(request))
+
+
+@billing_admin_access_required
+def admin_payments_csv(request: HttpRequest) -> StreamingHttpResponse:
+    """Streaming CSV of the payments ledger, same filters via GET."""
+    from billing.payments_panel import build_payments_ledger, parse_window, stream_payments_csv
+
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    view_as = request.view_as  # type: ignore[attr-defined]
+    ledger = build_payments_ledger(
+        window=window,
+        source=request.GET.get("source", "all"),
+        status=request.GET.get("status", "all"),
+        viewer_is_admin=view_as.has_actual("admin"),
+    )
+    return stream_payments_csv(ledger)
+
+
+def _render_orientation_refund_form(request: HttpRequest, booking: Any, form: Any) -> HttpResponse:
+    """Render the orientation refund modal body — the retry confirm when the latest attempt failed.
+
+    Mirrors the classes refund partial: the FAILED state's only action is Retry
+    (the failed row is the anchor); otherwise the editable amount/reason form.
+    """
+    from billing.models import PaymentRefund
+
+    failed_refund = None
+    if booking.refund_state == "failed":
+        failed_refund = booking.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+    return render(
+        request,
+        "billing/partials/orientation_refund_form.html",
+        {"booking": booking, "form": form, "failed_refund": failed_refund},
+    )
+
+
+@refund_authority_required
+def payment_orientation_refund_form(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """GET partial — the orientation refund modal body, loaded via HTMX by the Payments panel."""
+    from django.shortcuts import get_object_or_404
+
+    from billing.forms import OrientationRefundForm
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    return _render_orientation_refund_form(request, booking, OrientationRefundForm(booking=booking))
+
+
+@refund_authority_required
+@require_POST
+def payment_orientation_refund(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Issue a real Stripe refund for an orientation booking — 204 + toast + ``refund-done``.
+
+    Validation errors re-render the form partial in place. A Stripe rejection is
+    loud: an error toast carries Stripe's message and the modal stays open,
+    re-rendered in the failed state whose action is Retry.
+    """
+    from django.shortcuts import get_object_or_404
+
+    from billing.exceptions import RefundError
+    from billing.forms import OrientationRefundForm
+    from billing.models import PaymentRefund
+    from hub.toast import trigger_client_event, trigger_toast
+    from membership.models import OrientationBooking
+
+    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
+    form = OrientationRefundForm(request.POST, booking=booking)
+    if not form.is_valid():
+        return _render_orientation_refund_form(request, booking, form)
+    try:
+        refund = booking.issue_refund(
+            amount_cents=form.amount_cents,
+            reason=form.cleaned_data["reason"],
+            actor=request.user,
+        )
+    except RefundError as exc:
+        booking.refresh_from_db()
+        response = _render_orientation_refund_form(request, booking, OrientationRefundForm(booking=booking))
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    if refund.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${form.cleaned_data['amount']:.2f}.", "success")
+    else:
+        # Stripe accepted the refund but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
+
+
+@refund_authority_required
+@require_POST
+def payment_refund_retry(request: HttpRequest, refund_pk: int) -> HttpResponse:
+    """Retry a failed refund from the panel — 204 + toast + ``refund-done`` on success.
+
+    A Stripe rejection is loud: an error toast carries Stripe's message and the
+    modal stays open (no ``refund-done``, which would close it) — the row keeps
+    its FAILED state with the fresh failure reason for the next attempt.
+    """
+    from billing import refunds as refunds_service
+    from billing.exceptions import RefundError
+    from billing.models import PaymentRefund
+    from django.shortcuts import get_object_or_404
+    from hub.toast import trigger_client_event, trigger_toast
+
+    refund = get_object_or_404(PaymentRefund, pk=refund_pk)
+    try:
+        result = refunds_service.retry_refund(refund, actor=request.user)
+    except RefundError as exc:
+        response = HttpResponse(status=204)
+        trigger_toast(response, f"Refund failed: {exc}", "error")
+        return response
+    response = HttpResponse(status=204)
+    if result.status == PaymentRefund.Status.SUCCEEDED:
+        trigger_toast(response, f"Refunded ${result.amount_cents / 100:.2f}.", "success")
+    else:
+        # Stripe accepted the retry but hasn't settled it; refund.updated will.
+        trigger_toast(response, "Refund sent. Stripe is processing it.", "success")
+    trigger_client_event(response, "refund-done")
+    return response
 
 
 @fog_admin_required
@@ -267,10 +557,17 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     """
     from django.contrib import admin
 
-    from typing import Any
-
     from billing.forms import CustomSplitFormSet
+    from core.models import SiteConfiguration
     from membership.models import Guild
+
+    # New tab charges make no sense with My Tab off — members cannot see or pay them and
+    # bill_tabs skips the run. Gate the view server-side so a mid-session flag flip cannot
+    # leave an already-open dashboard POSTing entries onto a frozen ledger. Covers both the
+    # modal POST and the standalone add-entry page. (Flag on = structural no-op.)
+    if not SiteConfiguration.load().my_tab_enabled:
+        django_messages.info(request, "My Tab is off, so new tab charges can't be added right now.")
+        return redirect("billing_admin_dashboard")
 
     def _render(form: TabItemForm, splits_formset: Any) -> HttpResponse:
         context = {
@@ -311,7 +608,7 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
     return _render(form, splits_formset)
 
 
-@fog_admin_required
+@billing_admin_access_required
 def billing_admin_tab_detail_api(request: HttpRequest, tab_pk: int) -> JsonResponse:
     """Return JSON tab detail for the tab detail modal."""
     try:
@@ -384,7 +681,7 @@ def billing_admin_save_settings(request: HttpRequest) -> HttpResponse:
     return redirect("/billing/admin/dashboard/?tab=settings")
 
 
-@fog_admin_required
+@billing_admin_access_required
 @require_POST
 def billing_admin_retry_charge(request: HttpRequest, charge_pk: int) -> JsonResponse:
     """Immediately retry a single failed charge. Returns JSON with new status."""
@@ -405,63 +702,175 @@ def billing_admin_retry_charge(request: HttpRequest, charge_pk: int) -> JsonResp
     return JsonResponse({"status": "failed"})
 
 
-@fog_admin_required
+@billing_admin_access_required
 def admin_reports(request: HttpRequest) -> HttpResponse:
-    """Reports page — filtered entry list + per-guild payout summary.
+    """Retired: the Reports page folded into the Reconciliation tab (301 to it).
 
-    When opened without any GET params, defaults to the current month so the
-    page always shows data immediately.
+    The per-guild payout summary now renders as a section of the admin-only
+    Reconciliation tab. Old links / bookmarks land there instead of 404ing.
     """
-    from django.contrib import admin as django_admin
+    from urllib.parse import urlencode
 
-    from billing.reports import (
-        CHARGE_TYPE_CHOICES,
-        STATUS_CHOICES,
-        ReportFilterForm,
-        build_report,
+    from billing.payments_panel import parse_window
+
+    window = parse_window(request.GET.get("start_date", "") or request.GET.get("start", ""), "")
+    query = urlencode({"tab": "reconciliation", "start": window.start.isoformat(), "end": window.end.isoformat()})
+    return redirect(f"/billing/admin/dashboard/?{query}", permanent=True)
+
+
+@billing_admin_access_required
+def admin_reports_csv(request: HttpRequest) -> HttpResponse:
+    """Retired: superseded by the reconciliation CSV (a superset). 301 to it."""
+    from urllib.parse import urlencode
+
+    from billing.payments_panel import parse_window
+
+    window = parse_window(request.GET.get("start_date", "") or request.GET.get("start", ""), "")
+    query = urlencode({"start": window.start.isoformat(), "end": window.end.isoformat()})
+    return redirect(f"/billing/admin/reconciliation/export/csv/?{query}", permanent=True)
+
+
+@fog_admin_required
+@require_POST
+def billing_admin_save_reconciliation_settings(request: HttpRequest) -> HttpResponse:
+    """Save the reconciliation split percentages from the Settings tab."""
+    from billing.forms import ReconciliationSettingsForm
+
+    settings_obj = BillingSettings.load()
+    form = ReconciliationSettingsForm(request.POST, instance=settings_obj)
+    if form.is_valid():
+        form.save()
+        django_messages.success(request, "Reconciliation splits saved.")
+    else:
+        for errors in form.errors.values():
+            for error in errors:
+                django_messages.error(request, error)
+    return redirect("/billing/admin/dashboard/?tab=settings")
+
+
+_ADJUSTMENT_KINDS = {"tab", "class", "orientation"}
+
+
+def _reconciliation_adjustment_context(source_kind: str, source_pk: int) -> dict[str, object]:
+    """Build the adjust-modal form (existing adjustment prefilled, else the configured split)."""
+    from billing.forms import TransactionAdjustmentForm
+    from billing.models import BillingSettings, TransactionAdjustment
+    from billing.reconciliation import _class_percents, _orientation_percents
+
+    existing = TransactionAdjustment.objects.filter(source_kind=source_kind, source_pk=source_pk).first()
+    initial: dict[str, object] = {}
+    if existing is not None:
+        initial["is_omitted"] = existing.is_omitted
+        initial["reason"] = existing.reason
+    if source_kind != "tab":
+        settings_obj = BillingSettings.load()
+        percents = _class_percents(settings_obj) if source_kind == "class" else _orientation_percents(settings_obj)
+        if existing is not None and existing.override_percents is not None:
+            percents = {k: existing.override_percents.get(k, v) for k, v in percents.items()}
+        for key, value in percents.items():
+            initial.setdefault(f"percent_{key}", value)
+    form = TransactionAdjustmentForm(source_kind=source_kind, source_pk=source_pk, initial=initial)
+    return {"form": form, "source_kind": source_kind, "source_pk": source_pk, "has_existing": existing is not None}
+
+
+@fog_admin_required
+def reconciliation_adjust_form(request: HttpRequest, source_kind: str, source_pk: int) -> HttpResponse:
+    """GET the adjust-modal body for one transaction."""
+    from django.http import Http404
+
+    if source_kind not in _ADJUSTMENT_KINDS:
+        raise Http404
+    context = _reconciliation_adjustment_context(source_kind, source_pk)
+    return render(request, "billing/partials/reconciliation_adjust_form.html", context)
+
+
+@fog_admin_required
+@require_POST
+def reconciliation_adjust(request: HttpRequest, source_kind: str, source_pk: int) -> HttpResponse:
+    """Save (create or update) a transaction adjustment -> 204 + toast + refresh trigger."""
+    from django.http import Http404
+
+    from billing.forms import TransactionAdjustmentForm
+    from hub.toast import trigger_client_event, trigger_toast
+
+    if source_kind not in _ADJUSTMENT_KINDS:
+        raise Http404
+    form = TransactionAdjustmentForm(request.POST, source_kind=source_kind, source_pk=source_pk)
+    if not form.is_valid():
+        context = {"form": form, "source_kind": source_kind, "source_pk": source_pk, "has_existing": True}
+        return render(request, "billing/partials/reconciliation_adjust_form.html", context)
+    form.save(actor=request.user)
+    response = HttpResponse(status=204)
+    trigger_toast(response, "Adjustment saved.", "success")
+    trigger_client_event(response, "reconciliation-changed")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def reconciliation_clear(request: HttpRequest, source_kind: str, source_pk: int) -> HttpResponse:
+    """Remove a transaction adjustment (back to the standard split) -> 204 + toast + refresh."""
+    from billing.models import TransactionAdjustment
+    from hub.toast import trigger_client_event, trigger_toast
+
+    TransactionAdjustment.objects.filter(source_kind=source_kind, source_pk=source_pk).delete()
+    response = HttpResponse(status=204)
+    trigger_toast(response, "Adjustment removed.", "success")
+    trigger_client_event(response, "reconciliation-changed")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def reconciliation_snapshot_take(request: HttpRequest) -> HttpResponse:
+    """Freeze the current window's reconciliation into a snapshot."""
+    from billing.models import ReconciliationSnapshot
+    from billing.payments_panel import parse_window
+
+    window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
+    title = request.POST.get("title", "").strip()
+    snapshot = ReconciliationSnapshot.take(
+        period_start=window.start, period_end=window.end, title=title, actor=request.user
     )
-    from membership.models import Guild
+    django_messages.success(request, f"Snapshot taken for {snapshot.period_start:%b %Y}.")
+    from urllib.parse import urlencode
 
-    # Default to current month when no filters are provided
-    now = timezone.now()
-    month_start = now.replace(day=1).date()
-    default_filters = {"start_date": month_start.isoformat(), "end_date": now.date().isoformat()}
-    effective_filters = request.GET if request.GET else default_filters
+    query = urlencode({"tab": "reconciliation", "start": window.start.isoformat(), "end": window.end.isoformat()})
+    return redirect(f"/billing/admin/dashboard/?{query}")
 
-    filter_form = ReportFilterForm(effective_filters)
-    filter_kwargs = filter_form.filter_kwargs()
-    rows, payout_summary, admin_total = build_report(**filter_kwargs)
 
-    # Resolve multi-value fields to lists so the template can check membership
-    _getlist = effective_filters.getlist if hasattr(effective_filters, "getlist") else lambda k: []
-    selected_guilds = _getlist("guilds")
-    selected_charge_types = _getlist("charge_type")
-    selected_statuses = _getlist("status")
+@fog_admin_required
+def reconciliation_snapshot_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """Read-only render of a frozen snapshot's allocation."""
+    from django.contrib import admin as django_admin
+    from django.shortcuts import get_object_or_404
 
+    from billing.models import ReconciliationSnapshot
+    from billing.reconciliation import result_from_snapshot
+
+    snapshot = get_object_or_404(ReconciliationSnapshot, pk=pk)
     context = {
         **django_admin.site.each_context(request),
-        "filters": effective_filters,
-        "selected_guilds": selected_guilds,
-        "selected_charge_types": selected_charge_types,
-        "selected_statuses": selected_statuses,
-        "rows": rows,
-        "payout_summary": payout_summary,
-        "admin_total": admin_total,
-        "guilds": Guild.objects.filter(is_active=True).order_by("name"),
-        "charge_type_choices": CHARGE_TYPE_CHOICES,
-        "status_choices": STATUS_CHOICES,
-        "query_string": request.META.get("QUERY_STRING", ""),
+        "snapshot": snapshot,
+        "reconciliation": result_from_snapshot(snapshot),
     }
-    return render(request, "billing/admin_reports.html", context)
+    return render(request, "billing/reconciliation_snapshot_detail.html", context)
 
 
 @fog_admin_required
-def admin_reports_csv(request: HttpRequest) -> StreamingHttpResponse:
-    """Streaming CSV download for the reports page, same filters via GET."""
-    from billing.reports import ReportFilterForm, stream_report_csv
+@require_POST
+def reconciliation_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a frozen snapshot (the record only; no payments change)."""
+    from django.shortcuts import get_object_or_404
 
-    filter_form = ReportFilterForm(request.GET)
-    return stream_report_csv(**filter_form.filter_kwargs())
+    from billing.models import ReconciliationSnapshot
+    from core.models import SiteActivity
+
+    snapshot = get_object_or_404(ReconciliationSnapshot, pk=pk)
+    SiteActivity.log(SiteActivity.Kind.RECONCILIATION_SNAPSHOT_DELETED, actor=request.user)
+    snapshot.delete()
+    django_messages.success(request, "Snapshot deleted.")
+    return redirect("/billing/admin/dashboard/?tab=reconciliation")
 
 
 @fog_admin_required

@@ -57,25 +57,30 @@ CHANNEL_LABELS: dict[Channel, str] = {
 # Shown on a disabled DISCORD_DM toggle when the member hasn't linked Discord yet.
 _DISCORD_LINK_HINT = "Connect your Discord account first to receive DMs."
 
-# Stable category display order; any category not listed falls to the end, alpha.
-# STAFF_SECTION is always forced dead-last by _ordered_categories, so it is not
-# listed here.
+# Stable category display order; any category not listed falls to the end, alpha
+# (before STAFF_SECTION). STAFF_SECTION is always forced dead-last by
+# _ordered_categories, so it is not listed here.
 CATEGORY_ORDER: tuple[str, ...] = (
+    "Orientations",
+    "Guilds",
+    "Events",
     "Classes",
     "Teaching",
     "Voting",
-    "Guilds",
     "Billing",
     "Membership",
     "Spaces",
     "Announcements",
     "Security",
+    "Meetings",
 )
 
 # The single display section that collects every staff / leadership / admin event
 # (approval requests + admin-only alerts) instead of scattering them through the
-# member-facing categories. Rendered first and shown ONLY to eligible viewers
-# (see _is_staff_or_leadership); a plain member never sees it.
+# member-facing categories. Rendered dead-last and shown ONLY to eligible viewers
+# (see _is_staff_or_leadership); a plain member never sees it. When an admin/officer
+# previews the page as a Member or Guest, the section is omitted entirely
+# (include_staff_section=False).
 STAFF_SECTION = "Staff & leadership"
 
 # Recipients that target staff, leadership, or admins rather than an individual
@@ -132,7 +137,7 @@ class Row:
 
     ``badge`` is a short note explaining a non-obvious reason the user receives this
     event — set when they're a default recipient via an admin capability (e.g. "You get
-    this as a Class Administrator") rather than by a plain opt-in.
+    this as a CMS Administrator") rather than by a plain opt-in.
     """
 
     event_key: str
@@ -236,7 +241,7 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
     return checks[recipient]
 
 
-def _visible_events(user: User) -> list[EventType]:
+def _visible_events(user: User, *, include_staff_section: bool = True) -> list[EventType]:
     """Events whose preference row should be shown to ``user``.
 
     Every registered *member-facing* event that declares a user channel is shown — the page
@@ -248,23 +253,36 @@ def _visible_events(user: User) -> list[EventType]:
     actually eligible to receive it — a holder of its capability or a member of its role
     (:func:`_eligible_for`). A plain member sees none of them; an admin sees only the duties
     they hold plus the admin/leadership alerts.
+
+    When ``include_staff_section`` is ``False`` (an admin/officer previewing the page as a
+    Member or Guest), every staff/leadership/admin event is dropped up front — before the
+    eligibility check — so the Staff & Leadership section is omitted entirely.
     """
     profile = _staff_profile(user)
     out: list[EventType] = []
     for event in all_events():
         if not any(event.has_channel(channel) for channel in USER_CHANNELS):
             continue
-        if event.recipient in STAFF_RECIPIENTS and not _eligible_for(event.recipient, profile):
-            continue
+        if event.recipient in STAFF_RECIPIENTS:
+            if not include_staff_section:
+                continue
+            if not _eligible_for(event.recipient, profile):
+                continue
         out.append(event)
     return out
 
 
 def _ordered_categories(categories: set[str]) -> list[str]:
-    head = [STAFF_SECTION] if STAFF_SECTION in categories else []
+    """Order the rendered sections: CATEGORY_ORDER first, unknown extras alpha, staff last.
+
+    STAFF_SECTION is forced dead-last (its comment finally becomes true): a member-facing
+    category always sorts ahead of the Staff & Leadership section, even a brand-new one not
+    yet listed in CATEGORY_ORDER.
+    """
+    tail = [STAFF_SECTION] if STAFF_SECTION in categories else []
     ranked = [c for c in CATEGORY_ORDER if c in categories]
     rest = sorted(c for c in categories if c not in CATEGORY_ORDER and c != STAFF_SECTION)
-    return head + ranked + rest
+    return ranked + rest + tail
 
 
 def _member_discord_linked(user: User) -> bool:
@@ -292,15 +310,18 @@ def channel_availability(user: User, channel: Channel, *, discord_linked: bool) 
     return True, ""
 
 
-def visible_channels(user: User) -> list[Channel]:
+def visible_channels(user: User, *, include_staff_section: bool = True) -> list[Channel]:
     """The user channels at least one visible event actually offers, in display order.
 
     A channel no event declares (today: the unbuilt Scheduled-email and Digest shells)
     would render as an entire column of empty '—' cells — dead, confusing UI. We drop
     such columns until something uses them; the column reappears automatically the day
     an event starts declaring that channel.
+
+    ``include_staff_section`` is forwarded to :func:`_visible_events` so a member-view
+    preview doesn't render a dead column for a channel only staff events offer.
     """
-    events = _visible_events(user)
+    events = _visible_events(user, include_staff_section=include_staff_section)
     return [channel for channel in USER_CHANNELS if any(event.channel(channel) is not None for event in events)]
 
 
@@ -340,18 +361,21 @@ def _capability_badges(user: User, events: list[EventType]) -> dict[str, str]:
     return badges
 
 
-def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
+def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tuple[str, list[Row]]]:
     """Assemble the matrix for ``user`` — a list of ``(category, [Row, ...])``.
 
     For each visible event, one :class:`Row` with a :class:`Cell` per user channel:
     forced cells locked-on, opt-out-able cells reflecting the saved preference (or the
     event's channel default). A row the user receives via an admin capability carries a
     badge. Sections are returned in :data:`CATEGORY_ORDER`, with every staff/leadership
-    event collected into a single :data:`STAFF_SECTION` rendered first (and only for
+    event collected into a single :data:`STAFF_SECTION` rendered **last** (and only for
     eligible viewers — see :func:`_visible_events`).
+
+    When ``include_staff_section`` is ``False`` (an admin/officer previewing as Member or
+    Guest), the Staff & Leadership section and any staff-only channel columns are omitted.
     """
-    events = _visible_events(user)
-    channels = visible_channels(user)
+    events = _visible_events(user, include_staff_section=include_staff_section)
+    channels = visible_channels(user, include_staff_section=include_staff_section)
     # Compute per-channel availability once (the Discord-linked lookup is a single
     # query) rather than re-deriving it for every cell.
     discord_linked = _member_discord_linked(user)
@@ -392,7 +416,7 @@ def build_matrix(user: User) -> list[tuple[str, list[Row]]]:
     return [(category, by_category[category]) for category in _ordered_categories(set(by_category))]
 
 
-def save_matrix(user: User, posted: dict[str, str]) -> None:
+def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bool = True) -> None:
     """Persist the matrix POST for ``user``.
 
     For each visible (event, opt-out-able channel) cell, upsert a
@@ -404,12 +428,19 @@ def save_matrix(user: User, posted: dict[str, str]) -> None:
     before they link Discord) is skipped — its box renders disabled, so the browser
     omits it, and writing ``enabled=False`` would silently wipe a preference they set
     while linked. Skipping preserves their choice across an unlink/relink.
+
+    ``include_staff_section`` **must** match the flag the GET render used. When it is
+    ``False`` (an admin/officer saving while previewing as Member/Guest), the staff-event
+    rows were never rendered, so their checkboxes are absent from the POST — iterating them
+    here would write ``enabled=False`` and silently wipe the admin's own staff prefs. The
+    flag drops those events from the iteration entirely, the same protective pattern as the
+    Discord-unlinked channel skip below.
     """
     discord_linked = _member_discord_linked(user)
     availability = {
         channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in USER_CHANNELS
     }
-    for event in _visible_events(user):
+    for event in _visible_events(user, include_staff_section=include_staff_section):
         for channel in USER_CHANNELS:
             spec = event.channel(channel)
             if spec is None or spec.is_forced or channel is Channel.IN_APP:

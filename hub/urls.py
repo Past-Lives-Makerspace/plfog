@@ -82,6 +82,7 @@ urlpatterns = [
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),
     path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),
+    path("guilds/<int:pk>/visibility/save/", views.guild_visibility_save, name="hub_guild_visibility_save"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
@@ -89,6 +90,11 @@ urlpatterns = [
         "guilds/<int:pk>/orientation/hours/save/",
         views.guild_orientation_hours_save,
         name="hub_guild_orientation_hours_save",
+    ),
+    path(
+        "guilds/<int:pk>/orientation/hours/form/",
+        views.guild_orientation_hours_form,
+        name="hub_guild_orientation_hours_form",
     ),
     path(
         "guilds/<int:pk>/studio-hours/save/",
@@ -131,6 +137,26 @@ urlpatterns = [
         name="hub_orientation_cancel_mine",
     ),
     path("orientation/act/<str:token>/", views.orientation_action, name="hub_orientation_action"),
+    path(
+        "orientation/checkout/return/<str:token>/",
+        views.orientation_checkout_return,
+        name="hub_orientation_checkout_return",
+    ),
+    path(
+        "orientation/checkout/cancelled/<str:token>/",
+        views.orientation_checkout_cancelled,
+        name="hub_orientation_checkout_cancelled",
+    ),
+    path(
+        "orientation/checkout/<int:booking_pk>/cancel-hold/",
+        views.orientation_checkout_cancel_hold,
+        name="hub_orientation_checkout_cancel_hold",
+    ),
+    path(
+        "orientation/checkout/<int:booking_pk>/resume/",
+        views.orientation_checkout_resume,
+        name="hub_orientation_checkout_resume",
+    ),
     path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
@@ -139,8 +165,6 @@ urlpatterns = [
         views.orientation_toggle_completed,
         name="hub_orientation_toggle_completed",
     ),
-    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
-    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path(
         "guilds/<int:pk>/images/<int:image_pk>/delete/",
         views.guild_image_delete,
@@ -215,7 +239,16 @@ urlpatterns = [
         views.guild_announcement_review_decision,
         name="hub_guild_announcement_review_decision",
     ),
+    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
+    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
+    path("guilds/<int:pk>/welcome-email/test/", views.guild_welcome_test, name="hub_guild_welcome_test"),
+    path("guilds/<int:pk>/welcome-email/preview/", views.guild_welcome_preview, name="hub_guild_welcome_preview"),
+    path(
+        "guilds/<int:pk>/announcement-settings/save/",
+        views.guild_announcement_settings_save,
+        name="hub_guild_announcement_settings_save",
+    ),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
     path(
@@ -316,6 +349,7 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    path("welcome/guild-updates/", views.guild_updates_prompt, name="hub_guild_updates_prompt"),
     # Guided tours (Spec C): the one state-recording endpoint — the offer card's
     # "No thanks" and the tour runtime's end-of-tour hook both POST here.
     path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),

@@ -1,0 +1,52 @@
+{% comment %}
+Shared waitlist row — included by the teach + admin Waitlist tabs and returned
+standalone by the roster action endpoints (hx-target="#wl-row-<pk>", outerHTML).
+
+On a successful promote the row swaps to a confirmed-styled stub (gold accent)
+rather than vanishing — the person staff just acted on shouldn't disappear
+mid-thought. A page reload shows them gone from the waitlist.
+
+Context:
+  reg        — Registration (WAITLISTED for a live row; other statuses render stubs)
+  can_manage — the viewer may act on this row
+  position   — 1-based waitlist position (page render passes forloop.counter;
+               swapped rows fall back to reg.waitlist_position)
+{% endcomment %}
+{% if reg.status == 'waitlisted' %}
+<tr id="wl-row-{{ reg.pk }}" data-followup-url="{% url 'classes:registration_promote_followup' reg.pk %}">
+    <td>{% if position %}{{ position }}{% else %}{{ reg.waitlist_position }}{% endif %}</td>
+    <td>{{ reg.first_name }} {{ reg.last_name }}</td>
+    <td>{{ reg.email }}</td>
+    <td>{{ reg.registered_at|date:"M j, Y g:i A" }}</td>
+    <td>
+        {% if reg.waitlist_notified_at %}
+            <span style="color:var(--color-tuscan-yellow);">{{ reg.waitlist_notified_at|date:"M j, g:i A" }}</span>
+        {% else %}
+            <span style="color:var(--hub-text-muted);">Not yet</span>
+        {% endif %}
+    </td>
+    {% if can_manage %}
+    <td>
+        {% include "components/row_actions.html" with menu_include="classes/partials/waitlist_row_menu.html" menu_label="Actions for "|add:reg.first_name|add:" "|add:reg.last_name %}
+    </td>
+    {% endif %}
+</tr>
+{% elif reg.status == 'confirmed' or reg.status == 'pending' %}
+{# The promoted stub keeps data-followup-url so the modal opener works whether #}
+{# the HX-Trigger event fires before or after the row swap settles. #}
+<tr id="wl-row-{{ reg.pk }}" data-followup-url="{% url 'classes:registration_promote_followup' reg.pk %}">
+    <td><span style="color:var(--color-tuscan-yellow);">✓</span></td>
+    <td>{{ reg.first_name }} {{ reg.last_name }}</td>
+    <td>{{ reg.email }}</td>
+    <td colspan="2"><span style="color:var(--color-tuscan-yellow);">Added to class ✓. See the Registrations tab.</span></td>
+    {% if can_manage %}<td></td>{% endif %}
+</tr>
+{% else %}
+<tr id="wl-row-{{ reg.pk }}" style="opacity:0.5;">
+    <td>—</td>
+    <td>{{ reg.first_name }} {{ reg.last_name }}</td>
+    <td>{{ reg.email }}</td>
+    <td colspan="2"><span style="color:var(--hub-text-muted);">Removed from the waitlist.</span></td>
+    {% if can_manage %}<td></td>{% endif %}
+</tr>
+{% endif %}

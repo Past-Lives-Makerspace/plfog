@@ -1,0 +1,30 @@
+{# Hero Join / Member CTA state machine. Primary HTMX swap target for join/leave. #}
+{# On those responses (oob) it also carries the OOB sibling fragments, so the sticky #}
+{# mini-CTA, member-count chip, roster card, and Get Involved status all stay in sync #}
+{# without a reload. Members surface only: joins happen on the hub, not the guest surface. #}
+<div id="guild-join-cta" class="pl-guild-cta">
+    {% if member and not is_guilds_surface %}
+        {% if is_member_of_guild %}
+        <div class="pl-guild-cta__member" x-data="{ menu: false }">
+            <span class="pl-btn pl-btn--secondary pl-guild-cta__badge">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                Member
+            </span>
+            <button type="button" class="pl-btn pl-btn--secondary pl-guild-cta__overflow" @click="menu = !menu" @click.outside="menu = false" aria-haspopup="true" :aria-expanded="menu" aria-label="Guild membership options">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+            </button>
+            <div class="pl-guild-cta__menu" x-show="menu" x-cloak @click="menu = false">
+                <button type="button" class="pl-guild-cta__menu-item" @click="$dispatch('open-confirm', 'leave-guild')">Leave guild</button>
+            </div>
+        </div>
+        {% else %}
+        <button type="button" class="pl-btn pl-btn--primary pl-guild-cta__join" @click="$dispatch('open-modal', 'join-guild')">Join This Guild</button>
+        {% endif %}
+    {% endif %}
+</div>
+{% if oob %}
+{% include "hub/partials/_guild_join_fab.html" with oob=True %}
+{% include "hub/partials/_guild_member_count.html" with oob=True %}
+{% include "hub/partials/_guild_roster_card.html" with oob=True %}
+{% include "hub/partials/_guild_get_involved_status.html" with oob=True %}
+{% endif %}

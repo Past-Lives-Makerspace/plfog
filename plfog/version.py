@@ -2,17 +2,150 @@
 
 from __future__ import annotations
 
-VERSION = "1.9.7"
+VERSION = "1.21.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.9.7",
-        "date": "2026-08-26",
-        "title": "Event cards land in #calendar instantly",
+        "version": "1.21.0",
+        "date": "2026-08-28",
+        "title": "Take a guided tour",
         "changes": [
-            "Publish an event with /create and its RSVP card now appears in #calendar right "
-            "away instead of on the next quarter hour, and your confirmation includes a "
-            "button that jumps straight to it.",
+            "New guided tours walk you through the member portal and drive the navigation for "
+            "you, hopping from page to page while they explain each part. There is a tour for "
+            "members, one for instructors, one for guild leads, and one for admins. Click Show "
+            "me around on your home page, or start one any time from the Help page, and you can "
+            "turn tours on or off in Settings.",
+        ],
+    },
+    {
+        "version": "1.20.0",
+        "date": "2026-08-27",
+        "title": "Join your favorite guilds",
+        "changes": [
+            "Every guild page now has a Join This Guild button. Joining adds you to the guild's "
+            "roster, puts a badge on your member directory card, keeps you in the loop on that "
+            "guild's announcements, and lets you sign up for its orientations. When you join you "
+            "can choose to get a welcome guide by email, and guild leads can write their own "
+            "welcome note. You can leave a guild any time.",
+        ],
+    },
+    {
+        "version": "1.19.1",
+        "date": "2026-08-27",
+        "title": "Smoother orientation checkout",
+        "changes": [
+            "If your guild charges for orientations, tapping Continue to Payment now opens our "
+            "secure checkout right away. We also tidied up how guild calendars respond when you "
+            "hover over an event.",
+        ],
+    },
+    {
+        "version": "1.19.0",
+        "date": "2026-08-27",
+        "title": "Orientations get their own tab on guild pages",
+        "changes": [
+            "Finding and booking an orientation is easier now: every guild page has its own "
+            "Orientations tab instead of tucking it under the calendar. For guild leads, editing "
+            "your orientation hours opens in a quick popup instead of reloading the whole page, and "
+            "you can turn off member announcement suggestions if you prefer.",
+        ],
+    },
+    {
+        "version": "1.18.0",
+        "date": "2026-08-27",
+        "title": "A friendlier Settings page",
+        "changes": [
+            "Settings is easier to get around now. Guilds is the first tab, and the notifications "
+            "list is reordered with orientations, guilds, and events up top plus quick links to "
+            "jump between sections and a back to top button. Your email addresses now live with "
+            "your account details, and if you change a bunch of notification toggles we ask before "
+            "you leave so you do not lose them.",
+        ],
+    },
+    {
+        "version": "1.17.0",
+        "date": "2026-08-27",
+        "title": "Cleaner admin Payments area",
+        "changes": [
+            "For admins and billing helpers, the Payments dashboard now hides the member Tab "
+            "sections when My Tab is switched off, so the page shows only what applies. Payments "
+            "and Reports also moved into Admin Tools instead of the sidebar.",
+        ],
+    },
+    {
+        "version": "1.16.0",
+        "date": "2026-08-27",
+        "title": "See just the classes you teach or run",
+        "changes": [
+            "The admin class list and the registrations list now have a My Classes filter, so if "
+            "you teach or run classes you can jump straight to only yours instead of scrolling the "
+            "whole makerspace. It stays put as you search, sort, and page through the results.",
+        ],
+    },
+    {
+        "version": "1.15.0",
+        "date": "2026-08-27",
+        "title": "Managing a class roster is tidier",
+        "changes": [
+            "If you teach or help run a class, every action on your roster now lives in one neat "
+            "menu on each row instead of a row full of buttons. The menu still does everything it "
+            "did (refunds, payment links, marking someone paid, removing a student) and adds two "
+            "handy shortcuts: jump to a person's full details, or email them in one click.",
+        ],
+    },
+    {
+        "version": "1.14.0",
+        "date": "2026-08-27",
+        "title": "Guilds can charge for orientations",
+        "changes": [
+            "Some orientations now have a price. You pay when you book, right on the booking "
+            "page, and your spot is held while you check out. If the orienter cannot make it "
+            "work or you cancel, your money comes back automatically. Free orientations work "
+            "exactly like before.",
+        ],
+    },
+    {
+        "version": "1.13.0",
+        "date": "2026-08-27",
+        "title": "Orientation slots now show who runs them",
+        "changes": [
+            "Guild staff can each post their own orientation hours, so booking a slot now tells "
+            "you exactly who you will meet. Your request goes straight to that person, and your "
+            "confirmation email says who is expecting you. Staff who have not posted hours yet "
+            "get a nudge on the orientations dashboard.",
+        ],
+    },
+    {
+        "version": "1.12.0",
+        "date": "2026-08-27",
+        "title": "Follow guilds instead of joining them",
+        "changes": [
+            "Guilds are now something you follow for updates, not something you sign up for. "
+            "The first time you log in we ask which guilds you want to hear from, and you can "
+            "change your picks anytime in Settings under Guild Updates. The member directory "
+            "also no longer lists guilds next to names.",
+        ],
+    },
+    {
+        "version": "1.11.0",
+        "date": "2026-08-26",
+        "title": "Instructors can manage their class rosters",
+        "changes": [
+            "Teachers and class admins can now move someone from the waitlist straight into a "
+            "class, email them a payment link if the class costs money, record cash payments, "
+            "and remove a registration when plans change. If you are on a waitlist, you will get "
+            "a clear email the moment a teacher adds you, with a simple way to pay.",
+        ],
+    },
+    {
+        "version": "1.10.0",
+        "date": "2026-08-26",
+        "title": "Refunds without leaving the app",
+        "changes": [
+            "If a class does not work out, staff can now send your money back in a couple of "
+            "clicks, and a receipt lands in your inbox right away. No more waiting while someone "
+            "digs through a separate payments site. Behind the scenes, admins also got one "
+            "Payments page that shows every charge in one place.",
         ],
     },
     {

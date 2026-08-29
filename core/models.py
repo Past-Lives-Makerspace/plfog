@@ -293,11 +293,13 @@ class SiteConfiguration(models.Model):
         verbose_name="Google Analytics measurement ID",
         help_text="GA4 measurement ID (e.g. G-XXXXXXX) — injected on every page, this admin included. Leave blank to disable.",
     )
-    tab_payments_enabled = models.BooleanField(
+    my_tab_enabled = models.BooleanField(
         default=True,
-        verbose_name="Enable My Tab & Payments",
-        help_text="When off, hides My Tab, the balance pill, the Buyables tab on guild pages, "
-        "and the admin Payments/Reports nav. Members visiting the Tab pages are redirected.",
+        verbose_name="Enable My Tab",
+        help_text="When off, hides the member My Tab pages, the balance pill, and the Buyables tab "
+        "on guild pages; members visiting the Tab pages are redirected. The admin Payments dashboard "
+        "also hides its Overview and Open Tabs tabs and opens straight on the Payments ledger. The "
+        "Reports page and payment history are unaffected.",
     )
     class_registration_enabled = models.BooleanField(
         default=True,
@@ -329,6 +331,24 @@ class SiteConfiguration(models.Model):
             "codes from the Teaching portal — the Discount Codes tile is hidden and the pages "
             "redirect. Admins can always create and approve discount codes from Classes admin, "
             "either way. Default off: only admins create discount codes."
+        ),
+    )
+    display_demo_classes = models.BooleanField(
+        default=False,
+        verbose_name="Display demo classes",
+        help_text=(
+            "When on, classes seeded by the demo_data command (a demo- slug) appear in the public "
+            "catalog, calendar, and class pages. Off hides them from members while admins and "
+            "instructors still see and manage them. Turn on only for a live demo."
+        ),
+    )
+    display_demo_guild = models.BooleanField(
+        default=False,
+        verbose_name="Display demo guild",
+        help_text=(
+            "When on, the example Cartographers guild appears in the guild directory and sidebar. "
+            "Off keeps it reachable only by its direct link, and it never enters voting or funding "
+            "either way. Turn on only for a live demo."
         ),
     )
     member_directory_public = models.BooleanField(
@@ -1003,6 +1023,8 @@ class SiteActivity(models.Model):
         MEETING_UNLOCKED = "meeting_unlocked", "Meeting minutes unlocked"
         MEETING_UNPUBLISHED = "meeting_unpublished", "Meeting agenda unpublished"
         ACCOUNT_DELETED = "account_deleted", "Deleted account"
+        RECONCILIATION_SNAPSHOT_TAKEN = "reconciliation_snapshot_taken", "Reconciliation snapshot taken"
+        RECONCILIATION_SNAPSHOT_DELETED = "reconciliation_snapshot_deleted", "Reconciliation snapshot deleted"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,

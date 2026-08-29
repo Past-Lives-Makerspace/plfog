@@ -7,7 +7,7 @@ import re
 import secrets
 from collections.abc import Callable, Sequence
 from datetime import date as date_type, datetime
-from typing import TYPE_CHECKING, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser, User
     from django.core.files.uploadedfile import UploadedFile
 
+    from billing.models import PaymentRefund
     from membership.models import Member
 
 logger = logging.getLogger(__name__)
@@ -136,8 +137,22 @@ LEGACY_CMS_FEED_LABEL = "https://classes.pastlives.space/jsonapi/node/class"
 
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def public(self) -> "ClassOfferingQuerySet":
-        """Published classes visible in the public portal (excludes private)."""
-        return self.filter(status="published", is_private=False)
+        """Published classes visible in the public portal (excludes private).
+
+        Demo classes (a ``demo-`` slug, seeded by the demo_data command) are hidden
+        here unless the ``display_demo_classes`` site setting is on, so seeded demo
+        content can sit on production without members seeing or booking it. Admin and
+        teaching querysets do not route through ``public()`` (they use ``editable_by``
+        / ``for_instructor`` / ``hosted_by`` / ``.all()``), so staff always see and
+        manage demo classes. ``bookable()`` calls this, so the gate covers the
+        catalog, calendar, Discord posts, and every other public class surface at once.
+        """
+        from core.models import SiteConfiguration
+
+        qs = self.filter(status="published", is_private=False)
+        if not SiteConfiguration.load().display_demo_classes:
+            qs = qs.exclude(slug__startswith="demo-")
+        return qs
 
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
         """Re-file offerings into guild-linked categories; returns how many changed.
@@ -203,6 +218,16 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
 
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
+
+    def hosted_by(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Classes this member teaches or authored (instructor OR created_by).
+
+        Both are direct single-valued FK comparisons on the row, so no join can
+        multiply rows — no ``.distinct()`` needed. ``member`` must be a real
+        Member: callers guard ``None`` (passing ``None`` would match every class
+        with a NULL instructor/author, the opposite of intended).
+        """
+        return self.filter(Q(instructor=member) | Q(created_by=member))
 
     def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
         """Offerings this member may edit.
@@ -1628,12 +1653,22 @@ class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
         ``is_private=False``) rather than ``bookable()``: a part-started series is no
         longer *bookable* as a whole, but its still-future sessions remain real,
         dated, purchasable inventory and should be counted.
+
+        The ``display_demo_classes`` gate is mirrored here too — this is a second
+        member-facing choke-point (the Discord ``/whats-on`` digest reads it), so demo
+        (``demo-`` slug) sessions stay hidden unless that site setting is on, exactly
+        like ``public()``.
         """
-        return self.filter(
+        from core.models import SiteConfiguration
+
+        qs = self.filter(
             starts_at__gte=timezone.now(),
             class_offering__status="published",
             class_offering__is_private=False,
         )
+        if not SiteConfiguration.load().display_demo_classes:
+            qs = qs.exclude(class_offering__slug__startswith="demo-")
+        return qs
 
     def upcoming_public_count(self) -> int:
         """How many purchasable, dated sessions are live in the public catalog."""
@@ -1925,6 +1960,10 @@ class Registration(models.Model):
     # save() to attribute a confirm/refund action in the audit feed. Unset on a
     # fresh instance — read via getattr(..., None).
     _acting_user: "User | None"
+    # Transient flag ``promote_from_waitlist`` sets around its save() so the
+    # CONFIRMED-transition dispatch logs WAITLIST_PROMOTED instead of the
+    # payment-flavored REGISTRATION_CONFIRMED. Unset elsewhere — read via getattr.
+    _promoting: bool
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending payment"
@@ -1968,6 +2007,21 @@ class Registration(models.Model):
         help_text="Discount code used at registration, if any.",
     )
     amount_paid_cents = models.PositiveIntegerField(default=0, help_text="Amount actually paid (after discount).")
+    payment_due_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "What this registration owes, stamped at promote time. 0 = nothing owed "
+            "(normal flow, free class, or fully settled at registration)."
+        ),
+    )
+    payment_link_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Last time a payment-link email was sent for this registration. Display-only "
+            "('Link sent Aug 26'); dedupe lives in the emit period."
+        ),
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -2068,12 +2122,24 @@ class Registration(models.Model):
                 )
         elif prior_status is not None and prior_status != self.status:
             if self.status == self.Status.CONFIRMED:
-                activity.log(
-                    CmsActivity.Kind.REGISTRATION_CONFIRMED,
-                    class_offering=self.class_offering,
-                    registration=self,
-                    actor=acting,
-                )
+                if getattr(self, "_promoting", False):
+                    # A staff promote is not a "Payment confirmed" event — log the
+                    # dedicated WAITLIST_PROMOTED row (with what the seat now owes)
+                    # instead, so the feed never double-rows the transition.
+                    activity.log(
+                        CmsActivity.Kind.WAITLIST_PROMOTED,
+                        class_offering=self.class_offering,
+                        registration=self,
+                        actor=acting,
+                        payload={"due_cents": self.payment_due_cents},
+                    )
+                else:
+                    activity.log(
+                        CmsActivity.Kind.REGISTRATION_CONFIRMED,
+                        class_offering=self.class_offering,
+                        registration=self,
+                        actor=acting,
+                    )
                 # The in-app "Registration confirmed" row + the confirmation email now
                 # both fan out from a single ``registration_confirmed`` event emitted by
                 # ``classes.emails.send_registration_confirmation`` (called right after
@@ -2086,34 +2152,11 @@ class Registration(models.Model):
                     registration=self,
                     actor=acting,
                 )
-                # A refund is transactional: the receipt always emails, and it emails the
-                # address ON THE REGISTRATION so a **guest** registrant (no linked member,
-                # so invisible to the REGISTRANT resolver) is reached too. The resolver
-                # still posts the in-app row to a linked member's user; for a guest it
-                # simply finds nobody and the email is the whole notification.
-                from django.urls import reverse
-
-                from classes.emails import _absolute_url
-                from core.events.emit import emit
-
-                registration_url = _absolute_url(
-                    reverse("classes:my_registration", kwargs={"token": self.self_serve_token})
-                )
-                emit(
-                    "refund_issued",
-                    actor=acting,
-                    target=self,
-                    context={
-                        "member": self.member,
-                        "member_name": self.first_name or "there",
-                        "class_title": self.class_offering.title,
-                        "amount": f"${self.amount_paid_cents / 100:.2f}",
-                        "registration_url": registration_url,
-                    },
-                    url="/classes/account/",
-                    email_to=self.email,
-                    period=f"reg:{self.pk}:refund",
-                )
+                # The refund RECEIPT no longer emits here: it lives with the
+                # PaymentRefund row's succeeded transition (billing.refunds), which
+                # knows the ACTUAL refunded amount and gives each refund a unique
+                # dedupe period so a second partial's receipt still delivers. This
+                # save-transition keeps only the audit log above.
 
     @staticmethod
     def _generate_order_number() -> str:
@@ -2145,6 +2188,136 @@ class Registration(models.Model):
         if match is not None:
             self.member = match
             super().save(update_fields=["member"])
+
+    # --- Roster management (staff promote / mark-paid / remove) -------------
+
+    @property
+    def balance_due_cents(self) -> int:
+        """Cents still owed — the stamped promote-time price minus what has been paid."""
+        return max(0, self.payment_due_cents - self.amount_paid_cents)
+
+    @property
+    def is_unpaid(self) -> bool:
+        """True for a CONFIRMED seat-holder who still owes money (promoted, not yet settled)."""
+        return self.status == self.Status.CONFIRMED and self.balance_due_cents > 0
+
+    def compute_promote_price_cents(self) -> int:
+        """What this registrant owes if promoted now — mirrors the register form's price engine.
+
+        Uses STORED state (the offering's sale price, this registration's linked
+        member, and any discount code stored at waitlist join): sale price first,
+        then the member percentage, then the code — unless an active sale blocks
+        codes (``sale_allow_discount_codes`` off), in which case the stored code is
+        ignored exactly as the form would have refused it. The code is applied as
+        stored, with no re-validation — the person entered it in good faith.
+        """
+        offering = self.class_offering
+        price = offering.sale_price_cents
+        if self.member is not None and offering.member_discount_pct:
+            price = int(price * (100 - offering.member_discount_pct) / 100)
+        sale_blocks_codes = offering.sale_is_active and not offering.sale_allow_discount_codes
+        if self.discount_code is not None and not sale_blocks_codes:
+            price = self.discount_code.apply_to(price)
+        return max(0, price)
+
+    def promote_from_waitlist(self, actor: "User | None") -> None:
+        """Staff-pick this waitlisted person straight into the class — instantly CONFIRMED.
+
+        Stamps ``payment_due_cents`` from :meth:`compute_promote_price_cents` so the
+        deal is frozen at promote time, and logs WAITLIST_PROMOTED (via the
+        ``_promoting`` dispatch branch) instead of the payment-flavored confirm row.
+        Sends NO email — the caller chooses which promoted email goes out (pay-link
+        vs plain), keeping "the registrant hears exactly once" honest. Never fires
+        claim links (confirming consumes a seat; only cancel/refund paths promote).
+        Over-capacity is allowed — the UI warns, staff know the room.
+
+        Raises:
+            RegistrationStateError: If this registration is not WAITLISTED (a
+                double-click, stale row, or concurrent promote — first one wins).
+        """
+        from classes.exceptions import RegistrationStateError
+
+        with transaction.atomic():
+            # Guard on a locked refetch, not the in-memory copy — two concurrent
+            # promotes serialize here and the second sees the flipped status.
+            current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+            if current.status != self.Status.WAITLISTED:
+                raise RegistrationStateError("Only waitlisted registrations can be added to the class.")
+            self.payment_due_cents = self.compute_promote_price_cents()
+            self.status = self.Status.CONFIRMED
+            self.confirmed_at = timezone.now()
+            self._acting_user = actor
+            self._promoting = True
+            try:
+                self.save(update_fields=["payment_due_cents", "status", "confirmed_at"])
+            finally:
+                self._promoting = False
+
+    def mark_paid(self, actor: "User | None", note: str = "") -> None:
+        """Settle an unpaid promoted registration by hand (cash, comped, check).
+
+        Sets ``amount_paid_cents`` to the stamped ``payment_due_cents``, logs
+        REGISTRATION_MARKED_PAID (actor + optional method note — who/when live on
+        the activity row), and bumps the stored discount code's use count exactly
+        once, matching the online-payment path. No email — the staff member is
+        standing next to the cash box; the activity feed is the record.
+
+        Raises:
+            RegistrationStateError: If nothing is owed (unpaid → paid is one-way) —
+                including when an in-flight online payment settled the row between
+                the caller's fetch and this call (the webhook holds the same lock,
+                so the two settlements serialize and the loser hears about it).
+        """
+        from classes import activity
+        from classes.exceptions import RegistrationStateError
+
+        with transaction.atomic():
+            # Guard on a locked refetch, not the in-memory copy — the balance
+            # webhook runs under the same select_for_update, so a cash mark-paid
+            # racing an online payment can never record both silently.
+            current = type(self)._default_manager.select_for_update().get(pk=self.pk)
+            if not current.is_unpaid:
+                raise RegistrationStateError("This registration has no outstanding balance.")
+            code_not_yet_counted = current.amount_paid_cents == 0
+            self.payment_due_cents = current.payment_due_cents
+            self.amount_paid_cents = current.payment_due_cents
+            self.save(update_fields=["amount_paid_cents"])
+            activity.log(
+                CmsActivity.Kind.REGISTRATION_MARKED_PAID,
+                class_offering=self.class_offering,
+                registration=self,
+                actor=actor,
+                payload={"note": note},
+            )
+            if self.discount_code_id and code_not_yet_counted:
+                DiscountCode.objects.filter(pk=self.discount_code_id).update(use_count=F("use_count") + 1)
+                activity.log(
+                    CmsActivity.Kind.DISCOUNT_CODE_REDEEMED,
+                    class_offering=self.class_offering,
+                    registration=self,
+                    payload={"code": self.discount_code.code},  # type: ignore[union-attr]  # discount_code_id guard ensures non-None
+                )
+
+    def remove_by_staff(self, actor: "User | None", reason: str = "") -> None:
+        """Staff-remove this registrant: wraps :meth:`cancel`, then sends the removal notice.
+
+        The removal email lives at THIS layer only, so self-serve cancels and
+        refund flows keep their current email behavior untouched. ``cancel`` frees
+        the seat, logs the cancel/waitlist-left activity, and fires the auto
+        claim-link email to the next un-notified waitlister when a seat opens.
+
+        Raises:
+            RegistrationStateError: If this registration is already cancelled/refunded.
+        """
+        from classes.exceptions import RegistrationStateError
+
+        if self.status not in (self.Status.CONFIRMED, self.Status.PENDING, self.Status.WAITLISTED):
+            raise RegistrationStateError(f"This registration is already {self.get_status_display().lower()}.")
+        was_waitlisted = self.status == self.Status.WAITLISTED
+        self.cancel(reason=reason, actor=actor)
+        from classes.emails import send_removal_notice
+
+        send_removal_notice(self, was_waitlisted=was_waitlisted)
 
     def cancel(self, reason: str = "", actor: "User | None" = None) -> None:
         """Cancel this registration and record who did it.
@@ -2198,6 +2371,86 @@ class Registration(models.Model):
         self.save(update_fields=["status", "cancellation_reason"])
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()
+
+    # --- Refund engine surface (billing.refunds.RefundableSource) -----------
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this registration's payment.
+
+        Iterates ``refunds.all()`` (not an aggregate) so a ``prefetch_related``
+        caller pays no extra query per row.
+        """
+        from billing.models import PaymentRefund
+
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefund.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund — the paid amount minus succeeded refunds."""
+        return self.amount_paid_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"`` — the panel/badge vocabulary.
+
+        ``"failed"``: the latest refund attempt is FAILED and no succeeded refund
+        has since covered that amount (a later succeeded refund would be the
+        latest row). Deliberately NOT a new ``Status`` value — a partially
+        refunded registration is still CONFIRMED (the person is still attending),
+        and a REFUNDED registration whose covering refund later failed is exactly
+        what the Retry action exists for.
+        """
+        from billing.models import PaymentRefund
+
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefund.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent id refunds are issued against (blank when unpaid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol)."""
+        from django.urls import reverse
+
+        from classes.emails import _absolute_url
+
+        guest_name = f"{self.first_name} {self.last_name}".strip()
+        return {
+            "item_title": self.class_offering.title,
+            "recipient_email": self.email,
+            "recipient_name": self.first_name or "there",
+            "payer_name": self.member.display_name if self.member is not None else (guest_name or self.email),
+            "member": self.member,
+            "manage_url": _absolute_url(reverse("classes:my_registration", kwargs={"token": self.self_serve_token})),
+            "in_app_url": "/classes/account/",
+        }
+
+    def on_fully_refunded(self, reason: str, actor: "User | None") -> None:
+        """Full-refund bookkeeping: status to REFUNDED, seat freed, waitlist promoted."""
+        self.mark_refunded(reason=reason, actor=actor)
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: "User | None" = None
+    ) -> "PaymentRefund":
+        """Send a real Stripe refund for this registration — full when ``amount_cents`` is ``None``.
+
+        Thin delegate: the shared billing-side service owns locking, the Stripe
+        call, ledger-row lifecycle, the receipt email, and full-refund
+        bookkeeping. See :func:`billing.refunds.issue_refund` for the exceptions.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
     def move_to(self, target: "ClassOffering", actor: "User | None" = None) -> None:
         """Reassign this registration to a different class, keeping payment as-is.
@@ -2451,10 +2704,16 @@ class CmsActivity(models.Model):
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
         REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"
         REGISTRATION_REFUNDED = "registration_refunded", "Refunded"
+        REGISTRATION_PARTIAL_REFUND = "registration_partial_refund", "Partially refunded"
+        REGISTRATION_REFUND_FAILED = "registration_refund_failed", "Refund failed"
         REGISTRATION_MOVED = "registration_moved", "Moved"
+        REGISTRATION_MARKED_PAID = "registration_marked_paid", "Marked paid"
+        PAYMENT_LINK_SENT = "payment_link_sent", "Payment link sent"
+        DUPLICATE_PAYMENT = "duplicate_payment", "Duplicate payment received"
         WAITLIST_JOINED = "waitlist_joined", "Joined waitlist"
         WAITLIST_NOTIFIED = "waitlist_notified", "Notified of open spot"
         WAITLIST_LEFT = "waitlist_left", "Left waitlist"
+        WAITLIST_PROMOTED = "waitlist_promoted", "Promoted from waitlist"
         DISCOUNT_CODE_CREATED = "discount_code_created", "Discount code created"
         DISCOUNT_CODE_REDEEMED = "discount_code_redeemed", "Discount code redeemed"
 

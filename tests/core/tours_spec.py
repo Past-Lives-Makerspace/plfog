@@ -1,6 +1,8 @@
 """BDD-style tests for the guided-tour registry + offer context (Spec C §5)."""
 
 import re
+from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from django.contrib.auth.models import AnonymousUser, User
@@ -10,7 +12,20 @@ from django.utils import timezone
 
 from core.help_registry import HELP_KEYS
 from core.models import TourState
-from core.tours import TOURS, entry_url_for, help_card_rows, tour_offer_context, tours_for
+from core.tours import (
+    TOURS,
+    Tour,
+    TourStep,
+    _admin_audience,
+    _demo_class_slug,
+    _demo_guild_slug,
+    _instructor_class_pk,
+    _tour_payload,
+    entry_url_for,
+    help_card_rows,
+    tour_offer_context,
+    tours_for,
+)
 from membership.models import Member
 from tests.membership.factories import GuildFactory
 
@@ -18,6 +33,20 @@ pytestmark = pytest.mark.django_db
 
 TOUR_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 HELP_KEY_TARGET_RE = re.compile(r'^\[data-help-key="([^"]+)"\]$')
+
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
+_STAMPED_KEY_RE = re.compile(r'data-help-key="([^"{}]*)"')
+_STAMPED_PARAM_RE = re.compile(r'action_help_key="([^"{}]*)"')
+
+
+def _keys_stamped_in_templates() -> set[str]:
+    """Every help key actually stamped as an element attribute under templates/."""
+    keys: set[str] = set()
+    for path in TEMPLATES_DIR.rglob("*.html"):
+        text = path.read_text(encoding="utf-8")
+        keys.update(_STAMPED_KEY_RE.findall(text))
+        keys.update(_STAMPED_PARAM_RE.findall(text))
+    return keys
 
 
 def _member(name: str = "tour-member", **kwargs) -> Member:
@@ -45,8 +74,8 @@ def _get(url: str, member: Member):
 
 
 def describe_TOURS():
-    def it_registers_the_three_launch_tours():
-        assert set(TOURS) == {"member-welcome", "guild-lead", "instructor"}
+    def it_registers_the_four_role_tours():
+        assert set(TOURS) == {"member-welcome", "guild-lead", "instructor", "admin"}
 
     def it_keys_match_their_tour_and_the_slug_format():
         for key, tour in TOURS.items():
@@ -71,6 +100,23 @@ def describe_TOURS():
                 assert match, f"{tour.key}: non-help-key target {step.target!r}"
                 assert match.group(1) in HELP_KEYS, f"{tour.key}: unregistered key {match.group(1)!r}"
 
+    def it_targets_only_keys_stamped_in_a_template():
+        # The template->registry drift guard (tests/hub/help_keys_spec) does NOT
+        # enforce the reverse: a key can be registered yet stamped in zero
+        # templates, so a tour step aimed at it would spotlight nothing on the
+        # page. Guard the tour direction explicitly.
+        stamped = _keys_stamped_in_templates()
+        unstamped = sorted(
+            {
+                match.group(1)
+                for tour in TOURS.values()
+                for step in tour.steps
+                if step.target is not None and (match := HELP_KEY_TARGET_RE.match(step.target))
+                if match.group(1) not in stamped
+            }
+        )
+        assert not unstamped, "tour targets not stamped in any template:\n  " + "\n  ".join(unstamped)
+
     def it_reverses_every_entry_url(db):
         member = _lead("urls")
         for tour in TOURS.values():
@@ -89,12 +135,13 @@ def describe_TOURS():
         assert TOURS["member-welcome"].title == "The Member Hub"
         assert TOURS["guild-lead"].title == "Guild Lead Tools"
         assert TOURS["instructor"].title == "The Teaching Portal"
+        assert TOURS["admin"].title == "Admin Controls"
         member_step_titles = {step.title for step in TOURS["member-welcome"].steps}
         assert "Everything in One Place" in member_step_titles
         assert "Community Calendar" in member_step_titles
         lead_step_titles = {step.title for step in TOURS["guild-lead"].steps}
         assert "Your Guild's Control Room" in lead_step_titles
-        assert "One Tab Per Job" in lead_step_titles
+        assert "Your Wishlist" in lead_step_titles
 
     def describe_guild_lead_url_fallback_for_admins_and_officers():
         def it_falls_back_to_the_first_active_guild_ordered_by_name_for_an_admin():
@@ -190,10 +237,10 @@ def describe_tours_for():
         lead.save(update_fields=["instructor_oriented_at"])
         assert [t.key for t in tours_for(lead)] == ["member-welcome", "guild-lead", "instructor"]
 
-    def it_includes_the_lead_tour_for_admins_who_staff_no_guild():
+    def it_includes_the_lead_and_admin_tours_for_admins_who_staff_no_guild():
         GuildFactory(name="Rows Active Guild", is_active=True)
         admin = _member("tf-admin", fog_role=Member.FogRole.ADMIN)
-        assert [t.key for t in tours_for(admin)] == ["member-welcome", "guild-lead"]
+        assert [t.key for t in tours_for(admin)] == ["member-welcome", "guild-lead", "admin"]
 
     def it_includes_the_lead_tour_for_guild_officers_who_staff_no_guild():
         GuildFactory(name="Rows Officer Guild", is_active=True)
@@ -325,3 +372,158 @@ def describe_tour_offer_context():
             ctx = tour_offer_context(_get("/x/?tour=guild-lead", member), "guild-lead")
             assert ctx["tour_autostart"] is False
             assert ctx["tour_json"] is None
+
+
+def describe_admin_tour():
+    def it_admits_a_full_fog_admin():
+        admin = _member("adm-full", fog_role=Member.FogRole.ADMIN)
+        assert _admin_audience(admin) is True
+        assert TOURS["admin"].audience(admin) is True
+
+    def it_admits_a_member_holding_any_admin_capability():
+        from membership.models import AdminCapability
+
+        scoped = _member("adm-scoped")
+        AdminCapability.objects.create(member=scoped, capability=AdminCapability.Capability.REFUNDS)
+        assert _admin_audience(scoped) is True
+        assert TOURS["admin"].audience(scoped) is True
+
+    def it_excludes_a_plain_member():
+        plain = _member("adm-none")
+        assert _admin_audience(plain) is False
+        assert TOURS["admin"].audience(plain) is False
+
+    def it_lists_the_admin_tour_on_the_help_card_for_an_admin():
+        admin = _member("adm-rows", fog_role=Member.FogRole.ADMIN)
+        assert "admin" in [row["tour"].key for row in help_card_rows(admin)]
+
+    def it_reverses_the_admin_entry_url():
+        admin = _member("adm-url", fog_role=Member.FogRole.ADMIN)
+        assert entry_url_for(TOURS["admin"], admin) == f"{reverse('hub_admin_tools')}?tour=admin"
+
+
+def describe_member_tour_resolvers():
+    def describe__demo_guild_slug():
+        def it_prefers_an_active_guild_with_a_future_orientation_slot():
+            from tests.membership.factories import OrientationSlotFactory
+
+            member = _member("dg-slot")
+            GuildFactory(name="Aaa No Slot Guild", is_active=True)  # alphabetically first, but no slot
+            with_slot = GuildFactory(name="Zzz Slotted Guild", is_active=True)
+            OrientationSlotFactory(guild=with_slot)
+            assert _demo_guild_slug(member) == {"slug": with_slot.slug}
+
+        def it_falls_back_to_the_first_active_guild_by_name_when_none_have_slots():
+            member = _member("dg-fallback")
+            GuildFactory(name="Zzz Active Guild", is_active=True)
+            first = GuildFactory(name="Aaa Active Guild", is_active=True)
+            assert _demo_guild_slug(member) == {"slug": first.slug}
+
+        def it_raises_when_no_active_guild_exists():
+            member = _member("dg-none")
+            GuildFactory(name="Only Inactive Guild", is_active=False)
+            with pytest.raises(ValueError, match="No active guild"):
+                _demo_guild_slug(member)
+
+    def describe__demo_class_slug():
+        def it_returns_the_soonest_bookable_class_slug():
+            from classes.factories import ClassOfferingFactory, ClassSessionFactory
+            from classes.models import ClassOffering
+
+            member = _member("dc-1")
+            offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, is_private=False)
+            ClassSessionFactory(
+                class_offering=offering,
+                starts_at=timezone.now() + timedelta(days=7),
+                ends_at=timezone.now() + timedelta(days=7, hours=2),
+            )
+            assert _demo_class_slug(member) == {"slug": offering.slug}
+
+        def it_raises_when_no_bookable_class_exists():
+            member = _member("dc-none")
+            with pytest.raises(ValueError, match="No bookable class"):
+                _demo_class_slug(member)
+
+    def describe__instructor_class_pk():
+        def it_returns_the_members_newest_class_pk():
+            from classes.factories import ClassOfferingFactory
+
+            member = _member("ic-1")
+            ClassOfferingFactory(instructor=member)
+            newest = ClassOfferingFactory(instructor=member)
+            assert _instructor_class_pk(member) == {"pk": newest.pk}
+
+        def it_raises_when_the_member_owns_no_class():
+            member = _member("ic-none")
+            with pytest.raises(ValueError, match="owns no class"):
+                _instructor_class_pk(member)
+
+
+def describe__tour_payload():
+    def it_keeps_a_plain_highlight_step_backward_compatible():
+        member = _member("pl-plain")
+        payload = _tour_payload(TOURS["member-welcome"], member, autostart=False)
+        first = payload["steps"][0]
+        assert first["navigate"] is None
+        assert first["tab_set"] is None
+        assert first["click"] is None
+        assert first["wait_for"] is None
+        assert first["page_path"] == reverse("hub_home")
+        assert payload["resume_step"] == 0
+        assert payload["autostart"] is False
+
+    def it_resolves_navigate_to_a_relative_href_and_carries_page_path_forward():
+        member = _member("pl-nav")
+        steps = _tour_payload(TOURS["member-welcome"], member, autostart=True)["steps"]
+        catalog = next(s for s in steps if s["target"] == '[data-help-key="catalog.filter"]')
+        assert catalog["navigate"] == reverse("classes:public_list")
+        assert catalog["page_path"] == reverse("classes:public_list")
+        card = next(s for s in steps if s["target"] == '[data-help-key="catalog.class-card"]')
+        assert card["navigate"] is None  # inherits the catalog page
+        assert card["page_path"] == reverse("classes:public_list")
+
+    def it_folds_a_static_query_into_the_navigate_href():
+        admin = _member("pl-q", fog_role=Member.FogRole.ADMIN)
+        steps = _tour_payload(TOURS["admin"], admin, autostart=False)["steps"]
+        refunds = next(s for s in steps if s["target"] == '[data-help-key="admin.refunds"]')
+        assert refunds["navigate"] == reverse("billing_admin_dashboard") + "?tab=payments"
+        recon = next(s for s in steps if s["target"] == '[data-help-key="admin.reconciliation"]')
+        assert recon["navigate"] == reverse("billing_admin_dashboard") + "?tab=reconciliation"
+
+    def it_resolves_a_callable_query_with_the_member():
+        from classes.factories import ClassOfferingFactory
+
+        member = _member("pl-cq")
+        offering = ClassOfferingFactory(instructor=member)
+        steps = _tour_payload(TOURS["instructor"], member, autostart=False)["steps"]
+        compose = next(s for s in steps if s["target"] == '[data-help-key="announcements.compose"]')
+        assert compose["navigate"] == reverse("hub_compose") + f"?audience=class%3A{offering.pk}&lock=1"
+
+    def it_serializes_tab_set_as_a_list():
+        lead = _lead("pl-tab")
+        steps = _tour_payload(TOURS["guild-lead"], lead, autostart=False)["steps"]
+        orient = next(s for s in steps if s["target"] == '[data-help-key="guild.run-orientations"]')
+        assert orient["tab_set"] == ["section", "orientations"]
+        assert orient["navigate"] is None
+
+    def it_drops_steps_whose_resolver_raises_and_keeps_the_rest():
+        # An instructor who owns no class: the roster, waitlist, and compose stops
+        # (each with a class resolver) drop; create + submit survive.
+        member = _member("pl-drop")
+        targets = [s["target"] for s in _tour_payload(TOURS["instructor"], member, autostart=False)["steps"]]
+        assert '[data-help-key="teach.roster-table"]' not in targets
+        assert '[data-help-key="teach.roster-waitlist"]' not in targets
+        assert '[data-help-key="announcements.compose"]' not in targets
+        assert '[data-help-key="teach.submit-for-review"]' in targets
+
+    def it_raises_on_a_cross_origin_navigate_at_build_time():
+        member = _member("pl-x")
+        bad = Tour(
+            key="member-welcome",  # a registered key so state_url reverses
+            title="Bad",
+            entry_url_name="hub_home",
+            audience=lambda m: True,
+            steps=(TourStep(target=None, title="X", body="x", navigate="https://book.example.com/classes/"),),
+        )
+        with pytest.raises(ValueError, match="cross-origin"):
+            _tour_payload(bad, member, autostart=False)

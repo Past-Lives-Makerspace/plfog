@@ -1,11 +1,14 @@
-{% comment %}My Guilds — one on/off row per active guild. Each toggle auto-saves over HTMX
-   (join on check, leave on uncheck) and returns a toast; there is no page-level Save.
-   The toggles carry their own hx-post, so this partial must live OUTSIDE any <form>.{% endcomment %}
+{% comment %}Guild Updates — one on/off row per active guild (WHICH guilds you follow).
+   Each toggle auto-saves over HTMX (subscribe on check, unsubscribe on uncheck) and
+   returns a toast; there is no page-level Save. The Notifications tab is the channel
+   (HOW) control — the two cross-link. The toggles carry their own hx-post, so this
+   partial must live OUTSIDE any <form>.{% endcomment %}
 <div class="hub-card">
-  <h2 class="pl-notif-title">My Guilds</h2>
+  <h2 class="pl-notif-title">Guild Updates</h2>
   <p class="hub-text-muted pl-notif-intro">
-    Officially joining a guild means you'll get its announcement emails and show up on its
-    roster. Flip a guild on to join, off to leave — changes save instantly.
+    Choose which guilds you get announcements from. Flip one on to follow it, off to stop.
+    Changes save instantly. Following a guild also puts you on its roster and gives you its
+    Discord role.
   </p>
   {% if member %}
     {% if my_guilds_rows %}
@@ -21,7 +24,7 @@
             <label class="pl-toggle pl-toggle--sm">
               <input type="checkbox"
                      name="joined"
-                     aria-label="Officially in {{ row.guild.name }}"
+                     aria-label="Get updates from {{ row.guild.name }}"
                      {% if row.joined %}checked{% endif %}
                      hx-post="{% url 'hub_guild_membership_set' row.guild.pk %}"
                      hx-trigger="change"
@@ -35,6 +38,10 @@
           </div>
         {% endfor %}
       </div>
+      <p class="hub-text-muted" style="margin-top:1rem; font-size:0.85rem;">
+        How updates reach you (email, in app, Discord) is set on the
+        <a href="?tab=notifications" @click.prevent="go('notifications')">Notifications tab</a>.
+      </p>
     {% else %}
       <p class="hub-text-muted">No guilds have been set up yet. Check back soon.</p>
     {% endif %}

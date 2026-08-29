@@ -4,6 +4,15 @@ Welcome to {{ guild.name }}!
 
 {{ body|rich_email_text }}
 
-Guild page: {{ guild_url }}
+What you can do on your guild page:
+-> Read the guild's announcements
+-> Book an orientation
+-> See meetings and the calendar
+-> Meet the roster
+-> Check the wishlist
+
+New here? Read the quick guide to your guild page: {{ help_url }}
+
+View guild page: {{ guild_url }}
 
 {% include "membership/emails/_footer.txt" %}

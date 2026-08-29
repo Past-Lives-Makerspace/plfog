@@ -33,15 +33,18 @@ EXPECTED_PAIRS = {
     "waitlist_joined",
     "waitlist_spot_opened",
     "welcome",
+    "promoted",
+    "promoted_pay",
+    "removed",
     # membership
     "discord_guilds_imported",
-    "guild_welcome",
     "orientation_request",
     "orientation_confirmed",
     "orientation_declined",
     "orientation_cancelled",
     "orientation_lead_request",
     "orientation_thankyou",
+    "guild_welcome",
     # billing
     "charge_failed_admin",
     "receipt",
@@ -62,10 +65,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_23_pairs():
+    def it_discovers_the_expected_26_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 23
+        assert len(EXPECTED_PAIRS) == 26
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()
@@ -89,9 +92,11 @@ def describe_email_gallery_completeness():
         assert set(literal_kinds) == {
             "core.find_account",
             "classes.welcome_email",
+            "classes.duplicate_payment_alert",
             "classes.welcome_email_test",
             "classes.instructor_message",
             "classes.admin_message",
+            "membership.orientation_orphan_payment",
             "release_email.test",
             "announcement.test",
             "hub.beta_feedback",
@@ -117,6 +122,18 @@ def describe_email_gallery_completeness():
             assert not (event.key in carded_keys and event.key in listed_keys), (
                 f"spine event {event.key} is both carded and listed as no-email"
             )
+
+    def it_lists_guild_joined_as_a_no_email_event():
+        """#4: guild_joined declares no_email (its welcome email was removed), so it is LISTED
+        under 'No email is sent' with a plain reason — never re-carded as an opt-in email."""
+        listed = {event.key: reason for event, reason in no_email_events()}
+        assert "guild_joined" in listed
+        assert listed["guild_joined"].endswith("no email channel")
+        emails = gallery_emails()
+        carded_keys = frozenset().union(*(e.event_keys for e in emails)) | {
+            e.key for e in emails if e.renderer is Renderer.SPINE_COPY
+        }
+        assert "guild_joined" not in carded_keys
 
     def it_dedups_review_decision_two_keys():
         """M1: both decision events resolve to the single review_decision entry."""

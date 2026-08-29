@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load classes_tags %}
 
 {% block title %}Payments — Past Lives{% endblock %}
 
@@ -53,25 +54,35 @@
   /* Toolbar row */
   .pl-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 
-  /* Modal */
+  /* Modal — scoped under .pl-modal-overlay so these dark-fixed styles hit only the
+     page's own vanilla modals, never the theme-aware hub components/modal.html
+     (.pl-modal-backdrop) that the refund flow uses. */
   .pl-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background-color: rgba(0,0,0,0.6); padding: 1rem; }
-  .pl-modal { background-color: #092E4C; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.4); max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; }
-  .pl-modal__header { display: flex; align-items: flex-start; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .pl-modal__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.1rem; font-weight: 700; color: #F4EFDD; margin: 0; }
-  .pl-modal__subtitle { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.2rem; }
-  .pl-modal__close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #96ACBB; padding: 0; line-height: 1; flex-shrink: 0; }
-  .pl-modal__close:hover { color: #F4EFDD; }
-  .pl-modal__body { padding: 1.5rem; }
-  .pl-modal__footer { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); gap: 0.75rem; flex-wrap: wrap; }
-  .pl-modal__field { margin-bottom: 1.25rem; }
-  .pl-modal__field:last-child { margin-bottom: 0; }
-  .pl-modal__field label { display: block; font-size: 0.85rem; font-weight: 500; color: #96ACBB; margin-bottom: 0.375rem; }
-  .pl-modal__field select, .pl-modal__field input[type="text"], .pl-modal__field input[type="number"] { width: 100%; padding: 0.625rem 0.875rem; font-size: 0.9375rem; color: #F4EFDD; background-color: #0a1929; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; box-sizing: border-box; }
-  .pl-modal__field select:focus, .pl-modal__field input:focus { outline: none; border-color: #EEB44B; box-shadow: 0 0 0 3px rgba(238,180,75,0.15); }
-  .pl-modal__pills { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
-  .pl-modal__pill { flex: 1; background: rgba(255,255,255,0.04); border-radius: 8px; padding: 0.75rem; text-align: center; }
-  .pl-modal__pill-value { font-size: 1.25rem; font-weight: 900; color: #EEB44B; }
-  .pl-modal__pill-label { font-size: 0.7rem; color: #96ACBB; margin-top: 0.15rem; }
+  .pl-modal-overlay .pl-modal { background-color: #092E4C; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.4); max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; }
+  .pl-modal-overlay .pl-modal__header { display: flex; align-items: flex-start; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .pl-modal-overlay .pl-modal__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.1rem; font-weight: 700; color: #F4EFDD; margin: 0; }
+  .pl-modal-overlay .pl-modal__subtitle { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.2rem; }
+  .pl-modal-overlay .pl-modal__close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #96ACBB; padding: 0; line-height: 1; flex-shrink: 0; }
+  .pl-modal-overlay .pl-modal__close:hover { color: #F4EFDD; }
+  .pl-modal-overlay .pl-modal__body { padding: 1.5rem; }
+  .pl-modal-overlay .pl-modal__footer { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); gap: 0.75rem; flex-wrap: wrap; }
+  .pl-modal-overlay .pl-modal__field { margin-bottom: 1.25rem; }
+  .pl-modal-overlay .pl-modal__field:last-child { margin-bottom: 0; }
+  .pl-modal-overlay .pl-modal__field label { display: block; font-size: 0.85rem; font-weight: 500; color: #96ACBB; margin-bottom: 0.375rem; }
+  .pl-modal-overlay .pl-modal__field select, .pl-modal-overlay .pl-modal__field input[type="text"], .pl-modal-overlay .pl-modal__field input[type="number"] { width: 100%; padding: 0.625rem 0.875rem; font-size: 0.9375rem; color: #F4EFDD; background-color: #0a1929; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; box-sizing: border-box; }
+  .pl-modal-overlay .pl-modal__field select:focus, .pl-modal-overlay .pl-modal__field input:focus { outline: none; border-color: #EEB44B; box-shadow: 0 0 0 3px rgba(238,180,75,0.15); }
+  .pl-modal-overlay .pl-modal__pills { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
+  .pl-modal-overlay .pl-modal__pill { flex: 1; background: rgba(255,255,255,0.04); border-radius: 8px; padding: 0.75rem; text-align: center; }
+  .pl-modal-overlay .pl-modal__pill-value { font-size: 1.25rem; font-weight: 900; color: #EEB44B; }
+  .pl-modal-overlay .pl-modal__pill-label { font-size: 0.7rem; color: #96ACBB; margin-top: 0.15rem; }
+
+  /* Payments tab */
+  .pl-table-scroll { overflow-x: auto; }
+  .pl-table-scroll.htmx-request { opacity: 0.5; }
+  .pl-date-form { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .pl-date-input { padding: 0.35rem 0.625rem; font-size: 0.8125rem; border-radius: 6px; background: var(--hub-input-bg); color: var(--hub-text); border: 1px solid var(--hub-input-border, rgba(255,255,255,0.15)); }
+  .pl-date-input::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+  [data-theme="light"] .pl-date-input::-webkit-calendar-picker-indicator { filter: none; }
 
   /* Settings form */
   .pl-form-row { margin-bottom: 1.25rem; }
@@ -101,16 +112,30 @@
 
   <div>
     <h1 class="pl-card__title">Payments Dashboard</h1>
+    {% if my_tab_enabled %}
     <p class="pl-text-muted">Tab billing, charge history, and Stripe configuration.</p>
+    {% elif viewer_is_fog_admin %}
+    <p class="pl-text-muted">Payment history and Stripe configuration.</p>
+    {% else %}
+    <p class="pl-text-muted">Payment history across the makerspace.</p>
+    {% endif %}
   </div>
 
-  {# --- Tab navigation --- #}
+  {# --- Tab navigation (suppressed when only one tab would render) --- #}
+  {% if my_tab_enabled or viewer_is_fog_admin %}
   <div class="pl-tab-nav">
+    {% if my_tab_enabled %}
     <a href="?tab=overview" class="{% if active_tab == 'overview' %}active{% endif %}">Overview</a>
     <a href="?tab=open-tabs" class="{% if active_tab == 'open-tabs' %}active{% endif %}">Open Tabs</a>
+    {% endif %}
+    <a href="?tab=payments" class="{% if active_tab == 'payments' %}active{% endif %}">Payments</a>
+    {% if viewer_is_fog_admin %}
+    <a href="?tab=reconciliation" class="{% if active_tab == 'reconciliation' %}active{% endif %}">Reconciliation</a>
     <a href="?tab=settings" class="{% if active_tab == 'settings' %}active{% endif %}">Settings</a>
     <a href="?tab=stripe" class="{% if active_tab == 'stripe' %}active{% endif %}">Stripe</a>
+    {% endif %}
   </div>
+  {% endif %}
 
   {# ================================================================ #}
   {# OVERVIEW TAB                                                      #}
@@ -248,6 +273,172 @@
   {% endif %}{# /open-tabs #}
 
   {# ================================================================ #}
+  {# PAYMENTS TAB — the unified ledger across all payment sources      #}
+  {# ================================================================ #}
+  {% if active_tab == "payments" %}
+
+  <div class="pl-stats pl-stats--3">
+    <div class="pl-stat">
+      <div class="pl-stat__value">{{ ledger.collected_cents|cents_as_dollars }}</div>
+      <div class="pl-stat__label">Collected</div>
+    </div>
+    <div class="pl-stat">
+      <div class="pl-stat__value">{{ ledger.refunded_cents|cents_as_dollars }}</div>
+      <div class="pl-stat__label">Refunded</div>
+    </div>
+    <div class="pl-stat">
+      <div class="pl-stat__value">{{ ledger.net_cents|cents_as_dollars }}</div>
+      <div class="pl-stat__label">Net</div>
+    </div>
+  </div>
+
+  <div class="pl-toolbar">
+    <div class="pl-filters">
+      <a href="?tab=payments&source=all&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'all' %}active{% endif %}">All</a>
+      <a href="?tab=payments&source=tab&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'tab' %}active{% endif %}">Tabs</a>
+      <a href="?tab=payments&source=class&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'class' %}active{% endif %}">Classes</a>
+      {# The Orientation chip ships hidden until that payment source exists (companion spec). #}
+    </div>
+    <div class="pl-filters">
+      <a href="?tab=payments&source={{ payments_source }}&status=all&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'all' %}active{% endif %}">All</a>
+      <a href="?tab=payments&source={{ payments_source }}&status=paid&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'paid' %}active{% endif %}">Paid</a>
+      <a href="?tab=payments&source={{ payments_source }}&status=refunded&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'refunded' %}active{% endif %}">Refunded</a>
+      <a href="?tab=payments&source={{ payments_source }}&status=partial&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'partial' %}active{% endif %}">Partial</a>
+      <a href="?tab=payments&source={{ payments_source }}&status=failed&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'failed' %}active{% endif %}">Failed</a>
+    </div>
+    <form method="get" action="" class="pl-date-form">
+      <input type="hidden" name="tab" value="payments">
+      <input type="hidden" name="source" value="{{ payments_source }}">
+      <input type="hidden" name="status" value="{{ payments_status }}">
+      <input type="date" name="start" value="{{ payments_start }}" class="pl-date-input" aria-label="Start date"
+             onclick="try { this.showPicker() } catch (e) {}">
+      <input type="date" name="end" value="{{ payments_end }}" class="pl-date-input" aria-label="End date"
+             onclick="try { this.showPicker() } catch (e) {}">
+      <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Apply</button>
+    </form>
+    <a href="{% url 'billing_admin_payments_csv' %}?{{ payments_query }}" class="pl-btn pl-btn--secondary pl-btn--sm">Export CSV</a>
+  </div>
+
+  <div class="pl-table-scroll"
+       data-help-key="admin.refunds"
+       hx-get="{% url 'billing_admin_payments_table' %}?{{ payments_query }}"
+       hx-trigger="refund-done from:body"
+       hx-swap="innerHTML">
+    {% include "billing/partials/payments_table.html" %}
+  </div>
+
+  {% include "components/modal.html" with modal_id="refund-modal" modal_title="Refund Payment" modal_size="sm" %}
+  <script>
+    document.body.addEventListener('refund-done', function () {
+      window.dispatchEvent(new CustomEvent('close-modal', { detail: 'refund-modal' }));
+    });
+  </script>
+
+  {% endif %}{# /payments #}
+
+  {# ================================================================ #}
+  {# RECONCILIATION TAB — admin-only allocation of collected money      #}
+  {# ================================================================ #}
+  {% if active_tab == "reconciliation" %}
+
+  <div data-help-key="admin.reconciliation">
+    <h2 class="pl-card__title" style="font-size:1.35rem">Reconciliation</h2>
+    <p class="pl-text-muted">How much to disburse to each guild, instructor, orientator, and Past Lives for the selected month.</p>
+  </div>
+
+  <div class="pl-toolbar">
+    <form method="get" action="" class="pl-date-form">
+      <input type="hidden" name="tab" value="reconciliation">
+      <input type="date" name="start" value="{{ reconciliation_start }}" class="pl-date-input" aria-label="Start date"
+             onclick="try { this.showPicker() } catch (e) {}">
+      <input type="date" name="end" value="{{ reconciliation_end }}" class="pl-date-input" aria-label="End date"
+             onclick="try { this.showPicker() } catch (e) {}">
+      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Apply</button>
+      <a href="?tab=reconciliation" class="pl-filter">This month</a>
+    </form>
+    <div class="pl-actions">
+      <a href="{% url 'billing_admin_reconciliation_csv' %}?{{ reconciliation_query }}" class="pl-btn pl-btn--secondary pl-btn--sm">Export CSV</a>
+      <a href="{% url 'billing_admin_reconciliation_print' %}?{{ reconciliation_query }}" target="_blank" class="pl-btn pl-btn--secondary pl-btn--sm">Export PDF</a>
+      <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" onclick="document.getElementById('recon-snapshot-modal').style.display='flex'">Take Snapshot</button>
+    </div>
+  </div>
+
+  <div class="pl-table-scroll"
+       hx-get="{% url 'billing_admin_reconciliation_table' %}?{{ reconciliation_query }}"
+       hx-trigger="reconciliation-changed from:body"
+       hx-swap="innerHTML">
+    {% include "billing/partials/reconciliation_table.html" %}
+  </div>
+
+  {# Snapshot history #}
+  <div class="pl-card">
+    <div class="pl-section-label">Snapshot History</div>
+    {% if reconciliation_snapshots %}
+    <div class="pl-table-scroll">
+      <table class="pl-table">
+        <thead>
+          <tr><th>Period</th><th>Title</th><th class="text-right">Grand Total</th><th>Source</th><th>Taken</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for snap in reconciliation_snapshots %}
+          <tr style="cursor:default">
+            <td>{{ snap.period_start|date:"M j" }} – {{ snap.period_end|date:"M j, Y" }}</td>
+            <td>{{ snap.title|default:"—" }}</td>
+            <td class="text-right">{{ snap.grand_total_cents|cents_as_dollars }}</td>
+            <td>{% if snap.is_auto %}<span class="pl-badge pl-badge--muted">Auto</span>{% else %}<span class="pl-badge pl-badge--ok">Manual</span>{% endif %}</td>
+            <td class="pl-text-muted">{{ snap.taken_at|date:"M j, Y" }}</td>
+            <td class="text-right">
+              <a href="{% url 'billing_reconciliation_snapshot_detail' snap.pk %}" class="pl-btn pl-btn--secondary pl-btn--sm">Detail</a>
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                      @click="$dispatch('open-confirm', 'recon-snap-delete-{{ snap.pk }}')">Delete</button>
+              {% include "components/confirm_modal.html" with confirm_id="recon-snap-delete-"|add:snap.pk|stringformat:"s" confirm_title="Delete this snapshot?" confirm_message="This only removes the frozen record; it does not change any payments." confirm_action_url=snap.delete_url confirm_button_text="Delete" %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="pl-text-muted">No snapshots yet. Take one at month end to freeze that month's payouts.</p>
+    {% endif %}
+  </div>
+
+  {% include "components/modal.html" with modal_id="txn-adjust" modal_title="Adjust Transaction" modal_size="sm" %}
+
+  {# Take-snapshot modal (page's vanilla overlay pattern, like Add Charge). #}
+  <div id="recon-snapshot-modal" class="pl-modal-overlay" style="display:none"
+       onclick="if(event.target===this)this.style.display='none'">
+    <div class="pl-modal" style="max-width:440px">
+      <div class="pl-modal__header">
+        <div class="pl-modal__title">Take Snapshot</div>
+        <button class="pl-modal__close" onclick="document.getElementById('recon-snapshot-modal').style.display='none'" aria-label="Close">&times;</button>
+      </div>
+      <form method="post" action="{% url 'billing_reconciliation_snapshot_take' %}?{{ reconciliation_query }}">
+        {% csrf_token %}
+        <div class="pl-modal__body">
+          <p class="pl-text-muted" style="margin-top:0">Freeze this window's reconciliation. Producers' voting allocations lock at their projected values and the new month starts fresh.</p>
+          <div class="pl-modal__field">
+            <label for="recon-snap-title">Title (optional)</label>
+            <input type="text" id="recon-snap-title" name="title" placeholder="e.g. August 2026">
+          </div>
+        </div>
+        <div class="pl-modal__footer">
+          <button type="button" class="pl-btn pl-btn--secondary" onclick="document.getElementById('recon-snapshot-modal').style.display='none'">Cancel</button>
+          <button type="submit" class="pl-btn pl-btn--primary">Take Snapshot</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    document.body.addEventListener('reconciliation-changed', function () {
+      window.dispatchEvent(new CustomEvent('close-modal', { detail: 'txn-adjust' }));
+    });
+  </script>
+
+  {% endif %}{# /reconciliation #}
+
+  {# ================================================================ #}
   {# SETTINGS TAB                                                      #}
   {# ================================================================ #}
   {% if active_tab == "settings" %}
@@ -305,6 +496,8 @@
       <button type="submit" class="pl-btn pl-btn--primary">Save Settings</button>
     </form>
   </div>
+
+  {% include "billing/partials/reconciliation_settings.html" %}
 
   {% endif %}{# /settings #}
 
@@ -497,16 +690,24 @@
         <tbody id="tdm-history"></tbody>
       </table>
     </div>
+    {# Footer only when it can hold something: the admin link (fog-admins) or the injected #}
+    {# "+ Add Charge" button (My Tab on). Both gone → no empty strip under a border. #}
+    {% if my_tab_enabled or viewer_is_fog_admin %}
     <div class="pl-modal__footer">
       <div style="display:flex;gap:0.5rem" id="tdm-actions"></div>
+      {% if viewer_is_fog_admin %}
       <a id="tdm-admin-link" href="#" class="pl-btn pl-btn--sm pl-btn--secondary">View in Admin →</a>
+      {% endif %}
     </div>
+    {% endif %}
   </div>
 </div>
 
 {# ================================================================ #}
-{# ADD CHARGE MODAL                                                   #}
+{# ADD CHARGE MODAL (only with My Tab on — adding tab entries makes  #}
+{# no sense when members can't see or pay them)                      #}
 {# ================================================================ #}
+{% if my_tab_enabled %}
 <div id="add-charge-modal" class="pl-modal-overlay" style="display:none"
      onclick="if(event.target===this)this.style.display='none'">
   <div class="pl-modal" style="max-width:480px">
@@ -544,8 +745,11 @@
     </form>
   </div>
 </div>
+{% endif %}{# /add-charge modal (my_tab_enabled) #}
 
 <script>
+  {# When My Tab is off the add-charge modal is not rendered, so the tab-detail footer must not inject its opener. #}
+  const TABS_ON = {{ my_tab_enabled|yesno:"true,false" }};
   let _currentTabPk = null;
 
   function getCsrfToken() {
@@ -585,11 +789,15 @@
           : '<tr><td colspan="4" style="color:#96ACBB;text-align:center;padding:0.75rem">No charge history.</td></tr>';
 
         const adminLink = document.getElementById('tdm-admin-link');
-        adminLink.href = '/admin/billing/tab/' + tabPk + '/change/';
+        if (adminLink) {
+          adminLink.href = '/admin/billing/tab/' + tabPk + '/change/';
+        }
 
         const actionsEl = document.getElementById('tdm-actions');
-        actionsEl.innerHTML =
-          '<button class="pl-btn pl-btn--sm pl-btn--secondary" onclick="document.getElementById(\'add-charge-modal\').style.display=\'flex\'">+ Add Charge</button>';
+        if (actionsEl && TABS_ON) {
+          actionsEl.innerHTML =
+            '<button class="pl-btn pl-btn--sm pl-btn--secondary" onclick="document.getElementById(\'add-charge-modal\').style.display=\'flex\'">+ Add Charge</button>';
+        }
 
         document.getElementById('tab-detail-modal').style.display = 'flex';
       });

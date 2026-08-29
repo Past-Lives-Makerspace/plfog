@@ -419,6 +419,76 @@
     font-size: 0.85rem;
 }
 
+/* Anchor offset so a jumped-to section clears the sticky topbar. */
+.pl-notif-section {
+    scroll-margin-top: calc(var(--topbar-height) + 1rem);
+}
+
+/* Jump-to-section chips above the notification matrix. */
+.pl-notif-jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+}
+.pl-notif-jump__chip {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    border: 1px solid transparent;
+    text-decoration: none;
+}
+.pl-notif-jump__chip:hover,
+.pl-notif-jump__chip:focus-visible {
+    color: var(--hub-text);
+    border-color: var(--color-tuscan-yellow);
+    text-decoration: none;
+}
+
+/* Danger-zone card treatment: red-tinted border + background in both themes, warning
+   icon, right-aligned footer button. Reusable, so it lives with the components. */
+.pl-danger-zone {
+    border: 1px solid rgba(220, 38, 38, 0.45);
+    background: rgba(220, 38, 38, 0.07);
+}
+.pl-danger-zone__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.pl-danger-zone__icon {
+    color: #f0a0a0;
+    flex-shrink: 0;
+}
+.pl-danger-zone__title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+    color: #f0a0a0;
+}
+.pl-danger-zone__text {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+}
+.pl-danger-zone__footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(220, 38, 38, 0.25);
+}
+[data-theme="light"] .pl-danger-zone {
+    border-color: rgba(220, 38, 38, 0.35);
+    background: rgba(220, 38, 38, 0.05);
+}
+[data-theme="light"] .pl-danger-zone__icon,
+[data-theme="light"] .pl-danger-zone__title {
+    color: #b03030;
+}
+
 /* Bulk on/off controls (the top "Everything" row and each section's). */
 .pl-notif-bulk {
     display: inline-flex;
@@ -1099,4 +1169,226 @@
     display: inline-block;
     vertical-align: middle;
     flex-shrink: 0;
+}
+
+/* ===== Refund UI (shared by the billing dashboard, CMS registration detail, teach portal) ===== */
+
+/* Theme-aware status badge for payment / refund states. */
+.pl-status-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.pl-status-badge--ok { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.pl-status-badge--warn { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.pl-status-badge--fail { background: rgba(220, 60, 60, 0.15); color: #f87171; }
+.pl-status-badge--muted { background: rgba(255, 255, 255, 0.06); color: var(--hub-text-muted); }
+[data-theme="light"] .pl-status-badge--ok { background: rgba(16, 150, 100, 0.12); color: #0b7a52; }
+[data-theme="light"] .pl-status-badge--warn { background: rgba(180, 120, 10, 0.12); color: #8a5b06; }
+[data-theme="light"] .pl-status-badge--fail { background: rgba(200, 50, 50, 0.1); color: #b32d2d; }
+[data-theme="light"] .pl-status-badge--muted { background: rgba(0, 0, 0, 0.06); color: var(--hub-text-muted); }
+
+/* ===== Roster & waitlist management (teach + admin Workspace tabs) ===== */
+
+/* Filter-bar / inline-action control on admin pages (selects + text inputs).
+   Theme input tokens per FRONTEND.md Rule 13 — never inline background/color. */
+.pl-admin-control {
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--hub-input-border, var(--hub-border));
+    border-radius: 6px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    font-size: 0.875rem;
+}
+/* Native option popups don't inherit the select's colors (Rule 13). */
+.pl-admin-control option {
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+}
+
+/* ========================================
+   Row actions overflow menu (.pl-row-menu)
+   Kebab trigger + fixed-position dropdown for table-row actions. The menu is
+   position:fixed (placed from JS in components/row_actions.html) so it escapes
+   the roster table wrapper's overflow:hidden clip. Both themes.
+   ======================================== */
+.pl-row-menu {
+    display: inline-flex;
+}
+
+.pl-row-menu__trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.pl-row-menu__trigger:hover,
+.pl-row-menu__trigger:focus-visible {
+    color: var(--hub-text);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .pl-row-menu__trigger:hover,
+[data-theme="light"] .pl-row-menu__trigger:focus-visible {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.pl-row-menu__menu {
+    position: fixed;
+    display: block;
+    min-width: 200px;
+    background-color: var(--hub-dropdown-bg);
+    border: 1px solid var(--hub-dropdown-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    z-index: 150;
+}
+
+.pl-row-menu__item {
+    display: block;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-family: var(--font-body);
+    color: var(--hub-text);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    text-decoration: none;
+    transition: background-color 0.15s ease;
+}
+
+.pl-row-menu__item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--hub-text);
+}
+
+[data-theme="light"] .pl-row-menu__item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.pl-row-menu__item:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: -2px;
+}
+
+.pl-row-menu__item--danger { color: #e05555; }
+.pl-row-menu__item--danger:hover { color: #e05555; }
+
+.pl-row-menu__divider {
+    height: 1px;
+    background-color: var(--hub-dropdown-border);
+    margin: 0.25rem 0;
+}
+
+@media (max-width: 768px) {
+    .pl-row-menu__trigger {
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+}
+
+/* Muted sub-line under the Paid badge ("Link sent Aug 26" / "No email sent yet"). */
+.pl-paid-note {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin-top: 0.2rem;
+    white-space: nowrap;
+}
+.pl-paid-note--warn { color: #fbbf24; }
+[data-theme="light"] .pl-paid-note--warn { color: #8a5b06; }
+
+/* Warn-toned line inside a confirm modal (over-capacity, in-flight payment). */
+.pl-confirm-warn {
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+}
+[data-theme="light"] .pl-confirm-warn {
+    background: rgba(180, 120, 10, 0.1);
+    color: #8a5b06;
+}
+
+/* The refund modal body — context header, consequence line, busy state. */
+.pl-refund-context {
+    margin: 0 0 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.08));
+}
+.pl-refund-context__payer {
+    font-weight: 700;
+    margin: 0 0 0.15rem;
+}
+.pl-refund-context__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 0;
+}
+.pl-refund-consequence {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 1rem 0 0.75rem;
+}
+.pl-refund-failure {
+    font-size: 0.8125rem;
+    color: #f87171;
+    margin: 0.5rem 0 0;
+}
+[data-theme="light"] .pl-refund-failure { color: #b32d2d; }
+.pl-refund-form.htmx-request button[type="submit"] {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Refund history rows (detail page card + panel amount sub-lines). */
+.pl-refund-history {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+}
+.pl-refund-history__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.pl-refund-history__meta {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-refund-line {
+    display: block;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+/* Payments ledger cells (the billing dashboard's dark-fixed partial — literal
+   colors match the page's own pl-* chrome, like .pl-text-muted there). */
+.pl-payer-link { color: #a0c0e0; }
+.pl-cell-muted { color: #96ACBB; }
+.pl-table-empty {
+    text-align: center;
+    color: #96ACBB;
+    padding: 2rem;
 }

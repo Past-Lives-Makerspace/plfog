@@ -8,6 +8,15 @@ Parameters (pass via {% include ... with %}):
   confirm_action_url   — required (plain-POST mode), form POST target
   confirm_button_text  — optional, button label (default: "Confirm")
   confirm_button_style — optional, "danger" (default) or "primary"
+  confirm_cancel_text  — optional, label for the dismiss button (default: "Cancel")
+  confirm_no_boost     — optional (plain-POST mode); when set, the form carries
+                         hx-boost="false" so it submits as a genuine full-page POST.
+                         Required when the target view redirects cross-origin (e.g. to
+                         Stripe Checkout): a boosted form issues an XHR that cannot follow
+                         a cross-origin 302, which the browser blocks as a CORS error.
+
+  On open the modal records the triggering element and moves focus to the Cancel/dismiss
+  button; every close path (Cancel, Escape, ×, click-outside) restores focus to the opener.
   confirm_field_name   — optional (plain-POST mode), name of one hidden field to carry with
   confirm_field_value    the POST (e.g. run_job=bill_tabs), so the teleported form — which posts
                          OUTSIDE its trigger's form — can still reach a named handler.
@@ -23,10 +32,28 @@ Parameters (pass via {% include ... with %}):
                               disabled until the typed text matches this value exactly.
   confirm_typed_placeholder — input placeholder + label (default: "Type to confirm").
   confirm_typed_field_name  — POST field name carrying the typed value (default: "confirm").
+
+  Note-input mode (optional, opt-in — mirrors the typed-confirmation pattern; works in
+  both plain-POST and HTMX modes):
+  confirm_note_name        — when set, an optional single-line text input renders above the
+                             buttons and posts under this name (e.g. "reason", "note").
+  confirm_note_label       — the input's label (default: "Note (optional)").
+  confirm_note_placeholder — the input's placeholder (default: empty).
+  confirm_note_hint        — optional hint line under the input.
+
+  Rich-body mode (optional): confirm_body_include — a template path included after the
+  message, rendered with the including context (per-row conditional copy, links).
+  confirm_warn_message     — optional warn-toned line rendered above the buttons.
+
+  JS mode (optional — when confirm_js is set, Confirm runs that inline JS and closes
+  instead of POSTing a form; used when the confirm must act on the page, e.g. flip a
+  formset row's hidden DELETE field and requestSubmit() its form):
+  confirm_js — inline JS the Confirm button runs.
 {% endcomment %}
 <template x-teleport="body">
-<div x-data="{ open: false, typed: '' }"
+<div x-data="{ open: false, typed: '', note: '', opener: null }"
      x-show="open"
+     x-init="$watch('open', (value) => { if (value) { opener = document.activeElement; $nextTick(() => $el.querySelector('.pl-btn--secondary')?.focus()); } else if (opener) { opener.focus(); opener = null; } })"
      x-transition:enter="modal-enter"
      x-transition:leave="modal-leave"
      @open-confirm.window="if ($event.detail === '{{ confirm_id }}') open = true"
@@ -41,7 +68,18 @@ Parameters (pass via {% include ... with %}):
             <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
-            <p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>
+            {% if confirm_message %}<p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>{% endif %}
+            {% if confirm_body_include %}{% include confirm_body_include %}{% endif %}
+            {% if confirm_note_name %}
+            <label class="pl-form-label" for="{{ confirm_id }}-note">{{ confirm_note_label|default:"Note (optional)" }}</label>
+            <input type="text" id="{{ confirm_id }}-note" x-model="note" autocomplete="off"
+                   placeholder="{{ confirm_note_placeholder|default:'' }}"
+                   class="pl-input" style="width:100%; margin:0 0 1rem;">
+            {% if confirm_note_hint %}<p class="pl-field-hint" style="margin:-0.5rem 0 1rem;">{{ confirm_note_hint }}</p>{% endif %}
+            {% endif %}
+            {% if confirm_warn_message %}
+            <p class="pl-confirm-warn">{{ confirm_warn_message }}</p>
+            {% endif %}
             {% if confirm_typed_value %}
             <label class="pl-form-label" for="{{ confirm_id }}-typed">{{ confirm_typed_placeholder|default:"Type to confirm" }}</label>
             <input type="text" id="{{ confirm_id }}-typed" x-model="typed" autocomplete="off"
@@ -49,21 +87,28 @@ Parameters (pass via {% include ... with %}):
                    class="pl-input" style="width:100%; margin:0 0 1.5rem;">
             {% endif %}
             <div class="pl-modal__actions">
-                {% if confirm_hx_post %}
+                {% if confirm_js %}
+                <button type="button" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="flex:1;"
+                        @click="open = false" onclick="{{ confirm_js }}">
+                    {{ confirm_button_text|default:"Confirm" }}
+                </button>
+                {% elif confirm_hx_post %}
                 <form hx-post="{{ confirm_hx_post }}"
                       {% if confirm_hx_target %}hx-target="{{ confirm_hx_target }}" hx-swap="outerHTML"{% endif %}
                       {% if confirm_hx_vals %}hx-vals='{{ confirm_hx_vals|safe }}'{% endif %}
                       @htmx:after-request="open = false"
                       style="flex:1;">
                     {% csrf_token %}
+                    {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;" hx-disabled-elt="this">
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>
                 </form>
                 {% else %}
-                <form method="post" action="{{ confirm_action_url }}" style="flex:1;">
+                <form method="post" action="{{ confirm_action_url }}"{% if confirm_no_boost %} hx-boost="false"{% endif %} style="flex:1;">
                     {% csrf_token %}
                     {% if confirm_field_name %}<input type="hidden" name="{{ confirm_field_name }}" value="{{ confirm_field_value }}">{% endif %}
+                    {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     {% if confirm_typed_value %}<input type="hidden" name="{{ confirm_typed_field_name|default:'confirm' }}" :value="typed">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;"
                             {% if confirm_typed_value %}:disabled="typed !== '{{ confirm_typed_value }}'"{% endif %}>
@@ -71,7 +116,7 @@ Parameters (pass via {% include ... with %}):
                     </button>
                 </form>
                 {% endif %}
-                <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+                <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">{{ confirm_cancel_text|default:"Cancel" }}</button>
             </div>
         </div>
     </div>

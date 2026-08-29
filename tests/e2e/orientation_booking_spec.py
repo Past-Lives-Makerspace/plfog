@@ -31,9 +31,9 @@ def describe_orientation_booking():
         # 1. Sign in through the genuine login-by-code flow.
         login_via_code(MEMBER_EMAIL)
 
-        # 2. The orientation section now lives in the Guild Calendar tab — open it.
+        # 2. The orientation section now lives in its own Orientations tab — open it.
         page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[guild.pk])}")
-        page.get_by_role("button", name="Guild Calendar", exact=True).click()
+        page.get_by_role("button", name="Orientations", exact=True).click()
         expect(page.locator("body")).to_contain_text("Get oriented for Woodshop")
 
         # 3. Request the open slot, then confirm in the modal.

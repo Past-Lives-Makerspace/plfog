@@ -38,9 +38,8 @@ def describe_seed_example_guild():
         assert settings.is_enabled is True
         assert settings.is_closed is True
         assert "example guild" in settings.closed_message
-        # Both automatic emails are authored but switched off — nothing can send.
+        # The thank-you email is authored but switched off — nothing can send.
         assert settings.thankyou_email_enabled is False
-        assert settings.join_email_enabled is False
 
     def it_creates_inert_fictional_members_only(db):
         guild = seed_example_guild()
@@ -106,6 +105,35 @@ def describe_seed_example_guild():
             assert "Example guild ready: Cartographers Guild" in out.getvalue()
             assert "/guilds/cartographers-guild/" in out.getvalue()
             assert "is_active=False" in out.getvalue()
+
+    def describe_is_active_persistence():
+        def it_creates_a_brand_new_guild_inactive(db):
+            guild = seed_example_guild()
+            assert guild.is_active is False
+
+        def it_preserves_an_admin_flip_to_active_across_reseeds(db):
+            guild = seed_example_guild()
+            # An admin turns the example guild on for a demo.
+            guild.is_active = True
+            guild.save(update_fields=["is_active"])
+            # A later deploy re-seeds — is_active must survive because it lives in
+            # create_defaults (create-only), not defaults (applied on every update).
+            again = seed_example_guild()
+            assert again.pk == guild.pk
+            again.refresh_from_db()
+            assert again.is_active is True
+
+        def it_still_refreshes_other_seeded_fields_on_reseed(db):
+            guild = seed_example_guild()
+            guild.is_active = True
+            guild.about = "hand-edited, should be overwritten"
+            guild.save(update_fields=["is_active", "about"])
+            seed_example_guild()
+            guild.refresh_from_db()
+            # is_active is preserved, but authoritative fields still refresh from the seed —
+            # proving create_defaults is a superset of defaults, not a replacement for it.
+            assert guild.is_active is True
+            assert "fictional example guild" in guild.about
 
     def describe_visibility():
         def it_stays_out_of_listings_but_renders_by_direct_link(client, db):
