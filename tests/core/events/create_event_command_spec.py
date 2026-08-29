@@ -744,3 +744,55 @@ def describe_dispatch_integration():
         result = dispatch(interaction, rf.post("/"))
         button = result["data"]["components"][0]["components"][0]
         assert button["url"].endswith("/discord/link/")
+
+
+def describe_instant_calendar_announce():
+    _CHANNEL_URL = "https://discord.com/api/v10/channels/chan9/messages"
+
+    def _enable_calendar_posts(settings):
+        from core.models import SiteConfiguration
+
+        _discord_settings(settings)
+        config = SiteConfiguration.load()
+        config.discord_calendar_posts_enabled = True
+        config.discord_calendar_channel_id = "chan9"
+        config.discord_server_id = "srv1"
+        config.save()
+
+    @respx.mock
+    def it_posts_the_card_once_and_adds_the_calendar_jump_button(settings, linked_member):
+        _enable_calendar_posts(settings)
+        followup = _mock_discord()
+        channel = respx.post(_CHANNEL_URL).mock(return_value=httpx.Response(200, json={"id": "msg7"}))
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _, draft = _preview(admin, title="Instant Card", when="tomorrow 6pm", guild_slug=_GENERAL_VALUE)
+
+        _confirm(admin, draft.pk)
+
+        assert channel.call_count == 1
+        payload = _followup_payload(followup)
+        labels = [b["label"] for b in payload["components"][0]["components"]]
+        assert labels == ["Open the event", "See it in #calendar"]
+        jump = payload["components"][0]["components"][1]["url"]
+        assert jump == "https://discord.com/channels/srv1/chan9/msg7"
+        event = CommunityEvent.objects.get(title="Instant Card")
+        assert event.channel_announced_at is not None
+        assert event.discord_announce_message_id == "msg7"
+
+    @respx.mock
+    def it_still_publishes_and_falls_back_to_the_cron_when_the_card_post_fails(settings, linked_member):
+        _enable_calendar_posts(settings)
+        followup = _mock_discord()
+        respx.post(_CHANNEL_URL).mock(return_value=httpx.Response(500, text="boom"))
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _, draft = _preview(admin, title="Cron Fallback", when="tomorrow 6pm", guild_slug=_GENERAL_VALUE)
+
+        _confirm(admin, draft.pk)
+
+        payload = _followup_payload(followup)
+        assert "live on the Community Calendar" in payload["content"]  # publish succeeded regardless
+        labels = [b["label"] for b in payload["components"][0]["components"]]
+        assert labels == ["Open the event"]  # no jump button on a failed card post
+        event = CommunityEvent.objects.get(title="Cron Fallback")
+        assert event.channel_announced_at is None  # the 15 minute announcer will post it
+        assert event.discord_announce_message_id == ""
