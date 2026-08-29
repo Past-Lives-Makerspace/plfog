@@ -83,8 +83,27 @@ STUDENT_FUTURE_ORDER_NUMBER = "PL-DMF2-26"
 # (spots_remaining == 0); the WAITLISTED rows sit genuinely beyond capacity. It is
 # prod-safe like the rest (demo- slug + @pastlives.demo emails, direct ORM, no
 # Stripe/email), so it lives outside the DEBUG-gated local-dev extras.
-FULL_WAITLIST_CAPACITY = 4
-FULL_WAITLIST_WAITLISTED = 3
+#
+# This is the "fully fleshed out" showcase class the instructor tour points at, so
+# it carries a real title, a rich description, believable rosters, and a hero photo.
+# It is themed woodworking to match a repo-committed image (see SHOWCASE_HERO_REL_PATH)
+# that is present on every deploy — unlike the gitignored demo_seed dir — so the card
+# looks real even on a prod seed, where the image saves through R2.
+SHOWCASE_TITLE = "Woodshop Fundamentals: Build a Cutting Board"
+SHOWCASE_DESCRIPTION = (
+    "A hands on introduction to the Past Lives woodshop. In one focused session you will learn to "
+    "safely set up and use the table saw, planer, and random orbit sander, then mill and glue up a "
+    "hardwood cutting board you sand, finish, and take home the same day. All tools, hardwood, and a "
+    "food safe finish are provided, and we keep the group small so everyone gets real bench time. No "
+    "experience needed. Please wear closed toe shoes and clothes you can get a little sawdust on."
+)
+SHOWCASE_HERO_REL_PATH = "assets/images/woodshop+portland+oregon+makerspace+past+lives.webp"
+# Realistic rosters so the showcase reads like a real class on the roster + waitlist
+# screens. Emails stay `wl-…@pastlives.demo` so teardown's demo-email sweep catches them.
+FULL_WAITLIST_CONFIRMED_NAMES = [("Maya", "Thompson"), ("Leo", "Garcia"), ("Priya", "Shah"), ("Sam", "Okafor")]
+FULL_WAITLIST_WAITING_NAMES = [("Jordan", "Kim"), ("Tessa", "Alvarez"), ("Marcus", "Bell")]
+FULL_WAITLIST_CAPACITY = len(FULL_WAITLIST_CONFIRMED_NAMES)
+FULL_WAITLIST_WAITLISTED = len(FULL_WAITLIST_WAITING_NAMES)
 
 # --- Local-dev-only personas + data (gated on settings.DEBUG) ----------------
 # The blocks below create ACTIVE demo Members, push orientation config onto real
@@ -150,7 +169,7 @@ class Command(BaseCommand):
         self._ensure_student_registrations(student, past_class, future_paid_class)
         self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
         self._ensure_guest_registration(current_free_class)
-        full_waitlist_class = self._ensure_full_waitlist_class(category, instructor)
+        full_waitlist_class = self._ensure_full_waitlist_class(self._ensure_showcase_category(), instructor)
         self._ensure_discount_codes()
 
         # Everything below is local-dev only. Registration questions are global
@@ -203,6 +222,19 @@ class Command(BaseCommand):
         category, _ = Category.objects.get_or_create(
             slug=f"{DEMO_SLUG_PREFIX}lamp-working",
             defaults={"name": "[DEMO] Lamp Working", "sort_order": 999},
+        )
+        return category
+
+    def _ensure_showcase_category(self) -> Category:
+        """A standalone category for the fully fleshed out showcase class.
+
+        Named without a ``[DEMO]`` prefix so the showcase card reads like a real
+        catalog entry (the class is the demo centerpiece the instructor tour points
+        at), but slug stays ``demo-`` prefixed so ``--remove`` still tears it down.
+        """
+        category, _ = Category.objects.get_or_create(
+            slug=f"{DEMO_SLUG_PREFIX}woodworking",
+            defaults={"name": "Woodworking", "sort_order": 998},
         )
         return category
 
@@ -350,6 +382,7 @@ class Command(BaseCommand):
         capacity: int,
         session_start,
         member_discount_pct: int = 10,
+        description: str = "Seeded demo class. Safe to delete via `manage.py demo_data --remove`.",
     ) -> ClassOffering:
         offering, _ = ClassOffering.objects.update_or_create(
             slug=slug,
@@ -357,7 +390,7 @@ class Command(BaseCommand):
                 "title": title,
                 "category": category,
                 "instructor": instructor,
-                "description": "Seeded demo class. Safe to delete via `manage.py demo_data --remove`.",
+                "description": description,
                 "price_cents": price_cents,
                 "member_discount_pct": member_discount_pct,
                 "capacity": capacity,
@@ -467,34 +500,38 @@ class Command(BaseCommand):
         now = timezone.now()
         offering = self._upsert_class(
             slug=f"{DEMO_SLUG_PREFIX}full-waitlist",
-            title="[DEMO] Screen Printing Intensive (Full + Waitlist)",
+            title=SHOWCASE_TITLE,
             category=category,
             instructor=instructor,
             price_cents=9000,
             capacity=FULL_WAITLIST_CAPACITY,
             session_start=now + timedelta(days=10),
+            description=SHOWCASE_DESCRIPTION,
         )
+        # A hero photo so the showcase card looks real. Sourced from a repo-committed
+        # asset (present on every deploy) so it also lands on a prod seed via R2.
+        self._attach_committed_hero(offering, SHOWCASE_HERO_REL_PATH)
         # Fill to capacity with CONFIRMED, paid registrants → spots_remaining == 0.
-        for i in range(1, offering.capacity + 1):
+        for i, (first, last) in enumerate(FULL_WAITLIST_CONFIRMED_NAMES, start=1):
             self._upsert_registration(
                 offering=offering,
                 order_number=f"PL-DMW{i + 1}-26",
                 email=f"wl-confirmed{i}@{DEMO_EMAIL_DOMAIN}",
-                first_name="Waitlist",
-                last_name=f"Confirmed{i}",
+                first_name=first,
+                last_name=last,
                 status=Registration.Status.CONFIRMED,
                 confirmed_at=now - timedelta(days=1),
                 amount_paid_cents=offering.price_cents,
             )
         # A genuine waitlist beyond capacity: unpaid, unconfirmed, and never notified
         # (waitlist_notified_at defaults to None and _upsert_registration never sets it).
-        for i in range(1, FULL_WAITLIST_WAITLISTED + 1):
+        for i, (first, last) in enumerate(FULL_WAITLIST_WAITING_NAMES, start=1):
             self._upsert_registration(
                 offering=offering,
                 order_number=f"PL-DMX{i + 1}-26",
                 email=f"wl-waiting{i}@{DEMO_EMAIL_DOMAIN}",
-                first_name="Waitlist",
-                last_name=f"Waiting{i}",
+                first_name=first,
+                last_name=last,
                 status=Registration.Status.WAITLISTED,
                 confirmed_at=None,
                 amount_paid_cents=0,
@@ -676,6 +713,25 @@ class Command(BaseCommand):
         offering.approvals.all().delete()
         ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         return offering
+
+    def _attach_committed_hero(self, offering: ClassOffering, rel_path: str) -> None:
+        """Attach a repo-committed image as the class hero if it has none.
+
+        Reads from a path under ``BASE_DIR`` (committed to the repo, so present on
+        every environment including Render) and saves through the active storage
+        backend — local FileSystemStorage in dev, Cloudflare R2 in prod. This is how
+        the showcase class gets a real hero even on a prod seed, where the gitignored
+        ``demo_seed`` dir does not exist. Skips silently if the source is missing or a
+        hero is already set, so re-seeding never duplicates and a checkout without the
+        asset still seeds cleanly.
+        """
+        if offering.image:
+            return
+        source = Path(settings.BASE_DIR) / rel_path
+        if not source.is_file():
+            return
+        with source.open("rb") as fh:
+            offering.image.save(Path(rel_path).name, File(fh), save=True)
 
     def _demo_image_dir(self) -> Path | None:
         image_dir = Path(settings.MEDIA_ROOT) / DEMO_IMAGE_DIRNAME

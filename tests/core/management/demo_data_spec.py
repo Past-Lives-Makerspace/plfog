@@ -40,6 +40,18 @@ def _write_demo_image(path) -> None:
     path.write_bytes(buf.getvalue())
 
 
+@pytest.fixture(autouse=True)
+def _isolate_media(settings, tmp_path):
+    """Point MEDIA_ROOT at a throwaway dir for every demo_data spec.
+
+    The seed now attaches a repo-committed hero to the showcase class on every run
+    (the prod-image path), which writes through the storage backend. Without this,
+    those writes would land in the real ``media/`` tree and accumulate. Tests that
+    need their own media dir (the image spec) reassign MEDIA_ROOT in their body.
+    """
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+
+
 def describe_demo_data_seed():
     def it_creates_student_instructor_and_guest_registrations():
         call_command("demo_data")
@@ -137,6 +149,49 @@ def describe_demo_data_full_waitlist_class():
         status_out = io.StringIO()
         call_command("demo_data", "--status", stdout=status_out)
         assert f"{DEMO_SLUG_PREFIX}full-waitlist" in status_out.getvalue()
+
+
+def describe_demo_data_showcase_class():
+    def it_makes_the_full_class_a_believable_standalone_showcase(settings):
+        # DEBUG off = the prod path: the committed hero must still attach.
+        settings.DEBUG = False
+        call_command("demo_data")
+
+        offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
+        # A real, prefix-free title in its own standalone (non lamp-working) category.
+        assert "[DEMO]" not in offering.title
+        assert offering.category.slug == f"{DEMO_SLUG_PREFIX}woodworking"
+        assert "[DEMO]" not in offering.category.name
+        # A rich description, not the generic seed placeholder.
+        assert "Seeded demo class" not in offering.description
+        assert len(offering.description) > 200
+        # A hero attached from the committed asset even with DEBUG off (the prod path).
+        assert offering.image
+        # Real-looking roster names, not "Waitlist ConfirmedN".
+        names = {(r.first_name, r.last_name) for r in offering.registrations.all()}
+        assert ("Maya", "Thompson") in names  # a confirmed seat holder
+        assert ("Jordan", "Kim") in names  # first in line on the waitlist
+
+    def it_leaves_the_hero_in_place_on_reseed(settings):
+        settings.DEBUG = False
+        call_command("demo_data")
+        offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
+        first = offering.image.name
+
+        call_command("demo_data")
+        offering.refresh_from_db()
+        # Idempotent: the existing hero is kept, not re-saved under a new name.
+        assert offering.image.name == first
+
+    def it_removes_the_showcase_category_on_remove(settings):
+        from classes.models import Category
+
+        settings.DEBUG = False
+        call_command("demo_data")
+        assert Category.objects.filter(slug=f"{DEMO_SLUG_PREFIX}woodworking").exists()
+
+        call_command("demo_data", "--remove")
+        assert not Category.objects.filter(slug=f"{DEMO_SLUG_PREFIX}woodworking").exists()
 
 
 def describe_demo_data_registration_questions():
