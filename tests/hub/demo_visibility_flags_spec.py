@@ -59,6 +59,25 @@ def describe_display_demo_classes():
         public_slugs = set(ClassOffering.objects.public().values_list("slug", flat=True))
         assert {"real-class", "demo-showcase"} <= public_slugs
 
+    def it_hides_demo_sessions_from_upcoming_public_by_default():
+        # The Discord /whats-on digest reads ClassSession.upcoming_public(), a second
+        # public choke-point; it must honor the same gate so a seeded demo class never
+        # leaks there as a dead link with the flag off.
+        from classes.models import ClassSession
+
+        _make_demo_and_real()
+        slugs = {s.class_offering.slug for s in ClassSession.objects.upcoming_public().select_related("class_offering")}
+        assert "real-class" in slugs
+        assert "demo-showcase" not in slugs
+
+    def it_shows_demo_sessions_in_upcoming_public_when_on():
+        from classes.models import ClassSession
+
+        _make_demo_and_real()
+        _set(display_demo_classes=True)
+        slugs = {s.class_offering.slug for s in ClassSession.objects.upcoming_public().select_related("class_offering")}
+        assert {"real-class", "demo-showcase"} <= slugs
+
     def it_never_gates_the_base_queryset_so_admins_keep_managing_demo_classes():
         # Admin/teach querysets use .all()/editable_by/for_instructor, not public(),
         # so demo classes stay visible to staff even with the flag off (default).

@@ -1653,12 +1653,22 @@ class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
         ``is_private=False``) rather than ``bookable()``: a part-started series is no
         longer *bookable* as a whole, but its still-future sessions remain real,
         dated, purchasable inventory and should be counted.
+
+        The ``display_demo_classes`` gate is mirrored here too — this is a second
+        member-facing choke-point (the Discord ``/whats-on`` digest reads it), so demo
+        (``demo-`` slug) sessions stay hidden unless that site setting is on, exactly
+        like ``public()``.
         """
-        return self.filter(
+        from core.models import SiteConfiguration
+
+        qs = self.filter(
             starts_at__gte=timezone.now(),
             class_offering__status="published",
             class_offering__is_private=False,
         )
+        if not SiteConfiguration.load().display_demo_classes:
+            qs = qs.exclude(class_offering__slug__startswith="demo-")
+        return qs
 
     def upcoming_public_count(self) -> int:
         """How many purchasable, dated sessions are live in the public catalog."""
