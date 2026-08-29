@@ -18,5 +18,17 @@ Boosted swaps re-execute the script; it is a guarded window.plTour IIFE, safe to
     <span class="pl-tour-advancing__spinner" aria-hidden="true"></span>
     <span class="pl-tour-advancing__label">Taking you there...</span>
 </div>
-<script src="{% static 'js/pl_tour.js' %}"></script>
 {% endif %}
+{% comment %}
+The pause/resume pill lives OUTSIDE the payload gate so it renders on every member
+page. A paused tour is held in sessionStorage; pl_tour.js shows this pill from that
+run, which is what lets the presenter wander onto pages that carry no tour payload
+and still resume. The script is likewise loaded unconditionally (it is a tiny,
+inert-when-idle guarded IIFE) so the pill has a controller everywhere.
+{% endcomment %}
+<div id="pl-tour-resume" class="pl-tour-resume" role="region" aria-label="Paused tour" hidden>
+    <span class="pl-tour-resume__label">Tour paused</span>
+    <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-resume>Resume tour</button>
+    <button type="button" class="pl-tour-resume__end" data-tour-resume-end aria-label="End tour">&times;</button>
+</div>
+<script src="{% static 'js/pl_tour.js' %}"></script>

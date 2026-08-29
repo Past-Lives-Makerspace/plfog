@@ -421,6 +421,33 @@
                         prevBtn.removeAttribute("disabled");
                     }
                 }
+                // The Pause control: lift the spotlight without ending the tour. Lives
+                // at the left of the footer so it never crowds Back/Next on the right.
+                var footer = popover.querySelector(".driver-popover-footer");
+                if (footer && !footer.querySelector(".pl-tour-pause-btn")) {
+                    var pauseBtn = document.createElement("button");
+                    pauseBtn.type = "button";
+                    pauseBtn.className = "pl-tour-pause-btn";
+                    pauseBtn.textContent = "Pause";
+                    pauseBtn.setAttribute("aria-label", "Pause the tour so you can explore on your own");
+                    pauseBtn.addEventListener("click", pauseTour);
+                    footer.insertBefore(pauseBtn, footer.firstChild);
+                }
+                // Driver.js occasionally anchors a TARGETLESS (centered) popover
+                // off-screen on its first paint after a page load — it measures the
+                // viewport before layout settles and strands the popover above the
+                // fold (top ≈ -viewportHeight/2). The opening step of every tour is
+                // centered, so pin any targetless popover to the true viewport
+                // center ourselves; element-anchored steps keep Driver's placement.
+                var stepNow = current.steps[gi];
+                if (!stepNow || !stepNow.target) {
+                    popover.style.position = "fixed";
+                    popover.style.left = "50%";
+                    popover.style.top = "50%";
+                    popover.style.right = "auto";
+                    popover.style.bottom = "auto";
+                    popover.style.transform = "translate(-50%, -50%)";
+                }
             }
 
             function handleNext() {
@@ -599,6 +626,99 @@
                 }
             }
 
+            // ── pause / resume pill ─────────────────────────────────────────
+            // A pause LIFTS the spotlight without ending the tour: it writes a
+            // "paused" run to sessionStorage (carrying the resume path, the state
+            // URL and the csrf so the pill still works on pages that emit no tour
+            // payload) and shows a persistent floating pill. Because the driver
+            // overlay is torn down, teardownForHtmx stops clearing the run, so the
+            // paused tour survives the presenter wandering to other pages. Resume
+            // reuses the ONE battle-tested resume path: a "?tour=&step=" navigation
+            // back to the paused step's page.
+            function resumePillEl() {
+                return document.getElementById("pl-tour-resume");
+            }
+
+            function showResumePill() {
+                var el = resumePillEl();
+                if (el) el.hidden = false;
+            }
+
+            function hideResumePill() {
+                var el = resumePillEl();
+                if (el) el.hidden = true;
+            }
+
+            function pauseTour() {
+                if (!active || !active.driverObj) return;
+                var gi = globalIndexNow();
+                var path = window.location.pathname; // the step's own page
+                try {
+                    window.sessionStorage.setItem(
+                        RUN_KEY,
+                        JSON.stringify({
+                            key: current.key,
+                            index: gi,
+                            total: current.steps.length,
+                            sidebarPrev: session ? session.sidebarPrev : undefined,
+                            paused: true,
+                            resumePath: path,
+                            stateUrl: current.state_url,
+                            csrf: csrf,
+                        })
+                    );
+                } catch (e) {
+                    /* no storage — pausing is best-effort; still tear the overlay down */
+                }
+                // Silent teardown that RESTORES chrome (sidebar/focus) so the presenter
+                // can roam freely, records nothing, and keeps the run in storage.
+                ending = true;
+                stripTourParams();
+                active.driverObj.destroy();
+                showResumePill();
+            }
+
+            function resumePausedTour() {
+                var run = readRun();
+                if (!run || !run.paused) {
+                    hideResumePill();
+                    return;
+                }
+                hideResumePill();
+                clearRun(); // the destination re-seeds from the ?tour=&step= param
+                boostedGet(withTourParams(run.resumePath || "/", run.key, run.index));
+            }
+
+            function endPausedTour() {
+                var run = readRun();
+                hideResumePill();
+                clearRun();
+                if (run && run.stateUrl) {
+                    // Record the dismissal from wherever the presenter ended it, using
+                    // the state URL + csrf stashed at pause time.
+                    fetch(run.stateUrl, {
+                        method: "POST",
+                        headers: {
+                            "X-CSRFToken": run.csrf || "",
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        body: "status=dismissed",
+                    }).catch(function () {
+                        /* self-healing: a lost dismiss just re-offers next visit */
+                    });
+                }
+            }
+
+            function bindResumePill() {
+                var el = resumePillEl();
+                if (!el || el.hasAttribute("data-pl-init")) return;
+                el.setAttribute("data-pl-init", "");
+                var resumeBtn = el.querySelector("[data-tour-resume]");
+                var endBtn = el.querySelector("[data-tour-resume-end]");
+                if (resumeBtn) resumeBtn.addEventListener("click", resumePausedTour);
+                if (endBtn) endBtn.addEventListener("click", endPausedTour);
+            }
+
             // ── offer card ──────────────────────────────────────────────────
             function bindOffer() {
                 var offer = document.querySelector("[data-pl-tour-offer]");
@@ -638,6 +758,14 @@
                     ["htmx:beforeHistorySave", "htmx:beforeSwap"].forEach(function (name) {
                         document.body.addEventListener(name, teardownForHtmx);
                     });
+                }
+                bindResumePill(); // the pill markup is present on every member page
+                var paused = readRun();
+                if (paused && paused.paused) {
+                    // A paused tour is in effect on this tab: show the pill and do NOT
+                    // auto-resume or re-offer until the presenter clicks Resume.
+                    showResumePill();
+                    return;
                 }
                 if (!current) return;
                 bindOffer();
