@@ -205,6 +205,37 @@ def describe_pausing_a_tour():
         popover.wait_for(state="visible", timeout=10000)
         expect(popover).to_contain_text("Everything in One Place")
 
+    def it_preserves_the_page_query_string_on_resume(live_server, page, login_via_code):
+        # A step whose page depends on a query (?audience=..., ?tab=payments) must
+        # resume onto the SAME view. Prove a benign query survives pause -> resume.
+        email = "tour-query@example.com"
+        _seed_member_world()
+        login_via_code(email)
+        page.goto(f"{live_server.url}{reverse('hub_home')}?tour=member-welcome&step=1&demo=keepme")
+        popover = page.locator(".driver-popover.pl-tour")
+        popover.wait_for(state="visible", timeout=10000)
+        popover.locator(".pl-tour-pause-btn").click()
+        pill = page.locator("#pl-tour-resume")
+        expect(pill).to_be_visible()
+
+        pill.locator("[data-tour-resume]").click()
+        page.wait_for_url("**demo=keepme**", timeout=10000)
+        popover.wait_for(state="visible", timeout=10000)
+        assert "demo=keepme" in page.url
+
+    def it_lets_an_explicit_tour_link_win_over_a_paused_run(live_server, page, login_via_code):
+        # A stale paused run must not swallow a deliberate ?tour= start (e.g. the
+        # presenter opens a different role tour). The explicit autostart wins.
+        email = "tour-win@example.com"
+        popover = _start_mid_tour(live_server, page, login_via_code, email)
+        popover.locator(".pl-tour-pause-btn").click()
+        expect(page.locator("#pl-tour-resume")).to_be_visible()
+
+        page.goto(f"{live_server.url}{reverse('classes:public_list')}?tour=member-welcome&step=3")
+        popover.wait_for(state="visible", timeout=10000)
+        expect(popover).to_contain_text("Browse Classes")  # step index 3, on the catalog
+        expect(page.locator("#pl-tour-resume")).not_to_be_visible()
+
     def it_ends_a_paused_tour_from_the_pill(live_server, page, login_via_code):
         email = "tour-pause-end@example.com"
         popover = _start_mid_tour(live_server, page, login_via_code, email)

@@ -433,14 +433,17 @@
                     pauseBtn.addEventListener("click", pauseTour);
                     footer.insertBefore(pauseBtn, footer.firstChild);
                 }
-                // Driver.js occasionally anchors a TARGETLESS (centered) popover
-                // off-screen on its first paint after a page load — it measures the
-                // viewport before layout settles and strands the popover above the
-                // fold (top ≈ -viewportHeight/2). The opening step of every tour is
-                // centered, so pin any targetless popover to the true viewport
-                // center ourselves; element-anchored steps keep Driver's placement.
+                // Driver.js occasionally anchors a CENTERED popover off-screen on its
+                // first paint after a page load — it measures the viewport before
+                // layout settles and strands the popover above the fold
+                // (top ≈ -viewportHeight/2). A popover is centered when the step has no
+                // target OR when driveSegment degraded a missing/hidden target to
+                // centered — same isVisible test it uses, so this matches what Driver
+                // actually did. Pin those to true viewport center; element-anchored
+                // steps keep Driver's placement (and its arrow).
                 var stepNow = current.steps[gi];
-                if (!stepNow || !stepNow.target) {
+                var targetEl = stepNow && stepNow.target ? document.querySelector(stepNow.target) : null;
+                if (!targetEl || !isVisible(targetEl)) {
                     popover.style.position = "fixed";
                     popover.style.left = "50%";
                     popover.style.top = "50%";
@@ -652,7 +655,16 @@
             function pauseTour() {
                 if (!active || !active.driverObj) return;
                 var gi = globalIndexNow();
-                var path = window.location.pathname; // the step's own page
+                // Capture the step's page WITH its query (minus our own tour/step
+                // params) so a resume lands on the exact same view. Several steps
+                // depend on a query string — e.g. ?audience=class:PK&lock=1 on the
+                // instructor compose step, ?tab=payments on the admin dashboard — and
+                // dropping it would render the target absent and strand the popover.
+                var url = new URL(window.location.href);
+                url.searchParams.delete("tour");
+                url.searchParams.delete("step");
+                var qs = url.searchParams.toString();
+                var path = url.pathname + (qs ? "?" + qs : "");
                 try {
                     window.sessionStorage.setItem(
                         RUN_KEY,
@@ -685,7 +697,11 @@
                     return;
                 }
                 hideResumePill();
-                clearRun(); // the destination re-seeds from the ?tour=&step= param
+                // Clear the paused run BEFORE navigating so the destination's init()
+                // does not short-circuit on it and instead takes the autostart path.
+                // If that navigation itself 302s (a locked area), the tour is lost and
+                // self-heals to a re-offer next visit — acceptable.
+                clearRun();
                 boostedGet(withTourParams(run.resumePath || "/", run.key, run.index));
             }
 
@@ -762,10 +778,18 @@
                 bindResumePill(); // the pill markup is present on every member page
                 var paused = readRun();
                 if (paused && paused.paused) {
-                    // A paused tour is in effect on this tab: show the pill and do NOT
+                    // An explicit ?tour= autostart on THIS page supersedes a stale
+                    // paused run: the presenter deliberately started a (possibly
+                    // different) tour from a Start link, and that must win over a hold
+                    // left from another one. Otherwise hold — show the pill and do NOT
                     // auto-resume or re-offer until the presenter clicks Resume.
-                    showResumePill();
-                    return;
+                    if (current && current.autostart) {
+                        clearRun();
+                        hideResumePill();
+                    } else {
+                        showResumePill();
+                        return;
+                    }
                 }
                 if (!current) return;
                 bindOffer();
