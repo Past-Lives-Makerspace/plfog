@@ -9,8 +9,17 @@ from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
-from hub.calendar_entries import CalendarEntry
+from hub.calendar_entries import CalendarEntry, google_calendar_subscribe_url
 from tests.membership.factories import GuildFactory
+
+
+def describe_google_calendar_subscribe_url():
+    def it_builds_a_webcal_url_and_encodes_the_calendar_id():
+        url = google_calendar_subscribe_url("abc123@group.calendar.google.com")
+        assert url == "webcal://calendar.google.com/calendar/ical/abc123%40group.calendar.google.com/public/basic.ics"
+
+    def it_returns_an_empty_string_for_a_blank_id():
+        assert google_calendar_subscribe_url("") == ""
 
 
 def _entry(**kwargs) -> CalendarEntry:
