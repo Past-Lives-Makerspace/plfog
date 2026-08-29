@@ -223,29 +223,33 @@ register(JOIN_GUILD)
 # --- /vote --------------------------------------------------------------------
 
 _RANKED_OPTIONS = (
-    ("first", "Your 1st choice (5 pts)."),
-    ("second", "Your 2nd choice (3 pts)."),
-    ("third", "Your 3rd choice (2 pts)."),
+    ("first", "Your 1st choice (5 pts).", True),
+    ("second", "Your 2nd choice (3 pts, optional).", False),
+    ("third", "Your 3rd choice (2 pts, optional).", False),
 )
 
 
 def _ballot_options() -> list[dict]:
-    """The three required ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
+    """The ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
 
+    Only the 1st choice is required; 2nd and 3rd are optional, mirroring the voting page.
     Built from :func:`_guild_choices` so the slug values, the 25-choice Discord cap (beyond 25
     active guilds the overflow is logged and dropped from the picker — the same constraint
     ``/join-guild`` already lives with; those guilds stay votable on the hub page), and the
     empty-choices guard are shared rather than re-implemented. One DB query serves all three.
     """
     base = _guild_choices()[0]
-    return [{**base, "name": name, "description": description} for name, description in _RANKED_OPTIONS]
+    return [
+        {**base, "name": name, "description": description, "required": required}
+        for name, description, required in _RANKED_OPTIONS
+    ]
 
 
 def _vote(interaction: Interaction, member: Member | None) -> dict:
     """Cast or change the member's ranked ballot — the hub page's exact validate + save path.
 
     Validation is the very same ``VotePreferenceForm`` the voting page POSTs through
-    (active-guild querysets + the three-distinct rule) and the save is the same
+    (active-guild querysets, 1st required, distinct choices, no skipped rank) and the save is the same
     ``VotePreference.objects.cast_ballot`` call, so ``updated_at``, the Airtable push in
     ``VotePreference.save()``, and the vote-activity post-save signal fire exactly as a page
     submission would — no invented sync behavior. Validation failures name the problem in a
@@ -263,9 +267,10 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
     member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
     voting_url = hub_url("hub_guild_voting")
 
-    slugs = [option_value(interaction, name) or "" for name, _ in _RANKED_OPTIONS]
-    guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=slugs)}
-    unknown = sorted({slug for slug in slugs if slug not in guilds_by_slug})
+    slugs = [option_value(interaction, name) or "" for name, *_ in _RANKED_OPTIONS]
+    provided = [slug for slug in slugs if slug]  # 2nd/3rd are optional and may be absent
+    guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=provided)}
+    unknown = sorted({slug for slug in provided if slug not in guilds_by_slug})
     if unknown:
         named = ", ".join(f"`{slug}`" for slug in unknown)
         return reply(
@@ -276,14 +281,15 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
 
     form = VotePreferenceForm(
         data={
-            "guild_1st": guilds_by_slug[slugs[0]].pk,
-            "guild_2nd": guilds_by_slug[slugs[1]].pk,
-            "guild_3rd": guilds_by_slug[slugs[2]].pk,
+            "guild_1st": guilds_by_slug[slugs[0]].pk if slugs[0] else "",
+            "guild_2nd": guilds_by_slug[slugs[1]].pk if slugs[1] else "",
+            "guild_3rd": guilds_by_slug[slugs[2]].pk if slugs[2] else "",
         }
     )
     if not form.is_valid():
-        # With three resolved active guilds the only reachable failure is the distinct-three
-        # rule — surface the form's own message so Discord and the page speak identically.
+        # Guilds resolved, so the reachable failures are the shared form rules: choices must be
+        # distinct and you can't skip a rank — surface the form's own message so Discord and the
+        # page speak identically.
         message = " ".join(str(error) for errors in form.errors.values() for error in errors)
         return reply(f"{message} Nothing was changed — adjust your picks and try again.", ephemeral=True)
 

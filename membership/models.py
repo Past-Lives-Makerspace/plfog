@@ -7675,11 +7675,12 @@ class FundingSnapshot(models.Model):
             if member is None:
                 continue  # voter no longer active → skip (audience safety)
             voter_ids.add(vote["member_id"])
-            ballot_recap = (
-                f"You voted — 1st: {vote['guild_1st_name']}, "
-                f"2nd: {vote['guild_2nd_name']}, "
-                f"3rd: {vote['guild_3rd_name']}."
-            )
+            ranks = [f"1st: {vote['guild_1st_name']}"]
+            if vote["guild_2nd_name"]:
+                ranks.append(f"2nd: {vote['guild_2nd_name']}")
+            if vote["guild_3rd_name"]:
+                ranks.append(f"3rd: {vote['guild_3rd_name']}")
+            ballot_recap = "You voted — " + ", ".join(ranks) + "."
             result = emit(
                 "voting.results_published",
                 target=self,

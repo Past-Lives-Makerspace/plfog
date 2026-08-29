@@ -274,8 +274,8 @@ def vote_preference_to_airtable(vote: Any) -> dict[str, Any]:
         "Member Name": vote.member.display_name,
         "Member Airtable ID": vote.member.airtable_record_id or "",
         "Guild 1st": vote.guild_1st.name,
-        "Guild 2nd": vote.guild_2nd.name,
-        "Guild 3rd": vote.guild_3rd.name,
+        "Guild 2nd": vote.guild_2nd.name if vote.guild_2nd else "",
+        "Guild 3rd": vote.guild_3rd.name if vote.guild_3rd else "",
         "Voted At": vote.updated_at.isoformat() if vote.updated_at else None,
     }
 
