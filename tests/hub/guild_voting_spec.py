@@ -357,6 +357,25 @@ def describe_vote_preference_model():
         pref = VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
         assert str(pref) == "Alice: Wood / Metal / Clay"
 
+    def it_casts_a_ballot_with_only_a_first_choice():
+        g1 = GuildFactory(name="Solo")
+        member = MemberFactory()
+
+        pref, created = VotePreference.objects.cast_ballot(member, guild_1st=g1)
+
+        assert created
+        assert pref.guild_1st == g1
+        assert pref.guild_2nd is None
+        assert pref.guild_3rd is None
+
+    def it_str_omits_blank_choices():
+        g1 = GuildFactory(name="Wood")
+        member = MemberFactory(preferred_name="Bob")
+
+        pref = VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=None, guild_3rd=None)
+
+        assert str(pref) == "Bob: Wood"
+
 
 @pytest.mark.django_db
 def describe_funding_snapshot_model():
@@ -398,12 +417,43 @@ def describe_vote_preference_form():
 
         assert not form.is_valid()
 
-    def it_rejects_missing_guild_selection():
+    def it_allows_first_choice_only():
         g1 = GuildFactory(name="Only1", is_active=True)
 
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": "", "guild_3rd": ""})
 
+        assert form.is_valid()
+
+    def it_allows_first_and_second_only():
+        g1 = GuildFactory(name="First", is_active=True)
+        g2 = GuildFactory(name="Second", is_active=True)
+
+        form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g2.pk, "guild_3rd": ""})
+
+        assert form.is_valid()
+
+    def it_requires_a_first_choice():
+        form = VotePreferenceForm(data={"guild_1st": "", "guild_2nd": "", "guild_3rd": ""})
+
         assert not form.is_valid()
+        assert "guild_1st" in form.errors
+
+    def it_rejects_a_third_choice_without_a_second():
+        g1 = GuildFactory(name="First", is_active=True)
+        g3 = GuildFactory(name="Third", is_active=True)
+
+        form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": "", "guild_3rd": g3.pk})
+
+        assert not form.is_valid()
+        assert form.non_field_errors()
+
+    def it_rejects_a_duplicate_across_two_chosen_tiers():
+        g1 = GuildFactory(name="Dup", is_active=True)
+
+        form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g1.pk, "guild_3rd": ""})
+
+        assert not form.is_valid()
+        assert form.non_field_errors()
 
     def it_excludes_inactive_guilds():
         GuildFactory(name="Inactive", is_active=False)

@@ -148,7 +148,11 @@ def calculate_results(
         ]:
             guild_name = vote[rank_key]
             if not guild_name:
-                raise ValueError(f"Empty guild name in vote for rank '{rank_key}'")
+                # 2nd/3rd are optional; a blank one contributes nothing. A blank 1st
+                # choice is never valid (required at the form + DB level), so still flag it.
+                if rank_key == "guild_1st":
+                    raise ValueError(f"Empty guild name in vote for rank '{rank_key}'")
+                continue
             guild_scores[guild_name]["total_points"] += weight
             vote_count_key = rank_key.replace("guild_", "votes_")
             guild_scores[guild_name][vote_count_key] += 1

@@ -352,8 +352,8 @@ def _member_snapshot_rows(member_id: int) -> list[tuple]:
                 url,
                 snap.cycle_label,
                 match.get("guild_1st_name", ""),
-                match.get("guild_2nd_name", ""),
-                match.get("guild_3rd_name", ""),
+                match.get("guild_2nd_name") or "",
+                match.get("guild_3rd_name") or "",
                 "Yes" if match.get("is_paying") else "No (allocation only)",
             )
         )

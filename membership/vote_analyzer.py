@@ -65,9 +65,9 @@ def serialize_live_votes() -> list[dict[str, Any]]:
             "guild_1st_id": pref.guild_1st_id,
             "guild_1st_name": pref.guild_1st.name,
             "guild_2nd_id": pref.guild_2nd_id,
-            "guild_2nd_name": pref.guild_2nd.name,
+            "guild_2nd_name": pref.guild_2nd.name if pref.guild_2nd else None,
             "guild_3rd_id": pref.guild_3rd_id,
-            "guild_3rd_name": pref.guild_3rd.name,
+            "guild_3rd_name": pref.guild_3rd.name if pref.guild_3rd else None,
         }
         for pref in preferences
     ]

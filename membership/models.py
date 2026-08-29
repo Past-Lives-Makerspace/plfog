@@ -7249,7 +7249,7 @@ class VotePreferenceQuerySet(models.QuerySet):
         )
 
     def cast_ballot(
-        self, member: Member, *, guild_1st: Guild, guild_2nd: Guild, guild_3rd: Guild
+        self, member: Member, *, guild_1st: Guild, guild_2nd: Guild | None = None, guild_3rd: Guild | None = None
     ) -> tuple[VotePreference, bool]:
         """Create or update ``member``'s persistent ballot — the one shared save path.
 
@@ -7299,14 +7299,18 @@ class VotePreference(models.Model):
     guild_2nd = models.ForeignKey(
         Guild,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="second_choice_votes",
-        help_text="Second-choice guild (3 points).",
+        help_text="Second-choice guild (3 points). Optional; must differ from the other choices.",
     )
     guild_3rd = models.ForeignKey(
         Guild,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="third_choice_votes",
-        help_text="Third-choice guild (2 points).",
+        help_text="Third-choice guild (2 points). Optional; must differ from the other choices.",
     )
     updated_at = models.DateTimeField(auto_now=True, help_text="When this vote was last changed.")
 
@@ -7317,7 +7321,8 @@ class VotePreference(models.Model):
         verbose_name_plural = "Vote Preferences"
 
     def __str__(self) -> str:
-        return f"{self.member.display_name}: {self.guild_1st} / {self.guild_2nd} / {self.guild_3rd}"
+        chosen = " / ".join(str(g) for g in (self.guild_1st, self.guild_2nd, self.guild_3rd) if g)
+        return f"{self.member.display_name}: {chosen}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
@@ -7493,9 +7498,9 @@ class FundingSnapshot(models.Model):
                 "guild_1st_id": pref.guild_1st_id,
                 "guild_1st_name": pref.guild_1st.name,
                 "guild_2nd_id": pref.guild_2nd_id,
-                "guild_2nd_name": pref.guild_2nd.name,
+                "guild_2nd_name": pref.guild_2nd.name if pref.guild_2nd else None,
                 "guild_3rd_id": pref.guild_3rd_id,
-                "guild_3rd_name": pref.guild_3rd.name,
+                "guild_3rd_name": pref.guild_3rd.name if pref.guild_3rd else None,
             }
             for pref in preferences
         ]
@@ -7670,11 +7675,12 @@ class FundingSnapshot(models.Model):
             if member is None:
                 continue  # voter no longer active → skip (audience safety)
             voter_ids.add(vote["member_id"])
-            ballot_recap = (
-                f"You voted — 1st: {vote['guild_1st_name']}, "
-                f"2nd: {vote['guild_2nd_name']}, "
-                f"3rd: {vote['guild_3rd_name']}."
-            )
+            ranks = [f"1st: {vote['guild_1st_name']}"]
+            if vote["guild_2nd_name"]:
+                ranks.append(f"2nd: {vote['guild_2nd_name']}")
+            if vote["guild_3rd_name"]:
+                ranks.append(f"3rd: {vote['guild_3rd_name']}")
+            ballot_recap = "You voted — " + ", ".join(ranks) + "."
             result = emit(
                 "voting.results_published",
                 target=self,
