@@ -246,9 +246,19 @@ def public_list(request: HttpRequest) -> HttpResponse:
         key = offering.grouping_key or f"solo:{offering.pk}"
         keys_by_category.setdefault(offering.category_id, set()).add(key)
     category_counts: dict[int, int] = {cat_id: len(keys) for cat_id, keys in keys_by_category.items()}
-    categories = [cat for cat in Category.objects.all() if category_counts.get(cat.id)]
+    # Show every guild type in the catalog, even those with no bookable classes right
+    # now, so members can see the full range of guilds. Zero-class types get a count of
+    # 0 (reflected in the "Guild Types" hero stat and the guild-type filter dropdown).
+    # Mirror the demo gate from ClassOfferingQuerySet.public(): when demo classes are
+    # hidden, hide demo-slug guild types too. The old "count > 0" filter hid them only
+    # as a side effect (they had zero bookable classes), so listing all categories
+    # unconditionally would leak [DEMO] guild types into the public catalog.
+    category_qs = Category.objects.all()
+    if not SiteConfiguration.load().display_demo_classes:
+        category_qs = category_qs.exclude(slug__startswith="demo-")
+    categories = list(category_qs)
     for cat in categories:
-        cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
+        cat.class_count = category_counts.get(cat.id, 0)  # type: ignore[attr-defined]
 
     # Instructors-for-filter: members who teach at least one browsable class.
     from membership.models import Member as MemberModel
