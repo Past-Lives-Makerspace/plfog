@@ -249,7 +249,14 @@ def public_list(request: HttpRequest) -> HttpResponse:
     # Show every guild type in the catalog, even those with no bookable classes right
     # now, so members can see the full range of guilds. Zero-class types get a count of
     # 0 (reflected in the "Guild Types" hero stat and the guild-type filter dropdown).
-    categories = list(Category.objects.all())
+    # Mirror the demo gate from ClassOfferingQuerySet.public(): when demo classes are
+    # hidden, hide demo-slug guild types too. The old "count > 0" filter hid them only
+    # as a side effect (they had zero bookable classes), so listing all categories
+    # unconditionally would leak [DEMO] guild types into the public catalog.
+    category_qs = Category.objects.all()
+    if not SiteConfiguration.load().display_demo_classes:
+        category_qs = category_qs.exclude(slug__startswith="demo-")
+    categories = list(category_qs)
     for cat in categories:
         cat.class_count = category_counts.get(cat.id, 0)  # type: ignore[attr-defined]
 

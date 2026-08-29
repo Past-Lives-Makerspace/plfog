@@ -969,7 +969,7 @@ def describe_all_guild_types_show():
         assert {"ceramics", "leatherwork"} <= set(cats)
         assert cats["ceramics"].class_count == 1
         assert cats["leatherwork"].class_count == 0
-        assert response.context["total_categories"] == len(cats)
+        assert response.context["total_categories"] == 2  # exactly the two we created
         assert empty.slug in cats
 
     def it_counts_every_guild_type_in_the_hero_stat(db, client):
@@ -979,3 +979,33 @@ def describe_all_guild_types_show():
         response = client.get(reverse("classes:public_list"))
 
         assert response.context["total_categories"] == 3
+
+    def it_hides_demo_guild_types_when_demo_is_off(db, client):
+        # Listing all categories must not undo the demo gate: [DEMO] guild types stay
+        # hidden on prod when display_demo_classes is off.
+        from core.models import SiteConfiguration
+
+        CategoryFactory(name="[DEMO] Lamp Working", slug="demo-lamp-working")
+        CategoryFactory(name="Ceramics", slug="ceramics")
+        config = SiteConfiguration.load()
+        config.display_demo_classes = False
+        config.save()
+
+        response = client.get(reverse("classes:public_list"))
+
+        slugs = {c.slug for c in response.context["categories"]}
+        assert "ceramics" in slugs
+        assert "demo-lamp-working" not in slugs
+
+    def it_shows_demo_guild_types_when_demo_is_on(db, client):
+        from core.models import SiteConfiguration
+
+        CategoryFactory(name="[DEMO] Lamp Working", slug="demo-lamp-working")
+        config = SiteConfiguration.load()
+        config.display_demo_classes = True
+        config.save()
+
+        response = client.get(reverse("classes:public_list"))
+
+        slugs = {c.slug for c in response.context["categories"]}
+        assert "demo-lamp-working" in slugs
