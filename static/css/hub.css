@@ -6153,22 +6153,36 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
-/* The Pause control inside the Driver.js popover footer (left of Back/Next). */
+/* Driver's footer packs its three children (pause, "N of M", nav buttons) with no
+   gap, so the pause control ends up jammed against the step counter. Give the row a
+   gap so nothing touches. */
+.pl-tour .driver-popover-footer {
+    gap: 0.5rem;
+}
+
+/* The Pause control inside the Driver.js popover footer (a subtle ghost pill sitting
+   left of the "N of M" counter and Back/Next). Styled as a real button so it reads as
+   a control and never visually merges with the counter text. */
 .pl-tour .pl-tour-pause-btn {
-    margin-right: auto;
-    padding: 0;
+    padding: 0.25rem 0.6rem;
     background: transparent;
-    border: none;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
     color: var(--hub-text-muted);
     font: inherit;
     font-size: 0.8125rem;
-    text-decoration: underline;
-    text-underline-offset: 2px;
+    font-weight: 500;
+    line-height: 1.3;
+    text-decoration: none;
+    text-shadow: none; /* driver's default footer-button white text-shadow must be reset */
     cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
 }
 .pl-tour .pl-tour-pause-btn:hover,
 .pl-tour .pl-tour-pause-btn:focus {
+    background: transparent; /* override driver's default #f7f7f7 hover fill */
     color: var(--color-tuscan-yellow);
+    border-color: var(--color-tuscan-yellow);
 }
 
 /* ── "Show me around" entry link under a page header (§6.3) ── */
@@ -7260,15 +7274,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    cursor: default;
+    cursor: pointer;
 }
-.pl-guild-cta__overflow {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    padding: 0;
+.pl-guild-cta__caret {
+    margin-left: 0.1rem;
+    transition: transform 0.15s ease;
+}
+.pl-guild-cta__caret--open {
+    transform: rotate(180deg);
 }
 .pl-guild-cta__menu {
     position: absolute;
