@@ -246,9 +246,12 @@ def public_list(request: HttpRequest) -> HttpResponse:
         key = offering.grouping_key or f"solo:{offering.pk}"
         keys_by_category.setdefault(offering.category_id, set()).add(key)
     category_counts: dict[int, int] = {cat_id: len(keys) for cat_id, keys in keys_by_category.items()}
-    categories = [cat for cat in Category.objects.all() if category_counts.get(cat.id)]
+    # Show every guild type in the catalog, even those with no bookable classes right
+    # now, so members can see the full range of guilds. Zero-class types get a count of
+    # 0 (reflected in the "Guild Types" hero stat and the guild-type filter dropdown).
+    categories = list(Category.objects.all())
     for cat in categories:
-        cat.class_count = category_counts[cat.id]  # type: ignore[attr-defined]
+        cat.class_count = category_counts.get(cat.id, 0)  # type: ignore[attr-defined]
 
     # Instructors-for-filter: members who teach at least one browsable class.
     from membership.models import Member as MemberModel

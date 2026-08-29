@@ -946,3 +946,36 @@ def describe_detail_hero_fallback():
         assert resp.status_code == 200
         assert "cp-detail__hero-logo" in resp.content.decode()
         assert "img/favicon.png" in resp.content.decode()
+
+
+def describe_all_guild_types_show():
+    """Every guild type (Category) appears in the catalog, even with zero bookable classes."""
+
+    def it_lists_a_guild_type_with_no_bookable_classes(db, client):
+        stocked = CategoryFactory(name="Ceramics", slug="ceramics")
+        empty = CategoryFactory(name="Leatherwork", slug="leatherwork")
+        offering = ClassOfferingFactory(
+            title="Wheel Throwing",
+            slug="wheel-throwing",
+            category=stocked,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() + timedelta(days=7)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+
+        response = client.get(reverse("classes:public_list"))
+
+        cats = {c.slug: c for c in response.context["categories"]}
+        assert {"ceramics", "leatherwork"} <= set(cats)
+        assert cats["ceramics"].class_count == 1
+        assert cats["leatherwork"].class_count == 0
+        assert response.context["total_categories"] == len(cats)
+        assert empty.slug in cats
+
+    def it_counts_every_guild_type_in_the_hero_stat(db, client):
+        for i in range(3):
+            CategoryFactory(name=f"Guild {i}", slug=f"guild-{i}")
+
+        response = client.get(reverse("classes:public_list"))
+
+        assert response.context["total_categories"] == 3
