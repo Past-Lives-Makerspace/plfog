@@ -33,6 +33,9 @@ def link_facility_guilds(apps, schema_editor):
 
 
 def unlink_facility_guilds(apps, schema_editor):
+    # A stateless data migration can't know which rows it actually set, so on rollback this
+    # also clears a link that was hand-set to the same guild before the migration ran. That
+    # edge only bites on a manual reverse and is acceptable for this facility mapping.
     MapHotspot = apps.get_model("membership", "MapHotspot")
     Guild = apps.get_model("membership", "Guild")
     for label, fragment in FACILITY_GUILD.items():
