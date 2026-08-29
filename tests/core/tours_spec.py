@@ -2,6 +2,7 @@
 
 import re
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from django.contrib.auth.models import AnonymousUser, User
@@ -32,6 +33,20 @@ pytestmark = pytest.mark.django_db
 
 TOUR_KEY_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 HELP_KEY_TARGET_RE = re.compile(r'^\[data-help-key="([^"]+)"\]$')
+
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
+_STAMPED_KEY_RE = re.compile(r'data-help-key="([^"{}]*)"')
+_STAMPED_PARAM_RE = re.compile(r'action_help_key="([^"{}]*)"')
+
+
+def _keys_stamped_in_templates() -> set[str]:
+    """Every help key actually stamped as an element attribute under templates/."""
+    keys: set[str] = set()
+    for path in TEMPLATES_DIR.rglob("*.html"):
+        text = path.read_text(encoding="utf-8")
+        keys.update(_STAMPED_KEY_RE.findall(text))
+        keys.update(_STAMPED_PARAM_RE.findall(text))
+    return keys
 
 
 def _member(name: str = "tour-member", **kwargs) -> Member:
@@ -84,6 +99,23 @@ def describe_TOURS():
                 match = HELP_KEY_TARGET_RE.match(step.target)
                 assert match, f"{tour.key}: non-help-key target {step.target!r}"
                 assert match.group(1) in HELP_KEYS, f"{tour.key}: unregistered key {match.group(1)!r}"
+
+    def it_targets_only_keys_stamped_in_a_template():
+        # The template->registry drift guard (tests/hub/help_keys_spec) does NOT
+        # enforce the reverse: a key can be registered yet stamped in zero
+        # templates, so a tour step aimed at it would spotlight nothing on the
+        # page. Guard the tour direction explicitly.
+        stamped = _keys_stamped_in_templates()
+        unstamped = sorted(
+            {
+                match.group(1)
+                for tour in TOURS.values()
+                for step in tour.steps
+                if step.target is not None and (match := HELP_KEY_TARGET_RE.match(step.target))
+                if match.group(1) not in stamped
+            }
+        )
+        assert not unstamped, "tour targets not stamped in any template:\n  " + "\n  ".join(unstamped)
 
     def it_reverses_every_entry_url(db):
         member = _lead("urls")

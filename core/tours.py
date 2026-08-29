@@ -216,6 +216,14 @@ TOURS: dict[str, Tour] = {
                 body="Tap Subscribe to add the whole calendar to your own phone or laptop.",
             ),
             TourStep(
+                target=None,
+                title="It All Syncs to Discord",
+                body=(
+                    "Classes, events, and guild meetups post to our Discord automatically, so the "
+                    "calendar and Discord always match. Nothing extra for you to do."
+                ),
+            ),
+            TourStep(
                 target='[data-help-key="voting.rank-guilds"]',
                 title="Guild Voting",
                 body=(
@@ -286,11 +294,26 @@ TOURS: dict[str, Tour] = {
                 tab_set=("section", "basic"),
             ),
             TourStep(
+                target='[data-help-key="guild.qr-codes"]',
+                title="Share and Print",
+                body="Print a flyer or grab a QR code for your guild page. Perfect for the shop wall or a table at an event.",
+                tab_set=("section", "basic"),
+            ),
+            TourStep(
                 target='[data-help-key="guild.run-orientations"]',
                 title="Orientations",
                 body=(
                     "Set your orientation hours and open slots here. Bookings show up on the "
                     "Orientations dashboard to confirm."
+                ),
+                tab_set=("section", "orientations"),
+            ),
+            TourStep(
+                target='[data-help-key="guild.thankyou-email"]',
+                title="The Thank You Email",
+                body=(
+                    "After someone finishes their orientation, this note goes out automatically. "
+                    "Turn it on and make it yours."
                 ),
                 tab_set=("section", "orientations"),
             ),
@@ -407,6 +430,16 @@ TOURS: dict[str, Tour] = {
                 body="When it is ready, submit for review. It goes to the guild lead and then an admin before it publishes.",
             ),
             TourStep(
+                target='[data-help-key="teach.class-overview"]',
+                title="Your Class Home Base",
+                body=(
+                    "This is one class in one place: who is teaching, the price, how many seats are filled, "
+                    "and every session date. Everything below hangs off here."
+                ),
+                navigate="classes:teach_class_detail",
+                navigate_kwargs=_instructor_class_pk,
+            ),
+            TourStep(
                 target='[data-help-key="teach.roster-table"]',
                 title="Your Roster",
                 body="Here is who signed up. Open a person's menu to remove them and a seat frees up.",
@@ -416,8 +449,21 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="teach.roster-waitlist"]',
                 title="The Waitlist",
-                body="Someone waiting? Promote them and they take the open seat and get a confirmation.",
+                body=(
+                    "A seat opened up? Promote someone here. They take the spot, and for a paid class you can "
+                    "send them a payment link to check out. No card is charged for them."
+                ),
                 navigate="classes:teach_class_waitlist",
+                navigate_kwargs=_instructor_class_pk,
+            ),
+            TourStep(
+                target='[data-help-key="teach.class-qr"]',
+                title="Print a Flyer or QR",
+                body=(
+                    "Open a one page flyer or grab a QR code that links right to your sign up page. "
+                    "Print it, post it, hand it out."
+                ),
+                navigate="classes:teach_class_edit",
                 navigate_kwargs=_instructor_class_pk,
             ),
             TourStep(
@@ -444,13 +490,31 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target=None,
                 title="The Admin Controls",
-                body="These are the admin controls. I will show the five you will reach for most.",
+                body="These are the admin controls. I will walk you through the tools you will reach for most.",
             ),
             TourStep(
                 target='[data-help-key="announcements.compose"]',
                 title="Site Wide Announcements",
                 body="Send a site wide announcement here. Pick who gets it, write once, and it can go to email, push, and Discord.",
                 navigate="hub_compose",
+            ),
+            TourStep(
+                target='[data-help-key="admin.review-queue"]',
+                title="Class Approvals",
+                body="Classes waiting on you sit at the top. Review the details, then approve or send it back with a note.",
+                navigate="classes:admin_overview",
+            ),
+            TourStep(
+                target='[data-help-key="announcements.review-proposals"]',
+                title="Announcement Approvals",
+                body="Member proposed announcements wait here. Approve one to post it, or send it back with a note.",
+                navigate="hub_guild_announcement_review_queue",
+            ),
+            TourStep(
+                target='[data-help-key="admin.event-review"]',
+                title="Event Approvals",
+                body="Member proposed events wait here too. Approving one publishes it to the calendar and posts to Discord.",
+                navigate="hub_event_review_queue",
             ),
             TourStep(
                 target='[data-help-key="admin.refunds"]',
@@ -460,10 +524,14 @@ TOURS: dict[str, Tour] = {
                 query={"tab": "payments"},
             ),
             TourStep(
-                target='[data-help-key="admin.review-queue"]',
-                title="The Review Queue",
-                body="Classes waiting on you sit at the top. Review the details, then approve or send it back with a note.",
-                navigate="classes:admin_overview",
+                target='[data-help-key="admin.reconciliation"]',
+                title="Reconciliation",
+                body=(
+                    "This report breaks down exactly what each guild, instructor, and orientator is owed, "
+                    "so you can tell the treasurer precisely what to transfer."
+                ),
+                navigate="billing_admin_dashboard",
+                query={"tab": "reconciliation"},
             ),
             TourStep(
                 target='[data-help-key="admin.discount-codes"]',
@@ -472,16 +540,30 @@ TOURS: dict[str, Tour] = {
                 navigate="classes:admin_discount_codes",
             ),
             TourStep(
-                target='[data-help-key="admin.reconciliation"]',
-                title="Reconciliation",
-                body="This report breaks down what each guild is owed so you can reconcile payouts.",
-                navigate="billing_admin_dashboard",
-                query={"tab": "reconciliation"},
+                target='[data-help-key="orientation.dashboard"]',
+                title="Orientations Dashboard",
+                body="Every guild's orientation requests and completions live here so you can see who is booked and who is oriented.",
+                navigate="hub_orientations_dashboard",
             ),
             TourStep(
-                target=None,
-                title="That Is the Admin Lap",
-                body="Each tool has a full guide on the Help page.",
+                target='[data-help-key="admin.invite-member"]',
+                title="Manage Members",
+                body="See everyone, open a member to edit them, or invite someone new right here.",
+                navigate="hub_admin_members",
+            ),
+            TourStep(
+                target='[data-help-key="admin.activity"]',
+                title="Site Activity",
+                body="A running feed of sign ups, bookings, approvals, and emails, so you can see what just happened.",
+                navigate="manage_activity",
+            ),
+            TourStep(
+                target='[data-help-key="admin.quickstart-guides"]',
+                title="Your Admin Home",
+                body=(
+                    "Every tool lives on this page, and the Guild Lead and Instructor Quickstart guides at the "
+                    "bottom spell out each role. That is the lap."
+                ),
                 navigate="hub_admin_tools",
             ),
         ),

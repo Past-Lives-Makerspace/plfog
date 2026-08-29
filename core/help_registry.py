@@ -704,6 +704,50 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    "teach.class-overview": {
+        "title": "Your class home base",
+        "short_text": (
+            "Everything about one class in one place: who is instructing, the price, seats filled, and every session date."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-qr": {
+        "title": "Flyer and QR code",
+        "short_text": "Open a printable one page flyer or download a QR code that links straight to your class sign up page.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.thankyou-email": {
+        "title": "Orientation thank you email",
+        "short_text": "The note that goes out after someone finishes their orientation. Turn it on and make it your own.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.qr-codes": {
+        "title": "Guild flyer and QR",
+        "short_text": "Print a flyer or download a QR code that points people at your guild page. Great for the studio wall.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.event-review": {
+        "title": "Event approvals",
+        "short_text": "Member proposed events wait here. Review the details, then approve to publish or send it back with a note.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.activity": {
+        "title": "Site activity",
+        "short_text": "A running feed of what is happening across the site: sign ups, bookings, approvals, and more.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.quickstart-guides": {
+        "title": "Quickstart guides",
+        "short_text": "Short role guides for guild leads and instructors. Point new staff here so they can get going fast.",
+        "article_slug": None,
+        "anchor": None,
+    },
 }
 
 # THE key regex — Specs B/C import this instead of restating their own.
