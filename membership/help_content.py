@@ -543,13 +543,13 @@ A row of colored filter chips sits above the grid — one per guild or calendar.
 
 You'll need to be signed in for this part.
 
-1. On the **Calendar** tab, click **Export Calendar** (top right).
-2. Pick **Subscribe via webcal** to keep your calendar app in sync — new events show up there automatically.
-3. Or pick **Download .ics (Apple / Outlook)** for a one-time import.
+1. On the **Calendar** tab, click **Subscribe** (top right).
+2. Pick **Subscribe to the Member calendar** for all makerspace events, or **Subscribe to the Public calendar** for the outward facing one. Your calendar app stays in sync as new events are added.
+3. Or pick **Download .ics (one time)** for a one time import of this page.
 
-![The Export Calendar button, top right of the Calendar tab.](/static/help/community-calendar/03-export-calendar.png)
+![The Subscribe button, top right of the Calendar tab.](/static/help/community-calendar/03-export-calendar.png)
 
-The export covers the full community calendar — all guild, general, and class events. To register for a class, use the class's own page instead.
+The Member and Public calendars are the makerspace's shared Google calendars. To register for a class, use the class's own page instead.
 
 Each guild also has its own calendar, on the **Guild Calendar** tab of its guild page.
 """,
@@ -572,7 +572,7 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
                 "file": "03-export-calendar.png",
                 "page": "hub_community_calendar",
                 "selector": ".pl-calendar-export",
-                "caption": "The Export Calendar button, top right of the Calendar tab.",
+                "caption": "The Subscribe button, top right of the Calendar tab.",
                 "as_role": "member",
             },
         ],
