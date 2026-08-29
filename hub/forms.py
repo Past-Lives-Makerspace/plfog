@@ -1056,26 +1056,34 @@ class VotePreferenceForm(forms.Form):
     )
     guild_2nd = forms.ModelChoiceField(
         queryset=Guild.objects.filter(is_active=True),
-        label="2nd Choice (3 pts)",
+        label="2nd Choice (3 pts, optional)",
         empty_label="-- Select a guild --",
+        required=False,
     )
     guild_3rd = forms.ModelChoiceField(
         queryset=Guild.objects.filter(is_active=True),
-        label="3rd Choice (2 pts)",
+        label="3rd Choice (2 pts, optional)",
         empty_label="-- Select a guild --",
+        required=False,
     )
 
     def clean(self) -> dict:
-        """Validate that all three guild choices are distinct."""
+        """Validate the ranked ballot.
+
+        Only the 1st choice is required. Any choices the member does make must be
+        distinct guilds, and they can't skip a rank (a 3rd choice needs a 2nd).
+        """
         cleaned: dict = super().clean() or {}
         g1 = cleaned.get("guild_1st")
         g2 = cleaned.get("guild_2nd")
         g3 = cleaned.get("guild_3rd")
 
-        if g1 and g2 and g3:
-            choices = [g1, g2, g3]
-            if len(set(g.pk for g in choices)) != 3:
-                raise forms.ValidationError("Please select three different guilds.")
+        if g3 and not g2:
+            raise forms.ValidationError("Add a 2nd choice before choosing a 3rd.")
+
+        chosen = [g for g in (g1, g2, g3) if g]
+        if len({g.pk for g in chosen}) != len(chosen):
+            raise forms.ValidationError("Each choice must be a different guild.")
 
         return cleaned
 

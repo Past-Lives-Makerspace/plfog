@@ -99,11 +99,23 @@ def describe_calculate_results():
         with pytest.raises(KeyError):
             calculate_results(votes=votes)
 
-    def it_raises_on_empty_guild_names():
-        """Empty guild names indicate a bug upstream — fail loudly."""
+    def it_raises_on_an_empty_first_choice():
+        """A blank 1st choice indicates a bug upstream (1st is required) — fail loudly."""
         votes = [{"guild_1st": "", "guild_2nd": "Glass", "guild_3rd": "Wood"}]
         with pytest.raises(ValueError, match="Empty guild name"):
             calculate_results(votes=votes)
+
+    def it_skips_blank_optional_choices():
+        """A 1st-only ballot scores only its 1st choice; blank 2nd/3rd contribute nothing."""
+        votes = [{"guild_1st": "Ceramics", "guild_2nd": None, "guild_3rd": ""}]
+
+        result = calculate_results(votes=votes)
+
+        ceramics = next(r for r in result["results"] if r["guild_name"] == "Ceramics")
+        assert ceramics["votes_1st"] == 1
+        assert ceramics["votes_2nd"] == 0
+        assert ceramics["votes_3rd"] == 0
+        assert result["total_points"] == 5
 
     def it_uses_paying_voter_count_for_pool():
         """Pool = paying_voter_count × $10, not total voters."""

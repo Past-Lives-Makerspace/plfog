@@ -296,14 +296,21 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
 
     cycle = get_cycle_context()
     verb = "in" if created else "updated"
+    ranked = [
+        (f"{label} — {guild.name} · {WEIGHTS[label]} pts")
+        for label, guild in (
+            ("1st", preference.guild_1st),
+            ("2nd", preference.guild_2nd),
+            ("3rd", preference.guild_3rd),
+        )
+        if guild
+    ]
     embed = {
         "title": f"Your ballot is {verb} — {cycle['current_cycle_label']} ✅",
         "description": (
             f"This cycle closes **{cycle['cycle_closes_on']}**.\n\n"
-            f"1st — {preference.guild_1st.name} · {WEIGHTS['1st']} pts\n"
-            f"2nd — {preference.guild_2nd.name} · {WEIGHTS['2nd']} pts\n"
-            f"3rd — {preference.guild_3rd.name} · {WEIGHTS['3rd']} pts\n\n"
-            "See the live standings anytime with `/voting`."
+            + "\n".join(ranked)
+            + "\n\nSee the live standings anytime with `/voting`."
         ),
     }
     button_row = {
