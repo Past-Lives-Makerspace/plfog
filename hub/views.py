@@ -2596,7 +2596,11 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     ctx = _guild_cta_context(request, guild, member)
     ctx["oob"] = True
     response = render(request, "hub/partials/_guild_join_cta.html", ctx)
-    message = f"You joined {guild.name}! Check your inbox for a welcome." if welcomed else f"You joined {guild.name}!"
+    message = (
+        f"You joined {guild.name}! Check your inbox for your welcome packet."
+        if welcomed
+        else f"You joined {guild.name}!"
+    )
     trigger_toast(response, message, "success")
     return response
 
@@ -3387,7 +3391,7 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
         welcome_form = GuildWelcomeEmailForm(request.POST, instance=settings_obj)
         if welcome_form.is_valid():
             welcome_form.save()
-            messages.success(request, "Welcome email saved.")
+            messages.success(request, "Welcome packet saved.")
             return redirect(welcome_tab)
         ctx = _guild_edit_context(request, guild, welcome_email_form=welcome_form)
         ctx["active_tab"] = "welcome_email"

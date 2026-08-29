@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import pytest
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core import mail
+from django.template.loader import render_to_string
 
 from core.models import Notification, TransactionalEmailLog
 from membership import orientations
 from membership.guild_welcome_copy import STANDARD_WELCOME_BODY, standard_welcome_subject
 from membership.models import GuildMembership, GuildOrientationSettings
 from tests.membership.factories import (
+    CommunityEventFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
+    GuildStaffMembershipFactory,
+    MemberFactory,
     MembershipPlanFactory,
 )
 
@@ -166,6 +171,88 @@ def describe_send_guild_welcome_test():
         orientations.send_guild_welcome_test(guild, lead)
 
         assert len(mail.outbox) == 2
+
+
+def describe_guild_welcome_context_personalization():
+    def it_includes_leadership_studio_hours_classes_and_open_orientations():
+        lead = MemberFactory(full_legal_name="Ada Lead")
+        staff_member = MemberFactory(full_legal_name="Bob Staff")
+        guild = GuildFactory(name="Casting Guild", guild_lead=lead)
+        GuildStaffMembershipFactory(guild=guild, member=staff_member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        CommunityEventFactory(guild=guild, studio_hours=True, location="Main Bay")
+
+        ctx = orientations._guild_welcome_context(guild, "Sam", "hi")
+
+        assert [m.pk for m in ctx["leadership"]] == [lead.pk, staff_member.pk]
+        assert ctx["orientations_open"] is True
+        assert ctx["studio_hours"]
+        assert ctx["studio_hours"][0]["location"] == "Main Bay"
+        assert ctx["classes_url"].startswith(settings.MEMBER_BASE_URL.rstrip("/"))
+        assert f"guild={guild.slug}" in ctx["classes_url"]
+
+    def it_reports_orientations_closed_when_the_guild_has_no_settings_row():
+        guild = GuildFactory()
+        ctx = orientations._guild_welcome_context(guild, "Sam", "hi")
+        assert ctx["orientations_open"] is False
+
+    def it_reports_orientations_closed_when_the_settings_row_is_not_accepting():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=False)
+        ctx = orientations._guild_welcome_context(guild, "Sam", "hi")
+        assert ctx["orientations_open"] is False
+
+    def it_returns_empty_leadership_and_studio_hours_for_a_bare_guild():
+        guild = GuildFactory()  # no lead, no staff, no standing studio hours
+        ctx = orientations._guild_welcome_context(guild, "Sam", "hi")
+        assert ctx["leadership"] == []
+        assert ctx["studio_hours"] == []
+
+
+def describe_guild_welcome_email_personalized_sections():
+    def _render_both(guild: object) -> tuple[str, str]:
+        ctx = orientations._guild_welcome_context(guild, "Sam", "hi there")
+        html = render_to_string("membership/emails/guild_welcome.html", ctx)
+        text = render_to_string("membership/emails/guild_welcome.txt", ctx)
+        return html, text
+
+    def it_names_leadership_shows_studio_hours_and_links_when_present():
+        lead = MemberFactory(full_legal_name="Ada Lead")
+        staff_member = MemberFactory(full_legal_name="Bob Staff")
+        guild = GuildFactory(name="Casting Guild", guild_lead=lead)
+        GuildStaffMembershipFactory(guild=guild, member=staff_member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        CommunityEventFactory(guild=guild, studio_hours=True, location="Main Bay")
+
+        html, text = _render_both(guild)
+
+        for body in (html, text):
+            assert "Ada Lead" in body
+            assert "Bob Staff" in body
+            assert "Main Bay" in body
+            assert "Book an orientation" in body
+            assert "Browse Casting Guild classes" in body
+
+        # The send path passes the same personalized context, so the sent mail carries it.
+        member = _member()
+        orientations.send_guild_welcome(guild, member)
+        assert "Ada Lead" in mail.outbox[0].body
+
+    def it_omits_leadership_studio_hours_and_orientation_when_absent():
+        guild = GuildFactory(name="Sparse Guild")  # no lead, no staff, no studio hours
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=False)  # not accepting bookings
+
+        html, text = _render_both(guild)
+
+        for body in (html, text):
+            assert "Book an orientation" not in body
+            assert "Studio Hours" not in body and "Studio hours" not in body
+            assert "Meet Your Guild Leadership" not in body and "Meet your guild leadership" not in body
+            # Always-relevant essentials still render for every guild.
+            assert "Read the guild's announcements" in body
+            assert "Check the wishlist" in body
+            # The classes catalog link is always available.
+            assert "Browse Sparse Guild classes" in body
 
 
 def describe_silent_join_paths():

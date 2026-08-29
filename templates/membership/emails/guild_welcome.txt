@@ -3,14 +3,21 @@
 Welcome to {{ guild.name }}!
 
 {{ body|rich_email_text }}
-
+{% if leadership %}
+Meet your guild leadership: {% for person in leadership %}{{ person.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+Say hello. They can help you find your footing.
+{% endif %}{% if studio_hours %}
+Studio hours:
+{% for block in studio_hours %}-> {{ block.weekday_label }} {{ block.time_range }}{% if block.location %} ({{ block.location }}){% endif %}
+{% endfor %}{% endif %}
 What you can do on your guild page:
 -> Read the guild's announcements
--> Book an orientation
 -> See meetings and the calendar
 -> Meet the roster
 -> Check the wishlist
-
+{% if orientations_open %}-> Book an orientation: {{ guild_url }}
+{% endif %}{% if classes_url %}-> Browse {{ guild.name }} classes: {{ classes_url }}
+{% endif %}
 New here? Read the quick guide to your guild page: {{ help_url }}
 
 View guild page: {{ guild_url }}

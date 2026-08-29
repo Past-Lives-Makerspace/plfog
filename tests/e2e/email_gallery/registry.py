@@ -495,7 +495,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
             "its own subject and body to override it. Goes to the member who just joined."
         ),
         edit_pointer=(
-            "Guild-authored (guild editor → Welcome Email tab); "
+            "Guild-authored (guild editor → Welcome Packet tab); "
             "shell in templates/membership/emails/guild_welcome.{txt,html}"
         ),
         audience="The member who just joined the guild.",
