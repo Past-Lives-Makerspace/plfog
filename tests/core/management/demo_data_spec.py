@@ -159,9 +159,11 @@ def describe_demo_data_showcase_class():
 
         offering = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}full-waitlist")
         # A real, prefix-free title in its own standalone (non lamp-working) category.
+        # The category name keeps a [DEMO] prefix because Category.name is unique and a
+        # real "Woodworking" category may already own the bare name on production.
         assert "[DEMO]" not in offering.title
         assert offering.category.slug == f"{DEMO_SLUG_PREFIX}woodworking"
-        assert "[DEMO]" not in offering.category.name
+        assert offering.category.name == "[DEMO] Woodworking"
         # A rich description, not the generic seed placeholder.
         assert "Seeded demo class" not in offering.description
         assert len(offering.description) > 200

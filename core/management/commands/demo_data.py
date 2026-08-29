@@ -253,15 +253,17 @@ class Command(BaseCommand):
         return category
 
     def _ensure_showcase_category(self) -> Category:
-        """A standalone category for the fully fleshed out showcase class.
+        """A standalone ``[DEMO]``-prefixed category for the showcase class.
 
-        Named without a ``[DEMO]`` prefix so the showcase card reads like a real
-        catalog entry (the class is the demo centerpiece the instructor tour points
-        at), but slug stays ``demo-`` prefixed so ``--remove`` still tears it down.
+        The ``[DEMO]`` prefix is deliberate: ``Category.name`` is unique, and a real
+        makerspace category (e.g. "Woodworking") may already own the bare name on
+        production. Prefixing keeps this dedicated demo category collision-proof and
+        consistent with the sibling "[DEMO] Lamp Working". Slug stays ``demo-``
+        prefixed so ``--remove`` still tears it down.
         """
         category, _ = Category.objects.get_or_create(
             slug=f"{DEMO_SLUG_PREFIX}woodworking",
-            defaults={"name": "Woodworking", "sort_order": 998},
+            defaults={"name": "[DEMO] Woodworking", "sort_order": 998},
         )
         return category
 
