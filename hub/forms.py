@@ -768,6 +768,8 @@ class SiteSettingsForm(forms.ModelForm):
             "class_registration_disabled_note",
             "help_page_enabled",
             "wiki_link_enabled",
+            "display_demo_classes",
+            "display_demo_guild",
             "member_directory_public",
             "member_event_policy",
             "member_google_calendar_id",

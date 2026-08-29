@@ -1563,19 +1563,42 @@ class VirtualLink:
     url: str
 
 
+# The fictional example/demo guild (Cartographers), seeded by
+# ``membership.example_guild.seed_example_guild`` with ``is_active=False`` so it stays out
+# of voting/funding. ``GuildManager.visible`` reveals it on the directory + sidebar only
+# when the ``display_demo_guild`` site setting is on.
+EXAMPLE_GUILD_SLUG = "cartographers-guild"
+
+
 class GuildManager(models.Manager["Guild"]):
     """Default manager that hides soft-deleted guilds from every query."""
 
     def get_queryset(self) -> models.QuerySet[Guild]:
         return super().get_queryset().filter(deleted_at__isnull=True)
 
-    def directory(self) -> models.QuerySet[Guild]:
-        """Active guilds for the directory: featured first, then alphabetical.
+    def visible(self) -> models.QuerySet[Guild]:
+        """Guilds shown on member-facing lists (the directory and the sidebar).
 
-        Every active guild is public and appears everywhere; soft-deleting or
-        deactivating a guild (``is_active=False``) is the only way to hide it.
+        Active guilds always. The example/demo guild is added only when the
+        ``display_demo_guild`` site setting is on, so it can sit seeded on production
+        hidden until an admin reveals it for a demo. Voting, the ballot, and every other
+        ``is_active`` filter deliberately do NOT route through here, so the example guild
+        never leaks into funding no matter this setting.
         """
-        return self.filter(is_active=True).order_by("-is_featured", "name")
+        from core.models import SiteConfiguration
+
+        if SiteConfiguration.load().display_demo_guild:
+            return self.filter(models.Q(is_active=True) | models.Q(slug=EXAMPLE_GUILD_SLUG))
+        return self.filter(is_active=True)
+
+    def directory(self) -> models.QuerySet[Guild]:
+        """Guilds for the directory: featured first, then alphabetical.
+
+        Routed through ``visible()`` so the example/demo guild appears here only when the
+        ``display_demo_guild`` site setting is on; otherwise only active guilds show, and
+        soft-deleting or deactivating a guild is still the way to hide a real one.
+        """
+        return self.visible().order_by("-is_featured", "name")
 
     def for_discord_channel(self, channel_id: str) -> Guild | None:
         """The active guild whose Discord channel is ``channel_id``, or ``None`` if unmapped.

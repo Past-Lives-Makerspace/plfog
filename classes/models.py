@@ -137,8 +137,22 @@ LEGACY_CMS_FEED_LABEL = "https://classes.pastlives.space/jsonapi/node/class"
 
 class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def public(self) -> "ClassOfferingQuerySet":
-        """Published classes visible in the public portal (excludes private)."""
-        return self.filter(status="published", is_private=False)
+        """Published classes visible in the public portal (excludes private).
+
+        Demo classes (a ``demo-`` slug, seeded by the demo_data command) are hidden
+        here unless the ``display_demo_classes`` site setting is on, so seeded demo
+        content can sit on production without members seeing or booking it. Admin and
+        teaching querysets do not route through ``public()`` (they use ``editable_by``
+        / ``for_instructor`` / ``hosted_by`` / ``.all()``), so staff always see and
+        manage demo classes. ``bookable()`` calls this, so the gate covers the
+        catalog, calendar, Discord posts, and every other public class surface at once.
+        """
+        from core.models import SiteConfiguration
+
+        qs = self.filter(status="published", is_private=False)
+        if not SiteConfiguration.load().display_demo_classes:
+            qs = qs.exclude(slug__startswith="demo-")
+        return qs
 
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
         """Re-file offerings into guild-linked categories; returns how many changed.
