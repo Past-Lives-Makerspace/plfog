@@ -6,7 +6,7 @@
     {% if member and not is_guilds_surface %}
         {% if is_member_of_guild %}
         <div class="pl-guild-cta__member" x-data="{ menu: false }">
-            <button type="button" class="pl-btn pl-btn--secondary pl-guild-cta__badge" @click="menu = !menu" @click.outside="menu = false" aria-haspopup="true" :aria-expanded="menu" aria-label="Guild membership options">
+            <button type="button" class="pl-btn pl-btn--secondary pl-guild-cta__badge" @click="menu = !menu" @click.outside="menu = false" aria-haspopup="true" :aria-expanded="menu" aria-label="Member, guild membership options">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
                 Member
                 <svg class="pl-guild-cta__caret" :class="{ 'pl-guild-cta__caret--open': menu }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
