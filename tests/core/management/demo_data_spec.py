@@ -172,6 +172,19 @@ def describe_demo_data_showcase_class():
         assert ("Maya", "Thompson") in names  # a confirmed seat holder
         assert ("Jordan", "Kim") in names  # first in line on the waitlist
 
+    def it_makes_the_showcase_the_instructors_newest_class(settings):
+        from membership.models import Member
+
+        # The instructor tour targets the instructor's NEWEST class. The showcase must
+        # win even on local dev (DEBUG on), where a pending-approval class is also
+        # created; otherwise the tour strands on that empty class's roster.
+        settings.DEBUG = True
+        call_command("demo_data")
+        instructor = Member.objects.get(user__email=PERSONA_INSTRUCTOR_EMAIL)
+        newest = instructor.classes.order_by("-created_at", "-pk").first()
+        assert newest is not None
+        assert newest.slug == f"{DEMO_SLUG_PREFIX}full-waitlist"
+
     def it_leaves_the_hero_in_place_on_reseed(settings):
         settings.DEBUG = False
         call_command("demo_data")

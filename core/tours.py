@@ -450,8 +450,8 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="teach.roster-waitlist"]',
                 title="The Waitlist",
                 body=(
-                    "A seat opened up? Promote someone here. They take the spot, and for a paid class they "
-                    "get a payment link to check out. No card is charged for them."
+                    "A seat opened up? Promote someone here. They take the spot, and for a paid class you can "
+                    "send them a payment link to check out. No card is charged for them."
                 ),
                 navigate="classes:teach_class_waitlist",
                 navigate_kwargs=_instructor_class_pk,

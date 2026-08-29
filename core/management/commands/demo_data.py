@@ -98,6 +98,28 @@ SHOWCASE_DESCRIPTION = (
     "experience needed. Please wear closed toe shoes and clothes you can get a little sawdust on."
 )
 SHOWCASE_HERO_REL_PATH = "assets/images/woodshop+portland+oregon+makerspace+past+lives.webp"
+# Believable descriptions for the other demo classes so the prod catalog does not show
+# placeholder jargon next to real classes during a demo. They keep their [DEMO] titles
+# (they exist to demo management flows) but read like real listings.
+DESC_FREE_INTRO = (
+    "A relaxed, free hour in the studio to see the space, meet a few makers, and find out what you "
+    "can make here. Drop in, look around, and ask anything. Perfect if you are brand new and just "
+    "want a feel for the place before you commit."
+)
+DESC_ADVANCED = (
+    "Take your glass work further. This session digs into layering color, striking, and encasing so "
+    "your pieces read the way you picture them. Bring a few basics under your belt and we will build "
+    "from there. Glass and studio time are included."
+)
+DESC_PAST = (
+    "The core skills every lampworker needs: lighting and tuning the torch, gathering and shaping "
+    "molten glass, and making your first solid bead start to finish. All glass and tools provided."
+)
+DESC_PENDING = (
+    "A gentle first taste of working glass at the torch. You will shape your first bead and leave "
+    "knowing the safety basics and whether lampworking is for you. No experience needed and "
+    "everything is provided."
+)
 # Realistic rosters so the showcase reads like a real class on the roster + waitlist
 # screens. Emails stay `wl-…@pastlives.demo` so teardown's demo-email sweep catches them.
 FULL_WAITLIST_CONFIRMED_NAMES = [("Maya", "Thompson"), ("Leo", "Garcia"), ("Priya", "Shah"), ("Sam", "Okafor")]
@@ -169,7 +191,6 @@ class Command(BaseCommand):
         self._ensure_student_registrations(student, past_class, future_paid_class)
         self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
         self._ensure_guest_registration(current_free_class)
-        full_waitlist_class = self._ensure_full_waitlist_class(self._ensure_showcase_category(), instructor)
         self._ensure_discount_codes()
 
         # Everything below is local-dev only. Registration questions are global
@@ -197,6 +218,12 @@ class Command(BaseCommand):
                     "class images, pending-approval class, orientations."
                 )
             )
+
+        # Create the showcase full+waitlist class LAST so it is the demo instructor's
+        # newest class on every environment. The instructor tour targets the newest
+        # class, and on local dev (DEBUG on) the pending-approval class above would
+        # otherwise win and strand the tour on an empty roster.
+        full_waitlist_class = self._ensure_full_waitlist_class(self._ensure_showcase_category(), instructor)
 
         self.stdout.write(self.style.SUCCESS("\nDemo data ready. Log in details:"))
         self.stdout.write(f"  Student (non-member): {PERSONA_STUDENT_EMAIL}  /  password: {password}")
@@ -349,6 +376,7 @@ class Command(BaseCommand):
             price_cents=8000,
             capacity=6,
             session_start=now - timedelta(days=14),
+            description=DESC_PAST,
         )
         current_free = self._upsert_class(
             slug=f"{DEMO_SLUG_PREFIX}free-intro",
@@ -359,6 +387,7 @@ class Command(BaseCommand):
             member_discount_pct=0,
             capacity=8,
             session_start=now + timedelta(days=3),
+            description=DESC_FREE_INTRO,
         )
         future_paid = self._upsert_class(
             slug=f"{DEMO_SLUG_PREFIX}future-advanced",
@@ -368,6 +397,7 @@ class Command(BaseCommand):
             price_cents=15000,
             capacity=4,
             session_start=now + timedelta(days=21),
+            description=DESC_ADVANCED,
         )
         return past, current_free, future_paid
 
@@ -699,7 +729,7 @@ class Command(BaseCommand):
                 "category": category,
                 "instructor": instructor,
                 "created_by": instructor,
-                "description": "Seeded demo class awaiting admin approval. Safe to delete via `demo_data --remove`.",
+                "description": DESC_PENDING,
                 "price_cents": 6500,
                 "member_discount_pct": 10,
                 "capacity": 6,
