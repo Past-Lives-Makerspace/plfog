@@ -160,19 +160,25 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                     </svg>
-                    Export Calendar
+                    Subscribe
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>
                 </button>
                 <div class="pl-calendar-export__dropdown" x-show="open" x-transition>
-                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download>
-                        Download .ics (Apple / Outlook)
+                    {% if member_calendar_subscribe_url %}
+                    <a href="{{ member_calendar_subscribe_url }}" class="pl-calendar-export__item">
+                        Subscribe to the Member calendar
                     </a>
-                    <a href="webcal://{{ request.get_host }}{% url 'hub_calendar_export_ics' %}"
-                       class="pl-calendar-export__item">
-                        Subscribe via webcal
+                    {% endif %}
+                    {% if public_calendar_subscribe_url %}
+                    <a href="{{ public_calendar_subscribe_url }}" class="pl-calendar-export__item">
+                        Subscribe to the Public calendar
+                    </a>
+                    {% endif %}
+                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download>
+                        Download .ics (one time)
                     </a>
                     <p class="pl-calendar-export__note">
-                        Exports the full community calendar — all guild, general, and class events. To register for a specific class, use the More Info link on that event instead.
+                        Subscribe once and your calendar app stays up to date. The Member calendar is all makerspace events; the Public calendar is the outward facing one.
                     </p>
                 </div>
             </div>

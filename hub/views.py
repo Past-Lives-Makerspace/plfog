@@ -5015,7 +5015,7 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
     """
     from django.core.paginator import Paginator
 
-    from hub.calendar_entries import upcoming_calendar_events
+    from hub.calendar_entries import google_calendar_subscribe_url, upcoming_calendar_events
     from membership.models import CommunityEvent
 
     ctx = _get_hub_context(request)
@@ -5043,9 +5043,14 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
         else CommunityEvent.objects.none()
     )
 
-    policy = SiteConfiguration.load().member_event_policy
+    site_config = SiteConfiguration.load()
+    policy = site_config.member_event_policy
     cal_ctx["member_can_propose"] = policy != SiteConfiguration.MemberEventPolicy.DISABLED
     cal_ctx["google_sync_enabled"] = _google_sync_enabled()
+    # Subscribe links point at the makerspace's existing Member/Public Google Calendars
+    # (their public iCal feeds), so a member's calendar app stays live. Blank when unset.
+    cal_ctx["member_calendar_subscribe_url"] = google_calendar_subscribe_url(site_config.member_google_calendar_id)
+    cal_ctx["public_calendar_subscribe_url"] = google_calendar_subscribe_url(site_config.public_google_calendar_id)
 
     # Reviewer queue link + count, and the member's own in-flight proposals (Screen A′).
     scope = _reviewer_guild_scope(request)

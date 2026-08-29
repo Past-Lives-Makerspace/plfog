@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from django.utils import timezone
 
@@ -207,3 +208,18 @@ def upcoming_calendar_events() -> list[Any]:
             )
         )
     return sorted(entries, key=lambda e: e.start_dt)
+
+
+def google_calendar_subscribe_url(calendar_id: str) -> str:
+    """A ``webcal://`` subscribe URL for a Google Calendar's public iCal feed.
+
+    Members' calendar apps open a ``webcal://`` link as a live subscription (Apple
+    Calendar, Google Calendar, Outlook), so the feed stays up to date. Returns an
+    empty string when no calendar id is configured, so the template can hide the link.
+
+    Args:
+        calendar_id: The Google Calendar ID (e.g. ``"...@group.calendar.google.com"``).
+    """
+    if not calendar_id:
+        return ""
+    return f"webcal://calendar.google.com/calendar/ical/{quote(calendar_id, safe='')}/public/basic.ics"

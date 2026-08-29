@@ -447,3 +447,34 @@ def describe_edit_page_delete_button():
         client.login(username="dele5", password="pass")
         html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
         assert "This removes the whole series." in html
+
+
+@pytest.mark.django_db
+def describe_calendar_subscribe_links():
+    def it_offers_member_and_public_subscribe_links_when_configured(client: Client):
+        _user_with_role("sub1")
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = "memid@group.calendar.google.com"
+        config.public_google_calendar_id = "pubid@group.calendar.google.com"
+        config.save()
+        client.login(username="sub1", password="pass")
+
+        body = client.get(reverse("hub_community_calendar")).content.decode()
+
+        assert "webcal://calendar.google.com/calendar/ical/memid%40group.calendar.google.com/public/basic.ics" in body
+        assert "webcal://calendar.google.com/calendar/ical/pubid%40group.calendar.google.com/public/basic.ics" in body
+        assert "Subscribe to the Member calendar" in body
+        assert "Subscribe to the Public calendar" in body
+
+    def it_hides_a_subscribe_link_when_its_calendar_is_unset(client: Client):
+        _user_with_role("sub2")
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = "memid@group.calendar.google.com"
+        config.public_google_calendar_id = ""
+        config.save()
+        client.login(username="sub2", password="pass")
+
+        body = client.get(reverse("hub_community_calendar")).content.decode()
+
+        assert "Subscribe to the Member calendar" in body
+        assert "Subscribe to the Public calendar" not in body
