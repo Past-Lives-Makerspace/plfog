@@ -963,13 +963,25 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
 
 
 def _guild_welcome_context(guild: Guild, greeting_name: str, body: str) -> dict[str, Any]:
-    """Build the render context for the guild-welcome email shell.
+    """Build the render context for the guild-welcome packet email shell.
 
-    The editable ``body`` is the lead's note (or the standard default); the static
-    "what you can do" section + help link live in the template. ``help_url`` points at
-    the member-facing guilds guide (the lead-authoring "your guild page" article is a
-    different, guild_lead-audience page).
+    The editable ``body`` is the lead's note (or the standard default). The rest of the
+    packet is personalized per guild so it reads cleanly in every state:
+
+    - ``leadership``: the guild's lead plus staff, deduped (``Guild.leadership_members``),
+      so the member meets who runs the guild. Empty list ⇒ the section is omitted.
+    - ``studio_hours``: the guild's standing open-studio blocks (may be empty ⇒ omitted).
+    - ``classes_url``: absolute link to this guild's public class catalog.
+    - ``orientations_open``: True only when the guild has an orientation-settings row that is
+      currently accepting bookings, so the "Book an orientation" line appears only when it works.
+
+    ``help_url`` points at the member-facing guilds guide (the lead-authoring "your guild page"
+    article is a different, guild_lead-audience page).
     """
+    from membership.models import GuildOrientationSettings
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    orientations_open = settings_obj is not None and settings_obj.is_accepting
     return {
         "guild": guild,
         "greeting_name": greeting_name,
@@ -977,6 +989,10 @@ def _guild_welcome_context(guild: Guild, greeting_name: str, body: str) -> dict[
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
         "banner_url": _absolute_url(guild.banner_image.url) if guild.banner_image else "",
         "help_url": _absolute_url(reverse("hub_help_article", args=["guilds", "guilds-and-guild-pages"])),
+        "leadership": guild.leadership_members(),
+        "studio_hours": guild.studio_hours_display(),
+        "classes_url": _absolute_url(guild.classes_link().url),
+        "orientations_open": orientations_open,
     }
 
 

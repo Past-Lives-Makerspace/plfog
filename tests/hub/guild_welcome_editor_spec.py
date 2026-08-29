@@ -158,7 +158,7 @@ def describe_guild_emails_save_welcome_branch():
         guild = GuildFactory()
         client.login(username="we_tab", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert b"Welcome Email" in response.content
+        assert b"Welcome Packet" in response.content
         assert b'value="welcome_email"' in response.content
 
 

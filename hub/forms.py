@@ -1653,9 +1653,17 @@ class GuildWelcomeEmailForm(forms.ModelForm):
             "welcome_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
-            "welcome_email_enabled": "Send a welcome email when a member joins this guild",
+            "welcome_email_enabled": "Send a welcome packet when a member joins this guild",
             "welcome_email_subject": "Welcome subject",
             "welcome_email_body": "Welcome message",
+        }
+        help_texts = {
+            # Overrides the model help_text (which still reads "welcome email") so the
+            # lead-facing toggle description on the Welcome Packet tab uses the new name.
+            "welcome_email_enabled": (
+                "Send a welcome packet when a member joins this guild. On by default; leave the "
+                "subject and body blank to send the standard welcome, or write your own."
+            ),
         }
 
     def clean_welcome_email_body(self) -> str:
@@ -1682,7 +1690,7 @@ class GuildJoinForm(forms.Form):
     send_welcome = forms.BooleanField(
         required=False,
         initial=True,
-        label="Email me the guild welcome guide",
+        label="Email me the guild welcome packet",
     )
     announce_discord = forms.BooleanField(
         required=False,
