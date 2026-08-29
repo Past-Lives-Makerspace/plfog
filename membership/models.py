@@ -1791,7 +1791,7 @@ class Guild(HeroCropMixin, models.Model):
         help_text=(
             "Shown to the member in Discord (their private confirmation) and posted in your guild's "
             "Discord channel when someone joins via /join-guild. This is separate from your guild "
-            "Welcome email. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
+            "Welcome Packet. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
         ),
     )
     website_url = models.URLField(
