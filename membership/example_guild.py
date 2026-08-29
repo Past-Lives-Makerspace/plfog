@@ -4,7 +4,9 @@ A permanent, fictional guild that exercises every guild-page feature so the
 "Running a Guild" help guides have a living page to point at. It is unlisted by
 design: ``is_active=False`` keeps it out of the sidebar, the guild directory,
 voting, and the My Guilds grid — only its direct URL (``/guilds/cartographers-guild/``,
-linked from the guides) reaches it.
+linked from the guides) reaches it. An admin can reveal it on the directory and
+sidebar for a live demo via the ``display_demo_guild`` site setting (see
+``GuildManager.visible``); even then it never enters voting or funding.
 
 Safety contract (why the fictional members look the way they do):
 
@@ -37,7 +39,10 @@ from django.core.files import File
 if TYPE_CHECKING:
     from membership.models import Guild, Member
 
-EXAMPLE_GUILD_SLUG = "cartographers-guild"
+# Single source of truth lives on the model side (the Guild manager's ``visible()``
+# gate needs it); re-exported here so existing callers keep importing it from this module.
+from membership.models import EXAMPLE_GUILD_SLUG  # noqa: E402
+
 EXAMPLE_GUILD_NAME = "Cartographers Guild"
 
 # Committed repo assets reused for the example page's banner and gallery — the

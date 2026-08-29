@@ -91,8 +91,9 @@ logger = logging.getLogger("hub")
 
 def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
     """Build common sidebar context for all hub pages."""
-    # Match hub_sidebar: inactive guilds are unlisted (direct link only).
-    guilds = Guild.objects.filter(is_active=True).order_by("name")
+    # Match hub_sidebar: inactive guilds are unlisted (direct link only). The example/demo
+    # guild rides along here only when the display_demo_guild site setting is on (visible()).
+    guilds = Guild.objects.visible().order_by("name")
     initials = ""
     photo_url = ""
     show_welcome_modal = False

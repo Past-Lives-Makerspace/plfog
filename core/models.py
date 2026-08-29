@@ -333,6 +333,24 @@ class SiteConfiguration(models.Model):
             "either way. Default off: only admins create discount codes."
         ),
     )
+    display_demo_classes = models.BooleanField(
+        default=False,
+        verbose_name="Display demo classes",
+        help_text=(
+            "When on, classes seeded by the demo_data command (a demo- slug) appear in the public "
+            "catalog, calendar, and class pages. Off hides them from members while admins and "
+            "instructors still see and manage them. Turn on only for a live demo."
+        ),
+    )
+    display_demo_guild = models.BooleanField(
+        default=False,
+        verbose_name="Display demo guild",
+        help_text=(
+            "When on, the example Cartographers guild appears in the guild directory and sidebar. "
+            "Off keeps it reachable only by its direct link, and it never enters voting or funding "
+            "either way. Turn on only for a live demo."
+        ),
+    )
     member_directory_public = models.BooleanField(
         default=False,
         verbose_name="Public member directory",
