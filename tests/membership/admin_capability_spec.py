@@ -90,3 +90,43 @@ def describe_sync_admin_capabilities():
         member.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
         member.sync_admin_capabilities([])
         assert member.admin_capabilities.count() == 0
+
+
+def describe_set_admin_capability():
+    def it_grants_the_capability_and_records_the_granter():
+        member = _member("set1")
+        granter = User.objects.create_user(username="setgranter", email="setgranter@example.com")
+        member.set_admin_capability(AdminCapability.Capability.BILLING_APPROVER, True, granted_by=granter)
+        row = member.admin_capabilities.get(capability="billing_approver")
+        assert row.granted_by == granter
+
+    def it_is_idempotent_when_granting_twice():
+        member = _member("set2")
+        granter = User.objects.create_user(username="setgranter2", email="setgranter2@example.com")
+        member.set_admin_capability(AdminCapability.Capability.REFUNDS, True, granted_by=granter)
+        member.set_admin_capability(AdminCapability.Capability.REFUNDS, True, granted_by=granter)
+        assert member.admin_capabilities.filter(capability="refunds").count() == 1
+
+    def it_revokes_the_capability():
+        member = _member("set3")
+        member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_APPROVER)
+        member.set_admin_capability(AdminCapability.Capability.SPACE_APPROVER, False)
+        assert member.admin_capabilities.filter(capability="space_approver").exists() is False
+
+    def it_is_idempotent_when_revoking_an_absent_grant():
+        member = _member("set4")
+        member.set_admin_capability(AdminCapability.Capability.SPACE_APPROVER, False)
+        assert member.admin_capabilities.count() == 0
+
+    def it_leaves_other_capabilities_untouched():
+        member = _member("set5")
+        member.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+        member.set_admin_capability(AdminCapability.Capability.EVENTS_APPROVER, True)
+        held = set(member.admin_capabilities.values_list("capability", flat=True))
+        assert held == {"class_approver", "events_approver"}
+
+    def it_raises_on_an_unknown_capability():
+        member = _member("set6")
+        with pytest.raises(ValueError, match="Unknown admin capability"):
+            member.set_admin_capability("not_a_real_capability", True)
+        assert member.admin_capabilities.count() == 0

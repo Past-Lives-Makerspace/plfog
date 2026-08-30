@@ -414,6 +414,26 @@
                     </button>
                     {% endfor %}
                     <div class="pl-view-as-popover__hint">Preview the hub as a different role. Session-only.</div>
+                    {% if request.view_as.actual_is_admin %}
+                    {# Real self-service capability grants (not a preview) — admin-only. #}
+                    <div class="pl-view-as-popover__duties">
+                        <div class="pl-view-as-popover__header">Your admin duties</div>
+                        {% for cap in view_as_capabilities %}
+                        <div class="pl-toggle-row pl-view-as-popover__duty">
+                            <div class="pl-toggle-info">
+                                <div class="pl-toggle-label">{{ cap.label }}</div>
+                            </div>
+                            <label class="pl-toggle">
+                                <input type="checkbox" {% if cap.checked %}checked{% endif %}
+                                       @change="setCapability('{{ cap.value }}', $event.target.checked, $event.target)"
+                                       aria-label="{{ cap.label }}">
+                                <span class="pl-toggle__slider"></span>
+                            </label>
+                        </div>
+                        {% endfor %}
+                        <div class="pl-view-as-popover__hint">Grant or revoke your own admin duties (real changes, applied right away).</div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -558,6 +578,25 @@
                     });
                     if (response.ok) {
                         window.location.reload();
+                    }
+                },
+                async setCapability(capability, enabled, el) {
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+                        || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1];
+                    const response = await fetch("{% url 'hub_view_as_capability_set' %}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": csrfToken || "",
+                        },
+                        body: JSON.stringify({ capability, enabled }),
+                    });
+                    if (response.ok) {
+                        // Reload so nav/sidebar a capability unlocks (e.g. the Payments dashboard) refreshes.
+                        window.location.reload();
+                    } else if (el) {
+                        // Revert the toggle so it never lies about the real grant state.
+                        el.checked = !enabled;
                     }
                 },
             };

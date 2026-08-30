@@ -6,7 +6,7 @@ from typing import Any
 
 from django.http import HttpRequest
 
-from membership.models import Guild, Member
+from membership.models import AdminCapability, Guild, Member
 
 
 def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
@@ -41,7 +41,26 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
         "can_use_admin_tools": _can_use_admin_tools(request, member),
+        "view_as_capabilities": _admin_capability_rows(request, member),
     }
+
+
+def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:
+    """Rows for the "View As" dropdown's self-service admin-duty toggles.
+
+    Returns one ``{value, label, checked}`` dict per :class:`AdminCapability` for an
+    ACTUAL admin (``request.view_as.actual_is_admin`` — a view-as preview can't unlock
+    it), and an empty list otherwise. ``checked`` reflects the current member's own held
+    capabilities so the toggles start in the right state.
+    """
+    view_as = getattr(request, "view_as", None)
+    if member is None or view_as is None or not view_as.actual_is_admin:
+        return []
+    held = set(member.admin_capabilities.values_list("capability", flat=True))
+    return [
+        {"value": value, "label": label, "checked": value in held}
+        for value, label in AdminCapability.Capability.choices
+    ]
 
 
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:

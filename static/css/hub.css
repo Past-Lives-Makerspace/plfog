@@ -2593,6 +2593,27 @@ a:hover { color: var(--hub-link-hover); }
     margin-top: 4px;
 }
 
+.pl-view-as-popover__duties {
+    min-width: 252px;
+    margin-top: 4px;
+    border-top: 1px solid var(--hub-dropdown-border);
+}
+
+.pl-view-as-popover__duty {
+    padding: 6px 8px;
+    gap: 12px;
+    border-bottom: none;
+}
+
+.pl-view-as-popover__duty .pl-toggle-label {
+    font-size: 13px;
+    font-weight: 400;
+}
+
+.pl-view-as-popover__duties .pl-view-as-popover__hint {
+    border-top: 1px solid var(--hub-dropdown-border);
+}
+
 .hub-sidebar__icons {
     display: flex;
     justify-content: center;

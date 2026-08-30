@@ -228,6 +228,97 @@ def describe_view_as_set_endpoint():
 
 
 @pytest.mark.django_db
+def describe_view_as_capability_set_endpoint():
+    def it_lets_an_admin_grant_their_own_capability(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="cap_grant")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/capability/set/",
+            data=json.dumps({"capability": "billing_approver", "enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        row = member.admin_capabilities.get(capability="billing_approver")
+        assert row.granted_by == user
+
+    def it_lets_an_admin_revoke_their_own_capability(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="cap_revoke")
+        member.admin_capabilities.create(capability="refunds")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/capability/set/",
+            data=json.dumps({"capability": "refunds", "enabled": False}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert member.admin_capabilities.filter(capability="refunds").exists() is False
+
+    def it_rejects_a_non_admin_member_and_creates_no_row(client):
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="cap_attacker")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/capability/set/",
+            data=json.dumps({"capability": "billing_approver", "enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert member.admin_capabilities.count() == 0
+
+    def it_does_not_let_a_view_as_admin_preview_escalate_a_non_admin(client):
+        # A non-admin with a crafted session view-as of "admin" still can't grant:
+        # the gate reads the ACTUAL role, so the preview illusion grants nothing.
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="cap_preview")
+        client.login(username=user.username, password="p")
+        session = client.session
+        session["view_as_role"] = "admin"
+        session.save()
+
+        response = client.post(
+            "/view-as/capability/set/",
+            data=json.dumps({"capability": "billing_approver", "enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        assert member.admin_capabilities.count() == 0
+
+    def it_rejects_an_unknown_capability(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="cap_bad")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/capability/set/",
+            data=json.dumps({"capability": "not_a_capability", "enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert member.admin_capabilities.count() == 0
+
+    def it_only_touches_the_callers_own_member(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="cap_self")
+        _, other_member = _make_user_member(Member.FogRole.ADMIN, username="cap_other")
+        client.login(username=user.username, password="p")
+
+        # A smuggled target member id must be ignored — only the caller's own member changes.
+        response = client.post(
+            "/view-as/capability/set/",
+            data=json.dumps({"capability": "billing_approver", "enabled": True, "member": other_member.pk}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert member.has_admin_capability("billing_approver") is True
+        assert other_member.has_admin_capability("billing_approver") is False
+
+
+@pytest.mark.django_db
 def describe_dropdown_in_hub_template():
     def it_renders_dropdown_for_admins(client):
         user, _ = _make_user_member(Member.FogRole.ADMIN, username="tmpl_admin")
@@ -247,3 +338,25 @@ def describe_dropdown_in_hub_template():
 
         assert response.status_code == 200
         assert b"pl-view-as-popover" not in response.content
+
+    def it_renders_capability_toggles_for_an_actual_admin(client):
+        user, _ = _make_user_member(Member.FogRole.ADMIN, username="tmpl_cap_admin")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        assert b"Your admin duties" in response.content
+        assert b"Billing Administrator" in response.content
+
+    def it_omits_capability_toggles_for_a_non_admin_who_still_sees_the_dropdown(client):
+        # A guild officer gets the view-as dropdown (a downgrade tool) but is NOT an
+        # actual admin, so the self-service duty toggles must be absent.
+        user, _ = _make_user_member(Member.FogRole.GUILD_OFFICER, username="tmpl_cap_officer")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        assert b"pl-view-as-popover" in response.content
+        assert b"Your admin duties" not in response.content
