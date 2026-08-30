@@ -260,6 +260,27 @@ def describe_hotspot_detail():
         response = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk]))
         assert b"pl-map-detail__guild-link" not in response.content
 
+    def it_shows_an_admin_the_inline_edit_pencil(client: Client):
+        _user_with_role("pen-adm", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory()
+        client.login(username="pen-adm", password="pass")
+        body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+        assert reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]) in body
+        assert "pl-map-detail__edit" in body
+
+    def it_hides_the_inline_edit_pencil_from_a_member(client: Client):
+        _user_with_role("pen-mem")
+        hotspot = MapHotspotFactory()
+        client.login(username="pen-mem", password="pass")
+        body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+        assert reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]) not in body
+        assert "pl-map-detail__edit" not in body
+
+    def it_hides_the_inline_edit_pencil_from_a_guest(client: Client):
+        hotspot = MapHotspotFactory()
+        body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+        assert "pl-map-detail__edit" not in body
+
 
 @pytest.mark.django_db
 def describe_editor_gating():
@@ -859,3 +880,150 @@ def describe_marker_editing():
         _user_with_role("adm-del2", fog_role=Member.FogRole.ADMIN)
         client.login(username="adm-del2", password="pass")
         assert client.post(reverse("hub_map_hotspot_delete", args=[99999])).status_code == 404
+
+
+@pytest.mark.django_db
+def describe_inline_space_editing():
+    """Item 9's in-modal editor (map_hotspot_inline_edit): an admin edits status / guild / label /
+    description straight from the space-detail popup. Admin-only on both GET and POST; a valid save
+    writes Space.status via the shared Airtable path and answers with the re-rendered detail panel
+    plus an out-of-band marker tile so the map recolours live without a reload."""
+
+    def _payload(hotspot, **overrides):
+        data = {
+            "label": hotspot.label,
+            "description": hotspot.description,
+            "guild": str(hotspot.guild_id or ""),
+            "status": "",
+        }
+        data.update(overrides)
+        return data
+
+    def it_403s_a_plain_member_opening_the_editor(client: Client):
+        _user_with_role("pm-ie")
+        hotspot = MapHotspotFactory()
+        client.login(username="pm-ie", password="pass")
+        assert client.get(reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk])).status_code == 403
+
+    def it_403s_a_plain_member_saving_and_changes_nothing(client: Client):
+        _user_with_role("pm-ie2")
+        guild = GuildFactory()
+        hotspot = MapHotspotFactory(description="Untouched", space=SpaceFactory(status=Space.Status.AVAILABLE))
+        client.login(username="pm-ie2", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]),
+            _payload(hotspot, label="Hacked", description="Hacked", guild=str(guild.pk), status=Space.Status.OCCUPIED),
+        )
+        assert response.status_code == 403
+        hotspot.refresh_from_db()
+        assert hotspot.description == "Untouched"
+        assert hotspot.guild_id is None
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.AVAILABLE
+
+    def it_redirects_an_anonymous_visitor_to_login(client: Client):
+        hotspot = MapHotspotFactory()
+        response = client.get(reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]))
+        assert response.status_code == 302
+        assert "/accounts/login/" in response["Location"]
+
+    def it_opens_the_editor_for_an_admin(client: Client):
+        _user_with_role("adm-ie", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(description="A cosy corner studio.")
+        client.login(username="adm-ie", password="pass")
+        response = client.get(reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]))
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert ">Save<" in body
+        assert 'name="status"' in body  # a space-bound marker shows the status chips
+        assert 'name="guild"' in body
+        assert 'name="label"' in body
+        assert "A cosy corner studio." in body  # description prefilled
+
+    def it_hides_status_for_a_marker_with_no_space(client: Client):
+        _user_with_role("adm-ie2", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        client.login(username="adm-ie2", password="pass")
+        body = client.get(reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk])).content.decode()
+        assert 'name="status"' not in body
+
+    def it_saves_the_status_and_pushes_to_airtable_and_recolours_live(client: Client, monkeypatch):
+        _user_with_role("adm-ie3", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        pushed: list[int] = []
+        monkeypatch.setattr(
+            "airtable_sync.service.sync_space_to_airtable",
+            lambda space: pushed.append(space.pk) or "recX",
+        )
+        client.login(username="adm-ie3", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]),
+            _payload(hotspot, status=Space.Status.OCCUPIED),
+        )
+        assert response.status_code == 200
+        hotspot.space.refresh_from_db()
+        assert hotspot.space.status == Space.Status.OCCUPIED
+        assert pushed == [hotspot.space_id]  # the Airtable push was attempted
+        body = response.content.decode()
+        # The re-rendered detail panel shows the new status...
+        assert "Occupied" in body
+        # ...and an out-of-band, recoloured marker tile keeps the map in sync without a reload.
+        assert f'id="hotspot-{hotspot.pk}"' in body
+        assert 'hx-swap-oob="true"' in body
+        assert "pl-map-marker--occupied" in body
+        # The pencil is back, so the admin can keep editing.
+        assert reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]) in body
+
+    def it_saves_the_guild_label_and_description(client: Client):
+        _user_with_role("adm-ie4", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Ceramics Guild")
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        client.login(username="adm-ie4", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]),
+            _payload(hotspot, label="Ceramics Studio", description="Kilns and wheels.", guild=str(guild.pk)),
+        )
+        assert response.status_code == 200
+        hotspot.refresh_from_db()
+        assert hotspot.label == "Ceramics Studio"
+        assert hotspot.description == "Kilns and wheels."
+        assert hotspot.guild_id == guild.pk
+        body = response.content.decode()
+        assert "Ceramics Studio" in body  # the detail panel re-renders with the new values
+        assert "Kilns and wheels." in body
+        assert f'id="hotspot-{hotspot.pk}"' in body  # out-of-band marker
+
+    def it_skips_the_airtable_push_when_the_status_is_unchanged(client: Client, monkeypatch):
+        _user_with_role("adm-ie5", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.AVAILABLE))
+        pushed: list[int] = []
+        monkeypatch.setattr("airtable_sync.service.sync_space_to_airtable", lambda space: pushed.append(space.pk))
+        client.login(username="adm-ie5", password="pass")
+        client.post(
+            reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]),
+            _payload(hotspot, status=Space.Status.AVAILABLE, description="Only the blurb changed."),
+        )
+        assert pushed == []
+        hotspot.refresh_from_db()
+        assert hotspot.description == "Only the blurb changed."
+
+    def it_rerenders_the_form_with_errors_on_an_invalid_save(client: Client):
+        _user_with_role("adm-ie6", fog_role=Member.FogRole.ADMIN)
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Keep Me")
+        client.login(username="adm-ie6", password="pass")
+        response = client.post(
+            reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]),
+            _payload(hotspot, label="", description="Changed but invalid"),
+        )
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "Give this marker a label so members know what it is." in body
+        assert ">Save<" in body  # the edit form is re-rendered (modal stays in edit mode)
+        assert f'id="hotspot-{hotspot.pk}"' not in body  # no out-of-band marker on a failed save
+        hotspot.refresh_from_db()
+        assert hotspot.label == "Keep Me"  # nothing saved
+
+    def it_404s_an_unknown_marker(client: Client):
+        _user_with_role("adm-ie7", fog_role=Member.FogRole.ADMIN)
+        client.login(username="adm-ie7", password="pass")
+        assert client.get(reverse("hub_map_hotspot_inline_edit", args=[99999])).status_code == 404

@@ -6770,6 +6770,9 @@ def _hotspot_detail_context(request: HttpRequest, hotspot: Any) -> dict[str, Any
         "viewer_is_member": member is not None,
         "viewer_is_active": is_active_member,
         "can_request": can_request,
+        # The in-modal pencil editor is admin-only — the same gate as the "Edit the map" link
+        # on the Spaces page and the placement editor (``org_map_edit`` → ``_require_admin``).
+        "can_edit_map": _viewing_as_admin(request),
         # Always an unbound form when a request is possible, so the panel renders the
         # field through components/form_field.html rather than hand-rolled markup.
         "request_form": (SpaceRequestForm(hotspot=hotspot, member=cast(Member, member)) if can_request else None),
@@ -7154,6 +7157,53 @@ def map_hotspot_edit(request: HttpRequest, pk: int) -> HttpResponse:
         _apply_marker_status(request, hotspot.space, form.cleaned_data["status"])
     response = render(request, "hub/partials/_editor_marker.html", {"h": hotspot, "oob_swap": "true"})
     response["HX-Trigger"] = "close-marker-edit"
+    return response
+
+
+def _render_space_detail_editor(request: HttpRequest, hotspot: Any, form: Any) -> HttpResponse:
+    """Render the trimmed in-modal marker editor into the space-detail modal body (#space-detail-body)."""
+    return render(request, "hub/partials/_space_detail_edit.html", {"hotspot": hotspot, "form": form})
+
+
+@login_required
+def map_hotspot_inline_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """Open or save the in-modal editor for one marker on the public Spaces map. Admin only.
+
+    Item 9's routine-edit path: an admin edits a marker's status, guild link, label and
+    description straight from the space-detail popup, without opening the full placement editor.
+    Same admin gate as that editor (``_require_admin``) — a non-admin gets a 403 on both GET and
+    POST. GET renders the trimmed :class:`~hub.forms.SpaceDetailEditForm` into the modal body. A
+    valid POST saves the marker's guild/label/description, then (for a space-bound marker) applies
+    the chosen status through the SAME ``_apply_marker_status`` path the placement editor uses —
+    writing ``Space.status`` and pushing to Airtable (the system of record). It answers with the
+    re-rendered detail panel (so the modal shows the new values) carrying ``swap_marker``, which
+    ships an ``hx-swap-oob`` copy of the marker tile and its list row so the map recolours and
+    relabels live. An invalid POST re-renders the edit form with its errors, so the modal stays in
+    edit mode. Only ever edits marker ``pk``; price/size/kind/shape/space are never touched
+    (Airtable-owned or structural), and coordinates stay with the drag endpoint.
+    """
+    from hub.forms import SpaceDetailEditForm
+    from membership.models import MapHotspot
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    hotspot = get_object_or_404(MapHotspot.objects.select_related("space", "floorplan"), pk=pk)
+    if request.method != "POST":
+        return _render_space_detail_editor(request, hotspot, SpaceDetailEditForm(instance=hotspot))
+    form = SpaceDetailEditForm(request.POST, instance=hotspot)
+    if not form.is_valid():
+        return _render_space_detail_editor(request, hotspot, form)
+    hotspot = form.save()
+    if hotspot.space_id and form.cleaned_data["status"]:
+        _apply_marker_status(request, hotspot.space, form.cleaned_data["status"])
+    ctx = _hotspot_detail_context(request, hotspot)
+    response = render(
+        request,
+        "hub/partials/_space_detail.html",
+        {**ctx, "swap_marker": True, "pending_space_ids": [], "my_space_requests": []},
+    )
+    trigger_toast(response, "Space updated.", "success")
     return response
 
 

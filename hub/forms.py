@@ -3077,6 +3077,54 @@ class MapHotspotEditForm(MapHotspotForm):
             self.fields["status"].initial = self.instance.space.status
 
 
+class SpaceDetailEditForm(forms.ModelForm):
+    """The in-modal, trimmed editor for one marker, opened from the public Spaces map popup.
+
+    The routine-edit path (item 9): an admin edits exactly the four things members read on the
+    space-detail card — ``status``, the ``guild`` link, the ``label`` and the ``description`` —
+    straight from the popup, without opening the full "Edit This Map" placement editor. It is a
+    strict subset of :class:`MapHotspotEditForm`: ``kind``/``shape``/``space`` stay structural
+    (full editor only) and price/size stay read-only (Airtable owns them), so none of them are
+    fields here. Like the placement editor, ``status`` is not a marker field — it lives on the
+    linked :class:`Space` (Airtable's system of record), so the *view* applies it after ``save()``
+    via ``_apply_marker_status`` and the field is ignored for a marker with no space.
+    """
+
+    status = forms.ChoiceField(
+        required=False,
+        choices=Space.Status.choices,
+        label="Status",
+        help_text="Only a marker linked to a space carries a status.",
+    )
+
+    class Meta:
+        model = MapHotspot
+        fields = ["label", "description", "guild"]
+        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
+        labels = {"label": "Marker label", "guild": "Links to guild"}
+        help_texts = {
+            "guild": "Optional — link this marker straight to a guild's page.",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+        if self.instance.pk and self.instance.space_id:
+            self.fields["status"].initial = self.instance.space.status
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        label = (cleaned.get("label") or "").strip()
+        # A space-bound marker shows its space's code, so its label is free to be blank; a
+        # facility/info marker shows its label, so that label can't be blanked away here.
+        # Walls are decorative and never edited from the popup, but stay exempt for safety.
+        needs_label = self.instance.space_id is None and self.instance.kind not in MapHotspot.DECORATIVE_KINDS
+        if needs_label and not label:
+            self.add_error("label", "Give this marker a label so members know what it is.")
+        return cleaned
+
+
 class MapHotspotPositionForm(forms.Form):
     """The visual editor's drag/resize payload for ONE marker, in image percentages.
 

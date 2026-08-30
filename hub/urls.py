@@ -272,6 +272,11 @@ urlpatterns = [
     path("spaces/map/markers/<int:pk>/position/", views.map_hotspot_position, name="hub_map_hotspot_position"),
     path("spaces/map/markers/<int:pk>/status/", views.map_hotspot_status, name="hub_map_hotspot_status"),
     path("spaces/map/markers/<int:pk>/edit/", views.map_hotspot_edit, name="hub_map_hotspot_edit"),
+    path(
+        "spaces/map/markers/<int:pk>/inline-edit/",
+        views.map_hotspot_inline_edit,
+        name="hub_map_hotspot_inline_edit",
+    ),
     path("spaces/map/markers/<int:pk>/delete/", views.map_hotspot_delete, name="hub_map_hotspot_delete"),
     path("spaces/map/markers/<int:pk>/", views.map_hotspot_detail, name="hub_map_hotspot_detail"),
     path("spaces/map/markers/<int:pk>/request/", views.space_request_create, name="hub_space_request_create"),
