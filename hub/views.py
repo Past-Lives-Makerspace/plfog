@@ -2717,9 +2717,10 @@ def guild_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
 
-    # Check size (3MB limit matches ClassImage)
-    if file.size is None or file.size > 3 * 1024 * 1024:
-        return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
+    # Check size against the shared image-upload limit (settings.MAX_UPLOAD_IMAGE_BYTES).
+    max_bytes = settings.MAX_UPLOAD_IMAGE_BYTES
+    if file.size is None or file.size > max_bytes:
+        return JsonResponse({"error": f"Image must be {max_bytes / (1024 * 1024):.0f} MB or smaller."}, status=400)
 
     next_order = (guild.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = GuildImage(guild=guild, image=file, sort_order=next_order)

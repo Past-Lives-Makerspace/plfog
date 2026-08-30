@@ -110,16 +110,17 @@ def describe_admin_class_image_upload():
 
         assert response.status_code == 400
 
-    def it_returns_400_when_file_exceeds_3mb(admin_user, client, db):
+    def it_returns_400_when_file_exceeds_the_limit(admin_user, client, db, settings):
+        settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024  # 1 MB, so the file below is over the limit
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
-        big_file = SimpleUploadedFile("big.png", b"\x89PNG" + b"\x00" * (3 * 1024 * 1024 + 1), content_type="image/png")
+        big_file = SimpleUploadedFile("big.png", b"\x89PNG" + b"\x00" * (1024 * 1024 + 1), content_type="image/png")
 
         response = client.post(url, {"image": big_file})
 
         assert response.status_code == 400
-        assert "3 MB" in response.json()["error"]
+        assert "1 MB" in response.json()["error"]
 
 
 def describe_admin_class_image_reorder():

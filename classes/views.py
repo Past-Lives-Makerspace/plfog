@@ -7,6 +7,7 @@ from datetime import timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
@@ -2744,8 +2745,9 @@ def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
     assert file.size is not None  # an uploaded file always reports its size
-    if file.size > 3 * 1024 * 1024:
-        return JsonResponse({"error": "Image must be under 3 MB."}, status=400)
+    if file.size > settings.MAX_UPLOAD_IMAGE_BYTES:
+        limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
+        return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()

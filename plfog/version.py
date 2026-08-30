@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.21.0"
+VERSION = "1.21.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.21.1",
+        "date": "2026-08-30",
+        "title": "Bigger photo uploads",
+        "changes": [
+            "You can now upload photos up to 10 MB, so pictures straight from your phone go "
+            "through without shrinking them first. This applies to your profile photo, guild "
+            "gallery photos, and class images.",
+        ],
+    },
     {
         "version": "1.21.0",
         "date": "2026-08-28",
@@ -2034,7 +2044,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Visual session calendar, AJAX images, admin polish",
         "changes": [
             "Instructors now schedule class sessions on a visual month-view calendar — click a day, pick a time and duration, done. No more fiddling with raw datetime fields. Sessions show as gold dots on the calendar and are listed below with times.",
-            "Gallery images upload instantly without hitting Save. Drag and drop to reorder, inline alt text, one-click delete. Max 10 images, 3 MB each, auto-compressed.",
+            "Gallery images upload instantly without hitting Save. Drag and drop to reorder, inline alt text, one-click delete. Max 10 images, 10 MB each, auto-compressed.",
             "Hero image also uploads instantly via drag-and-drop — no more needing to save the whole form.",
             "Instructors get an email notification when someone registers for their class. Admins can subscribe to registration notifications via CLASS_ADMIN_NOTIFY_EMAILS.",
             "The registration detail page got a full redesign — all info at a glance in clean card sections.",
