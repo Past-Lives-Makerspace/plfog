@@ -323,7 +323,7 @@ R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
 _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL])
 
 # Maximum upload size for ImageField uploads (members, guilds, classes).
-MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(3 * 1024 * 1024)))  # 3 MB
+MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(10 * 1024 * 1024)))  # 10 MB
 
 # Maximum upload size for document FileField uploads (guild meeting-note attachments).
 MAX_UPLOAD_DOCUMENT_BYTES = int(os.environ.get("MAX_UPLOAD_DOCUMENT_BYTES", str(25 * 1024 * 1024)))  # 25 MB
