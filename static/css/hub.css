@@ -5857,6 +5857,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
   margin-bottom: 0.75rem;
 }
 .pl-map-detail__title { margin: 0; font-size: 1.125rem; }
+.pl-map-detail__edit { margin-left: auto; }
+.pl-map-detail__edit svg { margin-right: 0.3rem; }
 .pl-map-detail__photo {
   display: block;
   width: 100%;

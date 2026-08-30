@@ -2,10 +2,13 @@
 The space-detail panel, loaded by HTMX into #space-detail-body.
 
 Context (from _hotspot_detail_context): hotspot, open_request, viewer_is_member,
-viewer_is_active, can_request, request_form. When ``swap_marker`` is set (the response
-to a successful request) it also carries hx-swap-oob copies of the marker and the list
-row, so the map, this panel, and the accessible list can never disagree about whether a
-request is pending.
+viewer_is_active, can_request, request_form, can_edit_map. When ``swap_marker`` is set
+(the response to a successful request OR an admin inline edit) it also carries hx-swap-oob
+copies of the marker and the list row, so the map, this panel, and the accessible list can
+never disagree about a space's status/label or whether a request is pending.
+
+can_edit_map (admin only) shows a pencil "Edit" button that swaps the trimmed inline editor
+(_space_detail_edit.html) into this same #space-detail-body.
 {% endcomment %}
 <div class="pl-map-detail" id="space-detail-panel">
     <div class="pl-map-detail__head">
@@ -18,6 +21,15 @@ request is pending.
             <span class="hub-pill hub-pill--neutral">Occupied</span>
         {% else %}
             <span class="hub-pill hub-pill--neutral">Facility</span>
+        {% endif %}
+        {% if can_edit_map %}
+        {# Admin-only: edit status / guild / label / description inline, no full-map editor needed. #}
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-map-detail__edit"
+                hx-get="{% url 'hub_map_hotspot_inline_edit' hotspot.pk %}"
+                hx-target="#space-detail-body" hx-swap="innerHTML">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+            Edit
+        </button>
         {% endif %}
     </div>
 

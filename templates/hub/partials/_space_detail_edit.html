@@ -1,0 +1,51 @@
+{% comment %}
+The trimmed, in-modal marker editor, loaded by HTMX into #space-detail-body from the
+space-detail popup's pencil "Edit" button (admin only).
+
+Context (from map_hotspot_inline_edit): hotspot (the MapHotspot), form (SpaceDetailEditForm).
+It edits exactly the four things members read on the detail card — status, guild link, label,
+description — and nothing structural (kind/shape/space stay in the full "Edit This Map" editor)
+or Airtable-owned (price/size are read-only). A valid save answers elsewhere with the re-rendered
+detail panel plus an hx-swap-oob copy of the marker tile (so the map recolours/relabels live);
+an invalid save re-renders this partial with field errors, so the modal stays in edit mode.
+Cancel reloads the read-only detail into the same body.
+{% endcomment %}
+<div class="pl-map-detail" id="space-detail-panel">
+    <div class="pl-map-detail__head">
+        <h3 class="pl-map-detail__title">Edit {{ hotspot.display_label }}</h3>
+    </div>
+
+    <form class="hub-form pl-marker-edit"
+          hx-post="{% url 'hub_map_hotspot_inline_edit' hotspot.pk %}"
+          hx-target="#space-detail-body" hx-swap="innerHTML">
+        {% csrf_token %}
+        {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+
+        {% if hotspot.space_id %}
+        <fieldset class="pl-marker-edit__status">
+            <legend class="pl-form-label">Status</legend>
+            <p class="pl-form-hint">Sets the colour members see, and pushes to Airtable.</p>
+            {% for error in form.status.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            <div class="pl-marker-edit__chips" role="radiogroup" aria-label="Space status">
+                {% for value, label in form.status.field.choices %}
+                <label class="pl-chip pl-chip--status-{{ value }}">
+                    <input type="radio" name="{{ form.status.html_name }}" value="{{ value }}"{% if form.status.value|stringformat:'s' == value|stringformat:'s' %} checked{% endif %}>
+                    <span>{{ label }}</span>
+                </label>
+                {% endfor %}
+            </div>
+        </fieldset>
+        {% endif %}
+
+        {% include "components/form_field.html" with field=form.guild %}
+        {% include "components/form_field.html" with field=form.label field_hint="Shown when no space is linked — e.g. 'Wood Shop'." %}
+        {% include "components/form_field.html" with field=form.description field_hint="The blurb members read in this space's pop-up." %}
+
+        <div class="pl-marker-edit__actions">
+            <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+            <button type="button" class="pl-btn pl-btn--secondary"
+                    hx-get="{% url 'hub_map_hotspot_detail' hotspot.pk %}"
+                    hx-target="#space-detail-body" hx-swap="innerHTML">Cancel</button>
+        </div>
+    </form>
+</div>
