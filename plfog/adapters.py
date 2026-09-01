@@ -73,7 +73,9 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
     On every login, if the user's email domain matches any domain in the
     ADMIN_DOMAINS setting (case-insensitive), the user gets is_staff=True
-    and is_superuser=True.
+    and is_superuser=True. Plus-addressed emails are exempt from that grant
+    (see ``_sync_permissions``) so demo/training aliases keep their assigned
+    fog_role.
 
     After login (no ``?next=``), the public/book surface lands on the /account/
     overview; the members surface lands on the member Home — except a member who
@@ -269,6 +271,10 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
         Priority order:
         1. ADMIN_DOMAINS override — matching email domain always gets full admin.
+           Plus-addressed emails (a ``+`` in the local part) are exempt: staff
+           primary addresses never carry a subaddress, and the aliases are used
+           for role-accurate demo/training accounts that must keep exactly the
+           fog_role they were assigned.
         2. fog_role mapping — admin → full access, guild_officer → staff only.
         3. Everyone else — no staff access (member hub only).
         """
@@ -278,8 +284,9 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         admin_domains: list[str] = getattr(settings, "ADMIN_DOMAINS", [])
         email: str = getattr(user, "email", "") or ""
         if admin_domains and email and "@" in email:
-            domain = email.rsplit("@", 1)[1].lower()
-            if domain in admin_domains:
+            local_part, domain = email.rsplit("@", 1)
+            domain = domain.lower()
+            if domain in admin_domains and "+" not in local_part:
                 if not (user.is_staff and user.is_superuser):  # type: ignore[attr-defined]
                     user.is_staff = True  # type: ignore[attr-defined]
                     user.is_superuser = True  # type: ignore[attr-defined]
