@@ -207,6 +207,36 @@ def describe_AdminRedirectAccountAdapter():
                 assert user.is_staff is True
                 assert user.is_superuser is True
 
+            def it_exempts_plus_addressed_emails_from_the_domain_grant(settings):
+                from plfog.adapters import AdminRedirectAccountAdapter
+
+                settings.ADMIN_DOMAINS = ["pastlives.space"]
+                adapter = AdminRedirectAccountAdapter()
+
+                user = MagicMock()
+                user.email = "counciltreasurer+member@pastlives.space"
+                user.is_staff = False
+                user.is_superuser = False
+                user.member = None
+                adapter._sync_permissions(user)
+
+                user.save.assert_not_called()
+
+            def it_syncs_fog_role_for_plus_addressed_emails_on_an_admin_domain(settings):
+                """A plus-alias falls through to the Member fog_role mapping instead of the grant."""
+                from plfog.adapters import AdminRedirectAccountAdapter
+
+                settings.ADMIN_DOMAINS = ["pastlives.space"]
+                adapter = AdminRedirectAccountAdapter()
+
+                user = MagicMock()
+                user.email = "counciltreasurer+admin@pastlives.space"
+                user.is_staff = False
+                user.is_superuser = False
+                adapter._sync_permissions(user)
+
+                user.member.sync_user_permissions.assert_called_once_with()
+
             def it_does_not_match_subdomains(settings):
                 from plfog.adapters import AdminRedirectAccountAdapter
 
