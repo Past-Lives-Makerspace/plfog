@@ -331,8 +331,8 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="guild.welcome-email"]',
-                title="The Welcome Packet",
-                body="This is the welcome packet new members get when they join your guild. Make it warm.",
+                title="The Welcome Email",
+                body="This is the welcome email new members get when they join your guild. Make it warm.",
                 tab_set=("section", "welcome_email"),
             ),
             TourStep(

@@ -69,6 +69,10 @@ def describe_SiteConfiguration():
             config = SiteConfiguration.load()
             assert config.wiki_link_enabled is True
 
+        def it_defaults_guild_welcome_email_enabled_to_true():
+            config = SiteConfiguration.load()
+            assert config.guild_welcome_email_enabled is True
+
 
 def describe_Invite():
     @pytest.fixture()

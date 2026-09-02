@@ -158,8 +158,23 @@ def describe_guild_emails_save_welcome_branch():
         guild = GuildFactory()
         client.login(username="we_tab", password="pass")
         response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert b"Welcome Packet" in response.content
+        assert b"Welcome Email" in response.content
         assert b'value="welcome_email"' in response.content
+
+    def it_hides_the_welcome_email_tab_when_the_site_flag_is_off(client: Client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.guild_welcome_email_enabled = False
+        config.save()
+        _user_with_role("we_tab_off", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="we_tab_off", password="pass")
+        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        # Structural markers (never the bare phrase — the changelog renders on every page):
+        # the tab button's Alpine binding and the section form's hidden form_id both vanish.
+        assert b"section === 'welcome_email'" not in response.content
+        assert b'value="welcome_email"' not in response.content
 
 
 def describe_guild_welcome_test():

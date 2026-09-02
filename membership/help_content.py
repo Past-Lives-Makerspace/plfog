@@ -1299,7 +1299,7 @@ Wondering how far you can take the page? The [Cartographers Guild](/guilds/carto
 
 ### The Tabs {#guild-edit-page}
 
-Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Welcome Packet**, **Images**, **FAQ**, **Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
+Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Welcome Email**, **Images**, **FAQ**, **Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
 
 This guide covers the page itself. Orientations, announcements, events, studio hours, and staff each have their own guide.
 

@@ -323,6 +323,14 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Wiki link in the sidebar",
         help_text="When off, the Wiki link to the makerspace wiki is hidden from the sidebar.",
     )
+    guild_welcome_email_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Send guild welcome emails",
+        help_text="When off, no guild welcome email is sent when a member joins a guild (the Join "
+        "button or the Discord /join-guild command), the join popup's email opt-in is hidden, and "
+        "the Welcome Email tab is hidden from the guild editor. Per-guild settings are kept and "
+        "take effect again when this is turned back on.",
+    )
     instructor_discount_codes_enabled = models.BooleanField(
         default=False,
         verbose_name="Allow instructors to manage their own discount codes",

@@ -746,8 +746,8 @@ class Member(models.Model):
         The deliberate-join welcome. Called by the hero Join view (only when the member
         left the modal's welcome box checked) and the Discord ``/join-guild`` command —
         never by :meth:`subscribe_to_guild`, so the first-login picker and Settings toggle
-        never trigger it. Gated on the guild's ``welcome_email_enabled``; deduped forever
-        per (member, guild).
+        never trigger it. Gated on the site-wide ``SiteConfiguration.guild_welcome_email_enabled``
+        switch and the guild's ``welcome_email_enabled``; deduped forever per (member, guild).
         """
         from membership import orientations
 
@@ -1819,7 +1819,7 @@ class Guild(HeroCropMixin, models.Model):
         help_text=(
             "Shown to the member in Discord (their private confirmation) and posted in your guild's "
             "Discord channel when someone joins via /join-guild. This is separate from your guild "
-            "Welcome Packet. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
+            "Welcome Email. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
         ),
     )
     website_url = models.URLField(

@@ -671,9 +671,9 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "guild.welcome-email": {
-        "title": "The welcome packet",
+        "title": "The welcome email",
         "short_text": (
-            "The welcome packet new members get when they join your guild. Leave the subject and body blank to send the standard welcome."
+            "The welcome email new members get when they join your guild. Leave the subject and body blank to send the standard welcome."
         ),
         "article_slug": None,
         "anchor": None,

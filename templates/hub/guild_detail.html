@@ -801,7 +801,9 @@
                   @htmx:after-request="if ($event.detail.successful) $dispatch('close-modal', 'join-guild')"
                   style="margin-top:1.25rem;">
                 {% csrf_token %}
-                {% include "components/toggle.html" with field=join_form.send_welcome toggle_label="Email me the "|add:guild.name|add:" welcome packet" toggle_description="A warm welcome with everything your guild page can do." %}
+                {% if guild_welcome_email_enabled %}
+                {% include "components/toggle.html" with field=join_form.send_welcome toggle_label="Email me the "|add:guild.name|add:" welcome email" toggle_description="A warm welcome with everything your guild page can do." %}
+                {% endif %}
                 {% if guild.discord_post_enabled and guild.discord_webhook_url %}
                 {# Only shown when the guild posts to its own Discord channel (webhook set + posting on) — the same gate guild_webhook() applies before the view posts. Opt-in: off by default. #}
                 {% include "components/toggle.html" with field=join_form.announce_discord toggle_label="Announce on the "|add:guild.name|add:" Discord channel" toggle_description="Say hello in the channel that you just joined. Off unless you turn it on." %}
