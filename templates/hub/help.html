@@ -177,7 +177,7 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
                     <div class="pl-md">{{ item.answer|page_content:"member" }}</div>
                     {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
                     <div class="pl-guild-video" style="margin-top:0.75rem;">
-                        <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" allowfullscreen></iframe>
+                        <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
                     </div>
                     {% endif %}{% endwith %}{% endif %}
                     {% if item.has_document %}

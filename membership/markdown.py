@@ -104,6 +104,19 @@ _HELP_IFRAME_SRC_PREFIXES = (
     "https://www.youtube-nocookie.com/embed/",
 )
 
+#: ``referrerpolicy`` values an author may set on a help-profile ``iframe``.
+#: Embedded players reject playback when the site-wide ``Referrer-Policy:
+#: same-origin`` leaves them unable to identify the embedding origin (YouTube
+#: error 153), so the attribute has to survive sanitizing. Only origin-only
+#: policies are allowed — they name the site without leaking the full URL.
+_HELP_IFRAME_REFERRERPOLICIES = frozenset(
+    {
+        "origin",
+        "strict-origin",
+        "strict-origin-when-cross-origin",
+    }
+)
+
 # An ``img`` whose ``src`` was rejected (or never present) is removed entirely in
 # a follow-up pass — bleach only drops the attribute, leaving a useless tag.
 _SRCLESS_IMG_RE = re.compile(r"<img\b(?![^>]*\bsrc=)[^>]*>")
@@ -125,11 +138,15 @@ def _allow_help_iframe_attr(tag: str, name: str, value: str) -> bool:
 
     ``src`` must start with a :data:`_HELP_IFRAME_SRC_PREFIXES` prefix (Loom or
     privacy-mode YouTube). ``title`` (accessibility), ``allowfullscreen``, and
-    ``loading`` survive; everything else — ``srcdoc``, ``sandbox``, ``name``,
-    event handlers — is dropped.
+    ``loading`` survive, as does ``referrerpolicy`` when set to one of
+    :data:`_HELP_IFRAME_REFERRERPOLICIES` (without it the player cannot identify
+    the embedding origin and refuses to play); everything else — ``srcdoc``,
+    ``sandbox``, ``name``, event handlers — is dropped.
     """
     if name in ("title", "allowfullscreen", "loading"):
         return True
+    if name == "referrerpolicy":
+        return value in _HELP_IFRAME_REFERRERPOLICIES
     return name == "src" and value.startswith(_HELP_IFRAME_SRC_PREFIXES)
 
 

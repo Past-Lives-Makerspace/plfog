@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.21.1"
+VERSION = "1.21.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.21.2",
+        "date": "2026-09-01",
+        "title": "Videos play again",
+        "changes": [
+            "Videos on guild pages, in FAQ answers, and on the Help page were showing a player "
+            "error instead of playing. They work now.",
+        ],
+    },
     {
         "version": "1.21.1",
         "date": "2026-08-30",

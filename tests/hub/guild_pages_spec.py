@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -159,6 +161,28 @@ def describe_guild_detail():
             # appears elsewhere on the page is the join modal's "your profile" benefit row).
             assert "1 member</a>" not in html
 
+    def describe_watch_section():
+        _WATCH_URL = "https://www.youtube.com/watch?v=YE7VzlLtp-4"
+
+        def _watch_iframe(client: Client) -> str:
+            """Render a guild with a video and return its Watch ``<iframe>`` tag."""
+            guild = GuildFactory(youtube_url=_WATCH_URL)
+            _linked_user(client)
+            body = client.get(f"/guilds/{guild.slug}/").content.decode()
+            match = re.search(r"<iframe[^>]*youtube-nocookie\.com/embed/YE7VzlLtp-4[^>]*>", body)
+            assert match, "the guild Watch iframe did not render"
+            return match.group(0)
+
+        def it_embeds_the_video_on_the_privacy_mode_host(client: Client):
+            assert "youtube-nocookie.com/embed/YE7VzlLtp-4" in _watch_iframe(client)
+
+        def it_sets_a_referrerpolicy_so_the_player_can_identify_the_site(client: Client):
+            # Django's default Referrer-Policy is same-origin, so YouTube receives no
+            # Referer for the embed and cannot tell who is framing it — the player then
+            # refuses to play with "Video player configuration error / Error 153".
+            # This attribute overrides the document policy for the iframe alone.
+            assert 'referrerpolicy="strict-origin-when-cross-origin"' in _watch_iframe(client)
+
     def describe_faq_tab():
         def it_shows_a_faq_tab_when_the_guild_has_faqs(client: Client):
             from membership.models import GuildFAQItem
@@ -169,6 +193,23 @@ def describe_guild_detail():
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"section = 'faq'" in response.content
             assert b"Why?" in response.content
+
+        def it_sets_a_referrerpolicy_on_a_faq_answer_video(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(
+                guild=guild,
+                question="How do I start?",
+                answer="Watch this.",
+                video_url="https://www.youtube.com/watch?v=YE7VzlLtp-4",
+                sort_order=0,
+            )
+            body = client.get(f"/guilds/{guild.slug}/").content.decode()
+            match = re.search(r"<iframe[^>]*youtube-nocookie\.com/embed/YE7VzlLtp-4[^>]*>", body)
+            assert match, "the FAQ answer video iframe did not render"
+            assert 'referrerpolicy="strict-origin-when-cross-origin"' in match.group(0)
 
         def it_hides_the_faq_tab_when_the_guild_has_no_faqs(client: Client):
             guild = GuildFactory()
