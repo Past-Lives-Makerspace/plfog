@@ -963,10 +963,10 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
 
 
 def _guild_welcome_context(guild: Guild, greeting_name: str, body: str) -> dict[str, Any]:
-    """Build the render context for the guild-welcome packet email shell.
+    """Build the render context for the guild welcome email shell.
 
     The editable ``body`` is the lead's note (or the standard default). The rest of the
-    packet is personalized per guild so it reads cleanly in every state:
+    email is personalized per guild so it reads cleanly in every state:
 
     - ``leadership``: the guild's lead plus staff, deduped (``Guild.leadership_members``),
       so the member meets who runs the guild. Empty list ⇒ the section is omitted.
@@ -1006,9 +1006,16 @@ def send_guild_welcome(guild: Guild, member: Member) -> None:
 
     Transactional, addressed with an explicit ``email_to`` (bypasses preferences — the
     member just asked to join). Deduped once per (member, guild) forever via the ``period``
-    key, so a leave-then-rejoin months later never re-welcomes. Gated on the guild's
-    ``welcome_email_enabled``; a guild with no settings row sends nothing.
+    key, so a leave-then-rejoin months later never re-welcomes. Gated first on the
+    site-wide ``SiteConfiguration.guild_welcome_email_enabled`` switch (off → nothing
+    sends, from any caller; per-guild settings persist and take effect again when it is
+    turned back on), then on the guild's ``welcome_email_enabled``; a guild with no
+    settings row sends nothing.
     """
+    from core.models import SiteConfiguration
+
+    if not SiteConfiguration.load().guild_welcome_email_enabled:
+        return
     from membership.models import GuildOrientationSettings
 
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()

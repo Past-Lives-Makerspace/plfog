@@ -122,6 +122,20 @@ def describe_send_guild_welcome():
 
         assert mail.outbox == []
 
+    def it_sends_nothing_when_the_site_flag_is_off():
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.guild_welcome_email_enabled = False
+        config.save()
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, welcome_email_enabled=True)
+        member = _member()
+
+        orientations.send_guild_welcome(guild, member)
+
+        assert mail.outbox == []
+
     def it_is_idempotent_per_member_and_guild_forever():
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild)

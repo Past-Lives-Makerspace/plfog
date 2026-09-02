@@ -605,6 +605,6 @@
     {% block extra_js %}{% endblock %}
     <script src="{% static 'js/hero_placement.js' %}?v=1.1"></script>
     <script src="{% static 'js/session_calendar.js' %}"></script>
-    {% block tour_runtime %}{% include "hub/partials/_tour.html" %}{% endblock %}
+    {% block tour_runtime %}{% if guided_tours_enabled %}{% include "hub/partials/_tour.html" %}{% endif %}{% endblock %}
 </body>
 </html>

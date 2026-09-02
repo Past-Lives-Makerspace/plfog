@@ -2063,7 +2063,11 @@ def _handle_tours_form(
     Returns ``(form_for_render, response)`` — a non-None response short-circuits
     the view (successful save → message + redirect back to the Notifications tab,
     matching the tab's sibling forms; unlinked account → the established error path).
+    Returns ``(None, None)`` when the site-wide guided-tours switch is off — the
+    Settings card hides entirely (the member preference row persists untouched).
     """
+    if not SiteConfiguration.load().guided_tours_enabled:
+        return None, None
     if not (request.method == "POST" and request.POST.get("form_id") == "tours"):
         return (TourSettingsForm(instance=member) if member is not None else None), None
     if member is None:
@@ -2576,7 +2580,9 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
 
     The one deliberate web join path: records the subscription (fat model), stamps the
     first-login prompt as answered, and — only when the member is newly joined AND left
-    the modal's "send welcome packet" box checked — sends the guild's welcome email once.
+    the modal's "send welcome email" box checked AND the site-wide guild-welcome-email
+    switch is on — sends the guild's welcome email once (the toast only promises an
+    inbox check when a send was actually attempted).
     Returns the flipped CTA plus the OOB sibling fragments and a success toast. An
     unlinked account gets a guarded error toast and no row.
     """
@@ -2588,7 +2594,9 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
         return response
     joined = member.subscribe_to_guild(guild)
     member.mark_guild_updates_answered()
-    welcomed = bool(joined and request.POST.get("send_welcome"))
+    welcomed = bool(
+        joined and request.POST.get("send_welcome") and SiteConfiguration.load().guild_welcome_email_enabled
+    )
     if welcomed:
         member.send_guild_welcome(guild)
     if joined and request.POST.get("announce_discord"):
@@ -2597,7 +2605,7 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     ctx["oob"] = True
     response = render(request, "hub/partials/_guild_join_cta.html", ctx)
     message = (
-        f"You joined {guild.name}! Check your inbox for your welcome packet."
+        f"You joined {guild.name}! Check your inbox for your welcome email."
         if welcomed
         else f"You joined {guild.name}!"
     )
@@ -3392,7 +3400,7 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
         welcome_form = GuildWelcomeEmailForm(request.POST, instance=settings_obj)
         if welcome_form.is_valid():
             welcome_form.save()
-            messages.success(request, "Welcome packet saved.")
+            messages.success(request, "Welcome email saved.")
             return redirect(welcome_tab)
         ctx = _guild_edit_context(request, guild, welcome_email_form=welcome_form)
         ctx["active_tab"] = "welcome_email"
@@ -3607,7 +3615,7 @@ def help_page(request: HttpRequest) -> HttpResponse:
     from core.tours import help_card_rows
 
     member = getattr(request.user, "member", None) if request.user.is_authenticated else None
-    tour_rows = help_card_rows(member) if member is not None else None
+    tour_rows = help_card_rows(member) if member is not None and SiteConfiguration.load().guided_tours_enabled else None
     return render(
         request,
         "hub/help.html",

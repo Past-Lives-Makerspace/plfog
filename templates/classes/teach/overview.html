@@ -9,7 +9,7 @@ for exactly the people most likely to run it). data-help-key="teach.create-class
 the instructor tour's step-2 target.{% endcomment %}
 {% url 'classes:teach_class_create' as create_class_url %}
 {% include "components/page_header.html" with title="Teaching" description="Create classes, track what needs your attention, and manage sign-ups." action_url=create_class_url action_label="+ New class" action_help_key="teach.create-class" %}
-<a href="?tour=instructor" class="hub-btn hub-btn--sm hub-btn--ghost pl-tour-entry-link">Show me around</a>
+{% if guided_tours_enabled %}<a href="?tour=instructor" class="hub-btn hub-btn--sm hub-btn--ghost pl-tour-entry-link">Show me around</a>{% endif %}
 {% if is_guild_lead %}
   {# Guild-lead review queue: classes in a guild this member leads, waiting on them. #}
   <section class="hub-card" style="margin:0 0 1.25rem;" data-help-key="guild.approve-classes">

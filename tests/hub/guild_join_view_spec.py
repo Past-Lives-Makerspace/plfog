@@ -16,7 +16,7 @@ from django.core import mail
 from django.test import Client
 from django.urls import reverse
 
-from core.models import Notification
+from core.models import Notification, SiteConfiguration
 from membership.models import GuildMembership, Member
 from tests.membership.factories import (
     GuildFactory,
@@ -53,6 +53,7 @@ def describe_guild_join():
         assert mail.outbox[0].to == [user.member.primary_email]
         assert b"Member" in response.content
         assert _toast(response)["type"] == "success"
+        assert _toast(response)["message"] == "You joined Wood Guild! Check your inbox for your welcome email."
 
     def it_joins_without_a_welcome_when_the_box_is_unchecked(client: Client):
         user = _linked_user("joiner2")
@@ -74,6 +75,22 @@ def describe_guild_join():
         client.post(reverse("hub_guild_join", args=[guild.pk]), {"send_welcome": "on"})
 
         assert mail.outbox == []
+
+    def it_sends_no_welcome_when_the_site_flag_is_off(client: Client):
+        config = SiteConfiguration.load()
+        config.guild_welcome_email_enabled = False
+        config.save()
+        _linked_user("joiner_siteoff")
+        guild = GuildFactory(name="Quiet Guild")
+        GuildOrientationSettingsFactory(guild=guild)
+        client.login(username="joiner_siteoff", password="pw")
+
+        response = client.post(reverse("hub_guild_join", args=[guild.pk]), {"send_welcome": "on"})
+
+        assert response.status_code == 200
+        assert mail.outbox == []
+        # Honest toast: no inbox promise when nothing was sent.
+        assert _toast(response)["message"] == "You joined Quiet Guild!"
 
     def it_fires_the_lead_new_follower_notice_on_join(client: Client):
         lead = _linked_user("lead_notice").member

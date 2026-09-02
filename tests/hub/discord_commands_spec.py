@@ -125,6 +125,18 @@ def describe_join_guild_handler():
             _join_guild(_interaction(guild.slug), member)
             assert mail.outbox == []
 
+        def it_sends_no_welcome_when_the_site_flag_is_off(spies):
+            from core.models import SiteConfiguration
+
+            config = SiteConfiguration.load()
+            config.guild_welcome_email_enabled = False
+            config.save()
+            member = _linked_member("dcw3", "903")
+            guild = GuildFactory(discord_webhook_url=_WEBHOOK)
+            GuildOrientationSettingsFactory(guild=guild)
+            _join_guild(_interaction(guild.slug), member)
+            assert mail.outbox == []
+
     def describe_welcome_copy():
         def it_uses_the_generic_fallback_when_blank(spies):
             guild = GuildFactory(name="Kiln", discord_webhook_url=_WEBHOOK, discord_welcome_message="")

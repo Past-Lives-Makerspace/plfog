@@ -6,7 +6,7 @@
 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
   <h1 class="hub-page-title" style="margin:0;">{{ guild.name }} Settings</h1>
   <span style="display:flex; gap:8px; flex-wrap:wrap;">
-    <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>
+    {% if guided_tours_enabled %}<a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>{% endif %}
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
   </span>
 </div>
@@ -18,7 +18,7 @@
   <button type="button" class="vote-tab" :class="section === 'meeting_notes' ? 'vote-tab--active' : ''" @click="section = 'meeting_notes'">Meeting Notes</button>
   <button type="button" class="vote-tab" :class="section === 'events' ? 'vote-tab--active' : ''" @click="section = 'events'">Events</button>
   <button type="button" class="vote-tab" data-help-key="guild.run-orientations" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>
-  <button type="button" class="vote-tab" :class="section === 'welcome_email' ? 'vote-tab--active' : ''" @click="section = 'welcome_email'">Welcome Packet</button>
+  {% if guild_welcome_email_enabled %}<button type="button" class="vote-tab" :class="section === 'welcome_email' ? 'vote-tab--active' : ''" @click="section = 'welcome_email'">Welcome Email</button>{% endif %}
   <button type="button" class="vote-tab" :class="section === 'images' ? 'vote-tab--active' : ''" @click="section = 'images'">Images</button>
   <button type="button" class="vote-tab" :class="section === 'content' ? 'vote-tab--active' : ''" @click="section = 'content'">FAQ</button>
   <button type="button" class="vote-tab" :class="section === 'links' ? 'vote-tab--active' : ''" @click="section = 'links'">Links</button>
@@ -623,9 +623,12 @@ confirm modal carries its own POST form, and template content can't nest a form.
 {# ── Welcome Email — the join-lifecycle email; own form + endpoint (multi-form via form_id). ──── #}
 {# Immediate-effect controls (Preview + Send test) sit ABOVE the batch Save form so Save is the #}
 {# last thing on the tab with nothing under it (Rule 21). #}
+{# Hidden entirely when the site-wide guild_welcome_email_enabled switch is off; a stale #}
+{# ?tab=welcome_email deep link then shows no panel (same as the my_tab Buyables precedent). #}
+{% if guild_welcome_email_enabled %}
 <div x-show="section === 'welcome_email'" x-cloak>
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.welcome-email">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome Packet</h2>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome Email</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to a member when they deliberately join this guild (the Join This Guild button, or the Discord /join-guild command). On by default; leave the subject and body blank to send the standard welcome.</p>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button type="button" class="pl-btn pl-btn--secondary"
@@ -648,8 +651,9 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
   </form>
 
-  {% include "components/modal.html" with modal_id="welcome-preview" modal_title="Welcome Packet Preview" modal_size="lg" %}
+  {% include "components/modal.html" with modal_id="welcome-preview" modal_title="Welcome Email Preview" modal_size="lg" %}
 </div>
+{% endif %}
 
 {# ── FAQ (its own form + tab, outside the main form — you can't nest forms) ──── #}
 <div x-show="section === 'content'" x-cloak>

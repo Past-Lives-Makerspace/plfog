@@ -1,9 +1,9 @@
-"""Standard (default) copy for the per-guild join welcome packet.
+"""Standard (default) copy for the per-guild join welcome email.
 
-The welcome packet is ON by default: when a member deliberately joins a guild (the
+The welcome email is ON by default: when a member deliberately joins a guild (the
 "Join This Guild" button with the welcome box checked, or the Discord ``/join-guild``
 command) they get a warm welcome, whether or not the guild wrote their own. A guild MAY
-still customize the subject and body on the Welcome Packet tab of their guild editor; when
+still customize the subject and body on the Welcome Email tab of their guild editor; when
 they leave those blank, the standard copy below stands in.
 
 Kept in one place so it is the single source of truth: the send path and the
