@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.21.2"
+VERSION = "1.22.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.22.0",
+        "date": "2026-09-02",
+        "title": "Welcome Email, plus new admin switches",
+        "changes": [
+            "The guild Welcome Packet is now called the Welcome Email everywhere, which is what "
+            "it always was: one friendly email when you join a guild.",
+            "Admins got two new switches in Site Settings. One turns guided tours off for the "
+            "whole site, and one pauses guild welcome emails. Both stay on unless an admin "
+            "flips them.",
+        ],
+    },
     {
         "version": "1.21.2",
         "date": "2026-09-01",
