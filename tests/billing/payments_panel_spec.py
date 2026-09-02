@@ -151,7 +151,8 @@ def describe_build_payments_ledger():
 
     def describe_tab_status_derivation():
         def it_labels_a_failed_charge_charge_failed():
-            TabChargeFactory(status=TabCharge.Status.FAILED, stripe_payment_intent_id="pi_tab_fail")
+            charge = TabChargeFactory(status=TabCharge.Status.FAILED, stripe_payment_intent_id="pi_tab_fail")
+            TabCharge.objects.filter(pk=charge.pk).update(created_at=_aware(2026, 8, 6))
             (row,) = build_payments_ledger(window=_WINDOW, source="tab").rows
             assert (row.status, row.status_label) == ("charge_failed", "Charge failed")
             assert row.can_refund is False
@@ -177,7 +178,8 @@ def describe_build_payments_ledger():
         def it_matches_both_failed_meanings():
             registration = _paid_registration()
             PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.FAILED)
-            TabChargeFactory(status=TabCharge.Status.FAILED)
+            failed_charge = TabChargeFactory(status=TabCharge.Status.FAILED)
+            TabCharge.objects.filter(pk=failed_charge.pk).update(created_at=_aware(2026, 8, 6))
             TabChargeFactory(status=TabCharge.Status.SUCCEEDED, charged_at=_aware(2026, 8, 5))
             ledger = build_payments_ledger(window=_WINDOW, status="failed")
             assert sorted(row.status for row in ledger.rows) == ["charge_failed", "refund_failed"]
