@@ -78,8 +78,9 @@ def describe_build_payments_ledger():
         ]
 
     def it_excludes_pending_and_pending_checkout_tab_charges():
-        TabChargeFactory(status=TabCharge.Status.PENDING)
-        TabChargeFactory(status=TabCharge.Status.PENDING_CHECKOUT)
+        pending = TabChargeFactory(status=TabCharge.Status.PENDING)
+        pending_checkout = TabChargeFactory(status=TabCharge.Status.PENDING_CHECKOUT)
+        TabCharge.objects.filter(pk__in=[pending.pk, pending_checkout.pk]).update(created_at=_aware(2026, 8, 5))
         ledger = build_payments_ledger(window=_WINDOW)
         assert ledger.rows == ()
 
@@ -186,7 +187,8 @@ def describe_build_payments_ledger():
 
         def it_filters_paid_rows_only():
             _paid_registration()
-            TabChargeFactory(status=TabCharge.Status.FAILED)
+            failed_charge = TabChargeFactory(status=TabCharge.Status.FAILED)
+            TabCharge.objects.filter(pk=failed_charge.pk).update(created_at=_aware(2026, 8, 6))
             ledger = build_payments_ledger(window=_WINDOW, status="paid")
             assert [row.status for row in ledger.rows] == ["paid"]
 
