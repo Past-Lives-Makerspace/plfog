@@ -11,5 +11,6 @@ Params:
   <span class="pl-email-preview__subject">{{ preview_subject|default:"(no subject yet)" }}</span>
 </div>
 <div class="pl-email-preview__frame pl-wizard-preview__frame">
-  <iframe srcdoc="{{ preview_html }}" title="Email preview" class="pl-email-preview__iframe pl-wizard-preview__iframe"></iframe>
+  {# force_escape: preview_html may be a SafeString (render_to_string), and a raw quote would close srcdoc and blank the preview. #}
+  <iframe srcdoc="{{ preview_html|force_escape }}" title="Email preview" class="pl-email-preview__iframe pl-wizard-preview__iframe"></iframe>
 </div>

@@ -221,6 +221,16 @@ def describe_guild_welcome_preview():
         assert b"Preview Guild" in response.content
         assert mail.outbox == []
 
+    def it_escapes_the_email_html_inside_the_srcdoc_attribute(client: Client):
+        # Regression: preview_html is a SafeString, so without force_escape the first raw
+        # quote in the email doctype closed srcdoc and the iframe rendered an empty page.
+        _user_with_role("wp_lead2", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Srcdoc Guild")
+        client.login(username="wp_lead2", password="pass")
+        response = client.get(reverse("hub_guild_welcome_preview", args=[guild.pk]))
+        assert b'srcdoc="&lt;!DOCTYPE' in response.content
+        assert b'srcdoc="<!DOCTYPE' not in response.content
+
     def it_forbids_a_regular_member(client: Client):
         _user_with_role("wp_reg", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory()
