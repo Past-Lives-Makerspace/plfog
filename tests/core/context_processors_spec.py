@@ -73,7 +73,6 @@ def describe_feature_flags():
         result = feature_flags(request)
         assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
-        assert result["guided_tours_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
         assert (
             result["class_registration_disabled_note"]
@@ -88,7 +87,6 @@ def describe_feature_flags():
         config.help_page_enabled = False
         config.wiki_link_enabled = False
         config.instructor_discount_codes_enabled = True
-        config.guided_tours_enabled = False
         config.guild_welcome_email_enabled = False
         config.save()
 
@@ -102,7 +100,6 @@ def describe_feature_flags():
             "help_page_enabled": False,
             "wiki_link_enabled": False,
             "instructor_discount_codes_enabled": True,
-            "guided_tours_enabled": False,
             "guild_welcome_email_enabled": False,
         }
 

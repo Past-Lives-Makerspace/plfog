@@ -6,7 +6,7 @@
 <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:0.5rem;">
   <h1 class="hub-page-title" style="margin:0;">{{ guild.name }} Settings</h1>
   <span style="display:flex; gap:8px; flex-wrap:wrap;">
-    {% if guided_tours_enabled %}<a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>{% endif %}
+    <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show me around</a>
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
   </span>
 </div>

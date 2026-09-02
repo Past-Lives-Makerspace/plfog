@@ -7,7 +7,7 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import SiteConfiguration, TourState
+from core.models import TourState
 from membership.models import Member
 from tests.membership.factories import GuildFactory
 
@@ -254,50 +254,3 @@ def describe_help_page_tours_card():
         guild = GuildFactory(name="Help Lead Guild", guild_lead=member)
         content = client.get(reverse("hub_help")).content.decode()
         assert f"/guilds/{guild.pk}/edit/?tour=guild-lead" in content
-
-
-def describe_when_the_site_tours_flag_is_off():
-    # Structural markers only (the changelog modal renders on every hub page and
-    # legitimately says "Show me around" / "Guided tours" — never negatively
-    # assert those bare phrases against full-page content).
-    @pytest.fixture(autouse=True)
-    def _site_flag_off(db):
-        config = SiteConfiguration.load()
-        config.guided_tours_enabled = False
-        config.save()
-
-    def it_ships_no_offer_payload_or_entry_button_on_home(client):
-        member = _login_member(client, "site-off-home")
-        content = client.get(reverse("hub_home")).content.decode()
-        assert "pl-tour-offer" not in content
-        assert "pl-tour-data" not in content
-        assert "?tour=member-welcome" not in content
-        assert TourState.objects.filter(user=member.user).count() == 0
-
-    def it_does_not_load_the_tour_runtime_script(client):
-        _login_member(client, "site-off-js")
-        content = client.get(reverse("hub_home")).content.decode()
-        assert "pl_tour.js" not in content
-
-    def it_hides_the_guided_tours_card_from_settings(client):
-        _login_member(client, "site-off-set")
-        content = client.get(f"{reverse('hub_user_settings')}?tab=notifications").content.decode()
-        assert 'value="tours"' not in content
-
-    def it_survives_a_stale_tours_form_post(client):
-        member = _login_member(client, "site-off-post")
-        response = client.post(reverse("hub_user_settings"), {"form_id": "tours"})
-        assert response.status_code == 200
-        member.refresh_from_db()
-        assert member.guided_tours_enabled is True  # preference untouched
-
-    def it_hides_the_help_page_tours_card(client):
-        _login_member(client, "site-off-help")
-        content = client.get(reverse("hub_help")).content.decode()
-        assert "?tour=" not in content
-
-    def it_ignores_a_manual_tour_url(client):
-        _login_member(client, "site-off-manual")
-        content = client.get(f"{reverse('hub_home')}?tour=member-welcome").content.decode()
-        assert '"autostart": true' not in content
-        assert "pl-tour-data" not in content

@@ -323,13 +323,6 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Wiki link in the sidebar",
         help_text="When off, the Wiki link to the makerspace wiki is hidden from the sidebar.",
     )
-    guided_tours_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Offer guided tours",
-        help_text="When off, guided tours are switched off site-wide: no tour offers or autostarts, "
-        "the Show me around buttons and the Help page's Guided Tours card are hidden, the Guided "
-        "Tours card disappears from member Settings, and a ?tour= link does nothing.",
-    )
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",

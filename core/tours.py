@@ -682,15 +682,12 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
     """The one helper that owns every offer/autostart guard for a single tour.
 
     Returns ``{tour, tour_json, show_tour_offer, tour_autostart}``. Guard order:
-    anonymous/no member → nothing; site-wide ``SiteConfiguration.guided_tours_enabled``
-    off → nothing (the feature does not exist: no offers, no autostarts, and even a
-    manual ``?tour=`` start is ignored — unlike the per-member toggle below, which
-    only stops auto-offers); ``?tour=`` matching this page's tour for an
+    anonymous/no member → nothing; ``?tour=`` matching this page's tour for an
     eligible member → autostart (no ``offered`` row written, and dismissed/
     completed never block a manual start); otherwise auto-offer only when the
-    member's toggle is on, the audience passes, the welcome modal isn't showing,
-    and the ``TourState`` row is absent or still ``OFFERED`` (first eligible GET
-    writes the ``offered`` row).
+    toggle is on, the audience passes, the welcome modal isn't showing, and the
+    ``TourState`` row is absent or still ``OFFERED`` (first eligible GET writes
+    the ``offered`` row).
 
     Raises:
         KeyError: If ``tour_key`` isn't a registered tour (a coding error in the
@@ -706,13 +703,6 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
     if member is None or not tour.audience(member):
         # Ineligible visitors hitting a ?tour= URL get the page normally — the
         # param is simply ignored (no error).
-        return empty
-    from core.models import SiteConfiguration
-
-    if not SiteConfiguration.load().guided_tours_enabled:
-        # Site-wide kill switch: the feature does not exist — even a manual
-        # ?tour= start is ignored (contrast Member.guided_tours_enabled, which
-        # only suppresses auto-offers).
         return empty
     if request.GET.get("tour") == tour_key:
         return {

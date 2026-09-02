@@ -913,7 +913,6 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_help_page_enabled"') == 1
         assert response.content.count(b'id="id_wiki_link_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
-        assert response.content.count(b'id="id_guided_tours_enabled"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
@@ -974,7 +973,7 @@ def describe_admin_site_settings_features():
         assert config.my_tab_enabled is True
         assert config.class_registration_enabled is True
 
-    def it_saves_the_tours_and_welcome_email_switches_off_and_back_on(client):
+    def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):
         _create_superuser(client)
         base_data = {
             "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
@@ -993,20 +992,18 @@ def describe_admin_site_settings_features():
             "feeds-MIN_NUM_FORMS": "0",
             "feeds-MAX_NUM_FORMS": "1000",
         }
-        # Both switches omitted → unchecked → False.
+        # Switch omitted → unchecked → False.
         response = client.post(reverse("hub_admin_site_settings"), data=base_data)
         assert response.status_code == 302
         config = SiteConfiguration.load()
-        assert config.guided_tours_enabled is False
         assert config.guild_welcome_email_enabled is False
         # Checked again → back on.
         response = client.post(
             reverse("hub_admin_site_settings"),
-            data={**base_data, "guided_tours_enabled": "on", "guild_welcome_email_enabled": "on"},
+            data={**base_data, "guild_welcome_email_enabled": "on"},
         )
         assert response.status_code == 302
         config = SiteConfiguration.load()
-        assert config.guided_tours_enabled is True
         assert config.guild_welcome_email_enabled is True
 
 

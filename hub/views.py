@@ -2063,11 +2063,7 @@ def _handle_tours_form(
     Returns ``(form_for_render, response)`` — a non-None response short-circuits
     the view (successful save → message + redirect back to the Notifications tab,
     matching the tab's sibling forms; unlinked account → the established error path).
-    Returns ``(None, None)`` when the site-wide guided-tours switch is off — the
-    Settings card hides entirely (the member preference row persists untouched).
     """
-    if not SiteConfiguration.load().guided_tours_enabled:
-        return None, None
     if not (request.method == "POST" and request.POST.get("form_id") == "tours"):
         return (TourSettingsForm(instance=member) if member is not None else None), None
     if member is None:
@@ -3615,7 +3611,7 @@ def help_page(request: HttpRequest) -> HttpResponse:
     from core.tours import help_card_rows
 
     member = getattr(request.user, "member", None) if request.user.is_authenticated else None
-    tour_rows = help_card_rows(member) if member is not None and SiteConfiguration.load().guided_tours_enabled else None
+    tour_rows = help_card_rows(member) if member is not None else None
     return render(
         request,
         "hub/help.html",

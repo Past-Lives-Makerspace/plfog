@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.help_registry import HELP_KEYS
-from core.models import SiteConfiguration, TourState
+from core.models import TourState
 from core.tours import (
     TOURS,
     Tour,
@@ -370,29 +370,6 @@ def describe_tour_offer_context():
         def it_is_silently_ignored_for_an_ineligible_member():
             member = _member("ctx-manual-inel")
             ctx = tour_offer_context(_get("/x/?tour=guild-lead", member), "guild-lead")
-            assert ctx["tour_autostart"] is False
-            assert ctx["tour_json"] is None
-
-    def describe_when_the_site_flag_is_off():
-        # Contrast with it_works_with_the_toggle_off above: the per-member toggle
-        # only stops auto-offers, but the site-wide switch kills the feature —
-        # even a manual ?tour= start does nothing.
-        @pytest.fixture(autouse=True)
-        def _site_flag_off():
-            config = SiteConfiguration.load()
-            config.guided_tours_enabled = False
-            config.save()
-
-        def it_suppresses_the_offer():
-            member = _member("ctx-site-off")
-            ctx = tour_offer_context(_get("/home/", member), "member-welcome")
-            assert ctx["show_tour_offer"] is False
-            assert ctx["tour_json"] is None
-            assert TourState.objects.count() == 0
-
-        def it_blocks_even_a_manual_start():
-            member = _member("ctx-site-off-manual")
-            ctx = tour_offer_context(_get("/home/?tour=member-welcome", member), "member-welcome")
             assert ctx["tour_autostart"] is False
             assert ctx["tour_json"] is None
 

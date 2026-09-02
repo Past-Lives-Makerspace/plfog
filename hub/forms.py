@@ -768,7 +768,6 @@ class SiteSettingsForm(forms.ModelForm):
             "class_registration_disabled_note",
             "help_page_enabled",
             "wiki_link_enabled",
-            "guided_tours_enabled",
             "guild_welcome_email_enabled",
             "display_demo_classes",
             "display_demo_guild",
