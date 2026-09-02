@@ -8,13 +8,12 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "1.22.0",
         "date": "2026-09-02",
-        "title": "Welcome Email, plus new admin switches",
+        "title": "Welcome Email, plus a new admin switch",
         "changes": [
             "The guild Welcome Packet is now called the Welcome Email everywhere, which is what "
             "it always was: one friendly email when you join a guild.",
-            "Admins got two new switches in Site Settings. One turns guided tours off for the "
-            "whole site, and one pauses guild welcome emails. Both stay on unless an admin "
-            "flips them.",
+            "Admins got a new switch in Site Settings that can pause guild welcome emails for "
+            "the whole site. It stays on unless an admin flips it.",
         ],
     },
     {
