@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.22.2"
+VERSION = "1.22.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.22.3",
+        "date": "2026-09-02",
+        "title": "The API pages fit your phone",
+        "changes": [
+            "The Member Portal API pages rendered oversized on phones with no way to zoom "
+            "out. They now fit the screen like every other page.",
+        ],
+    },
     {
         "version": "1.22.2",
         "date": "2026-09-02",
