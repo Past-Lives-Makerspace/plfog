@@ -2450,15 +2450,15 @@ def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration 
 
 
 def _default_discord_channel(configured: set[str]) -> str:
-    """The pre-selected channel: the first *configured* channel, stepping down to "Don't post".
+    """The pre-selected channel: the guild's OWN channel when configured, else "Don't post".
 
-    Guild Channel → #general-chat → #leadership → #guild-officers → Don't post (§5.3), so the
-    picker never opens pre-selected on a disabled option.
+    A guild context never silently pre-selects a shared makerspace channel: a webhook
+    less guild once stepped down to #general-chat and a test announcement reached the
+    whole server (issue #271). Shared channels stay selectable, just never the default.
     """
     channels = GuildAnnouncement.DiscordChannel
-    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP, channels.OFFICERS):
-        if channel.value in configured:
-            return channel.value
+    if channels.GUILD.value in configured:
+        return channels.GUILD.value
     return channels.NONE.value
 
 
@@ -2907,13 +2907,15 @@ class AnnouncementComposeForm(forms.Form):
 
         # @mention picker. A guild whose Discord roles are configured can ping its own role(s)
         # — labeled "@<Guild>", the recommended default — alongside @here / @everyone / no ping.
-        # Site announcements and role-less guilds keep the @everyone default. (Glass pings both
-        # of its roles, since discord_role_ids holds every configured role for the guild.)
+        # Site announcements and role-less guilds default to NO ping: @everyone stays available
+        # but must be an explicit choice (a webhook-less guild once defaulted to @everyone in
+        # #general-chat and pinged the whole makerspace, issue #271). (Glass pings both of its
+        # roles, since discord_role_ids holds every configured role for the guild.)
         mention_choices = [
             (AnnouncementDraft.Mention.EVERYONE.value, "@everyone"),
             (AnnouncementDraft.Mention.HERE.value, AnnouncementDraft.Mention.HERE.label),
         ]
-        default_mention = AnnouncementDraft.Mention.EVERYONE.value
+        default_mention = AnnouncementDraft.Mention.NONE.value
         if self.current_guild is not None and self.current_guild.discord_role_ids:
             mention_choices.append((AnnouncementDraft.Mention.ROLE.value, f"@{self.current_guild.name}"))
             default_mention = AnnouncementDraft.Mention.ROLE.value
@@ -2987,11 +2989,22 @@ class AnnouncementComposeForm(forms.Form):
         return result
 
     def _default_dropdown_channel(self) -> str:
-        """Preselect the first real configured channel, else "Don't post"."""
+        """Preselect the guild's OWN channel when configured, else "Don't post".
+
+        A guild audience never silently preselects a shared site wide channel: a
+        webhook less guild once defaulted to #general-chat and a test announcement
+        reached the whole makerspace (issue #271). Site announcements keep the first
+        configured shared channel, since posting site wide is their whole point.
+        """
+        channels = GuildAnnouncement.DiscordChannel
+        if self.current_guild is not None:
+            if channels.GUILD.value in self._configured_channels:
+                return channels.GUILD.value
+            return channels.NONE.value
         for value, _label in self._discord_channel_dropdown_choices():
-            if value != GuildAnnouncement.DiscordChannel.NONE.value:
+            if value != channels.NONE.value:
                 return value
-        return GuildAnnouncement.DiscordChannel.NONE.value
+        return channels.NONE.value
 
     def clean_body(self) -> str:
         # Blank allowed while drafting; required (and always sanitized) when sending.

@@ -444,12 +444,30 @@ def describe_AnnouncementComposeForm():
         assert labels[AnnouncementDraft.Mention.ROLE.value] == "@Ceramics"
         assert form.fields["mention"].initial == AnnouncementDraft.Mention.ROLE.value
 
-    def it_omits_the_role_ping_and_defaults_to_everyone_without_configured_roles():
+    def it_omits_the_role_ping_and_defaults_to_no_ping_without_configured_roles():
+        # Regression for issue #271: the old @everyone default plus a shared channel
+        # fallback pinged the whole makerspace from a webhook less guild.
         guild = GuildFactory(name="Roleless", discord_role_ids=[])
         form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
         values = [value for value, _label in form.fields["mention"].choices]
         assert AnnouncementDraft.Mention.ROLE.value not in values
-        assert form.fields["mention"].initial == AnnouncementDraft.Mention.EVERYONE.value
+        assert form.fields["mention"].initial == AnnouncementDraft.Mention.NONE.value
+
+    def it_defaults_a_webhook_less_guild_to_not_posting_even_with_shared_channels():
+        # Regression for issue #271: the default fell through to site wide #general-chat.
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.discord_general_webhook_url = "https://discord.com/api/webhooks/9/x"
+        config.save()
+        guild = GuildFactory(discord_webhook_url="")
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        assert form.fields["discord_channel"].initial == "none"
+
+    def it_defaults_a_guild_with_its_own_webhook_to_its_own_channel():
+        guild = GuildFactory(discord_webhook_url="https://discord.com/api/webhooks/9/x")
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        assert form.fields["discord_channel"].initial == "guild"
 
     def it_labels_the_guild_channel_with_its_real_name_when_synced():
         guild = GuildFactory(discord_channel_name="#glass", discord_webhook_url="https://d/hook")
