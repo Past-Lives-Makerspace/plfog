@@ -286,3 +286,15 @@ def concat(*parts) -> str:
     instead so template-rendered ids stay unique.
     """
     return "".join("" if p is None else str(p) for p in parts)
+
+
+@register.filter
+def move_price_note_needed(move_form, reg) -> bool:
+    """Whether the move-student modal should warn about a price difference.
+
+    Instructor-scoped modals only, and only when at least one offered class's
+    price differs from what this student actually paid — admins already see
+    payment detail on the registration page, and an all-equal picker has
+    nothing to warn about.
+    """
+    return move_form.is_instructor_scoped and move_form.any_target_price_differs(reg.amount_paid_cents)

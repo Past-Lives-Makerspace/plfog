@@ -1702,7 +1702,7 @@ def _registration_move_form(request: HttpRequest, offering: ClassOffering) -> "R
     """The roster tab's audience-scoped move-student form, or ``None`` for viewers who can't move.
 
     Actual admins (preview-independent) may move a student into any upcoming
-    class; the class's own instructor only into other upcoming classes they
+    class; the class's own instructor only into other bookable classes they
     instruct. Everyone else (guild leads reach rosters via ``editable_by``)
     gets no move affordance. ``auto_id=False`` because the same form renders
     once per roster row — auto ids would collide across the per-row modals.
@@ -3432,7 +3432,10 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
         registration.move_to(form.cleaned_data["target"], actor=actor)
         messages.success(request, f"{registration.first_name} moved to {form.cleaned_data['target'].title}.")
     else:
-        messages.error(request, "Could not move the student. Pick one of the listed classes.")
+        # Surface the form's own message ("That class is full.", invalid choice) — a
+        # generic line would hide why the move bounced.
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Could not move the student."
+        messages.error(request, str(first_error))
     if is_admin:
         return redirect("classes:admin_class_registrations", pk=source.pk)
     return redirect("classes:teach_class_registrations", pk=source.pk)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -1143,10 +1143,20 @@ class RegistrationMoveForm(forms.Form):
 
     The target queryset excludes the registration's current class, so a
     same-class move can't be selected (or POSTed) at all — no extra clean needed.
-    Only ``upcoming()`` classes are offered (a student can't be moved into a
-    class that already started). Pass ``instructor=`` to scope the picker to
-    that member's own classes — the instructor-facing audience; admins omit it
-    and see every upcoming class regardless of status or visibility.
+    The two audiences are deliberately asymmetric:
+
+    - **Admins** (no ``instructor``) may pick any ``upcoming()`` class — drafts,
+      private, and not-yet-scheduled classes included (they previously had every
+      class and sometimes stage a move deliberately) — and may overfill a class.
+    - **Instructors** (``instructor=`` given) only see their own ``bookable()``
+      classes — published, non-private, flexible or not yet started — so the
+      moved student's class page link can never 404. A full class is rejected
+      in ``clean_target`` for instructors only; admins keep the historical
+      ability to overfill on purpose.
+
+    The choices are materialized once at construction (a single query per form
+    instance): Django's ``ModelChoiceIterator`` re-runs the queryset on every
+    widget render, which would be an N+1 across the per-row roster modals.
     """
 
     target = forms.ModelChoiceField(
@@ -1157,31 +1167,49 @@ class RegistrationMoveForm(forms.Form):
 
     def __init__(
         self,
-        *args: object,
+        *args: Any,
         current: "ClassOffering | None" = None,
         instructor: "Member | None" = None,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        offerings = ClassOffering.objects.upcoming()
+        self._instructor = instructor
         if instructor is not None:
-            offerings = offerings.filter(instructor=instructor)
+            offerings = ClassOffering.objects.bookable().filter(instructor=instructor)
+        else:
+            offerings = ClassOffering.objects.upcoming()
         if current is not None:
             offerings = offerings.exclude(pk=current.pk)
-        self.fields["target"].queryset = offerings.order_by("title")
-        self.fields["target"].widget.attrs["style"] = (
+        offerings = offerings.order_by("title")
+        field = cast(forms.ModelChoiceField, self.fields["target"])
+        field.queryset = offerings  # POSTed pks still validate against the scoped queryset
+        self._targets: list[ClassOffering] = list(offerings)  # the one query
+        field.choices = [("", str(field.empty_label)), *((o.pk, field.label_from_instance(o)) for o in self._targets)]
+        field.widget.attrs["style"] = (
             "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
             "background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;"
         )
 
+    def clean_target(self) -> ClassOffering:
+        """Instructor moves can't overfill the destination; admin moves can (see the class docstring)."""
+        target = cast(ClassOffering, self.cleaned_data["target"])
+        if self._instructor is not None and target.spots_remaining <= 0:
+            raise ValidationError("That class is full.")
+        return target
+
     @property
     def has_targets(self) -> bool:
-        """Whether any class can be picked — drives the move modal's empty state.
+        """Whether any class can be picked — drives the move modal's empty state. No query: choices are pre-materialized."""
+        return bool(self._targets)
 
-        ``bool()`` (not ``.exists()``) so the first call fills the queryset's
-        result cache, which the per-row widget renders then reuse.
-        """
-        return bool(self.fields["target"].queryset)  # type: ignore[attr-defined]
+    @property
+    def is_instructor_scoped(self) -> bool:
+        """True when this form was built for an instructor (drives instructor-only modal copy)."""
+        return self._instructor is not None
+
+    def any_target_price_differs(self, amount_paid_cents: int) -> bool:
+        """Whether any offered class's price differs from what the student paid — drives the modal's price note."""
+        return any(offering.price_cents != amount_paid_cents for offering in self._targets)
 
 
 class TeachWelcomeEmailForm(forms.ModelForm):

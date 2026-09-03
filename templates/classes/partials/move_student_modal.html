@@ -1,11 +1,14 @@
+{% load classes_tags %}
 {% comment %}
 Move-student modal for one roster row (teach + admin class Registrations tabs).
 Plain POST to classes:registration_move — after a move the row belongs to a
 different class's roster, so a full-page bounce beats an in-place row swap.
 move_form is the audience-scoped RegistrationMoveForm built by
 _registration_move_form (admins: any upcoming class; instructors: other
-upcoming classes they instruct), constructed with auto_id off so the same
-select can render once per row without duplicate DOM ids.
+bookable classes they instruct), constructed with auto_id off so the same
+select can render once per row without duplicate DOM ids. The price note is
+instructor-only and renders when any listed class's price differs from what
+this student paid (move_price_note_needed).
 
 Context: reg, move_form. Opened via $dispatch('open-confirm', 'move-reg-<pk>').
 {% endcomment %}
@@ -29,6 +32,9 @@ Context: reg, move_form. Opened via $dispatch('open-confirm', 'move-reg-<pk>').
         <div class="pl-modal__body">
             {% if move_form.has_targets %}
             <p style="margin:0 0 1rem;">Their registration and payment move with them. Only upcoming classes are listed.</p>
+            {% if move_form|move_price_note_needed:reg %}
+            <p class="pl-confirm-warn">Heads up: some of these classes cost a different amount than what this student paid. The student's payment moves with them and any difference is not charged or refunded automatically.</p>
+            {% endif %}
             <form method="post" action="{% url 'classes:registration_move' reg.pk %}">
                 {% csrf_token %}
                 <label class="pl-form-label" style="display:flex; flex-direction:column; gap:0.35rem; margin:0 0 1.5rem;">
