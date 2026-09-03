@@ -2129,6 +2129,33 @@ class Guild(HeroCropMixin, models.Model):
             grouped.append((members[member_id], rows))
         return grouped
 
+    def assign_lead(self, member: Member) -> list[str]:
+        """Set ``member`` as this guild's lead (``Guild.guild_lead``), replacing any current lead.
+
+        The single assignment path shared by the ``set_guild_lead`` management command and the
+        admin-only Staff-tab control. Assigning the FK is all that's needed — guild-lead perks
+        flow from it, no FOG role required. The assignment always succeeds; advisory conditions
+        (the member can't log in yet, or isn't Active) are returned as warning strings for the
+        caller to surface (CLI output, web messages).
+
+        Raises:
+            ValueError: If ``member`` is None — use the management command's ``--clear`` to
+                remove a lead; this method only assigns.
+        """
+        if member is None:
+            raise ValueError("A member is required to assign a guild lead.")
+        self.guild_lead = member
+        self.save(update_fields=["guild_lead"])
+        warnings: list[str] = []
+        if member.user_id is None:
+            warnings.append(
+                f"{member.display_name} has no linked user account. They cannot log in to use "
+                "guild lead tools until they sign up with a matching email."
+            )
+        if member.status != Member.Status.ACTIVE:
+            warnings.append(f"{member.display_name}'s status is {member.get_status_display()}, not Active.")
+        return warnings
+
     def leadership_members(self) -> list[Member]:
         """The guild lead plus every staff member, de-duplicated — all who hold lead authority.
 
@@ -2239,7 +2266,7 @@ class GuildStaffMembership(models.Model):
         CO_LEAD = "co_lead", "Co-Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
-        ORIENTER = "orienter", "Orientator"
+        ORIENTER = "orienter", "Orienter"
 
     guild = models.ForeignKey(
         Guild,

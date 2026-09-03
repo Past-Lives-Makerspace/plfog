@@ -64,10 +64,10 @@ def describe_staff_tab_on_guild_edit():
 
 
 def describe_GuildStaffAddForm():
-    def _form(guild: object, data: dict[str, object]) -> object:
+    def _form(guild: object, data: dict[str, object], *, allow_co_lead: bool = False) -> object:
         from hub.forms import GuildStaffAddForm
 
-        return GuildStaffAddForm(data, member_queryset=Member.objects.all(), guild=guild)
+        return GuildStaffAddForm(data, member_queryset=Member.objects.all(), guild=guild, allow_co_lead=allow_co_lead)
 
     def it_accepts_a_preset_role():
         member = MemberFactory()
@@ -86,7 +86,7 @@ def describe_GuildStaffAddForm():
     def it_rejects_both_a_role_and_a_custom_title():
         member = MemberFactory()
         form = _form(
-            GuildFactory(), {"member": member.pk, "role": Role.CO_LEAD.value, "custom_title": "Studio Technician"}
+            GuildFactory(), {"member": member.pk, "role": Role.TREASURER.value, "custom_title": "Studio Technician"}
         )
         assert not form.is_valid()
         assert "not both" in " ".join(form.non_field_errors())
@@ -118,6 +118,29 @@ def describe_GuildStaffAddForm():
         form = _form(GuildFactory(), {"member": member.pk, "custom_title": "treasurer"})
         assert not form.is_valid()
         assert "already a preset role" in " ".join(form.non_field_errors())
+
+    def it_omits_co_lead_from_the_role_choices_for_non_admins():
+        form = _form(GuildFactory(), {})
+        values = [value for value, _ in form.fields["role"].choices]
+        assert Role.CO_LEAD.value not in values
+        assert Role.SECRETARY.value in values
+
+    def it_offers_co_lead_when_allowed():
+        form = _form(GuildFactory(), {}, allow_co_lead=True)
+        values = [value for value, _ in form.fields["role"].choices]
+        assert Role.CO_LEAD.value in values
+
+    def it_rejects_a_co_lead_add_when_not_allowed():
+        member = MemberFactory()
+        form = _form(GuildFactory(), {"member": member.pk, "role": Role.CO_LEAD.value})
+        assert not form.is_valid()
+        assert "Only an admin can add a Co-Lead." in form.non_field_errors()
+
+    def it_accepts_a_co_lead_add_when_allowed():
+        member = MemberFactory()
+        form = _form(GuildFactory(), {"member": member.pk, "role": Role.CO_LEAD.value}, allow_co_lead=True)
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["role"] == Role.CO_LEAD.value
 
 
 def describe_guild_staff_add():
@@ -216,6 +239,73 @@ def describe_guild_staff_add():
         client.login(username="a_get", password="pass")
         assert client.get(reverse("hub_guild_staff_add", args=[guild.pk])).status_code == 405
 
+    def describe_co_lead_is_admin_only():
+        def it_forbids_an_orienter_adding_a_co_lead(client: Client):
+            guild = GuildFactory()
+            orienter = _member_user("cl_orienter")
+            GuildStaffMembershipFactory(guild=guild, member=orienter.member, role=Role.ORIENTER)
+            target = _member_user("cl_orienter_target")
+            client.login(username="cl_orienter", password="pass")
+            response = client.post(
+                reverse("hub_guild_staff_add", args=[guild.pk]),
+                {"member": target.member.pk, "role": Role.CO_LEAD.value},
+                follow=True,
+            )
+            assert not guild.staff_memberships.filter(role=Role.CO_LEAD).exists()
+            assert any("Only an admin can add a Co-Lead." in str(m) for m in response.context["messages"])
+
+        def it_forbids_the_guild_lead_adding_a_co_lead(client: Client):
+            lead = _member_user("cl_lead")
+            guild = GuildFactory(guild_lead=lead.member)
+            target = _member_user("cl_lead_target")
+            client.login(username="cl_lead", password="pass")
+            response = client.post(
+                reverse("hub_guild_staff_add", args=[guild.pk]),
+                {"member": target.member.pk, "role": Role.CO_LEAD.value},
+            )
+            assert response.status_code == 302
+            assert not guild.staff_memberships.exists()
+
+        def it_lets_an_admin_add_a_co_lead(client: Client):
+            _member_user("cl_admin", fog_role=Member.FogRole.ADMIN)
+            guild = GuildFactory()
+            target = _member_user("cl_admin_target")
+            client.login(username="cl_admin", password="pass")
+            response = client.post(
+                reverse("hub_guild_staff_add", args=[guild.pk]),
+                {"member": target.member.pk, "role": Role.CO_LEAD.value},
+            )
+            assert response.status_code == 302
+            assert guild.staff_memberships.filter(member=target.member, role=Role.CO_LEAD).exists()
+
+        def it_hides_the_co_lead_option_from_a_lead(client: Client):
+            lead = _member_user("cl_ui_lead")
+            guild = GuildFactory(guild_lead=lead.member)
+            client.login(username="cl_ui_lead", password="pass")
+            response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+            assert response.status_code == 200
+            assert b'value="co_lead"' not in response.content
+
+        def it_offers_the_co_lead_option_to_an_admin(client: Client):
+            _member_user("cl_ui_admin", fog_role=Member.FogRole.ADMIN)
+            guild = GuildFactory()
+            client.login(username="cl_ui_admin", password="pass")
+            response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+            assert response.status_code == 200
+            assert b'value="co_lead"' in response.content
+
+        def it_still_lets_a_lead_add_a_secretary(client: Client):
+            lead = _member_user("cl_sec_lead")
+            guild = GuildFactory(guild_lead=lead.member)
+            target = _member_user("cl_sec_target")
+            client.login(username="cl_sec_lead", password="pass")
+            response = client.post(
+                reverse("hub_guild_staff_add", args=[guild.pk]),
+                {"member": target.member.pk, "role": Role.SECRETARY.value},
+            )
+            assert response.status_code == 302
+            assert guild.staff_memberships.filter(member=target.member, role=Role.SECRETARY).exists()
+
 
 def describe_guild_staff_remove():
     def it_lets_a_lead_remove_a_staff_member(client: Client):
@@ -253,6 +343,104 @@ def describe_guild_staff_remove():
         assert client.get(reverse("hub_guild_staff_remove", args=[guild.pk, 1])).status_code == 405
 
 
+def describe_guild_lead_set():
+    def it_lets_an_admin_set_a_lead(client: Client):
+        _member_user("gl_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(guild_lead=None)
+        target = _member_user("gl_target")
+        client.login(username="gl_admin", password="pass")
+        response = client.post(reverse("hub_guild_lead_set", args=[guild.pk]), {"member": target.member.pk})
+        assert response.status_code == 302
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == target.member.pk
+
+    def it_lets_an_admin_replace_the_lead(client: Client):
+        _member_user("gl_admin2", fog_role=Member.FogRole.ADMIN)
+        old = _member_user("gl_old_lead")
+        guild = GuildFactory(guild_lead=old.member)
+        new = _member_user("gl_new_lead")
+        client.login(username="gl_admin2", password="pass")
+        response = client.post(reverse("hub_guild_lead_set", args=[guild.pk]), {"member": new.member.pk})
+        assert response.status_code == 302
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == new.member.pk
+
+    def it_surfaces_the_command_style_warnings(client: Client):
+        _member_user("gl_warn_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(guild_lead=None)
+        unlinked = MemberFactory()  # no linked user account
+        client.login(username="gl_warn_admin", password="pass")
+        response = client.post(reverse("hub_guild_lead_set", args=[guild.pk]), {"member": unlinked.pk}, follow=True)
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == unlinked.pk  # warned, not refused — mirrors set_guild_lead
+        assert any("no linked user account" in str(m) for m in response.context["messages"])
+
+    def it_forbids_the_guild_lead(client: Client):
+        lead = _member_user("gl_lead")
+        guild = GuildFactory(guild_lead=lead.member)
+        target = _member_user("gl_lead_target")
+        client.login(username="gl_lead", password="pass")
+        response = client.post(reverse("hub_guild_lead_set", args=[guild.pk]), {"member": target.member.pk})
+        assert response.status_code == 403
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == lead.member.pk
+
+    def it_forbids_an_orienter(client: Client):
+        guild = GuildFactory()
+        orienter = _member_user("gl_orienter")
+        GuildStaffMembershipFactory(guild=guild, member=orienter.member, role=Role.ORIENTER)
+        target = _member_user("gl_orienter_target")
+        client.login(username="gl_orienter", password="pass")
+        response = client.post(reverse("hub_guild_lead_set", args=[guild.pk]), {"member": target.member.pk})
+        assert response.status_code == 403
+        guild.refresh_from_db()
+        assert guild.guild_lead_id is None
+
+    def it_rejects_an_invalid_member_without_changing_the_lead(client: Client):
+        _member_user("gl_inv_admin", fog_role=Member.FogRole.ADMIN)
+        old = _member_user("gl_inv_old")
+        guild = GuildFactory(guild_lead=old.member)
+        client.login(username="gl_inv_admin", password="pass")
+        response = client.post(reverse("hub_guild_lead_set", args=[guild.pk]), {"member": "999999"})
+        assert response.status_code == 302
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == old.member.pk
+
+    def it_rejects_get(client: Client):
+        _member_user("gl_get_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="gl_get_admin", password="pass")
+        assert client.get(reverse("hub_guild_lead_set", args=[guild.pk])).status_code == 405
+
+    def describe_the_staff_tab_control():
+        def it_renders_for_an_admin(client: Client):
+            _member_user("gl_ui_admin", fog_role=Member.FogRole.ADMIN)
+            guild = GuildFactory()
+            client.login(username="gl_ui_admin", password="pass")
+            response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+            assert response.status_code == 200
+            assert reverse("hub_guild_lead_set", args=[guild.pk]).encode() in response.content
+            assert response.context["lead_form"] is not None
+
+        def it_does_not_render_for_the_guild_lead(client: Client):
+            lead = _member_user("gl_ui_lead")
+            guild = GuildFactory(guild_lead=lead.member)
+            client.login(username="gl_ui_lead", password="pass")
+            response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+            assert response.status_code == 200
+            assert reverse("hub_guild_lead_set", args=[guild.pk]).encode() not in response.content
+            assert response.context["lead_form"] is None
+
+        def it_does_not_render_for_an_orienter(client: Client):
+            guild = GuildFactory()
+            orienter = _member_user("gl_ui_orienter")
+            GuildStaffMembershipFactory(guild=guild, member=orienter.member, role=Role.ORIENTER)
+            client.login(username="gl_ui_orienter", password="pass")
+            response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+            assert response.status_code == 200
+            assert reverse("hub_guild_lead_set", args=[guild.pk]).encode() not in response.content
+
+
 def describe_staff_gain_full_guild_lead_access():
     def it_lets_a_staff_member_open_the_guild_editor(client: Client):
         guild = GuildFactory()
@@ -283,7 +471,7 @@ def describe_staff_grouped_by_member_with_title_badges():
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Orientator" in content
+        assert "Orienter" in content
         assert "Glaze Technician" in content
         # The fix: one row per person, so the staff member's name shows exactly once.
         assert content.count(staff.member.display_name) == 1
@@ -301,7 +489,7 @@ def describe_staff_grouped_by_member_with_title_badges():
         grouped = response.context["staff_by_member"]
         assert [m.pk for m, _rows in grouped] == [staff.member.pk]
         content = response.content.decode()
-        assert "Orientator" in content
+        assert "Orienter" in content
         assert "Glaze Technician" in content
         # Each title has its own Remove control wired to that membership's confirm modal.
         assert f"del-staff-{sm_role.pk}" in content

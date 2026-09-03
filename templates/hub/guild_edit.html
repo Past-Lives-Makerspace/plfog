@@ -404,12 +404,12 @@ confirm modal carries its own POST form, and template content can't nest a form.
       {% include "components/form_field.html" with field=orientation_form.closed_message %}
     </div>
 
-    {# Who runs orientations — sits above the Save button with clear margin (orientators are guild staff). #}
+    {# Who runs orientations — sits above the Save button with clear margin (orienters are guild staff). #}
     <div class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
       <div style="flex:1; min-width:240px;">
         <h2 class="hub-detail-label" style="margin:0 0 0.25rem;">Who runs orientations</h2>
         <p class="hub-text-muted" style="font-size:0.8125rem; margin:0;">
-          Orientators are now part of your guild staff. Add someone as an orientator (or any staff role) and they
+          Orienters are now part of your guild staff. Add someone as an orienter (or any staff role) and they
           can confirm bookings, sign members off, and manage availability here.
         </p>
       </div>
@@ -948,12 +948,29 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Staff (separate add/remove forms, live outside the main form) ──── #}
 <div x-show="section === 'staff'" x-cloak>
+  {% if lead_form %}
+  {# Admin-only: lead_form is None for everyone else, matching the endpoint's _require_admin gate. #}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Lead</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      {% if guild.guild_lead %}Current lead: <strong>{{ guild.guild_lead.display_name }}</strong>.{% else %}This guild has no lead yet.{% endif %}
+      Only admins see this control. Picking someone replaces the current lead; staff roles below are unaffected.
+    </p>
+    <form method="post" action="{% url 'hub_guild_lead_set' guild.pk %}"
+          style="display:flex; gap:0.75rem; align-items:flex-end; flex-wrap:wrap;">
+      {% csrf_token %}
+      <div style="flex:2; min-width:220px;">{% include "components/form_field.html" with field=lead_form.member %}</div>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">{% if guild.guild_lead %}Replace lead{% else %}Set lead{% endif %}</button>
+    </form>
+  </div>
+  {% endif %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-staff">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Staff</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      Guild Leads, secretaries, treasurers, and orientators. Every staff member gets the same access as the
+      Co-Leads, secretaries, treasurers, and orienters. Every staff member gets the same access as the
       guild lead — they can edit this page, manage and approve classes, run orientations, and receive
-      the same emails (class approvals and orientation requests). The guild lead itself is set by an admin.
+      the same emails (class approvals and orientation requests). The guild lead itself is set by an admin,
+      and only an admin can add a Co-Lead.
     </p>
 
     {% if staff_by_member %}
