@@ -2126,6 +2126,22 @@ class OrientationAddMemberForm(forms.Form):
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
 
 
+class GuildLeadForm(forms.Form):
+    """Admin-only picker on the Staff tab — sets or replaces ``Guild.guild_lead``.
+
+    Mirrors the ``set_guild_lead`` management command: any member may be chosen, and advisory
+    conditions (not Active, no linked user) are surfaced as warnings by ``Guild.assign_lead``,
+    never refusals.
+    """
+
+    member = forms.ModelChoiceField(queryset=Member.objects.none(), label="New guild lead")
+
+    def __init__(self, *args: Any, member_queryset: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if member_queryset is not None:
+            cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
+
+
 class GuildStaffAddForm(forms.Form):
     """Lead/admin/staff assigns a member a guild staff entry — a preset role or a free-text custom title.
 
@@ -2142,15 +2158,23 @@ class GuildStaffAddForm(forms.Form):
         widget=forms.TextInput(attrs={"maxlength": 60, "placeholder": "e.g. Studio Technician"}),
     )
 
-    def __init__(self, *args: Any, member_queryset: Any = None, guild: Any = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, member_queryset: Any = None, guild: Any = None, allow_co_lead: bool = False, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import GuildStaffMembership
 
         self._guild = guild
-        cast(forms.ChoiceField, self.fields["role"]).choices = [
-            ("", "Choose a role…"),
-            *GuildStaffMembership.Role.choices,
+        self._allow_co_lead = allow_co_lead
+        # Only admins may mint Co-Leads (they carry lead-equivalent authority). Restricting the
+        # field's choices both hides the option in the dropdown AND rejects a forged POST —
+        # the gate lives here at the form level, not just in the template.
+        role_choices = [
+            (value, label)
+            for value, label in GuildStaffMembership.Role.choices
+            if allow_co_lead or value != GuildStaffMembership.Role.CO_LEAD
         ]
+        cast(forms.ChoiceField, self.fields["role"]).choices = [("", "Choose a role…"), *role_choices]
         if member_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
 
@@ -2158,6 +2182,10 @@ class GuildStaffAddForm(forms.Form):
         from membership.models import GuildStaffMembership
 
         cleaned: dict[str, Any] = super().clean() or {}
+        if not self._allow_co_lead and (self.data.get("role") or "") == GuildStaffMembership.Role.CO_LEAD:
+            # The submitted value already failed the restricted ChoiceField; replace the generic
+            # "not one of the available choices" noise with the actual policy.
+            raise forms.ValidationError("Only an admin can add a Co-Lead.")
         role = cleaned.get("role") or ""
         custom_title = (cleaned.get("custom_title") or "").strip()
         cleaned["custom_title"] = custom_title

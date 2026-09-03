@@ -715,6 +715,7 @@ def _guild_edit_context(
     from hub.forms import (
         GuildAnnouncementSettingsForm,
         GuildFAQItemFormSet,
+        GuildLeadForm,
         GuildLinkFormSet,
         GuildMailingListFormSet,
         GuildOrientationSettingsForm,
@@ -782,7 +783,12 @@ def _guild_edit_context(
             else GuildMailingListFormSet(instance=guild, prefix="mailing_list")
         ),
         "staff_by_member": guild.staff_by_member(),
-        "staff_add_form": GuildStaffAddForm(member_queryset=_staff_candidates(guild), guild=guild),
+        "staff_add_form": GuildStaffAddForm(
+            member_queryset=_staff_candidates(guild), guild=guild, allow_co_lead=_viewing_as_admin(request)
+        ),
+        # Admin-only: the Guild Lead card on the Staff tab. None for everyone else, so the
+        # template's {% if lead_form %} gate and the endpoint's _require_admin stay aligned.
+        "lead_form": GuildLeadForm(member_queryset=_lead_candidates(guild)) if _viewing_as_admin(request) else None,
         "visibility_form": GuildVisibilityForm(instance=guild),
         "is_admin": _viewing_as_admin(request),
         "google_sync_enabled": _google_sync_enabled(),
@@ -1179,6 +1185,21 @@ def _staff_candidates(guild: Guild) -> Any:
     return qs.order_by("full_legal_name")
 
 
+def _lead_candidates(guild: Guild) -> Any:
+    """Members an admin may pick as the guild's lead — everyone but the current lead.
+
+    Deliberately wider than ``_staff_candidates``: like the ``set_guild_lead`` command, any
+    member may be assigned, and ``Guild.assign_lead`` surfaces warnings (not Active, no linked
+    user) instead of refusing.
+    """
+    from membership.models import Member
+
+    qs = Member.objects.all()
+    if guild.guild_lead_id is not None:
+        qs = qs.exclude(pk=guild.guild_lead_id)
+    return qs.order_by("full_legal_name")
+
+
 @login_required
 @require_POST
 def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
@@ -1191,7 +1212,12 @@ def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
     if forbidden is not None:
         return forbidden
 
-    form = GuildStaffAddForm(request.POST, member_queryset=_staff_candidates(guild), guild=guild)
+    form = GuildStaffAddForm(
+        request.POST,
+        member_queryset=_staff_candidates(guild),
+        guild=guild,
+        allow_co_lead=_viewing_as_admin(request),
+    )
     if form.is_valid():
         staff = GuildStaffMembership.objects.create(
             guild=guild,
@@ -1236,6 +1262,34 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
                 "Upcoming Slots card on the Orientations tab if they won't be run."
             )
     messages.success(request, message)
+    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
+
+
+@login_required
+@require_POST
+def guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST-only — a fog admin sets or replaces this guild's lead (``Guild.guild_lead``).
+
+    Admin-only by policy: leads and staff manage the officer roster below, but the lead FK
+    itself is appointed by an admin (the web counterpart of the ``set_guild_lead`` command).
+    """
+    from hub.forms import GuildLeadForm
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+
+    form = GuildLeadForm(request.POST, member_queryset=_lead_candidates(guild))
+    if form.is_valid():
+        member = form.cleaned_data["member"]
+        warnings = guild.assign_lead(member)
+        messages.success(request, f"{member.display_name} is now the lead of {guild.name}.")
+        for warning in warnings:
+            messages.warning(request, warning)
+    else:
+        error_list = form.non_field_errors() or next(iter(form.errors.values()))
+        messages.error(request, str(error_list[0]))
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=staff")
 
 

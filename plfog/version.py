@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.22.6"
+VERSION = "1.23.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.23.0",
+        "date": "2026-09-02",
+        "title": "Assign guild leads from the app",
+        "changes": [
+            "Admins can now set or replace a guild's lead right on the guild editor Staff "
+            "tab. Adding a Co-Lead now takes an admin as well, and the Orientator role is "
+            "spelled Orienter everywhere.",
+        ],
+    },
     {
         "version": "1.22.6",
         "date": "2026-09-02",

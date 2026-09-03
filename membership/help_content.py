@@ -1371,7 +1371,7 @@ Only leads, staff, and admins see the Guild Settings button. Everything a staff 
         "body": """\
 ### One Rule Before Anything Else {#guild-staff-authority}
 
-**Every staff role grants the full authority of the guild lead.** There are no junior roles. Whether you add someone as a Guild Lead, Secretary, Treasurer, Orientator, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild.
+**Every staff role grants the full authority of the guild lead.** There are no junior roles. Whether you add someone as a Co-Lead, Secretary, Treasurer, Orienter, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild.
 
 Concretely, every staff member can:
 
@@ -1387,7 +1387,7 @@ So add people you trust with the whole guild, not just with one job.
 ### Add or Remove Staff {#guild-manage-staff}
 
 1. Open your guild's page and click **Guild Settings**, then the **Staff** tab.
-2. Pick the member, then either a preset role (Guild Lead, Secretary, Treasurer, Orientator) or type your own title. One or the other, not both.
+2. Pick the member, then either a preset role (Secretary, Treasurer, Orienter) or type your own title. One or the other, not both. Only admins can add a Co-Lead, and the guild lead itself is set by an admin.
 3. Click **Add staff member**.
 
 ![The Staff tab: current staff with their title badges, and the add form below.](/static/help/guild-staff-roles/01-staff-tab.png)
