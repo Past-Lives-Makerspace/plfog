@@ -157,8 +157,8 @@ TRIGGERS: list[Trigger] = [
     # Transactional: a tenant must hear that their lease is about to end.
     Trigger(
         "lease_expiring",
-        "Lease expiring soon",
-        "Your space lease ends within 30 days.",
+        "Space agreement ending soon",
+        "Your space agreement ends within 30 days.",
         "Spaces",
         force_email=True,
     ),

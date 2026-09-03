@@ -1899,7 +1899,7 @@ There are no release days. When a change merges to the main branch on GitHub (af
 
 ## What the Member Portal Talks To
 
-- **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and leases in on a schedule, and pushes guild-voting results back out.
+- **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and space agreements in on a schedule, and pushes guild-voting results back out.
 - **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
 - **Google Calendar** — community events are pushed to the shared calendar automatically.
 

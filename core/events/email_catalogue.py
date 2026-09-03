@@ -39,7 +39,7 @@ _OTHER_AUTOMATIC = {
     "class_reminder": "Sent automatically before each class starts.",
     "event.reminder": "Sent automatically before a community event starts.",
     "event.happening_now": "Sent automatically when a community event is starting.",
-    "lease_expiring": "Sent automatically as a space lease nears its end date.",
+    "lease_expiring": "Sent automatically as a space agreement nears its end date.",
 }
 _AUTOMATIC_EMAILS = _VOTING_AUTOMATIC | set(_OTHER_AUTOMATIC)
 

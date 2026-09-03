@@ -824,8 +824,8 @@ _NEW_EVENTS: list[EventType] = [
     #     so this always routes to the makerspace admins.
     EventType(
         key=SPACE_LEASE_REQUESTED,
-        label="Studio lease requested",
-        description="A member asked to lease a studio from the space map.",
+        label="Studio space requested",
+        description="A member asked for a studio space from the space map.",
         category="Spaces",
         recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
