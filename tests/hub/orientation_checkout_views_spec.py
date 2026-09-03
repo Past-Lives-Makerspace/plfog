@@ -166,7 +166,8 @@ def describe_orientation_checkout_return():
         assert "You're all set." in content
         assert "Pending Confirmation" not in content
 
-    def it_renders_the_polling_state_while_the_webhook_lags(client: Client):
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved())
+    def it_renders_the_polling_state_while_the_session_is_not_paid_yet(mock_retrieve, client: Client):
         user = _user("ret2")
         hold = _hold_for(user)
         client.login(username="ret2", password="pass")
@@ -174,8 +175,99 @@ def describe_orientation_checkout_return():
         content = response.content.decode()
         assert "Finalizing Your Payment" in content
         assert "hx-trigger" in content
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
 
-    def it_calms_down_after_twenty_polls(client: Client):
+    @patch(
+        "billing.stripe_utils.retrieve_checkout_session",
+        return_value=_retrieved(status="complete", payment_status="paid", payment_intent="pi_land", amount_total=1500),
+    )
+    def it_finalizes_a_paid_hold_on_landing_without_waiting_for_the_webhook(mock_retrieve, client: Client):
+        user = _user("ret_land")
+        hold = _hold_for(user)
+        client.login(username="ret_land", password="pass")
+        response = client.get(reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(hold)]))
+        content = response.content.decode()
+        assert "Pending Confirmation" in content
+        assert "Finalizing Your Payment" not in content
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.REQUESTED
+        assert hold.stripe_payment_id == "pi_land"
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", side_effect=RuntimeError("stripe down"))
+    def it_falls_back_to_polling_when_stripe_is_unreachable(mock_retrieve, client: Client):
+        user = _user("ret_down")
+        hold = _hold_for(user)
+        client.login(username="ret_down", password="pass")
+        response = client.get(reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(hold)]))
+        assert "Finalizing Your Payment" in response.content.decode()
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+
+    @patch("billing.refunds.issue_refund")
+    @patch(
+        "billing.stripe_utils.retrieve_checkout_session",
+        return_value=_retrieved(status="complete", payment_status="paid", payment_intent="pi_dead", amount_total=1500),
+    )
+    def it_shows_the_refund_copy_when_the_slot_was_cancelled_mid_payment(mock_retrieve, mock_issue, client: Client):
+        user = _user("ret_deadslot")
+        slot = _paid_slot()
+        hold = _hold_for(user, slot)
+        slot.mark_cancelled(reason="closed")
+        client.login(username="ret_deadslot", password="pass")
+        response = client.get(reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(hold)]))
+        content = response.content.decode()
+        assert "comes back automatically as a full refund" in content
+        assert "Finalizing Your Payment" not in content
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.CANCELLED
+
+    @patch("membership.orientations.reconcile_landed_checkout")
+    def it_shows_the_confirmation_when_the_webhook_won_the_race(mock_reconcile, client: Client):
+        user = _user("ret_race")
+        hold = _hold_for(user)
+
+        def _webhook_won(booking):
+            OrientationBooking.objects.filter(pk=booking.pk).update(
+                status=OrientationBooking.Status.REQUESTED, stripe_payment_id="pi_race"
+            )
+            return "already"
+
+        mock_reconcile.side_effect = _webhook_won
+        client.login(username="ret_race", password="pass")
+        response = client.get(reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(hold)]))
+        content = response.content.decode()
+        assert "Pending Confirmation" in content
+        assert "Finalizing Your Payment" not in content
+
+    @patch("membership.orientations.reconcile_landed_checkout")
+    def it_survives_the_hold_vanishing_mid_request(mock_reconcile, client: Client):
+        user = _user("ret_gone")
+        hold = _hold_for(user)
+
+        def _released_underneath(booking):
+            OrientationBooking.objects.filter(pk=booking.pk).delete()
+            return "gone"
+
+        mock_reconcile.side_effect = _released_underneath
+        client.login(username="ret_gone", password="pass")
+        response = client.get(reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(hold)]))
+        assert response.status_code == 200
+        assert "Finalizing Your Payment" in response.content.decode()
+
+    @patch("billing.stripe_utils.retrieve_checkout_session")
+    def it_never_calls_stripe_for_a_hold_with_no_session_id(mock_retrieve, client: Client):
+        user = _user("ret_nosess")
+        hold = _hold_for(user)
+        hold.stripe_session_id = ""
+        hold.save(update_fields=["stripe_session_id"])
+        client.login(username="ret_nosess", password="pass")
+        response = client.get(reverse("hub_orientation_checkout_return", args=[orientations.make_checkout_token(hold)]))
+        assert "Finalizing Your Payment" in response.content.decode()
+        mock_retrieve.assert_not_called()
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved())
+    def it_calms_down_after_twenty_polls(mock_retrieve, client: Client):
         user = _user("ret3")
         hold = _hold_for(user)
         client.login(username="ret3", password="pass")
@@ -326,7 +418,8 @@ def describe_orientation_checkout_resume():
 
 
 def describe_edge_branches():
-    def it_treats_a_garbled_poll_count_as_zero(client: Client):
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved())
+    def it_treats_a_garbled_poll_count_as_zero(mock_retrieve, client: Client):
         user = _user("edge1")
         hold = _hold_for(user)
         client.login(username="edge1", password="pass")
@@ -335,7 +428,8 @@ def describe_edge_branches():
         assert response.status_code == 200
         assert "Finalizing Your Payment" in response.content.decode()
 
-    def it_serves_the_poll_fragment_without_the_page_chrome(client: Client):
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved())
+    def it_serves_the_poll_fragment_without_the_page_chrome(mock_retrieve, client: Client):
         user = _user("edge2")
         hold = _hold_for(user)
         client.login(username="edge2", password="pass")

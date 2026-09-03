@@ -1719,7 +1719,10 @@ def _own_pending_hold_or_none(request: HttpRequest, booking_pk: int) -> Any:
 def orientation_checkout_return(request: HttpRequest, token: str) -> HttpResponse:
     """The Stripe ``success_url`` landing — states A (booked), B (webhook lag, polls), C (bad token).
 
-    The HTMX poll requests the same URL; an ``HX-Request`` gets just the card
+    A still-``PENDING_PAYMENT`` hold is reconciled against Stripe synchronously
+    (paid → finalized right here, webhook-race-safe), so the member normally
+    sees their confirmation on the first render. The HTMX poll requests the
+    same URL (retrying the reconcile); an ``HX-Request`` gets just the card
     partial. The poll carries ``?n=<count>`` so after ~60 s of pending it swaps
     to a calm "still processing" fallback instead of spinning forever.
     """
@@ -1743,6 +1746,13 @@ def orientation_checkout_return(request: HttpRequest, token: str) -> HttpRespons
             else ("hub/orientation_checkout_return.html")
         )
         return render(request, template, context, status=400)
+    if booking.status == OrientationBooking.Status.PENDING_PAYMENT:
+        # Don't just wait for the webhook — ask Stripe directly and finalize a
+        # paid session on the spot (race-safe), so the confirmation renders
+        # immediately even where the webhook lags or is not configured.
+        outcome = orientations.reconcile_landed_checkout(booking)
+        if outcome in ("finalized", "cancelled_slot", "already"):
+            booking.refresh_from_db()
     if booking.status == OrientationBooking.Status.PENDING_PAYMENT:
         state = "pending" if poll_count < 20 else "still_processing"
     else:
