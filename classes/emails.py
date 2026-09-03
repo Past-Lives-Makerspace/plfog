@@ -427,7 +427,8 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
     """
     from core.events.senders import emit_with_email_shell
 
-    review_url = _absolute_url(reverse("classes:class_review", kwargs={"token": approval.token}))
+    review_path = reverse("classes:class_review", kwargs={"token": approval.token})
+    review_url = _absolute_url(review_path)
     guild = offering.category.guild if offering.category_id else None
     lead = guild.guild_lead if guild else None
     template_context = {
@@ -449,7 +450,9 @@ def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApp
         template_context=template_context,
         in_app_title="A class needs executive validation",
         in_app_body=f"{lead_name} and {instructor_name} request executive validation to publish this class.",
-        url="/classes/admin/",
+        # The tokenized review page — /classes/admin/ is gated admin-only, so a
+        # CMS Administrator clicking the bell row would have hit a 403 there.
+        url=review_path,
         period=f"approval:{approval.pk}:validation",
     )
 

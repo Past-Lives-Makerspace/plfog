@@ -27,6 +27,19 @@ the instructor tour's step-2 target.{% endcomment %}
       <p style="color:var(--hub-text-muted);">Nothing waiting on your review — you're all caught up! 🎉</p>
     {% endfor %}
   </section>
+  {% if guild_lead_awaiting_admin %}
+    {# Classes this lead already approved: they publish once an admin signs off. #}
+    <section class="hub-card" style="margin:0 0 1.25rem;">
+      <h2 class="overview-title">Awaiting Admin Validation <span class="overview-title__count">({{ guild_lead_awaiting_admin|length }})</span></h2>
+      <p style="color:var(--hub-text-muted);margin:0 0 0.5rem;font-size:.9rem;">You approved these classes. They go live once an admin signs off.</p>
+      {% for c in guild_lead_awaiting_admin %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+          <span>{{ c.title }}<span style="color:var(--hub-text-muted);"> · {{ c.category.name }}</span></span>
+          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=c.pk %}">View</a>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
 {% endif %}
 {% if not has_classes %}
   <div class="hub-card" style="text-align:center;padding:2.5rem 1rem;">

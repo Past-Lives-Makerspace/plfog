@@ -1088,7 +1088,7 @@ The Overview's "Needs your attention" panel lists every class waiting on review.
 - **Approve** records your admin approval on the spot.
 - **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a decision form with **Approve**, **Request changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit decision** records it and emails the instructor.
 
-Review order matters. When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). Your admin gate only opens after the lead approves, so quick-approving early gets you a "waiting on the remaining reviewer(s)" message rather than a publish. Once every required approval is in, the class publishes and opens for sign-ups. **Request changes** and **Decline** send it back to the instructor as a draft, with your notes.
+When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Request changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
 Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
 

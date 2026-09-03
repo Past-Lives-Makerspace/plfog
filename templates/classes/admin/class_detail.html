@@ -44,7 +44,9 @@
 
 <div class="admin-toolbar">
     <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
+        {% if request.view_as.actual_is_admin %}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_edit' pk=offering.pk %}">Edit</a>
+        {% endif %}
         {% if offering.status == 'pending' %}
             <form method="post" action="{% url 'classes:admin_class_approve' pk=offering.pk %}" style="display:inline;">
                 {% csrf_token %}
@@ -54,11 +56,17 @@
                 Review with notes…
             </a>
         {% endif %}
+        {% if request.view_as.actual_is_admin %}
         <form method="post" action="{% url 'classes:admin_class_duplicate' pk=offering.pk %}" style="display:inline;">
             {% csrf_token %}
             <button class="hub-btn hub-btn--sm hub-btn--ghost" type="submit">Duplicate</button>
         </form>
+        {% endif %}
     </div>
+    {% comment %}Edit / Duplicate / Archive / Delete hit admin-only views — a
+    CMS Administrator (CLASS_APPROVER holder) keeps only Approve and Review with
+    notes here, so nothing on this page dead-ends in a 403 for them.{% endcomment %}
+    {% if request.view_as.actual_is_admin %}
     <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
         {% if offering.status != 'archived' %}
             {% url 'classes:admin_class_archive' pk=offering.pk as archive_url %}
@@ -79,5 +87,6 @@
             <span style="font-size:0.8rem; color:var(--hub-text-muted);" title="Classes with registrations must be archived, not deleted.">Delete unavailable (has registrations)</span>
         {% endif %}
     </div>
+    {% endif %}
 </div>
 {% endblock %}

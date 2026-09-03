@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.30.2"
+VERSION = "1.31.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.31.0",
+        "date": "2026-09-03",
+        "title": "Class approvals are simpler",
+        "changes": [
+            "When an admin approves a class it now goes live right away, even if a "
+            "guild lead has not reviewed it yet. CMS Administrators can open the "
+            "class review pages their notifications point to. Guild leads can also "
+            "see classes they approved that are still waiting on admin sign off.",
+        ],
+    },
     {
         "version": "1.30.2",
         "date": "2026-09-03",
