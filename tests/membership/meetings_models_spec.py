@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 
+import httpx
 import pytest
+import respx
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -241,6 +243,23 @@ def describe_Meeting():
             meeting.approve(by=_user("a4"))
             assert _deliveries("meeting.minutes_approved") == 1
             assert _deliveries("meeting.council_minutes_approved") == 0
+
+        @respx.mock
+        def it_posts_greeting_free_copy_to_the_guilds_own_discord_channel():
+            # Regression: the generic-copy fallback once posted the email greeting into
+            # the guild channel as "Hi [missing: member_name]".
+            webhook = "https://discord.com/api/webhooks/300/minutes"
+            route = respx.post(webhook).mock(return_value=httpx.Response(204))
+            member_user = _user("guilddisc")
+            guild = GuildFactory(discord_webhook_url=webhook, discord_post_enabled=True)
+            GuildMembershipFactory(guild=guild, member=member_user.member)
+            meeting = MeetingFactory(guild=guild)
+            meeting.approve(by=_user("a6"))
+            assert route.called
+            payload = route.calls.last.request.content.decode()
+            assert "[missing:" not in payload
+            assert "member_name" not in payload
+            assert "approved and locked" in payload
 
         def it_emits_council_minutes_approved_for_the_council_scope():
             lead = _user("counc-lead")
