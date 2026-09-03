@@ -305,7 +305,7 @@ def describe_lease_expiring_email():
 
         sent = _emails_to("tenant@example.com")
         assert len(sent) == 1
-        assert "lease ends" in sent[0].subject
+        assert "agreement ends" in sent[0].subject
         assert "[missing:" not in sent[0].body
 
     def it_sends_only_once_across_reruns():

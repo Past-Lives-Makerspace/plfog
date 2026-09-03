@@ -212,7 +212,7 @@ def describe_hotspot_detail():
         hotspot = MapHotspotFactory()
         client.login(username="m-active", password="pass")
         response = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk]))
-        assert b"Request to lease" in response.content
+        assert b"Request this space" in response.content
         assert b"Send request" in response.content
 
     def it_blocks_an_inactive_member_with_an_explanation(client: Client):

@@ -1024,7 +1024,7 @@ class SiteActivity(models.Model):
         TEACHING_GRANTED = "teaching_granted", "Teaching access granted"
         TEACHING_REVOKED = "teaching_revoked", "Teaching access revoked"
         GUILD_JOINED = "guild_joined", "Joined a guild"
-        LEASE_ACTIVATED = "lease_activated", "Lease activated"
+        LEASE_ACTIVATED = "lease_activated", "Space agreement activated"
         SPACE_REQUEST = "space_request", "Space request"
         SITE_ANNOUNCEMENT = "site_announcement", "Site announcement"
         MEETING_APPROVED = "meeting_approved", "Meeting minutes approved"

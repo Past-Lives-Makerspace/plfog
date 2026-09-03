@@ -9473,7 +9473,7 @@ class MapHotspot(models.Model):
     def cta_label(self) -> str:
         """The button text for this marker's action, or ``""`` when it has none."""
         return {
-            "lease": "Request to lease",
+            "lease": "Request this space",
             "cubby": "Request this space",
             "reserve": "Reserve",
         }.get(self.cta_kind or "", "")
@@ -9571,7 +9571,7 @@ class SpaceRequest(models.Model):
         WITHDRAWN = "withdrawn", "Withdrawn"
 
     class RequestKind(models.TextChoices):
-        LEASE = "lease", "Studio lease"
+        LEASE = "lease", "Studio space"
         CUBBY = "cubby", "Cubby / shelf"
 
     requester = models.ForeignKey(
@@ -9598,7 +9598,7 @@ class SpaceRequest(models.Model):
         max_length=10,
         choices=RequestKind.choices,
         default=RequestKind.LEASE,
-        help_text="Whether this is a studio lease ask or a cubby/shelf ask. Sets who reviews it.",
+        help_text="Whether this is a studio space ask or a cubby/shelf ask. Sets who reviews it.",
     )
     state = models.CharField(
         max_length=12,

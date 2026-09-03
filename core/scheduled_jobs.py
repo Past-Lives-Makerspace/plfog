@@ -83,8 +83,8 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ),
     ScheduledJob(
         key="send_lease_expiry_reminders",
-        name="Lease-expiry reminders",
-        description="Warns members whose studio lease is about to end.",
+        name="Space agreement expiry reminders",
+        description="Warns members whose space agreement is about to end.",
         command="send_lease_expiry_reminders",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,

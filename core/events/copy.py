@@ -110,7 +110,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.TAB_MEMBER: "The member whose billing tab this concerns.",
     Recipients.INVITER: "The person who sent the invitation.",
     Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
-    Recipients.LEASE_TENANT: "The member tenant of the lease.",
+    Recipients.LEASE_TENANT: "The member holding the space agreement.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
     Recipients.ALL_GUILD_LEADS: "Every guild lead, officer, and staffer (cross-guild).",
     Recipients.EVENT_AUDIENCE: (
@@ -475,20 +475,20 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="Your lease is expiring",
-                body_text="Your lease for {{ space_name }} ends on {{ end_date }}.",
+                subject="Your space agreement is ending",
+                body_text="Your space agreement for {{ space_name }} ends on {{ end_date }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Your {{ space_name }} lease ends {{ end_date }}",
+                subject="Your {{ space_name }} agreement ends {{ end_date }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "Your lease for {{ space_name }} ends on {{ end_date }} — about a month from now.\n\n"
+                    "Your space agreement for {{ space_name }} ends on {{ end_date }}, about a month from now.\n\n"
                     "If you'd like to renew, reply to this email.\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>Your lease for <strong>{{ space_name }}</strong> ends on {{ end_date }} — "
+                    "<p>Your space agreement for <strong>{{ space_name }}</strong> ends on {{ end_date }}, "
                     "about a month from now.</p>"
                     "<p>If you'd like to renew, reply to this email.</p>"
                     "<p>Past Lives Makerspace</p>"
@@ -1466,25 +1466,25 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="{{ member_name }} wants to lease {{ space_code }}",
-                body_text="{{ member_name }} asked to lease {{ space_code }} ({{ price_display }}).",
+                subject="{{ member_name }} wants space {{ space_code }}",
+                body_text="{{ member_name }} asked for space {{ space_code }} ({{ price_display }}).",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="{{ member_name }} wants to lease {{ space_code }}",
+                subject="{{ member_name }} wants space {{ space_code }}",
                 body_text=(
-                    "{{ member_name }} asked to lease a studio from the space map.\n\n"
+                    "{{ member_name }} asked for a studio space from the space map.\n\n"
                     "{{ space_code }} · {{ price_display }}\n\n"
                     'They wrote: "{{ requester_message }}"\n\n'
                     "Review the request: {{ review_url }}\n\n"
-                    "Approving notifies the member — you still finalize the lease in Airtable.\n\n"
+                    "Approving notifies the member. You still finalize the agreement in Airtable.\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>{{ member_name }} asked to lease a studio from the space map.</p>"
+                    "<p>{{ member_name }} asked for a studio space from the space map.</p>"
                     '<p><strong><a href="{{ review_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
                     "<p>They wrote: &ldquo;{{ requester_message }}&rdquo;</p>"
                     '<p><a href="{{ review_url }}">Review the request</a></p>'
-                    "<p>Approving notifies the member — you still finalize the lease in Airtable.</p>"
+                    "<p>Approving notifies the member. You still finalize the agreement in Airtable.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

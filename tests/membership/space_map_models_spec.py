@@ -277,7 +277,7 @@ def describe_MapHotspot():
         @pytest.mark.parametrize(
             ("kind", "cta", "label"),
             [
-                (MapHotspot.Kind.STUDIO, "lease", "Request to lease"),
+                (MapHotspot.Kind.STUDIO, "lease", "Request this space"),
                 (MapHotspot.Kind.CUBBY, "cubby", "Request this space"),
                 (MapHotspot.Kind.MEETING_ROOM, "reserve", "Reserve"),
                 (MapHotspot.Kind.EVENT_SPACE, "reserve", "Reserve"),
