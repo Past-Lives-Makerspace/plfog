@@ -3574,7 +3574,7 @@ class EquipmentForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
         guild_field.queryset = Guild.objects.order_by("name")
-        guild_field.empty_label = "Standalone"
+        guild_field.empty_label = "Standalone (run by the makerspace)"
         guild_field.required = False
         space_field = cast(forms.ModelChoiceField, self.fields["space"])
         space_field.queryset = Space.objects.order_by("space_id")
@@ -3594,7 +3594,7 @@ class EquipmentForm(forms.ModelForm):
         # would leak jargon (PROTECT, sync notes) into the form via form_field.html.
         self.fields["name"].help_text = ""
         self.fields["kind"].help_text = ""
-        self.fields["guild"].help_text = "Blank means standalone equipment, run by the makerspace."
+        self.fields["guild"].help_text = "Pick the guild that runs this equipment, or leave it Standalone."
         self.fields["space"].help_text = "Optional. Link the physical room from the space map. We only read from it."
         self.fields["description"].help_text = ""
         self.fields["location_note"].help_text = "A short note that helps members find it."
@@ -3614,28 +3614,68 @@ class EquipmentForm(forms.ModelForm):
         return cleaned
 
 
-class EquipmentHoursForm(forms.ModelForm):
-    """A single weekly equipment-hours row — weekday + half-hour start/end + active toggle.
+def equipment_hour_choices() -> list[tuple[str, str]]:
+    """Full-day half-hour slots, 00:00 through 23:30, as ("HH:MM", "12:00 AM") pairs.
 
-    Times are half-hour ``<select>`` dropdowns (Rule 20), parsed back to ``datetime.time``
-    on clean; an existing off-grid value round-trips via :func:`_seed_time_choice`.
+    Equipment hours run on the shop's clock, not the meeting-time window — late
+    night sessions are normal shop life — so this list is deliberately wider than
+    :func:`half_hour_time_choices` (which stays the 6 AM to 9:30 PM meeting
+    picker). The latest possible window END is 23:30; a window never crosses
+    midnight (the model's end-after-start constraint stands).
+    """
+    return [(f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(24) for minute in (0, 30)]
+
+
+_EQUIPMENT_DAY_CHOICES: list[tuple[str, str]] = [(str(value), label) for value, label in EquipmentHours.Weekday.choices]
+
+
+class EquipmentHoursWindowForm(forms.Form):
+    """One equipment-hours WINDOW — a start/end pair plus the days it applies to.
+
+    The owner-requested shape: put the hours, then set the days those hours cover.
+    Each window expands to the existing per-day :class:`EquipmentHours` rows on
+    save (:meth:`Equipment.apply_hours_windows`); existing rows regroup by
+    identical (start, end, active) window for display. Times are full-day
+    half-hour ``<select>`` dropdowns (Rule 20); a legacy off-grid value
+    round-trips via its own appended choice.
     """
 
-    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Opens")
-    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Closes")
-
-    class Meta:
-        model = EquipmentHours
-        fields = ["weekday", "start_time", "end_time", "is_active"]
-        labels = {"weekday": "Day", "is_active": "Active"}
+    start_time = forms.ChoiceField(choices=equipment_hour_choices(), label="Opens")
+    end_time = forms.ChoiceField(choices=equipment_hour_choices(), label="Closes")
+    days = forms.TypedMultipleChoiceField(
+        coerce=int,
+        choices=_EQUIPMENT_DAY_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        label="Days",
+        error_messages={"required": "Pick at least one day."},
+    )
+    is_active = forms.BooleanField(
+        required=False, initial=True, label="Active", help_text="Pause a window without deleting it."
+    )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["weekday"].help_text = ""
-        self.fields["is_active"].help_text = "Pause a window without deleting it."
-        if self.instance and self.instance.pk:
-            _seed_time_choice(self, "start_time", self.instance.start_time)
-            _seed_time_choice(self, "end_time", self.instance.end_time)
+        for name in ("start_time", "end_time"):
+            value = (self.initial or {}).get(name)
+            if not value:
+                continue
+            field = cast(forms.ChoiceField, self.fields[name])
+            choices = cast("list[tuple[str, str]]", field.choices)
+            if value not in {choice_value for choice_value, _ in choices}:
+                hour, minute = (int(part) for part in value.split(":"))
+                field.choices = [*choices, (value, _meeting_time_label(hour, minute))]
+
+    def has_changed(self) -> bool:
+        """A removed clone row (no posted keys) must stay a skippable blank extra.
+
+        The Active toggle's ``initial=True`` would otherwise read "changed to off"
+        for a row the user removed from the DOM, dragging its empty time/day fields
+        into required-field validation and blocking the save.
+        """
+        changed = super().has_changed()
+        if changed and self.empty_permitted:
+            return any(name != "is_active" for name in self.changed_data)
+        return changed
 
     def clean_start_time(self) -> time:
         return _parse_time_choice(self.cleaned_data["start_time"])
@@ -3652,8 +3692,31 @@ class EquipmentHoursForm(forms.ModelForm):
         return cleaned
 
 
-EquipmentHoursFormSet = forms.inlineformset_factory(
-    Equipment, EquipmentHours, form=EquipmentHoursForm, extra=0, can_delete=True
+class _BaseEquipmentHoursWindowFormSet(forms.BaseFormSet):
+    """Cross-window guard: two windows may not cover the same day with overlapping times."""
+
+    def clean(self) -> None:
+        super().clean()
+        if any(self.errors):
+            return
+        spans_by_day: dict[int, list[tuple[time, time]]] = {}
+        for form in self.forms:
+            data = form.cleaned_data
+            if not data or data.get("DELETE"):
+                continue
+            for day in data["days"]:
+                spans_by_day.setdefault(day, []).append((data["start_time"], data["end_time"]))
+        labels = dict(EquipmentHours.Weekday.choices)
+        for day, spans in spans_by_day.items():
+            spans.sort()
+            for (_start1, end1), (start2, _end2) in zip(spans, spans[1:], strict=False):
+                # Strict inequality: a window ending 5:00 may meet one starting 5:00.
+                if start2 < end1:
+                    raise forms.ValidationError(f"Those hours overlap on {labels[day]}.")
+
+
+EquipmentHoursWindowFormSet = forms.formset_factory(
+    EquipmentHoursWindowForm, formset=_BaseEquipmentHoursWindowFormSet, extra=0, can_delete=True
 )
 
 

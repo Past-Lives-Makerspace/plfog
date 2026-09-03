@@ -10512,6 +10512,49 @@ class Equipment(HeroCropMixin, models.Model):
                 candidate += step
         return starts
 
+    def hours_windows(self) -> list[dict[str, Any]]:
+        """Existing per-day hours rows grouped into editor windows for the manage tab.
+
+        Rows with an identical (start, end, active) window collapse to one editor
+        row carrying every weekday they cover — the "put the hours, then set the
+        days" shape. Ordered by start then end time; times as "HH:MM" choice keys.
+        """
+        grouped: dict[tuple[time_type, time_type, bool], list[int]] = {}
+        for rule in self.hours_rules.order_by("start_time", "end_time", "weekday"):
+            grouped.setdefault((rule.start_time, rule.end_time, rule.is_active), []).append(rule.weekday)
+        return [
+            {
+                "start_time": start.strftime("%H:%M"),
+                "end_time": end.strftime("%H:%M"),
+                "days": days,
+                "is_active": is_active,
+            }
+            for (start, end, is_active), days in sorted(grouped.items(), key=lambda item: (item[0][0], item[0][1]))
+        ]
+
+    def apply_hours_windows(self, windows: list[dict[str, Any]]) -> None:
+        """Expand editor windows into per-day :class:`EquipmentHours` rows, reconciling fully.
+
+        Creates a row per checked day, flips a changed active flag in place, and
+        deletes every row no window covers any more — an unchecked day, or a whole
+        deleted window. The per-day model is unchanged; the window shape is pure UI.
+        """
+        desired: dict[tuple[int, time_type, time_type], bool] = {}
+        for window in windows:
+            for day in window["days"]:
+                desired[(int(day), window["start_time"], window["end_time"])] = window["is_active"]
+        existing = {(rule.weekday, rule.start_time, rule.end_time): rule for rule in self.hours_rules.all()}
+        for key, rule in existing.items():
+            if key not in desired:
+                rule.delete()
+            elif rule.is_active != desired[key]:
+                rule.is_active = desired[key]
+                rule.save(update_fields=["is_active"])
+        for key, is_active in desired.items():
+            if key not in existing:
+                weekday, start, end = key
+                self.hours_rules.create(weekday=weekday, start_time=start, end_time=end, is_active=is_active)
+
     def _snap_forward(self, value: datetime_type) -> datetime_type:
         """The first wall-clock half-hour-grid instant at or after ``value`` (local time)."""
         local = timezone.localtime(value)

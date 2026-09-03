@@ -148,6 +148,21 @@ def describe_free_starts_for_day():
         assert equipment.free_starts_for_day(yesterday) == []
         assert equipment.free_starts_for_day(beyond) == []
 
+    def it_offers_late_evening_starts_from_a_full_day_window():
+        # Hours can now run to 23:30 — a 23:00 start fits the 30 minute minimum.
+        equipment = _open_tool(start=time(6, 0), end=time(23, 30))
+        locals_ = [
+            (timezone.localtime(s).hour, timezone.localtime(s).minute) for s in equipment.free_starts_for_day(_day())
+        ]
+        assert (23, 0) in locals_
+        assert (23, 30) not in locals_
+
+    def it_books_a_2300_start():
+        equipment = _open_tool(start=time(6, 0), end=time(23, 30))
+        member = _linked_member("res_latenight")
+        reservation = equipment_service.reserve(equipment, member, _at(_day(), 23), 30)
+        assert reservation.status == EquipmentReservation.Status.CONFIRMED
+
     def it_aligns_every_start_to_the_half_hour_grid():
         equipment = _open_tool(start=time(9, 0), end=time(16, 0))
         for start in equipment.free_starts_for_day(_day()):

@@ -17,7 +17,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import Equipment, EquipmentHours, EquipmentReservation, Member
+from membership.models import Equipment, EquipmentReservation, Member
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentHoursFactory,
@@ -541,18 +541,24 @@ def describe_equipment_hours_save():
         response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _settings_data())
         assert response.status_code == 403
 
-    def it_saves_a_new_row_plus_closure_and_limits_in_one_post(client: Client):
+    def _window(index: int, start: str, end: str, days: list[str], **extra):
+        data = {
+            f"hours-{index}-start_time": start,
+            f"hours-{index}-end_time": end,
+            f"hours-{index}-days": days,
+            f"hours-{index}-is_active": "on",
+        }
+        data.update(extra)
+        return data
+
+    def it_expands_one_window_to_a_row_per_checked_day_plus_closure_and_limits(client: Client):
         user = _login(client, "hrs_save")
         equipment = EquipmentFactory()
         EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
         data = _settings_data(
             **{
                 "hours-TOTAL_FORMS": "1",
-                "hours-0-id": "",
-                "hours-0-weekday": "1",
-                "hours-0-start_time": "09:00",
-                "hours-0-end_time": "17:00",
-                "hours-0-is_active": "on",
+                **_window(0, "09:00", "17:00", ["0", "2", "4"]),
                 "is_closed": "on",
                 "closed_message": "Down for maintenance.",
                 "max_advance_days": "14",
@@ -561,52 +567,174 @@ def describe_equipment_hours_save():
         response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
         assert response.status_code == 302
         assert response["Location"].endswith("?tab=hours")
-        rule = equipment.hours_rules.get()
-        assert rule.weekday == 1
-        assert rule.start_time == time(9, 0)
+        rows = list(equipment.hours_rules.order_by("weekday"))
+        assert [(r.weekday, r.start_time, r.end_time) for r in rows] == [
+            (0, time(9, 0), time(17, 0)),
+            (2, time(9, 0), time(17, 0)),
+            (4, time(9, 0), time(17, 0)),
+        ]
         equipment.refresh_from_db()
         assert equipment.is_closed is True
         assert equipment.closed_message == "Down for maintenance."
         assert equipment.max_advance_days == 14
 
-    def it_rejects_an_end_before_the_start_with_the_friendly_message(client: Client):
-        _login(client, "hrs_backwards", fog_role=Member.FogRole.ADMIN)
+    def it_saves_a_late_night_window_up_to_2330(client: Client):
+        _login(client, "hrs_late", fog_role=Member.FogRole.ADMIN)
         equipment = EquipmentFactory()
+        data = _settings_data(**{"hours-TOTAL_FORMS": "1", **_window(0, "06:00", "23:30", ["1"])})
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+        assert response.status_code == 302
+        rule = equipment.hours_rules.get()
+        assert rule.start_time == time(6, 0)
+        assert rule.end_time == time(23, 30)
+
+    def it_groups_existing_rows_into_windows_on_render(client: Client):
+        _login(client, "hrs_group", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        EquipmentHoursFactory(equipment=equipment, weekday=0, start_time=time(9, 0), end_time=time(17, 0))
+        EquipmentHoursFactory(equipment=equipment, weekday=2, start_time=time(9, 0), end_time=time(17, 0))
+        EquipmentHoursFactory(equipment=equipment, weekday=1, start_time=time(10, 0), end_time=time(12, 0))
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "hours"})
+        initial = [form.initial for form in response.context["hours_formset"].forms]
+        assert initial == [
+            {"start_time": "09:00", "end_time": "17:00", "days": [0, 2], "is_active": True},
+            {"start_time": "10:00", "end_time": "12:00", "days": [1], "is_active": True},
+        ]
+
+    def it_removes_the_rows_for_unchecked_days(client: Client):
+        _login(client, "hrs_uncheck", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        monday = EquipmentHoursFactory(equipment=equipment, weekday=0, start_time=time(9, 0), end_time=time(17, 0))
+        EquipmentHoursFactory(equipment=equipment, weekday=2, start_time=time(9, 0), end_time=time(17, 0))
         data = _settings_data(
             **{
                 "hours-TOTAL_FORMS": "1",
-                "hours-0-id": "",
-                "hours-0-weekday": "1",
-                "hours-0-start_time": "17:00",
-                "hours-0-end_time": "09:00",
-                "hours-0-is_active": "on",
+                "hours-INITIAL_FORMS": "1",
+                **_window(0, "09:00", "17:00", ["0"]),  # Wednesday unchecked
             }
         )
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+        assert response.status_code == 302
+        remaining = equipment.hours_rules.get()
+        assert remaining.pk == monday.pk
+        assert remaining.weekday == 0
+
+    def it_round_trips_a_saved_window_unchanged(client: Client):
+        _login(client, "hrs_roundtrip", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        url = reverse("hub_equipment_hours_save", args=[equipment.slug])
+        client.post(url, _settings_data(**{"hours-TOTAL_FORMS": "1", **_window(0, "09:00", "17:00", ["0", "3"])}))
+        pks = set(equipment.hours_rules.values_list("pk", flat=True))
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "hours"})
+        window = response.context["hours_formset"].forms[0].initial
+        assert window == {"start_time": "09:00", "end_time": "17:00", "days": [0, 3], "is_active": True}
+        # Re-posting the exact same window leaves the same rows in place.
+        client.post(
+            url,
+            _settings_data(
+                **{"hours-TOTAL_FORMS": "1", "hours-INITIAL_FORMS": "1", **_window(0, "09:00", "17:00", ["0", "3"])}
+            ),
+        )
+        assert set(equipment.hours_rules.values_list("pk", flat=True)) == pks
+
+    def it_rejects_two_windows_overlapping_on_the_same_day(client: Client):
+        _login(client, "hrs_overlap", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        data = _settings_data(
+            **{
+                "hours-TOTAL_FORMS": "2",
+                **_window(0, "09:00", "12:00", ["1", "3"]),
+                **_window(1, "11:00", "14:00", ["1"]),
+            }
+        )
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+        assert response.status_code == 200
+        assert b"Those hours overlap on Tuesday." in response.content
+        assert not equipment.hours_rules.exists()
+
+    def it_allows_touching_windows_on_the_same_day(client: Client):
+        _login(client, "hrs_touch", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        data = _settings_data(
+            **{
+                "hours-TOTAL_FORMS": "2",
+                **_window(0, "09:00", "12:00", ["1"]),
+                **_window(1, "12:00", "14:00", ["1"]),
+            }
+        )
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+        assert response.status_code == 302
+        assert equipment.hours_rules.count() == 2
+
+    def it_pauses_every_day_of_a_window_together(client: Client):
+        _login(client, "hrs_pause", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        EquipmentHoursFactory(equipment=equipment, weekday=0, start_time=time(9, 0), end_time=time(17, 0))
+        EquipmentHoursFactory(equipment=equipment, weekday=2, start_time=time(9, 0), end_time=time(17, 0))
+        data = _settings_data(
+            **{
+                "hours-TOTAL_FORMS": "1",
+                "hours-INITIAL_FORMS": "1",
+                "hours-0-start_time": "09:00",
+                "hours-0-end_time": "17:00",
+                "hours-0-days": ["0", "2"],
+                # is_active deliberately absent — the window is paused.
+            }
+        )
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+        assert response.status_code == 302
+        assert list(equipment.hours_rules.values_list("is_active", flat=True)) == [False, False]
+
+    def it_rejects_an_end_before_the_start_with_the_friendly_message(client: Client):
+        _login(client, "hrs_backwards", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        data = _settings_data(**{"hours-TOTAL_FORMS": "1", **_window(0, "17:00", "09:00", ["1"])})
         response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
         assert response.status_code == 200
         assert b"The end time must be after the start time." in response.content
         assert not equipment.hours_rules.exists()
 
-    def it_deletes_a_row_while_preserving_the_other_edits(client: Client):
+    def it_requires_at_least_one_day(client: Client):
+        _login(client, "hrs_nodays", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        data = _settings_data(
+            **{
+                "hours-TOTAL_FORMS": "1",
+                "hours-0-start_time": "09:00",
+                "hours-0-end_time": "17:00",
+                "hours-0-is_active": "on",
+            }
+        )
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
+        assert response.status_code == 200
+        assert b"Pick at least one day." in response.content
+        assert not equipment.hours_rules.exists()
+
+    def it_round_trips_a_legacy_off_grid_time_via_an_appended_choice(client: Client):
+        # A pre-guard 9:15 row must still display and re-save untouched: the window
+        # form appends the off-grid value as its own labeled choice.
+        from hub.forms import EquipmentHoursWindowForm
+
+        form = EquipmentHoursWindowForm(initial={"start_time": "09:15", "end_time": "11:00", "days": [1]})
+        choices = dict(form.fields["start_time"].choices)
+        assert choices["09:15"] == "9:15 AM"
+
+    def it_deletes_a_whole_window_while_preserving_the_other_edits(client: Client):
         _login(client, "hrs_delete", fog_role=Member.FogRole.ADMIN)
         equipment = EquipmentFactory()
-        rule = EquipmentHoursFactory(equipment=equipment)
+        EquipmentHoursFactory(equipment=equipment, weekday=0, start_time=time(9, 0), end_time=time(17, 0))
+        EquipmentHoursFactory(equipment=equipment, weekday=2, start_time=time(9, 0), end_time=time(17, 0))
         data = _settings_data(
             **{
                 "hours-TOTAL_FORMS": "1",
                 "hours-INITIAL_FORMS": "1",
-                "hours-0-id": str(rule.pk),
-                "hours-0-weekday": str(rule.weekday),
-                "hours-0-start_time": "09:00",
-                "hours-0-end_time": "17:00",
-                "hours-0-is_active": "on",
-                "hours-0-DELETE": "on",
+                **_window(0, "09:00", "17:00", ["0", "2"], **{"hours-0-DELETE": "on"}),
                 "closed_message": "Edited alongside the delete.",
             }
         )
         response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), data)
         assert response.status_code == 302
-        assert not EquipmentHours.objects.filter(pk=rule.pk).exists()
+        assert not equipment.hours_rules.exists()
         equipment.refresh_from_db()
         assert equipment.closed_message == "Edited alongside the delete."
 
