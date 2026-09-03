@@ -300,7 +300,7 @@
                 <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="pl-btn pl-btn--primary" style="width:100%;">Log in to the members hub</a>
                 {% endif %}
                 {% include "hub/partials/_guild_get_involved_status.html" %}
-                {% if show_orientation and not is_oriented %}
+                {% if show_orientation and not orientation_all_done %}
                 <button type="button" class="pl-btn pl-btn--primary" style="width:100%;" data-help-key="orientation.book-slot"
                         @click="section = 'orientations'; $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView({ behavior: 'smooth' }))">
                     Join an Orientation
@@ -430,7 +430,7 @@
     {# Calendar first — the guild's classes + orientation slots show as entries on it. #}
     {% include "hub/partials/guild_calendar_app.html" with cal=calendar guild=guild %}
 
-    {% if show_orientation and not is_oriented %}
+    {% if show_orientation and not orientation_all_done %}
     <p class="hub-text-muted" style="margin-top:0.75rem; font-size:0.9rem;">
         Want to book one of these orientation times?
         <a href="#" @click.prevent="section = 'orientations'">Open the Orientations tab.</a>

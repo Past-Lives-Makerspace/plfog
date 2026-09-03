@@ -26,7 +26,14 @@ from core.models import SiteActivity
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from membership.models import Guild, Member, OrientationAvailability, OrientationBooking, OrientationSlot
+    from membership.models import (
+        Guild,
+        Member,
+        OrientationAvailability,
+        OrientationBooking,
+        OrientationSlot,
+        OrientationType,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -131,14 +138,14 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
     cal.add("method", method)
     event = icalendar.Event()
     event.add("uid", f"orientation-{booking.pk}@pastlives")
-    event.add("summary", f"Orientation — {booking.guild.name}")
+    event.add("summary", f"{booking.orientation_type.name} orientation — {booking.guild.name}")
     event.add("dtstart", slot.starts_at)
     event.add("dtend", slot.ends_at)
     event.add("dtstamp", timezone.now())
     event.add("status", status)
     if slot.location:
         event.add("location", slot.location)
-    description = f"Orientation for {booking.guild.name} at Past Lives Makerspace."
+    description = f"{booking.orientation_type.name} orientation for {booking.guild.name} at Past Lives Makerspace."
     label = slot.with_label
     if label:
         description += f" {label[0].upper()}{label[1:]}."
@@ -153,6 +160,7 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "booking": booking,
         "slot": booking.slot,
         "guild": booking.guild,
+        "orientation_type": booking.orientation_type,
         "greeting_name": member.display_name,
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild.slug])),
         "cancel_url": _action_url(booking, "cancel", recipient=member),
@@ -241,43 +249,67 @@ def request_orientation(slot: OrientationSlot, member: Member, *, note: str = ""
     return booking
 
 
+def _ensure_custom_requestable(guild: Guild, orientation_type: OrientationType) -> None:
+    """Raise :class:`OrientationError` unless a custom request may target this guild + type."""
+    from membership.models import GuildOrientationSettings, OrientationError
+
+    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
+    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
+        raise OrientationError("This guild isn't taking custom orientation requests right now.")
+    if orientation_type.guild_id != guild.pk or not orientation_type.is_active:
+        raise OrientationError("That orientation isn't offered right now.")
+
+
+def _create_custom_slot(guild: Guild, orientation_type: OrientationType, starts_at: datetime) -> OrientationSlot:
+    """The one-off 1-seat MANUAL slot a custom request books — sized by ITS type.
+
+    The slot runs ``orientation_type.duration_minutes`` and sits at the type's
+    ``default_location`` (issue #282: custom requests use the picked type's config).
+    """
+    from membership.models import OrientationSlot
+
+    return OrientationSlot.objects.create(
+        guild=guild,
+        orientation_type=orientation_type,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=orientation_type.duration_minutes),
+        seats=1,
+        location=orientation_type.default_location,
+        source=OrientationSlot.Source.MANUAL,
+    )
+
+
 def request_custom_orientation(
-    guild: Guild, member: Member, starts_at: datetime, *, note: str = ""
+    guild: Guild, member: Member, starts_at: datetime, *, orientation_type: OrientationType, note: str = ""
 ) -> OrientationBooking:
     """Create a one-off MANUAL slot at ``starts_at`` and request it, reusing :func:`request_orientation`.
 
     Mirrors the hub custom-request view: the guild must have ``GuildOrientationSettings``
-    that is both accepting bookings *and* allowing custom requests, else an
-    :class:`~membership.models.OrientationError`. The slot ends ``default_duration_minutes``
-    after the start, holds a single seat, and sits at the guild's ``default_location``.
+    that is both accepting bookings *and* allowing custom requests, and the picked
+    ``orientation_type`` must be one of this guild's active types, else an
+    :class:`~membership.models.OrientationError`. The slot ends the type's
+    ``duration_minutes`` after the start, holds a single seat, and sits at the type's
+    ``default_location``.
 
     Args:
         guild: The guild to orient for.
         member: The requesting member.
         starts_at: The proposed start (future, validated by :func:`parse_proposed_time`).
+        orientation_type: Which of the guild's orientations the member wants.
         note: Optional free-text note passed to the orienter.
 
     Returns:
         The created (REQUESTED) :class:`~membership.models.OrientationBooking`.
 
     Raises:
-        OrientationError: If the guild isn't taking custom requests, or the booking fails.
-            A booking failure deletes the orphan slot before re-raising, so a failed custom
-            request never leaves a dangling slot.
+        OrientationError: If the guild isn't taking custom requests, the type isn't
+            offered, or the booking fails. A booking failure deletes the orphan slot
+            before re-raising, so a failed custom request never leaves a dangling slot.
     """
-    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+    from membership.models import OrientationError
 
-    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
-        raise OrientationError("This guild isn't taking custom orientation requests right now.")
-    slot = OrientationSlot.objects.create(
-        guild=guild,
-        starts_at=starts_at,
-        ends_at=starts_at + timedelta(minutes=settings_obj.default_duration_minutes),
-        seats=1,
-        location=settings_obj.default_location,
-        source=OrientationSlot.Source.MANUAL,
-    )
+    _ensure_custom_requestable(guild, orientation_type)
+    slot = _create_custom_slot(guild, orientation_type, starts_at)
     try:
         return request_orientation(slot, member, note=note)
     except OrientationError:
@@ -352,11 +384,11 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
             the friendly "checkout in progress" duplicate at ``seat_holding()`` scope.
     """
     from billing import stripe_utils
-    from membership.models import GuildOrientationSettings, OrientationBooking, OrientationError
+    from membership.models import OrientationBooking, OrientationError
 
-    settings_obj = GuildOrientationSettings.objects.filter(guild=slot.guild).first()
-    if settings_obj is None or not settings_obj.is_paid:
-        raise OrientationError("This guild doesn't charge for orientations.")
+    orientation_type = slot.orientation_type
+    if not orientation_type.is_paid:
+        raise OrientationError("This orientation doesn't charge to book.")
     slot.ensure_bookable_for(member)
     # amount_paid_cents stays 0 until money is actually in hand — the finalize
     # step stamps it from the session's amount_total. A provisional amount here
@@ -372,8 +404,8 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
     metadata = {"kind": "orientation_booking", "booking_id": str(booking.pk)}
     try:
         session = stripe_utils.create_checkout_session(
-            amount_cents=settings_obj.price_cents,
-            product_name=f"Orientation — {slot.guild.name}",
+            amount_cents=orientation_type.price_cents,
+            product_name=f"{orientation_type.name} orientation — {slot.guild.name}",
             customer_email=member.primary_email,
             success_url=_absolute_url(reverse("hub_orientation_checkout_return", args=[token])),
             cancel_url=_absolute_url(reverse("hub_orientation_checkout_cancelled", args=[token])),
@@ -391,29 +423,23 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
     return session["url"]
 
 
-def start_custom_orientation_checkout(guild: Guild, member: Member, starts_at: datetime, *, note: str = "") -> str:
-    """Custom-time variant of :func:`start_orientation_checkout` — pay-to-book at the same guild price.
+def start_custom_orientation_checkout(
+    guild: Guild, member: Member, starts_at: datetime, *, orientation_type: OrientationType, note: str = ""
+) -> str:
+    """Custom-time variant of :func:`start_orientation_checkout` — pay-to-book at the TYPE's price.
 
     Creates the one-off 1-seat MANUAL slot (like :func:`request_custom_orientation`),
     then delegates. Any failure deletes the orphan slot (and the hold, handled by
     the delegate) before re-raising.
 
     Raises:
-        OrientationError: If the guild isn't taking custom requests, or booking fails.
+        OrientationError: If the guild isn't taking custom requests, the type isn't
+            offered, or booking fails.
     """
-    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+    from membership.models import OrientationSlot
 
-    settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
-    if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
-        raise OrientationError("This guild isn't taking custom orientation requests right now.")
-    slot = OrientationSlot.objects.create(
-        guild=guild,
-        starts_at=starts_at,
-        ends_at=starts_at + timedelta(minutes=settings_obj.default_duration_minutes),
-        seats=1,
-        location=settings_obj.default_location,
-        source=OrientationSlot.Source.MANUAL,
-    )
+    _ensure_custom_requestable(guild, orientation_type)
+    slot = _create_custom_slot(guild, orientation_type, starts_at)
     try:
         return start_orientation_checkout(slot, member, note=note)
     except Exception:
@@ -842,7 +868,11 @@ def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: da
     reference = now or timezone.now()
     today = timezone.localdate()
     created = 0
-    rules = OrientationAvailability.objects.filter(is_active=True).select_related("guild")
+    # A rule whose orientation type was deactivated stops generating (existing slots
+    # are handled by the bookable() type-active filter, not deleted).
+    rules = OrientationAvailability.objects.filter(is_active=True, orientation_type__is_active=True).select_related(
+        "guild", "orientation_type"
+    )
     if guild is not None:
         rules = rules.filter(guild=guild)
     for rule in rules:
@@ -868,10 +898,12 @@ def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: da
                 starts_at=start_dt,
                 defaults={
                     "guild": rule.guild,
+                    # The rule's type rides onto every slot it materializes (issue #282).
+                    "orientation_type": rule.orientation_type,
                     "orienter": rule.orienter,
                     "ends_at": timezone.make_aware(datetime.combine(day, rule.end_time)),
                     "seats": rule.seats,
-                    "location": rule.location or settings_obj.default_location,
+                    "location": rule.location or rule.orientation_type.default_location,
                     "source": OrientationSlot.Source.GENERATED,
                 },
             )

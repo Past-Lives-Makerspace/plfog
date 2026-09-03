@@ -10,13 +10,21 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import GuildOrientationSettings, Member, OrientationAvailability, OrientationSlot
+from membership.models import (
+    GuildOrientationSettings,
+    Member,
+    OrientationAvailability,
+    OrientationSlot,
+    OrientationType,
+)
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
+    OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -34,8 +42,6 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
 
 def _settings_payload(**overrides: str) -> dict[str, str]:
     data = {
-        "default_seats": "4",
-        "default_duration_minutes": "60",
         "rules-TOTAL_FORMS": "0",
         "rules-INITIAL_FORMS": "0",
         "rules-MIN_NUM_FORMS": "0",
@@ -149,13 +155,13 @@ def describe_guild_orientation_edit():
         client.login(username="ed_lead", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(is_enabled="on", default_location="Front desk"),
+            _settings_payload(is_enabled="on", info="Bring closed-toe shoes"),
         )
         assert response.status_code == 302
         assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
         settings_obj = GuildOrientationSettings.objects.get(guild=guild)
         assert settings_obj.is_enabled is True
-        assert settings_obj.default_location == "Front desk"
+        assert settings_obj.info == "Bring closed-toe shoes"
 
     def it_saves_the_custom_request_toggle(client: Client):
         _user_with_role("ed_custom", fog_role=Member.FogRole.ADMIN)
@@ -179,7 +185,7 @@ def describe_guild_orientation_edit():
         client.login(username="ed_keep", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_edit", args=[guild.pk]),
-            _settings_payload(is_enabled="on", default_location="Front desk"),
+            _settings_payload(is_enabled="on", info="Front desk"),
         )
         assert response.status_code == 302
         assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
@@ -211,6 +217,7 @@ def describe_guild_orientation_hours_save():
         # on the guild's leadership — hence the lead here. A valid save answers 204 + HX-Redirect.
         user = _user_with_role("hrs_add", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
+        orientation_type = OrientationTypeFactory(guild=guild)
         client.login(username="hrs_add", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
@@ -218,6 +225,7 @@ def describe_guild_orientation_hours_save():
                 scope=str(user.member.pk),
                 **{
                     "modal_rules-TOTAL_FORMS": "1",
+                    "modal_rules-0-orientation_type": str(orientation_type.pk),
                     "modal_rules-0-weekday": "1",
                     "modal_rules-0-start_time": "18:00",
                     "modal_rules-0-end_time": "19:00",
@@ -232,6 +240,7 @@ def describe_guild_orientation_hours_save():
         rule = OrientationAvailability.objects.get(guild=guild)
         assert rule.weekday == 1
         assert rule.seats == 5
+        assert rule.orientation_type == orientation_type
         # The posted scope stamps the new rule as the saver's personal hours.
         assert rule.orienter == user.member
 
@@ -248,6 +257,7 @@ def describe_guild_orientation_hours_save():
                     "guild_rules-TOTAL_FORMS": "1",
                     "guild_rules-INITIAL_FORMS": "1",
                     "guild_rules-0-id": str(rule.pk),
+                    "guild_rules-0-orientation_type": str(rule.orientation_type.pk),
                     "guild_rules-0-weekday": "3",
                     "guild_rules-0-start_time": "10:00",
                     "guild_rules-0-end_time": "12:00",
@@ -298,6 +308,7 @@ def describe_guild_orientation_hours_save():
         user = _user_with_role("hrs_gen", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        orientation_type = OrientationTypeFactory(guild=guild)
         client.login(username="hrs_gen", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
@@ -305,6 +316,7 @@ def describe_guild_orientation_hours_save():
                 scope=str(user.member.pk),
                 **{
                     "modal_rules-TOTAL_FORMS": "1",
+                    "modal_rules-0-orientation_type": str(orientation_type.pk),
                     "modal_rules-0-weekday": "1",
                     "modal_rules-0-start_time": "18:00",
                     "modal_rules-0-end_time": "19:00",
@@ -317,14 +329,16 @@ def describe_guild_orientation_hours_save():
         assert response.status_code == 204
         slot = OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).first()
         assert slot is not None
-        # Generated slots carry their rule's orienter through.
+        # Generated slots carry their rule's orienter AND orientation type through.
         assert slot.orienter == user.member
+        assert slot.orientation_type == orientation_type
 
     def it_keeps_existing_settings_when_only_hours_are_saved(client: Client):
         # Saving hours through its own form must not disturb the guild's orientation settings.
         user = _user_with_role("hrs_keep", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
-        settings_obj = GuildOrientationSettingsFactory(guild=guild, is_enabled=True, default_location="Front desk")
+        settings_obj = GuildOrientationSettingsFactory(guild=guild, is_enabled=True, info="Front desk")
+        orientation_type = OrientationTypeFactory(guild=guild)
         client.login(username="hrs_keep", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
@@ -332,6 +346,7 @@ def describe_guild_orientation_hours_save():
                 scope=str(user.member.pk),
                 **{
                     "modal_rules-TOTAL_FORMS": "1",
+                    "modal_rules-0-orientation_type": str(orientation_type.pk),
                     "modal_rules-0-weekday": "2",
                     "modal_rules-0-start_time": "10:00",
                     "modal_rules-0-end_time": "11:00",
@@ -344,7 +359,7 @@ def describe_guild_orientation_hours_save():
         assert response.status_code == 204
         settings_obj.refresh_from_db()
         assert settings_obj.is_enabled is True
-        assert settings_obj.default_location == "Front desk"
+        assert settings_obj.info == "Front desk"
 
     def it_rejects_a_rule_whose_end_is_before_its_start(client: Client):
         # The bad time range re-renders the modal partial with the field error and saves nothing.
@@ -373,6 +388,7 @@ def describe_guild_orientation_hours_save():
     def it_lets_the_guild_lead_save_hours(client: Client):
         user = _user_with_role("hrs_lead", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
+        orientation_type = OrientationTypeFactory(guild=guild)
         client.login(username="hrs_lead", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
@@ -380,6 +396,7 @@ def describe_guild_orientation_hours_save():
                 scope=str(user.member.pk),
                 **{
                     "modal_rules-TOTAL_FORMS": "1",
+                    "modal_rules-0-orientation_type": str(orientation_type.pk),
                     "modal_rules-0-weekday": "1",
                     "modal_rules-0-start_time": "18:00",
                     "modal_rules-0-end_time": "19:00",
@@ -408,8 +425,9 @@ def describe_guild_orientation_hours_save():
         assert response.status_code == 405
 
 
-def _slot_payload(**overrides: str) -> dict[str, str]:
+def _slot_payload(*, orientation_type: OrientationType, **overrides: str) -> dict[str, str]:
     data = {
+        "orientation_type": str(orientation_type.pk),
         "date": _future_date(),
         "start_time": "18:00",
         "duration_minutes": "60",
@@ -424,11 +442,16 @@ def describe_guild_orientation_slot_add():
     def it_adds_a_one_off_slot(client: Client):
         _user_with_role("slot_admin", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
+        orientation_type = OrientationTypeFactory(guild=guild)
         client.login(username="slot_admin", password="pass")
-        response = client.post(reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload())
+        response = client.post(
+            reverse("hub_guild_orientation_slot_add", args=[guild.pk]),
+            _slot_payload(orientation_type=orientation_type),
+        )
         assert response.status_code == 302
         slot = OrientationSlot.objects.get(guild=guild)
         assert slot.source == OrientationSlot.Source.MANUAL
+        assert slot.orientation_type == orientation_type
         assert slot.seats == 3
         assert slot.ends_at - slot.starts_at == timedelta(minutes=60)
 
@@ -437,7 +460,10 @@ def describe_guild_orientation_slot_add():
         guild = GuildFactory()
         client.login(username="slot_past", password="pass")
         past = (timezone.localtime() - timedelta(days=1)).strftime("%Y-%m-%d")
-        response = client.post(reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(date=past))
+        response = client.post(
+            reverse("hub_guild_orientation_slot_add", args=[guild.pk]),
+            _slot_payload(orientation_type=OrientationTypeFactory(guild=guild), date=past),
+        )
         assert response.status_code == 302
         assert OrientationSlot.objects.filter(guild=guild).count() == 0
 
@@ -445,7 +471,7 @@ def describe_guild_orientation_slot_add():
         _user_with_role("slot_nodate", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="slot_nodate", password="pass")
-        payload = _slot_payload()
+        payload = _slot_payload(orientation_type=OrientationTypeFactory(guild=guild))
         del payload["date"]
         response = client.post(reverse("hub_guild_orientation_slot_add", args=[guild.pk]), payload)
         assert response.status_code == 302
@@ -455,7 +481,10 @@ def describe_guild_orientation_slot_add():
         _user_with_role("slot_reg", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory()
         client.login(username="slot_reg", password="pass")
-        response = client.post(reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload())
+        response = client.post(
+            reverse("hub_guild_orientation_slot_add", args=[guild.pk]),
+            _slot_payload(orientation_type=OrientationTypeFactory(guild=guild)),
+        )
         assert response.status_code == 403
         assert OrientationSlot.objects.filter(guild=guild).count() == 0
 
@@ -498,3 +527,121 @@ def describe_guild_orientation_slot_cancel():
         client.login(username="can_get", password="pass")
         response = client.get(reverse("hub_guild_orientation_slot_cancel", args=[guild.pk, slot.pk]))
         assert response.status_code == 405
+
+
+def describe_guild_orientation_types_save():
+    """The Orientation Types card saves through its own endpoint (the FAQ idiom)."""
+
+    def _types_payload(**overrides: str) -> dict[str, str]:
+        data = {
+            "otypes-TOTAL_FORMS": "1",
+            "otypes-INITIAL_FORMS": "0",
+            "otypes-MIN_NUM_FORMS": "0",
+            "otypes-MAX_NUM_FORMS": "1000",
+            "otypes-0-name": "Lathe Cert",
+            "otypes-0-description": "Spinny wood safety",
+            "otypes-0-duration_minutes": "90",
+            "otypes-0-price": "15.50",
+            "otypes-0-default_seats": "2",
+            "otypes-0-default_location": "Lathe Corner",
+            "otypes-0-sort_order": "1",
+            "otypes-0-is_active": "on",
+        }
+        data.update(overrides)
+        return data
+
+    def it_lets_the_guild_lead_create_a_type_with_a_dollar_price(client: Client):
+        user = _user_with_role("ty_lead", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        client.login(username="ty_lead", password="pass")
+        response = client.post(reverse("hub_guild_orientation_types_save", args=[guild.pk]), _types_payload())
+        assert response.status_code == 302
+        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
+        orientation_type = OrientationType.objects.get(guild=guild)
+        assert orientation_type.name == "Lathe Cert"
+        assert orientation_type.duration_minutes == 90
+        assert orientation_type.price_cents == 1550
+        assert orientation_type.default_seats == 2
+        assert orientation_type.default_location == "Lathe Corner"
+        assert orientation_type.is_active is True
+
+    def it_edits_an_existing_type(client: Client):
+        user = _user_with_role("ty_edit", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        orientation_type = OrientationTypeFactory(guild=guild, name="Lathe Cert", price_cents=1000)
+        client.login(username="ty_edit", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_types_save", args=[guild.pk]),
+            _types_payload(
+                **{
+                    "otypes-INITIAL_FORMS": "1",
+                    "otypes-0-id": str(orientation_type.pk),
+                    "otypes-0-price": "",
+                    "otypes-0-is_active": "",
+                }
+            ),
+        )
+        assert response.status_code == 302
+        orientation_type.refresh_from_db()
+        assert orientation_type.price_cents == 0  # blank price normalizes to free
+        assert orientation_type.is_active is False
+
+    def it_deletes_an_unused_type(client: Client):
+        user = _user_with_role("ty_del", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        orientation_type = OrientationTypeFactory(guild=guild, name="Lathe Cert")
+        client.login(username="ty_del", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_types_save", args=[guild.pk]),
+            _types_payload(
+                **{
+                    "otypes-INITIAL_FORMS": "1",
+                    "otypes-0-id": str(orientation_type.pk),
+                    "otypes-0-DELETE": "on",
+                }
+            ),
+        )
+        assert response.status_code == 302
+        assert not OrientationType.objects.filter(pk=orientation_type.pk).exists()
+
+    def it_refuses_to_delete_a_type_with_booking_history(client: Client):
+        user = _user_with_role("ty_hist", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        slot = OrientationSlotFactory(guild=guild)
+        booking = OrientationBookingFactory(slot=slot)
+        orientation_type = slot.orientation_type
+        client.login(username="ty_hist", password="pass")
+        response = client.post(
+            reverse("hub_guild_orientation_types_save", args=[guild.pk]),
+            _types_payload(
+                **{
+                    "otypes-INITIAL_FORMS": "1",
+                    "otypes-0-id": str(orientation_type.pk),
+                    "otypes-0-name": orientation_type.name,
+                    "otypes-0-DELETE": "on",
+                }
+            ),
+        )
+        # Invalid save re-renders the editor; the type, its slot, and its history survive.
+        assert response.status_code == 200
+        assert b"booking history" in response.content
+        assert OrientationType.objects.filter(pk=orientation_type.pk).exists()
+        assert OrientationSlot.objects.filter(pk=slot.pk).exists()
+        assert booking.pk is not None
+
+    def it_forbids_a_regular_member(client: Client):
+        _user_with_role("ty_reg", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory()
+        client.login(username="ty_reg", password="pass")
+        response = client.post(reverse("hub_guild_orientation_types_save", args=[guild.pk]), _types_payload())
+        assert response.status_code == 403
+        assert not OrientationType.objects.filter(guild=guild).exists()
+
+    def it_rejects_a_duplicate_name_within_the_guild(client: Client):
+        user = _user_with_role("ty_dupe", fog_role=Member.FogRole.MEMBER)
+        guild = GuildFactory(guild_lead=user.member)
+        OrientationTypeFactory(guild=guild, name="Lathe Cert")
+        client.login(username="ty_dupe", password="pass")
+        response = client.post(reverse("hub_guild_orientation_types_save", args=[guild.pk]), _types_payload())
+        assert response.status_code == 200  # re-rendered with the uniqueness error
+        assert OrientationType.objects.filter(guild=guild).count() == 1

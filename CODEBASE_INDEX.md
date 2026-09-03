@@ -25,6 +25,7 @@
 - `AdminCapability` — scoped admin authority per member (class/space/discount/calendar/billing approver); routes the matching approval/alert notifications AND grants the action, decoupled from the `fog_role=admin` tier
 - `GuildMembership` — a member's membership in a guild
 - `GuildOrientationSettings` / `GuildFAQItem` / `GuildLink` / `GuildAnnouncement` / `GuildImage` — guild-page content & orientations
+- `OrientationType` — one kind of orientation a guild offers (Shop Basics, Lathe, …) with its own duration/price/seats/location; `OrientationAvailability`/`OrientationSlot`/`OrientationBooking` each FK a type; "oriented for the guild" = any completed type, one live booking per (type, member)
 - `VotePreference` — persistent 3-choice ranked vote per member (synced to Airtable)
 - `FundingSnapshot` — immutable historical funding calc; guild allocations stored in results JSON
 - `Space` — physical space (studio/storage/parking/desk); linked to Airtable

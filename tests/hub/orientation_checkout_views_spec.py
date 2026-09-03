@@ -19,6 +19,7 @@ from tests.membership.factories import (
     MembershipPlanFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -33,7 +34,8 @@ def _user(username: str) -> User:
 
 
 def _paid_slot(price_cents: int = 1500) -> OrientationSlot:
-    settings_obj = GuildOrientationSettingsFactory(price_cents=price_cents)
+    settings_obj = GuildOrientationSettingsFactory()
+    OrientationTypeFactory(guild=settings_obj.guild, price_cents=price_cents)
     return OrientationSlotFactory(guild=settings_obj.guild)
 
 
@@ -101,12 +103,13 @@ def describe_custom_request_branching():
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_redirects_a_paid_custom_request_to_stripe(mock_create, client: Client):
         _user("payer4")
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500, allow_custom_requests=True)
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         client.login(username="payer4", password="pass")
         starts = timezone.localtime(timezone.now() + timedelta(days=3))
         response = client.post(
             reverse("hub_guild_orientation_request_custom", args=[settings_obj.guild.pk]),
-            {"starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
+            {"orientation_type": orientation_type.pk, "starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
         )
         assert response.status_code == 302
         assert response["Location"] == _SESSION["url"]
@@ -132,7 +135,8 @@ def describe_orientation_checkout_return():
 
     def it_names_the_orienter_in_the_requested_confirmation(client: Client):
         user = _user("ret_named")
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         slot = OrientationSlotFactory(guild=settings_obj.guild, orienter=MemberFactory(full_legal_name="Zoe Zenith"))
         booking = OrientationBookingFactory(
             slot=slot, member=user.member, amount_paid_cents=1500, stripe_payment_id="pi_named"
@@ -395,12 +399,13 @@ def describe_edge_branches():
     )
     def it_surfaces_a_friendly_error_when_a_custom_checkout_fails(mock_create, client: Client):
         _user("edge9")
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500, allow_custom_requests=True)
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         client.login(username="edge9", password="pass")
         starts = timezone.localtime(timezone.now() + timedelta(days=3))
         response = client.post(
             reverse("hub_guild_orientation_request_custom", args=[settings_obj.guild.pk]),
-            {"starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
+            {"orientation_type": orientation_type.pk, "starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
             follow=True,
         )
         assert OrientationBooking.objects.count() == 0
@@ -409,7 +414,8 @@ def describe_edge_branches():
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_surfaces_the_domain_error_when_a_custom_checkout_is_guarded(mock_create, client: Client):
         user = _user("edge10")
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500, allow_custom_requests=True)
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         OrientationBookingFactory(
             slot=OrientationSlotFactory(guild=settings_obj.guild),
             member=user.member,
@@ -420,7 +426,7 @@ def describe_edge_branches():
         starts = timezone.localtime(timezone.now() + timedelta(days=3))
         response = client.post(
             reverse("hub_guild_orientation_request_custom", args=[settings_obj.guild.pk]),
-            {"starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
+            {"orientation_type": orientation_type.pk, "starts_at": starts.strftime("%Y-%m-%dT%H:%M"), "note": ""},
             follow=True,
         )
         assert any("checkout in progress" in str(m).lower() for m in response.context["messages"])

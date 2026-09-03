@@ -87,6 +87,11 @@ urlpatterns = [
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
     path(
+        "guilds/<int:pk>/orientation/types/save/",
+        views.guild_orientation_types_save,
+        name="hub_guild_orientation_types_save",
+    ),
+    path(
         "guilds/<int:pk>/orientation/hours/save/",
         views.guild_orientation_hours_save,
         name="hub_guild_orientation_hours_save",

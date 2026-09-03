@@ -394,8 +394,12 @@ def describe_demo_data_remove_orientations():
         guilds = _seed_demo_guilds()
         call_command("demo_data")
         # A non-demo recurring rule (no marker) — this guild owns real orientation data.
+        from membership.models import OrientationType
+
         OrientationAvailability.objects.create(
             guild=guilds[0],
+            orientation_type=OrientationType.objects.filter(guild=guilds[0]).first()
+            or OrientationType.objects.create(guild=guilds[0], name="Real Orientation"),
             weekday=OrientationAvailability.Weekday.MONDAY,
             start_time=time(9, 0),
             end_time=time(10, 0),

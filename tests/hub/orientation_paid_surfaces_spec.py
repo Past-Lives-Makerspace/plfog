@@ -10,7 +10,7 @@ from django.test import Client
 from django.urls import reverse
 
 from billing.models import PaymentRefund
-from hub.forms import GuildOrientationSettingsForm, OrientationAddMemberForm
+from hub.forms import OrientationAddMemberForm, OrientationTypeForm
 from membership.models import Member, OrientationBooking, OrientationSlot
 from tests.membership.factories import (
     GuildOrientationSettingsFactory,
@@ -18,6 +18,7 @@ from tests.membership.factories import (
     MembershipPlanFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -34,7 +35,8 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
 
 
 def _paid_slot(price_cents: int = 1500) -> OrientationSlot:
-    settings_obj = GuildOrientationSettingsFactory(price_cents=price_cents)
+    settings_obj = GuildOrientationSettingsFactory()
+    OrientationTypeFactory(guild=settings_obj.guild, price_cents=price_cents)
     return OrientationSlotFactory(guild=settings_obj.guild)
 
 
@@ -85,7 +87,8 @@ def describe_guild_page():
 def describe_orientation_info_page():
     def it_shows_the_price_line_for_a_paid_guild(client: Client):
         _user_with_role("oi1")
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         client.login(username="oi1", password="pass")
         content = client.get(reverse("hub_orientation_info", args=[settings_obj.guild.pk])).content.decode()
         assert "$15" in content
@@ -148,47 +151,46 @@ def describe_respond_page():
         assert "Refunded" in content
 
 
-def describe_settings_price_form():
+def describe_type_price_form():
+    def _type_data(**overrides):
+        data = {
+            "name": "Shop Basics",
+            "duration_minutes": "60",
+            "default_seats": "4",
+            "default_location": "",
+            "sort_order": "0",
+            "is_active": "on",
+            "description": "",
+        }
+        data.update(overrides)
+        return data
+
     def it_maps_dollars_to_cents(db):
-        settings_obj = GuildOrientationSettingsFactory()
-        form = GuildOrientationSettingsForm(
-            instance=settings_obj,
-            data={
-                "is_enabled": "on",
-                "default_seats": "4",
-                "default_duration_minutes": "60",
-                "price": "15.50",
-            },
-        )
+        orientation_type = OrientationTypeFactory()
+        form = OrientationTypeForm(instance=orientation_type, data=_type_data(price="15.50"))
         assert form.is_valid(), form.errors
         saved = form.save()
         assert saved.price_cents == 1550
 
     def it_normalizes_blank_to_free(db):
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
-        form = GuildOrientationSettingsForm(
-            instance=settings_obj,
-            data={"is_enabled": "on", "default_seats": "4", "default_duration_minutes": "60", "price": ""},
-        )
+        orientation_type = OrientationTypeFactory(price_cents=1500)
+        form = OrientationTypeForm(instance=orientation_type, data=_type_data(price=""))
         assert form.is_valid(), form.errors
         assert form.save().price_cents == 0
 
-    def it_renders_a_free_guild_with_an_empty_field(db):
-        settings_obj = GuildOrientationSettingsFactory()
-        form = GuildOrientationSettingsForm(instance=settings_obj)
+    def it_renders_a_free_type_with_an_empty_field(db):
+        orientation_type = OrientationTypeFactory()
+        form = OrientationTypeForm(instance=orientation_type)
         assert form.fields["price"].initial is None
 
-    def it_prefills_a_paid_guild_in_dollars(db):
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1550)
-        form = GuildOrientationSettingsForm(instance=settings_obj)
+    def it_prefills_a_paid_type_in_dollars(db):
+        orientation_type = OrientationTypeFactory(price_cents=1550)
+        form = OrientationTypeForm(instance=orientation_type)
         assert form.fields["price"].initial == Decimal("15.50")
 
     def it_rejects_a_price_over_the_sanity_cap(db):
-        settings_obj = GuildOrientationSettingsFactory()
-        form = GuildOrientationSettingsForm(
-            instance=settings_obj,
-            data={"is_enabled": "on", "default_seats": "4", "default_duration_minutes": "60", "price": "600"},
-        )
+        orientation_type = OrientationTypeFactory()
+        form = OrientationTypeForm(instance=orientation_type, data=_type_data(price="600"))
         assert not form.is_valid()
         assert "between $0 and $500" in str(form.errors["price"])
 

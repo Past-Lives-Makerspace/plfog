@@ -8,7 +8,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from membership.models import OrientationBooking, OrientationError, OrientationSlot
+from membership.models import OrientationBooking, OrientationError, OrientationSlot, OrientationType
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
@@ -16,6 +16,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -412,3 +413,137 @@ def describe_is_upcoming():
     def it_is_false_for_a_past_slot():
         booking = OrientationBookingFactory(slot=_past_slot())
         assert booking.is_upcoming is False
+
+
+def describe_OrientationType():
+    def it_renders_the_guild_and_name_in_str():
+        orientation_type = OrientationTypeFactory(guild=GuildFactory(name="Wood Guild"), name="Lathe")
+        assert str(orientation_type) == "Wood Guild — Lathe"
+
+    def it_is_paid_only_above_zero_cents():
+        assert OrientationTypeFactory(name="Free Walkthrough").is_paid is False
+        assert OrientationTypeFactory(name="Paid Walkthrough", price_cents=500).is_paid is True
+
+    def it_enforces_one_name_per_guild():
+        guild = GuildFactory()
+        OrientationType.objects.create(guild=guild, name="Shop Basics")
+        with pytest.raises(IntegrityError), transaction.atomic():
+            OrientationType.objects.create(guild=guild, name="Shop Basics")
+
+    def it_allows_the_same_name_at_another_guild():
+        OrientationType.objects.create(guild=GuildFactory(), name="Shop Basics")
+        OrientationType.objects.create(guild=GuildFactory(), name="Shop Basics")
+        assert OrientationType.objects.filter(name="Shop Basics").count() == 2
+
+    def describe_active_queryset():
+        def it_excludes_retired_types():
+            live = OrientationTypeFactory(name="Live")
+            retired = OrientationTypeFactory(guild=live.guild, name="Retired", is_active=False)
+            result = OrientationType.objects.active()
+            assert live in result
+            assert retired not in result
+
+    def describe_first_active_orientation_type():
+        def it_picks_the_lowest_sort_order():
+            guild = GuildFactory()
+            OrientationTypeFactory(guild=guild, name="Later", sort_order=5)
+            first = OrientationTypeFactory(guild=guild, name="First", sort_order=1)
+            OrientationTypeFactory(guild=guild, name="Retired", sort_order=0, is_active=False)
+            assert guild.first_active_orientation_type() == first
+
+        def it_is_none_with_no_active_types():
+            guild = GuildFactory()
+            OrientationTypeFactory(guild=guild, name="Retired", is_active=False)
+            assert guild.first_active_orientation_type() is None
+
+
+def describe_per_type_orientation():
+    def _two_type_guild():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        basics = OrientationTypeFactory(guild=guild, name="Shop Basics")
+        lathe = OrientationTypeFactory(guild=guild, name="Lathe")
+        return guild, basics, lathe
+
+    def it_keeps_is_oriented_for_meaning_any_completed_type():
+        guild, basics, lathe = _two_type_guild()
+        member = MemberFactory()
+        slot = OrientationSlotFactory(guild=guild, orientation_type=basics)
+        OrientationBookingFactory(slot=slot, member=member).mark_completed()
+        # Guild join gating keeps its meaning: any one completed type counts (issue #282).
+        assert member.is_oriented_for(guild) is True
+        assert member.is_oriented_for_type(basics) is True
+        assert member.is_oriented_for_type(lathe) is False
+
+    def it_lets_a_member_oriented_for_one_type_book_another():
+        guild, basics, lathe = _two_type_guild()
+        member = MemberFactory()
+        OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild, orientation_type=basics), member=member
+        ).mark_completed()
+        lathe_slot = OrientationSlotFactory(guild=guild, orientation_type=lathe)
+        booking = lathe_slot.book(member)
+        assert booking.orientation_type == lathe
+        assert booking.status == OrientationBooking.Status.REQUESTED
+
+    def it_blocks_rebooking_a_completed_type():
+        guild, basics, _lathe = _two_type_guild()
+        member = MemberFactory()
+        OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild, orientation_type=basics), member=member
+        ).mark_completed()
+        again = OrientationSlotFactory(
+            guild=guild,
+            orientation_type=basics,
+            starts_at=timezone.now() + timedelta(days=5),
+            ends_at=timezone.now() + timedelta(days=5, hours=1),
+        )
+        with pytest.raises(OrientationError, match="already completed this orientation"):
+            again.book(member)
+
+    def it_allows_live_bookings_for_two_types_of_one_guild():
+        guild, basics, lathe = _two_type_guild()
+        member = MemberFactory()
+        first = OrientationSlotFactory(guild=guild, orientation_type=basics).book(member)
+        second = OrientationSlotFactory(guild=guild, orientation_type=lathe).book(member)
+        assert first.status == OrientationBooking.Status.REQUESTED
+        assert second.status == OrientationBooking.Status.REQUESTED
+
+    def it_blocks_a_second_live_booking_for_the_same_type_in_the_database():
+        guild, basics, _lathe = _two_type_guild()
+        member = MemberFactory()
+        OrientationSlotFactory(guild=guild, orientation_type=basics).book(member)
+        other_slot = OrientationSlotFactory(
+            guild=guild,
+            orientation_type=basics,
+            starts_at=timezone.now() + timedelta(days=6),
+            ends_at=timezone.now() + timedelta(days=6, hours=1),
+        )
+        # The DB constraint is the race backstop behind the friendly guard.
+        with pytest.raises(IntegrityError), transaction.atomic():
+            OrientationBooking.objects.create(slot=other_slot, guild=guild, orientation_type=basics, member=member)
+
+    def it_guards_a_second_request_for_the_same_type_with_friendly_copy():
+        guild, basics, _lathe = _two_type_guild()
+        member = MemberFactory()
+        OrientationSlotFactory(guild=guild, orientation_type=basics).book(member)
+        other_slot = OrientationSlotFactory(
+            guild=guild,
+            orientation_type=basics,
+            starts_at=timezone.now() + timedelta(days=6),
+            ends_at=timezone.now() + timedelta(days=6, hours=1),
+        )
+        with pytest.raises(OrientationError, match="pending booking for this orientation"):
+            other_slot.book(member)
+
+    def describe_inactive_type_slots():
+        def it_hides_them_from_bookable_and_blocks_new_bookings():
+            guild, _basics, lathe = _two_type_guild()
+            slot = OrientationSlotFactory(guild=guild, orientation_type=lathe)
+            assert slot in OrientationSlot.objects.bookable()
+            lathe.is_active = False
+            lathe.save(update_fields=["is_active"])
+            assert slot not in OrientationSlot.objects.bookable()
+            assert slot.is_bookable is False
+            with pytest.raises(OrientationError, match="not available to book"):
+                slot.book(MemberFactory())

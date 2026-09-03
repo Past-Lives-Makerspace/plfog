@@ -14,6 +14,7 @@ from tests.membership.factories import (
     GuildOrientationSettingsFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -36,7 +37,8 @@ def _event(kind: str = "orientation_booking", *, booking_id=None, payment_status
 def _hold(**overrides):
     from tests.membership.factories import MemberFactory
 
-    settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+    settings_obj = GuildOrientationSettingsFactory()
+    OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
     settings_obj.guild.guild_lead = MemberFactory()
     settings_obj.guild.save(update_fields=["guild_lead"])
     slot = OrientationSlotFactory(guild=settings_obj.guild)
@@ -165,7 +167,8 @@ def describe_handle_checkout_session_expired():
         assert not OrientationBooking.objects.filter(pk=hold.pk).exists()
 
     def it_deletes_the_orphan_custom_slot_too():
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         slot = OrientationSlotFactory(guild=settings_obj.guild, seats=1, source=OrientationSlot.Source.MANUAL)
         hold = OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
         webhook_handlers.handle_checkout_session_expired(_event(booking_id=hold.pk))

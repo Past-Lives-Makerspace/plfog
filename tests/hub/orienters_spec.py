@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from membership.models import GuildStaffMembership, Member, OrientationBooking
 from tests.membership.factories import (
+    OrientationTypeFactory,
     GuildFactory,
     GuildStaffMembershipFactory,
     MembershipPlanFactory,
@@ -128,6 +129,7 @@ def describe_orienter_dashboard_and_booking_actions():
         response = client.post(
             reverse("hub_guild_orientation_slot_add", args=[guild.pk]),
             {
+                "orientation_type": str(OrientationTypeFactory(guild=guild).pk),
                 "date": _future_date(),
                 "start_time": "18:00",
                 "duration_minutes": "60",

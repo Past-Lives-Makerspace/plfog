@@ -19,13 +19,15 @@ from tests.membership.factories import (
     MemberFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
 
 
 def _paid_booking(status=OrientationBooking.Status.REQUESTED, **overrides):
-    settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+    settings_obj = GuildOrientationSettingsFactory()
+    OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
     slot = OrientationSlotFactory(guild=settings_obj.guild)
     defaults = {
         "slot": slot,
@@ -140,7 +142,8 @@ def describe_token_action_refund_attribution():
 
     def it_stamps_lead_request_action_links_with_the_primary_responder():
         lead = _member_with_user("leadprime")
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         settings_obj.guild.guild_lead = lead
         settings_obj.guild.save(update_fields=["guild_lead"])
         slot = OrientationSlotFactory(guild=settings_obj.guild)

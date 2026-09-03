@@ -80,7 +80,7 @@ def describe_guild_page_slot_list():
         client.login(username="ms_gone", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"with Bob" not in response.content
-        assert b"No one has posted orientation times yet" in response.content
+        assert b"No one has posted times for this orientation yet" in response.content
 
     def it_stays_silent_for_a_nameless_orienter(client: Client):
         # Defensive: a staffer with no display name renders no bare "with".
@@ -100,7 +100,8 @@ def describe_guild_page_slot_list():
         guild = _enabled_guild()
         client.login(username="ms_empty", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"No one has posted orientation times yet" in response.content
+        # An enabled guild with no orientation types yet shows the setup empty state.
+        assert b"No orientations are set up yet" in response.content
 
     def it_addresses_the_confirm_modal_to_the_orienter(client: Client):
         _member_user("ms_modal")
@@ -175,7 +176,9 @@ def describe_dashboard_orienter_column():
         response = client.get(reverse("hub_orientations_export"))
         body = b"".join(response.streaming_content).decode()
         header = body.splitlines()[0]
-        assert header.split(",")[2] == "Orienter"
+        # The Type column (issue #282) sits between Guild and Orienter.
+        assert header.split(",")[2] == "Type"
+        assert header.split(",")[3] == "Orienter"
         assert "Bob Placeholder" in body
 
 

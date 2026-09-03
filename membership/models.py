@@ -1263,19 +1263,46 @@ class Member(models.Model):
             )
 
     def is_oriented_for(self, guild: Guild) -> bool:
-        """True when the member has a completed orientation for this guild."""
+        """True when the member has a completed orientation of ANY type for this guild.
+
+        Deliberately guild-scoped (issue #282): guild join gating and every existing
+        call site keep their meaning — completing any one of a guild's orientation
+        types makes the member "oriented for the guild". Use
+        :meth:`is_oriented_for_type` for the per-type check.
+        """
         return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()
 
+    def is_oriented_for_type(self, orientation_type: OrientationType) -> bool:
+        """True when the member has a completed orientation of this specific type."""
+        return self.orientation_bookings.filter(orientation_type=orientation_type, is_completed=True).exists()
+
     def active_orientation_for(self, guild: Guild) -> OrientationBooking | None:
-        """The member's live (requested or confirmed) orientation booking for this guild, if any."""
+        """The member's live (requested or confirmed) orientation booking for this guild, if any.
+
+        Guild-scoped and first-match — kept for coarse surfaces (the Discord command);
+        per-type flows use :meth:`active_orientation_for_type`.
+        """
         return self.orientation_bookings.filter(
             guild=guild,
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        ).first()
+
+    def active_orientation_for_type(self, orientation_type: OrientationType) -> OrientationBooking | None:
+        """The member's live (requested or confirmed) booking for this orientation type, if any."""
+        return self.orientation_bookings.filter(
+            orientation_type=orientation_type,
             status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
         ).first()
 
     def pending_payment_orientation_for(self, guild: Guild) -> OrientationBooking | None:
         """The member's live checkout hold (``PENDING_PAYMENT``) for this guild, if any."""
         return self.orientation_bookings.filter(guild=guild, status=OrientationBooking.Status.PENDING_PAYMENT).first()
+
+    def pending_payment_orientation_for_type(self, orientation_type: OrientationType) -> OrientationBooking | None:
+        """The member's live checkout hold (``PENDING_PAYMENT``) for this orientation type, if any."""
+        return self.orientation_bookings.filter(
+            orientation_type=orientation_type, status=OrientationBooking.Status.PENDING_PAYMENT
+        ).first()
 
     @property
     def must_be_listed_in_directory(self) -> bool:
@@ -2167,6 +2194,13 @@ class Guild(HeroCropMixin, models.Model):
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
+
+    def first_active_orientation_type(self) -> OrientationType | None:
+        """This guild's first active orientation type by sort order, or ``None``.
+
+        The default for surfaces with no type picker (the Discord custom-time flow).
+        """
+        return self.orientation_types.active().first()
 
     def orienter_name_labels(self) -> dict[int, str]:
         """Short display labels for the current leadership, keyed by member pk.
@@ -8248,6 +8282,10 @@ class GuildOrientationSettings(models.Model):
     A guild offers orientation booking only when ``is_enabled`` is on; a lead can
     temporarily stop taking bookings with ``is_closed`` + a ``closed_message``
     (e.g. "On vacation till Sept 8") without losing their configuration.
+
+    Only guild-wide switches live here (enabled/closed, custom requests, info, the
+    welcome and thank-you emails). Per-orientation config — duration, price, seats,
+    location — lives on each :class:`OrientationType` (issue #282).
     """
 
     guild = models.OneToOneField(
@@ -8262,16 +8300,6 @@ class GuildOrientationSettings(models.Model):
     )
     info = models.TextField(
         blank=True, default="", help_text="Orientation info shown to members before they book (plain text)."
-    )
-    default_seats = models.PositiveSmallIntegerField(default=4, help_text="Default capacity for new orientation slots.")
-    default_location = models.CharField(
-        max_length=200, blank=True, default="", help_text="Default place orientations happen, e.g. 'Front desk'."
-    )
-    default_duration_minutes = models.PositiveSmallIntegerField(
-        default=60, help_text="Length of a slot generated from a recurring rule, in minutes."
-    )
-    price_cents = models.PositiveIntegerField(
-        default=0, help_text="Price to book an orientation, in cents. 0 = free (the default)."
     )
     is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
     closed_message = models.CharField(
@@ -8357,9 +8385,73 @@ class GuildOrientationSettings(models.Model):
         """True when this guild is taking orientation bookings right now."""
         return self.is_enabled and not self.is_closed
 
+
+class OrientationTypeQuerySet(models.QuerySet):
+    def active(self) -> OrientationTypeQuerySet:
+        """Types currently offered — shown to members and valid for new rules and slots."""
+        return self.filter(is_active=True)
+
+
+class OrientationType(models.Model):
+    """One kind of orientation a guild offers (e.g. Shop Basics, Lathe, CNC).
+
+    Policy decisions (issue #282), stated here so call sites stay honest:
+
+    - "Oriented for the guild" (guild join gating, :meth:`Member.is_oriented_for`)
+      means the member completed ANY type's orientation for that guild — existing
+      call sites keep their meaning. The per-type check is
+      :meth:`Member.is_oriented_for_type`.
+    - The thank-you email stays ONE per guild (a per-type thank-you is YAGNI); it
+      lives on :class:`GuildOrientationSettings` with the other guild-wide
+      switches (``is_enabled``, ``is_closed``, the welcome email, ``info``).
+    - Types have no prerequisites between each other (YAGNI).
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        on_delete=models.CASCADE,
+        related_name="orientation_types",
+        help_text="The guild that offers this orientation type.",
+    )
+    name = models.CharField(max_length=100, help_text="Member-facing name, e.g. 'Shop Basics' or 'Lathe'.")
+    description = models.TextField(
+        blank=True, default="", help_text="What this orientation covers, shown to members (plain text)."
+    )
+    duration_minutes = models.PositiveSmallIntegerField(
+        default=60, help_text="Length of this orientation in minutes. Custom time requests use it."
+    )
+    price_cents = models.PositiveIntegerField(
+        default=0, help_text="Price to book this orientation type, in cents. 0 = free (the default)."
+    )
+    default_seats = models.PositiveSmallIntegerField(
+        default=4, help_text="Default capacity for new slots of this type."
+    )
+    default_location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Where this orientation usually happens, e.g. 'Woodshop'."
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Lower numbers sort first on the guild page and in pickers."
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Offer this type to members. An inactive type keeps its history but takes no new bookings.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrientationTypeQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["guild", "name"], name="uq_orientationtype_guild_name"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.guild.name} — {self.name}"
+
     @property
     def is_paid(self) -> bool:
-        """True when this guild charges for orientations (price set above zero)."""
+        """True when this orientation type charges to book (price set above zero)."""
         return self.price_cents > 0
 
 
@@ -8393,6 +8485,12 @@ class OrientationAvailability(models.Model):
 
     guild = models.ForeignKey(
         Guild, on_delete=models.CASCADE, related_name="orientation_rules", help_text="Parent guild."
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.CASCADE,
+        related_name="rules",
+        help_text="The orientation type slots generated from this rule are for.",
     )
     orienter = models.ForeignKey(
         Member,
@@ -8485,6 +8583,7 @@ class OrientationSlotQuerySet(models.QuerySet):
             .filter(
                 guild__orientation_settings__is_enabled=True,
                 guild__orientation_settings__is_closed=False,
+                orientation_type__is_active=True,
             )
             .filter(Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
         )
@@ -8507,6 +8606,12 @@ class OrientationSlot(models.Model):
 
     guild = models.ForeignKey(
         Guild, on_delete=models.CASCADE, related_name="orientation_slots", help_text="Parent guild."
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.CASCADE,
+        related_name="slots",
+        help_text="The orientation type this slot is for.",
     )
     availability = models.ForeignKey(
         OrientationAvailability,
@@ -8548,7 +8653,7 @@ class OrientationSlot(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} orientation @ {self.starts_at:%Y-%m-%d %H:%M}"
+        return f"{self.guild.name} — {self.orientation_type.name} @ {self.starts_at:%Y-%m-%d %H:%M}"
 
     @property
     def seats_taken(self) -> int:
@@ -8602,9 +8707,12 @@ class OrientationSlot(models.Model):
         """Future, uncancelled, has a free seat, guild accepting, and the orienter still on staff.
 
         A personal slot whose orienter is no longer in the guild's leadership blocks NEW
-        bookings only — existing bookings on it are untouched.
+        bookings only — existing bookings on it are untouched. A slot whose orientation
+        type was deactivated blocks new bookings the same way.
         """
         if self.is_cancelled or self.has_started or self.is_full:
+            return False
+        if not self.orientation_type.is_active:
             return False
         if self.orienter_id is not None and self.orienter_id not in {m.pk for m in self.guild.leadership_members()}:
             return False
@@ -8620,9 +8728,13 @@ class OrientationSlot(models.Model):
         as the concurrent-race backstop only). A full slot whose remaining seats are
         held by in-progress checkouts names that cause, so staff aren't left guessing.
 
+        The duplicate guards are scoped to this slot's ORIENTATION TYPE (issue #282):
+        a member may hold one live booking per type, so being booked for Shop Basics
+        never blocks a Lathe request at the same guild.
+
         Raises:
             OrientationError: If the slot can't be booked, or the member is already
-                oriented for, mid-checkout on, or actively booked on this guild.
+                oriented for, mid-checkout on, or actively booked on this orientation type.
         """
         if not self.is_bookable:
             if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
@@ -8631,12 +8743,14 @@ class OrientationSlot(models.Model):
                     "It frees up within an hour if they don't complete payment."
                 )
             raise OrientationError("This orientation slot is not available to book.")
-        if member.is_oriented_for(self.guild):
-            raise OrientationError("You're already oriented for this guild.")
-        if member.pending_payment_orientation_for(self.guild) is not None:
-            raise OrientationError("You already have a checkout in progress for this guild. Resume or cancel it first.")
-        if member.active_orientation_for(self.guild) is not None:
-            raise OrientationError("You already have a pending orientation for this guild.")
+        if member.is_oriented_for_type(self.orientation_type):
+            raise OrientationError("You've already completed this orientation.")
+        if member.pending_payment_orientation_for_type(self.orientation_type) is not None:
+            raise OrientationError(
+                "You already have a checkout in progress for this orientation. Resume or cancel it first."
+            )
+        if member.active_orientation_for_type(self.orientation_type) is not None:
+            raise OrientationError("You already have a pending booking for this orientation.")
 
     def book(self, member: Member, *, note: str = "") -> OrientationBooking:
         """Create a requested booking for ``member`` on this slot.
@@ -8649,11 +8763,17 @@ class OrientationSlot(models.Model):
             The newly created (REQUESTED) OrientationBooking.
 
         Raises:
-            OrientationError: If the slot can't be booked, or the member is
-                already oriented for or already has a live booking on this guild.
+            OrientationError: If the slot can't be booked, or the member already
+                completed or already has a live booking for this slot's orientation type.
         """
         self.ensure_bookable_for(member)
-        return OrientationBooking.objects.create(slot=self, guild=self.guild, member=member, member_note=note)
+        return OrientationBooking.objects.create(
+            slot=self,
+            guild=self.guild,
+            orientation_type=self.orientation_type,
+            member=member,
+            member_note=note,
+        )
 
     def mark_cancelled(self, *, reason: str = "") -> None:
         """Flip the slot's own cancel state without touching its bookings.
@@ -8728,6 +8848,12 @@ class OrientationBooking(models.Model):
         related_name="orientation_bookings",
         help_text="Denormalized from the slot for cheap filtering and scoping.",
     )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.CASCADE,
+        related_name="bookings",
+        help_text="Denormalized from the slot (like guild) for cheap filtering and the per-type duplicate guard.",
+    )
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="orientation_bookings", help_text="Who's getting oriented."
     )
@@ -8775,12 +8901,14 @@ class OrientationBooking(models.Model):
         ordering = ["-requested_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["guild", "member"],
-                # Includes pending_payment so a member can't open two checkouts (or a
-                # checkout plus a live booking) for one guild — the race backstop behind
-                # the friendly ensure_bookable_for guard.
+                fields=["orientation_type", "member"],
+                # One live row per member per ORIENTATION TYPE (issue #282) — a member
+                # may hold live bookings for different types of the same guild. Includes
+                # pending_payment so a member can't open two checkouts (or a checkout
+                # plus a live booking) for one type — the race backstop behind the
+                # friendly ensure_bookable_for guard.
                 condition=Q(status__in=["pending_payment", "requested", "confirmed"]),
-                name="uq_orientationbooking_active_per_guild",
+                name="uq_orientationbooking_active_per_type",
             ),
         ]
 
@@ -8790,6 +8918,8 @@ class OrientationBooking(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self.slot_id and not self.guild_id:
             self.guild = self.slot.guild
+        if self.slot_id and not self.orientation_type_id:
+            self.orientation_type_id = self.slot.orientation_type_id
         super().save(*args, **kwargs)
 
     @property
@@ -8902,7 +9032,7 @@ class OrientationBooking(models.Model):
 
         guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
         return {
-            "item_title": f"Orientation — {self.guild.name}",
+            "item_title": f"{self.guild.name} orientation: {self.orientation_type.name}",
             "recipient_email": self.member.primary_email,
             "recipient_name": self.member.display_name,
             "payer_name": self.member.display_name,

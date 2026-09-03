@@ -17,6 +17,7 @@ from billing.models import PaymentRefund
 from billing.payments_panel import PanelWindow, build_payments_ledger
 from membership.models import AdminCapability, OrientationBooking
 from tests.membership.factories import (
+    OrientationTypeFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
     OrientationBookingFactory,
@@ -32,7 +33,8 @@ def _window() -> PanelWindow:
 
 
 def _paid_booking(**overrides):
-    settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+    settings_obj = GuildOrientationSettingsFactory()
+    OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
     slot = OrientationSlotFactory(guild=settings_obj.guild)
     defaults = {"slot": slot, "amount_paid_cents": 1500, "stripe_payment_id": "pi_panel_1"}
     defaults.update(overrides)

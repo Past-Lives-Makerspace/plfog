@@ -208,9 +208,6 @@ ORIENTATION = {
     "is_closed": True,
     "closed_message": "This is an example guild — orientations here aren't real. Book one with a real guild!",
     "info": "Orientations cover the Map Room, the plotter, and which drawers bite.",
-    "default_seats": 4,
-    "default_location": "The Map Room (2nd floor, fictional wing)",
-    "default_duration_minutes": 45,
     "thankyou_email_enabled": False,
     "thankyou_email_subject": "Welcome aboard, cartographer",
     "thankyou_email_body": (
@@ -282,6 +279,7 @@ def seed_example_guild() -> "Guild":
         GuildMeetingNoteAttachment,
         GuildOrientationSettings,
         GuildStaffMembership,
+        OrientationType,
     )
 
     lead = _example_member(LEAD_NAME)
@@ -368,6 +366,17 @@ def seed_example_guild() -> "Guild":
     # Orientation settings: enabled so the machinery shows, but CLOSED with an
     # explanatory message — no real member can ever book the fictional guild.
     GuildOrientationSettings.objects.update_or_create(guild=guild, defaults=dict(ORIENTATION))
+    OrientationType.objects.update_or_create(
+        guild=guild,
+        name="Orientation",
+        defaults={
+            "duration_minutes": 45,
+            "default_seats": 4,
+            "default_location": "The Map Room (2nd floor, fictional wing)",
+            "sort_order": 0,
+            "is_active": True,
+        },
+    )
 
     # NOTE deliberately absent: CommunityEvent rows (guild meetings / studio
     # hours). Published events surface on the public Community Calendar and the

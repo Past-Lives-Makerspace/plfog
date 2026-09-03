@@ -47,6 +47,7 @@ from membership.models import (
     OrgLink,
     OrientationAvailability,
     OrientationSlot,
+    OrientationType,
     Skill,
     SkillCategory,
     Space,
@@ -1548,13 +1549,40 @@ class MeetingAttachmentForm(forms.ModelForm):
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):
-    """Edit a guild's orientation booking configuration.
+    """Edit a guild's guild-wide orientation switches.
 
     The lead-authored thank-you email lives on its own :class:`GuildThankyouEmailForm`
-    (also on the Orientations tab); only the booking config is here.
+    (also on the Orientations tab). Per-orientation config — duration, price, seats,
+    location — is edited per type on :class:`OrientationTypeFormSet`, not here.
+    """
+
+    class Meta:
+        model = GuildOrientationSettings
+        fields = [
+            "is_enabled",
+            "allow_custom_requests",
+            "info",
+            "is_closed",
+            "closed_message",
+        ]
+        widgets = {
+            "info": forms.Textarea(attrs={"rows": 4}),
+            "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
+        }
+        labels = {
+            "is_enabled": "Offer orientation booking on this guild's page",
+            "allow_custom_requests": "Let members propose their own orientation time",
+            "info": "Orientation info",
+            "is_closed": "Temporarily closed for orientations",
+            "closed_message": "Closed message",
+        }
+
+
+class OrientationTypeForm(forms.ModelForm):
+    """One row of the guild editor's Orientation Types list.
 
     ``price`` is entered in dollars ("15" or "15.50", never cents) and mapped to
-    ``price_cents`` on save. Blank normalizes to 0 (free), and a free guild renders
+    ``price_cents`` on save. Blank normalizes to 0 (free), and a free type renders
     the field empty, not "0". Price changes affect future checkouts only — live
     holds and paid bookings keep the amount they paid.
     """
@@ -1563,9 +1591,34 @@ class GuildOrientationSettingsForm(forms.ModelForm):
         max_digits=6,
         decimal_places=2,
         required=False,
-        label="Orientation price",
+        label="Price",
         widget=forms.NumberInput(attrs={"placeholder": "Free", "min": "0", "step": "0.01"}),
     )
+
+    class Meta:
+        model = OrientationType
+        fields = [
+            "name",
+            "description",
+            "duration_minutes",
+            "default_seats",
+            "default_location",
+            "sort_order",
+            "is_active",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
+            "description": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "name": "Name",
+            "description": "Description (shown to members)",
+            "duration_minutes": "Length (minutes)",
+            "default_seats": "Seats per slot",
+            "default_location": "Location",
+            "sort_order": "Sort order",
+            "is_active": "Active",
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -1581,39 +1634,33 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             raise forms.ValidationError("Enter a price between $0 and $500.")
         return int(price * 100)
 
-    def save(self, commit: bool = True) -> GuildOrientationSettings:
-        instance = super().save(commit=False)
+    def save(self, commit: bool = True) -> OrientationType:
+        instance = cast(OrientationType, super().save(commit=False))
         instance.price_cents = self.cleaned_data["price"]
         if commit:
             instance.save()
         return instance
 
-    class Meta:
-        model = GuildOrientationSettings
-        fields = [
-            "is_enabled",
-            "allow_custom_requests",
-            "info",
-            "default_seats",
-            "default_location",
-            "default_duration_minutes",
-            "is_closed",
-            "closed_message",
-        ]
-        widgets = {
-            "info": forms.Textarea(attrs={"rows": 4}),
-            "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
-        }
-        labels = {
-            "is_enabled": "Offer orientation booking on this guild's page",
-            "allow_custom_requests": "Let members propose their own orientation time",
-            "info": "Orientation info",
-            "default_seats": "Default seats per slot",
-            "default_location": "Default location",
-            "default_duration_minutes": "Default length (minutes)",
-            "is_closed": "Temporarily closed for orientations",
-            "closed_message": "Closed message",
-        }
+
+class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
+    """Guards type deletion at the FORMSET level — deleted forms skip per-form validation.
+
+    Deleting a type would cascade-delete its slots AND its booking history, so a
+    type with any booking can only be retired (the Active toggle), never deleted.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        for form in self.deleted_forms:
+            if form.instance.pk and form.instance.bookings.exists():
+                raise forms.ValidationError(
+                    "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
+                )
+
+
+OrientationTypeFormSet = forms.inlineformset_factory(
+    Guild, OrientationType, form=OrientationTypeForm, formset=BaseOrientationTypeFormSet, extra=0, can_delete=True
+)
 
 
 class GuildThankyouEmailForm(forms.ModelForm):
@@ -1720,7 +1767,9 @@ class OrientationAvailabilityForm(forms.ModelForm):
 
     Times are half-hour ``<select>`` dropdowns (Rule 19), not per-minute pickers; the
     "HH:MM" choice is parsed back to a ``datetime.time`` on clean, and an existing off-grid
-    value is preserved via :func:`_seed_time_choice`.
+    value is preserved via :func:`_seed_time_choice`. ``orientation_type`` is scoped to the
+    guild's active types (plus the row's own type, so an existing row under a retired type
+    still validates); it defaults to the guild's first active type.
     """
 
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
@@ -1728,10 +1777,24 @@ class OrientationAvailabilityForm(forms.ModelForm):
 
     class Meta:
         model = OrientationAvailability
-        fields = ["weekday", "start_time", "end_time", "seats", "is_active"]
+        fields = ["orientation_type", "weekday", "start_time", "end_time", "seats", "is_active"]
+        labels = {"orientation_type": "Orientation"}
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        if guild is None and self.instance is not None and self.instance.guild_id is not None:
+            guild = self.instance.guild
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        if guild is not None:
+            allowed = OrientationType.objects.filter(guild=guild).active()
+            if self.instance is not None and self.instance.pk and self.instance.orientation_type_id is not None:
+                allowed = allowed | OrientationType.objects.filter(pk=self.instance.orientation_type_id)
+            type_field.queryset = allowed.distinct()
+            first_type = guild.first_active_orientation_type()
+            if first_type is not None:
+                type_field.initial = first_type.pk
+        type_field.empty_label = None
+        type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
         if self.instance and self.instance.pk:
             _seed_time_choice(self, "start_time", self.instance.start_time)
             _seed_time_choice(self, "end_time", self.instance.end_time)
@@ -1787,6 +1850,11 @@ class OrientationSlotForm(forms.ModelForm):
     duration_minutes = forms.TypedChoiceField(
         coerce=int, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
     )
+    orientation_type = forms.ModelChoiceField(
+        queryset=OrientationType.objects.none(),
+        label="Orientation",
+        empty_label=None,
+    )
     orienter = forms.ModelChoiceField(
         queryset=Member.objects.none(),
         required=False,
@@ -1809,6 +1877,12 @@ class OrientationSlotForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self._acting_member = acting_member
         self._lock_to_acting = lock_to_acting
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        type_field.queryset = OrientationType.objects.filter(guild=guild).active()
+        type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+        first_type = guild.first_active_orientation_type()
+        if first_type is not None:
+            type_field.initial = first_type.pk
         leadership_ids = {member.pk for member in guild.leadership_members()}
         orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])
         orienter_field.queryset = Member.objects.filter(pk__in=leadership_ids).order_by("full_legal_name")
@@ -1842,6 +1916,7 @@ class OrientationSlotForm(forms.ModelForm):
         slot = cast(OrientationSlot, super().save(commit=False))
         slot.starts_at = self.cleaned_data["starts_at"]
         slot.ends_at = self.cleaned_data["ends_at"]
+        slot.orientation_type = self.cleaned_data["orientation_type"]
         slot.orienter = self.cleaned_data["orienter"]
         if commit:
             slot.save()
@@ -2076,8 +2151,17 @@ class EventDecisionForm(forms.Form):
 
 
 class OrientationCustomRequestForm(forms.Form):
-    """A member proposing their own orientation time when no posted slot works."""
+    """A member proposing their own orientation time when no posted slot works.
 
+    ``orientation_type`` picks which of the guild's orientations they want — its
+    duration and price size the one-off slot and the checkout (issue #282).
+    """
+
+    orientation_type = forms.ModelChoiceField(
+        queryset=OrientationType.objects.none(),
+        label="Which orientation?",
+        empty_label=None,
+    )
     starts_at = forms.DateTimeField(
         label="Preferred time",
         input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
@@ -2086,6 +2170,16 @@ class OrientationCustomRequestForm(forms.Form):
         ),
     )
     note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if guild is not None:
+            type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+            type_field.queryset = OrientationType.objects.filter(guild=guild).active()
+            type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+            first_type = guild.first_active_orientation_type()
+            if first_type is not None:
+                type_field.initial = first_type.pk
 
     def clean_starts_at(self) -> Any:
         starts = self.cleaned_data["starts_at"]
