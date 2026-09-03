@@ -101,8 +101,8 @@
           </div>
           {# Day checkboxes render by hand: CheckboxSelectMultiple trips form_field's checkbox-to-toggle auto-detect. #}
           <div class="pl-form-group">
-            <span class="pl-form-label">{{ window.days.label }}</span>
-            <div class="pl-equip-days">{{ window.days }}</div>
+            <span class="pl-form-label" id="{{ window.days.auto_id }}-group-label">{{ window.days.label }}</span>
+            <div class="pl-equip-days" role="group" aria-labelledby="{{ window.days.auto_id }}-group-label">{{ window.days }}</div>
             {% for error in window.days.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
           </div>
           {% include "components/form_field.html" with field=window.is_active %}
@@ -132,8 +132,8 @@
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_window.end_time %}</div>
             </div>
             <div class="pl-form-group">
-              <span class="pl-form-label">{{ empty_window.days.label }}</span>
-              <div class="pl-equip-days">{{ empty_window.days }}</div>
+              <span class="pl-form-label" id="{{ empty_window.days.auto_id }}-group-label">{{ empty_window.days.label }}</span>
+              <div class="pl-equip-days" role="group" aria-labelledby="{{ empty_window.days.auto_id }}-group-label">{{ empty_window.days }}</div>
             </div>
             {% include "components/form_field.html" with field=empty_window.is_active %}
             <div style="display:none;">{{ empty_window.DELETE }}</div>

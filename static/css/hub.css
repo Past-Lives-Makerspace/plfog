@@ -7937,7 +7937,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.25rem 0.65rem;
+    /* min-height keeps the pill a real mobile tap target (44px guideline). */
+    min-height: 2.75rem;
+    padding: 0.25rem 0.85rem;
     border: 1px solid var(--hub-border);
     border-radius: 999px;
     background: var(--hub-card-bg);
