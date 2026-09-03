@@ -69,6 +69,33 @@ def describe_class_published_notification():
 
 
 # ---------------------------------------------------------------------------
+# instructor review explainer — email-only; must not fan out to class approvers
+# ---------------------------------------------------------------------------
+
+
+def describe_instructor_review_explainer():
+    def it_emails_only_the_instructor_and_fans_out_to_nobody(db, mailoutbox):
+        # Regression: the explainer's None-guild context composes the resolver to the
+        # CLASS_APPROVER capability holders, who each received a bell row, push, and
+        # Discord DM ("Hi [missing: member_name]") carrying the instructor's edit link.
+        from classes.emails import _emit_instructor_review_explainer
+        from membership.models import AdminCapability
+
+        approver = _active_member_user()
+        AdminCapability.objects.create(member=approver.member, capability=AdminCapability.Capability.CLASS_APPROVER)
+        instructor = InstructorFactory(user=UserFactory())
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        Notification.objects.all().delete()
+
+        _emit_instructor_review_explainer(offering, row)
+
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == [offering.instructor.primary_email]
+        assert not Notification.objects.filter(trigger="class_review_requested").exists()
+
+
+# ---------------------------------------------------------------------------
 # instructor_class_approved — notify instructor only when it's a partial approve
 # ---------------------------------------------------------------------------
 

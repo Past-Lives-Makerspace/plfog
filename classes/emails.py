@@ -340,8 +340,11 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
 
     Routes the preserved ``review_submitted_instructor.{txt,html}`` shell through the
     spine as the ``class_review_requested`` EMAIL channel, addressed to the instructor's
-    ``primary_email`` via ``email_to``. The resolver is given a ``None`` guild so no in-app
-    row is created (the instructor never had one) — the explainer's audit label
+    ``primary_email`` via ``email_to``. ``recipient_user_ids=set()`` empties the
+    resolver fan-out entirely: with a ``None`` guild the event's composed resolver
+    returns the CLASS_APPROVER capability holders, and before this guard they each got
+    a bell row, push, and Discord DM rendered from the generic copy ("Hi [missing:
+    member_name]") carrying the instructor's edit link. The explainer's audit label
     (``classes.review_request_instructor``) is preserved, and its ``email:<instructor>``
     dedup ref keeps it independent of the reviewer email. No-op without an instructor email.
     """
@@ -366,6 +369,7 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
         url=instructor_url,
         email_to=offering.instructor.primary_email,
         period=f"approval:{row.pk}:instructor_explainer",
+        recipient_user_ids=set(),
     )
 
 

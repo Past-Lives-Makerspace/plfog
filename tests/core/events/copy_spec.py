@@ -54,6 +54,17 @@ def describe_default_copy_for():
         assert discord.subject == email.subject
         assert discord.body_text == email.body_text
 
+    def it_prefers_in_app_copy_for_push_and_discord_dm():
+        # Push trays and Discord DMs are one-line surfaces rendered with no
+        # per-recipient context — the email fallback once put
+        # "Hi [missing: member_name]" in a Discord DM.
+        in_app = default_copy_for("waitlist_confirmed", Channel.IN_APP)
+        for channel in (Channel.PUSH, Channel.DISCORD_DM):
+            copy = default_copy_for("waitlist_confirmed", channel)
+            assert copy.subject == in_app.subject
+            assert copy.body_text == in_app.body_text
+            assert "Hi {{" not in copy.body_text
+
 
 def describe_audience_description():
     def it_describes_a_guild_scoped_audience():
