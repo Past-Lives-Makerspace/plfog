@@ -44,6 +44,7 @@ from membership.models import (
     OrgInfoPage,
     OrgLink,
     OrientationAvailability,
+    OrientationAvailabilityBlock,
     OrientationBooking,
     OrientationSlot,
     OrientationType,
@@ -475,6 +476,45 @@ class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
     start_time = factory.LazyFunction(lambda: time(18, 0))
     end_time = factory.LazyFunction(lambda: time(19, 0))
     seats = 4
+
+
+class OrientationAvailabilityBlockFactory(factory.django.DjangoModelFactory):
+    """A 3-hour availability window two days out, with enabled orientation settings by default."""
+
+    class Meta:
+        model = OrientationAvailabilityBlock
+        skip_postgeneration_save = True
+
+    guild = factory.SubFactory(GuildFactory)
+    orienter = factory.SubFactory(MemberFactory)
+    # Minute-aligned like real blocks (the dashboard form posts half-hour times); the
+    # picker's option values carry minute precision, so sub-minute starts can't round-trip.
+    starts_at = factory.LazyFunction(lambda: (timezone.now() + timedelta(days=2)).replace(second=0, microsecond=0))
+    # Derived from starts_at (not its own now()) so the span is exactly 3 hours.
+    ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=3))
+
+    @factory.post_generation
+    def enabled_settings(obj, create, extracted, **kwargs):  # noqa: N805
+        """Give the block's guild enabled orientation settings so bookings work by default.
+
+        Pass ``enabled_settings=False`` to skip (e.g. to exercise the disabled paths).
+        """
+        if not create or extracted is False:
+            return
+        GuildOrientationSettings.objects.get_or_create(guild=obj.guild, defaults={"is_enabled": True})
+
+    @factory.post_generation
+    def orienter_on_staff(obj, create, extracted, **kwargs):  # noqa: N805
+        """Put the orienter on the guild's staff — carved-out slots are only bookable for leadership.
+
+        Pass ``orienter_on_staff=False`` to skip (e.g. to exercise the departed-staffer path).
+        """
+        if not create or extracted is False:
+            return
+        if obj.guild.guild_lead_id != obj.orienter_id and not obj.guild.is_staffed_by(obj.orienter):
+            GuildStaffMembership.objects.create(
+                guild=obj.guild, member=obj.orienter, role=GuildStaffMembership.Role.ORIENTER
+            )
 
 
 class OrientationSlotFactory(factory.django.DjangoModelFactory):

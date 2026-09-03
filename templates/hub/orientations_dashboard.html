@@ -140,5 +140,49 @@
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" style="margin-top:0.75rem;">Add member</button>
     </form>
   </div>
+
+  <div class="hub-card" style="padding:1.25rem 1.5rem; margin-top:1.5rem;" data-help-key="orientation.availability-blocks">
+    <h2 class="hub-detail-label" style="margin:0 0 0.25rem;">Availability Blocks</h2>
+    <p class="hub-text-muted" style="font-size:0.85rem; margin:0 0 0.75rem;">Post a window of time you're available. Members pick any of the guild's orientations and a start time inside it. Blocks can't be edited; cancel one and post again instead.</p>
+    {% if my_blocks %}
+    <ul style="list-style:none; padding:0; margin:0 0 1rem;">
+      {% for block in my_blocks %}
+      <li style="padding:0.5rem 0; border-top:1px solid var(--hub-border);">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+          <span>
+            <strong>{{ block.guild.name }}</strong>
+            <span class="hub-text-muted">· {{ block.starts_at|date:"D M j" }} · {{ block.starts_at|time:"g:i A" }} to {{ block.ends_at|time:"g:i A" }}</span>
+            {% if block.location %}<span class="hub-text-muted">· {{ block.location }}</span>{% endif %}
+            <span class="hub-text-muted">· {{ block.orienter.display_name }}</span>
+          </span>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'cancel-block-{{ block.pk }}')">Cancel</button>
+        </div>
+        {% for seg in block.booked_segments %}
+        <p class="hub-text-muted" style="margin:0.25rem 0 0; font-size:0.85rem;">
+          Booked: {{ seg.starts_at|time:"g:i A" }} to {{ seg.ends_at|time:"g:i A" }} · {{ seg.orientation_type.name }}{% for b in seg.bookings.seat_holding %} · {{ b.member.display_name }}{% endfor %}
+        </p>
+        {% endfor %}
+        {% url 'hub_orientation_block_cancel' block.pk as cancel_block_url %}
+        {% with blkpk=block.pk|stringformat:"s" %}
+        {% include "components/confirm_modal.html" with confirm_id="cancel-block-"|add:blkpk confirm_title="Cancel this block?" confirm_message="New bookings stop right away. Anything already booked inside it stays on the calendar; cancel those from each booking if needed." confirm_action_url=cancel_block_url confirm_button_text="Cancel block" %}
+        {% endwith %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hub-text-muted" style="font-size:0.9rem; margin:0 0 1rem;">No upcoming blocks yet.</p>
+    {% endif %}
+    <form method="post" action="{% url 'hub_orientation_block_post' %}" class="hub-form">
+      {% csrf_token %}
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=block_form.guild %}</div>
+        <div style="min-width:150px;">{% include "components/form_field.html" with field=block_form.date %}</div>
+        <div style="min-width:120px;">{% include "components/form_field.html" with field=block_form.start_time %}</div>
+        <div style="min-width:120px;">{% include "components/form_field.html" with field=block_form.end_time %}</div>
+        <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=block_form.location %}</div>
+      </div>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" style="margin-top:0.75rem;">Post block</button>
+    </form>
+  </div>
 </div>
 {% endblock %}

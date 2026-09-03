@@ -1,0 +1,36 @@
+{% comment %}
+Pick-a-time modal body (issue #283): the live valid start times inside one
+availability block for one orientation type. Loaded via HTMX from
+hub_orientation_block_starts. Context:
+  block            — OrientationAvailabilityBlock (uncancelled)
+  orientation_type — the OrientationType being booked
+  form             — OrientationBlockBookingForm (starts_at select carries the choices)
+  has_starts       — bool, False when every interval was taken since the page rendered
+{% endcomment %}
+{% load classes_tags %}
+<p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">{{ orientation_type.name }} · {{ orientation_type.duration_minutes }} min</p>
+<p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">
+  {{ block.starts_at|date:"l, F j" }} · {{ block.starts_at|time:"g:i A" }} to {{ block.ends_at|time:"g:i A" }}
+  {% if block.location %}· {{ block.location }}{% endif %}
+  · with {{ block.orienter.display_name }}
+</p>
+{% if has_starts %}
+<form method="post" action="{% url 'hub_orientation_block_book' block.pk %}" class="hub-form" hx-boost="false">
+  {% csrf_token %}
+  {{ form.orientation_type }}
+  {% include "components/form_field.html" with field=form.starts_at %}
+  {% include "components/form_field.html" with field=form.note %}
+  {% if orientation_type.is_paid %}
+  <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">You pay {{ orientation_type.price_cents|cents_as_price }} when you book, with an automatic full refund if the guild can't make it work.</p>
+  {% endif %}
+  <div style="margin-top:0.75rem;">
+    {% if orientation_type.is_paid %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Continue to payment</button>
+    {% else %}
+    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Request this time</button>
+    {% endif %}
+  </div>
+</form>
+{% else %}
+<p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No times left in this window. Please pick another one.</p>
+{% endif %}
