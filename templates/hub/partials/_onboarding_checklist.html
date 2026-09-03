@@ -22,7 +22,8 @@ outerHTML swap removes the whole card, then shows an info toast naming where to 
     </p>
     <div class="pl-onboarding__steps">
         {% for step in onboarding.steps %}
-        <a href="{{ step.url }}" class="pl-onboarding-step{% if step.done %} pl-onboarding-step--done{% endif %}">
+        {# hx-boost off: the Discord step 302s to an external OAuth origin, which a boosted XHR silently swallows. #}
+        <a href="{{ step.url }}" hx-boost="false" class="pl-onboarding-step{% if step.done %} pl-onboarding-step--done{% endif %}">
             <span class="pl-onboarding-step__status" aria-hidden="true">
                 {% if step.done %}
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>

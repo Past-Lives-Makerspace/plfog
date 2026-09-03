@@ -276,6 +276,16 @@ def describe_hub_home_view():
             assert response.context["show_onboarding"] is True
             assert b"Get Started at Past Lives" in response.content
 
+        def it_opts_step_links_out_of_hx_boost(client: Client):
+            # Regression: the Discord step 302s to discord.com; a boosted XHR follows the
+            # cross origin redirect, hits CORS, and the click silently does nothing.
+            _member_user("boostoff")
+            client.login(username="boostoff", password="pass")
+
+            content = client.get(reverse("hub_home")).content
+
+            assert content.count(b'hx-boost="false" class="pl-onboarding-step') == 4
+
         def it_replaces_the_old_profile_nudge(client: Client):
             _member_user("nonudge")
             client.login(username="nonudge", password="pass")

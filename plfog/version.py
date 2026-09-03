@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.22.1"
+VERSION = "1.22.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.22.2",
+        "date": "2026-09-02",
+        "title": "Connect your Discord works from the checklist",
+        "changes": [
+            "Clicking Connect your Discord on the home page Get Started list did nothing. "
+            "It now takes you to Discord to link your account, like it always should have.",
+        ],
+    },
     {
         "version": "1.22.1",
         "date": "2026-09-02",
