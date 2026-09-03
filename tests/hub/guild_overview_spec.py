@@ -90,6 +90,22 @@ def describe_guild_overview():
             assert b'hub-badge">1 past class<' in resp.content
             assert b'hub-badge">1 current class<' in resp.content
 
+        def it_keeps_private_classes_out_of_both_chips(client: Client):
+            _member("chips5")
+            client.login(username="chips5", password="pw")
+            guild = GuildFactory()
+            private = ClassOfferingFactory(
+                category=CategoryFactory(guild=guild), status=ClassOffering.Status.PUBLISHED, is_private=True
+            )
+            ClassSessionFactory(
+                class_offering=private,
+                starts_at=timezone.now() - timedelta(days=30),
+                ends_at=timezone.now() - timedelta(days=30) + timedelta(hours=2),
+            )
+            resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            assert not re.search(rb'hub-badge">\d+ past class', resp.content)
+            assert not re.search(rb'hub-badge">\d+ current class', resp.content)
+
         def it_shows_no_class_chip_for_a_guild_without_classes(client: Client):
             _member("chips4")
             client.login(username="chips4", password="pw")

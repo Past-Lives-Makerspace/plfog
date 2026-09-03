@@ -546,12 +546,13 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     guild_classes = ClassOffering.objects.filter(category__guild=guild)
     member_count = guild.memberships.count()
-    # The stat chips split the old flat "N classes" count: past = published runs whose
-    # first session has started (you can no longer join), current = open for sign-up.
-    # Private-but-published future classes are deliberately in neither bucket.
+    # The stat chips split the old flat "N classes" count: past = public published runs
+    # whose first session has started (you can no longer join), current = open for
+    # sign-up. Private classes are in neither bucket; a flexible class with a past
+    # session can appear in both (it ran, and you can still sign up).
     current_class_count = guild_classes.bookable().count()
     past_class_count = (
-        guild_classes.filter(status=ClassOffering.Status.PUBLISHED)
+        guild_classes.filter(status=ClassOffering.Status.PUBLISHED, is_private=False)
         .annotate(_first_session_at=Min("sessions__starts_at"))
         .filter(_first_session_at__lt=dj_timezone.now())
         .count()
