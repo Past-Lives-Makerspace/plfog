@@ -58,7 +58,7 @@ def _linked_member(**overrides) -> Member:
         discord_handle="janey#1",
         discord_user_id="123456789",
         discord_linked_at=timezone.now(),
-        pronouns=Member.Pronouns.SHE_HER,
+        pronouns="she/her",
         about_me="I make things.",
         billing_name="Jane Q. Doe",
         emergency_contact_name="John Doe",

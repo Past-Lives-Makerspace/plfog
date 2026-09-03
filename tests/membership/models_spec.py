@@ -206,7 +206,7 @@ def describe_member_has_started_profile():
         assert member.has_started_profile is True
 
     def it_is_true_when_pronouns_are_set():
-        member = MemberFactory(pronouns=Member.Pronouns.HE_HIM)
+        member = MemberFactory(pronouns="he/him")
         assert member.has_started_profile is True
 
     def it_is_true_when_a_discord_handle_is_typed():
@@ -227,7 +227,7 @@ def _fully_completed_member() -> Member:
     return MemberFactory(
         profile_photo="members/profile/avatar.png",
         about_me="Potter and welder.",
-        pronouns=Member.Pronouns.SHE_HER,
+        pronouns="she/her",
         discord_user_id="123456789012345678",
         show_in_directory=True,
     )

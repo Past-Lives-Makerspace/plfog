@@ -262,7 +262,7 @@ def describe_hub_home_view():
             """Bring a member to onboarded: profile essentials filled + one joined guild."""
             member.profile_photo = "members/profile/a.png"
             member.about_me = "Maker."
-            member.pronouns = Member.Pronouns.THEY_THEM
+            member.pronouns = "they/them"
             member.discord_user_id = "123456789012345678"
             member.save()
             GuildMembershipFactory(guild=GuildFactory(name="Ceramics"), member=member)
@@ -391,7 +391,7 @@ def describe_build_home_context():
         member = MemberFactory(
             profile_photo="members/profile/a.png",
             about_me="Maker.",
-            pronouns=Member.Pronouns.THEY_THEM,
+            pronouns="they/them",
             discord_user_id="123456789012345678",
         )
         GuildMembershipFactory(guild=GuildFactory(name="Metals"), member=member)

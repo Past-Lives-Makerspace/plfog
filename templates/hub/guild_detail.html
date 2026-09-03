@@ -586,7 +586,7 @@
                 </div>
                 <div>
                     <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.display_name }}</div>
-                    {% if guild.guild_lead.pronouns and guild.guild_lead.pronouns != "prefer not to share" %}
+                    {% if guild.guild_lead.pronouns %}
                     <div style="font-size:0.8125rem;color:var(--hub-text-muted, #96ACBB);">{{ guild.guild_lead.pronouns }}</div>
                     {% endif %}
                 </div>

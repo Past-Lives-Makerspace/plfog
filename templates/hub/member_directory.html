@@ -90,7 +90,7 @@
             {% endif %}
             <div class="directory-card__meta" style="justify-content:center;">
                 <span class="directory-card__role">{{ member.get_member_type_display }}</span>
-                {% if member.pronouns and member.pronouns != "prefer not to share" and member|is_public:"pronouns" %}
+                {% if member.pronouns and member|is_public:"pronouns" %}
                 <span class="directory-card__pronouns">{{ member.pronouns }}</span>
                 {% endif %}
                 {% if member.join_date %}
@@ -108,7 +108,7 @@
                 {% endif %}
                 <div class="directory-card__meta">
                     <span class="directory-card__role">{{ member.get_member_type_display }}</span>
-                    {% if member.pronouns and member.pronouns != "prefer not to share" and member|is_public:"pronouns" %}
+                    {% if member.pronouns and member|is_public:"pronouns" %}
                     <span class="directory-card__pronouns">{{ member.pronouns }}</span>
                     {% endif %}
                     {% if member.join_date %}

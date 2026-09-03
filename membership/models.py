@@ -353,17 +353,6 @@ class Member(models.Model):
         GUILD_OFFICER = "guild_officer", "Guild Officer"
         ADMIN = "admin", "Admin"
 
-    class Pronouns(models.TextChoices):
-        HE_HIM = "he/him", "he/him"
-        SHE_HER = "she/her", "she/her"
-        THEY_THEM = "they/them", "they/them"
-        HE_THEY = "he/they", "he/they"
-        SHE_THEY = "she/they", "she/they"
-        ALL_THREE = "he/she/they", "he/she/they"
-        ZE_HIR = "ze/hir", "ze/hir"
-        XE_XEM = "xe/xem", "xe/xem"
-        PREFER_NOT = "prefer not to share", "Prefer not to share"
-
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
 
@@ -421,11 +410,10 @@ class Member(models.Model):
         help_text="When the member linked their Discord account for DM notifications (null = not linked).",
     )
     pronouns = models.CharField(
-        max_length=30,
-        choices=Pronouns.choices,
+        max_length=50,
         blank=True,
         default="",
-        help_text="Pronouns shown in the member directory.",
+        help_text="Free text pronouns shown in the member directory (e.g. she/her, they/them).",
     )
     about_me = models.TextField(blank=True, help_text="Short bio shown in the member directory.")
     profile_photo = models.ImageField(
