@@ -390,6 +390,17 @@ class Member(models.Model):
             "docs/superpowers/specs/2026-04-07-user-email-aliases-design.md for the full architecture."
         ),
     )
+    notification_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text=(
+            "Verified address email notifications are sent to. Blank means the primary email. "
+            "If this address is later removed or unverified, notifications fall back to the primary. "
+            "Read via core.events.channels.notification_email_for; see the three-store note on "
+            "Member.primary_email for how emails are stored (this field routes notifications only "
+            "and never changes primary_email semantics)."
+        ),
+    )
     phone = models.CharField(max_length=20, blank=True)
     discord_handle = models.CharField(
         max_length=100, blank=True, help_text="Discord username (e.g. user#1234 or @user)."

@@ -614,7 +614,7 @@
              x-data='{ selectedVerified: {{ primary_verified_json|default:"true" }} }'>
             <h2 style="font-size: 1rem; font-weight: 600; margin: 0 0 0.25rem;">Manage Email Addresses</h2>
             <p class="hub-text-muted" style="margin-bottom: 1rem; font-size: 0.85rem;">
-                Each verified email can be used to log in. The primary email receives account notifications.
+                Each verified email can be used to log in. Notifications go to your primary email unless you pick a different one below.
             </p>
 
             {% if email_addresses %}
@@ -652,6 +652,26 @@
             </form>
             {% else %}
             <p class="hub-text-muted">No email addresses on file yet.</p>
+            {% endif %}
+
+            {% comment %}Notification-email picker. Its own <form> — this card already holds two
+               allauth forms posting to account_email (the list form above, the Add form below) and
+               nesting inside either would break both submits (the documented nested-form bug).
+               Rendered only for members with a real choice (2+ verified addresses); with exactly
+               one address on file a muted line explains how to unlock it.{% endcomment %}
+            {% if notification_email_form %}
+            <form method="post" action="{% url 'hub_notification_email_set' %}" class="hub-form"
+                  style="margin-top: 1rem;">
+                {% csrf_token %}
+                {% include "components/form_field.html" with field=notification_email_form.notification_email %}
+                <div style="margin-top: 0.75rem;">
+                    <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Save notification email</button>
+                </div>
+            </form>
+            {% elif member and email_addresses %}
+            <p class="hub-text-muted" style="margin-top: 1rem; font-size: 0.85rem;">
+                Notifications go to your primary email. Add and verify another address to choose a different one.
+            </p>
             {% endif %}
 
             <h3 style="font-size: 0.95rem; font-weight: 600; margin: 1.75rem 0 0.75rem;">Add an Email Address</h3>

@@ -572,6 +572,38 @@ class DeleteAccountConfirmForm(forms.Form):
         return value
 
 
+class NotificationEmailForm(forms.Form):
+    """Pick which verified address event-driven notification emails go to.
+
+    Choices are built per-user in ``__init__`` from the user's VERIFIED allauth
+    ``EmailAddress`` rows plus a blank "Primary email (default)" option, so an
+    unverified or foreign address can never validate. This form is the only write
+    path for ``Member.notification_email`` — the model field itself stays a plain
+    ``EmailField`` (validation lives here, per the house rule).
+    """
+
+    notification_email = forms.ChoiceField(
+        required=False,
+        label="Send notifications to",
+    )
+
+    def __init__(self, user: User, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.user = user
+        from allauth.account.models import EmailAddress
+
+        verified = EmailAddress.objects.filter(user=user, verified=True).order_by("email")
+        cast(forms.ChoiceField, self.fields["notification_email"]).choices = [("", "Primary email (default)")] + [
+            (ea.email, ea.email) for ea in verified
+        ]
+
+    def save(self) -> None:
+        """Write the chosen address onto the user's member ("" = follow the primary)."""
+        member = self.user.member
+        member.notification_email = self.cleaned_data["notification_email"]
+        member.save(update_fields=["notification_email"])
+
+
 class GuildUpdatesPromptForm(forms.Form):
     """Validates the first-login guild updates picks (active guild pks only).
 

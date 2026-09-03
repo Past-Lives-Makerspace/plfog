@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "1.27.2"
+VERSION = "1.28.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.28.0",
+        "date": "2026-09-03",
+        "title": "Choose where your notifications land",
+        "changes": [
+            "If you have more than one verified email on your account, you can now pick "
+            "which one receives your notification emails. The picker lives in Settings on "
+            "the Account tab, inside the email card. Leave it on the default and "
+            "notifications keep going to your primary email. If you later remove or "
+            "unverify the chosen address, notifications quietly return to your primary "
+            "email on their own.",
+        ],
+    },
     {
         "version": "1.27.2",
         "date": "2026-09-03",
