@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.27.1"
+VERSION = "1.27.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.27.2",
+        "date": "2026-09-03",
+        "title": "Orientation guides updated",
+        "changes": [
+            "The Getting Oriented and Running Orientations help articles now cover the new "
+            "open time windows: picking a start time as a member, and posting availability "
+            "blocks as an orienter. The in app help hints on those sections link straight "
+            "to the new guidance.",
+        ],
+    },
     {
         "version": "1.27.1",
         "date": "2026-09-03",
