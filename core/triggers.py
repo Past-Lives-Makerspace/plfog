@@ -159,7 +159,7 @@ TRIGGERS: list[Trigger] = [
         "lease_expiring",
         "Space agreement ending soon",
         "Your space agreement ends within 30 days.",
-        "Spaces",
+        "Spaces & Equipment",
         force_email=True,
     ),
     # Admin broadcasts
@@ -169,7 +169,16 @@ TRIGGERS: list[Trigger] = [
 _BY_KEY = {t.key: t for t in TRIGGERS}
 
 # Stable category display order for the settings UI.
-CATEGORY_ORDER = ["Classes", "Teaching", "Voting", "Guilds", "Billing", "Membership", "Spaces", "Announcements"]
+CATEGORY_ORDER = [
+    "Classes",
+    "Teaching",
+    "Voting",
+    "Guilds",
+    "Billing",
+    "Membership",
+    "Spaces & Equipment",
+    "Announcements",
+]
 
 
 def get(key: str) -> Trigger:

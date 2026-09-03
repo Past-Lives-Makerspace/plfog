@@ -53,6 +53,9 @@ _BRAND_NEW_KEYS = {
     "waitlist_promoted_pay",
     "registration_removed",
     "guild_welcome",
+    "equipment.reservation_confirmed",
+    "equipment.reservation_cancelled_by_manager",
+    "equipment.reservation_made",
 }
 
 

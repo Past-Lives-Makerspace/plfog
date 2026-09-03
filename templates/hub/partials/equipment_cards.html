@@ -49,6 +49,9 @@ above it with its own link.
         <span class="pl-equip-badge pl-equip-badge--muted">Membership inactive</span>
         {% endif %}
       </div>
+      {% if card.availability %}
+      <div class="pl-equip-avail pl-equip-avail--{{ card.availability.0 }}">{{ card.availability.1 }}</div>
+      {% endif %}
     </div>
   </div>
   {% endwith %}

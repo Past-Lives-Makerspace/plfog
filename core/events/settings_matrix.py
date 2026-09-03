@@ -69,7 +69,7 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Voting",
     "Billing",
     "Membership",
-    "Spaces",
+    "Spaces & Equipment",
     "Announcements",
     "Security",
     "Meetings",
@@ -104,6 +104,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.EVENTS_APPROVERS,
         Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         Recipients.BILLING_APPROVERS,
+        Recipients.EQUIPMENT_MANAGERS,
     }
 )
 
@@ -179,6 +180,7 @@ class _StaffProfile:
     leads_guild: bool
     staffs_guild: bool
     is_orienter: bool
+    manages_equipment: bool
     capabilities: frozenset[str]
 
     @property
@@ -196,7 +198,7 @@ def _staff_profile(user: User) -> _StaffProfile:
 
     member = Member.objects.filter(user=user).only("id", "fog_role", "status").first()
     if member is None:
-        return _StaffProfile(False, False, False, False, False, False, frozenset())
+        return _StaffProfile(False, False, False, False, False, False, False, frozenset())
     staff_roles = set(member.guild_staff_roles.values_list("role", flat=True))
     return _StaffProfile(
         is_admin=member.fog_role == Member.FogRole.ADMIN,
@@ -205,6 +207,7 @@ def _staff_profile(user: User) -> _StaffProfile:
         leads_guild=member.led_guilds.exists(),
         staffs_guild=bool(staff_roles),
         is_orienter=GuildStaffMembership.Role.ORIENTER in staff_roles,
+        manages_equipment=member.equipment_staff_memberships.exists(),
         capabilities=frozenset(member.admin_capabilities.values_list("capability", flat=True)),
     )
 
@@ -237,6 +240,9 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.EVENTS_APPROVERS: cap.EVENTS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: lead or cap.EVENTS_APPROVER in caps,
         Recipients.BILLING_APPROVERS: cap.BILLING_APPROVER in caps,
+        # The three equipment-manage tiers, mirroring the equipment_managers resolver:
+        # per-equipment staff row, owning-guild leadership, or the EQUIPMENT capability.
+        Recipients.EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
     }
     return checks[recipient]
 
@@ -335,6 +341,7 @@ _CAPABILITY_BY_RECIPIENT: dict[Recipients, str] = {
     Recipients.EVENTS_APPROVERS: "events_approver",
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: "events_approver",
     Recipients.BILLING_APPROVERS: "billing_approver",
+    Recipients.EQUIPMENT_MANAGERS: "equipment",
 }
 
 

@@ -94,6 +94,10 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
         "The guild's lead and staff; for a lead-less category, the CMS Administrators (holders only)."
     ),
     Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
+    Recipients.EQUIPMENT_MANAGERS: (
+        "Everyone who manages the equipment: its own managers, the owning guild's leadership, "
+        "and the Equipment Administrators."
+    ),
     Recipients.DISCOUNT_APPROVERS: "The Discount Code Administrators (holders only).",
     Recipients.EVENTS_APPROVERS: "The Calendar Administrators (holders only).",
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: (
@@ -1670,6 +1674,117 @@ _CURATED: dict[str, EventCopy] = {
             Channel.DISCORD: ChannelCopy(
                 subject="Council minutes approved",
                 body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
+            ),
+        },
+    ),
+    # equipment.reservation_confirmed — the member's booking receipt (forced email with the
+    # calendar invite attached by the emit call). One primary CTA to the equipment page.
+    "equipment.reservation_confirmed": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Reservation confirmed",
+                body_text="{{ equipment_name }}: {{ reservation_when }}. See you there.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Reserved: {{ equipment_name }}, {{ reservation_when }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your reservation is set.\n\n"
+                    "{{ equipment_name }}\n{{ reservation_when }}\n\n"
+                    "A calendar invite is attached. If your plans change, you can cancel "
+                    "from the equipment page and the time opens up for someone else.\n\n"
+                    "See your reservation: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your reservation is set.</p>"
+                    '<p><strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong><br>'
+                    "{{ reservation_when }}</p>"
+                    "<p>A calendar invite is attached. If your plans change, you can cancel from the "
+                    "equipment page and the time opens up for someone else.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See Your Reservation</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_cancelled_by_manager — carries the manager's required reason and
+    # sends the member straight back to pick a new time.
+    "equipment.reservation_cancelled_by_manager": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "cancel_reason", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "cancel_reason": "The router is down for repair. Back Tuesday.",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your {{ equipment_name }} reservation was cancelled",
+                body_text="A manager cancelled your {{ reservation_when }} reservation: {{ cancel_reason }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your {{ equipment_name }} reservation was cancelled",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "A manager cancelled your {{ equipment_name }} reservation for "
+                    "{{ reservation_when }}.\n\n"
+                    "Their note: {{ cancel_reason }}\n\n"
+                    "Pick a new time: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    '<p>A manager cancelled your <strong><a href="{{ equipment_url }}">{{ equipment_name }}'
+                    "</a></strong> reservation for {{ reservation_when }}.</p>"
+                    "<p>Their note: {{ cancel_reason }}</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Pick a New Time</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_made — the managers' awareness ping. member_name here is the
+    # RESERVER, not the recipient, so no channel greets with it (a "Hi {{ member_name }}"
+    # would greet the wrong person).
+    "equipment.reservation_made": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="New reservation on {{ equipment_name }}",
+                body_text="{{ member_name }} reserved {{ equipment_name }} for {{ reservation_when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New reservation on {{ equipment_name }}",
+                body_text=(
+                    "{{ member_name }} reserved {{ equipment_name }} for {{ reservation_when }}.\n\n"
+                    "See the schedule: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p>{{ member_name }} reserved <strong><a href="{{ equipment_url }}">{{ equipment_name }}'
+                    "</a></strong> for {{ reservation_when }}.</p>"
+                    '<p><a href="{{ equipment_url }}">See the schedule</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
             ),
         },
     ),

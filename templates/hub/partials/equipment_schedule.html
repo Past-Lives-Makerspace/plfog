@@ -1,0 +1,163 @@
+{% comment %}
+The equipment schedule (spec §7.3 items 3 to 6), HTMX-swapped as one unit:
+week strip, day timeline (reserver names visible to all logged-in members),
+Book a Time (computed selects), your reservations, upcoming reservations.
+Context comes from equipment_views._schedule_context. The whole block re-renders
+on day taps, week arrows, bookings, and cancels, so every list stays fresh.
+{% endcomment %}
+<div id="equipment-schedule" class="pl-equip-schedule">
+
+  {# ── Schedule, this week — the 7 day strip; muted days are unclickable. ── #}
+  <div class="hub-card" style="padding:1.25rem 1.5rem;">
+    <div class="pl-equip-strip__head">
+      <h2 class="hub-detail-label" style="margin:0;">Schedule</h2>
+      <span class="htmx-indicator pl-equip-strip__spinner" aria-hidden="true"></span>
+      <div class="pl-equip-strip__nav">
+        {% if has_prev_week %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" aria-label="Previous week"
+                hx-get="{% url 'hub_equipment_schedule' equipment.slug %}?week={{ week_offset|add:'-1' }}"
+                hx-target="#equipment-schedule" hx-swap="outerHTML" hx-indicator="#equipment-schedule">←</button>
+        {% endif %}
+        {% if has_next_week %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" aria-label="Next week"
+                hx-get="{% url 'hub_equipment_schedule' equipment.slug %}?week={{ week_offset|add:'1' }}"
+                hx-target="#equipment-schedule" hx-swap="outerHTML" hx-indicator="#equipment-schedule">→</button>
+        {% endif %}
+      </div>
+    </div>
+    <div class="pl-equip-strip">
+      {% for day in days %}
+      {% if day.disabled %}
+      <span class="pl-equip-day pl-equip-day--muted">
+        <span class="pl-equip-day__name">{{ day.date|date:"D" }}</span>
+        <span class="pl-equip-day__num">{{ day.date|date:"j" }}</span>
+      </span>
+      {% else %}
+      <button type="button" class="pl-equip-day {% if day.selected %}pl-equip-day--selected{% endif %}"
+              hx-get="{% url 'hub_equipment_schedule' equipment.slug %}?week={{ week_offset }}&day={{ day.date|date:'Y-m-d' }}"
+              hx-target="#equipment-schedule" hx-swap="outerHTML" hx-indicator="#equipment-schedule">
+        <span class="pl-equip-day__name">{{ day.date|date:"D" }}</span>
+        <span class="pl-equip-day__num">{{ day.date|date:"j" }}</span>
+      </button>
+      {% endif %}
+      {% endfor %}
+    </div>
+
+    {% if not has_hours %}
+      {% if manages %}
+      <p class="hub-text-muted" style="margin:0.75rem 0 0;">
+        <a href="{% url 'hub_equipment_manage' equipment.slug %}?tab=hours">Add opening hours to start taking reservations.</a>
+      </p>
+      {% else %}
+      <p class="hub-text-muted" style="margin:0.75rem 0 0;">This equipment isn't taking reservations yet.</p>
+      {% endif %}
+    {% elif selected_day %}
+    <h3 class="hub-detail-label" style="margin:1rem 0 0.5rem;">{{ selected_day|date:"l, F j" }}</h3>
+    <ul class="pl-equip-timeline">
+      {% for segment in timeline %}
+      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% else %}pl-equip-slot--busy{% endif %}">
+        <span class="pl-equip-slot__when">{{ segment.starts_at|time:"g:i A" }} to {{ segment.ends_at|time:"g:i A" }}</span>
+        {% if segment.is_free %}
+        <span class="pl-equip-slot__label">Open</span>
+        {% else %}
+        <span class="pl-equip-slot__label">{{ segment.reservation.member.display_name }}{% if segment.reservation.purpose %} · {{ segment.reservation.purpose }}{% endif %}</span>
+        {% endif %}
+      </li>
+      {% empty %}
+      <li class="pl-equip-slot pl-equip-slot--free"><span class="hub-text-muted">No open hours this day.</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+
+  {# ── Book a Time — rendered only when nothing blocks the member (spec §7.3 item 4). ── #}
+  {% if has_hours and not blockers %}
+  <div class="hub-card" style="padding:1.25rem 1.5rem;">
+    <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Book a Time</h2>
+    {% if starts %}
+    {{ durations_data|json_script:"equip-durations-data" }}
+    <form id="equip-reserve-form" method="post" action="{% url 'hub_equipment_reserve' equipment.slug %}"
+          hx-post="{% url 'hub_equipment_reserve' equipment.slug %}" hx-target="#equipment-schedule"
+          hx-swap="outerHTML" hx-indicator="#equipment-schedule"
+          x-data="{ start: '{{ starts.0.isoformat }}', durations: JSON.parse(document.getElementById('equip-durations-data').textContent) }">
+      {% csrf_token %}
+      <input type="hidden" name="day" value="{{ selected_day|date:'Y-m-d' }}">
+      <input type="hidden" name="week" value="{{ week_offset }}">
+      <div class="pl-equip-book-row hub-form-group">
+        <label class="pl-form-group pl-equip-book-field">
+          <span class="pl-form-label">Start</span>
+          <select name="starts_at" x-model="start">
+            {% for start in starts %}
+            <option value="{{ start.isoformat }}">{{ start|time:"g:i A" }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="pl-form-group pl-equip-book-field">
+          <span class="pl-form-label">Duration</span>
+          <select name="duration_minutes">
+            <template x-for="option in durations[start] || []" :key="option.v">
+              <option :value="option.v" x-text="option.label"></option>
+            </template>
+          </select>
+        </label>
+        <label class="pl-form-group pl-equip-book-field pl-equip-book-field--wide">
+          <span class="pl-form-label">Purpose (optional)</span>
+          <input type="text" name="purpose" maxlength="140" placeholder="e.g. Longarm quilting">
+        </label>
+      </div>
+      <div class="pl-equip-save-row">
+        <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-confirm', 'equip-reserve-confirm')">Reserve</button>
+      </div>
+    </form>
+    {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title="Reserve this time?" confirm_message="Your reservation confirms right away. If plans change, you can cancel and the time opens up for someone else." confirm_button_text="Reserve" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">No open times this day. Try another day.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── Your reservations here — upcoming rows + manager-cancelled notices until they age out. ── #}
+  {% if my_reservations %}
+  <div class="hub-card" style="padding:1.25rem 1.5rem;">
+    <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Your Reservations Here</h2>
+    <ul class="pl-equip-res-list">
+      {% for reservation in my_reservations %}
+      <li class="pl-equip-res-row">
+        <span>
+          {{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}
+          {% if reservation.purpose %}<span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}
+        </span>
+        {% if reservation.is_cancelled_by_manager %}
+        <span class="hub-text-muted">Cancelled by the manager: {{ reservation.cancelled_reason }}</span>
+        {% elif reservation.status == "confirmed" %}
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
+        {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as cancel_url %}
+        {# hx-vals keeps the re-rendered strip on the week and day the member was viewing. #}
+        {% with rpks=reservation.pk|stringformat:"s" cancel_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
+        {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time." confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
+        {% endwith %}
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {# ── Upcoming reservations — who has it when (names visible to all logged-in members). ── #}
+  <div class="hub-card" style="padding:1.25rem 1.5rem;">
+    <h2 class="hub-detail-label" style="margin:0 0 0.75rem;">Upcoming Reservations</h2>
+    {% if upcoming_reservations %}
+    <ul class="pl-equip-res-list">
+      {% for reservation in upcoming_reservations %}
+      <li class="pl-equip-res-row">
+        <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0;">No upcoming reservations.</p>
+    {% endif %}
+  </div>
+</div>

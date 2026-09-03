@@ -10175,6 +10175,14 @@ class SpaceRequest(models.Model):
         return f"${price:.2f}/mo"
 
 
+class EquipmentError(Exception):
+    """Raised when an equipment reservation can't be made or transitioned.
+
+    The sibling of :class:`OrientationError` — always carries member-facing copy;
+    views map it to a friendly error toast plus a refreshed start list.
+    """
+
+
 class EquipmentQuerySet(models.QuerySet["Equipment"]):
     """Query helpers for the Equipment directory."""
 
@@ -10282,8 +10290,30 @@ class Equipment(HeroCropMixin, models.Model):
     is_active = models.BooleanField(
         default=True, help_text="Offer this equipment to members. Inactive (retired) gear is hidden from the index."
     )
+    # --- Booking configuration (PR 2) — the locked default limits, per-equipment editable.
+    min_duration_minutes = models.PositiveSmallIntegerField(
+        default=30, help_text="Shortest reservation members can make, in minutes (half hour steps)."
+    )
+    max_duration_minutes = models.PositiveSmallIntegerField(
+        default=240, help_text="Longest reservation members can make, in minutes (half hour steps)."
+    )
+    max_advance_days = models.PositiveSmallIntegerField(
+        default=30, help_text="How far ahead members can book, in days."
+    )
+    max_active_reservations_per_member = models.PositiveSmallIntegerField(
+        default=2, help_text="How many upcoming reservations one member can hold on this equipment at once."
+    )
+    is_closed = models.BooleanField(
+        default=False,
+        help_text="Temporarily stop NEW reservations. Existing reservations stand until a manager cancels each.",
+    )
+    closed_message = models.CharField(
+        max_length=200, blank=True, default="", help_text="Shown to members while closed, e.g. 'Down for maintenance.'"
+    )
 
     objects = EquipmentQuerySet.as_manager()
+
+    RESERVATION_SNAP_MINUTES = 30
 
     class Meta:
         ordering = ["name"]
@@ -10379,11 +10409,14 @@ class Equipment(HeroCropMixin, models.Model):
     def booking_blockers(self, member: Member | None) -> list[str]:
         """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
 
-        The single gate the requirements banner, the index badge, and (PR 2)
-        ``reserve()`` all read. An inactive or unlinked member short-circuits — the
-        remaining checks are meaningless without an active member. The PR 2 closure
-        check joins this list when reservations land.
+        The single gate the requirements banner, the index badge, and ``reserve()``
+        all read. Retired equipment fails closed for everyone, at the engine level —
+        no crafted POST can book it. An inactive or unlinked member short-circuits —
+        the remaining checks are meaningless without an active member. Closure blocks
+        NEW bookings only; existing reservations stand until a manager cancels each.
         """
+        if not self.is_active:
+            return ["This equipment is retired and not taking reservations."]
         if member is None or member.status != Member.Status.ACTIVE:
             return ["Your membership needs to be active to reserve equipment."]
         blockers: list[str] = []
@@ -10397,7 +10430,199 @@ class Equipment(HeroCropMixin, models.Model):
             and not member.guild_memberships.filter(guild_id=guild.pk).exists()
         ):
             blockers.append(f"Only {guild.name} members can book this.")
+        if self.is_closed:
+            blockers.append(self.closed_message or "Closed for now.")
         return blockers
+
+    # --- Reservation engine (PR 2) — the valid_starts_for algorithm re-derived over
+    # --- weekly EquipmentHours minus confirmed reservations, all math in local time.
+
+    def open_intervals_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """The day's open windows from active weekly hours, as aware local datetimes, merged.
+
+        Overlapping or touching windows merge so a start is never offered twice. No
+        hours rows means not bookable yet (the honest empty state, never "always open").
+        """
+        windows: list[tuple[datetime_type, datetime_type]] = []
+        for rule in self.hours_rules.active().for_weekday(day.weekday()).order_by("start_time"):
+            start = timezone.make_aware(datetime_type.combine(day, rule.start_time))
+            end = timezone.make_aware(datetime_type.combine(day, rule.end_time))
+            if windows and start <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], end))
+            else:
+                windows.append((start, end))
+        return windows
+
+    def _busy_spans_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """Merged confirmed-reservation spans overlapping the local ``day``, sorted."""
+        day_start = timezone.make_aware(datetime_type.combine(day, time_type.min))
+        day_end = day_start + timedelta(days=1)
+        merged: list[tuple[datetime_type, datetime_type]] = []
+        overlapping = EquipmentReservation.objects.overlapping(self, day_start, day_end).order_by("starts_at")
+        for reservation in overlapping:
+            start, end = reservation.starts_at, reservation.ends_at
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def free_intervals_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """The day's open windows minus confirmed reservations, in order (the free time)."""
+        free: list[tuple[datetime_type, datetime_type]] = []
+        busy = self._busy_spans_for_day(day)
+        for window_start, window_end in self.open_intervals_for_day(day):
+            cursor = window_start
+            for busy_start, busy_end in busy:
+                if busy_end <= cursor or busy_start >= window_end:
+                    continue
+                if busy_start > cursor:
+                    free.append((cursor, busy_start))
+                cursor = max(cursor, busy_end)
+            if cursor < window_end:
+                free.append((cursor, window_end))
+        return free
+
+    def free_starts_for_day(self, day: date_type) -> list[datetime_type]:
+        """Future, half-hour-aligned starts on ``day`` that fit at least the minimum duration.
+
+        Empty for past days and days beyond the booking horizon. Pure availability
+        math — closure and member blockers are the caller's checks (``reserve()``
+        re-validates everything under the row lock).
+        """
+        today = timezone.localdate()
+        if day < today or day > today + timedelta(days=self.max_advance_days):
+            return []
+        now = timezone.now()
+        min_duration = timedelta(minutes=self.min_duration_minutes)
+        step = timedelta(minutes=self.RESERVATION_SNAP_MINUTES)
+        free = self.free_intervals_for_day(day)
+        starts: list[datetime_type] = []
+        for window_start, window_end in self.open_intervals_for_day(day):
+            # Snap the stepping to the wall-clock half hour grid: a legacy off-grid
+            # window (9:15, from before the model-layer clean guard) degrades to
+            # offering only starts ensure_reservable would accept, never a dead 9:15.
+            candidate = self._snap_forward(window_start)
+            while candidate + min_duration <= window_end:
+                if candidate > now and any(
+                    interval_start <= candidate and candidate + min_duration <= interval_end
+                    for interval_start, interval_end in free
+                ):
+                    starts.append(candidate)
+                candidate += step
+        return starts
+
+    def _snap_forward(self, value: datetime_type) -> datetime_type:
+        """The first wall-clock half-hour-grid instant at or after ``value`` (local time)."""
+        local = timezone.localtime(value)
+        remainder = local.minute % self.RESERVATION_SNAP_MINUTES
+        if remainder == 0 and local.second == 0 and local.microsecond == 0:
+            return value
+        return (
+            value
+            + timedelta(minutes=self.RESERVATION_SNAP_MINUTES - remainder)
+            - timedelta(seconds=local.second, microseconds=local.microsecond)
+        )
+
+    def durations_for(self, starts_at: datetime_type) -> list[int]:
+        """The bookable duration options at ``starts_at``, in minutes, half hour steps.
+
+        From the minimum up to the largest that fits before the next reservation or
+        closing, capped at the per-equipment maximum. Empty when the start is not
+        inside any free interval — an impossible start offers no durations.
+        """
+        day = timezone.localtime(starts_at).date()
+        for interval_start, interval_end in self.free_intervals_for_day(day):
+            if interval_start <= starts_at < interval_end:
+                room = int((interval_end - starts_at).total_seconds() // 60)
+                limit = min(room, self.max_duration_minutes)
+                return list(range(self.min_duration_minutes, limit + 1, self.RESERVATION_SNAP_MINUTES))
+        return []
+
+    def availability_line(self) -> tuple[str, str]:
+        """The index card's ``(tone, text)`` availability line, computed from now.
+
+        Tones: ``free`` (available now), ``busy`` (reserved right now), ``closed``,
+        ``muted`` (no hours yet, or outside open hours). Reads prefetched
+        ``hours_rules`` and a ``current_reservations`` ``to_attr`` when the index
+        view supplies them, so a page of cards runs no per-card queries; without the
+        prefetch it queries per call.
+        """
+        now = timezone.now()
+        if self.is_closed:
+            return ("closed", f"Closed. {self.closed_message}".strip() if self.closed_message else "Closed for now.")
+        rules = [rule for rule in self.hours_rules.all() if rule.is_active]
+        if not rules:
+            return ("muted", "Not taking reservations yet")
+        current = getattr(self, "current_reservations", None)
+        if current is None:
+            current = list(
+                EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
+            )
+        if current:
+            ends_local = timezone.localtime(max(reservation.ends_at for reservation in current))
+            hour = ends_local.hour % 12 or 12
+            suffix = "AM" if ends_local.hour < 12 else "PM"
+            return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+        local = timezone.localtime(now)
+        open_now = any(
+            rule.weekday == local.weekday() and rule.start_time <= local.time() < rule.end_time for rule in rules
+        )
+        if open_now:
+            return ("free", "Available now")
+        return ("muted", "Not open right now")
+
+    def ensure_reservable(self, member: Member, starts_at: datetime_type, duration_minutes: int) -> None:
+        """Raise :class:`EquipmentError` unless this exact reservation may be made.
+
+        The full two-layer guard: callers re-run this inside ``transaction.atomic()``
+        under ``select_for_update`` on this Equipment row (the same lock object every
+        competing booking takes), so two members can never hold one interval. Checks,
+        in order: member blockers (active / orientation / guild / closure), the start
+        is in the future and inside the horizon, the half hour grid, duration bounds,
+        inside open hours, the per-member cap, and no overlapping confirmed
+        reservation.
+
+        Raises:
+            EquipmentError: With member-facing copy naming the failed check.
+        """
+        blockers = self.booking_blockers(member)
+        if blockers:
+            raise EquipmentError(blockers[0])
+        now = timezone.now()
+        if starts_at <= now:
+            raise EquipmentError("That time's already past. Please pick a future time.")
+        local_start = timezone.localtime(starts_at)
+        today = timezone.localdate()
+        if local_start.date() > today + timedelta(days=self.max_advance_days):
+            raise EquipmentError(f"You can book up to {self.max_advance_days} days ahead.")
+        if (local_start.minute % self.RESERVATION_SNAP_MINUTES) != 0 or local_start.second or local_start.microsecond:
+            raise EquipmentError("Start times line up on half hour marks. Please pick one of the listed times.")
+        self._ensure_duration_valid(duration_minutes)
+        ends_at = starts_at + timedelta(minutes=duration_minutes)
+        in_hours = any(
+            window_start <= starts_at and ends_at <= window_end
+            for window_start, window_end in self.open_intervals_for_day(local_start.date())
+        )
+        if not in_hours:
+            raise EquipmentError("That time is outside this equipment's open hours.")
+        cap = self.max_active_reservations_per_member
+        if EquipmentReservation.objects.active_count_for(member, self) >= cap:
+            raise EquipmentError(
+                f"You already have {cap} upcoming reservation{'' if cap == 1 else 's'} here. "
+                "Cancel one to book another time."
+            )
+        if EquipmentReservation.objects.overlapping(self, starts_at, ends_at).exists():
+            raise EquipmentError("That time was just taken. Please pick another time.")
+
+    def _ensure_duration_valid(self, duration_minutes: int) -> None:
+        """Raise :class:`EquipmentError` unless the duration is on grid and within bounds."""
+        if duration_minutes % self.RESERVATION_SNAP_MINUTES != 0:
+            raise EquipmentError("Reservation lengths come in half hour steps. Please pick one of the listed lengths.")
+        if duration_minutes < self.min_duration_minutes:
+            raise EquipmentError(f"Reservations here are at least {self.min_duration_minutes} minutes.")
+        if duration_minutes > self.max_duration_minutes:
+            raise EquipmentError(f"Reservations here are at most {self.max_duration_minutes} minutes.")
 
 
 class EquipmentStaffMembership(models.Model):
@@ -10446,3 +10671,213 @@ class EquipmentStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name}: {self.equipment.name} manager"
+
+
+class EquipmentHoursQuerySet(models.QuerySet["EquipmentHours"]):
+    """Query helpers for weekly equipment opening hours."""
+
+    def active(self) -> EquipmentHoursQuerySet:
+        """Rules currently in force — paused rules keep their data but open no time."""
+        return self.filter(is_active=True)
+
+    def for_weekday(self, weekday: int) -> EquipmentHoursQuerySet:
+        """Rules for one weekday (Monday=0)."""
+        return self.filter(weekday=weekday)
+
+
+class EquipmentHours(models.Model):
+    """A weekly recurring window during which a piece of equipment can be reserved.
+
+    The structural clone of :class:`OrientationAvailability`, minus orienter/seats.
+    No rows means not bookable yet — the honest empty state, never "always open".
+    """
+
+    class Weekday(models.IntegerChoices):
+        MONDAY = 0, "Monday"
+        TUESDAY = 1, "Tuesday"
+        WEDNESDAY = 2, "Wednesday"
+        THURSDAY = 3, "Thursday"
+        FRIDAY = 4, "Friday"
+        SATURDAY = 5, "Saturday"
+        SUNDAY = 6, "Sunday"
+
+    equipment = models.ForeignKey(
+        Equipment, on_delete=models.CASCADE, related_name="hours_rules", help_text="The equipment this window opens."
+    )
+    weekday = models.PositiveSmallIntegerField(choices=Weekday.choices, help_text="Day of week (Monday=0).")
+    start_time = models.TimeField(help_text="When the window opens (half hour grid, local time).")
+    end_time = models.TimeField(help_text="When the window closes (half hour grid, local time).")
+    is_active = models.BooleanField(default=True, help_text="Pause a window without deleting it.")
+
+    objects = EquipmentHoursQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["weekday", "start_time"]
+        verbose_name_plural = "Equipment hours"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_time__gt=models.F("start_time")),
+                name="ck_equiphours_end_after_start",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.equipment.name}: {self.get_weekday_display()} {self.start_time:%H:%M}-{self.end_time:%H:%M}"
+
+    def clean(self) -> None:
+        """Model-layer half hour grid guard — the auto-registered Django admin runs this too.
+
+        The hub formset's ``<select>`` choices only offer grid times, but the admin's
+        raw time inputs could create a 9:15 window whose starts the engine always
+        rejects. Fail loudly at every write path instead.
+        """
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        errors: dict[str, str] = {}
+        for field in ("start_time", "end_time"):
+            value = getattr(self, field)
+            if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
+                errors[field] = "Opening hours line up on half hour marks, e.g. 9:00 or 9:30."
+        if errors:
+            raise ValidationError(errors)
+
+
+class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
+    """Query helpers for equipment reservations."""
+
+    def confirmed(self) -> EquipmentReservationQuerySet:
+        return self.filter(status=EquipmentReservation.Status.CONFIRMED)
+
+    def overlapping(
+        self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
+    ) -> EquipmentReservationQuerySet:
+        """Confirmed reservations overlapping [starts_at, ends_at) on ``equipment``.
+
+        Strict inequalities: adjacent bookings (a 4:00 end against a 4:00 start) do
+        NOT conflict. Cancelled rows never conflict.
+        """
+        return self.confirmed().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
+
+    def upcoming(self) -> EquipmentReservationQuerySet:
+        """Confirmed reservations that haven't ended yet, soonest first."""
+        return self.confirmed().filter(ends_at__gt=timezone.now()).order_by("starts_at")
+
+    def active_count_for(self, member: Member, equipment: Equipment) -> int:
+        """The per-member anti-hog input: this member's upcoming confirmed count here."""
+        return self.confirmed().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
+
+
+class EquipmentReservation(models.Model):
+    """A member's instant, self-confirmed hold on a piece of equipment.
+
+    No PENDING state — instant booking is the locked decision. Conflicts are made
+    unrepresentable in the UI by the computed option lists and impossible in the DB
+    by ``reserve()`` re-validating under ``select_for_update`` on the Equipment row.
+    """
+
+    class Status(models.TextChoices):
+        CONFIRMED = "confirmed", "Confirmed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    equipment = models.ForeignKey(
+        Equipment, on_delete=models.CASCADE, related_name="reservations", help_text="The reserved equipment."
+    )
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="equipment_reservations", help_text="Who reserved it."
+    )
+    starts_at = models.DateTimeField(help_text="When the reservation begins (aware UTC).")
+    ends_at = models.DateTimeField(help_text="When the reservation ends (aware UTC).")
+    purpose = models.CharField(
+        max_length=140, blank=True, default="", help_text="Optional one liner shown on the schedule."
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.CONFIRMED, help_text="Confirmed or cancelled."
+    )
+    cancelled_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who cancelled it — distinguishes self cancel from manager cancel.",
+    )
+    cancelled_reason = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Required when a manager cancels; shown to the member.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the reservation was made.")
+    cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When it was cancelled, if it was.")
+
+    objects = EquipmentReservationQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=models.F("starts_at")),
+                name="ck_equipres_end_after_start",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["equipment", "starts_at"],
+                name="idx_equipres_confirmed",
+                condition=Q(status="confirmed"),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.equipment.name}: {self.member.display_name} {self.starts_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_cancelled_by_manager(self) -> bool:
+        """True when a manager (not the member) cancelled this reservation."""
+        return (
+            self.status == self.Status.CANCELLED
+            and self.cancelled_by_id is not None
+            and self.cancelled_by_id != self.member_id
+        )
+
+    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> None:
+        """Cancel this reservation as ``actor`` — the member themselves, or a manager.
+
+        Self cancel: future reservations only, no reason needed, notifies nobody (no
+        approver exists to care). Manager cancel: also allowed while in progress,
+        requires a reason the member will see, and notifies the member. A manager
+        cancelling THEIR OWN row from the manage tab passes ``as_manager=True`` —
+        the manager guards apply (reason honored, in-progress allowed) but nobody is
+        notified, because the member IS the actor.
+
+        Raises:
+            EquipmentError: When already cancelled, already started (self cancel),
+                already ended (manager cancel), or ``actor`` has no authority here.
+            ValueError: When a manager cancels without a reason (form-enforced
+                upstream; loud guard here, mirroring the decline-notes convention).
+        """
+        if self.status != self.Status.CONFIRMED:
+            raise EquipmentError("This reservation was already cancelled.")
+        now = timezone.now()
+        is_own_row = actor.pk == self.member_id
+        acting_as_manager = as_manager or not is_own_row
+        cleaned_reason = reason.strip()
+        if acting_as_manager:
+            if not actor.can_manage_equipment(self.equipment):
+                raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
+            if not cleaned_reason:
+                raise ValueError("A manager cancel needs a reason the member will see.")
+            if self.ends_at <= now:
+                raise EquipmentError("This reservation already ended.")
+        elif self.starts_at <= now:
+            raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+        self.status = self.Status.CANCELLED
+        self.cancelled_by = actor
+        self.cancelled_reason = cleaned_reason
+        self.cancelled_at = now
+        self.save(update_fields=["status", "cancelled_by", "cancelled_reason", "cancelled_at"])
+        if acting_as_manager and not is_own_row:
+            from membership import equipment as equipment_service
+
+            equipment_service.notify_manager_cancelled(self)
