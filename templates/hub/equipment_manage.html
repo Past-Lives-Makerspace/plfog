@@ -7,7 +7,8 @@
 </div>
 <h1 class="hub-page-title">Manage {{ equipment.name }}</h1>
 
-<div x-data="{ section: new URLSearchParams(window.location.search).get('tab') || '{{ active_tab }}' }">
+{# The server sanitizes ?tab= to a known pane (view whitelist), so render its value alone — reading the raw URL param here would let /manage/?tab=bogus blank both panes. #}
+<div x-data="{ section: '{{ active_tab }}' }">
 <nav role="tablist" class="pl-tabs">
   <button type="button" class="vote-tab" :class="section === 'details' ? 'vote-tab--active' : ''" @click="section = 'details'">Details</button>
   <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
@@ -62,7 +63,8 @@
     </p>
     {% endif %}
 
-    <div x-data="{ showAdd: false }" class="pl-equip-staff-add">
+    {# A bound (error-bearing) add form must re-render revealed, or its errors hide inside the collapsed reveal. #}
+    <div x-data="{ showAdd: {{ staff_add_form.is_bound|yesno:"true,false" }} }" class="pl-equip-staff-add">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showAdd" @click="showAdd = true">
         + Add Manager
       </button>

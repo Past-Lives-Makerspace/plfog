@@ -112,11 +112,10 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
         raise Http404("This equipment has been retired.")
     member = _get_member(request)
     access_state = equipment.access_state(member)
+    orientation_type = equipment.required_orientation
     orientation_booking = None
     orientation_url = ""
-    if access_state == Equipment.AccessState.NEEDS_ORIENTATION and member is not None:
-        orientation_type = equipment.required_orientation
-        assert orientation_type is not None  # NEEDS_ORIENTATION implies the gate is set
+    if member is not None and orientation_type is not None and access_state == Equipment.AccessState.NEEDS_ORIENTATION:
         orientation_booking = member.active_orientation_for_type(orientation_type)
         orientation_url = (
             reverse("hub_guild_detail", args=[orientation_type.guild.slug])

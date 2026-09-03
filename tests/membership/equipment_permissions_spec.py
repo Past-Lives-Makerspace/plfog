@@ -45,10 +45,21 @@ def describe_can_manage_equipment():
         request = _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})
         assert can_manage_equipment(request, EquipmentFactory()) is True
 
-    def it_denies_an_admin_previewing_as_member():
+    def it_denies_an_admin_without_the_capability_previewing_as_member():
+        # The admin leg demotes under preview. In practice migration 0161 backfills
+        # EQUIPMENT onto every existing admin, so a real previewing admin keeps access
+        # via the capability leg (pinned below) — this pins the admin leg in isolation.
         member = _member_user()
         request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
         assert can_manage_equipment(request, EquipmentFactory()) is False
+
+    def it_keeps_manage_access_for_a_capability_holding_admin_previewing_as_member():
+        # The capability leg is preview-independent (the house capability-gate semantic):
+        # a granted duty follows the person, not the view-as preview.
+        member = _member_user()
+        member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert can_manage_equipment(request, EquipmentFactory()) is True
 
     def it_denies_a_guild_officer_without_any_grant():
         # The site tier is deliberately narrower than is_effective_staff (spec §5).
@@ -97,11 +108,13 @@ def describe_can_manage_equipment():
         request = _request(AnonymousUser())
         assert can_manage_equipment(request, EquipmentFactory()) is False
 
-    def it_denies_a_capability_holder_previewing_as_guest():
+    def it_keeps_manage_access_for_a_capability_holder_previewing_as_guest():
+        # Preview-independent even at the guest extreme — the capability leg never
+        # consults view_as, exactly like hub.view_as._capability_or_admin_required.
         member = _member_user()
         member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_GUEST)
-        assert can_manage_equipment(request, EquipmentFactory()) is False
+        assert can_manage_equipment(request, EquipmentFactory()) is True
 
 
 def describe_can_create_equipment():
@@ -122,9 +135,16 @@ def describe_can_create_equipment():
         assert can_create_equipment(request) is False
 
     def it_denies_a_plain_member_and_an_admin_previewing_as_member():
+        # Neither holds the capability, so only the (preview-demoted) admin leg applies.
         member = _member_user()
         assert can_create_equipment(_request(member.user, roles={ROLE_MEMBER})) is False
         assert can_create_equipment(_request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)) is False
+
+    def it_keeps_create_access_for_a_capability_holder_previewing_as_member():
+        member = _member_user()
+        member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert can_create_equipment(request) is True
 
     def it_denies_an_anonymous_request():
         assert can_create_equipment(_request(AnonymousUser())) is False

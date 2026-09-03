@@ -99,17 +99,24 @@ def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
     resource tier — an ``EquipmentStaffMembership`` row.
     Guild officers get no blanket grant here — the site tier is deliberately
     narrower than ``is_effective_staff``.
+
+    The admin leg honors ``view_as`` preview, but the capability leg is deliberately
+    **preview-independent** — it reads the request's actual linked member, like every
+    house capability gate (``hub.view_as._capability_or_admin_required``): a granted
+    duty follows the person, not the preview. Migration 0161 backfills EQUIPMENT onto
+    every existing admin, so in practice a previewing admin keeps manage access.
     """
     from membership.models import AdminCapability
 
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
         return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return True
     member = _editing_member(request)
     if member is None:
         return False
-    if member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
-        return True
     guild = equipment.guild
     if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
         return True
@@ -120,15 +127,17 @@ def can_create_equipment(request: HttpRequest) -> bool:
     """True when this request may create equipment — full admin or EQUIPMENT capability only.
 
     Guild leads and per-equipment managers edit and run equipment they manage but do not
-    create it (locked decision #3). Honors ``view_as`` preview like the other helpers.
+    create it (locked decision #3). The admin leg honors ``view_as`` preview; the
+    capability leg is preview-independent, matching :func:`can_manage_equipment` and the
+    house capability gates.
     """
     from membership.models import AdminCapability
 
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
         return True
-    member = _editing_member(request)
-    return member is not None and member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
+    actual_member: Member | None = getattr(request.user, "member", None)
+    return actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
 
 
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:

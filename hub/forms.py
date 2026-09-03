@@ -3580,7 +3580,10 @@ class EquipmentForm(forms.ModelForm):
         space_field.required = False
         orientation_field = cast(forms.ModelChoiceField, self.fields["required_orientation"])
         types = OrientationType.objects.active().select_related("guild").order_by("guild__name", "sort_order", "name")
-        if self.instance.pk is not None and self.instance.guild_id is not None:
+        # Narrow the *display* to the owning guild's types; a bound form keeps the full
+        # set so changing guild and orientation in one POST validates against the POSTED
+        # guild (clean() enforces the match), not the stale instance guild.
+        if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
             types = types.filter(guild_id=self.instance.guild_id)
         orientation_field.queryset = types
         orientation_field.empty_label = "No orientation needed"
@@ -3600,8 +3603,12 @@ class EquipmentForm(forms.ModelForm):
 
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
-        if cleaned.get("requires_guild_membership") and cleaned.get("guild") is None:
-            raise forms.ValidationError("Pick a guild first, or turn this off.")
+        guild = cleaned.get("guild")
+        if cleaned.get("requires_guild_membership") and guild is None:
+            self.add_error(None, "Pick a guild first, or turn this off.")
+        orientation = cleaned.get("required_orientation")
+        if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
+            self.add_error("required_orientation", "Pick an orientation offered by the chosen guild.")
         return cleaned
 
 
@@ -3610,9 +3617,9 @@ class EquipmentStaffAddForm(forms.Form):
 
     member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
 
-    def __init__(self, *args: Any, equipment: Any = None, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, equipment: Equipment | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._equipment = equipment
+        self._equipment: Equipment | None = equipment
         cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.active().order_by(
             "full_legal_name"
         )

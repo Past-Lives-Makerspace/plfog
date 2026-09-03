@@ -201,6 +201,35 @@ def describe_equipment_add():
         assert b"Pick a guild first, or turn this off." in response.content
         assert not Equipment.objects.filter(name="Bad Saw").exists()
 
+    def it_rejects_an_orientation_from_another_guild(client: Client):
+        _login(client, "eq_add_mismatch", fog_role=Member.FogRole.ADMIN)
+        woodshop = GuildFactory(name="Woodshop")
+        foreign_type = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
+        response = client.post(
+            reverse("hub_equipment_add"),
+            {
+                "name": "Mismatch Saw",
+                "kind": "tool",
+                "guild": woodshop.pk,
+                "required_orientation": foreign_type.pk,
+                "is_active": "on",
+            },
+        )
+        assert response.status_code == 200
+        assert b"Pick an orientation offered by the chosen guild." in response.content
+        assert not Equipment.objects.filter(name="Mismatch Saw").exists()
+
+    def it_allows_any_guilds_orientation_on_standalone_equipment(client: Client):
+        # The house Makerspace-guild convention: a standalone tool's gate lives on a guild's type.
+        _login(client, "eq_add_standalone", fog_role=Member.FogRole.ADMIN)
+        orientation_type = OrientationTypeFactory(name="Lathe")
+        response = client.post(
+            reverse("hub_equipment_add"),
+            {"name": "House Lathe", "kind": "tool", "required_orientation": orientation_type.pk, "is_active": "on"},
+        )
+        assert response.status_code == 302
+        assert Equipment.objects.get(name="House Lathe").required_orientation == orientation_type
+
 
 def describe_equipment_detail():
     def it_shows_all_set_when_nothing_gates_it(client: Client):
@@ -354,12 +383,44 @@ def describe_equipment_manage():
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "staff"})
         assert b"No per-equipment managers yet." in response.content
         assert b"+ Add Manager" in response.content
+        # The rendered Alpine state comes from the sanitized server value and the
+        # unbound add form stays collapsed on a plain GET.
+        assert b"{ section: 'staff' }" in response.content
+        assert b"{ showAdd: false }" in response.content
 
     def it_falls_back_to_the_details_tab_for_an_unknown_tab(client: Client):
         _login(client, "eq_mng_tab", fog_role=Member.FogRole.ADMIN)
         equipment = EquipmentFactory()
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "bogus"})
         assert response.context["active_tab"] == "details"
+        # The client-effective state: x-data renders the sanitized value, never the raw
+        # ?tab= param — a garbage tab must not blank both panes.
+        assert b"{ section: 'details' }" in response.content
+        assert b"bogus" not in response.content
+
+    def it_denies_a_manager_of_other_equipment(client: Client):
+        # Cross-resource probe: an EquipmentStaffMembership row on A grants nothing on B.
+        user = _login(client, "eq_mng_cross")
+        mine = EquipmentFactory()
+        EquipmentStaffMembershipFactory(equipment=mine, member=user.member)
+        other = EquipmentFactory(name="Other Saw")
+        assert client.get(reverse("hub_equipment_manage", args=[other.slug])).status_code == 403
+        response = client.post(
+            reverse("hub_equipment_details_save", args=[other.slug]), {"name": "Hacked", "kind": "tool"}
+        )
+        assert response.status_code == 403
+        other.refresh_from_db()
+        assert other.name == "Other Saw"
+
+    def it_narrows_the_orientation_choices_to_the_owning_guild_on_display(client: Client):
+        _login(client, "eq_mng_narrow", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        own_type = OrientationTypeFactory(guild=guild, name="Lathe")
+        OrientationTypeFactory(name="Wheel")  # another guild's type
+        equipment = EquipmentFactory(guild=guild)
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]))
+        queryset = response.context["form"].fields["required_orientation"].queryset
+        assert list(queryset) == [own_type]
 
 
 def describe_equipment_details_save():
@@ -386,6 +447,50 @@ def describe_equipment_details_save():
         equipment.refresh_from_db()
         assert equipment.name == "New Name"
         assert equipment.slug == "old-name"  # slug is stable across renames
+
+    def it_accepts_changing_guild_and_orientation_together(client: Client):
+        # The bound form validates the type against the POSTED guild, not the stale
+        # instance guild — re-homing equipment in one save must not dead-end.
+        _login(client, "eq_save_rehome", fog_role=Member.FogRole.ADMIN)
+        old_guild = GuildFactory(name="Woodshop")
+        old_type = OrientationTypeFactory(guild=old_guild, name="Saw Basics")
+        new_guild = GuildFactory(name="Ceramics")
+        new_type = OrientationTypeFactory(guild=new_guild, name="Wheel")
+        equipment = EquipmentFactory(guild=old_guild, required_orientation=old_type)
+        response = client.post(
+            reverse("hub_equipment_details_save", args=[equipment.slug]),
+            {
+                "name": equipment.name,
+                "kind": "tool",
+                "guild": new_guild.pk,
+                "required_orientation": new_type.pk,
+                "is_active": "on",
+            },
+        )
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.guild == new_guild
+        assert equipment.required_orientation == new_type
+
+    def it_rejects_an_orientation_that_mismatches_the_posted_guild(client: Client):
+        _login(client, "eq_save_mismatch", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(name="Woodshop")
+        foreign_type = OrientationTypeFactory(guild=GuildFactory(name="Ceramics"), name="Wheel")
+        equipment = EquipmentFactory(guild=guild)
+        response = client.post(
+            reverse("hub_equipment_details_save", args=[equipment.slug]),
+            {
+                "name": equipment.name,
+                "kind": "tool",
+                "guild": guild.pk,
+                "required_orientation": foreign_type.pk,
+                "is_active": "on",
+            },
+        )
+        assert response.status_code == 200
+        assert b"Pick an orientation offered by the chosen guild." in response.content
+        equipment.refresh_from_db()
+        assert equipment.required_orientation is None
 
     def it_rerenders_with_errors_and_saves_nothing_on_invalid_input(client: Client):
         _login(client, "eq_save_bad", fog_role=Member.FogRole.ADMIN)
@@ -451,6 +556,10 @@ def describe_equipment_staff_add():
         assert response.status_code == 200
         assert b"They already manage this equipment." in response.content
         assert equipment.staff_memberships.count() == 1
+        # The bound (error-bearing) form re-renders revealed on the staff pane, so the
+        # error is actually visible — not hidden inside the collapsed + Add Manager reveal.
+        assert b"{ section: 'staff' }" in response.content
+        assert b"{ showAdd: true }" in response.content
 
 
 def describe_equipment_staff_remove():

@@ -10317,8 +10317,9 @@ class Equipment(HeroCropMixin, models.Model):
         """Everyone who may manage this equipment, de-duplicated.
 
         Per-equipment staff rows ∪ the owning guild's :meth:`Guild.leadership_members`
-        ∪ EQUIPMENT capability holders — the notification audience (PR 2) and the
-        manage-panel display.
+        ∪ EQUIPMENT capability holders. No production call site in PR 1 — this becomes
+        the ``equipment.reservation_made`` notification audience (the
+        ``equipment_managers`` resolver) when reservations land in PR 2.
         """
         members: list[Member] = []
         seen: set[int] = set()
