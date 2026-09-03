@@ -26,6 +26,7 @@ from membership.models import (
     AdminCapability,
     CommunityEvent,
     DiscordGuildEmoji,
+    Equipment,
     Floorplan,
     Guild,
     GuildAnnouncement,
@@ -3533,3 +3534,98 @@ class TourSettingsForm(forms.ModelForm):
     class Meta:
         model = Member
         fields = ["guided_tours_enabled"]
+
+
+class EquipmentForm(forms.ModelForm):
+    """Create/edit form for a piece of equipment (the Equipment directory, PR 1).
+
+    Used by both the admin-gated add page and the manage panel's Details tab. The
+    ``required_orientation`` choices narrow to the owning guild's active types when the
+    equipment already belongs to a guild; otherwise every guild's active types are
+    offered (grouped by guild via the type's ``__str__``) — the house Makerspace guild
+    is an operating convention, not a code concept.
+    """
+
+    class Meta:
+        model = Equipment
+        fields = [
+            "name",
+            "kind",
+            "guild",
+            "space",
+            "photo",
+            "description",
+            "location_note",
+            "required_orientation",
+            "requires_guild_membership",
+            "is_active",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. CNC Router"}),
+            "description": forms.Textarea(
+                attrs={"rows": 5, "placeholder": "What is it, what can members make with it, any house rules."}
+            ),
+            "location_note": forms.TextInput(attrs={"placeholder": "e.g. Back corner of the wood shop"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.order_by("name")
+        guild_field.empty_label = "Standalone"
+        guild_field.required = False
+        space_field = cast(forms.ModelChoiceField, self.fields["space"])
+        space_field.queryset = Space.objects.order_by("space_id")
+        space_field.empty_label = "No linked space"
+        space_field.required = False
+        orientation_field = cast(forms.ModelChoiceField, self.fields["required_orientation"])
+        types = OrientationType.objects.active().select_related("guild").order_by("guild__name", "sort_order", "name")
+        # Narrow the *display* to the owning guild's types; a bound form keeps the full
+        # set so changing guild and orientation in one POST validates against the POSTED
+        # guild (clean() enforces the match), not the stale instance guild.
+        if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
+            types = types.filter(guild_id=self.instance.guild_id)
+        orientation_field.queryset = types
+        orientation_field.empty_label = "No orientation needed"
+        orientation_field.required = False
+        # Member-facing hints — the model help_text is written for admins/migrations and
+        # would leak jargon (PROTECT, sync notes) into the form via form_field.html.
+        self.fields["name"].help_text = ""
+        self.fields["kind"].help_text = ""
+        self.fields["guild"].help_text = "Blank means standalone equipment, run by the makerspace."
+        self.fields["space"].help_text = "Optional. Link the physical room from the space map. We only read from it."
+        self.fields["description"].help_text = ""
+        self.fields["location_note"].help_text = "A short note that helps members find it."
+        self.fields["required_orientation"].help_text = "Members must complete this orientation before they can book."
+        self.fields["requires_guild_membership"].help_text = "Only members of the chosen guild can book."
+        self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
+        self.fields["is_active"].label = "Active"
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        guild = cleaned.get("guild")
+        if cleaned.get("requires_guild_membership") and guild is None:
+            self.add_error(None, "Pick a guild first, or turn this off.")
+        orientation = cleaned.get("required_orientation")
+        if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
+            self.add_error("required_orientation", "Pick an orientation offered by the chosen guild.")
+        return cleaned
+
+
+class EquipmentStaffAddForm(forms.Form):
+    """The manage panel's "+ Add Manager" form — grants one member a manager role."""
+
+    member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
+
+    def __init__(self, *args: Any, equipment: Equipment | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._equipment: Equipment | None = equipment
+        cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.active().order_by(
+            "full_legal_name"
+        )
+
+    def clean_member(self) -> Member:
+        member = cast(Member, self.cleaned_data["member"])
+        if self._equipment is not None and self._equipment.staff_memberships.filter(member=member).exists():
+            raise forms.ValidationError("They already manage this equipment.")
+        return member

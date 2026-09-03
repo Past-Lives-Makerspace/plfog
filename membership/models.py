@@ -1114,6 +1114,31 @@ class Member(models.Model):
             return True
         return offering.instructor_id == self.pk
 
+    def can_manage_equipment(self, equipment: Equipment) -> bool:
+        """True when this member may manage the given equipment.
+
+        Three tiers (the locked equipment-permissions decision): site tier — full admin
+        or the EQUIPMENT capability; guild tier — the owning guild's lead or any staff
+        member; resource tier — an :class:`EquipmentStaffMembership` row. Role-based —
+        use ``membership.permissions.can_manage_equipment`` in views to honor
+        ``view_as`` preview mode.
+        """
+        if self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+            return True
+        guild = equipment.guild
+        if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
+            return True
+        return equipment.staff_memberships.filter(member=self).exists()
+
+    def can_create_equipment(self) -> bool:
+        """True when this member may create equipment — full admin or EQUIPMENT capability only.
+
+        Guild leads and per-equipment managers edit and run equipment they manage but do
+        not create it (locked decision #3). Role-based — use
+        ``membership.permissions.can_create_equipment`` in views to honor ``view_as``.
+        """
+        return self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
+
     @property
     def is_guild_lead(self) -> bool:
         """True when this member leads at least one guild."""
@@ -2393,6 +2418,7 @@ class AdminCapability(models.Model):
         EVENTS_APPROVER = "events_approver", "Calendar Administrator"
         BILLING_APPROVER = "billing_approver", "Billing Administrator"
         REFUNDS = "refunds", "Refunds"
+        EQUIPMENT = "equipment", "Equipment Administrator"
 
     member = models.ForeignKey(
         Member,
@@ -10147,3 +10173,276 @@ class SpaceRequest(models.Model):
         if price is None:
             return "Price on request"
         return f"${price:.2f}/mo"
+
+
+class EquipmentQuerySet(models.QuerySet["Equipment"]):
+    """Query helpers for the Equipment directory."""
+
+    def active(self) -> EquipmentQuerySet:
+        """Equipment currently offered — inactive (retired) gear is hidden from members entirely."""
+        return self.filter(is_active=True)
+
+    def for_guild(self, guild: Guild) -> EquipmentQuerySet:
+        """Equipment owned by the given guild."""
+        return self.filter(guild=guild)
+
+    def standalone(self) -> EquipmentQuerySet:
+        """Equipment with no owning guild."""
+        return self.filter(guild__isnull=True)
+
+
+class Equipment(HeroCropMixin, models.Model):
+    """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.
+
+    One Django-owned model for both kinds (the locked Option A decision). The optional
+    ``space`` FK is a **read-only** relationship into the Airtable-synced :class:`Space` —
+    Django never writes through it and ``airtable_pull`` never sees this model. Access is
+    gated by the existing orientation stack: ``required_orientation`` points at an
+    :class:`OrientationType` and the gate is :meth:`Member.is_oriented_for_type`.
+    """
+
+    class Kind(models.TextChoices):
+        TOOL = "tool", "Tool"
+        ROOM = "room", "Room"
+
+    class AccessState(models.TextChoices):
+        """What stands between a member and this equipment — one state at a time.
+
+        Rendered by both the index card badge and the detail-page requirements banner,
+        so the two surfaces can't drift.
+        """
+
+        OK = "ok", "You're all set"
+        NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
+        NEEDS_GUILD = "needs_guild", "Guild members only"
+        INACTIVE_MEMBER = "inactive_member", "Membership inactive"
+
+    name = models.CharField(max_length=120, help_text="Display name members see, e.g. CNC Router.")
+    slug = models.SlugField(
+        max_length=140,
+        unique=True,
+        blank=True,
+        help_text="URL slug for the equipment page, auto-generated from the name (stable across renames).",
+    )
+    kind = models.CharField(
+        max_length=10,
+        choices=Kind.choices,
+        default=Kind.TOOL,
+        help_text="Whether this is a tool or a room. Both live on the Equipment page.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="equipment",
+        help_text=(
+            "The guild this equipment belongs to; its leadership manages it. Blank = standalone. "
+            "PROTECT: deleting a guild with equipment must be a deliberate re-home, not a silent cascade."
+        ),
+    )
+    space = models.ForeignKey(
+        Space,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="equipment",
+        help_text=(
+            "Optional read-only link to the physical room on the space map. Django never writes "
+            "through this relationship; the Airtable sync never sees Equipment."
+        ),
+    )
+    photo = models.ImageField(
+        upload_to="equipment/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Hero photo shown on the card and detail page.",
+    )
+    description = models.TextField(
+        blank=True, default="", help_text="The About body on the equipment page — what it is, how to use it well."
+    )
+    location_note = models.CharField(
+        max_length=200, blank=True, default="", help_text="Wayfinding note, e.g. 'Back corner of the wood shop.'"
+    )
+    required_orientation = models.ForeignKey(
+        OrientationType,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="gated_equipment",
+        help_text=(
+            "Members must complete this orientation before booking. PROTECT: deleting an orientation "
+            "type that gates live equipment should fail loudly, not silently un-gate a dangerous tool."
+        ),
+    )
+    requires_guild_membership = models.BooleanField(
+        default=False,
+        help_text="Only members of the owning guild may book. Only meaningful when a guild is set.",
+    )
+    is_active = models.BooleanField(
+        default=True, help_text="Offer this equipment to members. Inactive (retired) gear is hidden from the index."
+    )
+
+    objects = EquipmentQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "Equipment"
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.get_kind_display()})"
+
+    def get_hero_image_field_name(self) -> str:
+        return "photo"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug:
+            self.slug = self._unique_slug()
+        delete_orphan_on_replace(self, "photo")
+        super().save(*args, **kwargs)
+
+    def _unique_slug(self) -> str:
+        """A URL slug derived from the equipment name, suffixed (``-2``, ``-3``…) to stay unique."""
+        from django.utils.text import slugify
+
+        base = slugify(self.name) or "equipment"
+        slug = base
+        n = 2
+        while Equipment.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+            slug = f"{base}-{n}"
+            n += 1
+        return slug
+
+    def manager_members(self) -> list[Member]:
+        """Everyone who may manage this equipment, de-duplicated.
+
+        Per-equipment staff rows ∪ the owning guild's :meth:`Guild.leadership_members`
+        ∪ EQUIPMENT capability holders. No production call site in PR 1 — this becomes
+        the ``equipment.reservation_made`` notification audience (the
+        ``equipment_managers`` resolver) when reservations land in PR 2.
+        """
+        members: list[Member] = []
+        seen: set[int] = set()
+        # Staff rows are unique per (equipment, member), so no in-loop dedupe needed here.
+        for staff in self.staff_memberships.select_related("member"):
+            members.append(staff.member)
+            seen.add(staff.member_id)
+        guild = self.guild
+        if guild is not None:
+            for leader in guild.leadership_members():
+                if leader.pk not in seen:
+                    members.append(leader)
+                    seen.add(leader.pk)
+        capability_rows = AdminCapability.objects.filter(
+            capability=AdminCapability.Capability.EQUIPMENT
+        ).select_related("member")
+        for grant in capability_rows:
+            if grant.member_id not in seen:
+                members.append(grant.member)
+                seen.add(grant.member_id)
+        return members
+
+    def access_state(
+        self,
+        member: Member | None,
+        *,
+        oriented_type_ids: set[int] | None = None,
+        member_guild_ids: set[int] | None = None,
+    ) -> str:
+        """The one :class:`AccessState` between ``member`` and this equipment.
+
+        Drives both the index card badge and the detail-page requirements banner.
+        The two optional sets are the bulk-caller optimization for the index page —
+        pass the member's completed orientation-type pks and joined-guild pks so a
+        page of cards costs two queries, not two per card. Omit both and the checks
+        query per call.
+        """
+        if member is None or member.status != Member.Status.ACTIVE:
+            return self.AccessState.INACTIVE_MEMBER
+        required_orientation = self.required_orientation
+        if required_orientation is not None:
+            if oriented_type_ids is not None:
+                oriented = required_orientation.pk in oriented_type_ids
+            else:
+                oriented = member.is_oriented_for_type(required_orientation)
+            if not oriented:
+                return self.AccessState.NEEDS_ORIENTATION
+        if self.requires_guild_membership and self.guild_id is not None:
+            if member_guild_ids is not None:
+                in_guild = self.guild_id in member_guild_ids
+            else:
+                in_guild = member.guild_memberships.filter(guild_id=self.guild_id).exists()
+            if not in_guild:
+                return self.AccessState.NEEDS_GUILD
+        return self.AccessState.OK
+
+    def booking_blockers(self, member: Member | None) -> list[str]:
+        """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
+
+        The single gate the requirements banner, the index badge, and (PR 2)
+        ``reserve()`` all read. An inactive or unlinked member short-circuits — the
+        remaining checks are meaningless without an active member. The PR 2 closure
+        check joins this list when reservations land.
+        """
+        if member is None or member.status != Member.Status.ACTIVE:
+            return ["Your membership needs to be active to reserve equipment."]
+        blockers: list[str] = []
+        required_orientation = self.required_orientation
+        if required_orientation is not None and not member.is_oriented_for_type(required_orientation):
+            blockers.append(f"You need the {required_orientation.name} orientation before you can book time here.")
+        guild = self.guild
+        if (
+            self.requires_guild_membership
+            and guild is not None
+            and not member.guild_memberships.filter(guild_id=guild.pk).exists()
+        ):
+            blockers.append(f"Only {guild.name} members can book this.")
+        return blockers
+
+
+class EquipmentStaffMembership(models.Model):
+    """A member's manager role on one piece of equipment — the resource permission tier.
+
+    Mirrors :class:`GuildStaffMembership`: the row itself is the grant. One role today;
+    ``TextChoices`` anyway so a future role is a value, not a migration of shape.
+    """
+
+    class Role(models.TextChoices):
+        MANAGER = "manager", "Manager"
+
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.CASCADE,
+        related_name="staff_memberships",
+        help_text="The equipment this manager role applies to.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="equipment_staff_memberships",
+        help_text="The member holding the manager role.",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.MANAGER,
+        help_text="The staff role on this equipment. Manager is the only role today.",
+    )
+    granted_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member who granted this role (audit; nulled if they're deleted).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this role was granted.")
+
+    class Meta:
+        ordering = ["member__full_legal_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["equipment", "member"], name="uq_%(class)s_equipment_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name}: {self.equipment.name} manager"

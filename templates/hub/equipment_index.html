@@ -1,0 +1,53 @@
+{% extends "hub/base.html" %}
+{% block title %}Equipment{% endblock %}
+
+{% block content %}
+{% if can_create %}
+{% url 'hub_equipment_add' as add_url %}
+{% include "components/page_header.html" with title="Equipment" description="Reserve time on shared tools and rooms." action_url=add_url action_label="+ Add Equipment" action_class="pl-btn pl-btn--primary" %}
+{% else %}
+{% include "components/page_header.html" with title="Equipment" description="Reserve time on shared tools and rooms." %}
+{% endif %}
+
+{% if has_any_equipment %}
+<div class="pl-equip-filters">
+  <div class="pl-equip-chips">
+    <a href="{% url 'hub_equipment_index' %}?kind={{ kind_filter|urlencode }}&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if not guild_filter %}pl-equip-chip--active{% endif %}">All</a>
+    {% for filter_guild in filter_guilds %}
+    <a href="{% url 'hub_equipment_index' %}?guild={{ filter_guild.slug|urlencode }}&kind={{ kind_filter|urlencode }}&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if guild_filter == filter_guild.slug %}pl-equip-chip--active{% endif %}">{{ filter_guild.name }}</a>
+    {% endfor %}
+    {% if has_standalone %}
+    <a href="{% url 'hub_equipment_index' %}?guild=standalone&kind={{ kind_filter|urlencode }}&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if guild_filter == 'standalone' %}pl-equip-chip--active{% endif %}">Standalone</a>
+    {% endif %}
+  </div>
+  <div class="pl-equip-chips">
+    <a href="{% url 'hub_equipment_index' %}?guild={{ guild_filter|urlencode }}&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if not kind_filter %}pl-equip-chip--active{% endif %}">All</a>
+    <a href="{% url 'hub_equipment_index' %}?guild={{ guild_filter|urlencode }}&kind=tool&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if kind_filter == 'tool' %}pl-equip-chip--active{% endif %}">Tools</a>
+    <a href="{% url 'hub_equipment_index' %}?guild={{ guild_filter|urlencode }}&kind=room&q={{ query|urlencode }}"
+       class="pl-equip-chip {% if kind_filter == 'room' %}pl-equip-chip--active{% endif %}">Rooms</a>
+  </div>
+  <form method="get" class="pl-equip-search hub-form-group">
+    <input type="hidden" name="guild" value="{{ guild_filter }}">
+    <input type="hidden" name="kind" value="{{ kind_filter }}">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search equipment" aria-label="Search equipment">
+  </form>
+</div>
+{% endif %}
+
+{% if cards %}
+{% include "hub/partials/equipment_cards.html" %}
+{% elif is_filtered %}
+<div class="hub-card" style="padding:1.5rem;">
+  <p class="hub-text-muted" style="margin:0;">Nothing matches those filters. <a href="{% url 'hub_equipment_index' %}">Clear filters</a></p>
+</div>
+{% else %}
+<div class="hub-card" style="padding:1.5rem;">
+  <p class="hub-text-muted" style="margin:0;">No equipment is bookable yet. Check back soon.</p>
+</div>
+{% endif %}
+{% endblock %}

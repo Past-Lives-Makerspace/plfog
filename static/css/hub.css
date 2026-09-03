@@ -7498,3 +7498,238 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         padding-bottom: 4.5rem;
     }
 }
+
+/* ── Equipment directory (equipment-reservations spec PR 1) ─────────────── */
+.pl-equip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 1rem;
+}
+.pl-equip-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+}
+.pl-equip-card__photo,
+.pl-equip-card__placeholder {
+    width: 100%;
+    height: 140px;
+    display: block;
+    object-fit: cover;
+}
+.pl-equip-card__placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+.pl-equip-card__body {
+    padding: 0.9rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+/* The name link stretches over the whole card (the tap target); the guild chip
+   sits above it with its own link. */
+.pl-equip-card__name {
+    font-weight: 700;
+    color: var(--hub-text);
+    text-decoration: none;
+}
+.pl-equip-card__name::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+.pl-equip-card__meta {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+}
+.pl-equip-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+}
+.pl-equip-badge--ok {
+    color: #7bdcb5;
+    background: rgba(123, 220, 181, 0.12);
+}
+[data-theme="light"] .pl-equip-badge--ok {
+    color: #1e7a4f;
+    background: rgba(30, 122, 79, 0.1);
+}
+.pl-equip-badge--warn {
+    color: var(--color-tuscan-yellow);
+    background: rgba(238, 180, 75, 0.14);
+}
+[data-theme="light"] .pl-equip-badge--warn {
+    color: #8a5a00;
+    background: rgba(238, 180, 75, 0.18);
+}
+.pl-equip-badge--muted {
+    color: var(--hub-text-muted);
+    background: var(--hub-surface);
+}
+
+/* Filter row — chips scroll horizontally in their own contained region on phones. */
+.pl-equip-filters {
+    display: flex;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-chips {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 0.25rem;
+}
+.pl-equip-chip {
+    white-space: nowrap;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+    background: var(--hub-card-bg);
+    text-decoration: none;
+    font-size: 0.85rem;
+}
+.pl-equip-chip--active {
+    border-color: var(--color-tuscan-yellow);
+    color: var(--hub-text);
+}
+.pl-equip-search input[type="search"] {
+    min-width: 200px;
+}
+
+/* Detail page hero + requirements banner. */
+.pl-equip-hero {
+    padding: 0;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-hero__photo {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    display: block;
+}
+.pl-equip-hero__body {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.5rem 1.25rem;
+}
+.pl-equip-hero__titles {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-equip-banner {
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.25rem;
+    border-left: 4px solid var(--hub-border);
+}
+.pl-equip-banner--ok {
+    border-left-color: #7bdcb5;
+}
+.pl-equip-banner--warn {
+    border-left-color: var(--color-tuscan-yellow);
+}
+.pl-equip-banner__ok-text {
+    color: #7bdcb5;
+}
+[data-theme="light"] .pl-equip-banner__ok-text {
+    color: #1e7a4f;
+}
+[data-theme="light"] .pl-equip-banner--ok {
+    border-left-color: #1e7a4f;
+}
+
+/* Manage panel — form card, save row, staff rows; reflows to a column on phones. */
+.pl-equip-form-card {
+    padding: 1.5rem;
+    max-width: 640px;
+}
+.pl-equip-save-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+}
+.pl-equip-guild-toggle {
+    display: block;
+}
+.pl-equip-staff-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-staff-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+.pl-equip-staff-row__who {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.pl-equip-staff-add {
+    border-top: 1px solid var(--hub-border);
+    padding-top: 1.25rem;
+}
+.pl-equip-staff-add__form {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+.pl-equip-staff-add__field {
+    flex: 2;
+    min-width: 220px;
+}
+
+/* Orientation deep-link highlight (?type=<pk> from an equipment requirements banner). */
+.pl-orient-type--highlight {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 6px;
+    border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+    .pl-equip-grid {
+        grid-template-columns: 1fr;
+    }
+    .pl-equip-hero__body {
+        flex-direction: column;
+    }
+    .pl-equip-save-row {
+        justify-content: stretch;
+    }
+    .pl-equip-search input[type="search"] {
+        width: 100%;
+    }
+}

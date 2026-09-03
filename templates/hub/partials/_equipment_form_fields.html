@@ -1,0 +1,42 @@
+{% comment %}
+The EquipmentForm's fields — shared by the add page and the manage panel's Details tab
+(spec §7.2). Render inside a <form> with csrf + a Save button. Context:
+  form      — a bound or unbound EquipmentForm
+  equipment — the instance being edited, or absent on the add page (drives the
+              photo delete button and the "create a new orientation type" link)
+The requires_guild_membership toggle only shows once a guild is chosen; the Alpine
+state lives here so both surfaces behave identically. Layout stays in CSS classes —
+never inline display on an x-show element (FRONTEND rule 12).
+{% endcomment %}
+<div x-data="{ guildChosen: {% if form.guild.value %}true{% else %}false{% endif %} }"
+     @change="if ($event.target.name === 'guild') guildChosen = $event.target.value !== ''">
+  {% if form.non_field_errors %}
+  <ul class="pl-field-errors">
+    {% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <div class="hub-form-group">
+    {% include "components/form_field.html" with field=form.name %}
+    {% include "components/form_field.html" with field=form.kind %}
+    {% include "components/form_field.html" with field=form.guild %}
+    {% include "components/form_field.html" with field=form.space %}
+    {% if equipment and equipment.photo %}
+    {% url 'hub_equipment_photo_delete' equipment.slug as photo_delete_url %}
+    {% include "components/image_field.html" with field=form.photo current_image=equipment.photo delete_url=photo_delete_url modal_id="delete-equipment-photo" label="Photo" shape="rect" tooltip_html="Wide photo, about 1600x900, JPG or PNG." confirm_title="Delete photo?" confirm_message="The photo will be removed from this equipment's page and from our storage. This can't be undone." %}
+    {% else %}
+    {% include "components/image_field.html" with field=form.photo current_image=None label="Photo" shape="rect" tooltip_html="Wide photo, about 1600x900, JPG or PNG." %}
+    {% endif %}
+    {% include "components/form_field.html" with field=form.description %}
+    {% include "components/form_field.html" with field=form.location_note %}
+    {% include "components/form_field.html" with field=form.required_orientation %}
+    {% if equipment and equipment.guild %}
+    <p class="pl-field-hint" style="margin-top:-0.5rem;">
+      <a href="{% url 'hub_guild_edit' equipment.guild.pk %}?tab=orientations">Create a new orientation type</a>
+    </p>
+    {% endif %}
+    <div x-show="guildChosen" class="pl-equip-guild-toggle">
+      {% include "components/form_field.html" with field=form.requires_guild_membership %}
+    </div>
+    {% include "components/form_field.html" with field=form.is_active %}
+  </div>
+</div>

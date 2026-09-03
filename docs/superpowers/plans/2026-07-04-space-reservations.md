@@ -1,6 +1,6 @@
 # Space Reservations (meeting rooms + event space) — Spec & Implementation Plan
 
-**Status:** Spec only — not yet approved to build.
+**Status:** **Superseded by `2026-09-03-equipment-reservations.md`** — the equipment-reservations spec absorbs this plan's instant-booking half (rooms ship as `kind=ROOM` equipment); the approval-required rooms and event-space publish flow remain deferred there (§11).
 **Date:** 2026-07-04
 **Surface:** FOG hub (`pastlives.test`) — a standalone `/reserve/` area, a "My reservations" list, a steward/admin review queue, plus a "Reserve" button injected into the interactive-map detail panel. Admin config via Unfold.
 **Related:** Spec 1 of 2 — `docs/superpowers/plans/2026-07-04-interactive-space-map.md` (owns `Floorplan` / `MapHotspot` / `SpaceRequest`). This is **Spec 2 of 2**. Depends on the 0.21 `CommunityEvent` proposal/approval/Google-sync stack.

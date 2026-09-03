@@ -1,0 +1,91 @@
+{% extends "hub/base.html" %}
+{% block title %}Manage {{ equipment.name }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem;">
+  <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the {{ equipment.name }}</a>
+</div>
+<h1 class="hub-page-title">Manage {{ equipment.name }}</h1>
+
+{# The server sanitizes ?tab= to a known pane (view whitelist), so render its value alone — reading the raw URL param here would let /manage/?tab=bogus blank both panes. #}
+<div x-data="{ section: '{{ active_tab }}' }">
+<nav role="tablist" class="pl-tabs">
+  <button type="button" class="vote-tab" :class="section === 'details' ? 'vote-tab--active' : ''" @click="section = 'details'">Details</button>
+  <button type="button" class="vote-tab" :class="section === 'staff' ? 'vote-tab--active' : ''" @click="section = 'staff'">Staff</button>
+</nav>
+
+{# ── Details tab — the same EquipmentForm as the add page (spec §7.4). ── #}
+<div x-show="section === 'details'" {% if active_tab != "details" %}x-cloak{% endif %}>
+  <div class="hub-card pl-equip-form-card">
+    <form method="post" action="{% url 'hub_equipment_details_save' equipment.slug %}" enctype="multipart/form-data" class="hub-form">
+      {% csrf_token %}
+      {% include "hub/partials/_equipment_form_fields.html" %}
+      <div class="pl-equip-save-row">
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ── Staff tab — per-equipment managers, add/remove (spec §7.4). ── #}
+<div x-show="section === 'staff'" {% if active_tab != "staff" %}x-cloak{% endif %}>
+  <div class="hub-card" style="padding:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Managers</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
+      Managers run this equipment. They can edit its details and staff here.
+    </p>
+
+    {% if staff_memberships %}
+    <div class="pl-equip-staff-list">
+      {% for staff in staff_memberships %}
+      <div class="pl-equip-staff-row">
+        <div class="pl-equip-staff-row__who">
+          {% if staff.member.profile_photo %}
+          <img src="{{ staff.member.profile_photo.url }}" alt="" class="pl-orient-avatar">
+          {% else %}
+          <span class="pl-orient-avatar pl-orient-avatar--initials">{{ staff.member.display_name|slice:":1" }}</span>
+          {% endif %}
+          <div>
+            <div>{{ staff.member.display_name }}</div>
+            {% if staff.granted_by %}
+            <div class="hub-text-muted" style="font-size:0.8125rem;">Added by {{ staff.granted_by.display_name }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                @click="$dispatch('open-confirm', 'del-equip-staff-{{ staff.pk }}')">Remove</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="font-size:0.875rem; margin-bottom:1rem;">
+      No per-equipment managers yet. Guild leadership and Equipment Administrators can always manage this.
+    </p>
+    {% endif %}
+
+    {# A bound (error-bearing) add form must re-render revealed, or its errors hide inside the collapsed reveal. #}
+    <div x-data="{ showAdd: {{ staff_add_form.is_bound|yesno:"true,false" }} }" class="pl-equip-staff-add">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showAdd" @click="showAdd = true">
+        + Add Manager
+      </button>
+      <div x-show="showAdd" x-cloak>
+        <form method="post" action="{% url 'hub_equipment_staff_add' equipment.slug %}" class="pl-equip-staff-add__form">
+          {% csrf_token %}
+          <div class="pl-equip-staff-add__field">{% include "components/form_field.html" with field=staff_add_form.member %}</div>
+          <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Add</button>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showAdd = false">Cancel</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Confirm modals for manager removal — outside the x-show panes so they always mount. #}
+{% for staff in staff_memberships %}
+  {% url 'hub_equipment_staff_remove' equipment.slug staff.pk as staff_remove_url %}
+  {% with pks=staff.pk|stringformat:"s" name=staff.member.display_name %}
+    {% include "components/confirm_modal.html" with confirm_id="del-equip-staff-"|add:pks confirm_action_url=staff_remove_url confirm_title="Remove this manager?" confirm_message="Remove "|add:name|add:" as a manager of the "|add:equipment.name|add:"? You can add them back anytime." confirm_button_text="Remove" %}
+  {% endwith %}
+{% endfor %}
+</div>
+{% endblock %}
