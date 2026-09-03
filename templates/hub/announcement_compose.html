@@ -4,7 +4,11 @@
 {% include "_components/rich_editor_assets.html" %}
 
 <h1 class="hub-page-title">{{ compose_heading|default:"Compose announcement" }}</h1>
+{% if compose_lead %}
+<p class="pl-wizard-lead">{{ compose_lead }}</p>
+{% else %}
 <p class="pl-wizard-lead">Write your message and pick who gets it, then preview each channel before it goes out. Everyone in your recipient list always gets it in their notification bell.</p>
+{% endif %}
 
 <div class="hub-card pl-wizard"
      x-data="{

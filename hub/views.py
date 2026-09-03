@@ -3185,12 +3185,40 @@ def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> boo
 
 
 def _can_compose(request: HttpRequest, member: Member | None) -> bool:
-    """True when the user can compose *something* — an admin, a guild lead/staff, or an instructor."""
+    """True when the user can compose *something* — an admin, a guild lead/staff, or an instructor.
+
+    Instructing counts by what the member actually teaches (the same source the composer's class
+    audience options use), not only the public profile flag — ``is_instructor`` is merely "has an
+    instructor page" (``instructor_slug``), and a teaching instructor without one must still reach
+    the composer to email their registrants.
+    """
     if _viewing_as_admin(request):
         return True
     if member is None:
         return False
-    return member.staffed_guilds.filter(is_active=True).exists() or member.is_instructor
+    return (
+        member.staffed_guilds.filter(is_active=True).exists()
+        or member.is_instructor
+        or _compose_editable_classes(request, member).exists()
+    )
+
+
+def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience: str | None) -> bool:
+    """Gate for the composer surfaces: general compose rights, or rights over a pre-scoped class.
+
+    The class pages link here with ``?audience=class:<pk>&lock=1``; the class's own instructor may
+    always address that roster (:func:`_can_announce_to_class`) even when the class is not yet
+    published, so a pre-scoped class target they may announce to admits them on its own. The send
+    and save paths re-check the audience server-side regardless (:func:`_compose_audience_forbidden`).
+    """
+    if _can_compose(request, member):
+        return True
+    if not raw_audience:
+        return False
+    from hub.forms import split_audience
+
+    _audience, _guild, offering = split_audience(raw_audience)
+    return offering is not None and _can_announce_to_class(request, offering)
 
 
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
@@ -3322,6 +3350,7 @@ def _render_compose(
     locked: bool = False,
     locked_label: str = "",
     compose_heading: str = "",
+    compose_lead: str = "",
 ) -> HttpResponse:
     """Render the single-screen composer for GET and for an invalid-POST re-render (with errors)."""
     from membership.models import AnnouncementDraft
@@ -3370,27 +3399,36 @@ def _render_compose(
             "locked": locked,
             "locked_label": locked_label,
             "compose_heading": compose_heading,
+            "compose_lead": compose_lead,
         },
     )
 
 
-def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, str]:
+def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, str, str]:
     """Resolve the locked-audience banner from a pre-scoped audience value.
 
-    Returns ``(locked, locked_label, heading)``. Locked only when a class/guild target resolves —
-    a site audience is never locked (nothing to pin it to). Used by both the GET entry
-    (``?audience=…&lock=1``) and the invalid-POST re-render (the hidden ``lock`` field).
+    Returns ``(locked, locked_label, heading, lead)``. Locked only when a class/guild target
+    resolves — a site audience is never locked (nothing to pin it to). Used by both the GET entry
+    (``?audience=…&lock=1``) and the invalid-POST re-render (the hidden ``lock`` field). A class
+    target frames the page as emailing the roster — that is what the class page's "Send Email"
+    button promises — so its heading and lead line say so; guild and unlocked composes keep the
+    announcement framing (empty ``lead`` falls back to the template's default line).
     """
     if not (want_lock and requested):
-        return False, "", ""
+        return False, "", "", ""
     from hub.forms import split_audience
 
     _audience, guild, offering = split_audience(requested)
     if offering is not None:
-        return True, f"Registrants of {offering.title}", f"Announce to {offering.title}"
+        return (
+            True,
+            f"Registrants of {offering.title}",
+            f"Email the registrants of {offering.title}",
+            "This goes to everyone registered for this class. Delivered by email plus their app notifications.",
+        )
     if guild is not None:
-        return True, f"Members of {guild.name}", f"Announce to {guild.name}"
-    return False, "", ""
+        return True, f"Members of {guild.name}", f"Announce to {guild.name}", ""
+    return False, "", "", ""
 
 
 def _compose_first_error(form: Any) -> str:
@@ -3415,12 +3453,12 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     from membership.models import AnnouncementDraft
 
     member = _get_member(request)
-    if not _can_compose(request, member):
+    if not _can_enter_compose(request, member, request.GET.get("audience")):
         return redirect("hub_guild_announcement_propose")
 
     draft = None
     initial: dict[str, Any] = {}
-    locked, locked_label, heading = False, "", ""
+    locked, locked_label, heading, lead = False, "", "", ""
     if draft_pk is not None:
         draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
         initial = _draft_initial(draft)
@@ -3428,11 +3466,17 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         requested = request.GET.get("audience")
         if requested:
             initial["audience"] = requested
-        locked, locked_label, heading = _compose_lock(requested, bool(request.GET.get("lock")))
+        locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
 
     form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request))
     return _render_compose(
-        request, form=form, draft=draft, locked=locked, locked_label=locked_label, compose_heading=heading
+        request,
+        form=form,
+        draft=draft,
+        locked=locked,
+        locked_label=locked_label,
+        compose_heading=heading,
+        compose_lead=lead,
     )
 
 
@@ -3451,7 +3495,7 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     from membership.models import AnnouncementDraft
     from membership.orientations import _absolute_url
 
-    if not _can_compose(request, _get_member(request)):
+    if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return HttpResponse("Forbidden", status=403)
     audience, guild, offering = split_audience(request.POST.get("audience") or "")
     draft = AnnouncementDraft(
@@ -3507,7 +3551,7 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
     from membership.models import AnnouncementDraft
     from membership.orientations import _absolute_url
 
-    if not _can_compose(request, _get_member(request)):
+    if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return HttpResponse("Forbidden", status=403)
     to = (cast(User, request.user).email or "").strip()
     if not to:
@@ -3691,9 +3735,15 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
     form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
     if not form.is_valid():
-        locked, locked_label, heading = _compose_lock(raw, bool(request.POST.get("lock")))
+        locked, locked_label, heading, lead = _compose_lock(raw, bool(request.POST.get("lock")))
         return _render_compose(
-            request, form=form, draft=instance, locked=locked, locked_label=locked_label, compose_heading=heading
+            request,
+            form=form,
+            draft=instance,
+            locked=locked,
+            locked_label=locked_label,
+            compose_heading=heading,
+            compose_lead=lead,
         )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
     emailed, total = draft.send()
