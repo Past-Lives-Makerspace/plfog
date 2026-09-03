@@ -23,7 +23,7 @@ def _profile_ready_member() -> Member:
     return MemberFactory(
         profile_photo="members/profile/avatar.png",
         about_me="Potter and welder.",
-        pronouns=Member.Pronouns.SHE_HER,
+        pronouns="she/her",
         discord_user_id="123456789012345678",
     )
 
@@ -33,7 +33,7 @@ def _profile_ready_member_unlinked_discord() -> Member:
     return MemberFactory(
         profile_photo="members/profile/avatar.png",
         about_me="Potter and welder.",
-        pronouns=Member.Pronouns.SHE_HER,
+        pronouns="she/her",
         discord_handle="@maker",
         discord_user_id="",
     )

@@ -660,10 +660,8 @@ def _member_card(member: Member) -> dict:
     card never shows an empty labeled row. ``about_me`` is deliberately omitted for the
     6000-char message budget; the footer's link button opens the full card in the app.
     """
-    from membership.models import Member
-
     meta = [member.get_member_type_display()]
-    if member.pronouns and member.pronouns != Member.Pronouns.PREFER_NOT and member.is_public("pronouns"):
+    if member.pronouns and member.is_public("pronouns"):
         meta.append(member.pronouns)
     if member.join_date:
         meta.append(member.join_date.strftime("Joined %b %Y"))

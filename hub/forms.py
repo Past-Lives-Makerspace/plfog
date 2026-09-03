@@ -432,6 +432,7 @@ class ProfileSettingsForm(forms.ModelForm):
         ]
         widgets = {
             "preferred_name": forms.TextInput(attrs={"placeholder": "What should we call you?"}),
+            "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
             "phone": forms.TextInput(attrs={"placeholder": "(optional)"}),
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
@@ -668,6 +669,9 @@ class MemberAdminEditForm(forms.ModelForm):
             "show_in_directory",
             "can_self_approve_discounts",
         ]
+        widgets = {
+            "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
+        }
         labels = {
             "can_self_approve_discounts": "Can approve their own discount codes",
         }

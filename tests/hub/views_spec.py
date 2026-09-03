@@ -194,21 +194,21 @@ def describe_member_directory():
 
     def it_shows_pronouns_in_directory(client: Client):
         User.objects.create_user(username="viewer", password="pass")
-        MemberFactory(full_legal_name="Sam", show_in_directory=True, pronouns=Member.Pronouns.THEY_THEM)
+        MemberFactory(full_legal_name="Sam", show_in_directory=True, pronouns="they/them")
         client.login(username="viewer", password="pass")
 
         response = client.get("/members/")
 
         assert "they/them" in response.content.decode()
 
-    def it_hides_prefer_not_to_share_pronouns(client: Client):
+    def it_shows_free_text_pronouns_in_directory(client: Client):
         User.objects.create_user(username="viewer2", password="pass")
-        MemberFactory(full_legal_name="Alex", show_in_directory=True, pronouns=Member.Pronouns.PREFER_NOT)
+        MemberFactory(full_legal_name="Alex", show_in_directory=True, pronouns="she/him")
         client.login(username="viewer2", password="pass")
 
         response = client.get("/members/")
 
-        assert "prefer not to share" not in response.content.decode()
+        assert "she/him" in response.content.decode()
 
     def it_does_not_trigger_n_plus_1_on_primary_email(client: Client):
         """Regression guard for the member.primary_email N+1.
@@ -482,6 +482,75 @@ def describe_user_settings():
 
         member.refresh_from_db()
         assert member.pronouns == "she/her"
+
+    def it_accepts_free_text_pronouns_end_to_end(client: Client):
+        user = User.objects.create_user(username="freetextpronouns", password="pass")
+        member = user.member
+        client.login(username="freetextpronouns", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                **_CONTACTS_MGMT,
+                "form_id": "profile",
+                "preferred_name": "Sasha",
+                "pronouns": "she/him",
+                "phone": "",
+                "discord_handle": "",
+                "about_me": "",
+                "show_in_directory": "on",
+                "show_pronouns": "on",
+            },
+        )
+
+        member.refresh_from_db()
+        assert member.pronouns == "she/him"
+        assert "she/him" in client.get("/settings/").content.decode()
+        assert "she/him" in client.get("/members/").content.decode()
+
+    def it_strips_whitespace_around_pronouns(client: Client):
+        user = User.objects.create_user(username="stripPronouns", password="pass")
+        member = user.member
+        client.login(username="stripPronouns", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                **_CONTACTS_MGMT,
+                "form_id": "profile",
+                "preferred_name": "",
+                "pronouns": "  she/him  ",
+                "phone": "",
+                "discord_handle": "",
+                "about_me": "",
+                "show_in_directory": False,
+            },
+        )
+
+        member.refresh_from_db()
+        assert member.pronouns == "she/him"
+
+    def it_keeps_pronouns_blank_when_left_blank(client: Client):
+        user = User.objects.create_user(username="blankpronouns", password="pass")
+        member = user.member
+        client.login(username="blankpronouns", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                **_CONTACTS_MGMT,
+                "form_id": "profile",
+                "preferred_name": "",
+                "pronouns": "",
+                "phone": "",
+                "discord_handle": "",
+                "about_me": "",
+                "show_in_directory": False,
+            },
+        )
+
+        member.refresh_from_db()
+        assert member.pronouns == ""
 
     def it_errors_and_redirects_when_profile_post_has_no_member(client: Client):
         user = User.objects.create_user(username="profilenolink", password="pass")

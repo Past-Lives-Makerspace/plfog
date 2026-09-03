@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.23.2"
+VERSION = "1.24.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.24.0",
+        "date": "2026-09-02",
+        "title": "Write your own pronouns",
+        "changes": [
+            "Pronouns are a free text field now, so combinations like she/him fit. If you "
+            "had picked prefer not to share before, the field is simply blank now, and the "
+            "visibility toggle next to it still controls who sees it.",
+        ],
+    },
     {
         "version": "1.23.2",
         "date": "2026-09-02",

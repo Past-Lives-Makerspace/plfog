@@ -243,7 +243,7 @@
                                     <div class="pl-profile-preview__name" x-text="fields.preferred_name || '{{ member.full_legal_name|escapejs }}'"></div>
                                     <div class="pl-profile-preview__meta">
                                         <span class="pl-profile-preview__pill">{{ member.get_member_type_display }}</span>
-                                        <template x-if="isVisible('pronouns') && fields.pronouns && fields.pronouns !== 'prefer not to share'">
+                                        <template x-if="isVisible('pronouns') && fields.pronouns">
                                             <span class="pl-profile-preview__pill pl-profile-preview__pill--soft" x-text="fields.pronouns"></span>
                                         </template>
                                         {% if member.join_date %}
