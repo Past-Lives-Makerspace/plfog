@@ -141,6 +141,7 @@
                     <span class="hub-badge">Featured</span>
                     <div style="font-weight:600; font-size:1.05rem; margin-top:0.35rem;">{{ guild.featured_class.title }}</div>
                     {% if guild.featured_class.instructor %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class.instructor.display_name }}</div>{% endif %}
+                    {% if guild.featured_class.first_upcoming_session_at %}<div class="hub-text-muted" style="font-size:0.85rem;">{{ guild.featured_class.first_upcoming_session_at|date:"M j, Y" }}</div>{% endif %}
                 </div>
                 <span class="pl-btn pl-btn--sm pl-btn--primary">Sign up →</span>
             </a>

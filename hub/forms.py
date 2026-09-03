@@ -105,6 +105,20 @@ def _seed_time_choice(form: forms.BaseForm, name: str, value: time) -> None:
 _MEETING_TIME_CHOICES: list[tuple[str, str]] = half_hour_time_choices(required=False)
 
 
+class _FeaturedClassChoiceField(forms.ModelChoiceField):
+    """Featured class picker options labeled with the next session date.
+
+    Past runs keep PUBLISHED forever and duplicate_as_new_run reuses the title
+    verbatim, so two runs of the same class are indistinguishable without a date.
+    """
+
+    def label_from_instance(self, obj: Any) -> str:
+        upcoming = obj.first_upcoming_session_at
+        if upcoming is None:
+            return str(obj.title)
+        return f"{obj.title} ({timezone.localtime(upcoming).strftime('%b %-d, %Y')})"
+
+
 class GuildEditForm(forms.ModelForm):
     """Edit form for a guild's public-facing fields, including calendar integration."""
 
@@ -272,11 +286,19 @@ class GuildEditForm(forms.ModelForm):
 
         featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
         if self.instance and self.instance.pk:
-            featured.queryset = ClassOffering.objects.filter(
-                category__guild=self.instance, status=ClassOffering.Status.PUBLISHED
+            # Only runs a member could still sign up for; a saved pick stays valid so
+            # the rest of the form never blocks on a stale spotlight.
+            pks = set(
+                ClassOffering.objects.bookable().filter(category__guild=self.instance).values_list("pk", flat=True)
             )
+            if self.instance.featured_class_id:
+                pks.add(self.instance.featured_class_id)
+            queryset = ClassOffering.objects.filter(pk__in=pks).order_by("title")
         else:
-            featured.queryset = ClassOffering.objects.none()
+            queryset = ClassOffering.objects.none()
+        self.fields["featured_class"] = _FeaturedClassChoiceField(
+            queryset=queryset, required=False, label=featured.label, help_text=featured.help_text
+        )
 
         # Seed the time dropdown from the stored 24h meeting_time, preserving an
         # off-grid value (not on the half hour, or outside 6 AM–9:30 PM) as its own option.

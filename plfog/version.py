@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.22.4"
+VERSION = "1.22.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.22.5",
+        "date": "2026-09-02",
+        "title": "Featured class picker shows dates",
+        "changes": [
+            "Guild leads picking a featured class could grab last year's run by accident, "
+            "because old runs kept showing up with identical names. The picker now lists "
+            "only classes people can still sign up for, each with its next session date, "
+            "and the featured card on the guild page shows the date too.",
+        ],
+    },
     {
         "version": "1.22.4",
         "date": "2026-09-02",
