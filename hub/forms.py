@@ -1079,30 +1079,25 @@ class VotePreferenceForm(forms.Form):
     )
     guild_2nd = forms.ModelChoiceField(
         queryset=Guild.objects.filter(is_active=True),
-        label="2nd Choice (3 pts, optional)",
+        label="2nd Choice (3 pts)",
         empty_label="-- Select a guild --",
-        required=False,
     )
     guild_3rd = forms.ModelChoiceField(
         queryset=Guild.objects.filter(is_active=True),
-        label="3rd Choice (2 pts, optional)",
+        label="3rd Choice (2 pts)",
         empty_label="-- Select a guild --",
-        required=False,
     )
 
     def clean(self) -> dict:
         """Validate the ranked ballot.
 
-        Only the 1st choice is required. Any choices the member does make must be
-        distinct guilds, and they can't skip a rank (a 3rd choice needs a 2nd).
+        All three choices are required (policy: every ballot assigns 5, 3, and 2
+        points), and they must be distinct guilds.
         """
         cleaned: dict = super().clean() or {}
         g1 = cleaned.get("guild_1st")
         g2 = cleaned.get("guild_2nd")
         g3 = cleaned.get("guild_3rd")
-
-        if g3 and not g2:
-            raise forms.ValidationError("Add a 2nd choice before choosing a 3rd.")
 
         chosen = [g for g in (g1, g2, g3) if g]
         if len({g.pk for g in chosen}) != len(chosen):
