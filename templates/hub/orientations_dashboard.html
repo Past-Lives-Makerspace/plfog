@@ -30,6 +30,7 @@
           <strong>{{ b.member.display_name }}</strong>
           {% if b.amount_paid_cents %}<span class="pl-price-chip">{{ b.amount_paid_cents|cents_as_price }}</span>{% endif %}
           · {{ b.guild.name }}
+          <span class="hub-text-muted">· {{ b.orientation_type.name }}</span>
           {% if b.slot.with_label %}<span class="hub-text-muted">· {{ b.slot.with_label }}</span>{% endif %}
           <span class="hub-text-muted">· {{ b.slot.starts_at|date:"D M j, g:i A" }}</span>
           {% if b.status == "requested" %}<span class="hub-badge" style="background:rgba(238,180,75,0.18); color:#EEB44B;">Pending</span>{% endif %}
@@ -76,6 +77,7 @@
         {% sort_header "When" "slot__starts_at" sort sort_dir base_params %}
         {% sort_header "Member" "member__full_legal_name" sort sort_dir base_params %}
         {% sort_header "Guild" "guild__name" sort sort_dir base_params %}
+        {% sort_header "Type" "orientation_type__name" sort sort_dir base_params %}
         <th>Orienter</th>
         <th>Paid</th>
         {% sort_header "Status" "status" sort sort_dir base_params %}
@@ -89,6 +91,7 @@
         <td>{{ b.slot.starts_at|date:"Y-m-d H:i" }}</td>
         <td><a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a></td>
         <td>{{ b.guild.name }}</td>
+        <td>{{ b.orientation_type.name }}</td>
         <td>{{ b.slot.orienter.display_name|default:"—" }}</td>
         <td>
           {% if not b.amount_paid_cents %}—
@@ -114,7 +117,7 @@
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="8" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
+      <tr><td colspan="9" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">{% if q %}No orientations matching "{{ q }}".{% else %}No orientations yet.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table>

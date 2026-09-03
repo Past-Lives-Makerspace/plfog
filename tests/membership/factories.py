@@ -46,6 +46,7 @@ from membership.models import (
     OrientationAvailability,
     OrientationBooking,
     OrientationSlot,
+    OrientationType,
     Skill,
     SkillCategory,
     SlideshowSlide,
@@ -450,11 +451,26 @@ class GuildOrientationSettingsFactory(factory.django.DjangoModelFactory):
     is_enabled = True
 
 
+class OrientationTypeFactory(factory.django.DjangoModelFactory):
+    """One orientation type per (guild, name) — reused, so a guild's slots share a type by default."""
+
+    class Meta:
+        model = OrientationType
+        django_get_or_create = ("guild", "name")
+
+    guild = factory.SubFactory(GuildFactory)
+    name = "Orientation"
+    duration_minutes = 60
+    price_cents = 0
+    default_seats = 4
+
+
 class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = OrientationAvailability
 
     guild = factory.SubFactory(GuildFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
     weekday = OrientationAvailability.Weekday.TUESDAY
     start_time = factory.LazyFunction(lambda: time(18, 0))
     end_time = factory.LazyFunction(lambda: time(19, 0))
@@ -467,6 +483,7 @@ class OrientationSlotFactory(factory.django.DjangoModelFactory):
         skip_postgeneration_save = True
 
     guild = factory.SubFactory(GuildFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
     starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
     ends_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2, hours=1))
     seats = 4

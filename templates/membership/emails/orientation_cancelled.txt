@@ -3,7 +3,8 @@ Hi {{ greeting_name }},
 We're so sorry for the inconvenience! We've had to cancel your orientation
 for {{ guild.name }}.
 
-  Was: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
+{% if orientation_type %}  Orientation: {{ orientation_type.name }}
+{% endif %}  Was: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
 
 {% if booking.amount_paid_cents %}{% load classes_tags %}{% if booking.refund_state == "failed" %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is being processed. We will make sure
 it reaches your card.{% else %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually

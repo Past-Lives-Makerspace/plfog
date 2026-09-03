@@ -301,7 +301,9 @@ def _slot_disambiguation(
     Falls back to the custom-time hint when custom requests are allowed, or a guild-page
     pointer when neither posted times nor custom requests are available — never a dead end.
     """
-    slots = list(guild.orientation_slots.bookable().order_by("starts_at")[:_SLOT_LIST_CAP])
+    slots = list(
+        guild.orientation_slots.bookable().select_related("orientation_type").order_by("starts_at")[:_SLOT_LIST_CAP]
+    )
     if slots:
         lines = [
             f"{prefix}Here are **{guild.name}**'s open orientation times — re-run "
@@ -309,7 +311,7 @@ def _slot_disambiguation(
         ]
         for slot in slots:
             location = f" · {slot.location}" if slot.location else ""
-            lines.append(f"`{slot.pk}` — {format_local(slot.starts_at)}{location}")
+            lines.append(f"`{slot.pk}` — {slot.orientation_type.name} · {format_local(slot.starts_at)}{location}")
         if settings_obj.allow_custom_requests:
             lines.append(f"None of these work? {_PROPOSE_HINT[0].upper() + _PROPOSE_HINT[1:]}.")
         return reply("\n".join(lines), ephemeral=True)
@@ -371,9 +373,15 @@ def _book_custom(
             f"I couldn't read that time — use both `date:` (YYYY-MM-DD) and `time:` (HH:MM).\n{guild_url}",
             ephemeral=True,
         )
+    # The slash command has no type picker (Discord option real estate), so a custom
+    # time defaults to the guild's FIRST active orientation type by sort order — the
+    # guild page is the surface for picking among several types (issue #282).
+    orientation_type = guild.first_active_orientation_type()
+    if orientation_type is None:
+        return reply(f"**{guild.name}** isn't taking orientation requests right now.\n{guild_url}", ephemeral=True)
     try:
         starts_at = orientations.parse_proposed_time(date_opt, time_opt)
-        orientations.request_custom_orientation(guild, member, starts_at, note=note)
+        orientations.request_custom_orientation(guild, member, starts_at, orientation_type=orientation_type, note=note)
     except OrientationError as exc:
         return reply(f"{exc}\n{guild_url}", ephemeral=True)
     return _requested_reply(
@@ -399,6 +407,9 @@ def _schedule_orientation(interaction: Interaction, member: Member | None) -> di
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
     if settings_obj is None or not settings_obj.is_accepting:
         return reply(f"**{guild.name}** isn't taking orientation requests right now.\n{guild_url}", ephemeral=True)
+    # Both guards stay deliberately guild-coarse (issue #282): the slash command is the
+    # simple surface. Booking a second orientation TYPE at a guild you're already
+    # oriented for (or booked at) happens on the guild page, which is per-type.
     if member.is_oriented_for(guild):
         return reply(f"You're already oriented for **{guild.name}**. 🎉\n{guild_url}", ephemeral=True)
     if member.active_orientation_for(guild) is not None:

@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.25.0"
+VERSION = "1.26.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.26.0",
+        "date": "2026-09-03",
+        "title": "Guilds can offer more than one orientation",
+        "changes": [
+            "A guild can now run several kinds of orientations, each with its own name, "
+            "length, price, and seat count. Think Shop Basics, Lathe, and CNC in Wood. "
+            "Guild pages group upcoming times by kind, you can be oriented in one kind "
+            "while signing up for another, and guild leads manage the list from the "
+            "editor's Orientations tab.",
+        ],
+    },
     {
         "version": "1.25.0",
         "date": "2026-09-03",

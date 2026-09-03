@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 ORIENTATIONS_CSV_HEADERS = [
     "Member",
     "Guild",
+    "Type",
     "Orienter",
     "When",
     "Status",
@@ -40,7 +41,7 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
     pseudo = _Echo()
     writer = csv.writer(pseudo)
     bookings = (
-        bookings.select_related("slot", "slot__orienter", "guild", "member", "oriented_by")
+        bookings.select_related("slot", "slot__orienter", "guild", "member", "oriented_by", "orientation_type")
         .prefetch_related("refunds")
         .order_by("-slot__starts_at")
     )
@@ -52,6 +53,7 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
                 [
                     booking.member.display_name,
                     booking.guild.name,
+                    booking.orientation_type.name,
                     booking.slot.orienter.display_name if booking.slot.orienter is not None else "",
                     booking.slot.starts_at.strftime("%Y-%m-%d %H:%M"),
                     booking.get_status_display(),

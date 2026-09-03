@@ -24,6 +24,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 _GUILD_HOOK = "https://discord.com/api/webhooks/900/orientation-guild"
@@ -539,6 +540,28 @@ def describe_generate_slots():
 
         assert created >= 1
         assert OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).exists()
+
+    def it_carries_the_rules_orientation_type_onto_every_generated_slot():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        lathe = OrientationTypeFactory(guild=guild, name="Lathe", default_location="Lathe Corner")
+        rule = OrientationAvailabilityFactory(guild=guild, orientation_type=lathe, location="")
+
+        assert orientations.generate_slots() >= 1
+        generated = OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED)
+        assert generated.exists()
+        assert all(slot.orientation_type == lathe for slot in generated)
+        # A rule with no location falls back to the TYPE's default location.
+        assert all(slot.location == "Lathe Corner" for slot in generated)
+        assert rule.orientation_type == lathe
+
+    def it_stops_generating_for_a_retired_type():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        retired = OrientationTypeFactory(guild=guild, name="Retired", is_active=False)
+        OrientationAvailabilityFactory(guild=guild, orientation_type=retired)
+
+        assert orientations.generate_slots() == 0
 
     def it_is_idempotent():
         guild = GuildFactory()

@@ -15,6 +15,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -30,15 +31,15 @@ def _hold(slot=None, member=None, **overrides):
     )
 
 
-def describe_GuildOrientationSettings_price():
+def describe_OrientationType_price():
     def it_defaults_to_free():
-        settings_obj = GuildOrientationSettingsFactory()
-        assert settings_obj.price_cents == 0
-        assert settings_obj.is_paid is False
+        orientation_type = OrientationTypeFactory()
+        assert orientation_type.price_cents == 0
+        assert orientation_type.is_paid is False
 
     def it_is_paid_when_a_price_is_set():
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
-        assert settings_obj.is_paid is True
+        orientation_type = OrientationTypeFactory(name="Paid Walkthrough", price_cents=1500)
+        assert orientation_type.is_paid is True
 
 
 def describe_seat_holds():
@@ -97,12 +98,13 @@ def describe_booking_guards():
         with pytest.raises(OrientationError, match="checkout in progress"):
             other_slot.ensure_bookable_for(member)
 
-    def it_rejects_a_checkout_alongside_a_live_booking():
+    def it_rejects_a_checkout_alongside_a_live_booking_for_the_same_type():
         member = MemberFactory()
         guild = GuildFactory()
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=member)
+        # The factory reuses the guild's shared "Orientation" type, so this is the same type.
         other_slot = OrientationSlotFactory(guild=guild)
-        with pytest.raises(OrientationError, match="pending orientation"):
+        with pytest.raises(OrientationError, match="pending booking for this orientation"):
             other_slot.ensure_bookable_for(member)
 
     def it_names_the_checkout_hold_when_it_fills_the_last_seat():
@@ -160,7 +162,7 @@ def describe_refund_engine_surface():
     def it_builds_the_receipt_context_around_the_guild(settings):
         booking = OrientationBookingFactory(amount_paid_cents=1500)
         ctx = booking.refund_receipt_context()
-        assert ctx["item_title"] == f"Orientation — {booking.guild.name}"
+        assert ctx["item_title"] == f"{booking.guild.name} orientation: {booking.orientation_type.name}"
         assert ctx["member"] == booking.member
         assert f"/guilds/{booking.guild.slug}/" in ctx["manage_url"]
         assert ctx["manage_url"].startswith("http")
@@ -196,11 +198,12 @@ def describe_retire_rule_hold_guard():
 
 def describe_price_changes():
     def it_never_alters_a_live_holds_amount():
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        settings_obj = GuildOrientationSettingsFactory()
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         slot = OrientationSlotFactory(guild=settings_obj.guild)
         hold = _hold(slot=slot)
-        settings_obj.price_cents = 2500
-        settings_obj.save(update_fields=["price_cents"])
+        orientation_type.price_cents = 2500
+        orientation_type.save(update_fields=["price_cents"])
         hold.refresh_from_db()
         assert hold.amount_paid_cents == 1500
 

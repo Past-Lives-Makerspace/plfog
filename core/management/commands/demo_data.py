@@ -845,9 +845,6 @@ class Command(BaseCommand):
                 "is_closed": False,
                 "allow_custom_requests": True,
                 "info": info,
-                "default_seats": 4,
-                "default_location": "Front Desk",
-                "default_duration_minutes": 60,
             },
         )
         obj.is_enabled = True
@@ -865,10 +862,22 @@ class Command(BaseCommand):
         obj.save()
         return obj
 
+    def _ensure_orientation_type(self, guild: Any) -> Any:
+        """The guild's default 'Orientation' type — per-type config lives here now (issue #282)."""
+        from membership.models import OrientationType
+
+        orientation_type, _ = OrientationType.objects.get_or_create(
+            guild=guild,
+            name="Orientation",
+            defaults={"duration_minutes": 60, "default_seats": 4, "default_location": "Front Desk"},
+        )
+        return orientation_type
+
     def _ensure_availability_rules(self, guild: Any) -> None:
         """Two weekly recurring orientation windows per guild (Wed evening, Sat late-morning)."""
         from membership.models import OrientationAvailability
 
+        orientation_type = self._ensure_orientation_type(guild)
         location = f"Front Desk {DEMO_ORIENTATION_MARKER}"
         rules = [
             (OrientationAvailability.Weekday.WEDNESDAY, time(18, 0), time(19, 0)),
@@ -879,7 +888,13 @@ class Command(BaseCommand):
                 guild=guild,
                 weekday=weekday,
                 start_time=start,
-                defaults={"end_time": end, "seats": 4, "location": location, "is_active": True},
+                defaults={
+                    "orientation_type": orientation_type,
+                    "end_time": end,
+                    "seats": 4,
+                    "location": location,
+                    "is_active": True,
+                },
             )
 
     def _ensure_past_slot(self, guild: Any) -> Any:
@@ -895,6 +910,7 @@ class Command(BaseCommand):
         start = (timezone.now() - timedelta(days=7)).replace(minute=0, second=0, microsecond=0)
         return OrientationSlot.objects.create(
             guild=guild,
+            orientation_type=self._ensure_orientation_type(guild),
             availability=None,
             starts_at=start,
             ends_at=start + timedelta(hours=1),
@@ -925,8 +941,9 @@ class Command(BaseCommand):
     ) -> None:
         """Spread requested / confirmed / completed bookings across the demo guilds.
 
-        The unique 'one active booking per (guild, member)' constraint is honored
-        by never giving the same member two live bookings on one guild.
+        The unique 'one active booking per (orientation_type, member)' constraint is
+        honored by never giving the same member two live bookings on one guild (each
+        demo guild has a single 'Orientation' type).
         """
         from membership.models import OrientationBooking, OrientationSlot
 

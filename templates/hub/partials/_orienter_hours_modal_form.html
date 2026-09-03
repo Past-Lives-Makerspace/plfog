@@ -25,6 +25,7 @@ invalid POST re-render so errors show inside the open modal).
     <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
       {{ rule.id }}
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=rule.orientation_type %}</div>
         <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=rule.weekday %}</div>
         <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.start_time %}</div>
         <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=rule.end_time %}</div>
@@ -54,6 +55,7 @@ invalid POST re-render so errors show inside the open modal).
       {% with formset.empty_form as er %}
         {{ er.id }}
         <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
+          <div style="flex:1; min-width:140px;">{% include "components/form_field.html" with field=er.orientation_type %}</div>
           <div style="flex:1; min-width:120px;">{% include "components/form_field.html" with field=er.weekday %}</div>
           <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.start_time %}</div>
           <div style="flex:1; min-width:90px;">{% include "components/form_field.html" with field=er.end_time %}</div>

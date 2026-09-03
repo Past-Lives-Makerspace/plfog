@@ -27,6 +27,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -60,8 +61,12 @@ def _rule_payload(scope: str, **overrides: str) -> dict[str, str]:
     return data
 
 
-def _modal_rule_payload(scope: str, **overrides: str) -> dict[str, str]:
-    """A modal (prefix ``modal_rules``) hours payload, posted with the HX-Request header."""
+def _modal_rule_payload(scope: str, guild: object = None, **overrides: str) -> dict[str, str]:
+    """A modal (prefix ``modal_rules``) hours payload, posted with the HX-Request header.
+
+    Pass ``guild`` on success-path posts: it fills the row's required
+    ``orientation_type`` with the guild's shared "Orientation" type.
+    """
     data = {
         "orienter_scope": scope,
         "formset_prefix": "modal_rules",
@@ -75,6 +80,8 @@ def _modal_rule_payload(scope: str, **overrides: str) -> dict[str, str]:
         "modal_rules-0-seats": "4",
         "modal_rules-0-is_active": "on",
     }
+    if guild is not None:
+        data["modal_rules-0-orientation_type"] = str(OrientationTypeFactory(guild=guild).pk)
     data.update(overrides)
     return data
 
@@ -99,7 +106,9 @@ def describe_my_hours_scope_binding():
         user = _member_user("sc_own", name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="sc_own", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(user.member.pk)), HTTP_HX_REQUEST="true")
+        response = client.post(
+            _hours_url(guild), _modal_rule_payload(str(user.member.pk), guild=guild), HTTP_HX_REQUEST="true"
+        )
         assert response.status_code == 204
         assert response["HX-Redirect"] == _tab_url(guild)
         rule = OrientationAvailability.objects.get(guild=guild)
@@ -115,6 +124,7 @@ def describe_my_hours_scope_binding():
             _hours_url(guild),
             _modal_rule_payload(
                 str(user.member.pk),
+                guild=guild,
                 **{
                     "modal_rules-INITIAL_FORMS": "1",
                     "modal_rules-0-id": str(rule.pk),
@@ -145,7 +155,7 @@ def describe_my_hours_scope_binding():
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="sc_lead", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk)), HTTP_HX_REQUEST="true")
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
         assert response.status_code == 204
         assert OrientationAvailability.objects.get(guild=guild).orienter == bob
 
@@ -263,7 +273,7 @@ def describe_non_leadership_admin_self_scope():
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="nl_behalf", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk)), HTTP_HX_REQUEST="true")
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
         assert response.status_code == 204
         assert OrientationAvailability.objects.get(guild=guild).orienter == bob
 
@@ -364,7 +374,7 @@ def describe_modal_hours_save():
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ms_lead", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk)), HTTP_HX_REQUEST="true")
+        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
         assert response.status_code == 204
         assert response["HX-Redirect"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
         assert OrientationAvailability.objects.get(guild=guild).orienter == bob
@@ -474,6 +484,9 @@ def describe_rule_delete_retirement():
                 "guild_rules-0-seats": str(rule.seats),
                 "guild_rules-0-DELETE": "on",
                 "guild_rules-1-id": str(OrientationAvailability.objects.guild_level().exclude(pk=rule.pk).get().pk),
+                "guild_rules-1-orientation_type": str(
+                    OrientationAvailability.objects.guild_level().exclude(pk=rule.pk).get().orientation_type_id
+                ),
                 "guild_rules-1-weekday": "4",
                 "guild_rules-1-start_time": "18:00",
                 "guild_rules-1-end_time": "19:00",
@@ -655,8 +668,9 @@ def describe_upcoming_slots_card():
 
 
 def describe_add_a_slot():
-    def _slot_payload(**overrides: str) -> dict[str, str]:
+    def _slot_payload(guild: object, **overrides: str) -> dict[str, str]:
         data = {
+            "orientation_type": str(OrientationTypeFactory(guild=guild).pk),
             "date": (timezone.localtime() + timedelta(days=3)).strftime("%Y-%m-%d"),
             "start_time": "18:00",
             "duration_minutes": "60",
@@ -690,7 +704,7 @@ def describe_add_a_slot():
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="as_pick", password="pass")
         response = client.post(
-            reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(orienter=str(bob.pk))
+            reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(guild, orienter=str(bob.pk))
         )
         assert response.status_code == 302
         assert guild.orientation_slots.get().orienter == bob
@@ -699,7 +713,9 @@ def describe_add_a_slot():
         user = _member_user("as_any", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="as_any", password="pass")
-        response = client.post(reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(orienter=""))
+        response = client.post(
+            reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(guild, orienter="")
+        )
         assert response.status_code == 302
         assert guild.orientation_slots.get().orienter is None
 
@@ -710,7 +726,7 @@ def describe_add_a_slot():
         client.login(username="as_reject", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_slot_add", args=[guild.pk]),
-            _slot_payload(orienter=str(outsider.pk)),
+            _slot_payload(guild, orienter=str(outsider.pk)),
             follow=True,
         )
         assert response.status_code == 200
@@ -726,7 +742,7 @@ def describe_add_a_slot():
         GuildStaffMembershipFactory(guild=guild, member=alice, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="as_forced", password="pass")
         response = client.post(
-            reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(orienter=str(alice.pk))
+            reverse("hub_guild_orientation_slot_add", args=[guild.pk]), _slot_payload(guild, orienter=str(alice.pk))
         )
         assert response.status_code == 302
         assert guild.orientation_slots.get().orienter == user.member

@@ -17,6 +17,7 @@ from tests.membership.factories import (
     MemberFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -25,7 +26,8 @@ _SESSION = {"id": "cs_test_1", "url": "https://checkout.stripe.example/cs_test_1
 
 
 def _paid_slot(price_cents: int = 1500, **slot_kwargs) -> OrientationSlot:
-    settings_obj = GuildOrientationSettingsFactory(price_cents=price_cents)
+    settings_obj = GuildOrientationSettingsFactory()
+    OrientationTypeFactory(guild=settings_obj.guild, price_cents=price_cents)
     return OrientationSlotFactory(guild=settings_obj.guild, **slot_kwargs)
 
 
@@ -72,7 +74,7 @@ def describe_start_orientation_checkout():
         assert kwargs["metadata"] == {"kind": "orientation_booking", "booking_id": str(booking.pk)}
         assert kwargs["idempotency_key"] == f"orientation-checkout-{booking.pk}"
         assert kwargs["amount_cents"] == 1500
-        assert kwargs["product_name"] == f"Orientation — {slot.guild.name}"
+        assert kwargs["product_name"] == f"{slot.orientation_type.name} orientation — {slot.guild.name}"
         assert kwargs["expires_at"] is not None
 
     @patch("billing.stripe_utils.create_checkout_session", side_effect=RuntimeError("stripe down"))
@@ -100,9 +102,12 @@ def describe_start_orientation_checkout():
 def describe_start_custom_orientation_checkout():
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_creates_a_one_seat_manual_slot_and_delegates(mock_create):
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500, allow_custom_requests=True)
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         starts = timezone.now() + timedelta(days=3)
-        url = orientations.start_custom_orientation_checkout(settings_obj.guild, MemberFactory(), starts)
+        url = orientations.start_custom_orientation_checkout(
+            settings_obj.guild, MemberFactory(), starts, orientation_type=orientation_type
+        )
         assert url == _SESSION["url"]
         slot = OrientationSlot.objects.get(guild=settings_obj.guild)
         assert slot.seats == 1
@@ -110,18 +115,26 @@ def describe_start_custom_orientation_checkout():
 
     @patch("billing.stripe_utils.create_checkout_session", side_effect=RuntimeError("stripe down"))
     def it_cleans_up_the_orphan_slot_on_failure(mock_create):
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500, allow_custom_requests=True)
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         with pytest.raises(RuntimeError):
             orientations.start_custom_orientation_checkout(
-                settings_obj.guild, MemberFactory(), timezone.now() + timedelta(days=3)
+                settings_obj.guild,
+                MemberFactory(),
+                timezone.now() + timedelta(days=3),
+                orientation_type=orientation_type,
             )
         assert OrientationSlot.objects.filter(guild=settings_obj.guild).count() == 0
 
     def it_refuses_when_custom_requests_are_off():
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500, allow_custom_requests=False)
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=False)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         with pytest.raises(OrientationError):
             orientations.start_custom_orientation_checkout(
-                settings_obj.guild, MemberFactory(), timezone.now() + timedelta(days=3)
+                settings_obj.guild,
+                MemberFactory(),
+                timezone.now() + timedelta(days=3),
+                orientation_type=orientation_type,
             )
 
 
@@ -162,7 +175,8 @@ def describe_release_hold_if_unpaid():
 
     @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_retrieved(status="expired"))
     def it_deletes_the_orphan_custom_slot_with_the_hold(mock_retrieve):
-        settings_obj = GuildOrientationSettingsFactory(price_cents=1500)
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
         slot = OrientationSlotFactory(guild=settings_obj.guild, seats=1, source=OrientationSlot.Source.MANUAL)
         hold = OrientationBookingFactory(
             slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id="cs_x"

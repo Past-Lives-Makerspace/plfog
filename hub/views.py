@@ -554,38 +554,67 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # this guild's own classes key — defaults to visible without a seeded list.
     pulse = _guild_pulse(guild)
 
-    from membership.models import GuildOrientationSettings
+    from membership.models import GuildOrientationSettings, OrientationBooking
 
     orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
-    orientation_booking = member.active_orientation_for(guild) if member is not None else None
-    orientation_hold = member.pending_payment_orientation_for(guild) if member is not None else None
-    is_oriented = member.is_oriented_for(guild) if member is not None else False
     show_orientation = orientation is not None and orientation.is_enabled
-    orientation_slots = (
-        # bookable() (not upcoming()) so a departed orienter's surviving personal slot
-        # never reappears in the member list once its booking is declined or cancelled.
-        list(guild.orientation_slots.bookable().select_related("orienter").order_by("starts_at")[:30])
-        if orientation is not None
-        and show_orientation
-        and not is_oriented
-        and orientation_booking is None
-        and orientation_hold is None
-        and not orientation.is_closed
+    # Per-type booking state (issue #282): the tab renders one section per active
+    # orientation type — a member can be oriented for one type while booking another.
+    orientation_types = list(guild.orientation_types.active()) if show_orientation else []
+    member_bookings = (
+        list(member.orientation_bookings.filter(guild=guild).select_related("slot", "slot__orienter"))
+        if member is not None and show_orientation
+        else []
+    )
+    completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
+    live_by_type: dict[int, OrientationBooking] = {}
+    hold_by_type: dict[int, OrientationBooking] = {}
+    for booking in member_bookings:
+        if booking.status in (OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED):
+            live_by_type.setdefault(booking.orientation_type_id, booking)
+        elif booking.status == OrientationBooking.Status.PENDING_PAYMENT:
+            hold_by_type.setdefault(booking.orientation_type_id, booking)
+    is_oriented = bool(completed_type_ids)  # oriented for the guild = ANY completed type
+    orientation_all_done = bool(orientation_types) and all(t.pk in completed_type_ids for t in orientation_types)
+    # bookable() (not upcoming()) so a departed orienter's surviving personal slot
+    # never reappears in the member list once its booking is declined or cancelled.
+    all_slots = (
+        list(guild.orientation_slots.bookable().select_related("orienter", "orientation_type").order_by("starts_at"))
+        if show_orientation and orientation is not None and not orientation.is_closed
         else []
     )
     # Guild-wide duplicate-first-name disambiguation ("with Bob P.") — computed here
     # because only a guild-wide view can see the collision; with_label stays cheap.
-    orienter_labels = guild.orienter_name_labels() if orientation_slots else {}
-    for slot in orientation_slots:
+    orienter_labels = guild.orienter_name_labels() if all_slots else {}
+    for slot in all_slots:
         if slot.orienter_id is None:
             slot.with_display = ""
         else:
             label = orienter_labels.get(slot.orienter_id, "")
             slot.with_display = f"with {label}" if label else slot.with_label
+    slots_by_type: dict[int, list[Any]] = {}
+    for slot in all_slots:
+        slots_by_type.setdefault(slot.orientation_type_id, []).append(slot)
+    orientation_sections = []
+    for orientation_type in orientation_types:
+        live_booking = live_by_type.get(orientation_type.pk)
+        hold = hold_by_type.get(orientation_type.pk)
+        done = orientation_type.pk in completed_type_ids
+        orientation_sections.append(
+            {
+                "type": orientation_type,
+                "is_oriented": done,
+                "booking": live_booking,
+                "hold": hold,
+                "slots": (
+                    slots_by_type.get(orientation_type.pk, [])[:30] if not (done or live_booking or hold) else []
+                ),
+            }
+        )
 
     from hub.forms import GuildJoinForm, OrientationCustomRequestForm
 
-    custom_request_form = OrientationCustomRequestForm()
+    custom_request_form = OrientationCustomRequestForm(guild=guild)
     join_form = GuildJoinForm()
 
     guild_ct = ContentType.objects.get_for_model(Guild)
@@ -623,11 +652,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "calendar": calendar,
             "pulse": pulse,
             "orientation": orientation,
-            "orientation_booking": orientation_booking,
-            "orientation_hold": orientation_hold,
             "is_oriented": is_oriented,
+            "orientation_all_done": orientation_all_done,
             "show_orientation": show_orientation,
-            "orientation_slots": orientation_slots,
+            "orientation_sections": orientation_sections,
             "custom_request_form": custom_request_form,
             "join_form": join_form,
         },
@@ -698,6 +726,7 @@ def _guild_edit_context(
     *,
     form: GuildEditForm | None = None,
     orientation_form: Any = None,
+    orientation_type_formset: Any = None,
     thankyou_email_form: Any = None,
     welcome_email_form: Any = None,
     guild_rule_formset: Any = None,
@@ -725,6 +754,7 @@ def _guild_edit_context(
         GuildWelcomeEmailForm,
         OrientationAvailabilityFormSet,
         OrientationSlotForm,
+        OrientationTypeFormSet,
         StudioHoursFormSet,
     )
     from membership.models import GuildOrientationSettings
@@ -748,7 +778,7 @@ def _guild_edit_context(
     show_my_hours_card = viewer is not None and viewer.pk in leadership_ids
     rules_by_orienter: dict[int, list[Any]] = {}
     orphan_orienters: dict[int, Any] = {}
-    for rule in guild.orientation_rules.exclude(orienter=None).select_related("orienter"):
+    for rule in guild.orientation_rules.exclude(orienter=None).select_related("orienter", "orientation_type"):
         orienter_id = rule.orienter_id
         assert orienter_id is not None  # guaranteed by the exclude(orienter=None) filter
         rules_by_orienter.setdefault(orienter_id, []).append(rule)
@@ -765,7 +795,7 @@ def _guild_edit_context(
         guild.orientation_slots.upcoming()
         .with_active_booking_count()  # one aggregate, not a COUNT per row — the list is unbounded
         .with_pending_hold_count()  # holds consume seats but hide from active() — show them, not ghosts
-        .select_related("orienter")
+        .select_related("orienter", "orientation_type")
         .order_by("starts_at")
     )
 
@@ -805,7 +835,12 @@ def _guild_edit_context(
         "orientation_form": (
             orientation_form if orientation_form is not None else GuildOrientationSettingsForm(instance=settings_obj)
         ),
-        "orientation_is_paid": settings_obj.is_paid,
+        "orientation_type_formset": (
+            orientation_type_formset
+            if orientation_type_formset is not None
+            else OrientationTypeFormSet(instance=guild, prefix="otypes")
+        ),
+        "orientation_is_paid": guild.orientation_types.active().filter(price_cents__gt=0).exists(),
         "orientation_split": _orientation_split_percents(),
         "welcome_email_form": (
             welcome_email_form if welcome_email_form is not None else GuildWelcomeEmailForm(instance=settings_obj)
@@ -823,7 +858,9 @@ def _guild_edit_context(
             guild_rule_formset
             if guild_rule_formset is not None
             else (
-                OrientationAvailabilityFormSet(instance=guild, prefix="guild_rules", queryset=guild_rules_qs)
+                OrientationAvailabilityFormSet(
+                    instance=guild, prefix="guild_rules", queryset=guild_rules_qs, form_kwargs={"guild": guild}
+                )
                 if has_guild_rules and can_edit_others_hours
                 else None
             )
@@ -974,6 +1011,35 @@ def guild_orientation_edit(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/guild_edit.html", ctx)
 
 
+@login_required
+@require_POST
+def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
+    """Save the Orientation Types list from its own form on the Orientations tab.
+
+    The types editor is its own ``<form>`` (the FAQ/Links idiom). A valid save
+    regenerates slots (a type toggled inactive stops generating; a reactivated one
+    resumes) and redirects back to the tab; an invalid save re-renders the page with
+    the bound formset's errors. Open to anyone who may manage the guild's
+    orientations (lead, admin, or staff).
+    """
+    from hub.forms import OrientationTypeFormSet
+    from membership import orientations
+
+    guild = get_object_or_404(Guild, pk=pk)
+    forbidden = _require_can_manage_orientations(request, guild)
+    if forbidden is not None:
+        return forbidden
+    formset = OrientationTypeFormSet(request.POST, instance=guild, prefix="otypes")
+    if formset.is_valid():
+        formset.save()
+        orientations.generate_slots(guild=guild)
+        messages.success(request, "Orientation types saved.")
+        return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations")
+    ctx = _guild_edit_context(request, guild, orientation_type_formset=formset)
+    ctx["active_tab"] = "orientations"
+    return render(request, "hub/guild_edit.html", ctx)
+
+
 def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, removed: int, kept: int) -> str:
     """The success flash for an hours save — with real retirement counts on a delete."""
     if not deleted_rules:
@@ -1049,7 +1115,9 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         prefix = "guild_rules"
         queryset = guild.orientation_rules.guild_level()
-    formset = OrientationAvailabilityFormSet(request.POST, instance=guild, prefix=prefix, queryset=queryset)
+    formset = OrientationAvailabilityFormSet(
+        request.POST, instance=guild, prefix=prefix, queryset=queryset, form_kwargs={"guild": guild}
+    )
     if formset.is_valid():
         deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
         # Same side effect the combined save had — saved hours materialize slots immediately.
@@ -1106,7 +1174,10 @@ def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
     if not can_edit_orienter_hours(request, guild, target):
         return HttpResponse("Forbidden", status=403)
     formset = OrientationAvailabilityFormSet(
-        instance=guild, prefix="modal_rules", queryset=guild.orientation_rules.for_orienter(target)
+        instance=guild,
+        prefix="modal_rules",
+        queryset=guild.orientation_rules.for_orienter(target),
+        form_kwargs={"guild": guild},
     )
     return render(
         request,
@@ -1351,16 +1422,13 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     from membership import orientations
     from membership.models import OrientationError, OrientationSlot
 
-    from membership.models import GuildOrientationSettings
-
-    slot = get_object_or_404(OrientationSlot, pk=slot_pk)
+    slot = get_object_or_404(OrientationSlot.objects.select_related("guild", "orientation_type"), pk=slot_pk)
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
         return redirect("hub_guild_detail", slug=slot.guild.slug)
-    settings_obj = GuildOrientationSettings.objects.filter(guild=slot.guild).first()
     try:
-        if settings_obj is not None and settings_obj.is_paid:
+        if slot.orientation_type.is_paid:
             checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
             return redirect(checkout_url)
         orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
@@ -1379,13 +1447,14 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only — a member proposes a custom orientation time. Creates a one-off slot
-    at that time and books it, reusing the normal request/confirm/email flow."""
-    from datetime import timedelta
+    """POST-only — a member proposes a custom orientation time for a picked type.
 
+    Creates a one-off slot at that time (sized by the type's duration, priced by the
+    type) and books it, reusing the normal request/confirm/email flow via the
+    :mod:`membership.orientations` service helpers."""
     from hub.forms import OrientationCustomRequestForm
     from membership import orientations
-    from membership.models import GuildOrientationSettings, OrientationError, OrientationSlot
+    from membership.models import GuildOrientationSettings, OrientationError
 
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -1396,15 +1465,16 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
     if settings_obj is None or not settings_obj.is_accepting or not settings_obj.allow_custom_requests:
         messages.error(request, "This guild isn't taking custom orientation requests right now.")
         return redirect("hub_guild_detail", slug=guild.slug)
-    form = OrientationCustomRequestForm(request.POST)
+    form = OrientationCustomRequestForm(request.POST, guild=guild)
     if not form.is_valid():
-        messages.error(request, "Pick a valid future time for your orientation.")
+        messages.error(request, "Pick one of this guild's orientations and a valid future time.")
         return redirect("hub_guild_detail", slug=guild.slug)
     starts = form.cleaned_data["starts_at"]
-    if settings_obj.is_paid:
+    orientation_type = form.cleaned_data["orientation_type"]
+    if orientation_type.is_paid:
         try:
             checkout_url = orientations.start_custom_orientation_checkout(
-                guild, member, starts, note=form.cleaned_data["note"]
+                guild, member, starts, orientation_type=orientation_type, note=form.cleaned_data["note"]
             )
         except OrientationError as exc:
             messages.error(request, str(exc))
@@ -1414,18 +1484,11 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
             messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
             return redirect("hub_guild_detail", slug=guild.slug)
         return redirect(checkout_url)
-    slot = OrientationSlot.objects.create(
-        guild=guild,
-        starts_at=starts,
-        ends_at=starts + timedelta(minutes=settings_obj.default_duration_minutes),
-        seats=1,
-        location=settings_obj.default_location,
-        source=OrientationSlot.Source.MANUAL,
-    )
     try:
-        orientations.request_orientation(slot, member, note=form.cleaned_data["note"])
+        orientations.request_custom_orientation(
+            guild, member, starts, orientation_type=orientation_type, note=form.cleaned_data["note"]
+        )
     except OrientationError as exc:
-        slot.delete()
         messages.error(request, str(exc))
         return redirect("hub_guild_detail", slug=guild.slug)
     messages.success(request, "Your orientation request was sent — the guild lead will confirm a time.")
@@ -1442,7 +1505,12 @@ def orientation_info(request: HttpRequest, pk: int) -> HttpResponse:
     return render(
         request,
         "hub/orientation_info.html",
-        {**ctx, "guild": guild, "orientation": GuildOrientationSettings.objects.filter(guild=guild).first()},
+        {
+            **ctx,
+            "guild": guild,
+            "orientation": GuildOrientationSettings.objects.filter(guild=guild).first(),
+            "orientation_types": list(guild.orientation_types.active()),
+        },
     )
 
 
@@ -1724,7 +1792,7 @@ def _manageable_slots(request: HttpRequest) -> Any:
     """Upcoming slots this request may add members to: all for admins, own-guild for leads/staff."""
     from membership.models import OrientationSlot
 
-    qs = OrientationSlot.objects.upcoming().select_related("guild").with_pending_hold_count()
+    qs = OrientationSlot.objects.upcoming().select_related("guild", "orientation_type").with_pending_hold_count()
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.has_actual("admin"):
         return qs
@@ -1771,7 +1839,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Forbidden", status=403)
 
     base = OrientationBooking.objects.select_related(
-        "slot", "slot__orienter", "guild", "member", "oriented_by"
+        "slot", "slot__orienter", "guild", "member", "oriented_by", "orientation_type"
     ).prefetch_related("refunds")
     table = prepare_table(
         request,
@@ -1782,7 +1850,7 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     )
     upcoming = (
         OrientationBooking.objects.upcoming()
-        .select_related("slot", "slot__orienter", "guild", "member")
+        .select_related("slot", "slot__orienter", "guild", "member", "orientation_type")
         .prefetch_related("refunds")
         .order_by("slot__starts_at")[:25]
     )
@@ -1818,17 +1886,13 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     from classes.templatetags.classes_tags import cents_as_price
 
     from hub.view_as import has_refund_authority
-    from membership.models import GuildOrientationSettings
 
-    manageable = list(_manageable_slots(request).select_related("guild__orientation_settings"))
+    # The price is per orientation TYPE now (issue #282) — read it off each slot's type.
+    manageable = list(_manageable_slots(request))
     paid_slot_prices: dict[str, str] = {}
     for slot in manageable:
-        try:
-            slot_settings: GuildOrientationSettings | None = slot.guild.orientation_settings
-        except GuildOrientationSettings.DoesNotExist:
-            slot_settings = None
-        if slot_settings is not None and slot_settings.is_paid:
-            paid_slot_prices[str(slot.pk)] = cents_as_price(slot_settings.price_cents)
+        if slot.orientation_type.is_paid:
+            paid_slot_prices[str(slot.pk)] = cents_as_price(slot.orientation_type.price_cents)
     return render(
         request,
         "hub/orientations_dashboard.html",

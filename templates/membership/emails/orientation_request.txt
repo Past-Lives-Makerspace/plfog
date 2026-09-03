@@ -2,7 +2,8 @@ Hi {{ greeting_name }},
 
 We received your orientation request for {{ guild.name }}.
 
-  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
+{% if orientation_type %}  Orientation: {{ orientation_type.name }}
+{% endif %}  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
 {% if slot.location %}  Where: {{ slot.location }}
 {% endif %}
 {% if booking.amount_paid_cents %}{% load classes_tags %}You paid {{ booking.amount_paid_cents|cents_as_price }}.

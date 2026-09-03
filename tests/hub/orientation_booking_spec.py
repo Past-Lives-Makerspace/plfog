@@ -18,6 +18,7 @@ from tests.membership.factories import (
     MembershipPlanFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -55,7 +56,7 @@ def describe_orientation_book():
         assert response.status_code == 200
         # Only the pre-existing completed booking exists — no new request was created.
         assert OrientationBooking.objects.filter(member=user.member).count() == 1
-        assert any("oriented" in str(m).lower() for m in response.context["messages"])
+        assert any("already completed this orientation" in str(m).lower() for m in response.context["messages"])
 
     def it_errors_when_the_user_has_no_member(client: Client):
         user = _user_with_role("bk3")
@@ -126,7 +127,7 @@ def describe_guild_orientation_section():
         user, guild = _setup(client, "sec2")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member).mark_completed()
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"You&#x27;re oriented for" in response.content or b"You're oriented for" in response.content
+        assert b"completed this orientation" in response.content
 
     def it_shows_status_when_the_member_has_a_live_booking(client: Client):
         user, guild = _setup(client, "sec3")
@@ -169,18 +170,21 @@ def describe_orientation_request_custom():
         user = _user_with_role("cust1")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(guild=guild, duration_minutes=45)
         client.login(username="cust1", password="pass")
         when = (timezone.now() + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M")
 
         resp = client.post(
             reverse("hub_guild_orientation_request_custom", args=[guild.pk]),
-            {"starts_at": when, "note": "evenings work best"},
+            {"orientation_type": orientation_type.pk, "starts_at": when, "note": "evenings work best"},
         )
 
         assert resp.status_code == 302
         booking = OrientationBooking.objects.get(guild=guild, member=user.member)
         assert booking.status == OrientationBooking.Status.REQUESTED
+        assert booking.orientation_type == orientation_type
         assert booking.slot.source == "manual"
+        assert booking.slot.ends_at - booking.slot.starts_at == timedelta(minutes=45)
 
     def it_refuses_when_custom_requests_are_disabled(client: Client):
         _user_with_role("cust2")
