@@ -5,8 +5,14 @@ promote-followup shell + its loader script render on waitlist tabs only.
 
 Context: can_manage, offering, viewer_has_refund_authority, claim_email_will_fire,
 spots_remaining, and registrations OR waitlist_registrations (whichever tab).
+move_form (registrations tabs only, may be None) adds a move-student modal per row.
 {% endcomment %}
 {% if can_manage %}
+{% if move_form %}
+{% for reg in registrations %}
+    {% include "classes/partials/move_student_modal.html" %}
+{% endfor %}
+{% endif %}
 {% for reg in registrations %}
     {% if reg.status == 'confirmed' or reg.status == 'pending' %}
         {% with pk_str=reg.pk|stringformat:"s" %}
