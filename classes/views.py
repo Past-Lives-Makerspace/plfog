@@ -33,7 +33,7 @@ from django.views.decorators.http import require_POST
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser
 
-    from classes.forms import PaymentRefundForm
+    from classes.forms import PaymentRefundForm, RegistrationMoveForm
     from membership.models import Member
 
 from hub.view_as import classes_review_access_required, refund_authority_required
@@ -1698,15 +1698,38 @@ def _claim_email_will_fire(offering: ClassOffering) -> bool:
     ).exists()
 
 
+def _registration_move_form(request: HttpRequest, offering: ClassOffering) -> "RegistrationMoveForm | None":
+    """The roster tab's audience-scoped move-student form, or ``None`` for viewers who can't move.
+
+    Actual admins (preview-independent) may move a student into any upcoming
+    class; the class's own instructor only into other upcoming classes they
+    instruct. Everyone else (guild leads reach rosters via ``editable_by``)
+    gets no move affordance. ``auto_id=False`` because the same form renders
+    once per roster row — auto ids would collide across the per-row modals.
+    """
+    from classes.forms import RegistrationMoveForm
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual("admin"):
+        return RegistrationMoveForm(current=offering, auto_id=False)
+    member = getattr(request.user, "member", None)
+    if member is not None and offering.instructor_id == member.pk:
+        return RegistrationMoveForm(current=offering, instructor=member, auto_id=False)
+    return None
+
+
 def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:
     """Shared context for the roster (registrations) tabs and the ``refund-done`` table partial."""
     from hub.view_as import has_refund_authority
 
+    move_form = _registration_move_form(request, offering)
     return {
         "offering": offering,
         "registrations": _roster_registrations(offering),
         "viewer_has_refund_authority": has_refund_authority(request),
         "can_manage": True,
+        "can_move": move_form is not None,
+        "move_form": move_form,
         "claim_email_will_fire": _claim_email_will_fire(offering),
     }
 
@@ -3187,6 +3210,7 @@ def _registration_row_response(request: HttpRequest, registration: Registration)
             "reg": reg,
             "offering": offering,
             "can_manage": True,
+            "can_move": _registration_move_form(request, offering) is not None,
             "viewer_has_refund_authority": has_refund_authority(request),
         },
     )
@@ -3373,6 +3397,45 @@ def registration_remove(request: HttpRequest, pk: int) -> HttpResponse:
     where = "waitlist" if was_waitlisted else "class"
     trigger_toast(response, f"{registration.first_name} removed from the {where}.", "success")
     return response
+
+
+@login_required
+@require_POST
+def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
+    """Move a student to another class from a roster row (teach + admin Registrations tabs).
+
+    Gating is stricter than the other roster actions: actual admins may move
+    anyone anywhere upcoming, but a non-admin must be the source class's own
+    instructor (``_teach_class_or_404`` semantics — guild leads/officers who can
+    otherwise manage the roster get a 403), and their form only offers other
+    upcoming classes they instruct, so a crafted POST at someone else's class
+    fails validation. Plain POST + redirect: after a move the row belongs to a
+    different roster, so an in-place row swap would render a stale table.
+    """
+    from django.core.exceptions import PermissionDenied
+
+    from classes.forms import RegistrationMoveForm
+
+    registration = get_object_or_404(Registration.objects.select_related("class_offering"), pk=pk)
+    source = registration.class_offering
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual("admin")
+    if is_admin:
+        form = RegistrationMoveForm(request.POST, current=source)
+    else:
+        member = getattr(request.user, "member", None)
+        if member is None or source.instructor_id != member.pk:
+            raise PermissionDenied("You don't have access to move this registration.")
+        form = RegistrationMoveForm(request.POST, current=source, instructor=member)
+    if form.is_valid():
+        actor = request.user if request.user.is_authenticated else None
+        registration.move_to(form.cleaned_data["target"], actor=actor)
+        messages.success(request, f"{registration.first_name} moved to {form.cleaned_data['target'].title}.")
+    else:
+        messages.error(request, "Could not move the student. Pick one of the listed classes.")
+    if is_admin:
+        return redirect("classes:admin_class_registrations", pk=source.pk)
+    return redirect("classes:teach_class_registrations", pk=source.pk)
 
 
 @classes_admin_access_required

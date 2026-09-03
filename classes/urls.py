@@ -133,6 +133,7 @@ urlpatterns = [
     ),
     # Roster & waitlist management actions (shared teach + admin surface, HTMX POST)
     path("registrations/<int:pk>/remove/", views.registration_remove, name="registration_remove"),
+    path("registrations/<int:pk>/move/", views.registration_move, name="registration_move"),
     path("registrations/<int:pk>/promote/", views.registration_promote, name="registration_promote"),
     path(
         "registrations/<int:pk>/promote/followup/",

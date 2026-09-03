@@ -1,6 +1,6 @@
 {% comment %}
 Menu items for a roster (Registrations tab) row — rendered inside
-components/row_actions.html, so it inherits reg, can_manage, and
+components/row_actions.html, so it inherits reg, can_manage, can_move, and
 viewer_has_refund_authority from the table context. Order, gates, and per-item
 behavior match the inline buttons this replaced (plus View Details + Email
 Student on top). Dividers render only between non-empty groups. See
@@ -10,6 +10,11 @@ docs/superpowers/plans/2026-08-27-roster-actions-menu.md.
    @click="closeAndRefocus()">View Details</a>
 <a href="mailto:{{ reg.email }}" class="pl-row-menu__item" role="menuitem"
    @click="closeAndRefocus()">Email Student</a>
+{% if can_move %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'move-reg-{{ reg.pk }}')">Move Student</button>
+{% endif %}
 {% if can_manage and reg.is_unpaid %}
 <div class="pl-row-menu__divider" role="separator"></div>
 <button type="button" class="pl-row-menu__item" role="menuitem"

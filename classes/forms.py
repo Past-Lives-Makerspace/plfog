@@ -1143,6 +1143,10 @@ class RegistrationMoveForm(forms.Form):
 
     The target queryset excludes the registration's current class, so a
     same-class move can't be selected (or POSTed) at all — no extra clean needed.
+    Only ``upcoming()`` classes are offered (a student can't be moved into a
+    class that already started). Pass ``instructor=`` to scope the picker to
+    that member's own classes — the instructor-facing audience; admins omit it
+    and see every upcoming class regardless of status or visibility.
     """
 
     target = forms.ModelChoiceField(
@@ -1151,9 +1155,17 @@ class RegistrationMoveForm(forms.Form):
         empty_label="Choose a class…",
     )
 
-    def __init__(self, *args: object, current: "ClassOffering | None" = None, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: object,
+        current: "ClassOffering | None" = None,
+        instructor: "Member | None" = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(*args, **kwargs)
-        offerings = ClassOffering.objects.all()
+        offerings = ClassOffering.objects.upcoming()
+        if instructor is not None:
+            offerings = offerings.filter(instructor=instructor)
         if current is not None:
             offerings = offerings.exclude(pk=current.pk)
         self.fields["target"].queryset = offerings.order_by("title")
@@ -1161,6 +1173,15 @@ class RegistrationMoveForm(forms.Form):
             "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
             "background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;"
         )
+
+    @property
+    def has_targets(self) -> bool:
+        """Whether any class can be picked — drives the move modal's empty state.
+
+        ``bool()`` (not ``.exists()``) so the first call fills the queryset's
+        result cache, which the per-row widget renders then reuse.
+        """
+        return bool(self.fields["target"].queryset)  # type: ignore[attr-defined]
 
 
 class TeachWelcomeEmailForm(forms.ModelForm):

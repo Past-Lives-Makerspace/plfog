@@ -150,17 +150,17 @@ def describe_registration_row_menu():
         assert 'hx-target="#refund-modal-body"' in menu
 
     def describe_divider_logic():
-        def it_renders_one_divider_and_no_payment_group_for_a_paid_managed_row(admin_user, client, menu_region):
+        def it_renders_two_dividers_and_no_payment_group_for_a_paid_managed_row(admin_user, client, menu_region):
             client.force_login(admin_user)
             offering = ClassOfferingFactory()
             reg = _paid(offering)
             content = client.get(_admin_reg_url(offering)).content.decode()
             menu = menu_region(content, f"reg-row-{reg.pk}")
-            # View/Email, then a single rule before the Refund/Remove group.
-            assert menu.count("pl-row-menu__divider") == 1
+            # View/Email, a rule before Move Student, and one before the Refund/Remove group.
+            assert menu.count("pl-row-menu__divider") == 2
             assert ">Send Payment Link</button>" not in menu
 
-        def it_renders_two_dividers_for_a_partially_paid_refundable_row(admin_user, client, menu_region):
+        def it_renders_three_dividers_for_a_partially_paid_refundable_row(admin_user, client, menu_region):
             client.force_login(admin_user)
             offering = ClassOfferingFactory()
             reg = RegistrationFactory(
@@ -172,12 +172,12 @@ def describe_registration_row_menu():
             )
             content = client.get(_admin_reg_url(offering)).content.decode()
             menu = menu_region(content, f"reg-row-{reg.pk}")
-            assert menu.count("pl-row-menu__divider") == 2
+            assert menu.count("pl-row-menu__divider") == 3
             assert ">Send Payment Link</button>" in menu
             assert ">Refund</button>" in menu
             assert ">Remove Student</button>" in menu
 
-        def it_renders_no_stranded_rule_when_only_view_and_email_remain(admin_user, client, menu_region):
+        def it_renders_only_the_move_rule_for_a_cancelled_row(admin_user, client, menu_region):
             client.force_login(admin_user)
             offering = ClassOfferingFactory()
             reg = RegistrationFactory(
@@ -188,7 +188,10 @@ def describe_registration_row_menu():
             )
             content = client.get(_admin_reg_url(offering)).content.decode()
             menu = menu_region(content, f"reg-row-{reg.pk}")
-            assert menu.count("pl-row-menu__divider") == 0
+            # View/Email plus the mover's Move Student group — no payment, refund, or remove rules.
+            assert menu.count("pl-row-menu__divider") == 1
+            assert ">Move Student</button>" in menu
+            assert ">Remove Student</button>" not in menu
 
     def it_limits_the_menu_to_view_email_and_refund_for_refund_only_authority(db):
         # can_manage is hardcoded True on all four roster views, so this state is

@@ -199,6 +199,30 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             .distinct()
         )
 
+    def upcoming(self) -> "ClassOfferingQuerySet":
+        """Classes that haven't started yet — any status, any visibility.
+
+        Keeps flexibly scheduled classes, dated classes whose *first* session is
+        still in the future, and classes with no sessions on the calendar yet
+        (drafts under review are usually undated — staff pickers must still
+        offer them). Only a class already underway or finished drops out. Unlike
+        ``bookable`` this applies no status/visibility gate: it scopes *staff*
+        pickers (e.g. the move-student form), where drafts and private classes
+        are fair game.
+        """
+        from django.db.models import Min
+
+        now = timezone.now()
+        return (
+            self.annotate(first_session_at=Min("sessions__starts_at"))
+            .filter(
+                Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+                | Q(first_session_at__gte=now)
+                | Q(first_session_at__isnull=True)
+            )
+            .distinct()
+        )
+
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
 
