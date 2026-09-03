@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.28.0"
+VERSION = "1.28.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.28.1",
+        "date": "2026-09-03",
+        "title": "Clearer guild class counts",
+        "changes": [
+            "The class counter on each guild page now tells you how many classes are open "
+            "for sign up and how many already ran, instead of one combined number.",
+            "The orientation booking section gained a small question mark that explains "
+            "which email address your booking updates arrive at.",
+        ],
+    },
     {
         "version": "1.28.0",
         "date": "2026-09-03",

@@ -19,7 +19,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import Count, Prefetch, Q, QuerySet
+from django.db.models import Count, Min, Prefetch, Q, QuerySet
 from django.forms import BaseInlineFormSet, BaseModelFormSet
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -546,7 +546,16 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
 
     guild_classes = ClassOffering.objects.filter(category__guild=guild)
     member_count = guild.memberships.count()
-    class_count = guild_classes.filter(status=ClassOffering.Status.PUBLISHED).count()
+    # The stat chips split the old flat "N classes" count: past = published runs whose
+    # first session has started (you can no longer join), current = open for sign-up.
+    # Private-but-published future classes are deliberately in neither bucket.
+    current_class_count = guild_classes.bookable().count()
+    past_class_count = (
+        guild_classes.filter(status=ClassOffering.Status.PUBLISHED)
+        .annotate(_first_session_at=Min("sessions__starts_at"))
+        .filter(_first_session_at__lt=dj_timezone.now())
+        .count()
+    )
     upcoming_classes = guild_classes.bookable().select_related("instructor")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
@@ -660,7 +669,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "member": member,
             "is_member_of_guild": is_member_of_guild,
             "member_count": member_count,
-            "class_count": class_count,
+            "current_class_count": current_class_count,
+            "past_class_count": past_class_count,
             "upcoming_classes": upcoming_classes,
             "calendar": calendar,
             "pulse": pulse,

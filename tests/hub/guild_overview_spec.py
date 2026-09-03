@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 import pytest
@@ -45,6 +46,57 @@ def describe_guild_overview():
         # heading is always present since the Meetings feature, spec §6.4.)
         assert b"Meetings TBA" not in resp.content
         assert 'hub-badge">Next meeting'.encode() not in resp.content
+
+    def describe_class_chips():
+        def _past_class(guild):
+            offering = ClassOfferingFactory(
+                category=CategoryFactory(guild=guild), status=ClassOffering.Status.PUBLISHED, is_private=False
+            )
+            ClassSessionFactory(
+                class_offering=offering,
+                starts_at=timezone.now() - timedelta(days=30),
+                ends_at=timezone.now() - timedelta(days=30) + timedelta(hours=2),
+            )
+            return offering
+
+        def it_shows_only_the_current_chip_when_all_classes_are_upcoming(client: Client):
+            _member("chips1")
+            client.login(username="chips1", password="pw")
+            guild = GuildFactory()
+            _published_class(guild)
+            resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            assert b'hub-badge">1 current class<' in resp.content
+            # Structural negative (chip markup, not bare prose): the changelog renders
+            # into every hub page, so prose-level negatives false-positive on entries.
+            assert not re.search(rb'hub-badge">\d+ past class', resp.content)
+
+        def it_shows_only_the_past_chip_when_every_class_already_ran(client: Client):
+            _member("chips2")
+            client.login(username="chips2", password="pw")
+            guild = GuildFactory()
+            _past_class(guild)
+            _past_class(guild)
+            resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            assert b'hub-badge">2 past classes<' in resp.content
+            assert not re.search(rb'hub-badge">\d+ current class', resp.content)
+
+        def it_shows_both_chips_when_the_guild_has_past_and_current_classes(client: Client):
+            _member("chips3")
+            client.login(username="chips3", password="pw")
+            guild = GuildFactory()
+            _past_class(guild)
+            _published_class(guild)
+            resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            assert b'hub-badge">1 past class<' in resp.content
+            assert b'hub-badge">1 current class<' in resp.content
+
+        def it_shows_no_class_chip_for_a_guild_without_classes(client: Client):
+            _member("chips4")
+            client.login(username="chips4", password="pw")
+            guild = GuildFactory()
+            resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+            assert not re.search(rb'hub-badge">\d+ past class', resp.content)
+            assert not re.search(rb'hub-badge">\d+ current class', resp.content)
 
     def it_lists_upcoming_classes_for_this_guild_only(client: Client):
         _member("ov2")
