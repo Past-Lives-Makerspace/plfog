@@ -1608,10 +1608,11 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    # meeting.minutes_approved — a broadcast to the guild's members (Discord dual-routes to
-    # the guild's own channel), so NO channel may address a single recipient. Before this
-    # curated copy existed, the generic fallback's email greeting leaked "Hi [missing:
-    # member_name]" into guild Discord channels.
+    # meeting.minutes_approved — a broadcast to the guild's members, so NO channel may
+    # address a single recipient. Before this curated copy existed, the generic fallback's
+    # email greeting leaked "Hi [missing: member_name]" into guild Discord channels; the
+    # event's Discord channel was then removed outright (owner decision 2026-09-03) — the
+    # authored Discord copy stays as a safe default should it ever return.
     "meeting.minutes_approved": EventCopy(
         # meeting_title is Meeting.display_title, which already embeds the guild name
         # ("Metal Guild — Monthly Meeting") — so the bodies never repeat guild_name.
@@ -1646,7 +1647,7 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # meeting.council_minutes_approved — same broadcast posture for the cross-guild council
-    # meeting (Discord posts centrally; recipients are all guild leads/staff/officers).
+    # meeting (recipients are all guild leads/staff/officers; Discord likewise removed).
     "meeting.council_minutes_approved": EventCopy(
         placeholders=("meeting_title", "meeting_url"),
         sample_context={

@@ -245,9 +245,10 @@ def describe_Meeting():
             assert _deliveries("meeting.council_minutes_approved") == 0
 
         @respx.mock
-        def it_posts_greeting_free_copy_to_the_guilds_own_discord_channel():
-            # Regression: the generic-copy fallback once posted the email greeting into
-            # the guild channel as "Hi [missing: member_name]".
+        def it_never_posts_to_the_guilds_discord_channel():
+            # Owner decision (2026-09-03): a minutes approval is routine housekeeping,
+            # not channel news — the event has no Discord channel at all. (It once
+            # leaked a "Hi [missing: member_name]" email greeting into the channel.)
             webhook = "https://discord.com/api/webhooks/300/minutes"
             route = respx.post(webhook).mock(return_value=httpx.Response(204))
             member_user = _user("guilddisc")
@@ -255,11 +256,8 @@ def describe_Meeting():
             GuildMembershipFactory(guild=guild, member=member_user.member)
             meeting = MeetingFactory(guild=guild)
             meeting.approve(by=_user("a6"))
-            assert route.called
-            payload = route.calls.last.request.content.decode()
-            assert "[missing:" not in payload
-            assert "member_name" not in payload
-            assert "approved and locked" in payload
+            assert not route.called
+            assert _deliveries("meeting.minutes_approved") == 1  # the in-app fan-out stays
 
         def it_emits_council_minutes_approved_for_the_council_scope():
             lead = _user("counc-lead")
