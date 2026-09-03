@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.27.0"
+VERSION = "1.27.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.27.1",
+        "date": "2026-09-03",
+        "title": "Safer announcement defaults",
+        "changes": [
+            "Announcements from a guild without its own Discord channel used to preselect "
+            "the makerspace wide channel with a ping to everyone. The default is now no "
+            "ping and no shared channel; both remain available as deliberate choices.",
+        ],
+    },
     {
         "version": "1.27.0",
         "date": "2026-09-03",
