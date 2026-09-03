@@ -429,7 +429,12 @@
   {# ── Related classes ────────────────────────────────── #}
   {% if related_offerings %}
     <section class="cp-detail__related">
-      <h2 class="cp-detail__h2">More {{ offering.category.name }} classes</h2>
+      {# A category literally named Class (legacy CMS sync) reads as "More Class classes". #}
+      {% if offering.category.name|lower == "class" %}
+        <h2 class="cp-detail__h2">More classes like this</h2>
+      {% else %}
+        <h2 class="cp-detail__h2">More {{ offering.category.name }} classes</h2>
+      {% endif %}
       <div class="cls-grid">
         {% for related in related_offerings %}
           <a class="cls-card" href="{% url 'classes:public_class_detail' slug=related.slug %}">
