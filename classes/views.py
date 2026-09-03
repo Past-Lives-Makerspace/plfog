@@ -1895,10 +1895,11 @@ def _render_class_preview(
 def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     """Preview the public detail page for any class — including drafts.
 
-    Access: the assigned instructor (owner) OR any actual admin. The view
-    renders ``classes/public/detail.html`` but skips the ``status=published``
-    filter so drafts/pending can be reviewed before going live. A banner is
-    rendered at the top so it's clear this is a preview.
+    Access: the assigned instructor (owner), any actual admin, or a CMS
+    Administrator (CLASS_APPROVER holder — their review page embeds this
+    preview). The view renders ``classes/public/detail.html`` but skips the
+    ``status=published`` filter so drafts/pending can be reviewed before going
+    live. A banner is rendered at the top so it's clear this is a preview.
     """
     offering = get_object_or_404(
         ClassOffering.objects.select_related("category", "instructor").prefetch_related("sessions", "gallery_images"),
@@ -1916,15 +1917,22 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     user_member = MemberModel.objects.filter(user=request.user).first()
     is_instructor = user_member is not None and offering.instructor_id == user_member.pk
 
-    # The owning instructor, the lead of the category's guild, or any admin may preview.
-    if not (is_admin or (user_member is not None and user_member.can_edit_class(offering))):
+    from membership.models import AdminCapability
+
+    is_class_approver = user_member is not None and user_member.has_admin_capability(
+        AdminCapability.Capability.CLASS_APPROVER
+    )
+    # The owning instructor, the lead of the category's guild, any admin, or a
+    # CMS Administrator (whose review page embeds this preview) may preview.
+    if not (is_admin or is_class_approver or (user_member is not None and user_member.can_edit_class(offering))):
         return HttpResponseForbidden("You can only preview your own classes.")
 
     edit_url = None
     if is_admin:
         edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-    elif user_member is not None:
+    elif user_member is not None and user_member.can_edit_class(offering):
         # Instructors and guild leads manage the class from the teaching portal.
+        # A CMS Administrator gets no edit link — they review, they don't edit.
         edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
     return _render_class_preview(
         request,
@@ -2633,17 +2641,34 @@ def _class_review_view(
     token: str | None,
     approval: ClassApproval | None = None,
 ) -> HttpResponse:
-    """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/."""
+    """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/.
+
+    Only a PENDING offering is reviewable: for any other status the page never
+    mints an approval row and never accepts a decision POST — it renders a
+    plain "not awaiting review" state instead of the form. This keeps a stale
+    review link (or a direct URL hit) from publishing a DRAFT, re-publishing an
+    ARCHIVED class, or bouncing a live class back to DRAFT.
+    """
+    is_reviewable = offering.status == ClassOffering.Status.PENDING
     if approval is None:
-        approval = offering.approvals.filter(role=role, decision="").order_by(
-            "-created_at"
-        ).first() or ClassApproval.objects.create(class_offering=offering, role=role)
+        approval = offering.approvals.filter(role=role, decision="").order_by("-created_at").first()
+        if approval is None and is_reviewable:
+            approval = ClassApproval.objects.create(class_offering=offering, role=role)
     settings_obj = ClassSettings.load()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    history = list(offering.approvals.exclude(pk=approval.pk).order_by("-created_at"))
+    history_qs = offering.approvals.order_by("-created_at")
+    if approval is not None:
+        history_qs = history_qs.exclude(pk=approval.pk)
+    history = list(history_qs)
 
     form = ClassReviewDecisionForm(request.POST or None)
-    if request.method == "POST" and not approval.decision and form.is_valid():
+    if (
+        request.method == "POST"
+        and is_reviewable
+        and approval is not None
+        and not approval.decision
+        and form.is_valid()
+    ):
         approval.decide(
             form.cleaned_data["decision"],
             user=request.user if request.user.is_authenticated else None,
@@ -2668,6 +2693,7 @@ def _class_review_view(
             "history": history,
             "form": form,
             "role": role,
+            "is_reviewable": is_reviewable,
             "upcoming_sessions": upcoming_sessions,
             "is_tokenized": token is not None,
             "active_tab": "classes",

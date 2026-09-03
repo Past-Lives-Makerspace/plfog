@@ -1532,13 +1532,24 @@ class ClassApproval(models.Model):
         super().save(*args, **kwargs)
 
     def decide(self, decision: str, user=None, notes: str = "") -> None:
-        """Record a reviewer decision and trigger the offering's lifecycle hook."""
+        """Record a reviewer decision and trigger the offering's lifecycle hook.
+
+        Guards on the offering being PENDING *before* saving anything, so a
+        decision can never publish a never-submitted DRAFT, re-publish an
+        ARCHIVED class, overwrite ``approved_by``/``published_at`` on a
+        PUBLISHED one, or bounce a live class back to DRAFT. This is the single
+        choke point for every decision path (tokenized page, admin review page,
+        quick-approve); the review view renders a friendly not-awaiting-review
+        state before a user can ever reach this error.
+        """
         if decision not in {
             self.Decision.APPROVED,
             self.Decision.CHANGES_REQUESTED,
             self.Decision.DENIED,
         }:
             raise ValueError(f"Unknown decision: {decision!r}")
+        if self.class_offering.status != ClassOffering.Status.PENDING:
+            raise ValueError(f"Only pending classes can accept review decisions; got {self.class_offering.status}.")
         self.decision = decision
         self.decided_by = user
         self.notes = notes

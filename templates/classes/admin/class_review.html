@@ -8,7 +8,7 @@
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
     <div>
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:var(--color-tuscan-yellow);">
-        {{ approval.get_role_display }} review
+        {% if approval %}{{ approval.get_role_display }}{% else %}Class{% endif %} review
       </div>
       <h1 style="margin:6px 0 4px;font-size:1.75rem;">{{ offering.title }}</h1>
       <div style="color:var(--hub-text-muted);font-size:0.95rem;">
@@ -20,7 +20,7 @@
     {% endif %}
   </div>
 
-  {# Already-decided summary OR the decision form #}
+  {# Already-decided summary, a not-awaiting-review notice, OR the decision form #}
   {% if approval.decision %}
     <div style="padding:14px 16px;background:rgba(123,200,143,0.10);border:1px solid var(--color-success);border-radius:8px;margin-bottom:1.25rem;">
       <div style="font-weight:700;color:var(--hub-text);margin-bottom:4px;">
@@ -33,6 +33,13 @@
       {% if approval.notes %}
         <div style="margin-top:10px;padding:10px 12px;background:var(--hub-bg);border-radius:6px;font-size:0.9rem;white-space:pre-wrap;">{{ approval.notes }}</div>
       {% endif %}
+    </div>
+  {% elif not is_reviewable %}
+    <div style="padding:14px 16px;background:var(--hub-surface);border:1px solid var(--hub-border);border-radius:8px;margin-bottom:1.25rem;">
+      <div style="font-weight:700;color:var(--hub-text);margin-bottom:4px;">This class is not awaiting review.</div>
+      <div style="color:var(--hub-text-muted);font-size:0.9rem;">
+        It is currently {{ offering.get_status_display|lower }}. Decisions can only be recorded while a class is pending review.
+      </div>
     </div>
   {% else %}
     <form method="post" style="margin-bottom:1.5rem;">

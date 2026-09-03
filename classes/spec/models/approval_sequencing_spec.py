@@ -156,6 +156,20 @@ def describe_escalation_notifications():
         assert "Lead Person" in note.body
 
 
+def describe_decide_status_guard():
+    """decide() refuses to act unless the offering is PENDING — the single choke point for every path."""
+
+    def it_refuses_a_decision_when_the_offering_is_not_pending(db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        with pytest.raises(ValueError, match="Only pending"):
+            row.decide(ClassApproval.Decision.APPROVED)
+        row.refresh_from_db()
+        assert row.decision == ""
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.DRAFT
+
+
 def describe_awaiting_admin_validation():
     """The lead-side counterpart queue: classes they approved that wait on the admin gate."""
 
