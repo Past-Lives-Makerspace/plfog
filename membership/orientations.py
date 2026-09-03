@@ -30,6 +30,7 @@ if TYPE_CHECKING:
         Guild,
         Member,
         OrientationAvailability,
+        OrientationAvailabilityBlock,
         OrientationBooking,
         OrientationSlot,
         OrientationType,
@@ -317,6 +318,88 @@ def request_custom_orientation(
         raise
 
 
+def _carve_block_slot(
+    block: OrientationAvailabilityBlock, orientation_type: OrientationType, starts_at: datetime
+) -> OrientationSlot:
+    """Lock the block row, recheck the interval, and carve out its 1-seat ``FROM_BLOCK`` slot.
+
+    Must run inside ``transaction.atomic`` — ``select_for_update`` serializes
+    concurrent bookings into the same block, and the recheck under the lock is what
+    guarantees two members can't take one interval (the slot occupies its segment
+    from the moment it exists, before its booking row lands).
+
+    Raises:
+        OrientationError: Propagated from :meth:`OrientationAvailabilityBlock.ensure_start_valid`.
+    """
+    from membership.models import OrientationAvailabilityBlock, OrientationSlot
+
+    locked = OrientationAvailabilityBlock.objects.select_for_update().get(pk=block.pk)
+    locked.ensure_start_valid(orientation_type, starts_at)
+    return OrientationSlot.objects.create(
+        guild=locked.guild,
+        orientation_type=orientation_type,
+        orienter=locked.orienter,
+        block=locked,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(minutes=orientation_type.duration_minutes),
+        seats=1,
+        location=locked.location or orientation_type.default_location,
+        source=OrientationSlot.Source.FROM_BLOCK,
+    )
+
+
+def request_block_orientation(
+    block: OrientationAvailabilityBlock,
+    member: Member,
+    starts_at: datetime,
+    *,
+    orientation_type: OrientationType,
+    note: str = "",
+) -> OrientationBooking:
+    """Book ``starts_at`` inside an availability block (free types) — issue #283.
+
+    Carves the 1-seat ``FROM_BLOCK`` slot and creates its booking in ONE transaction
+    under a ``select_for_update`` lock on the block row, so a concurrent attempt at
+    an overlapping interval waits, rechecks, and fails cleanly. The request fan-out
+    (emails, activity, notifications) fires after commit, exactly like
+    :func:`request_orientation`.
+
+    Raises:
+        OrientationError: If the start is invalid (cancelled block, off-grid,
+            doesn't fit, taken) or the member fails the per-type booking guards.
+            A guard failure rolls the carved slot back — no dangling slot.
+    """
+    with transaction.atomic():
+        slot = _carve_block_slot(block, orientation_type, starts_at)
+        booking = slot.book(member, note=note)
+    _fan_out_request(booking)
+    return booking
+
+
+def start_block_orientation_checkout(
+    block: OrientationAvailabilityBlock,
+    member: Member,
+    starts_at: datetime,
+    *,
+    orientation_type: OrientationType,
+    note: str = "",
+) -> str:
+    """Paid variant of :func:`request_block_orientation` — returns the Stripe Checkout URL.
+
+    The carve + the ``PENDING_PAYMENT`` hold + the Checkout Session all run inside
+    the block-row lock: the hold is what occupies the segment, so it must exist
+    before the lock releases. The Stripe call inside the lock is a deliberate
+    tradeoff — contention is scoped to one block row, and a failure rolls back the
+    slot and hold together (the delegate also expires its session best-effort).
+
+    Raises:
+        OrientationError: Propagated from the interval recheck or the booking guards.
+    """
+    with transaction.atomic():
+        slot = _carve_block_slot(block, orientation_type, starts_at)
+        return start_orientation_checkout(slot, member, note=note)
+
+
 def parse_proposed_time(date_str: str, time_str: str) -> datetime:
     """Parse a member's proposed orientation ``date`` + ``time`` into a future, tz-aware datetime.
 
@@ -530,8 +613,9 @@ def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) ->
     Expires the hold's Checkout Session first (best-effort) unless the caller
     knows it is already expired. The delete itself is status-guarded so a row a
     concurrent webhook just finalized is never destroyed (and a row already gone
-    is a quiet no-op). A custom-request hold also deletes its orphan 1-seat
-    MANUAL slot.
+    is a quiet no-op). A custom-request or block hold also deletes its orphan
+    1-seat MANUAL / FROM_BLOCK slot — for a block, that is what frees the
+    segment (a bookingless carved slot still occupies its span).
     """
     from membership.models import OrientationBooking, OrientationSlot
 
@@ -543,7 +627,8 @@ def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) ->
     ).delete()
     if not deleted:
         return
-    if slot.seats == 1 and slot.source == OrientationSlot.Source.MANUAL and not slot.bookings.exists():
+    one_off_sources = (OrientationSlot.Source.MANUAL, OrientationSlot.Source.FROM_BLOCK)
+    if slot.seats == 1 and slot.source in one_off_sources and not slot.bookings.exists():
         slot.delete()
 
 

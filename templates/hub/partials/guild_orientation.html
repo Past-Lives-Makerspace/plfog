@@ -137,7 +137,43 @@ Member-facing orientation section on the guild page, grouped by orientation type
           <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>
         </div>
       </div>
-      {% else %}
+      {% endif %}
+      {% if sec.blocks %}
+      {# Availability blocks (issue #283): open windows the member books a start time inside. #}
+      <div style="margin-top:0.75rem;" data-help-key="orientation.pick-a-time">
+        <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">Pick a Time</p>
+        <p class="hub-text-muted" style="margin:0 0 0.5rem; font-size:0.85rem;">These are open windows of orienter time. Choose one and pick the start that suits you.</p>
+        <ul style="list-style:none; padding:0; margin:0;">
+          {% for block in sec.blocks %}
+          <li class="pl-orient-slots__row">
+            <span class="pl-orient-slots__date">{{ block.starts_at|date:"D M j" }}</span>
+            <span class="pl-orient-slots__time">{{ block.starts_at|time:"g:i A" }} – {{ block.ends_at|time:"g:i A" }}</span>
+            <span class="pl-orient-slots__with">
+              {% if block.orienter.profile_photo %}<img src="{{ block.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ block.orienter.display_name|slice:":1" }}</span>{% endif %}
+              <span>with {{ block.orienter.display_name }}</span>
+            </span>
+            <span class="pl-orient-slots__action">
+              {% if user.is_authenticated %}
+              <button type="button" class="hub-btn hub-btn--sm hub-btn--primary"
+                      @click="$dispatch('open-modal', 'block-pick-{{ sec.type.pk }}')"
+                      hx-get="{% url 'hub_orientation_block_starts' block.pk sec.type.pk %}"
+                      hx-target="#block-pick-{{ sec.type.pk }}-body"
+                      hx-swap="innerHTML">
+                Pick a time
+              </button>
+              {% else %}
+              <a href="{% url 'account_login' %}?next={{ request.path|urlencode }}" class="hub-btn hub-btn--sm hub-btn--primary">Log in to book</a>
+              {% endif %}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% with tpks=sec.type.pk|stringformat:"s" %}
+      {% include "components/modal.html" with modal_id="block-pick-"|add:tpks modal_title="Pick a Time" %}
+      {% endwith %}
+      {% endif %}
+      {% if not sec.slots and not sec.blocks %}
       <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No one has posted times for this orientation yet — check back soon.</p>
       {% endif %}
       {% endif %}

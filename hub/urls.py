@@ -131,6 +131,22 @@ urlpatterns = [
         name="hub_guild_orientation_request_custom",
     ),
     path("orientation/slots/<int:slot_pk>/book/", views.orientation_book, name="hub_orientation_book"),
+    path(
+        "orientation/blocks/<int:block_pk>/starts/<int:type_pk>/",
+        views.orientation_block_starts,
+        name="hub_orientation_block_starts",
+    ),
+    path(
+        "orientation/blocks/<int:block_pk>/book/",
+        views.orientation_block_book,
+        name="hub_orientation_block_book",
+    ),
+    path("orientation/blocks/post/", views.orientation_block_post, name="hub_orientation_block_post"),
+    path(
+        "orientation/blocks/<int:block_pk>/cancel/",
+        views.orientation_block_cancel,
+        name="hub_orientation_block_cancel",
+    ),
     path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),
     path(
         "orientation/bookings/<int:booking_pk>/lead-cancel/",

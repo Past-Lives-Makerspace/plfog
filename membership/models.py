@@ -8531,6 +8531,180 @@ class OrientationAvailability(models.Model):
         return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M} ({who})"
 
 
+class OrientationAvailabilityBlockQuerySet(models.QuerySet):
+    def upcoming(self) -> OrientationAvailabilityBlockQuerySet:
+        """Uncancelled blocks with time still remaining (a partly elapsed block can still book its tail)."""
+        return self.filter(is_cancelled=False, ends_at__gt=timezone.now())
+
+
+class OrientationAvailabilityBlock(models.Model):
+    """A one-off window of an orienter's available time that members book INTO (issue #283).
+
+    Unlike a fixed whole-window slot, a block is a flexible span: a member picks an
+    orientation type, then any 15-minute-aligned start inside the block that leaves
+    room for the type's duration. Booking carves out a 1-seat ``FROM_BLOCK``
+    :class:`OrientationSlot` and rides the normal booking pipeline; the block row is
+    never physically split — free intervals are computed live as the block minus its
+    seat-holding segments, so cancellations and expired payment holds free their
+    segment automatically.
+
+    Blocks are type-agnostic (any of the guild's active types may book in) and are
+    posted one-off from the orientations dashboard. Deliberately NOT auto-generated
+    from weekly recurring rules — that stays a possible future mode (YAGNI for now).
+    Shrinking/editing a block is not supported either: edit = cancel + repost, which
+    keeps the model simple. Cancelling stops NEW bookings only; existing bookings
+    live on their own slots and are handled by the per-slot cancel tools.
+    """
+
+    guild = models.ForeignKey(
+        Guild, on_delete=models.CASCADE, related_name="orientation_blocks", help_text="Parent guild."
+    )
+    orienter = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="orientation_blocks_offered",
+        help_text="The staff member available during this window. Required — a block is one person's posted time.",
+    )
+    starts_at = models.DateTimeField(help_text="When the availability window opens.")
+    ends_at = models.DateTimeField(help_text="When the availability window closes.")
+    location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Where orientations booked into this block happen."
+    )
+    is_cancelled = models.BooleanField(
+        default=False, help_text="Set when the orienter calls the window off. Stops new bookings only."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrientationAvailabilityBlockQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=models.F("starts_at")),
+                name="ck_orientationblock_end_after_start",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.guild.name} block: {self.starts_at:%Y-%m-%d %H:%M}–{self.ends_at:%H:%M} ({self.orienter})"
+
+    SNAP_MINUTES = 15
+
+    def _busy_spans(self) -> list[tuple[datetime_type, datetime_type]]:
+        """Merged occupied segments: this block's live carved-out slot spans, sorted.
+
+        A slot occupies its span while it is uncancelled and either holds a seat
+        (``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking) or has no bookings yet —
+        the momentary gap between the segment being carved out and its booking row
+        landing. A slot whose bookings all resolved (cancelled / declined / released
+        hold) frees its segment, as does a cancelled slot; orphan bookingless slots
+        are deleted by the failure paths.
+        """
+        seat_holding = [
+            OrientationBooking.Status.PENDING_PAYMENT,
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+        ]
+        occupied = (
+            self.slots.filter(is_cancelled=False)
+            .annotate(
+                holder_count=Count("bookings", filter=Q(bookings__status__in=seat_holding)),
+                booking_count=Count("bookings"),
+            )
+            .filter(Q(holder_count__gt=0) | Q(booking_count=0))
+            .order_by("starts_at")
+        )
+        merged: list[tuple[datetime_type, datetime_type]] = []
+        for slot in occupied:
+            start, end = slot.starts_at, slot.ends_at
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def free_intervals(self) -> list[tuple[datetime_type, datetime_type]]:
+        """The block's open time: its span minus the occupied segments, in order."""
+        free: list[tuple[datetime_type, datetime_type]] = []
+        cursor = self.starts_at
+        for busy_start, busy_end in self._busy_spans():
+            if busy_start > cursor:
+                free.append((cursor, min(busy_start, self.ends_at)))
+            cursor = max(cursor, busy_end)
+            if cursor >= self.ends_at:
+                break
+        if cursor < self.ends_at:
+            free.append((cursor, self.ends_at))
+        return free
+
+    def valid_starts_for(self, orientation_type: OrientationType) -> list[datetime_type]:
+        """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration."""
+        if self.is_cancelled:
+            return []
+        duration = timedelta(minutes=orientation_type.duration_minutes)
+        step = timedelta(minutes=self.SNAP_MINUTES)
+        now = timezone.now()
+        free = self.free_intervals()
+        starts: list[datetime_type] = []
+        candidate = self.starts_at
+        while candidate + duration <= self.ends_at:
+            if candidate > now and any(
+                interval_start <= candidate and candidate + duration <= interval_end
+                for interval_start, interval_end in free
+            ):
+                starts.append(candidate)
+            candidate += step
+        return starts
+
+    def ensure_start_valid(self, orientation_type: OrientationType, starts_at: datetime_type) -> None:
+        """Raise :class:`OrientationError` unless ``starts_at`` is a bookable start for this type.
+
+        Checks (in order): the block is not cancelled, the type belongs to this guild and
+        is active, the start is in the future, on the 15 minute grid from the block start,
+        inside the block with room for the type's duration, and not overlapping an
+        occupied segment. Callers re-run this under ``select_for_update`` on the block
+        row before carving out a slot, so two members can't take one interval.
+
+        Raises:
+            OrientationError: With member-friendly copy naming the failed check.
+        """
+        if self.is_cancelled:
+            raise OrientationError("That availability window was cancelled. Please pick another time.")
+        if orientation_type.guild_id != self.guild_id or not orientation_type.is_active:
+            raise OrientationError("That orientation isn't offered right now.")
+        if starts_at <= timezone.now():
+            raise OrientationError("That time's already past. Please pick a future time.")
+        offset = starts_at - self.starts_at
+        if offset < timedelta(0) or starts_at + timedelta(minutes=orientation_type.duration_minutes) > self.ends_at:
+            raise OrientationError("That time doesn't fit inside this availability window.")
+        if int(offset.total_seconds()) % (self.SNAP_MINUTES * 60) != 0:
+            raise OrientationError("Start times line up on 15 minute marks. Please pick one of the listed times.")
+        ends_at = starts_at + timedelta(minutes=orientation_type.duration_minutes)
+        for busy_start, busy_end in self._busy_spans():
+            if starts_at < busy_end and ends_at > busy_start:
+                raise OrientationError("That time was just taken. Please pick another time.")
+
+    def booked_segments(self) -> OrientationSlotQuerySet:
+        """This block's live carved-out slots (seat-holding, uncancelled) — for the dashboard listing."""
+        seat_holding = [
+            OrientationBooking.Status.PENDING_PAYMENT,
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+        ]
+        return (
+            self.slots.filter(is_cancelled=False, bookings__status__in=seat_holding)
+            .select_related("orientation_type")
+            .distinct()
+            .order_by("starts_at")
+        )
+
+    def cancel(self) -> None:
+        """Call off the window — stops NEW bookings only; existing carved-out slots live on."""
+        self.is_cancelled = True
+        self.save(update_fields=["is_cancelled"])
+
+
 class OrientationSlotQuerySet(models.QuerySet):
     def for_guild(self, guild: Guild) -> OrientationSlotQuerySet:
         return self.filter(guild=guild)
@@ -8603,6 +8777,7 @@ class OrientationSlot(models.Model):
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
         GENERATED = "generated", "From a recurring rule"
+        FROM_BLOCK = "from_block", "Booked into an availability block"
 
     guild = models.ForeignKey(
         Guild, on_delete=models.CASCADE, related_name="orientation_slots", help_text="Parent guild."
@@ -8623,6 +8798,14 @@ class OrientationSlot(models.Model):
     )
     source = models.CharField(
         max_length=10, choices=Source.choices, default=Source.MANUAL, help_text="How this slot was created."
+    )
+    block = models.ForeignKey(
+        OrientationAvailabilityBlock,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="slots",
+        help_text="The availability block this slot was carved out of, for FROM_BLOCK slots.",
     )
     orienter = models.ForeignKey(
         Member,

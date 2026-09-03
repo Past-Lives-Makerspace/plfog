@@ -595,19 +595,31 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     slots_by_type: dict[int, list[Any]] = {}
     for slot in all_slots:
         slots_by_type.setdefault(slot.orientation_type_id, []).append(slot)
+    # Availability blocks (issue #283): a "Pick a time" section renders per type only
+    # when a block still has room for that type's duration — computed live, so booked
+    # segments, cancellations, and expired holds are always reflected.
+    upcoming_blocks = (
+        list(guild.orientation_blocks.upcoming().select_related("orienter", "guild").order_by("starts_at"))
+        if show_orientation and orientation is not None and not orientation.is_closed
+        else []
+    )
     orientation_sections = []
     for orientation_type in orientation_types:
         live_booking = live_by_type.get(orientation_type.pk)
         hold = hold_by_type.get(orientation_type.pk)
         done = orientation_type.pk in completed_type_ids
+        open_for_type = not (done or live_booking or hold)
         orientation_sections.append(
             {
                 "type": orientation_type,
                 "is_oriented": done,
                 "booking": live_booking,
                 "hold": hold,
-                "slots": (
-                    slots_by_type.get(orientation_type.pk, [])[:30] if not (done or live_booking or hold) else []
+                "slots": slots_by_type.get(orientation_type.pk, [])[:30] if open_for_type else [],
+                "blocks": (
+                    [block for block in upcoming_blocks if block.valid_starts_for(orientation_type)]
+                    if open_for_type
+                    else []
                 ),
             }
         )
@@ -1496,6 +1508,83 @@ def guild_orientation_request_custom(request: HttpRequest, pk: int) -> HttpRespo
 
 
 @login_required
+def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) -> HttpResponse:
+    """HTMX partial — the live valid start times inside one availability block for one type.
+
+    Loaded into the guild page's pick-a-time modal. The options are computed fresh on
+    every open, so a segment someone else just booked disappears before the member picks.
+    """
+    from hub.forms import OrientationBlockBookingForm
+    from membership.models import OrientationAvailabilityBlock, OrientationType
+
+    block = get_object_or_404(
+        OrientationAvailabilityBlock.objects.select_related("guild", "orienter"), pk=block_pk, is_cancelled=False
+    )
+    orientation_type = get_object_or_404(OrientationType.objects.active(), pk=type_pk, guild_id=block.guild_id)
+    form = OrientationBlockBookingForm(block=block, orientation_type=orientation_type)
+    start_choices = list(form.fields["starts_at"].widget.choices)
+    return render(
+        request,
+        "hub/partials/orientation_block_start_form.html",
+        {
+            "block": block,
+            "orientation_type": orientation_type,
+            "form": form,
+            "has_starts": bool(start_choices),
+        },
+    )
+
+
+@login_required
+@require_POST
+def orientation_block_book(request: HttpRequest, block_pk: int) -> HttpResponse:
+    """POST-only — a member books a start time inside an availability block (issue #283).
+
+    Free types ride :func:`membership.orientations.request_block_orientation`; paid types
+    redirect into Stripe Checkout via the block checkout variant. Either way the interval
+    is rechecked under the block-row lock, so a just-taken time fails with friendly copy.
+    """
+    from hub.forms import OrientationBlockBookingForm
+    from membership import orientations
+    from membership.models import OrientationAvailabilityBlock, OrientationError
+
+    block = get_object_or_404(OrientationAvailabilityBlock.objects.select_related("guild"), pk=block_pk)
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "You need a member profile to book an orientation.")
+        return redirect("hub_guild_detail", slug=block.guild.slug)
+    form = OrientationBlockBookingForm(request.POST, block=block)
+    if not form.is_valid():
+        messages.error(request, "Pick one of this guild's orientations and one of the listed times.")
+        return redirect("hub_guild_detail", slug=block.guild.slug)
+    starts = form.cleaned_data["starts_at"]
+    orientation_type = form.cleaned_data["orientation_type"]
+    note = form.cleaned_data["note"]
+    if orientation_type.is_paid:
+        try:
+            checkout_url = orientations.start_block_orientation_checkout(
+                block, member, starts, orientation_type=orientation_type, note=note
+            )
+        except OrientationError as exc:
+            messages.error(request, str(exc))
+            return redirect("hub_guild_detail", slug=block.guild.slug)
+        except Exception:
+            logger.exception("Block orientation checkout failed for block %s.", block.pk)
+            messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
+            return redirect("hub_guild_detail", slug=block.guild.slug)
+        return redirect(checkout_url)
+    try:
+        orientations.request_block_orientation(block, member, starts, orientation_type=orientation_type, note=note)
+        messages.success(
+            request,
+            "Orientation requested! Check your email for the details. It's not official until the guild confirms.",
+        )
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+    return redirect("hub_guild_detail", slug=block.guild.slug)
+
+
+@login_required
 def orientation_info(request: HttpRequest, pk: int) -> HttpResponse:
     """The guild's orientation info page (what to expect, how to prepare)."""
     from membership.models import GuildOrientationSettings
@@ -1893,6 +1982,16 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     for slot in manageable:
         if slot.orientation_type.is_paid:
             paid_slot_prices[str(slot.pk)] = cents_as_price(slot.orientation_type.price_cents)
+    # Availability blocks (issue #283): upcoming blocks for the guilds this request
+    # manages (admins: all), with their booked segments listed via block.booked_segments.
+    from hub.forms import OrientationBlockForm
+    from membership.models import OrientationAvailabilityBlock
+
+    blocks_qs = OrientationAvailabilityBlock.objects.upcoming().select_related("guild", "orienter")
+    if not (view_as is not None and view_as.has_actual("admin")):
+        blocks_qs = blocks_qs.filter(guild_id__in=my_leadership_guild_ids)
+    my_blocks = list(blocks_qs.order_by("starts_at"))
+    block_form = OrientationBlockForm(guild_queryset=_orientation_block_guilds(request))
     return render(
         request,
         "hub/orientations_dashboard.html",
@@ -1904,6 +2003,8 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
             "guilds": Guild.objects.filter(is_active=True).order_by("name"),
             "statuses": OrientationBooking.Status.choices,
             "add_member_form": OrientationAddMemberForm(slot_queryset=_manageable_slots(request)),
+            "my_blocks": my_blocks,
+            "block_form": block_form,
             "paid_slot_prices_json": json.dumps(paid_slot_prices),
             "viewer_has_refund_authority": has_refund_authority(request),
             "is_admin": view_as is not None and view_as.has_actual("admin"),
@@ -1967,6 +2068,73 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
         booking.uncomplete()
     else:
         booking.mark_completed()
+    return redirect("hub_orientations_dashboard")
+
+
+def _orientation_block_guilds(request: HttpRequest) -> Any:
+    """Guilds this request may post availability blocks for — the acting member's leadership guilds.
+
+    Deliberately leadership-scoped for admins too: a block's orienter is the poster,
+    and a carved-out slot whose orienter is off the guild's leadership is unbookable
+    (``OrientationSlot.is_bookable``) — posting one anywhere else would be dead weight.
+    """
+    member = _get_member(request)
+    if member is None:
+        return Guild.objects.none()
+    return (
+        Guild.objects.filter(is_active=True)
+        .filter(Q(guild_lead=member) | Q(staff_memberships__member=member))
+        .distinct()
+        .order_by("name")
+    )
+
+
+@login_required
+@require_POST
+def orientation_block_post(request: HttpRequest) -> HttpResponse:
+    """POST-only — an orienter/lead/admin posts a one-off availability block (issue #283).
+
+    The block's orienter is always the acting member — you post your own available
+    time. The guild choices are scoped to the guilds the poster leads or staffs
+    (admins: any active guild), enforced by the form's queryset.
+    """
+    from hub.forms import OrientationBlockForm
+    from membership.models import OrientationAvailabilityBlock
+
+    if not _can_access_orientations(request):
+        return HttpResponse("Forbidden", status=403)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    form = OrientationBlockForm(request.POST, guild_queryset=_orientation_block_guilds(request))
+    if form.is_valid():
+        OrientationAvailabilityBlock.objects.create(
+            guild=form.cleaned_data["guild"],
+            orienter=member,
+            starts_at=form.cleaned_data["starts_at"],
+            ends_at=form.cleaned_data["ends_at"],
+            location=form.cleaned_data["location"],
+        )
+        messages.success(request, "Availability block posted. Members can now pick a time inside it.")
+    else:
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, str(error))
+    return redirect("hub_orientations_dashboard")
+
+
+@login_required
+@require_POST
+def orientation_block_cancel(request: HttpRequest, block_pk: int) -> HttpResponse:
+    """POST-only — cancel an availability block. Stops new bookings; carved-out slots live on."""
+    from membership.models import OrientationAvailabilityBlock
+
+    block = get_object_or_404(OrientationAvailabilityBlock.objects.select_related("guild"), pk=block_pk)
+    forbidden = _require_can_manage_orientations(request, block.guild)
+    if forbidden is not None:
+        return forbidden
+    block.cancel()
+    messages.success(request, "Availability block cancelled. Existing bookings inside it are untouched.")
     return redirect("hub_orientations_dashboard")
 
 

@@ -46,6 +46,7 @@ from membership.models import (
     OrgInfoPage,
     OrgLink,
     OrientationAvailability,
+    OrientationAvailabilityBlock,
     OrientationSlot,
     OrientationType,
     Skill,
@@ -2219,6 +2220,87 @@ class OrientationAddMemberForm(forms.Form):
         super().__init__(*args, **kwargs)
         if slot_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
+
+
+class OrientationBlockForm(forms.Form):
+    """An orienter posts a one-off block of available time from the orientations dashboard.
+
+    Type-agnostic on purpose (issue #283): a block belongs to a guild + orienter, and
+    any of the guild's active orientation types may book into it. The orienter is
+    always the acting member — you post your own time.
+    """
+
+    guild = forms.ModelChoiceField(queryset=Guild.objects.none(), label="Guild", empty_label=None)
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker; .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Until")
+    location = forms.CharField(max_length=200, required=False, label="Location (optional)")
+
+    def __init__(self, *args: Any, guild_queryset: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if guild_queryset is not None:
+            cast(forms.ModelChoiceField, self.fields["guild"]).queryset = guild_queryset
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        day = cleaned.get("date")
+        start_choice = cleaned.get("start_time")
+        end_choice = cleaned.get("end_time")
+        if day and start_choice and end_choice:
+            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_choice)))
+            ends_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(end_choice)))
+            if ends_at <= starts_at:
+                raise forms.ValidationError("The block has to end after it starts.")
+            if starts_at <= timezone.now():
+                raise forms.ValidationError("Pick a time in the future.")
+            cleaned["starts_at"] = starts_at
+            cleaned["ends_at"] = ends_at
+        return cleaned
+
+
+class OrientationBlockBookingForm(forms.Form):
+    """A member books a start time inside an availability block (issue #283).
+
+    The select's choices are the block's live valid starts for the picked type; the
+    submitted value is re-validated as a datetime here and then rechecked under the
+    block-row lock by the booking service, so a just-taken time fails with friendly copy.
+    """
+
+    orientation_type = forms.ModelChoiceField(queryset=OrientationType.objects.none(), widget=forms.HiddenInput())
+    starts_at = forms.DateTimeField(
+        label="Start time",
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
+        widget=forms.Select(),
+    )
+    note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(
+        self,
+        *args: Any,
+        block: OrientationAvailabilityBlock,
+        orientation_type: OrientationType | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        type_field.queryset = OrientationType.objects.filter(guild_id=block.guild_id).active()
+        if orientation_type is not None:
+            self.fields["orientation_type"].initial = orientation_type.pk
+            start_field = self.fields["starts_at"]
+            cast(forms.Select, start_field.widget).choices = [
+                (
+                    timezone.localtime(start).strftime("%Y-%m-%dT%H:%M"),
+                    _meeting_time_label(timezone.localtime(start).hour, timezone.localtime(start).minute),
+                )
+                for start in block.valid_starts_for(orientation_type)
+            ]
 
 
 class GuildLeadForm(forms.Form):
