@@ -222,6 +222,7 @@ def describe_guild_edit_email_cards():
         assert response.status_code == 200
         content = response.content
         assert b"Thank-you Email" in content
-        # The welcome email and the old combined follow-up-emails block are gone.
-        assert b"Welcome email" not in content
+        # The old combined follow-up-emails block is gone. Guard on its unique button
+        # copy only: the changelog renders into every hub page, so a bare phrase like
+        # "Welcome email" false-positives the moment an entry mentions the feature.
         assert b"Save emails" not in content
