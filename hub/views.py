@@ -3185,19 +3185,48 @@ def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> boo
 
 
 def _can_compose(request: HttpRequest, member: Member | None) -> bool:
-    """True when the user can compose *something* — an admin, a guild lead/staff, or an instructor."""
+    """True when the user can compose *something* — an admin, a guild lead/staff, or an instructor.
+
+    Instructing counts by what the member actually teaches (the same source the composer's class
+    audience options use), not only the public profile flag — ``is_instructor`` is merely "has an
+    instructor page" (``instructor_slug``), and a teaching instructor without one must still reach
+    the composer to email their registrants.
+    """
     if _viewing_as_admin(request):
         return True
     if member is None:
         return False
-    return member.staffed_guilds.filter(is_active=True).exists() or member.is_instructor
+    return (
+        member.staffed_guilds.filter(is_active=True).exists()
+        or member.is_instructor
+        or _compose_editable_classes(request, member).exists()
+    )
+
+
+def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience: str | None) -> bool:
+    """Gate for the composer surfaces: general compose rights, or rights over a pre-scoped class.
+
+    The class pages link here with ``?audience=class:<pk>&lock=1``; the class's own instructor may
+    always address that roster (:func:`_can_announce_to_class`) even when the class is not yet
+    published, so a pre-scoped class target they may announce to admits them on its own. The send
+    and save paths re-check the audience server-side regardless (:func:`_compose_audience_forbidden`).
+    """
+    if _can_compose(request, member):
+        return True
+    if not raw_audience:
+        return False
+    from hub.forms import split_audience
+
+    _audience, _guild, offering = split_audience(raw_audience)
+    return offering is not None and _can_announce_to_class(request, offering)
 
 
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
     """True when the Admin Tools hub (sidebar entry + page) is available to this request.
 
     Anyone with elevated permissions that unlock a tool it collects sees it — a site admin, a
-    guild lead/staff (Announcements + Orientations), an instructor (Announcements), or a Billing
+    guild lead/staff (Announcements + Orientations), an instructor (Announcements — by the public
+    profile flag or by actually teaching, same as :func:`_can_compose`), or a Billing
     Administrator (Payments + Reports). For an ACTUAL admin it is view-as-aware: an admin previewing
     the site as a plain member does NOT see it, while a real (non-admin) lead, instructor, or
     Billing Administrator always does.
@@ -3209,12 +3238,17 @@ def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
         member.is_guild_lead
         or member.is_guild_staff
         or member.is_instructor
+        or _compose_editable_classes(request, member).exists()
         or member.has_admin_capability(AdminCapability.Capability.BILLING_APPROVER)
     )
 
 
-def _compose_form_kwargs(request: HttpRequest) -> dict[str, Any]:
-    """Permission-derived kwargs for :class:`~hub.forms.AnnouncementComposeForm` (audience choices)."""
+def _compose_form_kwargs(request: HttpRequest, requested: str | None = None) -> dict[str, Any]:
+    """Permission-derived kwargs for :class:`~hub.forms.AnnouncementComposeForm` (audience choices).
+
+    ``requested`` overrides the request's own ``audience`` parameter — the draft-resume path
+    passes the draft's audience, which arrives in no query string.
+    """
     member = _get_member(request)
     editable_guilds = list(_compose_editable_guilds(request, member))
     editable_classes = list(_compose_editable_classes(request, member))
@@ -3222,7 +3256,7 @@ def _compose_form_kwargs(request: HttpRequest) -> dict[str, Any]:
     # valid audience choice — e.g. an admin sending to one class's roster from that class's page,
     # where the class isn't in their own "classes I teach" list. Only ever ADD a target the user is
     # actually allowed to address (re-checked here); the send path re-checks again.
-    requested = request.GET.get("audience") or request.POST.get("audience")
+    requested = requested or request.GET.get("audience") or request.POST.get("audience")
     if requested:
         from hub.forms import split_audience
 
@@ -3322,6 +3356,7 @@ def _render_compose(
     locked: bool = False,
     locked_label: str = "",
     compose_heading: str = "",
+    compose_lead: str = "",
 ) -> HttpResponse:
     """Render the single-screen composer for GET and for an invalid-POST re-render (with errors)."""
     from membership.models import AnnouncementDraft
@@ -3370,27 +3405,36 @@ def _render_compose(
             "locked": locked,
             "locked_label": locked_label,
             "compose_heading": compose_heading,
+            "compose_lead": compose_lead,
         },
     )
 
 
-def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, str]:
+def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, str, str]:
     """Resolve the locked-audience banner from a pre-scoped audience value.
 
-    Returns ``(locked, locked_label, heading)``. Locked only when a class/guild target resolves —
-    a site audience is never locked (nothing to pin it to). Used by both the GET entry
-    (``?audience=…&lock=1``) and the invalid-POST re-render (the hidden ``lock`` field).
+    Returns ``(locked, locked_label, heading, lead)``. Locked only when a class/guild target
+    resolves — a site audience is never locked (nothing to pin it to). Used by both the GET entry
+    (``?audience=…&lock=1``) and the invalid-POST re-render (the hidden ``lock`` field). A class
+    target frames the page as emailing the roster — that is what the class page's "Send Email"
+    button promises — so its heading and lead line say so; guild and unlocked composes keep the
+    announcement framing (empty ``lead`` falls back to the template's default line).
     """
     if not (want_lock and requested):
-        return False, "", ""
+        return False, "", "", ""
     from hub.forms import split_audience
 
     _audience, guild, offering = split_audience(requested)
     if offering is not None:
-        return True, f"Registrants of {offering.title}", f"Announce to {offering.title}"
+        return (
+            True,
+            f"Registrants of {offering.title}",
+            f"Email the registrants of {offering.title}",
+            "This goes to everyone registered for this class. Delivered by email plus their app notifications.",
+        )
     if guild is not None:
-        return True, f"Members of {guild.name}", f"Announce to {guild.name}"
-    return False, "", ""
+        return True, f"Members of {guild.name}", f"Announce to {guild.name}", ""
+    return False, "", "", ""
 
 
 def _compose_first_error(form: Any) -> str:
@@ -3415,24 +3459,34 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     from membership.models import AnnouncementDraft
 
     member = _get_member(request)
-    if not _can_compose(request, member):
-        return redirect("hub_guild_announcement_propose")
-
     draft = None
     initial: dict[str, Any] = {}
-    locked, locked_label, heading = False, "", ""
+    locked, locked_label, heading, lead = False, "", "", ""
+    requested: str | None
     if draft_pk is not None:
+        # Resolve the draft before the gate: a resume URL carries no ?audience, so the gate must
+        # judge the draft's own audience — otherwise a lock-only instructor (admitted via their
+        # class, no general compose rights) could save a draft yet never resume it.
         draft = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
         initial = _draft_initial(draft)
+        requested = initial["audience"]
     else:
         requested = request.GET.get("audience")
         if requested:
             initial["audience"] = requested
-        locked, locked_label, heading = _compose_lock(requested, bool(request.GET.get("lock")))
+        locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
+    if not _can_enter_compose(request, member, requested):
+        return redirect("hub_guild_announcement_propose")
 
-    form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request))
+    form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request, requested=requested))
     return _render_compose(
-        request, form=form, draft=draft, locked=locked, locked_label=locked_label, compose_heading=heading
+        request,
+        form=form,
+        draft=draft,
+        locked=locked,
+        locked_label=locked_label,
+        compose_heading=heading,
+        compose_lead=lead,
     )
 
 
@@ -3451,7 +3505,7 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     from membership.models import AnnouncementDraft
     from membership.orientations import _absolute_url
 
-    if not _can_compose(request, _get_member(request)):
+    if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return HttpResponse("Forbidden", status=403)
     audience, guild, offering = split_audience(request.POST.get("audience") or "")
     draft = AnnouncementDraft(
@@ -3507,7 +3561,7 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
     from membership.models import AnnouncementDraft
     from membership.orientations import _absolute_url
 
-    if not _can_compose(request, _get_member(request)):
+    if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return HttpResponse("Forbidden", status=403)
     to = (cast(User, request.user).email or "").strip()
     if not to:
@@ -3550,7 +3604,7 @@ def hub_compose_push_test(request: HttpRequest) -> HttpResponse:
     """
     from core.push_admin import send_test_push
 
-    if not _can_compose(request, _get_member(request)):
+    if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return HttpResponse("Forbidden", status=403)
     result = send_test_push(cast(User, request.user), url=request.build_absolute_uri("/"))
     response = HttpResponse(status=204)
@@ -3691,9 +3745,15 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         instance = get_object_or_404(AnnouncementDraft, pk=draft_pk, author=request.user, sent_at__isnull=True)
     form = AnnouncementComposeForm(request.POST, require_body=True, **_compose_form_kwargs(request))
     if not form.is_valid():
-        locked, locked_label, heading = _compose_lock(raw, bool(request.POST.get("lock")))
+        locked, locked_label, heading, lead = _compose_lock(raw, bool(request.POST.get("lock")))
         return _render_compose(
-            request, form=form, draft=instance, locked=locked, locked_label=locked_label, compose_heading=heading
+            request,
+            form=form,
+            draft=instance,
+            locked=locked,
+            locked_label=locked_label,
+            compose_heading=heading,
+            compose_lead=lead,
         )
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
     emailed, total = draft.send()

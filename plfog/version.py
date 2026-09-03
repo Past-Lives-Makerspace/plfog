@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.31.0"
+VERSION = "1.31.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.31.1",
+        "date": "2026-09-03",
+        "title": "Instructors can email their class",
+        "changes": [
+            "The Send Email button on your class page now goes straight to a composer "
+            "addressed to your registrants. It works even if you do not have a public "
+            "instructor profile page, and for classes that are not published yet.",
+        ],
+    },
     {
         "version": "1.31.0",
         "date": "2026-09-03",
