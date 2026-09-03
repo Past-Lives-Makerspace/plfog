@@ -261,16 +261,48 @@ def describe_MapHotspot():
             assert MapHotspotFactory(kind=MapHotspot.Kind.EXIT, space=None, label="Exit").size_display == ""
 
     def describe_occupants():
-        def it_lists_the_current_tenants_by_name():
+        def it_names_a_member_who_opted_in_to_the_map():
             space = SpaceFactory(status=Space.Status.OCCUPIED)
-            member = MemberFactory(preferred_name="Robin Vale")
+            member = MemberFactory(preferred_name="Zaltana Q. Vex", show_on_space_map=True)
             LeaseFactory(space=space, tenant_obj=member, start_date=date(2024, 1, 1), end_date=None)
             hotspot = MapHotspotFactory(space=space)
-            assert hotspot.occupant_names == ["Robin Vale"]
+            assert hotspot.visible_occupants == [member]
+            assert hotspot.occupant_names == ["Zaltana Q. Vex"]
+
+        def it_leaves_an_opted_out_member_unnamed_but_still_counted_as_a_tenant():
+            # show_on_space_map defaults to False: sharing a name is voluntary and opt-in.
+            space = SpaceFactory(status=Space.Status.OCCUPIED)
+            member = MemberFactory(preferred_name="Quorvath Plimsk")
+            LeaseFactory(space=space, tenant_obj=member, start_date=date(2024, 1, 1), end_date=None)
+            hotspot = MapHotspotFactory(space=space)
+            assert member.show_on_space_map is False
+            assert hotspot.occupant_names == []
+            assert hotspot.visible_occupants == []
+            # The staff/admin data path stays unfiltered — leases and occupancy keep full data.
+            assert hotspot.occupants == [member]
+            assert space.current_occupants == [member]
+
+        def it_always_names_a_guild_tenant():
+            # A guild's name is not personal information, so it needs no opt-in.
+            space = SpaceFactory(status=Space.Status.OCCUPIED)
+            guild = GuildFactory(name="Cartwheelwright Guild")
+            LeaseFactory(space=space, tenant_obj=guild, start_date=date(2024, 1, 1), end_date=None)
+            hotspot = MapHotspotFactory(space=space)
+            assert hotspot.occupant_names == ["Cartwheelwright Guild"]
+
+        def it_names_only_the_guild_when_it_shares_with_an_opted_out_member():
+            space = SpaceFactory(status=Space.Status.OCCUPIED)
+            guild = GuildFactory(name="Cartwheelwright Guild")
+            member = MemberFactory(preferred_name="Quorvath Plimsk")
+            LeaseFactory(space=space, tenant_obj=guild, start_date=date(2024, 1, 1), end_date=None)
+            LeaseFactory(space=space, tenant_obj=member, start_date=date(2024, 1, 1), end_date=None)
+            hotspot = MapHotspotFactory(space=space)
+            assert hotspot.occupant_names == ["Cartwheelwright Guild"]
 
         def it_is_empty_for_an_info_marker():
             hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Gallery")
             assert hotspot.occupants == []
+            assert hotspot.visible_occupants == []
             assert hotspot.occupant_names == []
 
     def describe_cta():

@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.24.0"
+VERSION = "1.25.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.25.0",
+        "date": "2026-09-03",
+        "title": "Meet your studio neighbors",
+        "changes": [
+            "Clicking an occupied studio on the Spaces map can now introduce you to who "
+            "works there, with their photo, pronouns, and skills. Sharing is opt in and "
+            "off by default: flip Show me on the Spaces map in Settings if you want "
+            "members to find you. Names on the map are also members only now; visitors "
+            "who are not signed in just see that a space is taken.",
+        ],
+    },
     {
         "version": "1.24.0",
         "date": "2026-09-02",

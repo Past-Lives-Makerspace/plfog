@@ -5,6 +5,7 @@ public detail panel and its CTA states, and the admin gate on every editor endpo
 from __future__ import annotations
 
 import json
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -12,15 +13,24 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from membership.models import MapHotspot, Member, Space
+from membership.models import Guild, MapHotspot, Member, Space
 from tests.membership.factories import (
     FloorplanFactory,
     GuildFactory,
+    LeaseFactory,
     MapHotspotFactory,
+    MemberFactory,
     MembershipPlanFactory,
     SpaceFactory,
     SpaceRequestFactory,
 )
+
+
+def _occupied_hotspot_with(tenant: Member | Guild) -> MapHotspot:
+    """An occupied studio marker whose space is actively leased by ``tenant``."""
+    space = SpaceFactory(status=Space.Status.OCCUPIED)
+    LeaseFactory(space=space, tenant_obj=tenant, start_date=date(2024, 1, 1), end_date=None)
+    return MapHotspotFactory(space=space)
 
 
 def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -280,6 +290,89 @@ def describe_hotspot_detail():
         hotspot = MapHotspotFactory()
         body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
         assert "pl-map-detail__edit" not in body
+
+
+@pytest.mark.django_db
+def describe_occupant_privacy():
+    """Issue #285 — occupant identity on the public map is double-gated: the occupant must
+    opt in (``Member.show_on_space_map``, default off) AND the viewer must be logged in.
+    Guests only ever learn that a space is occupied."""
+
+    def describe_the_detail_panel():
+        def it_shows_a_guest_only_the_occupied_status_even_for_an_opted_in_occupant(client: Client):
+            occupant = MemberFactory(preferred_name="Zaltana Q. Vex", show_on_space_map=True)
+            hotspot = _occupied_hotspot_with(occupant)
+            body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+            assert "Occupied" in body
+            assert "Zaltana Q. Vex" not in body
+            assert "pl-map-occupant" not in body
+
+        def it_never_names_an_opted_out_occupant_even_to_a_member(client: Client):
+            _user_with_role("occ-out-viewer")
+            occupant = MemberFactory(preferred_name="Quorvath Plimsk")
+            hotspot = _occupied_hotspot_with(occupant)
+            client.login(username="occ-out-viewer", password="pass")
+            body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+            assert "Occupied" in body
+            assert "Quorvath Plimsk" not in body
+            assert "pl-map-occupant" not in body
+
+        def it_gives_a_member_the_opted_in_occupants_name_and_card(client: Client):
+            _user_with_role("occ-in-viewer")
+            occupant = MemberFactory(preferred_name="Zaltana Q. Vex", show_on_space_map=True, pronouns="zey/zem")
+            hotspot = _occupied_hotspot_with(occupant)
+            client.login(username="occ-in-viewer", password="pass")
+            body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+            assert "Zaltana Q. Vex" in body
+            assert "pl-map-occupant" in body
+            assert "zey/zem" in body
+
+        def it_respects_the_directory_pronoun_toggle_on_the_card(client: Client):
+            _user_with_role("occ-pron-viewer")
+            occupant = MemberFactory(
+                preferred_name="Zaltana Q. Vex",
+                show_on_space_map=True,
+                pronouns="zey/zem",
+                directory_visibility={"pronouns": False},
+            )
+            hotspot = _occupied_hotspot_with(occupant)
+            client.login(username="occ-pron-viewer", password="pass")
+            body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+            assert "Zaltana Q. Vex" in body
+            assert "zey/zem" not in body
+
+        def it_still_offers_an_admin_the_edit_pencil_alongside_the_gated_names(client: Client):
+            # Admin surfaces are unaffected: the inline editor stays reachable regardless
+            # of any occupant's opt-in state.
+            _user_with_role("occ-admin", fog_role=Member.FogRole.ADMIN)
+            occupant = MemberFactory(preferred_name="Quorvath Plimsk")
+            hotspot = _occupied_hotspot_with(occupant)
+            client.login(username="occ-admin", password="pass")
+            body = client.get(reverse("hub_map_hotspot_detail", args=[hotspot.pk])).content.decode()
+            assert reverse("hub_map_hotspot_inline_edit", args=[hotspot.pk]) in body
+
+    def describe_the_accessible_list_row():
+        def it_leaves_the_row_nameless_for_a_guest(client: Client):
+            occupant = MemberFactory(preferred_name="Zaltana Q. Vex", show_on_space_map=True)
+            _occupied_hotspot_with(occupant)
+            body = client.get(reverse("hub_spaces")).content.decode()
+            assert "Zaltana Q. Vex" not in body
+
+        def it_names_an_opted_in_occupant_for_a_member(client: Client):
+            _user_with_role("row-in-viewer")
+            occupant = MemberFactory(preferred_name="Zaltana Q. Vex", show_on_space_map=True)
+            _occupied_hotspot_with(occupant)
+            client.login(username="row-in-viewer", password="pass")
+            body = client.get(reverse("hub_spaces")).content.decode()
+            assert "Zaltana Q. Vex" in body
+
+        def it_never_lists_an_opted_out_occupant(client: Client):
+            _user_with_role("row-out-viewer")
+            occupant = MemberFactory(preferred_name="Quorvath Plimsk")
+            _occupied_hotspot_with(occupant)
+            client.login(username="row-out-viewer", password="pass")
+            body = client.get(reverse("hub_spaces")).content.decode()
+            assert "Quorvath Plimsk" not in body
 
 
 @pytest.mark.django_db

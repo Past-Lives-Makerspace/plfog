@@ -127,6 +127,19 @@
                 {% endif %}
             </div>
 
+            {# ── Spaces map opt-in (default off; names only ever show to logged-in members) ── #}
+            <div class="pl-profile-master pl-profile-master--map">
+                <div class="pl-profile-master__copy">
+                    <h2 class="pl-profile-master__title">Spaces Map</h2>
+                    <p class="pl-profile-master__sub">
+                        When on, logged in members can see your name and a small profile card on your
+                        studio or shelf on the Spaces map. When off, your space just shows as occupied.
+                        Guests never see your name either way.
+                    </p>
+                </div>
+                {% include "components/toggle.html" with field=profile_form.show_on_space_map %}
+            </div>
+
             <div class="pl-profile-grid">
                 {# ── Left: edit fields ── #}
                 <div class="pl-profile-edit__col">

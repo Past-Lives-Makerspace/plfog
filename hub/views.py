@@ -3608,9 +3608,11 @@ def guild_mailing_list_import(request: HttpRequest, pk: int) -> HttpResponse:
 def spaces(request: HttpRequest) -> HttpResponse:
     """Public Spaces page — the interactive map (tab 1) and the full space listings (tab 2).
 
-    Public-read like ``guild_detail`` (no ``@login_required``): a floor plan and a list of
-    studios carry no member PII, so they are safe on the guest surface too. Marker placement
-    is admin-only via ``org_map_edit``.
+    Public-read like ``guild_detail`` (no ``@login_required``), but occupant identity is
+    doubly gated: a guest sees only occupancy *status* (a space reads "Occupied" with no
+    name), while occupant names/cards render only for logged-in members AND only for
+    occupants who opted in via ``Member.show_on_space_map`` (default off — see
+    ``Space.visible_occupants``). Marker placement is admin-only via ``org_map_edit``.
 
     Both tabs render the same published :class:`~membership.models.Floorplan` set and share
     one Alpine component, so the chosen floor follows you between them. Until a floor is
@@ -6813,6 +6815,11 @@ def _hotspot_detail_context(request: HttpRequest, hotspot: Any) -> dict[str, Any
     Answers the three questions the CTA branches on: is there already an open request,
     is the viewer allowed to make one, and (if not) why not — so the panel can offer a
     log-in link or an explanation instead of a dead disabled button.
+
+    Also builds ``occupant_cards``: the Member occupants who opted in to the map
+    (``Member.show_on_space_map``, via ``visible_occupants``), for the panel's
+    "Who Works Here" cards. Only an authenticated member viewer gets cards — for a
+    guest the list is empty, matching the members-only gate on occupant names.
     """
     from hub.forms import SpaceRequestForm
     from membership.models import SpaceRequest
@@ -6827,6 +6834,10 @@ def _hotspot_detail_context(request: HttpRequest, hotspot: Any) -> dict[str, Any
         "hotspot": hotspot,
         "open_request": open_request,
         "viewer_is_member": member is not None,
+        # Opted-in Member occupants only, and only for a member viewer — guests get [].
+        "occupant_cards": (
+            [t for t in hotspot.visible_occupants if isinstance(t, Member)] if member is not None else []
+        ),
         "viewer_is_active": is_active_member,
         "can_request": can_request,
         # The in-modal pencil editor is admin-only — the same gate as the "Edit the map" link
@@ -6842,7 +6853,8 @@ def _hotspot_detail_context(request: HttpRequest, hotspot: Any) -> dict[str, Any
 def map_hotspot_detail(request: HttpRequest, pk: int) -> HttpResponse:
     """HTMX GET — one marker's detail panel, rendered into the shared modal body.
 
-    Public-read, exactly like the map it opens from.
+    Public-read, exactly like the map it opens from — occupant names and cards inside
+    the panel are gated to member viewers and opted-in occupants (see ``spaces``).
     """
     from membership.models import MapHotspot
 

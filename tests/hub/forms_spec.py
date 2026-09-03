@@ -63,6 +63,7 @@ def describe_profile_settings_form():
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "show_on_space_map",
             "open_for_commissions",
             "commission_note",
             "marketing_opt_in",
@@ -99,6 +100,27 @@ def describe_profile_settings_form():
             member = MemberFactory(full_legal_name="Marketing User", marketing_opt_in=True)
             form = ProfileSettingsForm(instance=member)
             assert form["marketing_opt_in"].value() is True
+
+    def describe_show_on_space_map():
+        def it_defaults_off_for_a_new_member():
+            assert MemberFactory().show_on_space_map is False
+
+        def it_saves_the_opt_in_when_checked():
+            member = MemberFactory(full_legal_name="Map User")
+            form = ProfileSettingsForm({"preferred_name": "MU", "show_on_space_map": "on"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().show_on_space_map is True
+
+        def it_clears_the_opt_in_when_the_box_is_unchecked():
+            member = MemberFactory(full_legal_name="Map User", show_on_space_map=True)
+            form = ProfileSettingsForm({"preferred_name": "MU"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().show_on_space_map is False
+
+        def it_preselects_the_member_current_answer():
+            member = MemberFactory(full_legal_name="Map User", show_on_space_map=True)
+            form = ProfileSettingsForm(instance=member)
+            assert form["show_on_space_map"].value() is True
 
     def it_writes_visibility_flags_into_directory_visibility_json():
         member = MemberFactory(full_legal_name="Visibility User")

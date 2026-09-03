@@ -1,8 +1,13 @@
+{% load hub_tags %}
 {% comment %}
 The space-detail panel, loaded by HTMX into #space-detail-body.
 
 Context (from _hotspot_detail_context): hotspot, open_request, viewer_is_member,
-viewer_is_active, can_request, request_form, can_edit_map. When ``swap_marker`` is set
+viewer_is_active, can_request, request_form, can_edit_map, occupant_cards (opted-in
+Member occupants — empty for guests, so a logged-out viewer never sees a name or card;
+the occupant_names rows below are gated on viewer_is_member for the same reason, and
+the names themselves only ever contain occupants who opted in via their profile
+settings). When ``swap_marker`` is set
 (the response to a successful request OR an admin inline edit) it also carries hx-swap-oob
 copies of the marker and the list row, so the map, this panel, and the accessible list can
 never disagree about a space's status/label or whether a request is pending.
@@ -40,9 +45,40 @@ can_edit_map (admin only) shows a pencil "Edit" button that swaps the trimmed in
     <dl class="pl-map-detail__facts">
         {% if hotspot.size_display %}<dt>Size</dt><dd>{{ hotspot.size_display }}</dd>{% endif %}
         {% if hotspot.price_display %}<dt>Price</dt><dd>{{ hotspot.price_display }}</dd>{% endif %}
-        {% if hotspot.occupant_names %}<dt>Currently used by</dt><dd>{{ hotspot.occupant_names|join:", " }}</dd>{% endif %}
+        {% if viewer_is_member and hotspot.occupant_names %}<dt>Currently used by</dt><dd>{{ hotspot.occupant_names|join:", " }}</dd>{% endif %}
         {% if hotspot.linked_guild %}<dt>Guild</dt><dd><a class="pl-map-detail__guild-link" href="{% url 'hub_guild_detail' slug=hotspot.linked_guild.slug %}">{{ hotspot.linked_guild.name }}</a></dd>{% endif %}
     </dl>
+
+    {% if occupant_cards %}
+    {# Opted-in Member occupants, members-only. Per-field privacy reuses the directory toggles. #}
+    <div class="pl-map-occupants">
+        <p class="pl-map-occupants__heading">Who Works Here</p>
+        {% for occupant in occupant_cards %}
+        <div class="pl-map-occupant">
+            {% if occupant|is_public:"profile_photo" and occupant.profile_photo %}
+            <img class="pl-map-occupant__avatar pl-map-occupant__avatar--photo" src="{{ occupant.profile_photo.url }}" alt="">
+            {% else %}
+            <div class="pl-map-occupant__avatar">{{ occupant.initials }}</div>
+            {% endif %}
+            <div class="pl-map-occupant__body">
+                <div class="pl-map-occupant__name">
+                    {{ occupant.display_name }}
+                    {% if occupant|is_public:"pronouns" and occupant.pronouns %}<span class="pl-map-occupant__pronouns">{{ occupant.pronouns }}</span>{% endif %}
+                </div>
+                {% if occupant|is_public:"skills" %}
+                {% with occupant_skills=occupant.approved_skills %}
+                {% if occupant_skills %}
+                <div class="pl-map-occupant__skills">
+                    {% for ms in occupant_skills|slice:":3" %}<span class="pl-skill-chip">{{ ms.skill.name }}</span>{% endfor %}
+                </div>
+                {% endif %}
+                {% endwith %}
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     {% if hotspot.description %}<p class="pl-map-detail__blurb">{{ hotspot.description }}</p>{% endif %}
 
@@ -80,7 +116,7 @@ can_edit_map (admin only) shows a pencil "Edit" button that swaps the trimmed in
                 {% include "hub/partials/_space_request_form.html" %}
             {% endif %}
 
-        {% elif hotspot.occupant_names %}
+        {% elif viewer_is_member and hotspot.occupant_names %}
             <p class="hub-text-muted pl-map-detail__note">Currently used by {{ hotspot.occupant_names|join:", " }}.</p>
         {% endif %}
     </div>
