@@ -660,6 +660,38 @@ def release_hold_if_unpaid(booking: OrientationBooking) -> str:
     return "released"
 
 
+def reconcile_landed_checkout(booking: OrientationBooking) -> str:
+    """Verify-and-finalize a ``PENDING_PAYMENT`` hold when the member lands on the success page.
+
+    The webhook is the primary finalize path, but it can lag — and on
+    environments with no Stripe webhook endpoint it never arrives, stranding the
+    member on the "Finalizing Your Payment" spinner forever. The success_url
+    landing asks Stripe directly and funnels a paid session through
+    :func:`finalize_paid_booking` (idempotent and race-safe against the
+    webhook), so the confirmation renders immediately.
+
+    Returns ``finalize_paid_booking``'s outcome (``"finalized"`` /
+    ``"cancelled_slot"`` / ``"already"`` / ``"gone"``) when Stripe says paid,
+    ``"pending"`` when the session is not paid yet (or there is no session id to
+    check — crash mid-start; the sweep owns that hold), or ``"unknown"`` when
+    Stripe is unreachable (the poll retries).
+    """
+    from billing import stripe_utils
+
+    if not booking.stripe_session_id:
+        return "pending"
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+    except Exception:
+        logger.exception("Landing reconcile: could not verify session for orientation hold %s.", booking.pk)
+        return "unknown"
+    if session["payment_status"] != "paid":
+        return "pending"
+    return finalize_paid_booking(
+        booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
+    )
+
+
 def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
     """Sweep abandoned checkout holds — Stripe-verified, never on age alone.
 
