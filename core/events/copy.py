@@ -66,14 +66,24 @@ class EventCopy:
     def copy_for(self, channel: Channel) -> ChannelCopy:
         """Default copy for ``channel``, falling back across related channels.
 
-        Discord and scheduled-email reuse email copy; email falls back to in-app
-        copy; in-app falls back to a minimal title-only block. This keeps every
-        declared channel seedable without authoring three near-identical bodies.
+        Discord and scheduled-email reuse email copy. Push and Discord DMs are
+        one-line surfaces rendered from a context that carries no per-recipient
+        placeholders, so they prefer the in-app copy (short, greeting-free) —
+        the email fallback once put "Hi [missing: member_name]" in a Discord DM.
+        Email falls back to in-app copy; in-app falls back to a minimal
+        title-only block. This keeps every declared channel seedable without
+        authoring near-identical bodies.
+
+        Note: this consults the SEEDED defaults only — an admin-edited in-app
+        ``NotificationTemplate`` DB row does not flow through to push/DM, which
+        keep rendering the seeded default (same behavior the email fallback had).
         """
         if channel in self.channels:
             return self.channels[channel]
         if channel in (Channel.DISCORD, Channel.SCHEDULED_EMAIL) and Channel.EMAIL in self.channels:
             return self.channels[Channel.EMAIL]
+        if channel in (Channel.PUSH, Channel.DISCORD_DM) and Channel.IN_APP in self.channels:
+            return self.channels[Channel.IN_APP]
         if Channel.EMAIL in self.channels:
             return self.channels[Channel.EMAIL]
         if Channel.IN_APP in self.channels:

@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.30.1"
+VERSION = "1.30.2"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.30.2",
+        "date": "2026-09-03",
+        "title": "Broken greetings gone from Discord DMs and phone alerts",
+        "changes": [
+            "Some Discord direct messages and phone notifications opened with a "
+            "broken greeting and a missing name. They now use the same clean short "
+            "text as your in app notifications. Admins also no longer get a stray "
+            "message meant for an instructor when a class enters review.",
+        ],
+    },
     {
         "version": "1.30.1",
         "date": "2026-09-03",
