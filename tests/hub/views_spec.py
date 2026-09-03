@@ -314,6 +314,15 @@ def describe_user_settings():
         assert response.context["capabilities_url"] is None
         assert b"Manage your admin duties" not in response.content
 
+    def it_offers_the_spaces_map_opt_in_toggle(client: Client):
+        User.objects.create_user(username="maptoggle", password="pass")
+        client.login(username="maptoggle", password="pass")
+
+        response = client.get("/settings/")
+
+        assert response.status_code == 200
+        assert b'name="show_on_space_map"' in response.content
+
     def it_defaults_to_guilds_tab(client: Client):
         User.objects.create_user(username="tabdefault", password="pass")
         client.login(username="tabdefault", password="pass")

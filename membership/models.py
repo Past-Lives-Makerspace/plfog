@@ -474,6 +474,14 @@ class Member(models.Model):
             "Missing key means public (default-on)."
         ),
     )
+    show_on_space_map = models.BooleanField(
+        default=False,
+        help_text=(
+            "Member opted in to being named as an occupant on the public Spaces map. Off by default: "
+            "an opted out member's space still shows as occupied, just with no name attached. Even "
+            "when on, names and occupant cards appear only for logged in members, never guests."
+        ),
+    )
     open_for_commissions = models.BooleanField(
         default=False,
         help_text="When on, the member shows an 'Open for commissions!' badge and appears in that filter.",
@@ -7981,9 +7989,24 @@ class Space(models.Model):
 
     @property
     def current_occupants(self) -> list[Member | Guild]:
-        """Return all active tenants (Members and Guilds) for this space."""
+        """Return all active tenants (Members and Guilds) for this space.
+
+        Unfiltered — this is the staff/admin data path (lease management, occupancy
+        reports). Member-facing surfaces read :attr:`visible_occupants` instead.
+        """
         active = self.leases.filter(_active_lease_q()).select_related("content_type")
         return [t for lease in active if (t := lease.tenant) is not None]
+
+    @property
+    def visible_occupants(self) -> list[Member | Guild]:
+        """Tenants OK to display on member-facing surfaces (the public Spaces map).
+
+        Guild tenants always show (a guild's name is not personal information). Member
+        tenants show only when they opted in via :attr:`Member.show_on_space_map` —
+        an opted-out member is simply absent, so their space reads as occupied with no
+        name. Staff/admin surfaces read :attr:`current_occupants`, which stays unfiltered.
+        """
+        return [t for t in self.current_occupants if not isinstance(t, Member) or t.show_on_space_map]
 
     @property
     def vacancy_value(self) -> Decimal:
@@ -9438,13 +9461,23 @@ class MapHotspot(models.Model):
 
     @property
     def occupants(self) -> list[Member | Guild]:
-        """Current tenants of the linked space (empty for info markers)."""
+        """ALL current tenants of the linked space (empty for info markers). Staff data — unfiltered."""
         return self.space.current_occupants if self.space is not None else []
 
     @property
+    def visible_occupants(self) -> list[Member | Guild]:
+        """Tenants the member-facing map may show: guilds plus members who opted in."""
+        return self.space.visible_occupants if self.space is not None else []
+
+    @property
     def occupant_names(self) -> list[str]:
-        """Display names of the current tenants — members by preferred name, guilds by name."""
-        return [getattr(tenant, "display_name", "") or str(tenant) for tenant in self.occupants]
+        """Display names of the tenants the map may show — opted-in members by preferred name, guilds by name.
+
+        Members who have not opted in (:attr:`Member.show_on_space_map`) are absent from
+        this list; their space still reads as occupied. Templates additionally gate the
+        rendered list to authenticated viewers, because the map itself is public.
+        """
+        return [getattr(tenant, "display_name", "") or str(tenant) for tenant in self.visible_occupants]
 
     @property
     def cta_kind(self) -> str | None:

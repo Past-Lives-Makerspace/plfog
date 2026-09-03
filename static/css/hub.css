@@ -5878,6 +5878,54 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-map-detail__facts dt { color: var(--hub-text-muted); }
 .pl-map-detail__facts dd { margin: 0; }
 .pl-map-detail__blurb { margin: 0 0 1rem; font-size: 0.875rem; }
+
+/* Occupant cards — opted-in members only, shown to logged-in members only */
+.pl-map-occupants { margin: 0 0 1rem; }
+.pl-map-occupants__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--hub-text-muted);
+  text-transform: capitalize;
+}
+.pl-map-occupant {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 8px;
+  background: var(--hub-surface);
+}
+.pl-map-occupant + .pl-map-occupant { margin-top: 0.5rem; }
+.pl-map-occupant__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  background: var(--hub-elevated);
+  color: var(--hub-text-muted);
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+.pl-map-occupant__avatar--photo { object-fit: cover; }
+.pl-map-occupant__body { min-width: 0; }
+.pl-map-occupant__name { font-weight: 600; font-size: 0.9375rem; }
+.pl-map-occupant__pronouns {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--hub-text-muted);
+}
+.pl-map-occupant__skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
 .pl-map-detail__cta { margin-top: 1rem; }
 .pl-map-detail__note { margin: 0.5rem 0; font-size: 0.8125rem; }
 .pl-map-request-form { margin-top: 0.75rem; }

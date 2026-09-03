@@ -425,6 +425,7 @@ class ProfileSettingsForm(forms.ModelForm):
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "show_on_space_map",
             "open_for_commissions",
             "commission_note",
             "marketing_opt_in",
@@ -448,6 +449,7 @@ class ProfileSettingsForm(forms.ModelForm):
         }
         labels = {
             "show_in_directory": "Show me in the member directory",
+            "show_on_space_map": "Show me on the Spaces map",
             "discord_handle": "Discord",
             "about_me": "About me",
             "profile_photo": "Profile photo",
