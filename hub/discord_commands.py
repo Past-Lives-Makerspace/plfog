@@ -224,15 +224,15 @@ register(JOIN_GUILD)
 
 _RANKED_OPTIONS = (
     ("first", "Your 1st choice (5 pts).", True),
-    ("second", "Your 2nd choice (3 pts, optional).", False),
-    ("third", "Your 3rd choice (2 pts, optional).", False),
+    ("second", "Your 2nd choice (3 pts).", True),
+    ("third", "Your 3rd choice (2 pts).", True),
 )
 
 
 def _ballot_options() -> list[dict]:
     """The ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
 
-    Only the 1st choice is required; 2nd and 3rd are optional, mirroring the voting page.
+    All three choices are required, mirroring the voting page.
     Built from :func:`_guild_choices` so the slug values, the 25-choice Discord cap (beyond 25
     active guilds the overflow is logged and dropped from the picker — the same constraint
     ``/join-guild`` already lives with; those guilds stay votable on the hub page), and the
@@ -249,7 +249,7 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
     """Cast or change the member's ranked ballot — the hub page's exact validate + save path.
 
     Validation is the very same ``VotePreferenceForm`` the voting page POSTs through
-    (active-guild querysets, 1st required, distinct choices, no skipped rank) and the save is the same
+    (active-guild querysets, all three required, distinct choices) and the save is the same
     ``VotePreference.objects.cast_ballot`` call, so ``updated_at``, the Airtable push in
     ``VotePreference.save()``, and the vote-activity post-save signal fire exactly as a page
     submission would — no invented sync behavior. Validation failures name the problem in a
@@ -268,7 +268,7 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
     voting_url = hub_url("hub_guild_voting")
 
     slugs = [option_value(interaction, name) or "" for name, *_ in _RANKED_OPTIONS]
-    provided = [slug for slug in slugs if slug]  # 2nd/3rd are optional and may be absent
+    provided = [slug for slug in slugs if slug]
     guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=provided)}
     unknown = sorted({slug for slug in provided if slug not in guilds_by_slug})
     if unknown:

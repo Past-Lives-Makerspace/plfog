@@ -417,20 +417,23 @@ def describe_vote_preference_form():
 
         assert not form.is_valid()
 
-    def it_allows_first_choice_only():
+    def it_rejects_a_first_choice_only_ballot():
         g1 = GuildFactory(name="Only1", is_active=True)
 
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": "", "guild_3rd": ""})
 
-        assert form.is_valid()
+        assert not form.is_valid()
+        assert "guild_2nd" in form.errors
+        assert "guild_3rd" in form.errors
 
-    def it_allows_first_and_second_only():
+    def it_rejects_a_ballot_missing_the_third_choice():
         g1 = GuildFactory(name="First", is_active=True)
         g2 = GuildFactory(name="Second", is_active=True)
 
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": g2.pk, "guild_3rd": ""})
 
-        assert form.is_valid()
+        assert not form.is_valid()
+        assert "guild_3rd" in form.errors
 
     def it_requires_a_first_choice():
         form = VotePreferenceForm(data={"guild_1st": "", "guild_2nd": "", "guild_3rd": ""})
@@ -445,7 +448,7 @@ def describe_vote_preference_form():
         form = VotePreferenceForm(data={"guild_1st": g1.pk, "guild_2nd": "", "guild_3rd": g3.pk})
 
         assert not form.is_valid()
-        assert form.non_field_errors()
+        assert "guild_2nd" in form.errors
 
     def it_rejects_a_duplicate_across_two_chosen_tiers():
         g1 = GuildFactory(name="Dup", is_active=True)
