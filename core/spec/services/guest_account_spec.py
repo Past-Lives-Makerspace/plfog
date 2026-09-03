@@ -41,6 +41,23 @@ def describe_ensure_account_for_registration():
             reg.refresh_from_db()
             assert reg.member_id == member.pk
 
+        def it_seeds_the_member_name_from_the_registration(membership_plan, open_registration):
+            # Issue #274: the new user carries the registration's first/last name,
+            # so the Member's legal name is the real booking name and never the
+            # email-derived username.
+            reg = RegistrationFactory(
+                email="ada@example.com",
+                first_name="Ada",
+                last_name="Lovelace",
+                create_account=True,
+                member=None,
+            )
+            ensure_account_for_registration(reg)
+            user = User.objects.get(email="ada@example.com")
+            assert user.first_name == "Ada"
+            assert user.last_name == "Lovelace"
+            assert Member.objects.get(user=user).full_legal_name == "Ada Lovelace"
+
         def it_creates_a_verified_primary_email_address(membership_plan, open_registration):
             reg = RegistrationFactory(email="ada@example.com", create_account=True, member=None)
             ensure_account_for_registration(reg)
