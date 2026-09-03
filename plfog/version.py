@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.43.0"
+VERSION = "1.43.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.43.1",
+        "date": "2026-09-06",
+        "title": "More sign-in codes before we make you wait",
+        "changes": [
+            "If you asked for a sign-in code a few times in a row, we used to stop you "
+            "after three in an hour and show a message about too many attempts. That was "
+            "easy to hit by accident, and it locked you out of your own account for a "
+            "full hour. The limit is now ten an hour.",
+        ],
+    },
     {
         "version": "1.43.0",
         "date": "2026-09-06",
