@@ -110,7 +110,8 @@
 <div class="pl-guild-statbar">
     <div class="pl-guild-statbar__chips">
         {% include "hub/partials/_guild_member_count.html" %}
-        {% if class_count %}<span class="hub-badge">{{ class_count }} class{{ class_count|pluralize:"es" }}</span>{% endif %}
+        {% if past_class_count %}<span class="hub-badge">{{ past_class_count }} past class{{ past_class_count|pluralize:"es" }}</span>{% endif %}
+        {% if current_class_count %}<span class="hub-badge">{{ current_class_count }} current class{{ current_class_count|pluralize:"es" }}</span>{% endif %}
         {% with next_meeting=guild.next_meeting_occurrence %}{% if next_meeting %}<span class="hub-badge">Next meeting {{ next_meeting.when|date:"M j" }}</span>{% endif %}{% endwith %}
     </div>
     {% include "hub/partials/_guild_join_cta.html" %}

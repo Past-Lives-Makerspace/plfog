@@ -158,6 +158,12 @@ def describe_guild_orientation_section():
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Join an Orientation" in response.content
 
+    def it_explains_where_booking_emails_go_with_a_help_bubble(client: Client):
+        _user, guild = _setup(client, "sec_help")
+        OrientationSlotFactory(guild=guild, enabled_settings=False)
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert b'pl-help__bubble">Your primary email is what receives the notification for bookings' in response.content
+
     def it_hides_join_an_orientation_once_oriented(client: Client):
         user, guild = _setup(client, "join2")
         OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=user.member).mark_completed()

@@ -22,7 +22,12 @@ Member-facing orientation section on the guild page, grouped by orientation type
     <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientations are set up yet. Check back soon.</p>
 
   {% else %}
-    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for {{ guild.name }}</h2>
+    <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get oriented for {{ guild.name }}
+      <span class="pl-help">
+        <span class="pl-help__icon" tabindex="0" role="img" aria-label="Booking emails: your primary email is what receives the notification for bookings. Change your primary email in your User Settings.">?</span>
+        <span class="pl-help__bubble">Your primary email is what receives the notification for bookings. Change your primary email in your User Settings.</span>
+      </span>
+    </h2>
     {% if orientation.info %}<p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">{{ orientation.info|truncatewords:40 }}</p>{% endif %}
     {% if orientation_all_done %}
     <p style="margin:0 0 0.75rem; font-size:0.95rem; color:var(--hub-text);">✓ You've completed every orientation this guild offers.</p>
