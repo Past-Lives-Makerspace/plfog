@@ -1,0 +1,56 @@
+{% comment %}
+Equipment card grid — shared by the Equipment index (PR 1) and the guild page (PR 3).
+Context:
+  cards — list of dicts: {equipment, access_state} where access_state is an
+          Equipment.AccessState value ("ok" / "needs_orientation" / "needs_guild" /
+          "inactive_member"). The badge renders from that one state so the card and
+          the detail banner can't drift.
+The whole card is the tap target (a stretched link on the name); the guild chip sits
+above it with its own link.
+{% endcomment %}
+<div class="pl-equip-grid">
+  {% for card in cards %}
+  {% with equipment=card.equipment %}
+  <div class="hub-card pl-equip-card">
+    {% if equipment.photo %}
+    <img src="{{ equipment.photo.url }}" alt="" class="pl-equip-card__photo" style="object-position: {{ equipment.hero_object_position }};">
+    {% else %}
+    <div class="pl-equip-card__placeholder" aria-hidden="true">
+      {% if equipment.kind == "room" %}
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+      {% else %}
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+      </svg>
+      {% endif %}
+    </div>
+    {% endif %}
+    <div class="pl-equip-card__body">
+      <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="pl-equip-card__name">{{ equipment.name }}</a>
+      <div class="pl-equip-card__meta">
+        {% if equipment.guild %}
+        <a href="{% url 'hub_guild_detail' equipment.guild.slug %}" class="hub-badge pl-equip-card__guild">{{ equipment.guild.name }}</a>
+        {% else %}
+        <span class="hub-badge pl-equip-badge--muted">Makerspace</span>
+        {% endif %}
+        <span class="hub-badge">{{ equipment.get_kind_display }}</span>
+      </div>
+      <div>
+        {% if card.access_state == "ok" %}
+        <span class="pl-equip-badge pl-equip-badge--ok">You're all set</span>
+        {% elif card.access_state == "needs_orientation" %}
+        <span class="pl-equip-badge pl-equip-badge--warn">Orientation needed</span>
+        {% elif card.access_state == "needs_guild" %}
+        <span class="pl-equip-badge pl-equip-badge--warn">{{ equipment.guild.name }} members only</span>
+        {% else %}
+        <span class="pl-equip-badge pl-equip-badge--muted">Membership inactive</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endwith %}
+  {% endfor %}
+</div>

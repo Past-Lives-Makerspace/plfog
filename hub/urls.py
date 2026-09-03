@@ -1,7 +1,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import discord_views, meeting_views, notification_views, views
+from . import discord_views, equipment_views, meeting_views, notification_views, views
 
 urlpatterns = [
     # --- Meetings (spec §6.0) ---
@@ -308,6 +308,31 @@ urlpatterns = [
         "spaces/requests/review/<int:pk>/decision/",
         views.space_request_review_decision,
         name="hub_space_request_review_decision",
+    ),
+    # Equipment directory (equipment-reservations spec §6 — PR 1). /add/ must stay above <slug>/.
+    path("equipment/", equipment_views.hub_equipment_index, name="hub_equipment_index"),
+    path("equipment/add/", equipment_views.hub_equipment_add, name="hub_equipment_add"),
+    path("equipment/<slug:slug>/", equipment_views.hub_equipment_detail, name="hub_equipment_detail"),
+    path("equipment/<slug:slug>/manage/", equipment_views.hub_equipment_manage, name="hub_equipment_manage"),
+    path(
+        "equipment/<slug:slug>/manage/details/",
+        equipment_views.hub_equipment_details_save,
+        name="hub_equipment_details_save",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/photo/delete/",
+        equipment_views.hub_equipment_photo_delete,
+        name="hub_equipment_photo_delete",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/staff/add/",
+        equipment_views.hub_equipment_staff_add,
+        name="hub_equipment_staff_add",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/staff/<int:pk>/remove/",
+        equipment_views.hub_equipment_staff_remove,
+        name="hub_equipment_staff_remove",
     ),
     # Help — how the app works: intro, guides, parking, who-to-contact, FAQ, code of conduct, resources.
     path("help/", views.help_page, name="hub_help"),

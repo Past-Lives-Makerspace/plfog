@@ -119,7 +119,7 @@
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
 <div x-data="{ section: 'overview' }"
-     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; if (window.location.hash === '#guild-orientation') $nextTick(() => document.getElementById('guild-orientation')?.scrollIntoView()); }{% endif %}">
+     x-init="const t = new URLSearchParams(window.location.search).get('tab'); if (t === 'notes' || t === 'meetings') section = 'meetings';{% if show_orientation %} if (t === 'orientations' || window.location.hash === '#guild-orientation') { section = 'orientations'; const ot = new URLSearchParams(window.location.search).get('type'); const target = ot ? 'orientation-type-' + ot : (window.location.hash === '#guild-orientation' ? 'guild-orientation' : null); if (target) $nextTick(() => document.getElementById(target)?.scrollIntoView()); }{% endif %}">
 <nav role="tablist" class="pl-tabs">
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>

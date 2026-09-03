@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
-    from membership.models import CommunityEvent, Guild, Meeting, Member
+    from membership.models import CommunityEvent, Equipment, Guild, Meeting, Member
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
@@ -88,6 +88,47 @@ def can_edit_orienter_hours(request: HttpRequest, guild: Guild, orienter: Member
     if is_effective_staff(request):
         return True
     return member is not None and guild.guild_lead_id == member.pk
+
+
+def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
+    """True when this request may manage the equipment (its manage panel, details, staff).
+
+    Three tiers (the locked equipment-permissions decision):
+    site tier — full admin (``view_as``-aware) or the EQUIPMENT capability;
+    guild tier — the owning guild's lead or any staff member;
+    resource tier — an ``EquipmentStaffMembership`` row.
+    Guild officers get no blanket grant here — the site tier is deliberately
+    narrower than ``is_effective_staff``.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    member = _editing_member(request)
+    if member is None:
+        return False
+    if member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return True
+    guild = equipment.guild
+    if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
+        return True
+    return equipment.staff_memberships.filter(member=member).exists()
+
+
+def can_create_equipment(request: HttpRequest) -> bool:
+    """True when this request may create equipment — full admin or EQUIPMENT capability only.
+
+    Guild leads and per-equipment managers edit and run equipment they manage but do not
+    create it (locked decision #3). Honors ``view_as`` preview like the other helpers.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    member = _editing_member(request)
+    return member is not None and member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
 
 
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:

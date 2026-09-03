@@ -1,0 +1,85 @@
+{% extends "hub/base.html" %}
+{% block title %}{{ equipment.name }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem;">
+  <a href="{% url 'hub_equipment_index' %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Equipment</a>
+</div>
+
+{# ── Hero — photo (when set), name, guild chip, kind badge, Manage for managers. ── #}
+<div class="hub-card pl-equip-hero">
+  {% if equipment.photo %}
+  <img src="{{ equipment.photo.url }}" alt="" class="pl-equip-hero__photo" style="object-position: {{ equipment.hero_object_position }};">
+  {% endif %}
+  <div class="pl-equip-hero__body">
+    <div class="pl-equip-hero__titles">
+      <h1 class="hub-page-title" style="margin:0;">{{ equipment.name }}</h1>
+      <div class="pl-equip-card__meta">
+        {% if equipment.guild %}
+        <a href="{% url 'hub_guild_detail' equipment.guild.slug %}" class="hub-badge">{{ equipment.guild.name }}</a>
+        {% else %}
+        <span class="hub-badge pl-equip-badge--muted">Makerspace</span>
+        {% endif %}
+        <span class="hub-badge">{{ equipment.get_kind_display }}</span>
+      </div>
+    </div>
+    {% if can_manage %}
+    <a href="{% url 'hub_equipment_manage' equipment.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">Manage</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not equipment.is_active %}
+<div class="hub-card pl-equip-banner pl-equip-banner--muted">
+  <p class="hub-text-muted" style="margin:0;">This equipment is retired. Members cannot see it. Turn it back on from the manage panel.</p>
+</div>
+{% endif %}
+
+{# ── Requirements banner — exactly one state, from access_state (spec §7.3). ── #}
+{% if access_state == "ok" %}
+<div class="hub-card pl-equip-banner pl-equip-banner--ok">
+  <p class="pl-equip-banner__ok-text" style="margin:0;">You're all set.</p>
+</div>
+{% elif access_state == "needs_orientation" %}
+<div class="hub-card pl-equip-banner pl-equip-banner--warn">
+  {% if orientation_booking and orientation_booking.slot %}
+  <p style="margin:0;">
+    <a href="{{ orientation_url }}">Your orientation is booked for {{ orientation_booking.slot.starts_at|date:"D, M j" }} at {{ orientation_booking.slot.starts_at|time:"g:i A" }}.</a>
+  </p>
+  {% elif orientation_booking %}
+  <p style="margin:0;"><a href="{{ orientation_url }}">Your orientation request is in. The guild will confirm a time.</a></p>
+  {% else %}
+  <p style="margin:0 0 0.75rem;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here.</p>
+  <a href="{{ orientation_url }}" class="pl-btn pl-btn--primary">Book the Orientation</a>
+  {% endif %}
+</div>
+{% elif access_state == "needs_guild" %}
+<div class="hub-card pl-equip-banner pl-equip-banner--warn">
+  <p style="margin:0 0 0.75rem;">Only {{ equipment.guild.name }} members can book this.</p>
+  <a href="{% url 'hub_guild_detail' equipment.guild.slug %}" class="pl-btn pl-btn--primary">Join {{ equipment.guild.name }}</a>
+</div>
+{% else %}
+<div class="hub-card pl-equip-banner pl-equip-banner--muted">
+  <p class="hub-text-muted" style="margin:0;">Your membership needs to be active to reserve equipment.</p>
+</div>
+{% endif %}
+
+{# ── About — description, wayfinding, and the read-only linked space (spec §7.3 item 7). ── #}
+{% if equipment.description or equipment.location_note or equipment.space %}
+<div class="hub-card" style="padding:1.25rem 1.5rem;">
+  <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">About</h2>
+  {% if equipment.description %}
+  <div style="margin:0 0 0.75rem;">{{ equipment.description|linebreaks }}</div>
+  {% endif %}
+  {% if equipment.location_note %}
+  <p class="hub-text-muted" style="margin:0 0 0.5rem;">Where to find it: {{ equipment.location_note }}</p>
+  {% endif %}
+  {% if equipment.space %}
+  <p class="hub-text-muted" style="margin:0;">
+    Room: {{ equipment.space }}{% if equipment.space.size_sqft %} · {{ equipment.space.size_sqft|floatformat:"0" }} sq ft{% endif %}
+    · <a href="{% url 'hub_spaces' %}">See it on the space map</a>
+  </p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

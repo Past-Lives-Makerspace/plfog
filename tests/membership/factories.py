@@ -14,6 +14,8 @@ from factory.django import mute_signals
 from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
+    Equipment,
+    EquipmentStaffMembership,
     EventRSVP,
     Floorplan,
     FundingSnapshot,
@@ -668,3 +670,24 @@ class SpaceRequestFactory(factory.django.DjangoModelFactory):
     space = factory.SubFactory(SpaceFactory)
     kind = SpaceRequest.RequestKind.LEASE
     state = SpaceRequest.ModerationState.PENDING
+
+
+class EquipmentFactory(factory.django.DjangoModelFactory):
+    """A standalone active tool by default. Pass ``guild=`` / ``required_orientation=`` to gate it."""
+
+    class Meta:
+        model = Equipment
+
+    name = factory.Sequence(lambda n: f"Equipment {n}")
+    kind = Equipment.Kind.TOOL
+    guild = None
+    is_active = True
+
+
+class EquipmentStaffMembershipFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = EquipmentStaffMembership
+
+    equipment = factory.SubFactory(EquipmentFactory)
+    member = factory.SubFactory(MemberFactory)
+    role = EquipmentStaffMembership.Role.MANAGER

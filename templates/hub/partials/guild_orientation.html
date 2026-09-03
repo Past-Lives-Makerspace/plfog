@@ -34,7 +34,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
     {% endif %}
 
     {% for sec in orientation_sections %}
-    <div class="pl-orient-type"{% if not forloop.first %} style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);"{% endif %}>
+    {# The equipment requirements banner deep-links here with ?type=<pk> — highlight that type's group. #}
+    <div id="orientation-type-{{ sec.type.pk }}" class="pl-orient-type{% if request.GET.type == sec.type.pk|stringformat:'s' %} pl-orient-type--highlight{% endif %}"{% if not forloop.first %} style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);"{% endif %}>
       <div class="pl-orient-heading">
         <h3 class="hub-detail-label" style="margin:0;">{{ sec.type.name }}</h3>
         {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% endif %}
