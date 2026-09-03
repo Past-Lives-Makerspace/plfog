@@ -178,6 +178,7 @@
       </div>
       {% endfor %}
     </div>
+    {% include "components/table_pagination.html" with page=manage_reservations base_params="tab=reservations" %}
     {% else %}
     <p class="hub-text-muted" style="margin:0;">No upcoming reservations.</p>
     {% endif %}

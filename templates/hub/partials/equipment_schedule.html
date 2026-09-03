@@ -82,6 +82,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
           x-data="{ start: '{{ starts.0.isoformat }}', durations: JSON.parse(document.getElementById('equip-durations-data').textContent) }">
       {% csrf_token %}
       <input type="hidden" name="day" value="{{ selected_day|date:'Y-m-d' }}">
+      <input type="hidden" name="week" value="{{ week_offset }}">
       <div class="pl-equip-book-row hub-form-group">
         <label class="pl-form-group pl-equip-book-field">
           <span class="pl-form-label">Start</span>
@@ -132,8 +133,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>
         {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as cancel_url %}
-        {% with rpks=reservation.pk|stringformat:"s" %}
-        {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time." confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" %}
+        {# hx-vals keeps the re-rendered strip on the week and day the member was viewing. #}
+        {% with rpks=reservation.pk|stringformat:"s" cancel_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
+        {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time." confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
         {% endwith %}
         {% endif %}
       </li>

@@ -154,6 +154,44 @@ def describe_free_starts_for_day():
             assert timezone.localtime(start).minute in (0, 30)
 
 
+def describe_retired_equipment_fails_closed():
+    def it_blocks_everyone_at_the_engine_level():
+        equipment = EquipmentFactory(is_active=False)
+        member = MemberFactory()
+        assert equipment.booking_blockers(member) == ["This equipment is retired and not taking reservations."]
+        # Even a manager cannot book retired gear — reserve() reads the same blockers.
+        admin = _linked_member("retired_admin")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        EquipmentHoursFactory(equipment=equipment, weekday=_day().weekday())
+        with pytest.raises(EquipmentError, match="retired"):
+            equipment_service.reserve(equipment, admin, _at(_day(), 10), 60)
+
+
+def describe_equipment_hours_grid_guard():
+    def it_rejects_off_grid_times_in_full_clean():
+        from django.core.exceptions import ValidationError
+
+        rule = EquipmentHoursFactory.build(equipment=EquipmentFactory(), start_time=time(9, 15), end_time=time(11, 15))
+        with pytest.raises(ValidationError, match="half hour marks"):
+            rule.full_clean()
+
+    def it_accepts_grid_times_in_full_clean():
+        rule = EquipmentHoursFactory.build(equipment=EquipmentFactory(), start_time=time(9, 30), end_time=time(11, 0))
+        rule.full_clean()  # must not raise
+
+    def it_snaps_starts_from_a_legacy_off_grid_window():
+        # A pre-guard 9:15 to 11:15 row degrades to offering only starts the engine
+        # accepts: 9:30, 10:00, 10:30 (11:00 leaves no room for the 30 minute minimum).
+        equipment = EquipmentFactory()
+        day = _day()
+        EquipmentHoursFactory(equipment=equipment, weekday=day.weekday(), start_time=time(9, 15), end_time=time(11, 15))
+        locals_ = [
+            (timezone.localtime(s).hour, timezone.localtime(s).minute) for s in equipment.free_starts_for_day(day)
+        ]
+        assert locals_ == [(9, 30), (10, 0), (10, 30)]
+
+
 def describe_window_and_span_merging():
     def it_merges_overlapping_hour_windows():
         equipment = _open_tool(start=time(9, 0), end=time(12, 0))
@@ -432,6 +470,37 @@ def describe_cancel():
         stranger = MemberFactory()
         with pytest.raises(EquipmentError, match="equipment manager"):
             reservation.cancel(stranger, reason="Nope.")
+
+    def it_lets_a_manager_cancel_their_own_row_as_manager_without_notifying_themselves():
+        equipment = _open_tool()
+        manager = _linked_member("cx_own_mgr")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        reservation = EquipmentReservationFactory(
+            equipment=equipment,
+            member=manager,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=30),
+        )
+        Notification.objects.all().delete()
+        mail.outbox.clear()
+        # In progress — the self path would refuse; the manager path allows it.
+        reservation.cancel(manager, reason="Freeing my own slot.", as_manager=True)
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert reservation.cancelled_reason == "Freeing my own slot."
+        # The member IS the actor — nobody to notify.
+        assert not Notification.objects.exists()
+        assert mail.outbox == []
+
+    def it_requires_a_reason_even_for_an_own_row_manager_cancel():
+        equipment = _open_tool()
+        manager = _linked_member("cx_own_mgr_blank")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, member=manager, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
+        )
+        with pytest.raises(ValueError, match="needs a reason"):
+            reservation.cancel(manager, as_manager=True)
 
     def it_blocks_a_double_cancel():
         member = MemberFactory()

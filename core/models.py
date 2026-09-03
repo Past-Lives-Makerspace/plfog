@@ -323,6 +323,11 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Wiki link in the sidebar",
         help_text="When off, the Wiki link to the makerspace wiki is hidden from the sidebar.",
     )
+    equipment_page_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Equipment page",
+        help_text="Show the Equipment page in the sidebar and allow reservations.",
+    )
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",

@@ -10410,10 +10410,13 @@ class Equipment(HeroCropMixin, models.Model):
         """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
 
         The single gate the requirements banner, the index badge, and ``reserve()``
-        all read. An inactive or unlinked member short-circuits — the remaining
-        checks are meaningless without an active member. Closure blocks NEW bookings
-        only; existing reservations stand until a manager cancels each.
+        all read. Retired equipment fails closed for everyone, at the engine level —
+        no crafted POST can book it. An inactive or unlinked member short-circuits —
+        the remaining checks are meaningless without an active member. Closure blocks
+        NEW bookings only; existing reservations stand until a manager cancels each.
         """
+        if not self.is_active:
+            return ["This equipment is retired and not taking reservations."]
         if member is None or member.status != Member.Status.ACTIVE:
             return ["Your membership needs to be active to reserve equipment."]
         blockers: list[str] = []
@@ -10496,7 +10499,10 @@ class Equipment(HeroCropMixin, models.Model):
         free = self.free_intervals_for_day(day)
         starts: list[datetime_type] = []
         for window_start, window_end in self.open_intervals_for_day(day):
-            candidate = window_start
+            # Snap the stepping to the wall-clock half hour grid: a legacy off-grid
+            # window (9:15, from before the model-layer clean guard) degrades to
+            # offering only starts ensure_reservable would accept, never a dead 9:15.
+            candidate = self._snap_forward(window_start)
             while candidate + min_duration <= window_end:
                 if candidate > now and any(
                     interval_start <= candidate and candidate + min_duration <= interval_end
@@ -10505,6 +10511,18 @@ class Equipment(HeroCropMixin, models.Model):
                     starts.append(candidate)
                 candidate += step
         return starts
+
+    def _snap_forward(self, value: datetime_type) -> datetime_type:
+        """The first wall-clock half-hour-grid instant at or after ``value`` (local time)."""
+        local = timezone.localtime(value)
+        remainder = local.minute % self.RESERVATION_SNAP_MINUTES
+        if remainder == 0 and local.second == 0 and local.microsecond == 0:
+            return value
+        return (
+            value
+            + timedelta(minutes=self.RESERVATION_SNAP_MINUTES - remainder)
+            - timedelta(seconds=local.second, microseconds=local.microsecond)
+        )
 
     def durations_for(self, starts_at: datetime_type) -> list[int]:
         """The bookable duration options at ``starts_at``, in minutes, half hour steps.
@@ -10706,6 +10724,24 @@ class EquipmentHours(models.Model):
     def __str__(self) -> str:
         return f"{self.equipment.name}: {self.get_weekday_display()} {self.start_time:%H:%M}-{self.end_time:%H:%M}"
 
+    def clean(self) -> None:
+        """Model-layer half hour grid guard — the auto-registered Django admin runs this too.
+
+        The hub formset's ``<select>`` choices only offer grid times, but the admin's
+        raw time inputs could create a 9:15 window whose starts the engine always
+        rejects. Fail loudly at every write path instead.
+        """
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        errors: dict[str, str] = {}
+        for field in ("start_time", "end_time"):
+            value = getattr(self, field)
+            if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
+                errors[field] = "Opening hours line up on half hour marks, e.g. 9:00 or 9:30."
+        if errors:
+            raise ValidationError(errors)
+
 
 class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
     """Query helpers for equipment reservations."""
@@ -10805,12 +10841,15 @@ class EquipmentReservation(models.Model):
             and self.cancelled_by_id != self.member_id
         )
 
-    def cancel(self, actor: Member, *, reason: str = "") -> None:
+    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
         Self cancel: future reservations only, no reason needed, notifies nobody (no
         approver exists to care). Manager cancel: also allowed while in progress,
-        requires a reason the member will see, and notifies the member.
+        requires a reason the member will see, and notifies the member. A manager
+        cancelling THEIR OWN row from the manage tab passes ``as_manager=True`` —
+        the manager guards apply (reason honored, in-progress allowed) but nobody is
+        notified, because the member IS the actor.
 
         Raises:
             EquipmentError: When already cancelled, already started (self cancel),
@@ -10821,24 +10860,24 @@ class EquipmentReservation(models.Model):
         if self.status != self.Status.CONFIRMED:
             raise EquipmentError("This reservation was already cancelled.")
         now = timezone.now()
-        is_self = actor.pk == self.member_id
+        is_own_row = actor.pk == self.member_id
+        acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
-        if is_self:
-            if self.starts_at <= now:
-                raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
-        else:
+        if acting_as_manager:
             if not actor.can_manage_equipment(self.equipment):
                 raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
             if not cleaned_reason:
                 raise ValueError("A manager cancel needs a reason the member will see.")
             if self.ends_at <= now:
                 raise EquipmentError("This reservation already ended.")
+        elif self.starts_at <= now:
+            raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
         self.status = self.Status.CANCELLED
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
         self.cancelled_at = now
         self.save(update_fields=["status", "cancelled_by", "cancelled_reason", "cancelled_at"])
-        if not is_self:
+        if acting_as_manager and not is_own_row:
             from membership import equipment as equipment_service
 
             equipment_service.notify_manager_cancelled(self)

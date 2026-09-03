@@ -67,6 +67,73 @@ def _toast(response) -> str:
     return json.loads(response["HX-Trigger"])["showToast"]["message"]
 
 
+def describe_equipment_feature_gate():
+    """Site Settings → equipment_page_enabled: off means fully dark (sidebar + 404s)."""
+
+    def _disable() -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.equipment_page_enabled = False
+        config.save()
+
+    def it_defaults_on_so_live_behavior_is_preserved(client: Client):
+        from core.models import SiteConfiguration
+
+        assert SiteConfiguration.load().equipment_page_enabled is True
+        _login(client, "gate_default")
+        assert client.get(reverse("hub_equipment_index")).status_code == 200
+
+    def it_hides_the_sidebar_entry_when_disabled(client: Client):
+        _login(client, "gate_sidebar")
+        _disable()
+        response = client.get(reverse("hub_member_directory"))
+        assert response.status_code == 200
+        assert b'href="/equipment/"' not in response.content
+
+    def it_404s_every_equipment_view_when_disabled(client: Client):
+        user = _login(client, "gate_dark", fog_role=Member.FogRole.ADMIN)
+        equipment = _open_tool()
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
+        )
+        _disable()
+        assert client.get(reverse("hub_equipment_index")).status_code == 404
+        assert client.get(reverse("hub_equipment_detail", args=[equipment.slug])).status_code == 404
+        assert client.get(reverse("hub_equipment_schedule", args=[equipment.slug])).status_code == 404
+        # Even the admin's manage surface is dark — Site Settings is where it comes back.
+        assert client.get(reverse("hub_equipment_manage", args=[equipment.slug])).status_code == 404
+        response = client.post(
+            reverse("hub_equipment_reserve", args=[equipment.slug]),
+            {"starts_at": _at(_day(), 12).isoformat(), "duration_minutes": 60, "purpose": "", "day": ""},
+        )
+        assert response.status_code == 404
+        assert equipment.reservations.confirmed().count() == 1  # nothing new booked
+        assert (
+            client.post(reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk])).status_code
+            == 404
+        )
+
+    def it_round_trips_through_the_site_settings_form(client: Client):
+        from django.forms.models import model_to_dict
+
+        from core.models import SiteConfiguration
+        from hub.forms import SiteSettingsForm
+
+        config = SiteConfiguration.load()
+        data = model_to_dict(config)
+        data["equipment_page_enabled"] = False
+        form = SiteSettingsForm(data, instance=config)
+        assert form.is_valid(), form.errors
+        form.save()
+        assert SiteConfiguration.load().equipment_page_enabled is False
+        data["equipment_page_enabled"] = True
+        form = SiteSettingsForm(data, instance=SiteConfiguration.load())
+        assert form.is_valid(), form.errors
+        form.save()
+        assert SiteConfiguration.load().equipment_page_enabled is True
+
+
 def describe_equipment_schedule():
     def it_shows_reserver_names_and_purpose_to_a_plain_logged_in_member(client: Client):
         _login(client, "sch_names")
@@ -134,6 +201,51 @@ def describe_equipment_schedule():
         response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]))
         assert response.status_code == 200
         assert b"Book a Time" not in response.content
+
+    def it_404s_retired_equipment_for_a_non_manager(client: Client):
+        _login(client, "sch_retired")
+        equipment = _open_tool(is_active=False)
+        assert client.get(reverse("hub_equipment_schedule", args=[equipment.slug])).status_code == 404
+
+    def it_shows_retired_equipment_to_a_manager(client: Client):
+        user = _login(client, "sch_retired_mgr")
+        equipment = _open_tool(is_active=False)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        assert client.get(reverse("hub_equipment_schedule", args=[equipment.slug])).status_code == 200
+
+    def it_drops_fully_elapsed_free_segments_and_clips_straddlers():
+        from hub.equipment_views import _clip_free_segments_to_now
+
+        now = timezone.now()
+        past_free = {"is_free": True, "starts_at": now - timedelta(hours=2), "ends_at": now - timedelta(hours=1)}
+        past_busy = {"is_free": False, "starts_at": now - timedelta(hours=1), "ends_at": now - timedelta(minutes=30)}
+        straddler = {"is_free": True, "starts_at": now - timedelta(minutes=30), "ends_at": now + timedelta(hours=1)}
+        future_free = {"is_free": True, "starts_at": now + timedelta(hours=2), "ends_at": now + timedelta(hours=3)}
+        result = _clip_free_segments_to_now([past_free, past_busy, straddler, future_free])
+        # Fully elapsed open time is dropped; past busy history stays; a straddling
+        # free segment starts at now; a future free segment passes through untouched.
+        assert past_free not in result
+        assert result[0] is past_busy
+        assert result[1]["starts_at"] >= now
+        assert result[1]["ends_at"] == straddler["ends_at"]
+        assert result[2] is future_free
+
+    def it_clips_todays_elapsed_open_time_from_the_timeline():
+        # Unit-level pin (no frozen clock needed): with a full-day window today, no
+        # free segment may start before now — the elapsed morning is never "Open".
+        from hub.equipment_views import _day_timeline
+
+        equipment = EquipmentFactory()
+        today = timezone.localdate()
+        EquipmentHoursFactory(
+            equipment=equipment, weekday=today.weekday(), start_time=time(0, 0), end_time=time(23, 59)
+        )
+        before = timezone.now()
+        timeline = _day_timeline(equipment, today)
+        for segment in timeline:
+            if segment["is_free"]:
+                assert segment["starts_at"] >= before
+                assert segment["ends_at"] > before
 
     def it_hides_the_booking_form_from_a_blocked_member(client: Client):
         _login(client, "sch_blocked")
@@ -227,6 +339,39 @@ def describe_equipment_reserve():
         equipment = _open_tool()
         assert _post(client, equipment).status_code == 403
 
+    def it_404s_a_crafted_reserve_on_retired_equipment(client: Client):
+        user = _login(client, "bk_retired")
+        equipment = _open_tool(is_active=False)
+        response = _post(client, equipment)
+        assert response.status_code == 404
+        assert not EquipmentReservation.objects.filter(member=user.member).exists()
+
+    def it_keeps_the_strip_on_the_members_week_after_a_lost_race(client: Client):
+        _login(client, "bk_week2")
+        equipment = EquipmentFactory()
+        far_day = timezone.localdate() + timedelta(days=15)  # inside the week 2 strip
+        EquipmentHoursFactory(
+            equipment=equipment, weekday=far_day.weekday(), start_time=time(9, 0), end_time=time(17, 0)
+        )
+        EquipmentReservationFactory(equipment=equipment, starts_at=_at(far_day, 10), ends_at=_at(far_day, 11))
+        response = client.post(
+            reverse("hub_equipment_reserve", args=[equipment.slug]),
+            {
+                "starts_at": _at(far_day, 10).isoformat(),
+                "duration_minutes": 60,
+                "purpose": "",
+                "day": far_day.isoformat(),
+                "week": "2",
+            },
+        )
+        assert response.status_code == 200
+        assert _toast(response) == "That time was just taken. Please pick another time."
+        # The re-rendered strip is still week 2: the far day stays the selected heading
+        # and the prev arrow points at week 1.
+        heading = f"{far_day:%A, %B} {far_day.day}".encode()
+        assert heading in response.content
+        assert b"?week=1" in response.content
+
 
 def describe_equipment_reservation_cancel():
     def it_lets_the_member_self_cancel_via_the_schedule(client: Client):
@@ -316,6 +461,51 @@ def describe_equipment_reservation_cancel():
         assert response.status_code == 302
         reservation.refresh_from_db()
         assert reservation.status == EquipmentReservation.Status.CONFIRMED
+
+    def it_still_lets_the_member_self_cancel_on_retired_equipment(client: Client):
+        # A member must always be able to back out, even after the tool is retired.
+        user = _login(client, "cx_retired_self")
+        equipment = _open_tool(is_active=False)
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
+        )
+        response = client.post(reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk]))
+        assert response.status_code == 200
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+
+    def it_routes_a_managers_own_row_through_the_manager_path_from_the_manage_tab(client: Client):
+        user = _login(client, "cx_own_route", fog_role=Member.FogRole.ADMIN)
+        equipment = _open_tool()
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
+        )
+        response = client.post(
+            reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk]),
+            {"reason": "Freeing my own slot."},
+        )
+        assert response.status_code == 302
+        assert response["Location"].endswith("?tab=reservations")
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert reservation.cancelled_reason == "Freeing my own slot."
+
+    def it_lets_a_manager_cancel_their_own_in_progress_row_from_the_manage_tab(client: Client):
+        user = _login(client, "cx_own_progress", fog_role=Member.FogRole.ADMIN)
+        equipment = _open_tool()
+        reservation = EquipmentReservationFactory(
+            equipment=equipment,
+            member=user.member,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=30),
+        )
+        response = client.post(
+            reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk]),
+            {"reason": "Wrapping up early."},
+        )
+        assert response.status_code == 302
+        reservation.refresh_from_db()
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
 
     def it_shows_the_manager_cancelled_row_with_the_reason_on_the_schedule(client: Client):
         user = _login(client, "cx_row")
@@ -472,6 +662,28 @@ def describe_equipment_manage_tabs():
         equipment = EquipmentFactory()
         response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "reservations"})
         assert b"No upcoming reservations." in response.content
+
+    def it_paginates_the_reservations_tab_at_25_rows(client: Client):
+        _login(client, "tab_res_page", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        base = timezone.now() + timedelta(days=1)
+        for i in range(30):
+            EquipmentReservationFactory(
+                equipment=equipment,
+                starts_at=base + timedelta(hours=2 * i),
+                ends_at=base + timedelta(hours=2 * i + 1),
+            )
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "reservations"})
+        page = response.context["manage_reservations"]
+        assert len(page.object_list) == 25
+        assert page.paginator.count == 30
+        assert b"Page 1 of 2" in response.content
+        # Page 2 preserves the tab param and carries the remaining rows.
+        response = client.get(
+            reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "reservations", "page": "2"}
+        )
+        assert len(response.context["manage_reservations"].object_list) == 5
+        assert response.context["active_tab"] == "reservations"
 
 
 def describe_detail_page_reservation_states():

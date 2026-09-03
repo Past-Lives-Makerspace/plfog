@@ -13,6 +13,7 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
 from django.db.models import Prefetch
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -41,6 +42,27 @@ from membership.models import (
     Member,
 )
 from membership.permissions import can_create_equipment, can_manage_equipment
+
+
+def equipment_feature_required(view_func: Any) -> Any:
+    """404 every equipment view while the Site Settings toggle is off.
+
+    A disabled feature is fully dark — member pages, booking POSTs, and manage
+    surfaces alike; Site Settings is where it comes back. Mirrors the
+    ``help_page_enabled`` gate's early-check mechanism, answering 404 instead of a
+    redirect so crafted requests learn nothing.
+    """
+    from functools import wraps
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        from core.models import SiteConfiguration
+
+        if not SiteConfiguration.load().equipment_page_enabled:
+            raise Http404("The Equipment page is turned off.")
+        return view_func(request, *args, **kwargs)
+
+    return wrapper
 
 
 def _equipment_queryset() -> EquipmentQuerySet:
@@ -112,7 +134,27 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
             cursor = max(cursor, reservation.ends_at)
         if cursor < window_end:
             timeline.append({"is_free": True, "starts_at": cursor, "ends_at": window_end})
+    if selected_day == timezone.localdate():
+        timeline = _clip_free_segments_to_now(timeline)
     return timeline
+
+
+def _clip_free_segments_to_now(timeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Today's already-elapsed open time is not "Open" — clip free segments to now.
+
+    Matches the start select, which never offers past starts. Past busy segments
+    keep their label; who had the tool is honest history.
+    """
+    now = timezone.now()
+    clipped: list[dict[str, Any]] = []
+    for segment in timeline:
+        if segment["is_free"]:
+            if segment["ends_at"] <= now:
+                continue
+            if segment["starts_at"] < now:
+                segment = {**segment, "starts_at": now}
+        clipped.append(segment)
+    return clipped
 
 
 def _schedule_context(
@@ -171,6 +213,9 @@ def _schedule_context(
     return {
         "equipment": equipment,
         "week_offset": week_offset,
+        # String forms for template |add composition (the self-cancel hx-vals JSON).
+        "week_offset_str": str(week_offset),
+        "selected_day_str": selected_day.isoformat() if selected_day is not None else "",
         "has_prev_week": week_offset > 0,
         "has_next_week": week_offset < max_offset,
         "days": days,
@@ -188,6 +233,7 @@ def _schedule_context(
 
 
 @login_required
+@equipment_feature_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """The Equipment directory — card grid with guild/kind/search filters and access badges."""
     member = _get_member(request)
@@ -243,6 +289,7 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 def hub_equipment_add(request: HttpRequest) -> HttpResponse:
     """Admin-gated create form — full admins and EQUIPMENT capability holders only."""
     if not can_create_equipment(request):
@@ -256,6 +303,7 @@ def hub_equipment_add(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """The equipment mini-page — hero, requirements banner, About (schedule joins in PR 2)."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -288,10 +336,14 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
-def _parse_week(request: HttpRequest) -> int:
-    """The ?week= strip offset, defaulting to 0; garbage is 0 (the strip clamps anyway)."""
-    raw = request.GET.get("week", "0")
+def _parse_week_value(raw: str) -> int:
+    """A week strip offset from a raw param, defaulting to 0; garbage is 0 (the strip clamps anyway)."""
     return int(raw) if raw.lstrip("-").isdigit() else 0
+
+
+def _parse_week(request: HttpRequest) -> int:
+    """The ?week= strip offset from the query string."""
+    return _parse_week_value(request.GET.get("week", "0"))
 
 
 def _parse_day(raw: str) -> date | None:
@@ -316,10 +368,22 @@ def _render_schedule(
     return render(request, "hub/partials/equipment_schedule.html", context)
 
 
+def _require_visible(request: HttpRequest, equipment: Equipment) -> None:
+    """Raise Http404 when retired equipment is fetched by a non-manager.
+
+    Mirrors the detail page's gate on the schedule/reserve endpoints, so a crafted
+    request can neither read a retired tool's roster nor book it.
+    """
+    if not equipment.is_active and not can_manage_equipment(request, equipment):
+        raise Http404("This equipment has been retired.")
+
+
 @login_required
+@equipment_feature_required
 def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
     """GET — the schedule partial (week strip + day timeline + booking form), HTMX-swapped."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    _require_visible(request, equipment)
     return _render_schedule(
         request,
         equipment,
@@ -329,20 +393,25 @@ def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — make an instant reservation; re-render the schedule partial with a toast.
 
     A lost race (or any engine guard) comes back as the friendly error toast plus a
-    refreshed start list — the member never sees a dead page.
+    refreshed start list — the member never sees a dead page, and the strip stays on
+    the week they were looking at.
     """
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    _require_visible(request, equipment)
     member = _get_member(request)
     if member is None:
         return HttpResponse("Forbidden", status=403)
+    week_offset = _parse_week_value(request.POST.get("week", "0"))
+    selected_day = _parse_day(request.POST.get("day", ""))
     form = EquipmentReservationForm(request.POST)
     if not form.is_valid():
-        response = _render_schedule(request, equipment)
+        response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
         trigger_toast(response, "Please pick one of the listed times.", "error")
         return response
     try:
@@ -354,32 +423,42 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
             purpose=form.cleaned_data["purpose"],
         )
     except EquipmentError as exc:
-        response = _render_schedule(request, equipment, selected_day=_parse_day(request.POST.get("day", "")))
+        response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
         trigger_toast(response, str(exc), "error")
         return response
     local_start = timezone.localtime(reservation.starts_at)
-    response = _render_schedule(request, equipment, selected_day=local_start.date())
+    response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=local_start.date())
     trigger_toast(response, f"Reserved. See you {local_start:%A}.", "success")
     return response
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
-    """POST — cancel a reservation: the member's own (no reason), or a manager's (reason required)."""
+    """POST — cancel a reservation: the member's own (no reason), or a manager's (reason required).
+
+    The manage-tab variant is marked by its ``reason`` field: a manager posting it
+    takes the manager path even for THEIR OWN row (reason honored, in-progress
+    allowed, redirect back to the tab). Deliberately no retired-equipment 404 here —
+    a member must always be able to back out of a retired tool's reservation.
+    """
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     reservation = get_object_or_404(EquipmentReservation, pk=pk, equipment=equipment)
     member = _get_member(request)
     if member is None:
         return HttpResponse("Forbidden", status=403)
-    if reservation.member_id == member.pk:
+    manager_route = "reason" in request.POST and can_manage_equipment(request, equipment)
+    if reservation.member_id == member.pk and not manager_route:
+        week_offset = _parse_week_value(request.POST.get("week", "0"))
+        selected_day = _parse_day(request.POST.get("day", ""))
         try:
             reservation.cancel(member)
         except EquipmentError as exc:
-            response = _render_schedule(request, equipment)
+            response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
             trigger_toast(response, str(exc), "error")
             return response
-        response = _render_schedule(request, equipment)
+        response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=selected_day)
         trigger_toast(response, "Reservation cancelled.", "success")
         return response
     if not can_manage_equipment(request, equipment):
@@ -390,7 +469,7 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
         messages.error(request, "Please tell the member why.")
         return redirect(manage_tab)
     try:
-        reservation.cancel(member, reason=form.cleaned_data["reason"])
+        reservation.cancel(member, reason=form.cleaned_data["reason"], as_manager=True)
     except EquipmentError as exc:
         messages.error(request, str(exc))
         return redirect(manage_tab)
@@ -399,6 +478,7 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — save the whole Hours & Limits tab: the hours formset plus closure + limits.
@@ -453,13 +533,17 @@ def _render_manage(
             else EquipmentHoursFormSet(instance=equipment, prefix="hours"),
             "settings_form": settings_form if settings_form is not None else EquipmentSettingsForm(instance=equipment),
             "manager_cancel_form": EquipmentManagerCancelForm(),
-            "manage_reservations": list(equipment.reservations.upcoming().select_related("member")),
+            # The hub's standard Paginator + table_pagination partial, capped at 25 rows.
+            "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
+                request.GET.get("page", 1)
+            ),
             "active_tab": active_tab,
         },
     )
 
 
 @login_required
+@equipment_feature_required
 def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
     """The manage panel — Details, Staff, Hours & Limits, and Reservations tabs."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -473,6 +557,7 @@ def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — save the manage panel's Details tab (the same form as the add page)."""
@@ -489,6 +574,7 @@ def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_photo_delete(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — clear the equipment photo (the ``image_field`` component's delete endpoint)."""
@@ -503,6 +589,7 @@ def hub_equipment_photo_delete(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — grant a member a manager role on this equipment."""
@@ -523,6 +610,7 @@ def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
+@equipment_feature_required
 @require_POST
 def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST-only — remove a member's manager role from this equipment."""
