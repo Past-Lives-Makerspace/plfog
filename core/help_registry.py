@@ -125,6 +125,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": "getting-oriented",
         "anchor": "orientation-cancel-booking",
     },
+    "orientation.pick-a-time": {
+        "title": "Pick a time",
+        "short_text": (
+            "Open windows of orienter time. Choose a window and pick the start that suits you; "
+            "the guild still confirms it like any other booking."
+        ),
+        "article_slug": "getting-oriented",
+        "anchor": "orientation-pick-a-time",
+    },
     "voting.monthly-cycle": {
         "title": "The monthly voting cycle",
         "short_text": (
@@ -329,6 +338,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         ),
         "article_slug": "running-orientations",
         "anchor": "orientation-recurring-hours",
+    },
+    "orientation.availability-blocks": {
+        "title": "Availability blocks",
+        "short_text": (
+            "Post a window of time you're available. Members choose one of the guild's orientations "
+            "and a start time inside it. Blocks can't be edited; cancel one and post again instead."
+        ),
+        "article_slug": "running-orientations",
+        "anchor": "orientation-availability-blocks",
     },
     "orientation.respond-requests": {
         "title": "Respond to a request",

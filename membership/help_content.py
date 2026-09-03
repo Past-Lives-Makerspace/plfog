@@ -333,6 +333,10 @@ Following is free, and you can follow as many guilds as you want. It gets you th
 
 Your request goes to the guild's leads, and it is not official until one of them approves it. Until then the guild page shows your booking as **Requested — awaiting confirmation from the guild lead**. You'll get an email right away confirming the request was received, with a tentative calendar invite attached — and an "Orientation confirmed" email with a real invite once a lead locks it in.
 
+## Pick a Time {#orientation-pick-a-time}
+
+Some guilds post open windows of orienter time as well as fixed slots. Under **Pick a Time**, click **Pick a time** on a window that works and choose the start that suits you; your booking takes up the orientation's usual length inside the window. It still goes to the guild's leads to confirm, same as a slot booking.
+
 ## Request a Custom Time {#orientation-request-custom-time}
 
 If none of the posted times work, look for **None of these times work? Request a custom time** below the list. Propose a date and time, add a note if it helps, and click **Send request**. The same rule applies: a guild lead has to confirm it before it's real.
@@ -1443,6 +1447,10 @@ Going away for a while? The **Closed for orientations** card pauses bookings wit
 The **Recurring hours** card is where bookable times come from. Add one row per weekly window (Tuesdays 6-7 pm and Saturdays 10-11 am are two rows), then click **Save Hours**. Saving turns your hours into concrete bookable slots immediately, and a nightly job keeps the next eight weeks open.
 
 ![Recurring hours become bookable slots automatically.](/static/help/running-orientations/02-recurring-hours.png)
+
+### Availability Blocks {#orientation-availability-blocks}
+
+The **Availability Blocks** card on the Orientations dashboard is another way to open up time. Post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one block can serve several members back to back. Blocks can't be edited once posted; cancel one and post a fresh block instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
 
 ### Custom Times and One-Off Slots
 
