@@ -927,8 +927,8 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # 30. meeting.minutes_approved — a guild meeting's minutes were approved and locked.
-    #     Same defaults as event.guild_published: the guild's members, in-app on, email
-    #     opt-in, Discord on (``guild`` in context dual-routes to the guild's own webhook).
+    #     The guild's members, in-app on, email opt-in. NO Discord by owner decision
+    #     (2026-09-03): an approval is routine housekeeping, not channel news.
     #     The spine writes the meeting_approved activity row (Meeting.approve doesn't).
     EventType(
         key=MEETING_MINUTES_APPROVED,
@@ -936,19 +936,19 @@ _NEW_EVENTS: list[EventType] = [
         description="A guild you follow approved and locked a meeting's minutes.",
         category="Meetings",
         recipient=Recipients.GUILD_MEMBERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_OFF),
         activity_kind="meeting_approved",
     ),
     # 31. meeting.council_minutes_approved — the cross-guild council meeting's minutes were
-    #     approved. Mirrors event.lead_meeting_published: all guild leads/staff/officers,
-    #     in-app on, email opt-in, Discord on (central).
+    #     approved. All guild leads/staff/officers, in-app on, email opt-in. NO Discord by
+    #     owner decision (2026-09-03), same as meeting.minutes_approved.
     EventType(
         key=MEETING_COUNCIL_MINUTES_APPROVED,
         label="Council minutes approved",
         description="The cross-guild council meeting's minutes were approved and locked.",
         category="Meetings",
         recipient=Recipients.ALL_GUILD_LEADS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_OFF),
         activity_kind="meeting_approved",
     ),
     # 32. discount_code.requested — a new discount code was created and awaits approval.

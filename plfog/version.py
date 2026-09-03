@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.30.0"
+VERSION = "1.30.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.30.1",
+        "date": "2026-09-03",
+        "title": "Quieter guild Discord channels",
+        "changes": [
+            "Approving meeting minutes no longer posts anything to Discord. You still "
+            "get your in app notification, and an email if you have that turned on.",
+        ],
+    },
     {
         "version": "1.30.0",
         "date": "2026-09-03",

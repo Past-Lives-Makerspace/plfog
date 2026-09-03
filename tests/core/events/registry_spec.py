@@ -175,6 +175,12 @@ def describe_event_registry():
             for key in ("class_published", "guild_announcement", "site_announcement", "release.published"):
                 assert get_event(key).has_channel(Channel.DISCORD)
 
+        def it_never_puts_minutes_approvals_on_discord():
+            # Owner decision (2026-09-03, v1.30.1): a minutes approval is routine
+            # housekeeping, not channel news.
+            for key in ("meeting.minutes_approved", "meeting.council_minutes_approved"):
+                assert not get_event(key).has_channel(Channel.DISCORD)
+
     def describe_resolvers():
         def it_assigns_a_resolver_reference_to_every_event():
             for event in registry.EVENTS:
