@@ -177,6 +177,13 @@ def describe_equipment_add():
         assert response.status_code == 200
         assert b"Add Equipment" in response.content
 
+    def it_labels_the_standalone_choice_plainly(client: Client):
+        _login(client, "eq_add_label", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_equipment_add"))
+        assert b"Standalone (run by the makerspace)" in response.content
+        assert b"Pick the guild that runs this equipment, or leave it Standalone." in response.content
+        assert b"Blank means standalone" not in response.content
+
     def it_creates_and_redirects_to_the_new_detail_page(client: Client):
         _login(client, "eq_add_ok", fog_role=Member.FogRole.ADMIN)
         response = client.post(reverse("hub_equipment_add"), {"name": "Test Saw", "kind": "tool", "is_active": "on"})

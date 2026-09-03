@@ -23,7 +23,7 @@ from django.views.decorators.http import require_POST
 
 from hub.forms import (
     EquipmentForm,
-    EquipmentHoursFormSet,
+    EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
     EquipmentReservationForm,
     EquipmentSettingsForm,
@@ -490,10 +490,12 @@ def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
-    hours_formset = EquipmentHoursFormSet(request.POST, instance=equipment, prefix="hours")
+    hours_formset = EquipmentHoursWindowFormSet(request.POST, initial=equipment.hours_windows(), prefix="hours")
     settings_form = EquipmentSettingsForm(request.POST, instance=equipment)
     if hours_formset.is_valid() and settings_form.is_valid():
-        hours_formset.save()
+        equipment.apply_hours_windows(
+            [form.cleaned_data for form in hours_formset if form.cleaned_data and not form.cleaned_data.get("DELETE")]
+        )
         settings_form.save()
         messages.success(request, "Saved.")
         return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=hours")
@@ -530,7 +532,7 @@ def _render_manage(
             else EquipmentStaffAddForm(equipment=equipment),
             "hours_formset": hours_formset
             if hours_formset is not None
-            else EquipmentHoursFormSet(instance=equipment, prefix="hours"),
+            else EquipmentHoursWindowFormSet(initial=equipment.hours_windows(), prefix="hours"),
             "settings_form": settings_form if settings_form is not None else EquipmentSettingsForm(instance=equipment),
             "manager_cancel_form": EquipmentManagerCancelForm(),
             # The hub's standard Paginator + table_pagination partial, capped at 25 rows.

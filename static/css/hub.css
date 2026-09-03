@@ -7923,3 +7923,32 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex: 1;
     min-width: 110px;
 }
+
+/* ── Equipment hours window editor: compact day-pill checkboxes ── */
+.pl-equip-days ul {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0;
+    margin: 0.25rem 0 0;
+}
+.pl-equip-days li label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.65rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 999px;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.pl-equip-days li label:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+}
+.pl-equip-days input[type="checkbox"] {
+    accent-color: var(--color-tuscan-yellow);
+    margin: 0;
+}
