@@ -387,6 +387,11 @@ urlpatterns = [
         views.profile_photo_delete,
         name="hub_profile_photo_delete",
     ),
+    path(
+        "settings/notification-email/",
+        views.notification_email_set,
+        name="hub_notification_email_set",
+    ),
     path("settings/delete-account/", views.account_delete, name="hub_account_delete"),
     path("account-deleted/", views.account_deleted, name="hub_account_deleted"),
     path("settings/skills/add/", views.skill_add, name="hub_skill_add"),

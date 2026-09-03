@@ -46,6 +46,7 @@ from hub.forms import (
     MemberContactForm,
     MemberContactFormSet,
     MemberSkillForm,
+    NotificationEmailForm,
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
@@ -2543,6 +2544,8 @@ def user_settings(request: HttpRequest) -> HttpResponse:
     primary_email = next((ea for ea in email_addresses if ea.primary), None)
     primary_verified_json = "true" if primary_email is None or primary_email.verified else "false"
 
+    notification_email_form = _notification_email_form(member, user, email_addresses)
+
     active_tab = _settings_active_tab(request, member)
 
     if member is None and request.method == "GET" and not request.GET.get("tab"):
@@ -2580,6 +2583,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "skill_categories": _skill_categories_with_approved(),
             "add_email_form": add_email_form,
             "email_addresses": email_addresses,
+            "notification_email_form": notification_email_form,
             "primary_verified_json": primary_verified_json,
             "active_tab": active_tab,
             "notif_matrix": notif_matrix,
@@ -2594,6 +2598,29 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             ),
         },
     )
+
+
+def _notification_email_form(
+    member: Member | None, user: User, email_addresses: list[EmailAddress]
+) -> NotificationEmailForm | None:
+    """The Account-tab notification-email picker form, or None when it shouldn't render.
+
+    Only meaningful with a Member row and a real choice (2+ verified addresses).
+    Always unbound — the save endpoint redirects in every branch, so message banners
+    are the only feedback surface. The stored value is matched against the verified
+    rows with the resolver's iexact semantics and mapped to the canonical casing; no
+    match (deleted/unverified since) → "" so the select never renders a dangling value
+    or claims "Primary" while mail routes elsewhere — delivery falls back to the
+    primary at send time and the UI self-heals here.
+    """
+    verified_addresses = [ea for ea in email_addresses if ea.verified]
+    if member is None or len(verified_addresses) < 2:
+        return None
+    stored = member.notification_email.strip()
+    initial_email = (
+        next((ea.email for ea in verified_addresses if ea.email.lower() == stored.lower()), "") if stored else ""
+    )
+    return NotificationEmailForm(user, initial={"notification_email": initial_email})
 
 
 def _settings_include_staff(request: HttpRequest) -> bool:
@@ -2673,6 +2700,31 @@ def profile_photo_delete(request: HttpRequest) -> HttpResponse:
         member.profile_photo.delete(save=True)
         messages.success(request, "Profile photo removed.")
     return redirect(f"{reverse('hub_user_settings')}?tab=profile")
+
+
+@login_required
+@require_POST
+def notification_email_set(request: HttpRequest) -> HttpResponse:
+    """Save which verified address the member's notification emails go to.
+
+    POST-only companion to the picker in the Settings → Account "Manage Email
+    Addresses" card. Every branch redirects back to that tab — message banners are
+    the only feedback surface (the settings view always renders an unbound form).
+    Validation lives in :class:`hub.forms.NotificationEmailForm`, whose choices are
+    the user's verified addresses alone, so an unlisted or unverified value can only
+    arrive via a tampered POST — nothing is written on that path.
+    """
+    member = _get_member(request)
+    if member is None:
+        messages.error(request, "Your account is not linked to a membership.")
+        return redirect("hub_user_settings")
+    form = NotificationEmailForm(cast(User, request.user), request.POST)
+    if form.is_valid():
+        form.save()
+        messages.success(request, "Notification email updated.")
+    else:
+        messages.error(request, "Choose one of your verified addresses.")
+    return redirect(f"{reverse('hub_user_settings')}?tab=account")
 
 
 @login_required

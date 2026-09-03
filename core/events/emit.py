@@ -181,10 +181,16 @@ def emit(
     # ADDITIVE extra_emails (belt-and-suspenders dedup): drop any that collide with a resolved
     # member's (lower-cased) email so a custom address equal to a member's address sends once —
     # the ledger can't catch it (member loop claims ``user:{pk}``, explicit loop ``email:{addr}``).
-    # These do NOT contribute to ``suppress_user_email`` — the member per-recipient loop still runs.
+    # The set covers both each member's ``user.email`` AND their resolved notification target
+    # (``notification_email_for``) — otherwise an extra address equal to a recipient's chosen
+    # notification email would get the mail twice. These do NOT contribute to
+    # ``suppress_user_email`` — the member per-recipient loop still runs.
     additive_emails: list[str] = []
     if extra_emails:
         member_emails_lower = {(user.email or "").strip().lower() for user, _reason in recipients}
+        member_emails_lower |= {
+            channel_module.notification_email_for(user).strip().lower() for user, _reason in recipients
+        }
         additive_emails = [addr for addr in extra_emails if (addr or "").strip().lower() not in member_emails_lower]
 
     # Copy mode (Phase 3): when the caller passes no explicit ``title``/``body``,

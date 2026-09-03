@@ -143,6 +143,28 @@ class InAppAdapter:
         )
 
 
+def notification_email_for(user: User) -> str:
+    """The address event-driven notification email should go to for this user.
+
+    The member's chosen ``notification_email`` wins only while it is still a
+    verified address on this user; otherwise the allauth primary mirror
+    (``user.email``) is used. Never raises; returns "" when the user has no email.
+
+    Fail-soft by design: deleting or unverifying the chosen address silently falls
+    back to the primary at send time — no cleanup plumbing, notifications are never
+    stranded. One verification query per recipient is accepted (fan-outs are small);
+    do not add caching or prefetch plumbing.
+    """
+    member = getattr(user, "member", None)
+    chosen = (getattr(member, "notification_email", "") or "").strip()
+    if chosen:
+        from allauth.account.models import EmailAddress
+
+        if EmailAddress.objects.filter(user=user, email__iexact=chosen, verified=True).exists():
+            return chosen
+    return user.email or ""
+
+
 def email_category_for(trigger_kind: str) -> str | None:
     """The event's registry category for the ``X-Category`` header, or ``None``.
 
@@ -222,10 +244,11 @@ class EmailAdapter:
     is_broadcast = False
 
     def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
-        if not (user.email or "").strip():
+        address = notification_email_for(user)
+        if not address.strip():
             return
         send_email(
-            to=user.email,
+            to=address,
             subject=message.title,
             trigger_kind=message.trigger_kind or "notification",
             text_body=message.body,
@@ -312,10 +335,11 @@ class ScheduledEmailAdapter:
     is_broadcast = False
 
     def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
-        if not (user.email or "").strip():
+        address = notification_email_for(user)
+        if not address.strip():
             return
         send_email(
-            to=user.email,
+            to=address,
             subject=message.title,
             trigger_kind=message.trigger_kind or "notification",
             text_body=message.body,
