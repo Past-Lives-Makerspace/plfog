@@ -302,26 +302,66 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
 
 class MarketingOptInSignupForm(SignupForm):
-    """Add an opt-in marketing checkbox to the account signup form.
+    """Collect the signer-up's name and an opt-in marketing checkbox at signup.
 
-    The class-registration form has carried a newsletter opt-in for a while
-    (``classes.forms.RegistrationForm.wants_newsletter``); account signup had no
-    equivalent, so anyone who created an account without booking a class could
-    never opt in. This closes that gap using the same audience and the same
-    "unchecked means nothing happens" default.
+    Name collection (issue #274): allauth's bare email signup used to leave
+    ``User.first_name``/``last_name`` empty, so the Member post-save signal fell
+    back to the auto-generated username — the lowercased email local part — as
+    ``Member.full_legal_name``, and that garbage rendered in rosters. The form
+    now requires a full name (and optionally the name the person goes by, which
+    becomes ``Member.preferred_name``). ``clean`` splits the full name into
+    ``first_name``/``last_name`` in ``cleaned_data`` so allauth's
+    ``DefaultAccountAdapter.save_user`` stamps them on the User *before* the
+    post-save signal creates or links the Member; ``save`` then re-stamps the
+    Member with the exact typed string (the split-and-rejoin would collapse
+    interior whitespace) and the preferred name.
 
-    The push is deliberately best-effort and runs *after* the user is committed:
-    Mailchimp being down must never cost someone their account.
+    The newsletter opt-in mirrors the class-registration form
+    (``classes.forms.RegistrationForm.wants_newsletter``) with the same
+    "unchecked means nothing happens" default. The push is deliberately
+    best-effort and runs *after* the user is committed: Mailchimp being down
+    must never cost someone their account.
     """
 
+    # Capped at 150 so each split half always fits User.first_name/last_name
+    # (both varchar(150) — a longer value would raise DataError on Postgres).
+    full_name = forms.CharField(
+        max_length=150,
+        label="Full name",
+        widget=forms.TextInput(attrs={"autocomplete": "name"}),
+    )
+    preferred_name = forms.CharField(
+        max_length=255,
+        required=False,
+        label="Name you go by",
+        widget=forms.TextInput(attrs={"autocomplete": "nickname"}),
+    )
     wants_newsletter = forms.BooleanField(
         required=False,
         initial=False,
         label="Email me about new classes, workshops, and events at Past Lives.",
     )
 
+    def clean(self) -> dict[str, Any]:
+        """Split the collected full name into first/last for allauth's ``save_user``.
+
+        ``DefaultAccountAdapter.save_user`` reads ``cleaned_data["first_name"]`` and
+        ``["last_name"]``, so populating them here gets the name onto the User before
+        it is first saved — which is what the Member-creating post-save signal reads
+        via ``get_full_name()``. A mononym lands entirely in ``first_name``.
+        """
+        cleaned: dict[str, Any] = super().clean()
+        full_name = (cleaned.get("full_name") or "").strip()
+        if full_name:
+            cleaned["full_name"] = full_name
+            first, _, last = full_name.partition(" ")
+            cleaned["first_name"] = first
+            cleaned["last_name"] = last.strip()
+        return cleaned
+
     def save(self, request: HttpRequest) -> Any:
         user = super().save(request)
+        self._stamp_member_names(user)
         # A required=False BooleanField always lands in cleaned_data on a valid
         # form, so index rather than .get() — a missing key is a bug, not a default.
         if self.cleaned_data["wants_newsletter"]:
@@ -332,6 +372,29 @@ class MarketingOptInSignupForm(SignupForm):
             except Exception:  # noqa: BLE001 - a newsletter opt-in must never cost someone their account
                 logger.exception("Mailchimp signup opt-in failed for %s; account stands.", user.email)
         return user
+
+    def _stamp_member_names(self, user: Any) -> None:
+        """Write the collected names onto the Member the post-save signal created or linked.
+
+        The first/last split (see ``clean``) already seeded ``full_legal_name`` via
+        the signal; re-stamping with the raw form value preserves the exact string
+        the person typed, wins over an invite placeholder's email-as-name, and
+        carries the optional preferred name (which the User model has no home for).
+        A typed preferred name wins; a blank one leaves any existing value alone.
+        """
+        # Same AttributeError-safe reverse one-to-one access as get_login_redirect_url.
+        member = getattr(user, "member", None)
+        if member is None:
+            # The signal couldn't create a Member (no MembershipPlan seeded) — it
+            # already logged; the account itself stands.
+            return
+        update_fields = ["full_legal_name"]
+        member.full_legal_name = self.cleaned_data["full_name"]
+        preferred = self.cleaned_data["preferred_name"].strip()
+        if preferred:
+            member.preferred_name = preferred
+            update_fields.append("preferred_name")
+        member.save(update_fields=update_fields)
 
 
 class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):

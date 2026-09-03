@@ -1226,7 +1226,7 @@ def describe_signup_save_user_deferred_migration():
         )
         member = staged.member
 
-        response = client.post("/accounts/signup/", {"email": "signup@example.com"})
+        response = client.post("/accounts/signup/", {"email": "signup@example.com", "full_name": "Signup Person"})
 
         # A 500 would mean the deferred-migration guard broke; signup must succeed.
         assert response.status_code == 302
@@ -1262,7 +1262,7 @@ def describe_signup_save_user_deferred_migration():
             return original(self, user)
 
         with patch.object(MemberEmailManager, "migrate_to_user", autospec=True, side_effect=_spy):
-            response = client.post("/accounts/signup/", {"email": "brandnew@example.com"})
+            response = client.post("/accounts/signup/", {"email": "brandnew@example.com", "full_name": "Brand New"})
 
         assert response.status_code == 302
         # Exactly one migrate_to_user call, and it ran after the flag cleared —

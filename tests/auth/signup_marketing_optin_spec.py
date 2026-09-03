@@ -50,7 +50,9 @@ def describe_MarketingOptInSignupForm():
 def describe_signup_post():
     def it_subscribes_when_the_box_is_ticked(client, site_with_mailchimp):
         with patch(SUBSCRIBE_TARGET, return_value=True) as spy:
-            client.post("/accounts/signup/", {"email": "yes@example.com", "wants_newsletter": "on"})
+            client.post(
+                "/accounts/signup/", {"email": "yes@example.com", "full_name": "Yes Person", "wants_newsletter": "on"}
+            )
 
         spy.assert_called_once()
         assert spy.call_args.kwargs["email"] == "yes@example.com"
@@ -60,14 +62,16 @@ def describe_signup_post():
 
     def it_does_not_subscribe_when_the_box_is_left_unticked(client, site_with_mailchimp):
         with patch(SUBSCRIBE_TARGET) as spy:
-            client.post("/accounts/signup/", {"email": "no@example.com"})
+            client.post("/accounts/signup/", {"email": "no@example.com", "full_name": "No Person"})
 
         spy.assert_not_called()
         assert get_user_model().objects.filter(email="no@example.com").exists()
 
     def it_still_creates_the_account_when_mailchimp_rejects_the_push(client, site_with_mailchimp):
         with patch(SUBSCRIBE_TARGET, return_value=False):
-            client.post("/accounts/signup/", {"email": "nope@example.com", "wants_newsletter": "on"})
+            client.post(
+                "/accounts/signup/", {"email": "nope@example.com", "full_name": "Nope Person", "wants_newsletter": "on"}
+            )
 
         assert get_user_model().objects.filter(email="nope@example.com").exists()
 
@@ -75,14 +79,18 @@ def describe_signup_post():
         # The push is best-effort and runs after the user is committed, so even a
         # pathological client that raises must not surface an error to the signup.
         with patch(SUBSCRIBE_TARGET, side_effect=RuntimeError("mailchimp exploded")):
-            response = client.post("/accounts/signup/", {"email": "boom@example.com", "wants_newsletter": "on"})
+            response = client.post(
+                "/accounts/signup/", {"email": "boom@example.com", "full_name": "Boom Person", "wants_newsletter": "on"}
+            )
 
         assert response.status_code < 500
         assert get_user_model().objects.filter(email="boom@example.com").exists()
 
     def it_creates_the_account_when_mailchimp_is_disabled(client, open_signup):
         with patch(SUBSCRIBE_TARGET) as spy:
-            client.post("/accounts/signup/", {"email": "off@example.com", "wants_newsletter": "on"})
+            client.post(
+                "/accounts/signup/", {"email": "off@example.com", "full_name": "Off Person", "wants_newsletter": "on"}
+            )
 
         spy.assert_not_called()
         assert get_user_model().objects.filter(email="off@example.com").exists()
