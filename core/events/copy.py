@@ -31,9 +31,10 @@ from django.utils.safestring import mark_safe
 
 from core.events.registry import Channel, EventType, Recipients, all_events, get_event
 
-# Channels that carry authored copy. Discord reuses the in-app/email copy (it is a
-# broadcast embed built from title+body); scheduled-email reuses the email copy.
-# Authored rows are seeded for these three; the adapters fall back across them.
+# Channels that carry authored copy; rows are seeded for these three. Discord copy is
+# authored greeting-free (a broadcast embed has no recipient) — curated entries and the
+# generated fallback each carry their own; a curated event without one still falls back
+# to its email copy. Scheduled-email reuses the email copy.
 COPY_CHANNELS: tuple[Channel, ...] = (Channel.IN_APP, Channel.EMAIL, Channel.DISCORD)
 
 
@@ -1608,27 +1609,28 @@ _CURATED: dict[str, EventCopy] = {
     # curated copy existed, the generic fallback's email greeting leaked "Hi [missing:
     # member_name]" into guild Discord channels.
     "meeting.minutes_approved": EventCopy(
+        # meeting_title is Meeting.display_title, which already embeds the guild name
+        # ("Metal Guild — Monthly Meeting") — so the bodies never repeat guild_name.
         placeholders=("guild_name", "meeting_title", "meeting_url"),
         sample_context={
             "guild_name": "Metal Guild",
-            "meeting_title": "June Guild Meeting",
+            "meeting_title": "Metal Guild — Monthly Meeting",
             "meeting_url": "https://pastlives.example/guilds/3/meetings/12/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
                 subject="Meeting minutes approved",
-                body_text="{{ guild_name }}: the minutes for {{ meeting_title }} are approved and locked.",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.",
             ),
             Channel.EMAIL: ChannelCopy(
                 subject="{{ guild_name }} meeting minutes approved",
                 body_text=(
-                    "The minutes for {{ meeting_title }} ({{ guild_name }}) are approved and locked.\n\n"
+                    "The minutes for {{ meeting_title }} are approved and locked.\n\n"
                     "Read them: {{ meeting_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>The minutes for <strong>{{ meeting_title }}</strong> ({{ guild_name }}) are "
-                    "approved and locked.</p>"
+                    "<p>The minutes for <strong>{{ meeting_title }}</strong> are approved and locked.</p>"
                     '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
@@ -1644,7 +1646,7 @@ _CURATED: dict[str, EventCopy] = {
     "meeting.council_minutes_approved": EventCopy(
         placeholders=("meeting_title", "meeting_url"),
         sample_context={
-            "meeting_title": "July Council Meeting",
+            "meeting_title": "Council — Monthly Meeting",
             "meeting_url": "https://pastlives.example/meetings/15/",
         },
         channels={

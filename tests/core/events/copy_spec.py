@@ -104,4 +104,6 @@ def describe_discord_copy_is_broadcast_safe():
         # every Discord-enabled event's Discord copy must be greeting-free.
         copy = default_copy_for(event.key, Channel.DISCORD)
         for fragment in (copy.subject, copy.body_text, copy.body_html):
-            assert "Hi {{ member_name }}" not in fragment, f"{event.key} greets a recipient in its Discord copy"
+            # "Hi {{ ..." catches a greeting built on ANY per-recipient placeholder,
+            # not just member_name.
+            assert "Hi {{" not in fragment, f"{event.key} greets a recipient in its Discord copy"
