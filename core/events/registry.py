@@ -102,6 +102,9 @@ class Recipients(str, Enum):
     EVERYONE_WITH_LOGIN = "everyone_with_login"
     RELEASE_AUDIENCE = "release_audience"
     SINGLE_USER = "single_user"
+    # Equipment managers: per-equipment staff rows ∪ the owning guild's leadership ∪
+    # EQUIPMENT capability holders, deduped (a union of the three manage tiers).
+    EQUIPMENT_MANAGERS = "equipment_managers"
 
 
 @dataclass(frozen=True)
@@ -210,6 +213,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         # Membership — someone accepted the invite you sent
         "invite_accepted",
+        # Equipment — your reservation is set (time-sensitive, carries the invite)
+        "equipment.reservation_confirmed",
     }
 )
 
@@ -451,6 +456,9 @@ WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into t
 WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
 REGISTRATION_REMOVED = "registration_removed"  # staff removed a registrant (seat-holder or waitlister)
 GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — email only via email_to, no matrix row
+EQUIPMENT_RESERVATION_CONFIRMED = "equipment.reservation_confirmed"  # your reservation is set (+ .ics)
+EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by_manager"  # with the reason
+EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to the equipment's managers
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -826,7 +834,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_LEASE_REQUESTED,
         label="Studio space requested",
         description="A member asked for a studio space from the space map.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -840,7 +848,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_CUBBY_REQUESTED,
         label="Shelf requested",
         description="A member asked for a shelf from the space map.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -851,7 +859,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_REQUEST_APPROVED,
         label="Your space request was approved",
         description="A reviewer approved a member's studio or cubby request.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -861,7 +869,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_REQUEST_DECLINED,
         label="Update on your space request",
         description="A reviewer declined a member's studio or cubby request.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -1000,6 +1008,45 @@ _NEW_EVENTS: list[EventType] = [
         category="Classes",
         recipient=Recipients.REGISTRANT,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # --- Equipment reservations (equipment-reservations spec §8, PR 2) ----------
+    # equipment.reservation_confirmed — the member's own booking receipt. Operational
+    # mail like orientation updates: in-app on + email FORCED, push on (via
+    # _PUSH_ON_BY_DEFAULT). The email carries a calendar invite (.ics) via the emit
+    # attachments. Discord stays absent on all three events — a personal reservation
+    # is not a broadcast (and the greeting rule stays un-walked-into).
+    EventType(
+        key=EQUIPMENT_RESERVATION_CONFIRMED,
+        label="Reservation confirmed",
+        description="Your equipment reservation is set. Comes with a calendar invite.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.reservation_cancelled_by_manager — the member hears a manager freed
+    # their time, with the required reason. Forced operational mail; member self
+    # cancel emits nothing (no approver exists to care).
+    EventType(
+        key=EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER,
+        label="Reservation cancelled by a manager",
+        description="A manager cancelled your equipment reservation and told you why.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.reservation_made — awareness, not action (no approval exists), to the
+    # equipment's managers: in-app on, email opt-in. Grouped under Staff & leadership
+    # on the settings page via the EQUIPMENT_MANAGERS recipient.
+    EventType(
+        key=EQUIPMENT_RESERVATION_MADE,
+        label="New equipment reservation",
+        description="A member reserved time on equipment you manage.",
+        category="Spaces & Equipment",
+        recipient=Recipients.EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_OFF),
         activity_kind=None,
     ),
 ]

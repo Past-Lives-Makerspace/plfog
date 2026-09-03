@@ -1,23 +1,45 @@
-"""Equipment directory views (equipment-reservations spec §6/§7 — PR 1).
+"""Equipment directory views (equipment-reservations spec §6/§7 — PR 1 + PR 2).
 
-The member-facing Equipment index and detail pages, the admin-gated add form, and
-the manage panel (Details + Staff tabs). All views are thin per CLAUDE.md: parse
-request → permission guard → form/model call → redirect or render. The schedule,
-booking, and hours surfaces land in PR 2.
+The member-facing Equipment index and detail pages (with the schedule + Book a
+Time flow), the admin-gated add form, and the manage panel (Details, Staff,
+Hours & Limits, Reservations). All views are thin per CLAUDE.md: parse request →
+permission guard → form/model/service call → toast, redirect, or render.
 """
 
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
+from typing import Any
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from hub.forms import EquipmentForm, EquipmentStaffAddForm
+from hub.forms import (
+    EquipmentForm,
+    EquipmentHoursFormSet,
+    EquipmentManagerCancelForm,
+    EquipmentReservationForm,
+    EquipmentSettingsForm,
+    EquipmentStaffAddForm,
+)
+from hub.toast import trigger_toast
 from hub.views import _get_hub_context, _get_member
-from membership.models import Equipment, EquipmentQuerySet, EquipmentStaffMembership, Guild, Member
+from membership import equipment as equipment_service
+from membership.models import (
+    Equipment,
+    EquipmentError,
+    EquipmentQuerySet,
+    EquipmentReservation,
+    EquipmentStaffMembership,
+    Guild,
+    Member,
+)
 from membership.permissions import can_create_equipment, can_manage_equipment
 
 
@@ -47,6 +69,124 @@ def _member_access_sets(member: Member | None) -> tuple[set[int], set[int]]:
     return oriented, guilds
 
 
+def _duration_label(minutes: int) -> str:
+    """A friendly duration label: 30 -> "30 minutes", 60 -> "1 hour", 90 -> "1.5 hours"."""
+    if minutes < 60:
+        return f"{minutes} minutes"
+    hours = minutes / 60
+    if hours == int(hours):
+        count = int(hours)
+        return f"{count} hour{'' if count == 1 else 's'}"
+    return f"{hours:g} hours"
+
+
+def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, Any]]:
+    """The selected day's ordered free/busy segments for the timeline list.
+
+    Each open window is split around the day's confirmed reservations; busy
+    segments carry the reservation (reserver name + purpose are shown to every
+    logged-in member, the locked privacy decision).
+    """
+    day_start = timezone.make_aware(datetime.combine(selected_day, time.min))
+    busy_list = list(
+        EquipmentReservation.objects.overlapping(equipment, day_start, day_start + timedelta(days=1))
+        .select_related("member")
+        .order_by("starts_at")
+    )
+    timeline: list[dict[str, Any]] = []
+    for window_start, window_end in equipment.open_intervals_for_day(selected_day):
+        cursor = window_start
+        for reservation in busy_list:
+            if reservation.ends_at <= cursor or reservation.starts_at >= window_end:
+                continue
+            if reservation.starts_at > cursor:
+                timeline.append({"is_free": True, "starts_at": cursor, "ends_at": reservation.starts_at})
+            timeline.append(
+                {
+                    "is_free": False,
+                    "starts_at": max(reservation.starts_at, window_start),
+                    "ends_at": min(reservation.ends_at, window_end),
+                    "reservation": reservation,
+                }
+            )
+            cursor = max(cursor, reservation.ends_at)
+        if cursor < window_end:
+            timeline.append({"is_free": True, "starts_at": cursor, "ends_at": window_end})
+    return timeline
+
+
+def _schedule_context(
+    equipment: Equipment,
+    member: Member | None,
+    *,
+    week_offset: int = 0,
+    selected_day: date | None = None,
+    manages: bool = False,
+) -> dict[str, Any]:
+    """Everything the schedule partial renders: the week strip, the day timeline,
+    the Book a Time selects, and the member's + everyone's reservation lists.
+
+    ``week_offset`` pages the 7-day strip (0 = today first) within the booking
+    horizon. ``selected_day`` defaults to the first bookable day on the strip.
+    All wall-clock math is local (Portland) time.
+    """
+    today = timezone.localdate()
+    horizon = today + timedelta(days=equipment.max_advance_days)
+    max_offset = max((horizon - today).days // 7, 0)
+    week_offset = max(0, min(week_offset, max_offset))
+    strip_start = today + timedelta(days=7 * week_offset)
+    active_weekdays = {rule.weekday for rule in equipment.hours_rules.active()}
+    days: list[dict[str, Any]] = []
+    for i in range(7):
+        day = strip_start + timedelta(days=i)
+        disabled = day < today or day > horizon or day.weekday() not in active_weekdays
+        days.append({"date": day, "disabled": disabled})
+    if selected_day is None or selected_day < today or selected_day > horizon:
+        selected_day = next((entry["date"] for entry in days if not entry["disabled"]), None)
+    for entry in days:
+        entry["selected"] = entry["date"] == selected_day
+
+    timeline: list[dict[str, Any]] = []
+    starts: list[Any] = []
+    durations_data: dict[str, list[dict[str, Any]]] = {}
+    if selected_day is not None:
+        timeline = _day_timeline(equipment, selected_day)
+        starts = equipment.free_starts_for_day(selected_day)
+        durations_data = {
+            start.isoformat(): [
+                {"v": minutes, "label": _duration_label(minutes)} for minutes in equipment.durations_for(start)
+            ]
+            for start in starts
+        }
+
+    blockers = equipment.booking_blockers(member)
+    my_reservations: list[EquipmentReservation] = []
+    if member is not None:
+        now = timezone.now()
+        my_reservations = list(
+            equipment.reservations.filter(member=member, ends_at__gt=now)
+            .exclude(status=EquipmentReservation.Status.CANCELLED, cancelled_by=member)
+            .order_by("starts_at")
+        )
+    return {
+        "equipment": equipment,
+        "week_offset": week_offset,
+        "has_prev_week": week_offset > 0,
+        "has_next_week": week_offset < max_offset,
+        "days": days,
+        "selected_day": selected_day,
+        "timeline": timeline,
+        "starts": starts,
+        "durations_data": durations_data,
+        "can_book": not blockers and bool(starts),
+        "blockers": blockers,
+        "has_hours": bool(active_weekdays),
+        "my_reservations": my_reservations,
+        "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
+        "manages": manages,
+    }
+
+
 @login_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """The Equipment directory — card grid with guild/kind/search filters and access badges."""
@@ -64,11 +204,23 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
         filtered = filtered.filter(kind=kind_filter)
     if query:
         filtered = filtered.filter(name__icontains=query)
+    # The availability line reads hours + right-now reservations from these prefetches —
+    # one queryset for the whole grid, no per-card queries.
+    now = timezone.now()
+    filtered = filtered.prefetch_related(
+        "hours_rules",
+        Prefetch(
+            "reservations",
+            queryset=EquipmentReservation.objects.confirmed().filter(starts_at__lte=now, ends_at__gt=now),
+            to_attr="current_reservations",
+        ),
+    )
     oriented_ids, guild_ids = _member_access_sets(member)
     cards = [
         {
             "equipment": equipment,
             "access_state": equipment.access_state(member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids),
+            "availability": equipment.availability_line(),
         }
         for equipment in filtered
     ]
@@ -126,6 +278,7 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
         "hub/equipment_detail.html",
         {
             **_get_hub_context(request),
+            **_schedule_context(equipment, member, manages=manages),
             "equipment": equipment,
             "access_state": access_state,
             "orientation_booking": orientation_booking,
@@ -135,12 +288,152 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
+def _parse_week(request: HttpRequest) -> int:
+    """The ?week= strip offset, defaulting to 0; garbage is 0 (the strip clamps anyway)."""
+    raw = request.GET.get("week", "0")
+    return int(raw) if raw.lstrip("-").isdigit() else 0
+
+
+def _parse_day(raw: str) -> date | None:
+    """An ISO ?day= value, or None for absent/garbage (the context picks a default)."""
+    try:
+        return date.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _render_schedule(
+    request: HttpRequest,
+    equipment: Equipment,
+    *,
+    week_offset: int = 0,
+    selected_day: date | None = None,
+) -> HttpResponse:
+    """Render the HTMX-swapped schedule partial for the current member."""
+    member = _get_member(request)
+    manages = can_manage_equipment(request, equipment)
+    context = _schedule_context(equipment, member, week_offset=week_offset, selected_day=selected_day, manages=manages)
+    return render(request, "hub/partials/equipment_schedule.html", context)
+
+
+@login_required
+def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
+    """GET — the schedule partial (week strip + day timeline + booking form), HTMX-swapped."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    return _render_schedule(
+        request,
+        equipment,
+        week_offset=_parse_week(request),
+        selected_day=_parse_day(request.GET.get("day", "")),
+    )
+
+
+@login_required
+@require_POST
+def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — make an instant reservation; re-render the schedule partial with a toast.
+
+    A lost race (or any engine guard) comes back as the friendly error toast plus a
+    refreshed start list — the member never sees a dead page.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    form = EquipmentReservationForm(request.POST)
+    if not form.is_valid():
+        response = _render_schedule(request, equipment)
+        trigger_toast(response, "Please pick one of the listed times.", "error")
+        return response
+    try:
+        reservation = equipment_service.reserve(
+            equipment,
+            member,
+            form.cleaned_data["starts_at"],
+            form.cleaned_data["duration_minutes"],
+            purpose=form.cleaned_data["purpose"],
+        )
+    except EquipmentError as exc:
+        response = _render_schedule(request, equipment, selected_day=_parse_day(request.POST.get("day", "")))
+        trigger_toast(response, str(exc), "error")
+        return response
+    local_start = timezone.localtime(reservation.starts_at)
+    response = _render_schedule(request, equipment, selected_day=local_start.date())
+    trigger_toast(response, f"Reserved. See you {local_start:%A}.", "success")
+    return response
+
+
+@login_required
+@require_POST
+def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — cancel a reservation: the member's own (no reason), or a manager's (reason required)."""
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    reservation = get_object_or_404(EquipmentReservation, pk=pk, equipment=equipment)
+    member = _get_member(request)
+    if member is None:
+        return HttpResponse("Forbidden", status=403)
+    if reservation.member_id == member.pk:
+        try:
+            reservation.cancel(member)
+        except EquipmentError as exc:
+            response = _render_schedule(request, equipment)
+            trigger_toast(response, str(exc), "error")
+            return response
+        response = _render_schedule(request, equipment)
+        trigger_toast(response, "Reservation cancelled.", "success")
+        return response
+    if not can_manage_equipment(request, equipment):
+        return HttpResponse("Forbidden", status=403)
+    form = EquipmentManagerCancelForm(request.POST)
+    manage_tab = f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=reservations"
+    if not form.is_valid():
+        messages.error(request, "Please tell the member why.")
+        return redirect(manage_tab)
+    try:
+        reservation.cancel(member, reason=form.cleaned_data["reason"])
+    except EquipmentError as exc:
+        messages.error(request, str(exc))
+        return redirect(manage_tab)
+    messages.success(request, "Reservation cancelled. The member has been told.")
+    return redirect(manage_tab)
+
+
+@login_required
+@require_POST
+def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — save the whole Hours & Limits tab: the hours formset plus closure + limits.
+
+    One Save for the tab (FRONTEND rule 21); a per-row Delete flips its hidden DELETE
+    and resubmits this same form, so closure and limit edits are never lost.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    hours_formset = EquipmentHoursFormSet(request.POST, instance=equipment, prefix="hours")
+    settings_form = EquipmentSettingsForm(request.POST, instance=equipment)
+    if hours_formset.is_valid() and settings_form.is_valid():
+        hours_formset.save()
+        settings_form.save()
+        messages.success(request, "Saved.")
+        return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=hours")
+    return _render_manage(
+        request,
+        equipment,
+        hours_formset=hours_formset,
+        settings_form=settings_form,
+        active_tab="hours",
+    )
+
+
 def _render_manage(
     request: HttpRequest,
     equipment: Equipment,
     *,
     form: EquipmentForm | None = None,
     staff_add_form: EquipmentStaffAddForm | None = None,
+    hours_formset: Any = None,
+    settings_form: EquipmentSettingsForm | None = None,
     active_tab: str = "details",
 ) -> HttpResponse:
     """Render the manage panel with the given (possibly error-bearing) forms."""
@@ -155,6 +448,12 @@ def _render_manage(
             "staff_add_form": staff_add_form
             if staff_add_form is not None
             else EquipmentStaffAddForm(equipment=equipment),
+            "hours_formset": hours_formset
+            if hours_formset is not None
+            else EquipmentHoursFormSet(instance=equipment, prefix="hours"),
+            "settings_form": settings_form if settings_form is not None else EquipmentSettingsForm(instance=equipment),
+            "manager_cancel_form": EquipmentManagerCancelForm(),
+            "manage_reservations": list(equipment.reservations.upcoming().select_related("member")),
             "active_tab": active_tab,
         },
     )
@@ -162,13 +461,13 @@ def _render_manage(
 
 @login_required
 def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
-    """The manage panel — Details + Staff tabs (Hours & Limits and Reservations join in PR 2)."""
+    """The manage panel — Details, Staff, Hours & Limits, and Reservations tabs."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
     active_tab = request.GET.get("tab", "details")
-    if active_tab not in {"details", "staff"}:
+    if active_tab not in {"details", "staff", "hours", "reservations"}:
         active_tab = "details"
     return _render_manage(request, equipment, active_tab=active_tab)
 

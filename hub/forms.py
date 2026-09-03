@@ -27,6 +27,7 @@ from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
     Equipment,
+    EquipmentHours,
     Floorplan,
     Guild,
     GuildAnnouncement,
@@ -3610,6 +3611,135 @@ class EquipmentForm(forms.ModelForm):
         if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
             self.add_error("required_orientation", "Pick an orientation offered by the chosen guild.")
         return cleaned
+
+
+class EquipmentHoursForm(forms.ModelForm):
+    """A single weekly equipment-hours row — weekday + half-hour start/end + active toggle.
+
+    Times are half-hour ``<select>`` dropdowns (Rule 20), parsed back to ``datetime.time``
+    on clean; an existing off-grid value round-trips via :func:`_seed_time_choice`.
+    """
+
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Opens")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Closes")
+
+    class Meta:
+        model = EquipmentHours
+        fields = ["weekday", "start_time", "end_time", "is_active"]
+        labels = {"weekday": "Day", "is_active": "Active"}
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["weekday"].help_text = ""
+        self.fields["is_active"].help_text = "Pause a window without deleting it."
+        if self.instance and self.instance.pk:
+            _seed_time_choice(self, "start_time", self.instance.start_time)
+            _seed_time_choice(self, "end_time", self.instance.end_time)
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if start and end and end <= start:
+            self.add_error("end_time", "The end time must be after the start time.")
+        return cleaned
+
+
+EquipmentHoursFormSet = forms.inlineformset_factory(
+    Equipment, EquipmentHours, form=EquipmentHoursForm, extra=0, can_delete=True
+)
+
+
+class EquipmentSettingsForm(forms.ModelForm):
+    """The Hours & Limits tab's closure + booking-limit fields (spec §7.4)."""
+
+    class Meta:
+        model = Equipment
+        fields = [
+            "is_closed",
+            "closed_message",
+            "min_duration_minutes",
+            "max_duration_minutes",
+            "max_advance_days",
+            "max_active_reservations_per_member",
+        ]
+        labels = {
+            "is_closed": "Closed for new reservations",
+            "closed_message": "Closed message",
+            "min_duration_minutes": "Shortest reservation (minutes)",
+            "max_duration_minutes": "Longest reservation (minutes)",
+            "max_advance_days": "Booking horizon (days)",
+            "max_active_reservations_per_member": "Upcoming reservations per member",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["is_closed"].help_text = ""
+        self.fields[
+            "closed_message"
+        ].help_text = "Members will see this message. Existing reservations stay until you cancel them."
+        self.fields["min_duration_minutes"].help_text = "Half hour steps."
+        self.fields["max_duration_minutes"].help_text = "Half hour steps."
+        self.fields["max_advance_days"].help_text = "How far ahead members can book, in days."
+        self.fields["max_active_reservations_per_member"].help_text = "How many upcoming times one member can hold."
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        minimum = cleaned.get("min_duration_minutes")
+        maximum = cleaned.get("max_duration_minutes")
+        if minimum is not None and (minimum < 30 or minimum % 30 != 0):
+            self.add_error("min_duration_minutes", "Use half hour steps, starting at 30.")
+        if maximum is not None and maximum % 30 != 0:
+            self.add_error("max_duration_minutes", "Use half hour steps.")
+        if minimum is not None and maximum is not None and maximum < minimum:
+            self.add_error("max_duration_minutes", "The longest reservation cannot be shorter than the shortest.")
+        horizon = cleaned.get("max_advance_days")
+        if horizon is not None and horizon < 1:
+            self.add_error("max_advance_days", "Use at least 1 day.")
+        cap = cleaned.get("max_active_reservations_per_member")
+        if cap is not None and cap < 1:
+            self.add_error("max_active_reservations_per_member", "Use at least 1.")
+        return cleaned
+
+
+class EquipmentReservationForm(forms.Form):
+    """The Book a Time POST — an ISO start from the computed select, a duration, a purpose.
+
+    Format validation only; every domain check (grid, hours, limits, overlap, blockers)
+    lives in ``Equipment.ensure_reservable`` under the reserve() lock, so the form can
+    never drift from the engine.
+    """
+
+    starts_at = forms.CharField()
+    duration_minutes = forms.IntegerField(min_value=1)
+    purpose = forms.CharField(max_length=140, required=False)
+
+    def clean_starts_at(self) -> Any:
+        from django.utils.dateparse import parse_datetime
+
+        parsed = parse_datetime(self.cleaned_data["starts_at"])
+        if parsed is None or timezone.is_naive(parsed):
+            raise forms.ValidationError("Please pick one of the listed times.")
+        return parsed
+
+
+class EquipmentManagerCancelForm(forms.Form):
+    """The manage panel's reason-required cancel (spec §7.4)."""
+
+    # CharField strips by default, so a whitespace-only reason already fails required —
+    # no extra clean needed; the model's ValueError guard stays the loud backstop.
+    reason = forms.CharField(
+        max_length=300,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Why is this being cancelled?"}),
+        label="Reason",
+        error_messages={"required": "Please tell the member why."},
+    )
 
 
 class EquipmentStaffAddForm(forms.Form):

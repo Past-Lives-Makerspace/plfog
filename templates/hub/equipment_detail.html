@@ -35,10 +35,16 @@
 </div>
 {% endif %}
 
+{% if equipment.is_closed %}
+<div class="hub-card pl-equip-banner pl-equip-banner--warn">
+  <p style="margin:0;">{% if equipment.closed_message %}{{ equipment.closed_message }}{% else %}Closed for now.{% endif %}</p>
+</div>
+{% endif %}
+
 {# ── Requirements banner — exactly one state, from access_state (spec §7.3). ── #}
 {% if access_state == "ok" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--ok">
-  <p class="pl-equip-banner__ok-text" style="margin:0;">You're all set.</p>
+  <p class="pl-equip-banner__ok-text" style="margin:0;">You're all set.{% if not equipment.is_closed %} Pick a time below.{% endif %}</p>
 </div>
 {% elif access_state == "needs_orientation" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--warn">
@@ -63,6 +69,9 @@
   <p class="hub-text-muted" style="margin:0;">Your membership needs to be active to reserve equipment.</p>
 </div>
 {% endif %}
+
+{# ── Schedule + Book a Time + reservation lists — one HTMX-swapped unit (spec §7.3 items 3 to 6). ── #}
+{% include "hub/partials/equipment_schedule.html" %}
 
 {# ── About — description, wayfinding, and the read-only linked space (spec §7.3 item 7). ── #}
 {% if equipment.description or equipment.location_note or equipment.space %}

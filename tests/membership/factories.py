@@ -15,6 +15,8 @@ from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
     Equipment,
+    EquipmentHours,
+    EquipmentReservation,
     EquipmentStaffMembership,
     EventRSVP,
     Floorplan,
@@ -691,3 +693,29 @@ class EquipmentStaffMembershipFactory(factory.django.DjangoModelFactory):
     equipment = factory.SubFactory(EquipmentFactory)
     member = factory.SubFactory(MemberFactory)
     role = EquipmentStaffMembership.Role.MANAGER
+
+
+class EquipmentHoursFactory(factory.django.DjangoModelFactory):
+    """A Tuesday 9 to 5 window by default."""
+
+    class Meta:
+        model = EquipmentHours
+
+    equipment = factory.SubFactory(EquipmentFactory)
+    weekday = EquipmentHours.Weekday.TUESDAY
+    start_time = factory.LazyFunction(lambda: time(9, 0))
+    end_time = factory.LazyFunction(lambda: time(17, 0))
+    is_active = True
+
+
+class EquipmentReservationFactory(factory.django.DjangoModelFactory):
+    """A confirmed one-hour reservation two days out by default."""
+
+    class Meta:
+        model = EquipmentReservation
+
+    equipment = factory.SubFactory(EquipmentFactory)
+    member = factory.SubFactory(MemberFactory)
+    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
+    ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=1))
+    status = EquipmentReservation.Status.CONFIRMED

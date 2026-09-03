@@ -145,6 +145,28 @@ def describe_staff_section():
             _grant(user, AdminCapability.Capability.SPACE_APPROVER)
             assert _section_of(user, "class_validation_requested") is None
 
+    def describe_an_equipment_manager():
+        # equipment.reservation_made routes to EQUIPMENT_MANAGERS — the three manage
+        # tiers (per-equipment staff row / guild leadership / EQUIPMENT capability)
+        # each see the row; a plain member never does. Page == delivery.
+        EQUIPMENT_EVENT = "equipment.reservation_made"
+
+        def it_shows_the_row_to_a_per_equipment_staff_row_holder(db):
+            from tests.membership.factories import EquipmentStaffMembershipFactory
+
+            user = _member_user("equipmgr1")
+            EquipmentStaffMembershipFactory(member=Member.objects.get(user=user))
+            assert _section_of(user, EQUIPMENT_EVENT) == settings_matrix.STAFF_SECTION
+
+        def it_shows_the_row_to_an_equipment_capability_holder(db):
+            user = _member_user("equipmgr2")
+            _grant(user, AdminCapability.Capability.EQUIPMENT)
+            assert _section_of(user, EQUIPMENT_EVENT) == settings_matrix.STAFF_SECTION
+
+        def it_hides_the_row_from_a_plain_member(db):
+            user = _member_user("equipmgr3")
+            assert _section_of(user, EQUIPMENT_EVENT) is None
+
     def describe_a_guild_lead():
         def it_sees_composite_leadership_events_but_not_unheld_capabilities(db):
             user = _member_user("lead1")

@@ -334,6 +334,19 @@ urlpatterns = [
         equipment_views.hub_equipment_staff_remove,
         name="hub_equipment_staff_remove",
     ),
+    # Reservations (PR 2): the HTMX schedule partial, instant booking, cancels, hours.
+    path("equipment/<slug:slug>/schedule/", equipment_views.hub_equipment_schedule, name="hub_equipment_schedule"),
+    path("equipment/<slug:slug>/reserve/", equipment_views.hub_equipment_reserve, name="hub_equipment_reserve"),
+    path(
+        "equipment/<slug:slug>/reservations/<int:pk>/cancel/",
+        equipment_views.hub_equipment_reservation_cancel,
+        name="hub_equipment_reservation_cancel",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/hours/",
+        equipment_views.hub_equipment_hours_save,
+        name="hub_equipment_hours_save",
+    ),
     # Help — how the app works: intro, guides, parking, who-to-contact, FAQ, code of conduct, resources.
     path("help/", views.help_page, name="hub_help"),
     path("help/edit/", views.help_edit, name="hub_help_edit"),

@@ -195,6 +195,27 @@ def space_approvers(context: dict[str, Any]) -> list[Recipient]:
     return _capability_recipients(AdminCapability.Capability.SPACE_APPROVER)
 
 
+def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
+    """UNION — everyone who manages the in-context equipment, across all three tiers.
+
+    Per-equipment staff rows (tagged ``equipment_staff``) ∪ the owning guild's
+    leadership (``guild_leadership``) ∪ EQUIPMENT capability holders
+    (``capability:equipment``), deduped keeping the first reason. Mirrors
+    ``Equipment.manager_members()`` and ``can_manage_equipment`` so the awareness
+    ping reaches exactly who could act. A missing ``equipment`` key fails loudly.
+    """
+    from membership.models import AdminCapability
+
+    equipment = _require(context, "equipment")
+    staff_members = [staff.member for staff in equipment.staff_memberships.select_related("member__user")]
+    staff = _members_to_recipients(staff_members, "equipment_staff")
+    leadership: list[Recipient] = []
+    if equipment.guild is not None:
+        leadership = _members_to_recipients(equipment.guild.leadership_members(), "guild_leadership")
+    holders = _capability_recipients(AdminCapability.Capability.EQUIPMENT)
+    return _dedupe([*staff, *leadership, *holders])  # type: ignore[list-item]
+
+
 def discount_approvers(context: dict[str, Any]) -> list[Recipient]:
     """Discount Code Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
@@ -590,6 +611,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.CLASS_APPROVERS: class_approvers,
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: guild_leadership_or_class_approvers,
     Recipients.SPACE_APPROVERS: space_approvers,
+    Recipients.EQUIPMENT_MANAGERS: equipment_managers,
     Recipients.DISCOUNT_APPROVERS: discount_approvers,
     Recipients.EVENTS_APPROVERS: events_approvers,
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: guild_leadership_or_events_approvers,
