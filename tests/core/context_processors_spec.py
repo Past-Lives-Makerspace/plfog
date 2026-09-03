@@ -74,6 +74,7 @@ def describe_feature_flags():
         assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
+        assert result["equipment_page_enabled"] is True
         assert (
             result["class_registration_disabled_note"]
             == SiteConfiguration._meta.get_field("class_registration_disabled_note").default
@@ -88,6 +89,7 @@ def describe_feature_flags():
         config.wiki_link_enabled = False
         config.instructor_discount_codes_enabled = True
         config.guild_welcome_email_enabled = False
+        config.equipment_page_enabled = False
         config.save()
 
         rf = RequestFactory()
@@ -101,6 +103,7 @@ def describe_feature_flags():
             "wiki_link_enabled": False,
             "instructor_discount_codes_enabled": True,
             "guild_welcome_email_enabled": False,
+            "equipment_page_enabled": False,
         }
 
 
