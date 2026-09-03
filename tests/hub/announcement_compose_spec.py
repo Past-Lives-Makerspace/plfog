@@ -750,6 +750,33 @@ def describe_teaching_instructor_gate():
         assert response.status_code == 302
         assert response.url == reverse("hub_guild_announcement_propose")
 
+    def it_resumes_a_lock_only_teachers_own_draft(client: Client):
+        # Saved from the locked composer; the resume URL carries no ?audience, so the gate
+        # must judge the draft's own class audience instead of bouncing to propose.
+        user, _member, offering = _instructor(
+            client, username="draftresume", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        save = client.post(
+            reverse("hub_compose_save_draft"),
+            _valid_send_data(audience=f"class:{offering.pk}", body="<p>Early note draft</p>", discord_channel=""),
+        )
+        assert save.status_code == 200
+        draft = AnnouncementDraft.objects.get(author=user)
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Early note draft" in content
+        assert f'value="class:{offering.pk}"' in content  # the draft's class is a valid audience choice
+
+    def it_admits_a_lock_only_teacher_to_the_push_test(client: Client):
+        # The push-test button posts the whole form, so the audience travels with it and the
+        # audience-aware gate admits the lock-only teacher (204 with a toast, never a 403).
+        _user, _member, offering = _instructor(
+            client, username="pushlock", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        response = client.post(reverse("hub_compose_push_test"), {"audience": f"class:{offering.pk}"})
+        assert response.status_code == 204
+
     def it_still_bounces_a_plain_member_from_a_locked_guild(client: Client):
         # A non-class pre-scope never admits on its own — only the general gate applies.
         _login_plain(client, username="plain2")
@@ -776,11 +803,14 @@ def describe_send_announcement_entry_points():
         assert "Send Announcement" in content
         assert f"audience=guild:{guild.pk}" in content
 
-    def it_shows_a_send_announcement_button_on_the_admin_class_page(client: Client):
+    def it_shows_a_send_email_button_on_the_admin_class_page(client: Client):
+        # The admin twin lands on the same registrant-addressed composer, so it carries the
+        # same "Send Email" label as the teach-side button.
         _login_admin(client)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         content = client.get(reverse("classes:admin_class_detail", args=[offering.pk])).content.decode()
-        assert "Send Announcement" in content
+        assert "</svg>Send Email</a>" in content
+        assert "Send Announcement" not in content
         assert f"audience=class:{offering.pk}" in content
 
     def it_lets_an_admin_send_to_a_class_they_do_not_teach_when_locked(client: Client):
@@ -817,6 +847,12 @@ def describe_admin_tools_sidebar_link():
 
     def it_shows_the_admin_tools_tab_to_an_instructor(client: Client):
         _instructor(client)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert reverse("hub_admin_tools") in content
+
+    def it_shows_the_admin_tools_tab_to_a_slugless_teaching_instructor(client: Client):
+        # Teaching a published class counts, with or without the public profile flag.
+        _instructor(client, username="noslugtools", slug=False)
         content = client.get(reverse("hub_member_directory")).content.decode()
         assert reverse("hub_admin_tools") in content
 

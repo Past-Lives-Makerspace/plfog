@@ -129,7 +129,7 @@
         </div>
         <div class="pl-compose-channel__actions">
           <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
-                  hx-post="{% url 'hub_compose_push_test' %}" hx-swap="none">
+                  hx-post="{% url 'hub_compose_push_test' %}" hx-include="closest form" hx-swap="none">
             <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a Push Notification test to me
           </button>
         </div>
