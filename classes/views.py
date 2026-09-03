@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from classes.forms import PaymentRefundForm
     from membership.models import Member
 
-from hub.view_as import refund_authority_required
+from hub.view_as import classes_review_access_required, refund_authority_required
 
 from classes.emails import (
     emit_instructor_new_registration,
@@ -1220,6 +1220,17 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
 
     is_guild_lead = teaching_member.is_guild_lead
     guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
+    # Classes this lead already approved that now wait on the admin gate — kept
+    # visible so a stage-one approval doesn't make the class vanish on them.
+    guild_lead_awaiting_admin = (
+        list(
+            ClassOffering.objects.awaiting_admin_validation(teaching_member)
+            .select_related("category", "instructor")
+            .order_by("created_at")
+        )
+        if is_guild_lead
+        else []
+    )
 
     return render(
         request,
@@ -1236,6 +1247,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "stats": stats,
             "is_guild_lead": is_guild_lead,
             "guild_lead_pending": guild_lead_pending,
+            "guild_lead_awaiting_admin": guild_lead_awaiting_admin,
         },
     )
 
@@ -2062,7 +2074,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     )
 
 
-@classes_admin_access_required
+@classes_review_access_required
 def admin_classes(request: HttpRequest) -> HttpResponse:
     valid_statuses = {choice.value for choice in ClassOffering.Status}
     status_filter = request.GET.get("status", "").strip()
@@ -2336,7 +2348,7 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
     }
 
 
-@classes_admin_access_required
+@classes_review_access_required
 def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(
         ClassOffering.objects.select_related("instructor", "category")
@@ -2460,12 +2472,12 @@ def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_class_registrations", pk=pk)
 
 
-@classes_admin_access_required
+@classes_review_access_required
 def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
     """Quick-approve from the admin class detail page.
 
-    Records an admin-role decision via ClassApproval; the offering publishes
-    only when every required gate (admin + guild lead, if any) is satisfied.
+    Records an admin-role decision via ClassApproval. Admin approval is final:
+    the offering publishes immediately, closing any still-open guild-lead gate.
     For request-changes / decline with notes, use the dedicated review page
     at /classes/admin/<pk>/review/.
     """
@@ -2477,13 +2489,7 @@ def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
             messages.error(request, str(exc))
             return redirect("classes:admin_class_detail", pk=offering.pk)
         send_class_review_decision(offering, row)
-        if offering.status == ClassOffering.Status.PUBLISHED:
-            messages.success(request, f"{offering.title} is published.")
-        else:
-            messages.success(
-                request,
-                f"Admin approval recorded. Waiting on the remaining reviewer(s) before {offering.title} publishes.",
-            )
+        messages.success(request, f"{offering.title} is published.")
     return redirect("classes:admin_class_detail", pk=offering.pk)
 
 
@@ -2590,9 +2596,9 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
     )
 
 
-@classes_admin_access_required
+@classes_review_access_required
 def admin_class_review(request: HttpRequest, pk: int) -> HttpResponse:
-    """Full reviewer page for admins. Mirrors the tokenized public review page."""
+    """Full reviewer page for admins and CMS Administrators. Mirrors the tokenized public review page."""
     offering = get_object_or_404(ClassOffering, pk=pk)
     return _class_review_view(
         request,

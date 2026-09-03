@@ -216,6 +216,22 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             approvals__decision="",
         ).distinct()
 
+    def awaiting_admin_validation(self, member: "Member") -> "ClassOfferingQuerySet":
+        """Pending classes whose guild-lead gate this member's guilds already approved.
+
+        The counterpart to :meth:`awaiting_guild_lead` for the lead's dashboard —
+        after a lead approves stage one, the class stays visible here (read only)
+        until an admin publishes or bounces it, instead of silently vanishing.
+        Each ``.filter()`` call joins ``approvals`` separately on purpose: one
+        approved ``guild_lead`` row AND one undecided ``admin`` row must exist.
+        """
+        return (
+            self.filter(status="pending", category__guild__in=member.staffed_guilds)
+            .filter(approvals__role="guild_lead", approvals__decision="approved")
+            .filter(approvals__role="admin", approvals__decision="")
+            .distinct()
+        )
+
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         return self.filter(instructor=instructor)
 
@@ -764,8 +780,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         Approval is sequential: the first stage is the Guild Lead when the
         class's category links a guild with a lead, otherwise the Admin. The
         Admin gate is only created later, once the Guild Lead approves (see
-        ``on_review_decision_recorded``). This keeps an admin from publishing
-        before the Guild Lead has weighed in.
+        ``on_review_decision_recorded``). An admin can still step in early —
+        admin approval is final and publishes immediately, closing any open
+        guild-lead gate.
 
         Notifies the first-stage reviewer (in-app + email) directly from the
         model so every submit path — quick-submit, create, and edit — fans out
@@ -950,7 +967,12 @@ class ClassOffering(HeroCropMixin, models.Model):
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
         """Lifecycle hook: called by ClassApproval.decide.
 
-        APPROVED: if every required role has now signed off, publish.
+        APPROVED by an admin: publish immediately — admin approval is final
+        (owner decision), even when another gate is still open. Any remaining
+        undecided approval rows are closed as approved with a system note so
+        nothing lingers in reviewer queues; the rows stay as history.
+        APPROVED by a guild lead: escalate to the admin gate without
+        publishing — publication always waits for the admin.
         CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
         can edit and resubmit. Per the locked decision in PLAN.md §14,
         a guild-lead denial is recoverable (returns to DRAFT) rather than
@@ -976,9 +998,16 @@ class ClassOffering(HeroCropMixin, models.Model):
             ):
                 admin_row = ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
                 self._escalate_to_admin(admin_row, guild_lead=row.decided_by)
-            required = set(self.required_review_roles)
-            approved = {r.role for r in self.approvals.filter(decision=ClassApproval.Decision.APPROVED)}
-            if required.issubset(approved):
+            if row.role == ClassApproval.Role.ADMIN:
+                # Admin approval is final: close any still-open gates (e.g. an
+                # undecided guild-lead row) as approved with a system note so the
+                # class drops out of every reviewer queue. The rows are kept as
+                # history — decided_by stays NULL because no human decided them.
+                self.approvals.filter(decision="").exclude(pk=row.pk).update(
+                    decision=ClassApproval.Decision.APPROVED,
+                    notes="Approved automatically when an admin gave final approval.",
+                    decided_at=timezone.now(),
+                )
                 self.status = self.Status.PUBLISHED
                 self.approved_by = row.decided_by
                 self.published_at = timezone.now()
@@ -1433,8 +1462,8 @@ class ClassApproval(models.Model):
 
     Rows start with ``decision = ""`` (still pending). Calling ``decide()``
     on a row records the decision and triggers the lifecycle hook on the
-    offering (publish when every required row is APPROVED; back to DRAFT
-    when any reviewer requests changes or denies).
+    offering (publish when the ADMIN row is APPROVED — admin approval is
+    final; back to DRAFT when any reviewer requests changes or denies).
     """
 
     class Role(models.TextChoices):

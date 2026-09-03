@@ -270,6 +270,23 @@ def billing_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     )(view_func)
 
 
+def classes_review_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating the class review surfaces: fog-admins or CMS Administrators.
+
+    The ``CLASS_APPROVER`` capability's contract is approve/validate classes, and
+    its notifications point holders at these pages — so the classes list, class
+    detail, approve action, and review page admit capability holders alongside
+    admins. Every other classes admin surface (registrations, settings,
+    categories, discount codes, …) stays ``classes_admin_access_required``.
+    """
+    from membership.models import AdminCapability
+
+    return _capability_or_admin_required(
+        AdminCapability.Capability.CLASS_APPROVER,
+        "Class review access requires admin privileges or the CMS Administrator permission.",
+    )(view_func)
+
+
 def refund_authority_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator gating refund actions: fog-admins or holders of the ``REFUNDS`` capability.
 

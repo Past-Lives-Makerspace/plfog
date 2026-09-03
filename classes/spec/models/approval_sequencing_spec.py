@@ -94,6 +94,35 @@ def describe_on_review_decision_recorded():
             offering.refresh_from_db()
             assert offering.status == ClassOffering.Status.PUBLISHED
 
+    def describe_admin_approves_while_guild_lead_gate_is_open():
+        """Admin approval is final (owner decision): it publishes even before the lead reviews."""
+
+        def it_publishes_immediately(guilded_offering, admin_user):
+            guilded_offering.submit_for_review()
+            guilded_offering.approve(admin_user)
+            guilded_offering.refresh_from_db()
+            assert guilded_offering.status == ClassOffering.Status.PUBLISHED
+            assert guilded_offering.approved_by == admin_user
+            assert guilded_offering.published_at is not None
+
+        def it_supersedes_the_open_guild_lead_gate_without_deleting_it(guilded_offering, admin_user):
+            (gl_row,) = guilded_offering.submit_for_review()
+            guilded_offering.approve(admin_user)
+            gl_row.refresh_from_db()
+            assert gl_row.decision == ClassApproval.Decision.APPROVED
+            assert gl_row.decided_by is None
+            assert gl_row.decided_at is not None
+            assert "automatically" in gl_row.notes
+
+        def it_drops_the_class_out_of_the_guild_lead_queue(guilded_offering, guild_lead_user, admin_user):
+            from membership.models import Member
+
+            guilded_offering.submit_for_review()
+            lead = Member.objects.get(user=guild_lead_user)
+            assert ClassOffering.objects.awaiting_guild_lead(lead).count() == 1
+            guilded_offering.approve(admin_user)
+            assert ClassOffering.objects.awaiting_guild_lead(lead).count() == 0
+
     def describe_guild_lead_requests_changes():
         def it_returns_to_draft_without_opening_admin_gate(guilded_offering, guild_lead_user):
             (gl_row,) = guilded_offering.submit_for_review()
@@ -125,6 +154,56 @@ def describe_escalation_notifications():
         assert "Iris Smith" in note.body
         # The guild lead is named by display name (full legal name) in the unified copy.
         assert "Lead Person" in note.body
+
+
+def describe_awaiting_admin_validation():
+    """The lead-side counterpart queue: classes they approved that wait on the admin gate."""
+
+    def it_lists_a_class_after_the_lead_approves_stage_one(guilded_offering, guild_lead_user):
+        from membership.models import Member
+
+        (gl_row,) = guilded_offering.submit_for_review()
+        lead = Member.objects.get(user=guild_lead_user)
+        assert ClassOffering.objects.awaiting_admin_validation(lead).count() == 0
+        gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
+        assert list(ClassOffering.objects.awaiting_admin_validation(lead)) == [guilded_offering]
+
+    def it_excludes_guilds_the_member_does_not_lead(guilded_offering, guild_lead_user, db):
+        from membership.models import Member
+
+        (gl_row,) = guilded_offering.submit_for_review()
+        gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
+        other_lead_member = Member.objects.get(user=get_user_model().objects.create_user(username="other@example.com"))
+        GuildFactory(name="Other Guild", guild_lead=other_lead_member)
+        assert ClassOffering.objects.awaiting_admin_validation(other_lead_member).count() == 0
+
+    def it_empties_once_the_admin_publishes(guilded_offering, guild_lead_user, admin_user):
+        from membership.models import Member
+
+        (gl_row,) = guilded_offering.submit_for_review()
+        gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
+        guilded_offering.refresh_from_db()
+        guilded_offering.approve(admin_user)
+        lead = Member.objects.get(user=guild_lead_user)
+        assert ClassOffering.objects.awaiting_admin_validation(lead).count() == 0
+
+
+def describe_validation_notification_link():
+    def it_links_the_in_app_row_to_the_tokenized_review_page(guilded_offering, guild_lead_user, admin_user):
+        from django.urls import reverse
+
+        from membership.models import AdminCapability, Member
+
+        Member.objects.get(user=admin_user).admin_capabilities.create(
+            capability=AdminCapability.Capability.CLASS_APPROVER
+        )
+        (gl_row,) = guilded_offering.submit_for_review()
+        gl_row.decide(ClassApproval.Decision.APPROVED, user=guild_lead_user)
+        note = Notification.objects.get(user=admin_user, trigger="class_validation_requested")
+        admin_row = guilded_offering.approvals.get(role=ClassApproval.Role.ADMIN)
+        # The old /classes/admin/ target is admin-only — a CMS Administrator
+        # clicking the bell row would have hit a 403 there.
+        assert note.url == reverse("classes:class_review", kwargs={"token": admin_row.token})
 
 
 def describe_instructor_approved_notification():

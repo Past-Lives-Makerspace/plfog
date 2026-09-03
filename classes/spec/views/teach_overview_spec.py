@@ -169,6 +169,42 @@ def describe_teach_overview():
                 assert resp.context["is_guild_lead"] is False
                 assert b"Classes in your guild waiting on your review" not in resp.content
 
+    def describe_awaiting_admin_validation_strip():
+        def _lead_approved_class_led_by(lead_member, title, slug):
+            """A PENDING class whose guild-lead gate ``lead_member`` approved; admin gate open."""
+            from classes.models import ClassApproval
+
+            offering = _pending_class_in_guild_led_by(lead_member, title, slug)
+            gl_row = offering.approvals.get(role=ClassApproval.Role.GUILD_LEAD)
+            gl_row.decision = ClassApproval.Decision.APPROVED
+            gl_row.save(update_fields=["decision"])
+            ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+            return offering
+
+        def it_shows_a_class_the_lead_approved_that_waits_on_admin(instructor_fixture, client):
+            offering = _lead_approved_class_led_by(instructor_fixture, "Waiting On Admin", "waiting-admin")
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:teach_overview"))
+            assert b"Awaiting Admin Validation" in resp.content
+            assert b"Waiting On Admin" in resp.content
+            assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}).encode() in resp.content
+
+        def it_hides_the_strip_when_nothing_waits_on_admin(instructor_fixture, client):
+            _pending_class_in_guild_led_by(instructor_fixture, "Still Undecided", "still-undecided")
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:teach_overview"))
+            assert b"Awaiting Admin Validation" not in resp.content
+
+        def it_does_not_show_another_leads_class(instructor_fixture, other_instructor, client):
+            _lead_approved_class_led_by(other_instructor, "Foreign Waiting", "foreign-waiting")
+            # Make instructor_fixture a lead of their own (empty) guild so the panel area renders.
+            _pending_class_in_guild_led_by(instructor_fixture, "Own Queue Class", "own-queue")
+            client.force_login(instructor_fixture.user)
+            resp = client.get(reverse("classes:teach_overview"))
+            assert b"Foreign Waiting" not in resp.content
+            assert b"Awaiting Admin Validation" not in resp.content
+
+    def describe_guild_lead_queue_exclusions():
         def it_excludes_pending_classes_in_guilds_the_member_does_not_lead(
             instructor_fixture, other_instructor, client
         ):

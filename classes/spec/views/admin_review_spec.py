@@ -61,8 +61,8 @@ def _make_guilded_category(db):
 
 
 def describe_admin_class_approve():
-    def it_shows_waiting_message_when_guild_gate_remains(admin_user, client, db):
-        """When a class needs admin + guild-lead approval, approving as admin leaves it pending."""
+    def it_publishes_even_while_the_guild_gate_is_open(admin_user, client, db):
+        """Admin approval is final: approving publishes immediately and closes the guild-lead gate."""
         cat = _make_guilded_category(db)
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, category=cat)
         offering.submit_for_review()
@@ -71,4 +71,5 @@ def describe_admin_class_approve():
         response = client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
         assert response.status_code == 302
         offering.refresh_from_db()
-        assert offering.status == ClassOffering.Status.PENDING
+        assert offering.status == ClassOffering.Status.PUBLISHED
+        assert not offering.approvals.filter(decision="").exists()
