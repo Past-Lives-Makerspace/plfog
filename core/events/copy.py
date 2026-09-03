@@ -1021,6 +1021,15 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
+            # Discord is a channel broadcast — no recipient to greet, so it gets its
+            # own copy instead of inheriting the email greeting via the fallback.
+            Channel.DISCORD: ChannelCopy(
+                subject="What's new at Past Lives: {{ release_title }}",
+                body_text=(
+                    "We just released a new version of the Past Lives app (v{{ version }}): "
+                    "{{ release_title }}.\n\n{{ release_notes }}\n\n{{ site_url }}"
+                ),
+            ),
         },
     ),
     "event.guild_published": EventCopy(
@@ -1594,6 +1603,74 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # meeting.minutes_approved — a broadcast to the guild's members (Discord dual-routes to
+    # the guild's own channel), so NO channel may address a single recipient. Before this
+    # curated copy existed, the generic fallback's email greeting leaked "Hi [missing:
+    # member_name]" into guild Discord channels.
+    "meeting.minutes_approved": EventCopy(
+        placeholders=("guild_name", "meeting_title", "meeting_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "meeting_title": "June Guild Meeting",
+            "meeting_url": "https://pastlives.example/guilds/3/meetings/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Meeting minutes approved",
+                body_text="{{ guild_name }}: the minutes for {{ meeting_title }} are approved and locked.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ guild_name }} meeting minutes approved",
+                body_text=(
+                    "The minutes for {{ meeting_title }} ({{ guild_name }}) are approved and locked.\n\n"
+                    "Read them: {{ meeting_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>The minutes for <strong>{{ meeting_title }}</strong> ({{ guild_name }}) are "
+                    "approved and locked.</p>"
+                    '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+            Channel.DISCORD: ChannelCopy(
+                subject="Meeting minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
+            ),
+        },
+    ),
+    # meeting.council_minutes_approved — same broadcast posture for the cross-guild council
+    # meeting (Discord posts centrally; recipients are all guild leads/staff/officers).
+    "meeting.council_minutes_approved": EventCopy(
+        placeholders=("meeting_title", "meeting_url"),
+        sample_context={
+            "meeting_title": "July Council Meeting",
+            "meeting_url": "https://pastlives.example/meetings/15/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Council minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Council minutes approved",
+                body_text=(
+                    "The minutes for {{ meeting_title }} are approved and locked.\n\n"
+                    "Read them: {{ meeting_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>The minutes for <strong>{{ meeting_title }}</strong> are approved and locked.</p>"
+                    '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+            Channel.DISCORD: ChannelCopy(
+                subject="Council minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
+            ),
+        },
+    ),
 }
 
 
@@ -1607,6 +1684,11 @@ def _generic_copy(event: EventType) -> EventCopy:
     with a single documented ``{{ member_name }}`` greeting placeholder so the
     catalogue is exhaustive and previewable without bespoke authoring for the
     long tail of operational events.
+
+    Discord gets its OWN greeting-free copy (label + description). Discord is a
+    broadcast channel — there is no recipient to greet — so it must never
+    inherit the email greeting via the ``copy_for`` fallback (that once posted
+    "Hi [missing: member_name]" into a guild's channel).
     """
     placeholders = ("member_name",)
     sample = {"member_name": "Robin Vale"}
@@ -1616,10 +1698,11 @@ def _generic_copy(event: EventType) -> EventCopy:
         body_text=f"Hi {{{{ member_name }}}},\n\n{event.description}\n\nPast Lives Makerspace",
         body_html=f"<p>Hi {{{{ member_name }}}},</p><p>{event.description}</p><p>Past Lives Makerspace</p>",
     )
+    discord = ChannelCopy(subject=event.label, body_text=event.description)
     return EventCopy(
         placeholders=placeholders,
         sample_context=sample,
-        channels={Channel.IN_APP: in_app, Channel.EMAIL: email},
+        channels={Channel.IN_APP: in_app, Channel.EMAIL: email, Channel.DISCORD: discord},
     )
 
 
