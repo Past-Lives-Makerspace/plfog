@@ -73,6 +73,10 @@ class EventCopy:
         Email falls back to in-app copy; in-app falls back to a minimal
         title-only block. This keeps every declared channel seedable without
         authoring near-identical bodies.
+
+        Note: this consults the SEEDED defaults only — an admin-edited in-app
+        ``NotificationTemplate`` DB row does not flow through to push/DM, which
+        keep rendering the seeded default (same behavior the email fallback had).
         """
         if channel in self.channels:
             return self.channels[channel]

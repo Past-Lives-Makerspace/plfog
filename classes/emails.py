@@ -299,11 +299,12 @@ def _emit_review_request(
     The reviewer email is the preserved ``review_request.{txt,html}`` shell (tokenized
     ``/classes/review/<token>/`` link), addressed to the exact ``recipients`` list via
     ``email_to`` (lead+staff for the guild-lead gate, admins for the lead-less gate). The
-    in-app "A class needs your review" row resolves from the event's ``GUILD_LEADERSHIP``
-    resolver against ``guild`` — so the guild's whole leadership gets a bell row, and a
-    ``None`` guild (lead-less category routed to admins) yields no bell row, exactly as
-    today (the admin branch was email-only). No-op on the email when there are no
-    recipients; the in-app still fans out to any resolvable leadership.
+    in-app "A class needs your review" row resolves from the event's
+    ``GUILD_LEADERSHIP_OR_CLASS_APPROVERS`` resolver against ``guild`` — the guild's
+    whole leadership gets a bell row, and a ``None`` guild (lead-less category) routes
+    the bell rows to the CLASS_APPROVER capability holders, who are the reviewers in
+    that branch. No-op on the email when there are no recipients; the in-app still fans
+    out to whoever the resolver finds.
     """
     from core.events.senders import emit_with_email_shell
 
@@ -344,9 +345,9 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
     resolver fan-out entirely: with a ``None`` guild the event's composed resolver
     returns the CLASS_APPROVER capability holders, and before this guard they each got
     a bell row, push, and Discord DM rendered from the generic copy ("Hi [missing:
-    member_name]") carrying the instructor's edit link. The explainer's audit label
-    (``classes.review_request_instructor``) is preserved, and its ``email:<instructor>``
-    dedup ref keeps it independent of the reviewer email. No-op without an instructor email.
+    member_name]") carrying the instructor's edit link. The email's audit label is the
+    event key (``class_review_requested``), and its ``email:<instructor>`` dedup ref
+    keeps it independent of the reviewer email. No-op without an instructor email.
     """
     if not (offering.instructor and offering.instructor.primary_email):
         return
