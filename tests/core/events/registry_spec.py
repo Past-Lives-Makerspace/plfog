@@ -172,7 +172,14 @@ def describe_event_registry():
                 assert spec.default is ChannelDefault.OFF
 
         def it_broadcasts_announcements_and_releases_on_discord():
-            for key in ("class_published", "guild_announcement", "site_announcement", "release.published"):
+            for key in (
+                "class_published",
+                "guild_announcement",
+                "site_announcement",
+                "release.published",
+                # New bookings post to the #reservations channel (site-config pinned).
+                "equipment.reservation_made",
+            ):
                 assert get_event(key).has_channel(Channel.DISCORD)
 
         def it_never_puts_minutes_approvals_on_discord():

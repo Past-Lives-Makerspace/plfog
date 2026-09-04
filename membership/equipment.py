@@ -145,15 +145,26 @@ def _notify_confirmed(reservation: EquipmentReservation) -> None:
 
 
 def _notify_managers(reservation: EquipmentReservation) -> None:
-    """Awareness ping to the equipment's managers — no approval exists, so email defaults off."""
+    """Awareness ping to the equipment's managers — no approval exists, so email defaults off.
+
+    Also the #reservations Discord broadcast: the event is pinned to the Site
+    Settings ``discord_reservations_webhook_url`` (blank = silent no-op, never the
+    central notify webhook). The context deliberately carries NO ``guild`` key —
+    that is what keeps ``emit``'s guild dual-route dark, so a guild-owned tool's
+    booking still posts to #reservations only, never the guild's own channel.
+    """
     from core.events.emit import emit
 
+    placeholders = _placeholder_context(reservation)
     emit(
         "equipment.reservation_made",
         actor=reservation.member.user,
         target=reservation,
-        context={"equipment": reservation.equipment, **_placeholder_context(reservation)},
-        url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
+        context={"equipment": reservation.equipment, **placeholders},
+        # ABSOLUTE url, not reverse(): in copy mode this becomes the Discord embed's
+        # url, and Discord rejects relative embed URLs with a silent-looking 400
+        # (post_embed logs and returns False) — the channel would never hear a thing.
+        url=placeholders["equipment_url"],
         period=f"reservation:{reservation.pk}:made",
     )
 

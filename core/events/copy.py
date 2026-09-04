@@ -1797,6 +1797,13 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
+            # The #reservations channel broadcast — greeting-free (a channel has no
+            # recipient); member_name is the RESERVER from the emit context, which is
+            # legitimate shared information (locked privacy decision #5).
+            Channel.DISCORD: ChannelCopy(
+                subject="New reservation",
+                body_text="{{ member_name }} reserved {{ equipment_name }}: {{ reservation_when }}.\n\n{{ equipment_url }}",
+            ),
         },
     ),
 }
