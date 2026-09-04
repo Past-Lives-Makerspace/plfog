@@ -200,7 +200,10 @@ def describe_with_copy_deltas():
         assert "A note from Bob" in html
         assert "guild lead wasn't able" not in member_email.body
 
-    def it_keeps_the_guild_lead_copy_on_a_guild_slot_decline():
+    def it_uses_the_owner_generic_copy_on_an_unassigned_guild_slot_decline():
+        # v1.32.0 made the no-orienter decline branch owner-agnostic (equipment
+        # orientations have no guild lead); guild slots share the generic line
+        # and attribute the note to the owning guild.
         guild, _lead, _bob, _other = _routed_guild("cp_dg")
         requester = _member_with_user("cp_dg_member")
         slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
@@ -210,9 +213,9 @@ def describe_with_copy_deltas():
         orientations.decline_orientation(booking, note="Ping us again soon")
 
         member_email = next(m for m in mail.outbox if m.to == [requester.primary_email])
-        assert "The guild lead wasn't able to confirm your requested orientation time." in member_email.body
-        assert "The guild lead wasn't able to confirm your requested time." in member_email.alternatives[0][0]
-        assert "A note from the guild lead" in member_email.body
+        assert "Your requested orientation time couldn't be confirmed." in member_email.body
+        assert "Your requested orientation time couldn't be confirmed." in member_email.alternatives[0][0]
+        assert f"A note from the {guild.name} folks" in member_email.body
 
     def it_names_the_orienter_in_the_cancellation_email():
         guild, _lead, bob, _other = _routed_guild("cp_x")
