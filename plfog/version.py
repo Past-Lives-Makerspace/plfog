@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "1.34.0"
+VERSION = "1.34.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.34.0",
+        "version": "1.34.1",
         "date": "2026-09-04",
         "title": "One calendar, simpler",
         "changes": [
@@ -14,6 +14,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "New events go on the public Google calendar by default, so anyone can "
             "see what is happening at the makerspace. You can still mark an event "
             "members only when you create it.",
+            "Help pages now use the new name too.",
         ],
     },
     {
