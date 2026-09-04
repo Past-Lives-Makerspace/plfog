@@ -97,6 +97,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.GUILD_LEAD,
         Recipients.ALL_GUILD_LEADS,
         Recipients.GUILD_ORIENTERS,
+        Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
         Recipients.CLASS_APPROVERS,
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
         Recipients.SPACE_APPROVERS,
@@ -233,6 +234,10 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # lead/officer would see this row but never receive the mail — gate on is_active too.
         Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
         Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
+        # Either audience of the composed orientation_requested resolver.
+        Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
+            profile.leads_guild or profile.is_orienter or lead or profile.manages_equipment or cap.EQUIPMENT in caps
+        ),
         Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: lead or cap.CLASS_APPROVER in caps,
         Recipients.SPACE_APPROVERS: cap.SPACE_APPROVER in caps,
@@ -342,6 +347,7 @@ _CAPABILITY_BY_RECIPIENT: dict[Recipients, str] = {
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: "events_approver",
     Recipients.BILLING_APPROVERS: "billing_approver",
     Recipients.EQUIPMENT_MANAGERS: "equipment",
+    Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: "equipment",
 }
 
 

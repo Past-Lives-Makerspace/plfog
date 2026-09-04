@@ -8,7 +8,7 @@ attempt renders the slim Retry confirm; otherwise the editable form.
 {% if failed_refund %}
 <div class="pl-refund-context">
     <p class="pl-refund-context__payer">{{ booking.member.display_name }}</p>
-    <p class="pl-refund-context__meta">Orientation — {{ booking.guild.name }}</p>
+    <p class="pl-refund-context__meta">Orientation — {{ booking.orientation_type.owner_name }}</p>
 </div>
 <p style="margin:0 0 0.25rem;">Retry the failed refund of <strong>{{ failed_refund.amount_cents|cents_as_dollars }}</strong>{% if failed_refund.attempt > 1 %} <span class="pl-refund-history__meta">(attempt {{ failed_refund.attempt }})</span>{% endif %}.</p>
 <p class="pl-refund-failure">{{ failed_refund.failure_reason|default:"Stripe did not give a reason." }}</p>
@@ -26,7 +26,7 @@ attempt renders the slim Retry confirm; otherwise the editable form.
 <div class="pl-refund-context">
     <p class="pl-refund-context__payer">{{ booking.member.display_name }}</p>
     <p class="pl-refund-context__meta">
-        Orientation — {{ booking.guild.name }} ·
+        Orientation — {{ booking.orientation_type.owner_name }} ·
         Paid {{ booking.amount_paid_cents|cents_as_dollars }} · {{ booking.slot.starts_at|date:"M j" }}
     </p>
     {% if booking.amount_refunded_cents %}

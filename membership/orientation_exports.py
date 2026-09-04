@@ -41,7 +41,15 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
     pseudo = _Echo()
     writer = csv.writer(pseudo)
     bookings = (
-        bookings.select_related("slot", "slot__orienter", "guild", "member", "oriented_by", "orientation_type")
+        bookings.select_related(
+            "slot",
+            "slot__orienter",
+            "guild",
+            "member",
+            "oriented_by",
+            "orientation_type__guild",
+            "orientation_type__equipment",
+        )
         .prefetch_related("refunds")
         .order_by("-slot__starts_at")
     )
@@ -52,7 +60,7 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
             yield writer.writerow(
                 [
                     booking.member.display_name,
-                    booking.guild.name,
+                    booking.orientation_type.owner_name,
                     booking.orientation_type.name,
                     booking.slot.orienter.display_name if booking.slot.orienter is not None else "",
                     booking.slot.starts_at.strftime("%Y-%m-%d %H:%M"),

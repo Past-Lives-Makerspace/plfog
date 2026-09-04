@@ -48,12 +48,15 @@
 </div>
 {% elif access_state == "needs_orientation" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--warn">
-  {% if orientation_booking and orientation_booking.slot %}
+  {% if orientation_booking and orientation_booking.status == "confirmed" %}
   <p style="margin:0;">
     <a href="{{ orientation_url }}">Your orientation is booked for {{ orientation_booking.slot.starts_at|date:"D, M j" }} at {{ orientation_booking.slot.starts_at|time:"g:i A" }}.</a>
   </p>
   {% elif orientation_booking %}
-  <p style="margin:0;"><a href="{{ orientation_url }}">Your orientation request is in. The guild will confirm a time.</a></p>
+  <p style="margin:0;"><a href="{{ orientation_url }}">Your orientation request is in. {% if required_orientation_is_equipment_owned %}A manager will confirm a time.{% else %}The guild will confirm a time.{% endif %}</a></p>
+  {% elif required_orientation_paused %}
+  {# A paused gate must never render a dead Book link (spec: the honest CTA rule). #}
+  <p style="margin:0;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here. Orientation bookings for this tool are paused. Check back soon.</p>
   {% else %}
   <p style="margin:0 0 0.75rem;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here.</p>
   <a href="{{ orientation_url }}" class="pl-btn pl-btn--primary">Book the Orientation</a>
@@ -68,6 +71,11 @@
 <div class="hub-card pl-equip-banner pl-equip-banner--muted">
   <p class="hub-text-muted" style="margin:0;">Your membership needs to be active to reserve equipment.</p>
 </div>
+{% endif %}
+
+{# ── Orientation — this equipment's own bookable orientation types, when any render. ── #}
+{% if orientation_sections %}
+{% include "hub/partials/equipment_orientation.html" %}
 {% endif %}
 
 {# ── Schedule + Book a Time + reservation lists — one HTMX-swapped unit (spec §7.3 items 3 to 6). ── #}

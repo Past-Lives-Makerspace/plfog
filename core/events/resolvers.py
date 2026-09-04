@@ -284,6 +284,21 @@ def guild_members(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients(members, "guild_member")
 
 
+def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — the equipment's managers when ``equipment`` is in context, else the guild's orienters.
+
+    The ``orientation_requested`` audience for both owner types (the
+    ``guild_leadership_or_class_approvers`` precedent — composition, never a
+    union): an equipment-owned request routes to :func:`equipment_managers`
+    (the three tiers, tagged and deduped); a guild-owned request keeps the
+    orienter fan-out with its personal-slot narrowing byte-identical. A context
+    carrying neither key fails loudly in the delegated resolver.
+    """
+    if context.get("equipment") is not None:
+        return equipment_managers(context)
+    return guild_orienters(context)
+
+
 def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead plus members holding the ORIENTER staff role.
 
@@ -619,6 +634,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
+    Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: guild_orienters_or_equipment_managers,
     Recipients.ORIENTATION_RUNNER: orientation_runner,
     Recipients.REGISTRANT: registrant,
     Recipients.INSTRUCTOR: instructor,

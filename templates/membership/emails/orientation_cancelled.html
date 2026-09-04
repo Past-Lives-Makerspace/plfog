@@ -2,11 +2,11 @@
 {% block content %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Orientation cancelled</p>
-<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We're so sorry for the inconvenience! We've had to cancel your orientation for <strong><a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a></strong>.</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We're so sorry for the inconvenience! We've had to cancel your orientation for <strong><a href="{{ owner_url }}" style="color: #0d4876; text-decoration: none;">{{ owner_name }}</a></strong>.</p>
 {% include "membership/emails/_slot.html" %}
 {% if booking.amount_paid_cents %}{% load classes_tags %}<p style="margin: 16px 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if booking.refund_state == "failed" %}Your <strong>{{ booking.amount_paid_cents|cents_as_price }}</strong> refund is being processed. We will make sure it reaches your card.{% else %}Your <strong>{{ booking.amount_paid_cents|cents_as_price }}</strong> refund is on its way. Refunds usually reach your card in 5 to 10 business days.{% endif %}</p>{% endif %}
-<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We'd love to get you oriented ASAP, so visit your Guild's page to choose a new time.</p>
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We'd love to get you oriented ASAP, so pick a new time on the {{ owner_page_label }}.</p>
 <div style="text-align: center; margin: 24px 0 0;">
-    <a href="{{ guild_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View guild page</a>
+    <a href="{{ owner_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View the {{ owner_page_label }}</a>
 </div>
 {% endblock %}

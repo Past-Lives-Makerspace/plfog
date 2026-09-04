@@ -1,7 +1,7 @@
 Hi {{ greeting_name }},
 
 We're so sorry for the inconvenience! We've had to cancel your orientation
-for {{ guild.name }}.
+for {{ owner_name }}.
 
 {% if orientation_type %}  Orientation: {{ orientation_type.name }}
 {% endif %}  Was: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
@@ -10,8 +10,7 @@ for {{ guild.name }}.
 it reaches your card.{% else %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually
 reach your card in 5 to 10 business days.{% endif %}
 
-{% endif %}We'd love to get you oriented ASAP, so visit your Guild's page to choose
-a new time:
-{{ guild_url }}
+{% endif %}We'd love to get you oriented ASAP, so pick a new time on the {{ owner_page_label }}:
+{{ owner_url }}
 
 {% include "membership/emails/_footer.txt" %}

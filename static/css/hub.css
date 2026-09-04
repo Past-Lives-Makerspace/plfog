@@ -7954,3 +7954,35 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     accent-color: var(--color-tuscan-yellow);
     margin: 0;
 }
+
+/* ── Equipment-owned orientations ── */
+.pl-equip-orientation {
+    margin-bottom: 1.25rem;
+    scroll-margin-top: 1rem;
+}
+.pl-orient-confirmed {
+    color: #7bdcb5;
+}
+[data-theme="light"] .pl-orient-confirmed {
+    color: #1e7a4f;
+}
+.pl-equip-slot-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+/* Attendee sub-rows under an Upcoming Slots row — indented, whole row links to respond. */
+.pl-equip-attendee-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-left: 1.25rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text);
+    text-decoration: none;
+    font-size: 0.9rem;
+}

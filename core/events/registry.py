@@ -86,6 +86,9 @@ class Recipients(str, Enum):
     GUILD_LEAD = "guild_lead"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
+    # Composed (never a union): equipment in context -> the equipment's managers;
+    # else the guild's orienters (personal-slot narrowing preserved).
+    GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS = "guild_orienters_or_equipment_managers"
     ORIENTATION_RUNNER = "orientation_runner"
     REGISTRANT = "registrant"
     INSTRUCTOR = "instructor"
@@ -300,7 +303,7 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "class_validation_requested": Recipients.CLASS_APPROVERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
-    "orientation_requested": Recipients.GUILD_ORIENTERS,
+    "orientation_requested": Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
     "orientation_update": Recipients.REGISTRANT,
     # guild_joined notifies the guild LEAD only today (audit-D audience J); the
     # orientation Decision-7 fan-out fix is scoped to orientation events, not this one.

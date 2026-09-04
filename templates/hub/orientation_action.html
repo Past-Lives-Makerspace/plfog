@@ -14,7 +14,7 @@
     <h1 style="font-size:18px; margin:0 0 12px;">This Link Is No Longer Valid</h1>
     <p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">It may have expired or already been used. If you still need to make a change, sign in to the member hub.</p>
   {% elif result %}
-    {% if result == "confirmed" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation Confirmed</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }}'s orientation for {{ booking.guild.name }} is confirmed and they've been emailed.</p>
+    {% if result == "confirmed" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation Confirmed</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }}'s orientation for {{ booking.orientation_type.owner_name }} is confirmed and they've been emailed.</p>
     {% elif result == "declined" %}<h1 style="font-size:18px; margin:0 0 12px;">Request Declined</h1><p style="font-size:14px; color:#96ACBB; margin:0;">{{ booking.member.display_name }} has been notified.</p>
     {% elif result == "cancelled" %}<h1 style="font-size:18px; margin:0 0 12px;">Orientation Cancelled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">Everyone involved has been notified.</p>
     {% else %}<h1 style="font-size:18px; margin:0 0 12px;">Already Handled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">This orientation has already been resolved — nothing more to do.</p>{% endif %}
@@ -23,7 +23,7 @@
       {% if action == "confirm" %}Confirm this orientation?{% elif action == "decline" %}Decline this request?{% else %}Cancel this orientation?{% endif %}
     </h1>
     <p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0 0 8px;">
-      {{ booking.member.display_name }} · {{ booking.guild.name }}
+      {{ booking.member.display_name }} · {{ booking.orientation_type.owner_name }}
     </p>
     <p style="font-size:14px; color:#F4EFDD; margin:0 0 20px;">
       {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}

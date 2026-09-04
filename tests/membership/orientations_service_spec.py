@@ -599,3 +599,88 @@ def describe_generate_slots():
         assert created >= 1
         assert OrientationSlot.objects.filter(guild=target).exists()
         assert not OrientationSlot.objects.filter(guild=other).exists()
+
+
+def describe_equipment_owned_orientations_service():
+    """The full pipeline re-plumbed for an equipment owner — request through unlock."""
+
+    def _equipment_slot(name: str = "CNC Router", **kwargs):
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(name=name)
+        orientation_type = OrientationTypeFactory(
+            equipment_owned=True, equipment=equipment, name="Operator Basics", **kwargs
+        )
+        return OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+
+    def it_runs_the_full_free_unlock_loop():
+        from membership.models import EquipmentStaffMembership
+
+        slot = _equipment_slot()
+        equipment = slot.orientation_type.equipment
+        equipment.required_orientation = slot.orientation_type
+        equipment.save(update_fields=["required_orientation"])
+        manager = _member_with_user("eq_mgr_loop")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        member = _member_with_user("eq_loop")
+        assert equipment.booking_blockers(member)  # gated before
+
+        booking = orientations.request_orientation(slot, member)
+        assert booking.guild is None
+        orientations.confirm_orientation(booking, oriented_by=manager)
+        orientations.complete_orientation(booking)
+        assert member.is_oriented_for_type(slot.orientation_type) is True
+        assert equipment.booking_blockers(member) == []  # the unlock
+
+    def it_routes_the_request_to_the_equipment_managers_only():
+        from membership.models import EquipmentStaffMembership
+
+        slot = _equipment_slot()
+        equipment = slot.orientation_type.equipment
+        manager = _member_with_user("eq_aud_mgr")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        bystander_lead = _member_with_user("eq_aud_lead")
+        GuildFactory(guild_lead=bystander_lead)
+        member = _member_with_user("eq_aud_member")
+        mail.outbox.clear()
+        orientations.request_orientation(slot, member)
+        lead_request = next(m for m in mail.outbox if "New orientation request" in m.subject)
+        assert lead_request.to == [manager.primary_email]
+        assert equipment.name in lead_request.subject
+        # The in-app row lands for the manager via the composed resolver.
+        assert Notification.objects.filter(user=manager.user, trigger="orientation_requested").exists()
+        assert not Notification.objects.filter(user=bystander_lead.user, trigger="orientation_requested").exists()
+
+    def it_builds_the_ics_and_emails_around_the_equipment_name():
+        slot = _equipment_slot(name="Big Laser")
+        member = _member_with_user("eq_ics")
+        mail.outbox.clear()
+        booking = orientations.request_orientation(slot, member)
+        payload = orientations.build_ics(booking, method="REQUEST", status="TENTATIVE").decode()
+        assert "Big Laser" in payload
+        member_email = next(m for m in mail.outbox if "request received" in m.subject)
+        assert "Big Laser" in member_email.subject
+        assert "[missing:" not in member_email.body
+        assert "{{" not in member_email.body
+        assert f"/equipment/{slot.orientation_type.equipment.slug}/" in member_email.body
+
+    def it_cancels_an_equipment_slot_with_the_full_fan_out():
+        slot = _equipment_slot()
+        member = _member_with_user("eq_slotcancel")
+        booking = orientations.request_orientation(slot, member)
+        mail.outbox.clear()
+        orientations.cancel_slot(slot, reason="Machine down.")
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+        cancelled_email = next(m for m in mail.outbox if "cancelled" in m.subject)
+        assert slot.orientation_type.owner_name in cancelled_email.subject
+
+    def it_sends_the_standard_thankyou_with_the_equipment_name():
+        slot = _equipment_slot(name="Kiln Room")
+        member = _member_with_user("eq_thanks")
+        booking = orientations.request_orientation(slot, member)
+        orientations.confirm_orientation(booking)
+        mail.outbox.clear()
+        orientations.complete_orientation(booking)
+        thankyou = next(m for m in mail.outbox if "Kiln Room" in m.subject)
+        assert "[missing:" not in thankyou.body

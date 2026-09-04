@@ -392,3 +392,39 @@ def describe_cancel_slot_holds():
         assert hold.status == OrientationBooking.Status.CANCELLED
         assert hold.stripe_payment_id == "pi_slot"
         mock_issue.assert_called_once()
+
+
+def describe_equipment_owned_paid_flow():
+    def _paid_equipment_slot(price_cents: int = 1500) -> OrientationSlot:
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(name="CNC Router")
+        orientation_type = OrientationTypeFactory(
+            equipment_owned=True, equipment=equipment, name="Operator Basics", price_cents=price_cents
+        )
+        return OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_names_the_equipment_on_the_stripe_product(mock_create):
+        slot = _paid_equipment_slot()
+        member = MemberFactory()
+        url = orientations.start_orientation_checkout(slot, member)
+        assert url == _SESSION["url"]
+        assert mock_create.call_args.kwargs["product_name"] == "Operator Basics orientation — CNC Router"
+        hold = OrientationBooking.objects.get(member=member)
+        assert hold.guild is None
+        assert hold.status == OrientationBooking.Status.PENDING_PAYMENT
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_finalizes_and_fans_out_with_the_equipment_name(mock_create):
+        slot = _paid_equipment_slot()
+        member = MemberFactory()
+        orientations.start_orientation_checkout(slot, member)
+        hold = OrientationBooking.objects.get(member=member)
+        mail.outbox.clear()
+        orientations.finalize_paid_booking(hold, payment_intent="pi_equip_1", amount_total=1500)
+        hold.refresh_from_db()
+        assert hold.status == OrientationBooking.Status.REQUESTED
+        member_email = next(m for m in mail.outbox if "request received" in m.subject)
+        assert "CNC Router" in member_email.subject
+        assert "[missing:" not in member_email.body

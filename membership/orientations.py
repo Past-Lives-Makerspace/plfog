@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import icalendar
 from django.conf import settings
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from membership.models import (
+        Equipment,
         Guild,
         Member,
         OrientationAvailability,
@@ -139,14 +140,14 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
     cal.add("method", method)
     event = icalendar.Event()
     event.add("uid", f"orientation-{booking.pk}@pastlives")
-    event.add("summary", f"{booking.orientation_type.name} orientation — {booking.guild.name}")
+    event.add("summary", f"{booking.orientation_type.name} orientation — {booking.orientation_type.owner_name}")
     event.add("dtstart", slot.starts_at)
     event.add("dtend", slot.ends_at)
     event.add("dtstamp", timezone.now())
     event.add("status", status)
     if slot.location:
         event.add("location", slot.location)
-    description = f"{booking.orientation_type.name} orientation for {booking.guild.name} at Past Lives Makerspace."
+    description = f"{booking.orientation_type.name} orientation for {booking.orientation_type.owner_name} at Past Lives Makerspace."
     label = slot.with_label
     if label:
         description += f" {label[0].upper()}{label[1:]}."
@@ -163,7 +164,9 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "guild": booking.guild,
         "orientation_type": booking.orientation_type,
         "greeting_name": member.display_name,
-        "guild_url": _absolute_url(reverse("hub_guild_detail", args=[booking.guild.slug])),
+        "owner_name": booking.orientation_type.owner_name,
+        "owner_url": booking.orientation_type.owner_page_url(),
+        "owner_page_label": "equipment page" if booking.orientation_type.is_equipment_owned else "guild page",
         "cancel_url": _action_url(booking, "cancel", recipient=member),
         **extra,
     }
@@ -208,7 +211,7 @@ def _emit_member_email(
         template_context=ctx,
         in_app_title=in_app_title,
         in_app_body=in_app_body,
-        url=reverse("hub_guild_detail", args=[booking.guild.slug]),
+        url=booking.orientation_type.owner_page_path(),
         attachments=[ics] if ics is not None else None,
         email_to=booking.member.primary_email,
         period=f"booking:{booking.pk}:{action}",
@@ -231,7 +234,7 @@ def _fan_out_request(booking: OrientationBooking) -> None:
     _emit_member_email(
         booking,
         action="request",
-        subject=f"Orientation request received — {booking.guild.name}",
+        subject=f"Orientation request received — {booking.orientation_type.owner_name}",
         template="orientation_request",
         ics=_ics(booking, method="REQUEST", status="TENTATIVE"),
     )
@@ -488,7 +491,7 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
     try:
         session = stripe_utils.create_checkout_session(
             amount_cents=orientation_type.price_cents,
-            product_name=f"{orientation_type.name} orientation — {slot.guild.name}",
+            product_name=f"{orientation_type.name} orientation — {orientation_type.owner_name}",
             customer_email=member.primary_email,
             success_url=_absolute_url(reverse("hub_orientation_checkout_return", args=[token])),
             cancel_url=_absolute_url(reverse("hub_orientation_checkout_cancelled", args=[token])),
@@ -763,20 +766,37 @@ def _refund_if_paid(booking: OrientationBooking, *, actor: User | None) -> None:
         )
 
 
+def _request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
+    """The ``orientation_requested`` resolver context, keyed by the booking's owner type.
+
+    Equipment-owned routes via the composed resolver's equipment leg
+    (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`);
+    guild-owned keeps the guild + slot keys so personal-slot narrowing survives.
+    """
+    if booking.orientation_type.is_equipment_owned:
+        return {"equipment": booking.orientation_type.equipment, "slot": booking.slot}
+    return {"guild": booking.guild, "slot": booking.slot}
+
+
 def _request_audience(booking: OrientationBooking) -> list[Member]:
     """Who hears about a request: the slot's orienter + the lead (personal), or all leadership.
 
     A personal slot routes to the person the member actually booked, with the guild lead
     kept in the loop (deduped); a guild slot keeps the full leadership fan-out.
     """
+    orientation_type = booking.orientation_type
+    if orientation_type.is_equipment_owned:
+        # Equipment-owned: the three manage tiers, deduped — managers confirm requests.
+        return cast("Equipment", orientation_type.equipment).manager_members()
+    guild = cast("Guild", booking.guild)  # guild-owned: the one-owner constraint guarantees it
     slot = booking.slot
     if slot.orienter_id is not None and slot.orienter is not None:
         audience = [slot.orienter]
-        lead = booking.guild.guild_lead
+        lead = guild.guild_lead
         if lead is not None and lead.pk != slot.orienter_id:
             audience.append(lead)
         return audience
-    return booking.guild.leadership_members()
+    return guild.leadership_members()
 
 
 def _emit_lead_request(booking: OrientationBooking) -> None:
@@ -795,7 +815,13 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     # One body goes to the whole audience, so the confirm/decline links carry the
     # slot's primary responder (personal slot: the orienter; guild slot: the lead)
     # as the token recipient — a paid booking's email-link decline credits them.
-    primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else booking.guild.guild_lead
+    if booking.orientation_type.is_equipment_owned:
+        # Managers confirm explicitly; an email-link decline is then unattributed
+        # (make_action_token accepts recipient=None, same as a lead-less guild).
+        primary_responder = None
+    else:
+        guild = cast("Guild", booking.guild)
+        primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else guild.guild_lead
     ctx = _context(
         booking,
         respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
@@ -804,13 +830,13 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     )
     emit_with_email_shell(
         "orientation_requested",
-        context={"guild": booking.guild, "slot": booking.slot},
-        subject=f"New orientation request — {booking.guild.name}",
+        context=_request_resolver_context(booking),
+        subject=f"New orientation request — {booking.orientation_type.owner_name}",
         text_template="membership/emails/orientation_lead_request.txt",
         html_template="membership/emails/orientation_lead_request.html",
         template_context=ctx,
         in_app_title="New orientation request",
-        in_app_body=f"{booking.member.display_name} requested an orientation for {booking.guild.name}.",
+        in_app_body=f"{booking.member.display_name} requested an orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         email_to=recipients or None,
         period=f"booking:{booking.pk}:request",
@@ -829,11 +855,11 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
     _emit_member_email(
         booking,
         action="confirm",
-        subject=f"Orientation confirmed — {booking.guild.name}",
+        subject=f"Orientation confirmed — {booking.orientation_type.owner_name}",
         template="orientation_confirmed",
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Orientation confirmed",
-        in_app_body=f"Your orientation for {booking.guild.name} is confirmed.",
+        in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",
     )
 
 
@@ -849,11 +875,11 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
     _emit_member_email(
         booking,
         action="decline",
-        subject=f"About your orientation request — {booking.guild.name}",
+        subject=f"About your orientation request — {booking.orientation_type.owner_name}",
         template="orientation_declined",
         ics=None,
         in_app_title="Orientation not confirmed",
-        in_app_body=f"Your orientation request for {booking.guild.name} couldn't be confirmed.",
+        in_app_body=f"Your orientation request for {booking.orientation_type.owner_name} couldn't be confirmed.",
     )
 
 
@@ -869,11 +895,11 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
     _emit_member_email(
         booking,
         action="cancel",
-        subject=f"Orientation cancelled — {booking.guild.name}",
+        subject=f"Orientation cancelled — {booking.orientation_type.owner_name}",
         template="orientation_cancelled",
         ics=_ics(booking, method="CANCEL", status="CANCELLED"),
         in_app_title="Orientation cancelled",
-        in_app_body=f"The orientation for {booking.guild.name} was cancelled.",
+        in_app_body=f"The orientation for {booking.orientation_type.owner_name} was cancelled.",
     )
     # In-app ping to the orienters that a booking was cancelled (was lead-only; now
     # fans out to all orienters via the guild_orienters resolver — Decision 7). The
@@ -881,9 +907,9 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
     # old dispatch (in-app always; generic email only for an opted-in orienter).
     emit(
         "orientation_requested",
-        context={"guild": booking.guild, "slot": booking.slot},
+        context=_request_resolver_context(booking),
         title="Orientation cancelled",
-        body=f"{actor_label} cancelled the orientation for {booking.guild.name}.",
+        body=f"{actor_label} cancelled the orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:cancel",
     )
@@ -916,14 +942,21 @@ def complete_orientation(booking: OrientationBooking) -> None:
 
     booking.mark_completed()
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_COMPLETED, actor=None, target=booking)
-    settings_obj = GuildOrientationSettings.objects.filter(guild=booking.guild).first()
+    # Equipment-owned bookings have no settings row to consult (no-settings decision):
+    # the standard thank-you copy sends, which is the desired v1 behavior.
+    if booking.orientation_type.is_equipment_owned:
+        settings_obj = None
+    else:
+        settings_obj = GuildOrientationSettings.objects.filter(guild=booking.guild).first()
     # The thank-you is on by default: send unless a guild explicitly turned it off. When the
     # guild hasn't written their own subject/body, the standard copy stands in.
     if settings_obj is None or settings_obj.thankyou_email_enabled:
         from membership.orientation_copy import STANDARD_THANKYOU_BODY, standard_thankyou_subject
 
         subject = (
-            settings_obj.resolved_thankyou_subject if settings_obj else standard_thankyou_subject(booking.guild.name)
+            settings_obj.resolved_thankyou_subject
+            if settings_obj
+            else standard_thankyou_subject(booking.orientation_type.owner_name)
         )
         body = settings_obj.resolved_thankyou_body if settings_obj else STANDARD_THANKYOU_BODY
         ctx = _context(booking, body=body)
@@ -942,18 +975,21 @@ def complete_orientation(booking: OrientationBooking) -> None:
         )
     # Warm welcome to the guild's members — always fires (no opt-out), in-app + the guild's
     # own Discord channel. Copy-mode: no title/body, rendered from the seeded catalogue copy.
-    welcome_ctx = _context(booking)  # guild, greeting_name (= member.display_name), guild_url
+    owner_url = booking.orientation_type.owner_page_url()
     emit(
         "orientation.completed",
         actor=None,  # system event; the member is the subject, not the actor
         target=booking,
         context={
-            "guild": booking.guild,  # resolver key (guild_members) + _guild_broadcast destination
+            # resolver key (guild_members) + _guild_broadcast destination; None for an
+            # equipment-owned booking, which resolves to nobody and posts nowhere (the
+            # guild-welcome moment has no equipment equivalent in v1).
+            "guild": booking.guild,
             "member_name": booking.member.display_name,
-            "guild_name": booking.guild.name,
-            "guild_url": welcome_ctx["guild_url"],
+            "guild_name": booking.orientation_type.owner_name,
+            "guild_url": owner_url,
         },
-        url=welcome_ctx["guild_url"],  # the in-app bell row's click-through
+        url=owner_url,  # the in-app bell row's click-through
         period=f"booking:{booking.pk}:completed",
     )
 
