@@ -338,3 +338,31 @@ def describe_permission_edges():
         assert (
             client.post(reverse("hub_orientation_respond", args=[booking.pk]), {"action": "confirm"}).status_code == 302
         )
+
+
+def describe_review_fixes():
+    def it_shows_the_equipment_name_in_the_refund_modal(client: Client):
+        # The refund modal's item identity must never render blank for guild=None.
+        equipment = EquipmentFactory(name="CNC Router")
+        _login(client, "rf_refund", fog_role=Member.FogRole.ADMIN)
+        booking = OrientationBookingFactory(
+            slot=_owned_slot(_owned_type(equipment)),
+            amount_paid_cents=1500,
+            stripe_payment_id="pi_refund_x",
+        )
+        response = client.get(reverse("billing_orientation_refund_form", args=[booking.pk]))
+        assert response.status_code == 200
+        assert "Orientation — CNC Router".encode() in response.content
+
+    def it_rejects_two_new_rows_sharing_a_name_with_a_friendly_error(client: Client):
+        # The conditional unique constraint skips Django's cross-form check — the
+        # formset guard must catch it before the DB IntegrityErrors.
+        equipment = EquipmentFactory()
+        _manager_login(client, "rf_dupe", equipment)
+        response = client.post(
+            reverse("hub_equipment_orientation_types_save", args=[equipment.slug]),
+            _types_data([{"name": "Operator Basics"}, {"name": "operator basics"}]),
+        )
+        assert response.status_code == 200
+        assert b"can&#x27;t share the name" in response.content
+        assert not equipment.owned_orientation_types.exists()

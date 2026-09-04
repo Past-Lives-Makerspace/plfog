@@ -263,7 +263,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
         OrientationBooking.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
         .filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt)
-        .select_related("guild", "member", "orientation_type__equipment")
+        .select_related("guild", "member", "orientation_type__guild", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
     rows: list[PaymentRow] = []

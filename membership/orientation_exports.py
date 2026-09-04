@@ -41,7 +41,15 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
     pseudo = _Echo()
     writer = csv.writer(pseudo)
     bookings = (
-        bookings.select_related("slot", "slot__orienter", "guild", "member", "oriented_by", "orientation_type")
+        bookings.select_related(
+            "slot",
+            "slot__orienter",
+            "guild",
+            "member",
+            "oriented_by",
+            "orientation_type__guild",
+            "orientation_type__equipment",
+        )
         .prefetch_related("refunds")
         .order_by("-slot__starts_at")
     )

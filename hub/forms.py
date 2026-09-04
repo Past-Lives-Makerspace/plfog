@@ -1704,6 +1704,25 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
                     f"This orientation is required by {names}. Clear that requirement first, "
                     "or turn off Active to retire it instead."
                 )
+        if any(self.errors):
+            return
+        # In-memory duplicate-name guard: uq_orienttype_equip_name is CONDITIONAL, so
+        # Django's cross-form unique check skips it — two new same-named rows on the
+        # equipment editor would IntegrityError. (The guild editor's plain constraint
+        # is caught by Django first, so this only fires where that check can't.)
+        seen_names: set[str] = set()
+        for form in self.forms:
+            data = getattr(form, "cleaned_data", None)
+            if not data or data.get("DELETE"):
+                continue
+            name = (data.get("name") or "").strip().casefold()
+            if not name:
+                continue
+            if name in seen_names:
+                raise forms.ValidationError(
+                    f'Two orientation types can\'t share the name "{data["name"]}". Give each one its own name.'
+                )
+            seen_names.add(name)
 
 
 OrientationTypeFormSet = forms.inlineformset_factory(

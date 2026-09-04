@@ -2,7 +2,7 @@
 {% block content %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">About your orientation request</p>
-<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">Thanks for your interest in <strong><a href="{{ owner_url }}" style="color: #0d4876; text-decoration: none;">{{ owner_name }}</a></strong>. {% if slot.orienter %}{{ slot.orienter_first_name }} wasn't able to confirm your requested time.{% else %}The guild lead wasn't able to confirm your requested time.{% endif %}</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">Thanks for your interest in <strong><a href="{{ owner_url }}" style="color: #0d4876; text-decoration: none;">{{ owner_name }}</a></strong>. {% if slot.orienter %}{{ slot.orienter_first_name }} wasn't able to confirm your requested time.{% else %}Your requested orientation time couldn't be confirmed.{% endif %}</p>
 {% if booking.lead_note %}<div style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px;">
     <p style="margin: 0 0 4px; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">A note from {% if slot.orienter %}{{ slot.orienter_first_name }}{% else %}the {{ owner_name }} folks{% endif %}</p>
     <p style="margin: 0; font-size: 14px; color: #33424f; line-height: 1.6;">{{ booking.lead_note }}</p>

@@ -90,17 +90,22 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
 
     items: list[UpcomingItem] = []
 
-    # 1. The member's own orientation bookings — clearly personal.
-    for booking in member.orientation_bookings.upcoming().select_related("slot", "guild"):
+    # 1. The member's own orientation bookings — clearly personal. Owner-aware:
+    # an equipment-owned booking has guild=None; the type resolves either owner.
+    upcoming_bookings = member.orientation_bookings.upcoming().select_related(
+        "slot", "orientation_type__guild", "orientation_type__equipment"
+    )
+    for booking in upcoming_bookings:
+        owner_name = booking.orientation_type.owner_name
         items.append(
             UpcomingItem(
-                title=f"{booking.guild.name} orientation",
+                title=f"{owner_name} orientation",
                 start=booking.slot.starts_at,
                 end=booking.slot.ends_at,
                 kind="Orientation",
-                url=reverse("hub_guild_detail", args=[booking.guild.slug]),
+                url=booking.orientation_type.owner_page_path(),
                 location=booking.slot.location,
-                guild_name=booking.guild.name,
+                guild_name=owner_name,
             )
         )
 

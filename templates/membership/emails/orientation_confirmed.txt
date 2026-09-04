@@ -8,7 +8,7 @@ Good news — {% if slot.orienter %}{{ slot.orienter_first_name }} confirmed you
 {% endif %}
 We've attached an updated calendar invite. See you there!
 
-Guild page: {{ owner_url }}
+The {{ owner_page_label }}: {{ owner_url }}
 Can't make it? Cancel here: {{ cancel_url }}
 
 {% include "membership/emails/_footer.txt" %}

@@ -2007,7 +2007,13 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Forbidden", status=403)
 
     base = OrientationBooking.objects.select_related(
-        "slot", "slot__orienter", "guild", "member", "oriented_by", "orientation_type"
+        "slot",
+        "slot__orienter",
+        "guild",
+        "member",
+        "oriented_by",
+        "orientation_type__guild",
+        "orientation_type__equipment",
     ).prefetch_related("refunds")
     table = prepare_table(
         request,
@@ -2018,7 +2024,9 @@ def orientations_dashboard(request: HttpRequest) -> HttpResponse:
     )
     upcoming = (
         OrientationBooking.objects.upcoming()
-        .select_related("slot", "slot__orienter", "guild", "member", "orientation_type")
+        .select_related(
+            "slot", "slot__orienter", "guild", "member", "orientation_type__guild", "orientation_type__equipment"
+        )
         .prefetch_related("refunds")
         .order_by("slot__starts_at")[:25]
     )
