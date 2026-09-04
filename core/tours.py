@@ -206,7 +206,7 @@ TOURS: dict[str, Tour] = {
             ),
             TourStep(
                 target='[data-help-key="calendar.filter"]',
-                title="Community Calendar",
+                title="Calendar",
                 body="Classes, guild meetups, and events all land here. Filter it or open any event.",
                 navigate="hub_community_calendar",
             ),

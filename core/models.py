@@ -142,7 +142,7 @@ DISCORD_INFO_LINKS_DEFAULT = (
     "Browse and sign up for upcoming classes and workshops:\n"
     "https://classes.pastlives.space/\n"
     "\n"
-    "**🗓️ Community Calendar**\n"
+    "**🗓️ Calendar**\n"
     "Everything happening at the makerspace — events, guild meetings, studio hours:\n"
     "https://calendar.pastlives.space\n"
     "\n"
@@ -186,7 +186,7 @@ class SiteConfiguration(models.Model):
         blank=True,
         default="#EEB44B",
         verbose_name="General Calendar Color",
-        help_text="Hex color for general makerspace events on the Community Calendar (e.g. #EEB44B).",
+        help_text="Hex color for general makerspace events on the Calendar (e.g. #EEB44B).",
     )
     general_calendar_last_fetched_at = models.DateTimeField(
         null=True,
@@ -195,20 +195,20 @@ class SiteConfiguration(models.Model):
     )
     sync_classes_enabled = models.BooleanField(
         default=False,
-        verbose_name="Show class catalog on the Community Calendar",
-        help_text="When enabled, upcoming classes from our catalog appear on the Community Calendar, each linking to its class page.",
+        verbose_name="Show class catalog on the Calendar",
+        help_text="When enabled, upcoming classes from our catalog appear on the Calendar, each linking to its class page.",
     )
     classes_calendar_color = models.CharField(
         max_length=7,
         blank=True,
         default="#7C5CBF",
         verbose_name="Classes Calendar Color",
-        help_text="Hex color for class events on the Community Calendar (e.g. #7C5CBF).",
+        help_text="Hex color for class events on the Calendar (e.g. #7C5CBF).",
     )
     classes_last_synced_at = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="When class events were last refreshed onto the Community Calendar. Set by the calendar service.",
+        help_text="When class events were last refreshed onto the Calendar. Set by the calendar service.",
     )
     legacy_cms_sync_enabled = models.BooleanField(
         default=False,
@@ -385,7 +385,7 @@ class SiteConfiguration(models.Model):
         choices=MemberEventPolicy.choices,
         default=MemberEventPolicy.APPROVAL,
         help_text=(
-            "Who can create Community Calendar events, and whether a member's event needs review "
+            "Who can create Calendar events, and whether a member's event needs review "
             "before it's published. Leads, staff, and admins always post directly."
         ),
     )
@@ -443,7 +443,7 @@ class SiteConfiguration(models.Model):
         help_text=(
             "When on (and the calendar channel id is set), FOG posts a weekly what's-coming-up digest "
             "to #calendar every Monday morning, plus a short post whenever a new event or class "
-            "lands on the Community Calendar."
+            "lands on the Calendar."
         ),
     )
     discord_classes_channel_id = models.CharField(
@@ -534,7 +534,7 @@ class SiteConfiguration(models.Model):
 
 
 class CalendarFeed(models.Model):
-    """A named iCal feed displayed on the Community Calendar.
+    """A named iCal feed displayed on the Calendar.
 
     Multiple feeds (e.g. "General Calendar", "Workshops", "Open Studio") can be
     configured from the Site Settings → Calendar tab. Each is fetched on demand
@@ -543,7 +543,7 @@ class CalendarFeed(models.Model):
 
     name = models.CharField(
         max_length=100,
-        help_text="Display name shown on the Community Calendar legend (e.g. 'General Calendar', 'Workshops').",
+        help_text="Display name shown on the Calendar legend (e.g. 'General Calendar', 'Workshops').",
     )
     ical_url = models.URLField(
         help_text="Public iCal URL. Paste the 'Secret address in iCal format' from Google Calendar settings.",
@@ -551,7 +551,7 @@ class CalendarFeed(models.Model):
     color = models.CharField(
         max_length=7,
         default="#EEB44B",
-        help_text="Hex color for this feed's events on the Community Calendar (e.g. #EEB44B).",
+        help_text="Hex color for this feed's events on the Calendar (e.g. #EEB44B).",
     )
     last_fetched_at = models.DateTimeField(
         null=True,

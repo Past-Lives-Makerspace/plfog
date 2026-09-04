@@ -4,7 +4,7 @@
 <div x-data="{}"
      x-init="$nextTick(() => { {% if open_decision_for %}$dispatch('open-modal', '{{ open_decision_kind }}-modal-{{ open_decision_for }}'){% endif %} })">
   <p style="margin-bottom:0.75rem;">
-    <a href="{% url 'hub_community_calendar' %}?tab=events" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Community Calendar</a>
+    <a href="{% url 'hub_community_calendar' %}?tab=events" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Calendar</a>
   </p>
   <h1 class="hub-page-title" data-help-key="admin.event-review">Events Awaiting Review</h1>
   <p class="hub-text-muted" style="margin:-0.25rem 0 1.5rem; max-width:65ch;">

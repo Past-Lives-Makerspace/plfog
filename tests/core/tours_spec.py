@@ -138,7 +138,7 @@ def describe_TOURS():
         assert TOURS["admin"].title == "Admin Controls"
         member_step_titles = {step.title for step in TOURS["member-welcome"].steps}
         assert "Everything in One Place" in member_step_titles
-        assert "Community Calendar" in member_step_titles
+        assert "Calendar" in member_step_titles
         lead_step_titles = {step.title for step in TOURS["guild-lead"].steps}
         assert "Your Guild's Control Room" in lead_step_titles
         assert "Your Wishlist" in lead_step_titles

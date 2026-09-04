@@ -79,7 +79,7 @@ FEATURE_PAGES: list[FeaturePage] = [
     FeaturePage(slug="member-directory", label="Member directory", url_name="hub_member_directory"),
     FeaturePage(slug="guild-directory", label="Guilds directory", url_name="hub_guild_directory"),
     FeaturePage(slug="notifications", label="Notifications page", url_name="notification_list"),
-    FeaturePage(slug="community-calendar", label="Community Calendar", url_name="hub_community_calendar"),
+    FeaturePage(slug="community-calendar", label="Calendar", url_name="hub_community_calendar"),
 ]
 
 

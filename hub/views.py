@@ -5020,7 +5020,7 @@ def propose_event(request: HttpRequest, pk: int | None = None) -> HttpResponse:
             event = form.save(commit=False)
             published = event.propose(by=user, guild=form.cleaned_data.get("guild"), policy=policy, editing=editing)
             if published:
-                messages.success(request, "Your event is live on the Community Calendar.")
+                messages.success(request, "Your event is live on the Calendar.")
             else:
                 messages.success(
                     request,
@@ -5619,7 +5619,7 @@ def calendar_export_ics(request: HttpRequest) -> HttpResponse:
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
         "PRODID:-//Past Lives Makerspace//Community Calendar//EN",
-        "X-WR-CALNAME:Past Lives Community Calendar",
+        "X-WR-CALNAME:Past Lives Calendar",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
     ]

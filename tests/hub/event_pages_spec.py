@@ -50,14 +50,14 @@ def describe_event_detail():
         # The add-to-calendar CTA works logged-out (the whole point of a scannable QR).
         assert reverse("hub_event_ics", args=[event.pk]).encode() in resp.content
         # An anon visitor gets the classes link, not the member-only calendar link.
-        assert b"View the Community Calendar" not in resp.content
+        assert b"View the Calendar" not in resp.content
 
     def it_shows_the_member_calendar_link_to_a_logged_in_member(client: Client):
         _user_with_role("evt_member_link")
         event = CommunityEventFactory(community=True)
         client.login(username="evt_member_link", password="pass")
         resp = client.get(reverse("hub_event_detail", args=[event.pk]))
-        assert b"View the Community Calendar" in resp.content
+        assert b"View the Calendar" in resp.content
 
     def it_404s_a_pending_proposal(client: Client):
         event = CommunityEventFactory(pending=True)

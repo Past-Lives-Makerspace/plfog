@@ -84,7 +84,7 @@ rest via templates/404.html). Add-to-calendar works logged-out.
       <a class="hub-btn hub-btn--primary" href="{% url 'hub_event_ics' event.pk %}">Add to calendar</a>
       {% endif %}
       {% if user.is_authenticated %}
-        <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Community Calendar</a>
+        <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>
       {% else %}
         <a class="hub-btn hub-btn--ghost" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
       {% endif %}

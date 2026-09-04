@@ -1,4 +1,4 @@
-"""BDD specs for Community Calendar views and calendar service."""
+"""BDD specs for Calendar views and calendar service."""
 
 from __future__ import annotations
 
@@ -444,7 +444,7 @@ def describe_community_calendar_view():
         _logged_in_user(client)
         response = client.get("/calendar/")
         assert response.status_code == 200
-        assert b"Community Calendar" in response.content
+        assert b"Calendar" in response.content
 
     def it_shows_only_guilds_with_calendars_in_context(client: Client):
         _logged_in_user(client, username="caluser2")

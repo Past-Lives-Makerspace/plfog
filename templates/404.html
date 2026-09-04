@@ -15,7 +15,7 @@ empty (never raise), so an authenticated 404 degrades gracefully too — no 500-
     <div class="pl-event-detail__actions">
       <a class="hub-btn hub-btn--primary" href="{% url 'classes:public_list' %}">Browse Past Lives classes</a>
       {% if user.is_authenticated %}
-        <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Community Calendar</a>
+        <a class="hub-btn hub-btn--ghost" href="{% url 'hub_community_calendar' %}">View the Calendar</a>
       {% endif %}
     </div>
   </div>

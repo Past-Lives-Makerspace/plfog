@@ -190,8 +190,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "event.propose": {
         "title": "Propose an event",
         "short_text": (
-            "Any member can propose an event for the Community Calendar. "
-            "A guild lead or admin reviews it before it publishes."
+            "Any member can propose an event for the Calendar. A guild lead or admin reviews it before it publishes."
         ),
         "article_slug": "propose-an-event",
         "anchor": "event-propose",

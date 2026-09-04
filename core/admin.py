@@ -111,13 +111,13 @@ class SiteConfigurationAdmin(ModelAdmin):
             },
         ),
         (
-            "Classes on the Community Calendar",
+            "Classes on the Calendar",
             {
                 "fields": [
                     "sync_classes_enabled",
                     ("classes_calendar_color", "classes_last_synced_at"),
                 ],
-                "description": "When enabled, upcoming classes from our catalog appear on the Community Calendar, each linking to its class page. Events refresh automatically every morning — there's nothing to sync by hand.",
+                "description": "When enabled, upcoming classes from our catalog appear on the Calendar, each linking to its class page. Events refresh automatically every morning — there's nothing to sync by hand.",
             },
         ),
         (
