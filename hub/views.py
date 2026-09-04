@@ -5186,7 +5186,7 @@ def beta_feedback(request: HttpRequest) -> HttpResponse:
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
 
     if request.method == "POST":
-        form = BetaFeedbackForm(request.POST)
+        form = BetaFeedbackForm(request.POST, request.FILES)
         if form.is_valid():
             form.send(user=user)
             messages.success(request, "Thanks for your feedback! We'll review it soon.")
