@@ -2536,7 +2536,9 @@ a:hover { color: var(--hub-link-hover); }
 .pl-view-as-popover__menu {
     position: absolute;
     top: calc(100% + 6px);
-    right: 0;
+    /* The trigger sits on the left side of the topbar — grow rightward.
+       (right: 0 pushed the menu off the left screen edge.) */
+    left: 0;
     min-width: 200px;
     background: var(--hub-dropdown-bg);
     border: 1px solid var(--hub-dropdown-border);
@@ -2544,6 +2546,23 @@ a:hover { color: var(--hub-link-hover); }
     padding: 8px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     z-index: 50;
+}
+
+@media (max-width: 768px) {
+    /* The trigger sits near the left edge of the topbar, so an absolute
+       right-0 menu extends off-screen left on phones. Pin to the viewport
+       just below the topbar instead. */
+    .pl-view-as-popover__menu {
+        position: fixed;
+        top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px) + 6px);
+        left: 8px;
+        right: 8px;
+        min-width: 0;
+        /* 5rem bottom clearance keeps the feedback FAB (fixed, z-95, outside
+           the topbar stacking context) from covering the last duty toggle. */
+        max-height: calc(100dvh - var(--topbar-height) - env(safe-area-inset-top, 0px) - 5rem);
+        overflow-y: auto;
+    }
 }
 
 .pl-view-as-popover__header {
