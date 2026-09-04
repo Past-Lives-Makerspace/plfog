@@ -1,6 +1,6 @@
 {% extends "hub/base.html" %}
 {% load classes_tags %}
-{% block title %}Orientation request · {{ booking.guild.name }}{% endblock %}
+{% block title %}Orientation request · {{ booking.orientation_type.owner_name }}{% endblock %}
 {% block content %}
 <div x-data="{}">
   <h1 class="hub-page-title">Orientation Request</h1>
@@ -13,7 +13,7 @@
   {% endif %}
 
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <p style="margin:0 0 0.25rem; font-size:1.05rem;"><strong>{{ booking.member.display_name }}</strong> · {{ booking.guild.name }} · {{ booking.orientation_type.name }}</p>
+    <p style="margin:0 0 0.25rem; font-size:1.05rem;"><strong>{{ booking.member.display_name }}</strong> · {{ booking.orientation_type.owner_name }} · {{ booking.orientation_type.name }}</p>
     <p style="margin:0 0 0.25rem;">{{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Runs with: {% if booking.slot.orienter %}{{ booking.slot.orienter.display_name }}{% else %}Any orienter{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Status: {{ booking.get_status_display }}</p>
@@ -72,6 +72,6 @@
   <p class="hub-text-muted">This request was {{ booking.get_status_display|lower }}.</p>
   {% endif %}
 
-  <p><a href="{% url 'hub_guild_detail' booking.guild.slug %}">← Back to {{ booking.guild.name }}</a></p>
+  <p><a href="{{ booking.orientation_type.owner_page_path }}">← Back to {{ booking.orientation_type.owner_name }}</a></p>
 </div>
 {% endblock %}

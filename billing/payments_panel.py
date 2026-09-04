@@ -263,7 +263,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
         OrientationBooking.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
         .filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt)
-        .select_related("guild", "member")
+        .select_related("guild", "member", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
     rows: list[PaymentRow] = []
@@ -290,14 +290,14 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
                 source_pk=booking.pk,
                 payer_name=booking.member.display_name,
                 payer_url=payer_url,
-                item=f"Orientation — {booking.guild.name}",
+                item=f"Orientation — {booking.orientation_type.owner_name}",
                 amount_cents=booking.amount_paid_cents,
                 status=status,
                 date=booking.requested_at,
                 refund_rows=refunds,
                 can_refund=bool(booking.stripe_payment_id) and booking.refundable_cents > 0,
                 pending_age=pending_age,
-                item_url=reverse("hub_guild_detail", args=[booking.guild.slug]),
+                item_url=booking.orientation_type.owner_page_path(),
                 booking_url=reverse("hub_orientation_respond", args=[booking.pk]),
             )
         )

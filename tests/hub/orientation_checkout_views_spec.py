@@ -129,8 +129,8 @@ def describe_orientation_checkout_return():
         content = response.content.decode()
         assert "Pending Confirmation" in content
         assert "$15" in content
-        # A guild slot (no named orienter) falls back to "the guild".
-        assert "We sent your request to the guild" in content
+        # A slot with no named orienter falls back to the owner-neutral copy.
+        assert "We sent your request to the folks who run it" in content
         assert "Watch for them to confirm your spot" in content
 
     def it_names_the_orienter_in_the_requested_confirmation(client: Client):

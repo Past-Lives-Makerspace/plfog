@@ -2,6 +2,6 @@
 
 {{ body|rich_email_text }}
 
-Guild page: {{ guild_url }}
+Guild page: {{ owner_url }}
 
 {% include "membership/emails/_footer.txt" %}

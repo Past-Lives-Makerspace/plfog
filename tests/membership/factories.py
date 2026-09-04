@@ -457,13 +457,24 @@ class GuildOrientationSettingsFactory(factory.django.DjangoModelFactory):
 
 
 class OrientationTypeFactory(factory.django.DjangoModelFactory):
-    """One orientation type per (guild, name) — reused, so a guild's slots share a type by default."""
+    """One orientation type per (owner, name) — reused, so an owner's slots share a type by default.
+
+    ``equipment_owned=True`` flips the owner: ``guild=None`` plus a fresh Equipment
+    (the exactly-one-owner constraint). ``equipment`` rides the get-or-create key so
+    ``guild=None`` types don't collapse onto one row within a test.
+    """
 
     class Meta:
         model = OrientationType
-        django_get_or_create = ("guild", "name")
+        django_get_or_create = ("guild", "equipment", "name")
+
+    class Params:
+        equipment_owned = factory.Trait(
+            guild=None, equipment=factory.SubFactory("tests.membership.factories.EquipmentFactory")
+        )
 
     guild = factory.SubFactory(GuildFactory)
+    equipment = None
     name = "Orientation"
     duration_minutes = 60
     price_cents = 0
@@ -522,9 +533,21 @@ class OrientationAvailabilityBlockFactory(factory.django.DjangoModelFactory):
 
 
 class OrientationSlotFactory(factory.django.DjangoModelFactory):
+    """A guild-owned bookable slot by default; ``equipment_owned=True`` for an equipment one.
+
+    The equipment trait sets ``guild=None`` and an equipment-owned type (no
+    settings row is created — equipment has no settings gate).
+    """
+
     class Meta:
         model = OrientationSlot
         skip_postgeneration_save = True
+
+    class Params:
+        equipment_owned = factory.Trait(
+            guild=None,
+            orientation_type=factory.SubFactory(OrientationTypeFactory, equipment_owned=True),
+        )
 
     guild = factory.SubFactory(GuildFactory)
     orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
@@ -537,9 +560,10 @@ class OrientationSlotFactory(factory.django.DjangoModelFactory):
         """Give the slot's guild enabled orientation settings so it's bookable by default.
 
         Pass ``enabled_settings=False`` to skip (e.g. to exercise the
-        not-configured / disabled paths).
+        not-configured / disabled paths). No-op for equipment-owned slots
+        (``guild`` is None — there is no settings row to create).
         """
-        if not create or extracted is False:
+        if not create or extracted is False or obj.guild is None:
             return
         GuildOrientationSettings.objects.get_or_create(guild=obj.guild, defaults={"is_enabled": True})
 
@@ -548,9 +572,12 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = OrientationBooking
 
+    class Params:
+        equipment_owned = factory.Trait(slot=factory.SubFactory(OrientationSlotFactory, equipment_owned=True))
+
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
-    # guild is denormalized from the slot in OrientationBooking.save().
+    # guild is denormalized from the slot in OrientationBooking.save() (None for equipment-owned).
 
 
 class SkillCategoryFactory(factory.django.DjangoModelFactory):

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Case, Q, Value, When
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -1689,14 +1689,35 @@ class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
     def clean(self) -> None:
         super().clean()
         for form in self.deleted_forms:
-            if form.instance.pk and form.instance.bookings.exists():
+            if not form.instance.pk:
+                continue
+            if form.instance.bookings.exists():
                 raise forms.ValidationError(
                     "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
+                )
+            # A type some equipment requires would 500 on the FK's PROTECT — guard it
+            # here for both the guild editor and the equipment tab (shared base).
+            gated = list(form.instance.gated_equipment.values_list("name", flat=True))
+            if gated:
+                names = ", ".join(gated)
+                raise forms.ValidationError(
+                    f"This orientation is required by {names}. Clear that requirement first, "
+                    "or turn off Active to retire it instead."
                 )
 
 
 OrientationTypeFormSet = forms.inlineformset_factory(
     Guild, OrientationType, form=OrientationTypeForm, formset=BaseOrientationTypeFormSet, extra=0, can_delete=True
+)
+
+EquipmentOrientationTypeFormSet = forms.inlineformset_factory(
+    Equipment,
+    OrientationType,
+    form=OrientationTypeForm,
+    formset=BaseOrientationTypeFormSet,
+    fk_name="equipment",
+    extra=0,
+    can_delete=True,
 )
 
 
@@ -3582,12 +3603,29 @@ class EquipmentForm(forms.ModelForm):
         space_field.empty_label = "No linked space"
         space_field.required = False
         orientation_field = cast(forms.ModelChoiceField, self.fields["required_orientation"])
-        types = OrientationType.objects.active().select_related("guild").order_by("guild__name", "sort_order", "name")
-        # Narrow the *display* to the owning guild's types; a bound form keeps the full
-        # set so changing guild and orientation in one POST validates against the POSTED
-        # guild (clean() enforces the match), not the stale instance guild.
+        # The saved selection stays choosable even when since deactivated — otherwise
+        # every later Details save fails validation (the inactive-selected bug, both
+        # owner kinds). Inactive alternatives stay hidden. This equipment's own types
+        # sort first, labelled by the owner-aware __str__ ("CNC Router — Operator Basics").
+        types = (
+            OrientationType.objects.filter(Q(is_active=True) | Q(pk=self.instance.required_orientation_id))
+            .select_related("guild", "equipment")
+            .annotate(
+                own_rank=Case(When(equipment_id=self.instance.pk, then=Value(0)), default=Value(1))
+                if self.instance.pk is not None
+                else Value(1)
+            )
+            .order_by("own_rank", "guild__name", "sort_order", "name")
+        )
+        # Narrow the *display* to the owning guild's types plus this equipment's own; a
+        # bound form keeps the full set so changing guild and orientation in one POST
+        # validates against the POSTED guild (clean() enforces the match).
         if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
-            types = types.filter(guild_id=self.instance.guild_id)
+            types = types.filter(
+                Q(guild_id=self.instance.guild_id)
+                | Q(equipment_id=self.instance.pk)
+                | Q(pk=self.instance.required_orientation_id)
+            )
         orientation_field.queryset = types
         orientation_field.empty_label = "No orientation needed"
         orientation_field.required = False
@@ -3611,7 +3649,13 @@ class EquipmentForm(forms.ModelForm):
             self.add_error(None, "Pick a guild first, or turn this off.")
         orientation = cleaned.get("required_orientation")
         if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
-            self.add_error("required_orientation", "Pick an orientation offered by the chosen guild.")
+            # An equipment's OWN type is always a legal requirement, whatever the guild.
+            is_own_type = self.instance.pk is not None and orientation.equipment_id == self.instance.pk
+            if not is_own_type:
+                self.add_error(
+                    "required_orientation",
+                    "Pick an orientation offered by the chosen guild, or one of this equipment's own orientations.",
+                )
         return cleaned
 
 
@@ -3805,6 +3849,72 @@ class EquipmentManagerCancelForm(forms.Form):
         label="Reason",
         error_messages={"required": "Please tell the member why."},
     )
+
+
+class EquipmentOrientationSlotForm(forms.ModelForm):
+    """Add a one-off orientation time from the equipment manage panel's Orientation tab.
+
+    Mirrors :class:`OrientationSlotForm` minus the orienter picker — equipment slots
+    are always "any manager" (the no-per-orienter-machinery decision). The view
+    stamps ``guild=None`` (implicit) and ``source=MANUAL``.
+    """
+
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker, and .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    duration_minutes = forms.TypedChoiceField(
+        coerce=int, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
+    )
+    orientation_type = forms.ModelChoiceField(
+        queryset=OrientationType.objects.none(),
+        label="Orientation",
+        empty_label=None,
+    )
+
+    class Meta:
+        model = OrientationSlot
+        fields = ["seats", "location"]
+
+    def __init__(self, *args: Any, equipment: Equipment, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        type_field.queryset = equipment.owned_orientation_types.active()
+        type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
+        first_type = equipment.owned_orientation_types.active().first()
+        if first_type is not None:
+            type_field.initial = first_type.pk
+            self.fields["seats"].initial = first_type.default_seats
+            if first_type.default_location:
+                self.fields["location"].initial = first_type.default_location
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        day = cleaned.get("date")
+        start_raw = cleaned.get("start_time")
+        duration = cleaned.get("duration_minutes")
+        if day and start_raw and duration:
+            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_raw)))
+            if starts_at <= timezone.now():
+                self.add_error("date", "Pick a time in the future.")
+            else:
+                cleaned["starts_at"] = starts_at
+                cleaned["ends_at"] = starts_at + timedelta(minutes=duration)
+        return cleaned
+
+    def save(self, commit: bool = True) -> OrientationSlot:
+        slot = cast(OrientationSlot, super().save(commit=False))
+        slot.starts_at = self.cleaned_data["starts_at"]
+        slot.ends_at = self.cleaned_data["ends_at"]
+        slot.orientation_type = self.cleaned_data["orientation_type"]
+        if commit:
+            slot.save()
+        return slot
 
 
 class EquipmentStaffAddForm(forms.Form):

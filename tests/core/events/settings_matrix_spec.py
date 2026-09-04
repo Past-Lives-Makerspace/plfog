@@ -167,6 +167,21 @@ def describe_staff_section():
             user = _member_user("equipmgr3")
             assert _section_of(user, EQUIPMENT_EVENT) is None
 
+        def it_shows_orientation_requested_to_equipment_managers_too(db):
+            # The composed GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS recipient: an
+            # equipment staff-row holder and an EQUIPMENT capability holder each see
+            # the row; a plain member never does. Page == delivery.
+            from tests.membership.factories import EquipmentStaffMembershipFactory
+
+            staffed = _member_user("equiporient1")
+            EquipmentStaffMembershipFactory(member=Member.objects.get(user=staffed))
+            assert _section_of(staffed, "orientation_requested") == settings_matrix.STAFF_SECTION
+            holder = _member_user("equiporient2")
+            _grant(holder, AdminCapability.Capability.EQUIPMENT)
+            assert _section_of(holder, "orientation_requested") == settings_matrix.STAFF_SECTION
+            plain = _member_user("equiporient3")
+            assert _section_of(plain, "orientation_requested") is None
+
     def describe_a_guild_lead():
         def it_sees_composite_leadership_events_but_not_unheld_capabilities(db):
             user = _member_user("lead1")

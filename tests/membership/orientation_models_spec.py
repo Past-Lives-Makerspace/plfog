@@ -547,3 +547,192 @@ def describe_per_type_orientation():
             assert slot.is_bookable is False
             with pytest.raises(OrientationError, match="not available to book"):
                 slot.book(MemberFactory())
+
+
+def describe_equipment_owned_types():
+    """Equipment as a second OrientationType owner — constraints, helpers, gates."""
+
+    def _equipment_type(**kwargs):
+        return OrientationTypeFactory(equipment_owned=True, **kwargs)
+
+    def describe_exactly_one_owner():
+        def it_accepts_guild_only_and_equipment_only():
+            assert OrientationTypeFactory().guild is not None
+            equipment_type = _equipment_type()
+            assert equipment_type.guild is None
+            assert equipment_type.equipment is not None
+
+        def it_rejects_both_owners():
+            from tests.membership.factories import EquipmentFactory
+
+            with pytest.raises(IntegrityError), transaction.atomic():
+                OrientationType.objects.create(guild=GuildFactory(), equipment=EquipmentFactory(), name="Both owners")
+
+        def it_rejects_no_owner():
+            with pytest.raises(IntegrityError), transaction.atomic():
+                OrientationType.objects.create(guild=None, equipment=None, name="Orphan")
+
+    def describe_equipment_name_uniqueness():
+        def it_rejects_a_duplicate_name_on_one_equipment():
+            equipment_type = _equipment_type(name="Operator Basics")
+            with pytest.raises(IntegrityError), transaction.atomic():
+                OrientationType.objects.create(equipment=equipment_type.equipment, name="Operator Basics")
+
+        def it_allows_the_same_name_on_two_different_equipment():
+            first = _equipment_type(name="Operator Basics")
+            second = _equipment_type(name="Operator Basics")
+            assert first.pk != second.pk
+
+        def it_still_enforces_guild_name_uniqueness():
+            guild_type = OrientationTypeFactory(name="Shop Basics")
+            with pytest.raises(IntegrityError), transaction.atomic():
+                OrientationType.objects.create(guild=guild_type.guild, name="Shop Basics")
+
+    def describe_owner_helpers():
+        def it_resolves_the_owner_either_way():
+            from tests.membership.factories import EquipmentFactory
+
+            guild = GuildFactory(name="Woodshop")
+            guild_type = OrientationTypeFactory(guild=guild, name="Shop Basics")
+            equipment = EquipmentFactory(name="CNC Router")
+            equipment_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+            assert guild_type.is_equipment_owned is False
+            assert equipment_type.is_equipment_owned is True
+            assert guild_type.owner == guild
+            assert equipment_type.owner == equipment
+            assert guild_type.owner_name == "Woodshop"
+            assert equipment_type.owner_name == "CNC Router"
+            assert guild_type.owner_page_path() == f"/guilds/{guild.slug}/"
+            assert equipment_type.owner_page_path() == f"/equipment/{equipment.slug}/"
+            assert (
+                guild_type.orientation_anchor_path()
+                == f"/guilds/{guild.slug}/?tab=orientations&type={guild_type.pk}#guild-orientation"
+            )
+            assert (
+                equipment_type.orientation_anchor_path()
+                == f"/equipment/{equipment.slug}/?type={equipment_type.pk}#equipment-orientation"
+            )
+            assert str(equipment_type) == "CNC Router — Operator Basics"
+
+        def it_stringifies_slot_and_booking_without_a_guild():
+            slot = OrientationSlotFactory(equipment_owned=True)
+            assert slot.guild is None
+            assert slot.orientation_type.owner_name in str(slot)
+            booking = OrientationBookingFactory(slot=slot)
+            assert booking.guild is None
+            assert slot.orientation_type.owner_name in str(booking)
+
+        def it_defaults_no_runner_for_equipment_and_the_lead_for_guilds():
+            lead = MemberFactory()
+            guild_type = OrientationTypeFactory(guild=GuildFactory(guild_lead=lead))
+            assert guild_type.default_runner() == lead
+            assert _equipment_type().default_runner() is None
+
+    def describe_is_accepting():
+        def it_is_true_for_an_active_type_on_active_equipment():
+            assert _equipment_type().is_accepting is True
+
+        def it_is_false_when_the_equipment_is_retired():
+            equipment_type = _equipment_type()
+            equipment_type.equipment.is_active = False
+            equipment_type.equipment.save(update_fields=["is_active"])
+            assert equipment_type.is_accepting is False
+
+        def it_is_false_when_the_type_is_inactive():
+            assert _equipment_type(is_active=False).is_accepting is False
+
+        def it_never_consults_guild_settings_for_equipment_types():
+            equipment_type = _equipment_type()
+            # A settings row for an unrelated (closed) guild changes nothing.
+            GuildOrientationSettingsFactory(is_enabled=False)
+            assert equipment_type.is_accepting is True
+
+    def describe_bookable_queryset():
+        def it_includes_an_equipment_slot_with_active_equipment_and_type():
+            slot = OrientationSlotFactory(equipment_owned=True)
+            assert slot in OrientationSlot.objects.bookable()
+
+        def it_excludes_when_the_equipment_is_retired():
+            slot = OrientationSlotFactory(equipment_owned=True)
+            equipment = slot.orientation_type.equipment
+            equipment.is_active = False
+            equipment.save(update_fields=["is_active"])
+            assert slot not in OrientationSlot.objects.bookable()
+
+        def it_excludes_when_the_type_is_inactive():
+            slot = OrientationSlotFactory(equipment_owned=True)
+            slot.orientation_type.is_active = False
+            slot.orientation_type.save(update_fields=["is_active"])
+            assert slot not in OrientationSlot.objects.bookable()
+
+        def it_excludes_past_and_cancelled_equipment_slots():
+            past = OrientationSlotFactory(
+                equipment_owned=True,
+                starts_at=timezone.now() - timedelta(days=1),
+                ends_at=timezone.now() - timedelta(hours=23),
+            )
+            cancelled = OrientationSlotFactory(equipment_owned=True, is_cancelled=True)
+            assert past not in OrientationSlot.objects.bookable()
+            assert cancelled not in OrientationSlot.objects.bookable()
+
+        def it_keeps_guild_slots_byte_identical():
+            open_slot = OrientationSlotFactory()
+            disabled = OrientationSlotFactory(enabled_settings=False)
+            assert open_slot in OrientationSlot.objects.bookable()
+            assert disabled not in OrientationSlot.objects.bookable()
+
+    def describe_is_bookable_and_book():
+        def it_skips_the_orienter_leadership_and_settings_checks_for_equipment():
+            slot = OrientationSlotFactory(equipment_owned=True)
+            assert slot.is_bookable is True
+
+        def it_books_with_a_none_guild_and_type_scoped_guards():
+            slot = OrientationSlotFactory(equipment_owned=True)
+            member = MemberFactory()
+            booking = slot.book(member)
+            assert booking.guild is None
+            assert booking.status == OrientationBooking.Status.REQUESTED
+            with pytest.raises(OrientationError):
+                slot.book(member)  # live-per-type duplicate guard still fires
+
+        def it_confirms_and_completes_without_a_runner_crash():
+            booking = OrientationBookingFactory(equipment_owned=True)
+            booking.confirm()
+            booking.refresh_from_db()
+            assert booking.status == OrientationBooking.Status.CONFIRMED
+            assert booking.oriented_by is None
+            booking.mark_completed()
+            booking.refresh_from_db()
+            assert booking.is_completed is True
+            assert booking.oriented_by is None
+
+        def it_stamps_the_passed_member_as_runner():
+            booking = OrientationBookingFactory(equipment_owned=True)
+            manager = MemberFactory()
+            booking.confirm(oriented_by=manager)
+            booking.refresh_from_db()
+            assert booking.oriented_by == manager
+
+    def describe_refund_receipt_context():
+        def it_carries_the_equipment_name_and_page():
+            from tests.membership.factories import EquipmentFactory
+
+            equipment = EquipmentFactory(name="CNC Router")
+            slot = OrientationSlotFactory(
+                equipment_owned=True,
+                orientation_type=OrientationTypeFactory(
+                    equipment_owned=True, equipment=equipment, name="Operator Basics"
+                ),
+            )
+            booking = OrientationBookingFactory(slot=slot)
+            context = booking.refund_receipt_context()
+            assert context["item_title"] == "CNC Router orientation: Operator Basics"
+            assert context["in_app_url"] == f"/equipment/{equipment.slug}/"
+            assert context["manage_url"].endswith(f"/equipment/{equipment.slug}/")
+
+    def it_protects_equipment_that_owns_a_type():
+        from django.db.models.deletion import ProtectedError
+
+        equipment_type = _equipment_type()
+        with pytest.raises(ProtectedError):
+            equipment_type.equipment.delete()

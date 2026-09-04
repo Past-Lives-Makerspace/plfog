@@ -1,0 +1,130 @@
+{% comment %}
+Member-facing orientation section on the equipment page — the guild partial's
+slot-list UX adapted to an equipment owner (no orienter column, no availability
+blocks, no custom requests). Context:
+  equipment            — the Equipment
+  orientation_sections — one dict per RENDERABLE owned type (active, or pinned by
+      the member's live booking/hold): type / is_oriented / booking / hold / slots
+  can_manage           — whether the viewer manages this equipment (empty-state link)
+An inactive pinned type renders its state block only — never a slot list.
+{% endcomment %}
+{% load classes_tags %}
+<section id="equipment-orientation" class="hub-card pl-equip-orientation" style="padding:1.25rem 1.5rem;" aria-label="Orientation">
+  <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get Oriented for the {{ equipment.name }}
+    <span class="pl-help">
+      <span class="pl-help__icon" tabindex="0" role="img" aria-label="Booking emails: your primary email is what receives the notification for bookings. Change your primary email in your User Settings.">?</span>
+      <span class="pl-help__bubble">Your primary email is what receives the notification for bookings. Change your primary email in your User Settings.</span>
+    </span>
+  </h2>
+
+  {% for sec in orientation_sections %}
+  {# The blocker banner deep-links here with ?type=<pk> — highlight that type's group. #}
+  <div id="orientation-type-{{ sec.type.pk }}" class="pl-orient-type{% if request.GET.type == sec.type.pk|stringformat:'s' %} pl-orient-type--highlight{% endif %}"{% if not forloop.first %} style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);"{% endif %}>
+    <div class="pl-orient-heading">
+      <h3 class="hub-detail-label" style="margin:0;">{{ sec.type.name }}</h3>
+      {% if sec.type.is_paid %}<span class="pl-price-chip">{{ sec.type.price_cents|cents_as_price }}</span>{% endif %}
+      <span class="hub-text-muted" style="font-size:0.85rem;">{{ sec.type.duration_minutes }} min</span>
+    </div>
+    {% if sec.type.description %}<p class="hub-text-muted" style="margin:0.25rem 0 0.75rem; font-size:0.9rem;">{{ sec.type.description|truncatewords:40 }}</p>{% endif %}
+
+    {% if sec.is_oriented %}
+    <p style="margin:0; font-size:0.95rem; color:var(--hub-text);">✓ You've completed this orientation.</p>
+
+    {% elif sec.hold %}
+    <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">Finishing Your Booking</p>
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Your payment for the {{ sec.hold.slot.starts_at|date:"l, F j" }} at {{ sec.hold.slot.starts_at|time:"g:i A" }} orientation hasn't come through yet.</p>
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+      <form method="post" action="{% url 'hub_orientation_checkout_resume' sec.hold.pk %}" style="margin:0;">
+        {% csrf_token %}
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Resume payment</button>
+      </form>
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'cancel-equip-hold-{{ sec.hold.pk }}')">Cancel</button>
+    </div>
+    {% url 'hub_orientation_checkout_cancel_hold' sec.hold.pk as cancel_hold_url %}
+    {% with hpks=sec.hold.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="cancel-equip-hold-"|add:hpks confirm_title="Cancel this booking?" confirm_message="If you haven't paid, nothing is charged." confirm_action_url=cancel_hold_url confirm_button_text="Cancel booking" %}
+    {% endwith %}
+
+    {% elif sec.booking %}
+    <p style="margin:0 0 0.25rem; font-size:1rem; color:var(--hub-text);">
+      {{ sec.booking.slot.starts_at|date:"l, F j" }} at {{ sec.booking.slot.starts_at|time:"g:i A" }}
+      {% if sec.booking.slot.location %}<span class="hub-text-muted">· {{ sec.booking.slot.location }}</span>{% endif %}
+    </p>
+    {% if sec.booking.status == "requested" %}
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Requested. Waiting for a manager to confirm. This isn't official yet.</p>
+    {% else %}
+    <p class="pl-orient-confirmed" style="margin:0 0 0.75rem; font-size:0.85rem;">Confirmed. See you there!</p>
+    {% endif %}
+    {% if sec.booking.amount_paid_cents %}
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Paid {{ sec.booking.amount_paid_cents|cents_as_price }}. Automatic refund if this is declined or cancelled.</p>
+    {% endif %}
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--danger" @click="$dispatch('open-confirm', 'cancel-equip-orientation-{{ sec.booking.pk }}')">Cancel my orientation</button>
+    {% url 'hub_orientation_cancel_mine' sec.booking.pk as cancel_mine_url %}
+    {% with bpks=sec.booking.pk|stringformat:"s" %}
+    {% if sec.booking.amount_paid_cents %}
+    {% include "components/confirm_modal.html" with confirm_id="cancel-equip-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You'll get an automatic full refund. You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
+    {% else %}
+    {% include "components/confirm_modal.html" with confirm_id="cancel-equip-orientation-"|add:bpks confirm_title="Cancel your orientation?" confirm_message="You can request a new orientation any time." confirm_action_url=cancel_mine_url confirm_button_text="Cancel orientation" %}
+    {% endif %}
+    {% endwith %}
+
+    {% elif not sec.type.is_active %}
+    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">This orientation is paused.</p>
+
+    {% else %}
+    {% if sec.type.is_paid %}
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">You pay when you book. If it can't happen, you get an automatic full refund.</p>
+    {% endif %}
+    {% if sec.slots %}
+    {# Show 5 at a time with prev/next arrows so a long run of slots stays compact. #}
+    <div x-data="{ page: 0, size: 5, total: {{ sec.slots|length }} }">
+      <div class="pl-orient-slots__head">
+        <span class="pl-orient-slots__date">Date</span>
+        <span class="pl-orient-slots__time">Time</span>
+        <span class="pl-orient-slots__with"></span>
+        <span class="pl-orient-slots__action"></span>
+      </div>
+      <ul style="list-style:none; padding:0; margin:0;">
+        {% for slot in sec.slots %}
+        {% with pks=slot.pk|stringformat:"s" %}
+        <li x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-orient-slots__row">
+          <span class="pl-orient-slots__date">{{ slot.starts_at|date:"D M j" }}</span>
+          <span class="pl-orient-slots__time">{{ slot.starts_at|time:"g:i A" }} – {{ slot.ends_at|time:"g:i A" }}</span>
+          <span class="pl-orient-slots__with"></span>
+          <span class="pl-orient-slots__action">
+            {% if slot.is_full %}
+            <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
+            {% else %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-equip-slot-{{ slot.pk }}')">Request</button>
+            {% url 'hub_orientation_book' slot.pk as book_url %}
+            {% if sec.type.is_paid %}
+            {% with price=sec.type.price_cents|cents_as_price %}
+            {% with paid_msg="You'll pay "|add:price|add:" now through our secure checkout. Your booking is a request until a manager confirms it. If they decline, or it's cancelled, you get an automatic full refund." %}
+            {% include "components/confirm_modal.html" with confirm_id="book-equip-slot-"|add:pks confirm_title="Book This Orientation?" confirm_message=paid_msg confirm_action_url=book_url confirm_button_text="Continue to Payment" confirm_button_style="primary" confirm_no_boost=True %}
+            {% endwith %}
+            {% endwith %}
+            {% else %}
+            {% include "components/confirm_modal.html" with confirm_id="book-equip-slot-"|add:pks confirm_title="Request this orientation?" confirm_message="We'll send your request to the equipment managers to confirm. You can cancel any time." confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
+            {% endif %}
+            {% endif %}
+          </span>
+        </li>
+        {% endwith %}
+        {% endfor %}
+      </ul>
+      <div x-show="total > size" x-cloak class="pl-orient-slots__pager">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.max(0, page - 1)" :disabled="page === 0" aria-label="Previous slots">←</button>
+        <span class="hub-text-muted" style="font-size:0.85rem;" x-text="(page + 1) + ' / ' + Math.ceil(total / size)"></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>
+      </div>
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientation times are posted yet. Check back soon.</p>
+    {% if can_manage %}
+    <p style="margin:0.35rem 0 0; font-size:0.9rem;"><a href="{% url 'hub_equipment_manage' equipment.slug %}?tab=orientation">Add times from the manage panel.</a></p>
+    {% endif %}
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>

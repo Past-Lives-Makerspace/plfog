@@ -52,7 +52,7 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
             yield writer.writerow(
                 [
                     booking.member.display_name,
-                    booking.guild.name,
+                    booking.orientation_type.owner_name,
                     booking.orientation_type.name,
                     booking.slot.orienter.display_name if booking.slot.orienter is not None else "",
                     booking.slot.starts_at.strftime("%Y-%m-%d %H:%M"),

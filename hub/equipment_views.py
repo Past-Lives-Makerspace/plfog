@@ -25,6 +25,8 @@ from hub.forms import (
     EquipmentForm,
     EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
+    EquipmentOrientationSlotForm,
+    EquipmentOrientationTypeFormSet,
     EquipmentReservationForm,
     EquipmentSettingsForm,
     EquipmentStaffAddForm,
@@ -67,7 +69,9 @@ def equipment_feature_required(view_func: Any) -> Any:
 
 def _equipment_queryset() -> EquipmentQuerySet:
     """The base queryset every equipment view reads — FKs prefetched, no per-row queries."""
-    return Equipment.objects.select_related("guild", "space", "required_orientation", "required_orientation__guild")
+    return Equipment.objects.select_related(
+        "guild", "space", "required_orientation", "required_orientation__guild", "required_orientation__equipment"
+    ).prefetch_related("owned_orientation_types")
 
 
 def _require_can_manage(request: HttpRequest, equipment: Equipment) -> HttpResponse | None:
@@ -302,10 +306,50 @@ def hub_equipment_add(request: HttpRequest) -> HttpResponse:
     return render(request, "hub/equipment_add.html", {**_get_hub_context(request), "form": form})
 
 
+def _equipment_orientation_sections(equipment: Equipment, member: Member | None) -> list[dict[str, Any]]:
+    """The equipment page's renderable orientation sections (shared builder underneath).
+
+    Renderable = the equipment's active owned types ∪ any inactive type the member
+    still holds a live booking or checkout hold on — retiring a type mid-flow must
+    never make a member's Cancel / Resume payment controls vanish (they render the
+    state block only; ``bookable()`` already keeps inactive types slot-free).
+    """
+    from hub.views import _orientation_sections
+    from membership.models import OrientationBooking, OrientationSlot
+
+    types = list(equipment.owned_orientation_types.active())
+    if member is not None:
+        live_statuses = [
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+            OrientationBooking.Status.PENDING_PAYMENT,
+        ]
+        pinned = member.orientation_bookings.filter(
+            orientation_type__equipment=equipment, status__in=live_statuses
+        ).select_related("orientation_type")
+        known = {t.pk for t in types}
+        for booking in pinned:
+            if booking.orientation_type_id not in known:
+                types.append(booking.orientation_type)
+                known.add(booking.orientation_type_id)
+    if not types:
+        return []
+    slots = (
+        OrientationSlot.objects.bookable()
+        .filter(orientation_type__in=types)
+        .select_related("orientation_type")
+        .order_by("starts_at")
+    )
+    slots_by_type: dict[int, list[Any]] = {}
+    for slot in slots:
+        slots_by_type.setdefault(slot.orientation_type_id, []).append(slot)
+    return _orientation_sections(types, member, slots_by_type)
+
+
 @login_required
 @equipment_feature_required
 def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """The equipment mini-page — hero, requirements banner, About (schedule joins in PR 2)."""
+    """The equipment mini-page — hero, requirements banner, Orientation section, schedule, About."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     manages = can_manage_equipment(request, equipment)
     if not equipment.is_active and not manages:
@@ -315,12 +359,15 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     orientation_type = equipment.required_orientation
     orientation_booking = None
     orientation_url = ""
+    required_orientation_paused = False
     if member is not None and orientation_type is not None and access_state == Equipment.AccessState.NEEDS_ORIENTATION:
         orientation_booking = member.active_orientation_for_type(orientation_type)
-        orientation_url = (
-            reverse("hub_guild_detail", args=[orientation_type.guild.slug])
-            + f"?tab=orientations&type={orientation_type.pk}#guild-orientation"
-        )
+        # Owner-aware: an equipment-owned required type anchors down THIS page; a
+        # guild-owned one keeps the guild deep link, byte-identical.
+        orientation_url = orientation_type.orientation_anchor_path()
+        # A paused gate (inactive type, retired owner, or closed guild settings) with
+        # no live booking must never render a dead "Book the Orientation" link.
+        required_orientation_paused = orientation_booking is None and not orientation_type.is_accepting
     return render(
         request,
         "hub/equipment_detail.html",
@@ -331,6 +378,11 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "access_state": access_state,
             "orientation_booking": orientation_booking,
             "orientation_url": orientation_url,
+            "required_orientation_paused": required_orientation_paused,
+            "required_orientation_is_equipment_owned": (
+                orientation_type.is_equipment_owned if orientation_type is not None else False
+            ),
+            "orientation_sections": _equipment_orientation_sections(equipment, member),
             "can_manage": manages,
         },
     )
@@ -508,6 +560,41 @@ def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
+def _orientation_tab_context(equipment: Equipment) -> dict[str, Any]:
+    """The Orientation tab's read-only lists: pending requests + upcoming slots with attendees."""
+    from membership.models import OrientationBooking, OrientationSlot
+
+    pending_requests = list(
+        OrientationBooking.objects.filter(
+            orientation_type__equipment=equipment, status=OrientationBooking.Status.REQUESTED
+        )
+        .select_related("member", "slot", "orientation_type")
+        .order_by("slot__starts_at")
+    )
+    upcoming_slots = list(
+        OrientationSlot.objects.filter(orientation_type__equipment=equipment)
+        .upcoming()
+        .with_active_booking_count()
+        .with_pending_hold_count()
+        .select_related("orientation_type")
+        .order_by("starts_at")
+    )
+    attendees_by_slot: dict[int, list[Any]] = {}
+    attendee_rows = (
+        OrientationBooking.objects.filter(
+            slot__in=[slot.pk for slot in upcoming_slots],
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        )
+        .select_related("member")
+        .order_by("requested_at")
+    )
+    for booking in attendee_rows:
+        attendees_by_slot.setdefault(booking.slot_id, []).append(booking)
+    for slot in upcoming_slots:
+        slot.attendee_bookings = attendees_by_slot.get(slot.pk, [])
+    return {"orientation_pending_requests": pending_requests, "orientation_upcoming_slots": upcoming_slots}
+
+
 def _render_manage(
     request: HttpRequest,
     equipment: Equipment,
@@ -516,6 +603,8 @@ def _render_manage(
     staff_add_form: EquipmentStaffAddForm | None = None,
     hours_formset: Any = None,
     settings_form: EquipmentSettingsForm | None = None,
+    orientation_types_formset: Any = None,
+    slot_add_form: EquipmentOrientationSlotForm | None = None,
     active_tab: str = "details",
 ) -> HttpResponse:
     """Render the manage panel with the given (possibly error-bearing) forms."""
@@ -524,6 +613,7 @@ def _render_manage(
         "hub/equipment_manage.html",
         {
             **_get_hub_context(request),
+            **_orientation_tab_context(equipment),
             "equipment": equipment,
             "form": form if form is not None else EquipmentForm(instance=equipment),
             "staff_memberships": list(equipment.staff_memberships.select_related("member", "granted_by")),
@@ -535,6 +625,12 @@ def _render_manage(
             else EquipmentHoursWindowFormSet(initial=equipment.hours_windows(), prefix="hours"),
             "settings_form": settings_form if settings_form is not None else EquipmentSettingsForm(instance=equipment),
             "manager_cancel_form": EquipmentManagerCancelForm(),
+            "orientation_types_formset": orientation_types_formset
+            if orientation_types_formset is not None
+            else EquipmentOrientationTypeFormSet(instance=equipment, prefix="otypes"),
+            "slot_add_form": slot_add_form
+            if slot_add_form is not None
+            else EquipmentOrientationSlotForm(equipment=equipment),
             # The hub's standard Paginator + table_pagination partial, capped at 25 rows.
             "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
                 request.GET.get("page", 1)
@@ -553,7 +649,7 @@ def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
     if forbidden is not None:
         return forbidden
     active_tab = request.GET.get("tab", "details")
-    if active_tab not in {"details", "staff", "hours", "reservations"}:
+    if active_tab not in {"details", "staff", "hours", "reservations", "orientation"}:
         active_tab = "details"
     return _render_manage(request, equipment, active_tab=active_tab)
 
@@ -625,3 +721,65 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
     staff.delete()
     messages.success(request, f"{member_name} no longer manages the {equipment.name}.")
     return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=staff")
+
+
+@login_required
+@equipment_feature_required
+@require_POST
+def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — save the Orientation Types formset (create/edit/retire/delete).
+
+    Mirrors the guild editor's types save minus slot regeneration (equipment has no
+    recurring rules to materialize). The shared base formset supplies both delete
+    guards: booking history, and a type some equipment's requirement points at.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    formset = EquipmentOrientationTypeFormSet(request.POST, instance=equipment, prefix="otypes")
+    if formset.is_valid():
+        formset.save()
+        messages.success(request, "Saved.")
+        return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+    return _render_manage(request, equipment, orientation_types_formset=formset, active_tab="orientation")
+
+
+@login_required
+@equipment_feature_required
+@require_POST
+def hub_equipment_orientation_slot_add(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — add a one-off MANUAL orientation slot (guild None, orienter None)."""
+    from membership.models import OrientationSlot
+
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    form = EquipmentOrientationSlotForm(request.POST, equipment=equipment)
+    if form.is_valid():
+        slot = form.save(commit=False)
+        slot.source = OrientationSlot.Source.MANUAL
+        slot.save()
+        messages.success(request, "Time added.")
+        return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+    # Bound re-render: the reveal form comes back OPEN with its errors visible.
+    return _render_manage(request, equipment, slot_add_form=form, active_tab="orientation")
+
+
+@login_required
+@equipment_feature_required
+@require_POST
+def hub_equipment_orientation_slot_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """POST — cancel an orientation slot: full per-booking cancel fan-out + hold release."""
+    from membership import orientations
+    from membership.models import OrientationSlot
+
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    slot = get_object_or_404(OrientationSlot, pk=pk, orientation_type__equipment=equipment)
+    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
+    messages.success(request, "Orientation time cancelled. Everyone booked on it has been notified.")
+    return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")

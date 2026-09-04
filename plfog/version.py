@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.31.4"
+VERSION = "1.32.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.32.0",
+        "date": "2026-09-03",
+        "title": "Tool orientations on the tool's page",
+        "changes": [
+            "Some equipment needs an orientation before you can reserve it. You can "
+            "now book that orientation right on the tool's own page. Pick a time, "
+            "request it, and pay there if it has a fee. Equipment managers post the "
+            "times and confirm requests from the tool's manage panel.",
+        ],
+    },
     {
         "version": "1.31.4",
         "date": "2026-09-03",

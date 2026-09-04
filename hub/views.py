@@ -469,6 +469,56 @@ def guild_directory(request: HttpRequest) -> HttpResponse:
     return render(request, "guilds/directory.html", {**ctx, "guilds": guilds, "hero_stats": hero_stats})
 
 
+def _orientation_sections(
+    orientation_types: list[Any],
+    member: Member | None,
+    slots_by_type: dict[int, list[Any]],
+) -> list[dict[str, Any]]:
+    """One per-type section dict for an orientation slot-list surface (guild page or equipment page).
+
+    The SHARED builder both surfaces render from, so their per-type state logic
+    cannot drift: completed / live booking / pending-payment hold are computed from
+    the member's bookings on exactly these types; the (caller-filtered, ordered)
+    slot lists render only when the type is open for the member. Guild-only extras
+    (availability blocks, custom requests) are layered on by the guild view.
+    """
+    from membership.models import OrientationBooking
+
+    member_bookings = (
+        list(
+            member.orientation_bookings.filter(orientation_type__in=orientation_types).select_related(
+                "slot", "slot__orienter"
+            )
+        )
+        if member is not None and orientation_types
+        else []
+    )
+    completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
+    live_by_type: dict[int, OrientationBooking] = {}
+    hold_by_type: dict[int, OrientationBooking] = {}
+    for booking in member_bookings:
+        if booking.status in (OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED):
+            live_by_type.setdefault(booking.orientation_type_id, booking)
+        elif booking.status == OrientationBooking.Status.PENDING_PAYMENT:
+            hold_by_type.setdefault(booking.orientation_type_id, booking)
+    sections: list[dict[str, Any]] = []
+    for orientation_type in orientation_types:
+        live_booking = live_by_type.get(orientation_type.pk)
+        hold = hold_by_type.get(orientation_type.pk)
+        done = orientation_type.pk in completed_type_ids
+        open_for_type = not (done or live_booking or hold)
+        sections.append(
+            {
+                "type": orientation_type,
+                "is_oriented": done,
+                "booking": live_booking,
+                "hold": hold,
+                "slots": slots_by_type.get(orientation_type.pk, [])[:30] if open_for_type else [],
+            }
+        )
+    return sections
+
+
 def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """Guild detail page — shows about text, active products, and cart interface."""
     from billing.forms import CONTEXT_MEMBER_GUILD_PAGE, TabItemForm, build_product_split_formset
@@ -565,7 +615,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # this guild's own classes key — defaults to visible without a seeded list.
     pulse = _guild_pulse(guild)
 
-    from membership.models import GuildOrientationSettings, OrientationBooking
+    from membership.models import GuildOrientationSettings
 
     orientation = GuildOrientationSettings.objects.filter(guild=guild).first()
     show_orientation = orientation is not None and orientation.is_enabled
@@ -578,13 +628,6 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         else []
     )
     completed_type_ids = {b.orientation_type_id for b in member_bookings if b.is_completed}
-    live_by_type: dict[int, OrientationBooking] = {}
-    hold_by_type: dict[int, OrientationBooking] = {}
-    for booking in member_bookings:
-        if booking.status in (OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED):
-            live_by_type.setdefault(booking.orientation_type_id, booking)
-        elif booking.status == OrientationBooking.Status.PENDING_PAYMENT:
-            hold_by_type.setdefault(booking.orientation_type_id, booking)
     is_oriented = bool(completed_type_ids)  # oriented for the guild = ANY completed type
     orientation_all_done = bool(orientation_types) and all(t.pk in completed_type_ids for t in orientation_types)
     # bookable() (not upcoming()) so a departed orienter's surviving personal slot
@@ -614,25 +657,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         if show_orientation and orientation is not None and not orientation.is_closed
         else []
     )
-    orientation_sections = []
-    for orientation_type in orientation_types:
-        live_booking = live_by_type.get(orientation_type.pk)
-        hold = hold_by_type.get(orientation_type.pk)
-        done = orientation_type.pk in completed_type_ids
-        open_for_type = not (done or live_booking or hold)
-        orientation_sections.append(
-            {
-                "type": orientation_type,
-                "is_oriented": done,
-                "booking": live_booking,
-                "hold": hold,
-                "slots": slots_by_type.get(orientation_type.pk, [])[:30] if open_for_type else [],
-                "blocks": (
-                    [block for block in upcoming_blocks if block.valid_starts_for(orientation_type)]
-                    if open_for_type
-                    else []
-                ),
-            }
+    orientation_sections = _orientation_sections(orientation_types, member, slots_by_type)
+    # Guild-only extra: availability blocks render per type while it is open for the member.
+    for section in orientation_sections:
+        open_for_type = not (section["is_oriented"] or section["booking"] or section["hold"])
+        section["blocks"] = (
+            [block for block in upcoming_blocks if block.valid_starts_for(section["type"])] if open_for_type else []
         )
 
     from hub.forms import GuildJoinForm, OrientationCustomRequestForm
@@ -691,6 +721,27 @@ def _require_can_edit_guild(request: HttpRequest, guild: Guild) -> HttpResponse 
     if not _can_edit_guild(request, guild):
         return HttpResponse("Forbidden", status=403)
     return None
+
+
+def _owner_redirect(orientation_type: Any) -> HttpResponse:
+    """Redirect to the orientation's owner page + anchor — guild page or equipment page."""
+    return redirect(orientation_type.orientation_anchor_path())
+
+
+def _require_can_manage_booking(request: HttpRequest, booking: Any) -> HttpResponse | None:
+    """403 unless the request may run this booking's orientation, whichever owner type.
+
+    Equipment-owned bookings gate on ``can_manage_equipment`` (the three manager
+    tiers); guild-owned keep the ``can_manage_orientations`` gate byte-identical.
+    """
+    from membership.permissions import can_manage_equipment
+
+    orientation_type = booking.orientation_type
+    if orientation_type.is_equipment_owned:
+        if can_manage_equipment(request, orientation_type.equipment):
+            return None
+        return HttpResponse("Forbidden", status=403)
+    return _require_can_manage_orientations(request, booking.guild)
 
 
 def _require_can_manage_orientations(request: HttpRequest, guild: Guild) -> HttpResponse | None:
@@ -1450,22 +1501,23 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
-        return redirect("hub_guild_detail", slug=slot.guild.slug)
+        return _owner_redirect(slot.orientation_type)
     try:
         if slot.orientation_type.is_paid:
             checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
             return redirect(checkout_url)
         orientations.request_orientation(slot, member, note=request.POST.get("note", ""))
+        confirmer = "a manager" if slot.orientation_type.is_equipment_owned else "the guild lead"
         messages.success(
             request,
-            "Orientation requested! Check your email for the details — it's not official until the guild lead confirms.",
+            f"Orientation requested! Check your email for the details — it's not official until {confirmer} confirms.",
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
     except Exception:
         logger.exception("Orientation checkout failed for slot %s.", slot.pk)
         messages.error(request, "We couldn't start the payment checkout. Please try again in a minute.")
-    return redirect("hub_guild_detail", slug=slot.guild.slug)
+    return _owner_redirect(slot.orientation_type)
 
 
 @login_required
@@ -1621,8 +1673,11 @@ def orientation_respond(request: HttpRequest, booking_pk: int) -> HttpResponse:
     from membership import orientations
     from membership.models import OrientationBooking
 
-    booking = get_object_or_404(OrientationBooking.objects.select_related("slot", "guild", "member"), pk=booking_pk)
-    forbidden = _require_can_manage_orientations(request, booking.guild)
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("slot", "guild", "member", "orientation_type__equipment"),
+        pk=booking_pk,
+    )
+    forbidden = _require_can_manage_booking(request, booking)
     if forbidden is not None:
         return forbidden
 
@@ -1669,8 +1724,10 @@ def orientation_lead_cancel(request: HttpRequest, booking_pk: int) -> HttpRespon
 
     from membership.models import OrientationError
 
-    booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
-    forbidden = _require_can_manage_orientations(request, booking.guild)
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("guild", "orientation_type__equipment"), pk=booking_pk
+    )
+    forbidden = _require_can_manage_booking(request, booking)
     if forbidden is not None:
         return forbidden
     try:
@@ -1699,7 +1756,7 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
         messages.success(request, "Your orientation was cancelled.")
     except OrientationError as exc:
         messages.error(request, str(exc))
-    return redirect("hub_guild_detail", slug=booking.guild.slug)
+    return _owner_redirect(booking.orientation_type)
 
 
 def _own_pending_hold_or_none(request: HttpRequest, booking_pk: int) -> Any:
@@ -1789,7 +1846,7 @@ def orientation_checkout_cancelled(request: HttpRequest, token: str) -> HttpResp
         return redirect("hub_guild_directory")
     if booking.status != OrientationBooking.Status.PENDING_PAYMENT:
         # Already released, recovered, or resolved — plain redirect, no message drama.
-        return redirect("hub_guild_detail", slug=booking.guild.slug)
+        return _owner_redirect(booking.orientation_type)
     if request.method != "POST":
         context = {**_get_hub_context(request), "state": "cancel_confirm", "booking": booking, "token": token}
         return render(request, "hub/orientation_checkout_return.html", context)
@@ -1800,7 +1857,7 @@ def orientation_checkout_cancelled(request: HttpRequest, token: str) -> HttpResp
         messages.success(request, "Good news, your payment already went through. Your booking request is in.")
     else:
         messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
-    return redirect("hub_guild_detail", slug=booking.guild.slug)
+    return _owner_redirect(booking.orientation_type)
 
 
 @login_required
@@ -1819,7 +1876,7 @@ def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> H
     if member is None or booking.member_id != member.pk:
         return HttpResponse("Forbidden", status=403)
     if booking.status != OrientationBooking.Status.PENDING_PAYMENT:
-        return redirect("hub_guild_detail", slug=booking.guild.slug)
+        return _owner_redirect(booking.orientation_type)
     outcome = orientations.release_hold_if_unpaid(booking)
     if outcome == "released":
         messages.success(request, "Booking cancelled. You were not charged.")
@@ -1831,7 +1888,7 @@ def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> H
         )
     else:
         messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
-    return redirect("hub_guild_detail", slug=booking.guild.slug)
+    return _owner_redirect(booking.orientation_type)
 
 
 @login_required
@@ -1857,7 +1914,7 @@ def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpRe
     except Exception:
         logger.exception("Resume: could not retrieve Checkout session for booking %s.", booking.pk)
         messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
-        return redirect("hub_guild_detail", slug=booking.guild.slug)
+        return _owner_redirect(booking.orientation_type)
     if session["payment_status"] == "paid":
         orientations.finalize_paid_booking(
             booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
@@ -1867,7 +1924,7 @@ def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpRe
         return redirect(session["url"])
     orientations.release_hold_if_unpaid(booking)
     messages.info(request, "That checkout expired. Pick a time to start again.")
-    return redirect("hub_guild_detail", slug=booking.guild.slug)
+    return _owner_redirect(booking.orientation_type)
 
 
 def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
@@ -2082,8 +2139,10 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
     """POST-only — flip an orientation's completed flag (lead of that guild / admin only)."""
     from membership.models import OrientationBooking
 
-    booking = get_object_or_404(OrientationBooking.objects.select_related("guild"), pk=booking_pk)
-    forbidden = _require_can_manage_orientations(request, booking.guild)
+    booking = get_object_or_404(
+        OrientationBooking.objects.select_related("guild", "orientation_type__equipment"), pk=booking_pk
+    )
+    forbidden = _require_can_manage_booking(request, booking)
     if forbidden is not None:
         return forbidden
     if booking.is_completed:

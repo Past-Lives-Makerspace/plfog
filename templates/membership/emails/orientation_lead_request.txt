@@ -1,4 +1,4 @@
-New orientation request for {{ guild.name }}
+New orientation request for {{ owner_name }}
 
 {{ booking.member.display_name }} requested {% if slot.orienter %}one of {{ slot.orienter_first_name }}'s orientation slots{% else %}an orientation{% endif %}:
 
@@ -14,6 +14,6 @@ Quick actions (no login needed):
 Or respond on the hub (suggest another time, see details):
 {{ respond_url }}
 
-Guild page: {{ guild_url }}
+The {{ owner_page_label }}: {{ owner_url }}
 
 {% include "membership/emails/_footer.txt" %}

@@ -29,7 +29,7 @@
         <span>
           <strong>{{ b.member.display_name }}</strong>
           {% if b.amount_paid_cents %}<span class="pl-price-chip">{{ b.amount_paid_cents|cents_as_price }}</span>{% endif %}
-          · {{ b.guild.name }}
+          · {{ b.orientation_type.owner_name }}
           <span class="hub-text-muted">· {{ b.orientation_type.name }}</span>
           {% if b.slot.with_label %}<span class="hub-text-muted">· {{ b.slot.with_label }}</span>{% endif %}
           <span class="hub-text-muted">· {{ b.slot.starts_at|date:"D M j, g:i A" }}</span>
@@ -90,7 +90,7 @@
       <tr>
         <td>{{ b.slot.starts_at|date:"Y-m-d H:i" }}</td>
         <td><a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a></td>
-        <td>{{ b.guild.name }}</td>
+        <td>{{ b.orientation_type.owner_name }}</td>
         <td>{{ b.orientation_type.name }}</td>
         <td>{{ b.slot.orienter.display_name|default:"—" }}</td>
         <td>

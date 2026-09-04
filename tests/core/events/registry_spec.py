@@ -199,8 +199,10 @@ def describe_event_registry():
         def it_routes_class_validation_to_class_approvers():
             assert get_event("class_validation_requested").recipient is Recipients.CLASS_APPROVERS
 
-        def it_routes_orientation_requested_to_orienters():
-            assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS
+        def it_routes_orientation_requested_to_orienters_or_equipment_managers():
+            # Composed for equipment-owned orientations: equipment in context routes
+            # to the equipment's managers; a guild context keeps the orienter fan-out.
+            assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS
 
         def it_routes_login_invite_to_single_user():
             assert get_event("member.login_invite").recipient is Recipients.SINGLE_USER

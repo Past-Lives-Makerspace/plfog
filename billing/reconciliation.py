@@ -388,7 +388,7 @@ def _orientation_lines(
         OrientationBooking.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
         .filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt)
-        .select_related("guild", "member", "oriented_by")
+        .select_related("guild", "member", "oriented_by", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
     lines: list[TransactionLine] = []
@@ -400,14 +400,14 @@ def _orientation_lines(
                 source_pk=booking.pk,
                 when=booking.requested_at,
                 payer_name=booking.member.display_name,
-                item=f"Orientation — {booking.guild.name}",
+                item=f"Orientation — {booking.orientation_type.owner_name}",
                 gross_cents=booking.amount_paid_cents,
                 refunded_cents=booking.amount_refunded_cents,
                 producer_key=("orientator", orientator.id) if orientator is not None else None,
                 producer_label=orientator.display_name if orientator is not None else None,
                 producer_role="orientator",
-                guild_key=("guild", booking.guild.id),
-                guild_label=booking.guild.name,
+                guild_key=("guild", booking.guild.id) if booking.guild is not None else None,
+                guild_label=booking.guild.name if booking.guild is not None else None,
                 percents=percents,
                 adjustment=adjustments.get(("orientation", booking.pk)),
             )

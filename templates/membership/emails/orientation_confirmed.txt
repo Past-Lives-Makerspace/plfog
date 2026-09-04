@@ -1,6 +1,6 @@
 Hi {{ greeting_name }},
 
-Good news — {% if slot.orienter %}{{ slot.orienter_first_name }} confirmed your orientation for {{ guild.name }}{% else %}your orientation for {{ guild.name }} is confirmed{% endif %}!
+Good news — {% if slot.orienter %}{{ slot.orienter_first_name }} confirmed your orientation for {{ owner_name }}{% else %}your orientation for {{ owner_name }} is confirmed{% endif %}!
 
 {% if orientation_type %}  Orientation: {{ orientation_type.name }}
 {% endif %}  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
@@ -8,7 +8,7 @@ Good news — {% if slot.orienter %}{{ slot.orienter_first_name }} confirmed you
 {% endif %}
 We've attached an updated calendar invite. See you there!
 
-Guild page: {{ guild_url }}
+Guild page: {{ owner_url }}
 Can't make it? Cancel here: {{ cancel_url }}
 
 {% include "membership/emails/_footer.txt" %}

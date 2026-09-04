@@ -334,6 +334,22 @@ urlpatterns = [
         equipment_views.hub_equipment_staff_remove,
         name="hub_equipment_staff_remove",
     ),
+    # Equipment-owned orientations: type formset, one-off slots, slot cancel (manage tab).
+    path(
+        "equipment/<slug:slug>/manage/orientation/types/save/",
+        equipment_views.hub_equipment_orientation_types_save,
+        name="hub_equipment_orientation_types_save",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/slots/add/",
+        equipment_views.hub_equipment_orientation_slot_add,
+        name="hub_equipment_orientation_slot_add",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/slots/<int:pk>/cancel/",
+        equipment_views.hub_equipment_orientation_slot_cancel,
+        name="hub_equipment_orientation_slot_cancel",
+    ),
     # Reservations (PR 2): the HTMX schedule partial, instant booking, cancels, hours.
     path("equipment/<slug:slug>/schedule/", equipment_views.hub_equipment_schedule, name="hub_equipment_schedule"),
     path("equipment/<slug:slug>/reserve/", equipment_views.hub_equipment_reserve, name="hub_equipment_reserve"),

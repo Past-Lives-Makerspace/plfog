@@ -223,7 +223,7 @@ def describe_equipment_add():
             },
         )
         assert response.status_code == 200
-        assert b"Pick an orientation offered by the chosen guild." in response.content
+        assert b"Pick an orientation offered by the chosen guild" in response.content
         assert not Equipment.objects.filter(name="Mismatch Saw").exists()
 
     def it_allows_any_guilds_orientation_on_standalone_equipment(client: Client):
@@ -249,8 +249,12 @@ def describe_equipment_detail():
         assert b"needs to be active" not in response.content
 
     def it_shows_the_orientation_gap_with_a_deep_link(client: Client):
+        from tests.membership.factories import GuildOrientationSettingsFactory
+
         _login(client, "eq_det_orient")
         orientation_type = OrientationTypeFactory(name="Lathe")
+        # The guild must actually be taking bookings, or the honest paused variant renders.
+        GuildOrientationSettingsFactory(guild=orientation_type.guild, is_enabled=True)
         equipment = EquipmentFactory(required_orientation=orientation_type)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert b"You need the Lathe orientation before you can book time here." in response.content
@@ -267,8 +271,10 @@ def describe_equipment_detail():
 
         user = _login(client, "eq_det_booked")
         orientation_type = OrientationTypeFactory(name="Lathe")
+        from membership.models import OrientationBooking
+
         slot = OrientationSlotFactory(guild=orientation_type.guild, orientation_type=orientation_type)
-        OrientationBookingFactory(member=user.member, slot=slot)
+        OrientationBookingFactory(member=user.member, slot=slot, status=OrientationBooking.Status.CONFIRMED)
         equipment = EquipmentFactory(required_orientation=orientation_type)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert b"Your orientation is booked for" in response.content
@@ -495,7 +501,7 @@ def describe_equipment_details_save():
             },
         )
         assert response.status_code == 200
-        assert b"Pick an orientation offered by the chosen guild." in response.content
+        assert b"Pick an orientation offered by the chosen guild" in response.content
         equipment.refresh_from_db()
         assert equipment.required_orientation is None
 
@@ -591,3 +597,256 @@ def describe_equipment_staff_remove():
         response = client.post(reverse("hub_equipment_staff_remove", args=[other.slug, staff.pk]))
         assert response.status_code == 404
         assert EquipmentStaffMembership.objects.filter(pk=staff.pk).exists()
+
+
+def describe_equipment_orientation_surface():
+    """The on-page Orientation section, the owner-aware banner, and the book redirect."""
+
+    def _owned_type(equipment, **kwargs):
+        from tests.membership.factories import OrientationTypeFactory
+
+        return OrientationTypeFactory(
+            equipment_owned=True, equipment=equipment, name=kwargs.pop("name", "Operator Basics"), **kwargs
+        )
+
+    def _slot(orientation_type):
+        from tests.membership.factories import OrientationSlotFactory
+
+        return OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+
+    def it_renders_the_slot_list_with_request_and_price_chip(client: Client):
+        _login(client, "eqo_slots")
+        equipment = EquipmentFactory(name="CNC Router")
+        orientation_type = _owned_type(equipment, price_cents=1500)
+        _slot(orientation_type)
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        content = response.content.decode()
+        assert "Get Oriented for the CNC Router" in content
+        assert 'id="equipment-orientation"' in content
+        assert "Request" in content
+        assert "$15" in content
+        assert "now through our secure checkout" in content  # paid confirm copy
+
+    def it_shows_oriented_pending_and_hold_states(client: Client):
+        from membership.models import OrientationBooking
+        from tests.membership.factories import OrientationBookingFactory
+
+        user = _login(client, "eqo_states")
+        equipment = EquipmentFactory()
+        done_type = _owned_type(equipment, name="Done Type")
+        OrientationBookingFactory(
+            slot=_slot(done_type), member=user.member, is_completed=True, status=OrientationBooking.Status.CONFIRMED
+        )
+        pending_type = _owned_type(equipment, name="Pending Type")
+        OrientationBookingFactory(slot=_slot(pending_type), member=user.member)
+        hold_type = _owned_type(equipment, name="Hold Type", price_cents=1500)
+        OrientationBookingFactory(
+            slot=_slot(hold_type),
+            member=user.member,
+            status=OrientationBooking.Status.PENDING_PAYMENT,
+            amount_paid_cents=1500,
+        )
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "You've completed this orientation." in content
+        assert "Waiting for a manager to confirm." in content
+        assert "Resume payment" in content
+        assert "Finishing Your Booking" in content
+
+    def it_shows_the_empty_state_with_a_manager_link_for_managers(client: Client):
+        user = _login(client, "eqo_empty_mgr")
+        equipment = EquipmentFactory()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        _owned_type(equipment)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "No orientation times are posted yet. Check back soon." in content
+        assert "Add times from the manage panel." in content
+
+    def it_hides_the_manager_link_from_members(client: Client):
+        _login(client, "eqo_empty_plain")
+        equipment = EquipmentFactory()
+        _owned_type(equipment)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "No orientation times are posted yet. Check back soon." in content
+        assert "Add times from the manage panel." not in content
+
+    def it_omits_the_section_with_no_renderable_types(client: Client):
+        _login(client, "eqo_none")
+        equipment = EquipmentFactory()
+        _owned_type(equipment, is_active=False)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert 'id="equipment-orientation"' not in content
+
+    def it_highlights_the_type_from_the_query_param(client: Client):
+        _login(client, "eqo_highlight")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _slot(orientation_type)
+        response = client.get(
+            reverse("hub_equipment_detail", args=[equipment.slug]), {"type": str(orientation_type.pk)}
+        )
+        assert b"pl-orient-type--highlight" in response.content
+
+    def describe_inactive_type_pinning():
+        def it_keeps_a_confirmed_bookings_cancel_controls(client: Client):
+            from membership.models import OrientationBooking
+            from tests.membership.factories import OrientationBookingFactory
+
+            user = _login(client, "eqo_pin_conf")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment)
+            OrientationBookingFactory(
+                slot=_slot(orientation_type), member=user.member, status=OrientationBooking.Status.CONFIRMED
+            )
+            orientation_type.is_active = False
+            orientation_type.save(update_fields=["is_active"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Cancel my orientation" in content
+            assert "Request</button>" not in content  # no slot list on an inactive type
+
+        def it_keeps_a_holds_resume_controls(client: Client):
+            from membership.models import OrientationBooking
+            from tests.membership.factories import OrientationBookingFactory
+
+            user = _login(client, "eqo_pin_hold")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment, price_cents=1500)
+            OrientationBookingFactory(
+                slot=_slot(orientation_type),
+                member=user.member,
+                status=OrientationBooking.Status.PENDING_PAYMENT,
+                amount_paid_cents=1500,
+            )
+            orientation_type.is_active = False
+            orientation_type.save(update_fields=["is_active"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Resume payment" in content
+
+        def it_hides_the_inactive_type_from_uninvolved_members(client: Client):
+            _login(client, "eqo_pin_none")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment)
+            _slot(orientation_type)
+            orientation_type.is_active = False
+            orientation_type.save(update_fields=["is_active"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert 'id="equipment-orientation"' not in content
+
+    def describe_owner_aware_banner():
+        def it_anchors_an_equipment_owned_required_type_down_the_page(client: Client):
+            _login(client, "eqo_banner_own")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment)
+            _slot(orientation_type)
+            equipment.required_orientation = orientation_type
+            equipment.save(update_fields=["required_orientation"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert f"?type={orientation_type.pk}#equipment-orientation" in content
+            assert "Book the Orientation" in content
+
+        def it_shows_the_paused_copy_with_no_dead_link(client: Client):
+            _login(client, "eqo_banner_paused")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment, is_active=False)
+            equipment.required_orientation = orientation_type
+            equipment.save(update_fields=["required_orientation"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Orientation bookings for this tool are paused. Check back soon." in content
+            assert "Book the Orientation" not in content
+
+        def it_shows_the_booked_sub_state_even_on_a_paused_type(client: Client):
+            from membership.models import OrientationBooking
+            from tests.membership.factories import OrientationBookingFactory
+
+            user = _login(client, "eqo_banner_booked")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment)
+            OrientationBookingFactory(
+                slot=_slot(orientation_type), member=user.member, status=OrientationBooking.Status.CONFIRMED
+            )
+            orientation_type.is_active = False
+            orientation_type.save(update_fields=["is_active"])
+            equipment.required_orientation = orientation_type
+            equipment.save(update_fields=["required_orientation"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "Your orientation is booked for" in content
+            assert "paused. Check back soon." not in content
+
+        def it_uses_manager_copy_for_an_equipment_owned_pending_request(client: Client):
+            from tests.membership.factories import OrientationBookingFactory
+
+            user = _login(client, "eqo_banner_pending")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment)
+            OrientationBookingFactory(slot=_slot(orientation_type), member=user.member)  # REQUESTED
+            equipment.required_orientation = orientation_type
+            equipment.save(update_fields=["required_orientation"])
+            content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+            assert "A manager will confirm a time." in content
+            assert "The guild will confirm a time." not in content
+
+    def describe_book_redirect():
+        def it_lands_back_on_the_equipment_anchor(client: Client):
+            _login(client, "eqo_book")
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment)
+            slot = _slot(orientation_type)
+            response = client.post(reverse("hub_orientation_book", args=[slot.pk]))
+            assert response.status_code == 302
+            assert (
+                response["Location"] == f"/equipment/{equipment.slug}/?type={orientation_type.pk}#equipment-orientation"
+            )
+
+        def it_keeps_the_guild_redirect_for_guild_slots(client: Client):
+            from tests.membership.factories import OrientationSlotFactory
+
+            _login(client, "eqo_book_guild")
+            slot = OrientationSlotFactory()
+            response = client.post(reverse("hub_orientation_book", args=[slot.pk]))
+            assert response.status_code == 302
+            assert response["Location"].startswith(f"/guilds/{slot.guild.slug}/?tab=orientations")
+
+    def describe_equipment_form_required_orientation():
+        def it_offers_and_saves_the_equipments_own_type(client: Client):
+            _login(client, "eqo_form_own", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory(name="Own Saw")
+            orientation_type = _owned_type(equipment)
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {
+                    "name": equipment.name,
+                    "kind": "tool",
+                    "required_orientation": orientation_type.pk,
+                    "is_active": "on",
+                },
+            )
+            assert response.status_code == 302
+            equipment.refresh_from_db()
+            assert equipment.required_orientation == orientation_type
+
+        def it_round_trips_an_inactive_selected_required_type(client: Client):
+            _login(client, "eqo_form_inactive", fog_role=Member.FogRole.ADMIN)
+            equipment = EquipmentFactory()
+            orientation_type = _owned_type(equipment, is_active=False)
+            equipment.required_orientation = orientation_type
+            equipment.save(update_fields=["required_orientation"])
+            response = client.post(
+                reverse("hub_equipment_details_save", args=[equipment.slug]),
+                {
+                    "name": equipment.name,
+                    "kind": "tool",
+                    "required_orientation": orientation_type.pk,
+                    "is_active": "on",
+                },
+            )
+            assert response.status_code == 302  # no invalid-choice error
+            equipment.refresh_from_db()
+            assert equipment.required_orientation == orientation_type
+
+        def it_hides_an_inactive_type_from_other_equipment(client: Client):
+            _login(client, "eqo_form_hidden", fog_role=Member.FogRole.ADMIN)
+            other = EquipmentFactory()
+            inactive = _owned_type(other, is_active=False)
+            fresh = EquipmentFactory()
+            response = client.get(reverse("hub_equipment_manage", args=[fresh.slug]))
+            queryset = response.context["form"].fields["required_orientation"].queryset
+            assert inactive not in queryset

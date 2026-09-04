@@ -8446,9 +8446,22 @@ class OrientationType(models.Model):
 
     guild = models.ForeignKey(
         Guild,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="orientation_types",
-        help_text="The guild that offers this orientation type.",
+        help_text="The guild that offers this orientation type. Empty for an equipment-owned type.",
+    )
+    equipment = models.ForeignKey(
+        "Equipment",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="owned_orientation_types",
+        help_text=(
+            "The equipment that owns this orientation type. Empty for a guild-owned type. "
+            "PROTECT: deleting equipment that owns orientation history must fail loudly."
+        ),
     )
     name = models.CharField(max_length=100, help_text="Member-facing name, e.g. 'Shop Basics' or 'Lathe'.")
     description = models.TextField(
@@ -8481,15 +8494,93 @@ class OrientationType(models.Model):
         ordering = ["sort_order", "name"]
         constraints = [
             models.UniqueConstraint(fields=["guild", "name"], name="uq_orientationtype_guild_name"),
+            # Exactly one owner — a type belongs to a guild XOR a piece of equipment.
+            models.CheckConstraint(
+                condition=(
+                    Q(guild__isnull=False, equipment__isnull=True) | Q(guild__isnull=True, equipment__isnull=False)
+                ),
+                name="ck_orienttype_one_owner",
+            ),
+            # The guild uniqueness above stops covering rows with guild=NULL (SQL
+            # NULL-distinct semantics) — equipment-owned types need their own.
+            models.UniqueConstraint(
+                fields=["equipment", "name"],
+                condition=Q(equipment__isnull=False),
+                name="uq_orienttype_equip_name",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} — {self.name}"
+        return f"{self.owner_name} — {self.name}"
 
     @property
     def is_paid(self) -> bool:
         """True when this orientation type charges to book (price set above zero)."""
         return self.price_cents > 0
+
+    # --- Owner resolution (equipment-owned orientations) — the one source of truth.
+    # Every call site asks the type; nothing re-derives guild-vs-equipment inline.
+
+    @property
+    def is_equipment_owned(self) -> bool:
+        """True when this type belongs to a piece of equipment rather than a guild."""
+        return self.equipment_id is not None
+
+    @property
+    def owner(self) -> Guild | Equipment:
+        """The owning guild or equipment — the constraint guarantees exactly one is set."""
+        if self.is_equipment_owned:
+            return cast("Equipment", self.equipment)
+        return cast(Guild, self.guild)
+
+    @property
+    def owner_name(self) -> str:
+        """The owner's display name, whichever kind it is."""
+        return self.owner.name
+
+    def owner_page_path(self) -> str:
+        """The relative hub path of the owner's page — for redirects and in-app URLs."""
+        if self.is_equipment_owned:
+            return reverse("hub_equipment_detail", args=[cast("Equipment", self.equipment).slug])
+        return reverse("hub_guild_detail", args=[cast(Guild, self.guild).slug])
+
+    def owner_page_url(self) -> str:
+        """The absolute owner-page URL — for emails."""
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(self.owner_page_path())
+
+    def orientation_anchor_path(self) -> str:
+        """The deep link the blocker banner and emails use — owner page + orientation anchor."""
+        if self.is_equipment_owned:
+            return f"{self.owner_page_path()}?type={self.pk}#equipment-orientation"
+        return f"{self.owner_page_path()}?tab=orientations&type={self.pk}#guild-orientation"
+
+    @property
+    def is_accepting(self) -> bool:
+        """Owner-aware "taking new bookings" gate.
+
+        Both owners require the type itself active. A guild-owned type then rides
+        the guild's :class:`GuildOrientationSettings` gate; an equipment-owned type
+        rides only the equipment's ``is_active`` (no settings model in v1 — the
+        locked no-settings decision).
+        """
+        if not self.is_active:
+            return False
+        if self.is_equipment_owned:
+            return cast("Equipment", self.equipment).is_active
+        settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
+        return settings_obj is not None and settings_obj.is_accepting
+
+    def default_runner(self) -> Member | None:
+        """The fallback ``oriented_by`` when nobody explicit ran it.
+
+        Guild-owned falls back to the guild lead; equipment-owned has no default
+        (managers confirm explicitly; token/system paths leave it unattributed).
+        """
+        if self.is_equipment_owned:
+            return None
+        return cast(Guild, self.guild).guild_lead
 
 
 class OrientationAvailabilityQuerySet(models.QuerySet):
@@ -8780,24 +8871,28 @@ class OrientationSlotQuerySet(models.QuerySet):
         )
 
     def bookable(self) -> OrientationSlotQuerySet:
-        """Upcoming slots at guilds currently accepting bookings (does not check seats).
+        """Upcoming slots whose owner is currently accepting bookings (does not check seats).
 
-        A personal slot whose orienter has left the guild's leadership (no longer the
-        lead nor on staff) is excluded — a departed staffer's surviving slot must not
-        reappear in the member list the moment its booking is declined or cancelled.
+        Owner-aware: a guild-owned slot requires the guild's settings gate and a
+        still-on-leadership orienter (a departed staffer's surviving slot must not
+        reappear the moment its booking is declined or cancelled). An
+        equipment-owned slot (``guild`` is None) requires only active equipment and
+        never carries an orienter (the no-per-orienter-machinery decision).
         """
         still_on_staff = GuildStaffMembership.objects.filter(
             guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
         )
-        return (
-            self.upcoming()
-            .filter(
-                guild__orientation_settings__is_enabled=True,
-                guild__orientation_settings__is_closed=False,
-                orientation_type__is_active=True,
-            )
-            .filter(Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
+        guild_gate = Q(
+            orientation_type__guild__isnull=False,
+            guild__orientation_settings__is_enabled=True,
+            guild__orientation_settings__is_closed=False,
+        ) & (Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
+        equipment_gate = Q(
+            orientation_type__equipment__isnull=False,
+            orientation_type__equipment__is_active=True,
+            orienter__isnull=True,
         )
+        return self.upcoming().filter(orientation_type__is_active=True).filter(guild_gate | equipment_gate)
 
 
 class OrientationSlot(models.Model):
@@ -8817,7 +8912,12 @@ class OrientationSlot(models.Model):
         FROM_BLOCK = "from_block", "Booked into an availability block"
 
     guild = models.ForeignKey(
-        Guild, on_delete=models.CASCADE, related_name="orientation_slots", help_text="Parent guild."
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_slots",
+        help_text="Parent guild. Empty for an equipment-owned orientation.",
     )
     orientation_type = models.ForeignKey(
         OrientationType,
@@ -8873,7 +8973,7 @@ class OrientationSlot(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} — {self.orientation_type.name} @ {self.starts_at:%Y-%m-%d %H:%M}"
+        return f"{self.orientation_type.owner_name} — {self.orientation_type.name} @ {self.starts_at:%Y-%m-%d %H:%M}"
 
     @property
     def seats_taken(self) -> int:
@@ -8934,9 +9034,14 @@ class OrientationSlot(models.Model):
             return False
         if not self.orientation_type.is_active:
             return False
-        if self.orienter_id is not None and self.orienter_id not in {m.pk for m in self.guild.leadership_members()}:
+        if self.orientation_type.is_equipment_owned:
+            # No orienter-leadership check and no settings gate for equipment — the
+            # equipment's is_active is the whole switch (via is_accepting).
+            return self.orientation_type.is_accepting
+        guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
+        if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
             return False
-        settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
+        settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
         return settings_obj is not None and settings_obj.is_accepting
 
     def ensure_bookable_for(self, member: Member) -> None:
@@ -9064,9 +9169,11 @@ class OrientationBooking(models.Model):
     )
     guild = models.ForeignKey(
         Guild,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="orientation_bookings",
-        help_text="Denormalized from the slot for cheap filtering and scoping.",
+        help_text="Denormalized from the slot for cheap filtering and scoping. Empty for an equipment-owned orientation.",
     )
     orientation_type = models.ForeignKey(
         OrientationType,
@@ -9133,7 +9240,7 @@ class OrientationBooking(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.member} — {self.guild.name} orientation ({self.get_status_display()})"
+        return f"{self.member} — {self.orientation_type.owner_name} orientation ({self.get_status_display()})"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self.slot_id and not self.guild_id:
@@ -9166,11 +9273,11 @@ class OrientationBooking(models.Model):
             )
 
     def confirm(self, *, oriented_by: Member | None = None) -> None:
-        """Accept the request; default the giver to the slot's orienter, then the guild lead."""
+        """Accept the request; default the giver to the slot's orienter, then the owner's default runner."""
         self._refuse_checkout_hold()
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
-        self.oriented_by = oriented_by or self.slot.orienter or self.guild.guild_lead
+        self.oriented_by = oriented_by or self.slot.orienter or self.orientation_type.default_runner()
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self, *, note: str = "") -> None:
@@ -9194,7 +9301,7 @@ class OrientationBooking(models.Model):
         if oriented_by is not None:
             self.oriented_by = oriented_by
         elif self.oriented_by is None:
-            self.oriented_by = self.slot.orienter or self.guild.guild_lead
+            self.oriented_by = self.slot.orienter or self.orientation_type.default_runner()
         self.save(update_fields=["is_completed", "oriented_by"])
 
     def uncomplete(self) -> None:
@@ -9248,17 +9355,15 @@ class OrientationBooking(models.Model):
 
     def refund_receipt_context(self) -> dict[str, Any]:
         """The documented context keys the shared refund service reads (see the protocol)."""
-        from membership.orientations import _absolute_url
-
-        guild_url = _absolute_url(reverse("hub_guild_detail", args=[self.guild.slug]))
+        orientation_type = self.orientation_type
         return {
-            "item_title": f"{self.guild.name} orientation: {self.orientation_type.name}",
+            "item_title": f"{orientation_type.owner_name} orientation: {orientation_type.name}",
             "recipient_email": self.member.primary_email,
             "recipient_name": self.member.display_name,
             "payer_name": self.member.display_name,
             "member": self.member,
-            "manage_url": guild_url,
-            "in_app_url": reverse("hub_guild_detail", args=[self.guild.slug]),
+            "manage_url": orientation_type.owner_page_url(),
+            "in_app_url": orientation_type.owner_page_path(),
         }
 
     def on_fully_refunded(self, reason: str, actor: User | None) -> None:
