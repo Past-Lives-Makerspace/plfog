@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
-from hub.calendar_entries import CalendarEntry, google_calendar_subscribe_url
+from hub.calendar_entries import CalendarEntry, google_calendar_subscribe_url, google_target_feed_keys
 from tests.membership.factories import GuildFactory
 
 
@@ -65,6 +65,76 @@ def describe_CalendarEntry_source_key():
         # Community stays blue — the guild must NOT recolor it.
         guild = GuildFactory()
         assert _entry(source="community", guild=guild).source_key == "community"
+
+    def it_prefers_a_stamped_feed_key_over_the_raw_source():
+        assert _entry(source="community", feed_key="feed-7").source_key == "feed-7"
+
+    def it_prefers_a_stamped_feed_key_even_when_a_guild_is_set():
+        guild = GuildFactory()
+        assert _entry(source="community", guild=guild, feed_key="feed-7").source_key == "feed-7"
+
+
+@pytest.mark.django_db
+def describe_google_target_feed_keys():
+    def _configure(member_id: str = "", public_id: str = "") -> None:
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = member_id
+        config.public_google_calendar_id = public_id
+        config.save()
+
+    def it_maps_each_target_to_the_feed_embedding_its_calendar_id():
+        from core.models import CalendarFeed
+
+        _configure(member_id="member@group.calendar.google.com", public_id="public@group.calendar.google.com")
+        # One feed embeds the id percent-encoded (Google's iCal URL shape), the other raw —
+        # both forms must match.
+        member_feed = CalendarFeed.objects.create(
+            name="Member Calendar",
+            ical_url="https://calendar.google.com/calendar/ical/member%40group.calendar.google.com/public/basic.ics",
+            color="#eeb44b",
+        )
+        public_feed = CalendarFeed.objects.create(
+            name="Public Calendar",
+            ical_url="https://calendar.google.com/calendar/ical/public@group.calendar.google.com/public/basic.ics",
+            color="#6fd880",
+        )
+        assert google_target_feed_keys() == {
+            "member": f"feed-{member_feed.pk}",
+            "public": f"feed-{public_feed.pk}",
+        }
+
+    def it_skips_a_target_whose_calendar_id_is_unset():
+        from core.models import CalendarFeed
+
+        _configure(public_id="public@group.calendar.google.com")
+        feed = CalendarFeed.objects.create(
+            name="Public Calendar",
+            ical_url="https://calendar.google.com/calendar/ical/public%40group.calendar.google.com/public/basic.ics",
+            color="#6fd880",
+        )
+        assert google_target_feed_keys() == {"public": f"feed-{feed.pk}"}
+
+    def it_skips_a_target_with_no_matching_feed():
+        from core.models import CalendarFeed
+
+        _configure(member_id="member@group.calendar.google.com", public_id="public@group.calendar.google.com")
+        CalendarFeed.objects.create(name="Unrelated", ical_url="https://example.com/other.ics", color="#888888")
+        assert google_target_feed_keys() == {}
+
+    def it_maps_both_targets_to_the_same_feed_when_they_share_a_calendar_id():
+        # Degenerate config: both targets point at one Google calendar → both keys
+        # resolve to that single feed's chip rather than one target being dropped.
+        from core.models import CalendarFeed
+
+        _configure(member_id="shared@group.calendar.google.com", public_id="shared@group.calendar.google.com")
+        feed = CalendarFeed.objects.create(
+            name="Shared Calendar",
+            ical_url="https://calendar.google.com/calendar/ical/shared%40group.calendar.google.com/public/basic.ics",
+            color="#6fd880",
+        )
+        assert google_target_feed_keys() == {"member": f"feed-{feed.pk}", "public": f"feed-{feed.pk}"}
 
 
 def _guild_series(day_offsets: list[int]) -> object:

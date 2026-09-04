@@ -5402,6 +5402,12 @@ def _get_calendar_context(
     # fallback toggle/color for it (a class with a guild groups under that guild instead).
     has_ungrouped_classes = any(e.source_key == "classes" for e in all_events)
 
+    # True when a FOG event in this window didn't map to a feed chip (its Google
+    # target has no configured calendar id or no matching feed) → render the generic
+    # "Events" fallback toggle for it. Mirrors has_ungrouped_classes. Only synthetic
+    # community entries can key "community", so real CalendarEvent rows never trip this.
+    has_unmapped_events = any(e.source_key == "community" for e in all_events)
+
     # Group events by date for calendar grid dots
     events_by_date: dict = defaultdict(list)
     for evt in all_events:
@@ -5452,6 +5458,7 @@ def _get_calendar_context(
         "guilds_with_calendars": guilds_with_calendars,
         "legend_guilds": legend_guilds,
         "has_ungrouped_classes": has_ungrouped_classes,
+        "has_unmapped_events": has_unmapped_events,
         "calendar_feeds": calendar_feeds,
         "classes_enabled": classes_enabled,
         "classes_color": classes_color,

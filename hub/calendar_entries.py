@@ -54,9 +54,17 @@ class CalendarEntry:
     # its Google-sync flag and (on the Events tab) its admin Edit/Delete controls.
     # Always None for feed / class / orientation entries.
     community_event: CommunityEvent | None = None
+    # Legend key of the CalendarFeed mirroring this event's Google calendar target
+    # (e.g. "feed-2"), stamped only on site-wide community entries so a FOG event
+    # groups under the matching feed chip instead of a separate "Events" chip.
+    # Empty = no mapping → source_key falls back to the raw source ("community").
+    feed_key: str = ""
 
     @property
     def source_key(self) -> str:
+        # A stamped feed key wins: the entry toggles and colors with that feed's chip.
+        if self.feed_key:
+            return self.feed_key
         # Only classes route by their guild's color. Orientation stays "orientation"
         # and community stays "community" even though those entries also carry a guild
         # object — don't recolor them by guild.
@@ -121,6 +129,34 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
     return entries
 
 
+def google_target_feed_keys() -> dict[str, str]:
+    """Map each Google calendar target (``"public"``/``"member"``) to the legend key
+    of the ``CalendarFeed`` that mirrors that Google calendar.
+
+    A feed "mirrors" a target when its iCal URL embeds the target's configured
+    calendar id (raw or percent-encoded — Google iCal URLs encode the ``@``). A
+    target whose calendar id is unset, or matches no feed, is simply absent from
+    the result, so callers fall back to the generic "community" key for it.
+    """
+    from core.models import CalendarFeed, SiteConfiguration
+
+    config = SiteConfiguration.load()
+    target_ids = {
+        "member": config.member_google_calendar_id,
+        "public": config.public_google_calendar_id,
+    }
+    feeds = list(CalendarFeed.objects.filter(ical_url__gt=""))
+    keys: dict[str, str] = {}
+    for target, calendar_id in target_ids.items():
+        if not calendar_id:
+            continue
+        for feed in feeds:
+            if calendar_id in feed.ical_url or quote(calendar_id, safe="") in feed.ical_url:
+                keys[target] = f"feed-{feed.pk}"
+                break
+    return keys
+
+
 def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | None = None) -> list[CalendarEntry]:
     """Build synthetic calendar entries for FOG-native ``CommunityEvent`` rows that
     contribute an occurrence to ``[fetch_from, fetch_to]``.
@@ -136,6 +172,11 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
     qs = CommunityEvent.objects.published().candidates_for_window(fetch_from, fetch_to)
     if guild is not None:
         qs = qs.for_guild(guild)
+
+    # Site-wide entries adopt the feed chip matching their Google target, so the
+    # main Calendar legend needs no separate "Community events" chip. Guild-scoped
+    # entries stay unmapped — the guild calendar keeps its own generic chip.
+    feed_keys = google_target_feed_keys() if guild is None else {}
 
     entries: list[CalendarEntry] = []
     for ev in qs.select_related("guild"):
@@ -156,6 +197,7 @@ def community_event_entries(fetch_from: date, fetch_to: date, guild: Guild | Non
                     all_day=False,
                     guild=ev.guild,
                     community_event=ev,
+                    feed_key=feed_keys.get(ev.google_calendar_target, ""),
                 )
             )
     return entries
@@ -186,6 +228,9 @@ def upcoming_calendar_events() -> list[Any]:
     )
 
     # One entry per published CommunityEvent, anchored on its next (or in-progress) occurrence.
+    # Same feed-key stamping as the site-wide grid, so the Events tab lists each FOG
+    # event under the same chip/color as its grid rendering.
+    feed_keys = google_target_feed_keys()
     for ev in CommunityEvent.objects.published().upcoming().select_related("guild"):
         duration = ev.ends_at - ev.starts_at
         upcoming_occ = [occ for occ in ev.occurrences_in(today, horizon) if occ + duration >= now]
@@ -205,6 +250,7 @@ def upcoming_calendar_events() -> list[Any]:
                 video_url=ev.video_url,
                 guild=ev.guild,
                 community_event=ev,
+                feed_key=feed_keys.get(ev.google_calendar_target, ""),
             )
         )
     return sorted(entries, key=lambda e: e.start_dt)
