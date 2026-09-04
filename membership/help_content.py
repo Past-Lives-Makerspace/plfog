@@ -81,7 +81,7 @@ PENDING_LEGACY_TARGETS: frozenset[str] = frozenset()
 #: hand-edited intro never matches and is never touched.
 RETIRED_INTRO = """\
 Welcome to the Past Lives member hub. This is where the makerspace runs day to day: your \
-guilds, the class catalog, the calendar, guild voting, and your account settings.
+guilds, the class catalog, the community calendar, guild voting, and your account settings.
 
 Use the menu on the left to get around:
 
