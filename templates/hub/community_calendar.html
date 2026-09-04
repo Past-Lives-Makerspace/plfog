@@ -187,13 +187,16 @@
 
     {# ── Filter toggles ── #}
     <div class="pl-calendar-filters" data-help-key="calendar.filter">
+        {% if has_unmapped_events %}
+        {# Fallback chip: only for FOG events whose Google target has no matching feed. #}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('community') }"
                 @click="toggleFilter('community')"
                 style="--filter-color: {{ community_color }};">
             <span class="pl-calendar-filter__dot" style="background: {{ community_color }};"></span>
-            Community events
+            Events
         </button>
+        {% endif %}
         {% for feed in calendar_feeds %}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('feed-{{ feed.pk }}') }"
@@ -225,7 +228,7 @@
             {{ guild.name }}
         </button>
         {% endfor %}
-        {% if not calendar_feeds and not has_ungrouped_classes and not legend_guilds %}
+        {% if not calendar_feeds and not has_ungrouped_classes and not legend_guilds and not has_unmapped_events %}
         <p class="pl-calendar-empty-notice">No calendars configured yet. Guild officers can add a Google Calendar link from their guild page.</p>
         {% endif %}
     </div>

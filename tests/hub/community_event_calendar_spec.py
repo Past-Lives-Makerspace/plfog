@@ -3,6 +3,7 @@ monthly occurrence expansion, source-filter visibility wiring, and the .ics expo
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -32,6 +33,29 @@ def _login(client: Client, username: str) -> User:
 
 def _community_entries(ctx: dict) -> list:
     return [e for e in ctx["month_events"] if getattr(e, "source", "") == "community"]
+
+
+def _map_public_feed():
+    """Configure the public Google calendar id and a CalendarFeed mirroring it."""
+    from core.models import CalendarFeed, SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.public_google_calendar_id = "public@group.calendar.google.com"
+    config.save()
+    return CalendarFeed.objects.create(
+        name="Public Calendar",
+        ical_url="https://calendar.google.com/calendar/ical/public%40group.calendar.google.com/public/basic.ics",
+        color="#6fd880",
+    )
+
+
+def _filters_block(content: bytes) -> bytes:
+    """The rendered legend/filter chip block. Assertions scope here because the
+    changelog modal (rendered on every page) contains 'Community events' in old
+    entry titles and would trip page-wide negative assertions."""
+    match = re.search(rb'<div class="pl-calendar-filters".*?</div>', content, re.S)
+    assert match is not None, "filters block not found in response"
+    return match.group()
 
 
 def describe_calendar_inclusion():
@@ -113,8 +137,86 @@ def describe_video_url_on_calendar_entries():
         assert entry.video_url == ""
 
 
+def describe_feed_key_mapping():
+    def it_stamps_site_wide_entries_with_the_feed_key_for_their_google_target():
+        feed = _map_public_feed()
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Potluck",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        )
+        entries = community_event_entries((now - timedelta(days=1)).date(), (now + timedelta(days=10)).date())
+        entry = next(e for e in entries if e.title == "Potluck")
+        assert entry.feed_key == f"feed-{feed.pk}"
+        assert entry.source_key == f"feed-{feed.pk}"
+
+    def it_keeps_guild_scoped_entries_on_the_community_key():
+        _map_public_feed()
+        now = timezone.now()
+        guild = GuildFactory()
+        CommunityEventFactory(
+            guild=guild,
+            title="Guild Meeting",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        )
+        entries = community_event_entries(
+            (now - timedelta(days=1)).date(), (now + timedelta(days=10)).date(), guild=guild
+        )
+        entry = next(e for e in entries if e.title == "Guild Meeting")
+        assert entry.feed_key == ""
+        assert entry.source_key == "community"
+
+    def it_falls_back_to_community_when_the_target_has_no_matching_feed():
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Unmapped Mixer",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+        )
+        entries = community_event_entries((now - timedelta(days=1)).date(), (now + timedelta(days=10)).date())
+        entry = next(e for e in entries if e.title == "Unmapped Mixer")
+        assert entry.feed_key == ""
+        assert entry.source_key == "community"
+
+
+def describe_legend_fallback():
+    def it_flags_the_window_when_an_unmapped_event_is_present():
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Unmapped Mixer",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+        )
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert ctx["has_unmapped_events"] is True
+
+    def it_does_not_flag_the_window_when_every_event_maps_to_a_feed():
+        _map_public_feed()
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Mapped Potluck",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        )
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert ctx["has_unmapped_events"] is False
+
+    def it_does_not_flag_an_empty_window():
+        ctx = _get_calendar_context(RequestFactory().get("/"))
+        assert ctx["has_unmapped_events"] is False
+
+
 def describe_visibility_wiring():
-    def it_wires_the_community_source_on_the_community_calendar(client: Client):
+    def it_renders_the_events_fallback_chip_for_an_unmapped_event(client: Client):
         _login(client, "vis1")
         now = timezone.now()
         CommunityEventFactory(
@@ -124,14 +226,36 @@ def describe_visibility_wiring():
             ends_at=now + timedelta(days=3, hours=2),
         )
         resp = client.get(reverse("hub_community_calendar"))
-        assert b"Community events" in resp.content  # the filter button (proves color wiring)
-        assert b"community" in resp.content  # the legend renders the community toggle
+        filters = _filters_block(resp.content)
+        assert b"toggleFilter('community')" in filters  # the fallback toggle is wired
+        assert b"Events" in filters  # relabeled chip
+        assert b"Community events" not in filters  # old label is gone
+
+    def it_renders_no_community_chip_when_every_event_maps_to_a_feed(client: Client):
+        _login(client, "vis3")
+        feed = _map_public_feed()
+        now = timezone.now()
+        CommunityEventFactory(
+            community=True,
+            title="Mapped Potluck",
+            starts_at=now + timedelta(days=3),
+            ends_at=now + timedelta(days=3, hours=2),
+            google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        )
+        resp = client.get(reverse("hub_community_calendar"))
+        filters = _filters_block(resp.content)
+        assert b"toggleFilter('community')" not in filters
+        assert f"feed-{feed.pk}".encode() in filters  # the event toggles with the feed chip
+        assert b"Public Calendar" in filters
 
     def it_wires_the_community_source_on_a_guild_calendar(client: Client):
         _login(client, "vis2")
         guild = GuildFactory()
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert b"Community events" in resp.content
+        filters = _filters_block(resp.content)
+        assert b"toggleFilter('community')" in filters
+        assert b"Events" in filters
+        assert b"Community events" not in filters
 
 
 def describe_ics_export():
