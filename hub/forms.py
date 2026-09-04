@@ -824,6 +824,7 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_general_webhook_url",
             "discord_leadership_webhook_url",
             "discord_officers_webhook_url",
+            "discord_reservations_webhook_url",
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",

@@ -263,6 +263,14 @@ class SiteConfiguration(models.Model):
         verbose_name="#guild-officers Discord webhook",
         help_text="Discord webhook for #guild-officers. Blank = the option is hidden from the picker.",
     )
+    discord_reservations_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="#reservations Discord webhook",
+        help_text="Discord webhook for #reservations. New equipment reservations post here "
+        "automatically. Blank = reservations are not posted to Discord.",
+    )
     discord_server_id = models.CharField(
         max_length=32,
         blank=True,

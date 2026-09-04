@@ -9,9 +9,12 @@ All window math asserted in local time at ``now + 2 days``.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, time, timedelta
 
+import httpx
 import pytest
+import respx
 from django.contrib.auth.models import User
 from django.core import mail
 from django.utils import timezone
@@ -537,9 +540,13 @@ def describe_equipment_events():
         made = get_event("equipment.reservation_made")
         assert made.recipient is Recipients.EQUIPMENT_MANAGERS
         assert made.channel(Channel.EMAIL).default is ChannelDefault.OFF
+        # The managers' ping ALSO broadcasts to the #reservations Discord channel;
+        # the two personal events stay Discord-free (a booking receipt is not news).
+        assert made.channel(Channel.DISCORD).default is ChannelDefault.ON
+        for event in (confirmed, cancelled):
+            assert not event.has_channel(Channel.DISCORD)
         for event in (confirmed, cancelled, made):
             assert event.category == "Spaces & Equipment"
-            assert not event.has_channel(Channel.DISCORD)
 
     def it_resolves_equipment_managers_across_all_three_tiers_deduped():
         lead = _linked_member("ev_lead")
@@ -587,6 +594,66 @@ def describe_equipment_events():
         confirmation = next(m for m in mail.outbox if "Reserved" in m.subject)
         assert "[missing:" not in confirmation.body
         assert "[missing:" not in confirmation.subject
+
+    def describe_reservations_discord_post():
+        _WEBHOOK = "https://discord.com/api/webhooks/900/reservations"
+
+        def _configure_webhook(url: str = _WEBHOOK) -> None:
+            from core.models import SiteConfiguration
+
+            config = SiteConfiguration.load()
+            config.discord_reservations_webhook_url = url
+            config.save()
+
+        @respx.mock
+        def it_posts_a_greeting_free_embed_to_the_reservations_webhook():
+            _configure_webhook()
+            route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            equipment = _open_tool(name="CNC Router")
+            member = _linked_member("disc_post")
+            equipment_service.reserve(equipment, member, _at(_day(), 10), 60)
+            assert route.call_count == 1
+            payload = json.loads(route.calls[0].request.content)
+            embed = payload["embeds"][0]
+            assert embed["title"] == "New reservation"
+            assert member.display_name in embed["description"]
+            assert "CNC Router" in embed["description"]
+            assert "Hi " not in embed["description"]
+            assert "[missing:" not in embed["description"]
+
+        @respx.mock
+        def it_is_a_silent_no_op_with_a_blank_webhook(settings):
+            # A blank pin silences Discord for the event — it must NOT fall back to
+            # the central notify webhook.
+            settings.DISCORD_NOTIFY_WEBHOOK_URL = "https://discord.com/api/webhooks/901/central"
+            central = respx.post(settings.DISCORD_NOTIFY_WEBHOOK_URL).mock(return_value=httpx.Response(204))
+            equipment = _open_tool()
+            equipment_service.reserve(equipment, _linked_member("disc_blank"), _at(_day(), 10), 60)
+            assert not central.called
+
+        @respx.mock
+        def it_posts_only_to_reservations_for_guild_owned_equipment():
+            # The owner asked for #reservations only — the guild's own channel must
+            # never also hear it (the emit context carries no "guild" key).
+            _configure_webhook()
+            guild_webhook = "https://discord.com/api/webhooks/902/guildchannel"
+            reservations_route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            guild_route = respx.post(guild_webhook).mock(return_value=httpx.Response(204))
+            guild = GuildFactory(discord_webhook_url=guild_webhook, discord_post_enabled=True)
+            equipment = _open_tool(guild=guild)
+            equipment_service.reserve(equipment, _linked_member("disc_guild"), _at(_day(), 10), 60)
+            assert reservations_route.call_count == 1
+            assert not guild_route.called
+
+        @respx.mock
+        def it_dedupes_a_re_emit_of_the_same_reservation():
+            _configure_webhook()
+            route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
+            equipment = _open_tool()
+            reservation = equipment_service.reserve(equipment, _linked_member("disc_dedupe"), _at(_day(), 10), 60)
+            assert route.call_count == 1
+            equipment_service._notify_managers(reservation)  # a scheduler-style re-emit
+            assert route.call_count == 1
 
     def describe_build_ics():
         def it_builds_a_confirmed_invite():

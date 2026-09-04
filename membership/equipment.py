@@ -145,7 +145,14 @@ def _notify_confirmed(reservation: EquipmentReservation) -> None:
 
 
 def _notify_managers(reservation: EquipmentReservation) -> None:
-    """Awareness ping to the equipment's managers — no approval exists, so email defaults off."""
+    """Awareness ping to the equipment's managers — no approval exists, so email defaults off.
+
+    Also the #reservations Discord broadcast: the event is pinned to the Site
+    Settings ``discord_reservations_webhook_url`` (blank = silent no-op, never the
+    central notify webhook). The context deliberately carries NO ``guild`` key —
+    that is what keeps ``emit``'s guild dual-route dark, so a guild-owned tool's
+    booking still posts to #reservations only, never the guild's own channel.
+    """
     from core.events.emit import emit
 
     emit(

@@ -1014,7 +1014,7 @@ _NEW_EVENTS: list[EventType] = [
     # equipment.reservation_confirmed — the member's own booking receipt. Operational
     # mail like orientation updates: in-app on + email FORCED, push on (via
     # _PUSH_ON_BY_DEFAULT). The email carries a calendar invite (.ics) via the emit
-    # attachments. Discord stays absent on all three events — a personal reservation
+    # attachments. Discord stays absent on the two personal events — a personal reservation
     # is not a broadcast (and the greeting rule stays un-walked-into).
     EventType(
         key=EQUIPMENT_RESERVATION_CONFIRMED,
@@ -1039,14 +1039,18 @@ _NEW_EVENTS: list[EventType] = [
     ),
     # equipment.reservation_made — awareness, not action (no approval exists), to the
     # equipment's managers: in-app on, email opt-in. Grouped under Staff & leadership
-    # on the settings page via the EQUIPMENT_MANAGERS recipient.
+    # on the settings page via the EQUIPMENT_MANAGERS recipient. The DISCORD broadcast
+    # posts to the #reservations channel ONLY: the event is pinned to the Site Settings
+    # discord_reservations_webhook_url (core.events.discord.SITE_CONFIG_EVENT_WEBHOOKS —
+    # blank silences it, never the central notify webhook), and the emit context carries
+    # no "guild" key, so the guild dual-route in emit._guild_broadcast never fires.
     EventType(
         key=EQUIPMENT_RESERVATION_MADE,
         label="New equipment reservation",
         description="A member reserved time on equipment you manage.",
         category="Spaces & Equipment",
         recipient=Recipients.EQUIPMENT_MANAGERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF),
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
         activity_kind=None,
     ),
 ]

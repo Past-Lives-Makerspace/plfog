@@ -44,6 +44,43 @@ def describe_webhook_for_event_db_routing():
         assert discord_module.webhook_for_event("class_reminder") == global_webhook
 
 
+def describe_site_config_pinned_events():
+    """Events pinned to a Site Settings webhook field (equipment.reservation_made → #reservations)."""
+
+    _PINNED = "equipment.reservation_made"
+    _RESERVATIONS = "https://discord.example/reservations"
+
+    def _configure(url):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.discord_reservations_webhook_url = url
+        config.save()
+
+    def it_resolves_to_the_site_settings_webhook(global_webhook):
+        _configure(_RESERVATIONS)
+        assert discord_module.webhook_for_event(_PINNED) == _RESERVATIONS
+
+    def it_silences_the_event_when_the_pin_is_blank_instead_of_falling_back(global_webhook):
+        # The owner asked for #reservations ONLY — a blank pin must never reach the
+        # central notify webhook.
+        _configure("")
+        assert discord_module.webhook_for_event(_PINNED) == ""
+
+    def it_still_lets_a_db_route_override_the_pin(global_webhook):
+        _configure(_RESERVATIONS)
+        DiscordWebhookRoute.objects.create(event_key=_PINNED, webhook_url=_ROUTED, is_enabled=True)
+        assert discord_module.webhook_for_event(_PINNED) == _ROUTED
+
+    def it_still_lets_an_in_code_override_win(global_webhook):
+        _configure(_RESERVATIONS)
+        discord_module.EVENT_WEBHOOK_OVERRIDES[_PINNED] = _ROUTED
+        try:
+            assert discord_module.webhook_for_event(_PINNED) == _ROUTED
+        finally:
+            discord_module.EVENT_WEBHOOK_OVERRIDES.pop(_PINNED, None)
+
+
 def describe_route_model():
     def it_reports_effective_webhook_only_when_enabled():
         route = DiscordWebhookRoute(event_key="k", webhook_url=" {} ".format(_ROUTED), is_enabled=True)

@@ -51,6 +51,15 @@ _ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
 # call-site change: callers only ever ask :func:`webhook_for_event`.
 EVENT_WEBHOOK_OVERRIDES: dict[str, str] = {}
 
+# Events pinned to a Site Settings webhook FIELD instead of the global default.
+# A pinned event resolves to that field's value — INCLUDING blank, which silences
+# Discord for it (the owner asked for #reservations only, never the central notify
+# channel). A DB route or in-code override still wins, so the admin routing
+# surface keeps its authority.
+SITE_CONFIG_EVENT_WEBHOOKS: dict[str, str] = {
+    "equipment.reservation_made": "discord_reservations_webhook_url",
+}
+
 
 def global_webhook() -> str:
     """The site-wide default Discord webhook URL (blank = channel disabled)."""
@@ -92,7 +101,11 @@ def webhook_for_event(event_key: str) -> str:
        ``""``). A disabled route is ignored.
     2. **In-code override** (:data:`EVENT_WEBHOOK_OVERRIDES`) — the Phase-2 seam, kept
        as a secondary fallback for tests / programmatic config.
-    3. **Global webhook** (``settings.DISCORD_NOTIFY_WEBHOOK_URL``).
+    3. **Site Settings pin** (:data:`SITE_CONFIG_EVENT_WEBHOOKS`) — an event pinned to
+       a :class:`core.models.SiteConfiguration` webhook field resolves to that field's
+       value, INCLUDING blank (a blank pin silences Discord for the event; it never
+       falls through to the global webhook).
+    4. **Global webhook** (``settings.DISCORD_NOTIFY_WEBHOOK_URL``).
 
     A blank result means Discord is disabled for this event (the adapter treats it
     as a no-op).
@@ -112,6 +125,12 @@ def webhook_for_event(event_key: str) -> str:
     override = EVENT_WEBHOOK_OVERRIDES.get(event_key, "").strip()
     if override:
         return override
+
+    pinned_field = SITE_CONFIG_EVENT_WEBHOOKS.get(event_key)
+    if pinned_field is not None:
+        from core.models import SiteConfiguration
+
+        return (getattr(SiteConfiguration.load(), pinned_field, "") or "").strip()
     return global_webhook()
 
 
