@@ -130,7 +130,9 @@ def webhook_for_event(event_key: str) -> str:
     if pinned_field is not None:
         from core.models import SiteConfiguration
 
-        return (getattr(SiteConfiguration.load(), pinned_field, "") or "").strip()
+        # No getattr default (CLAUDE.md fail-loudly): a typo'd field name in a future
+        # pin must raise immediately, not silence the event forever as a fake blank.
+        return (getattr(SiteConfiguration.load(), pinned_field) or "").strip()
     return global_webhook()
 
 

@@ -80,6 +80,18 @@ def describe_site_config_pinned_events():
         finally:
             discord_module.EVENT_WEBHOOK_OVERRIDES.pop(_PINNED, None)
 
+    def it_pins_only_registered_events_to_real_site_configuration_fields():
+        # Guards FUTURE pin entries too: a typo'd field would resolve as a fake
+        # blank and silence its event forever (the silent-fallback class CLAUDE.md
+        # bans); a typo'd event key would never route. Fail here instead.
+        from core.events.registry import get_event
+        from core.models import SiteConfiguration
+
+        field_names = {field.name for field in SiteConfiguration._meta.get_fields()}
+        for event_key, pinned_field in discord_module.SITE_CONFIG_EVENT_WEBHOOKS.items():
+            get_event(event_key)  # KeyError on an unregistered event key
+            assert pinned_field in field_names, f"{event_key} pins unknown SiteConfiguration field {pinned_field!r}"
+
 
 def describe_route_model():
     def it_reports_effective_webhook_only_when_enabled():

@@ -620,6 +620,8 @@ def describe_equipment_events():
             assert "CNC Router" in embed["description"]
             assert "Hi " not in embed["description"]
             assert "[missing:" not in embed["description"]
+            # Discord rejects relative embed URLs with a silent 400 — the url must be absolute.
+            assert embed["url"].startswith("http")
 
         @respx.mock
         def it_is_a_silent_no_op_with_a_blank_webhook(settings):

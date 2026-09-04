@@ -155,12 +155,16 @@ def _notify_managers(reservation: EquipmentReservation) -> None:
     """
     from core.events.emit import emit
 
+    placeholders = _placeholder_context(reservation)
     emit(
         "equipment.reservation_made",
         actor=reservation.member.user,
         target=reservation,
-        context={"equipment": reservation.equipment, **_placeholder_context(reservation)},
-        url=reverse("hub_equipment_detail", args=[reservation.equipment.slug]),
+        context={"equipment": reservation.equipment, **placeholders},
+        # ABSOLUTE url, not reverse(): in copy mode this becomes the Discord embed's
+        # url, and Discord rejects relative embed URLs with a silent-looking 400
+        # (post_embed logs and returns False) — the channel would never hear a thing.
+        url=placeholders["equipment_url"],
         period=f"reservation:{reservation.pk}:made",
     )
 
