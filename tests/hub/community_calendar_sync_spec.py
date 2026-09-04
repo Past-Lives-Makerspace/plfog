@@ -40,8 +40,8 @@ def _calendar_event(uid: str, title: str, *, days: int = 3) -> CalendarEvent:
 def _enable_config() -> None:
     config = SiteConfiguration.load()
     config.google_calendar_sync_enabled = True
-    config.member_google_calendar_id = CALENDAR_ID  # default event target is MEMBER
-    config.save(update_fields=["google_calendar_sync_enabled", "member_google_calendar_id"])
+    config.public_google_calendar_id = CALENDAR_ID  # default event target is PUBLIC since v1.34.0
+    config.save(update_fields=["google_calendar_sync_enabled", "public_google_calendar_id"])
 
 
 def _lead(client: Client, username: str, **guild_kwargs) -> tuple[User, object]:
@@ -132,7 +132,7 @@ def describe_create_pushes():
 
     def it_pushes_a_new_admin_event(client: Client):
         _admin(client, "ad1")
-        _enable_config()  # sets the Member calendar id; a new admin event defaults to the MEMBER target
+        _enable_config()  # sets the Public calendar id; a new admin event defaults to the PUBLIC target
         inserted = MagicMock(return_value={"id": "adm1", "iCalUID": "adm1@google.com"})
         fake = MagicMock(spec=GoogleCalendarClient)
         fake.enabled = True
