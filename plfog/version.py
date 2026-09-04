@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.32.0"
+VERSION = "1.32.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.32.1",
+        "date": "2026-09-04",
+        "title": "Role preview menu fits on phones",
+        "changes": [
+            "The role preview menu (the eye icon at the top, for admins) now opens "
+            "fully on phone screens instead of hanging off the edge.",
+        ],
+    },
     {
         "version": "1.32.0",
         "date": "2026-09-03",
