@@ -87,7 +87,7 @@ Use the menu on the left to get around:
 
 - Home: your dashboard and recent activity.
 - Class Catalog: every class and workshop you can sign up for.
-- Community Calendar: everything happening at the space, in one place.
+- Calendar: everything happening at the space, in one place.
 - Spaces: the floor plan and every studio and shared area.
 - Guild Voting: rank the guilds you want the monthly funding pool to support.
 - Help: this page, plus answers to common questions.
@@ -154,7 +154,7 @@ ARTICLES: list[dict[str, Any]] = [
 Log in and you land on **Home**. It shows:
 
 - **Get started at Past Lives** — a short checklist for new members. Dismiss it once you're settled.
-- Quick links — one tap to the **Community Calendar**, **Class Catalog**, **Guild Voting**, **Member Directory**, and **Settings**.
+- Quick links — one tap to the **Calendar**, **Class Catalog**, **Guild Voting**, **Member Directory**, and **Settings**.
 - **Your upcoming** — classes and events you're signed up for.
 - **Latest from your guilds** — recent announcements from guilds you follow.
 - **Your guilds** — a chip for each of your guilds, linking straight to its page.
@@ -167,7 +167,7 @@ The left sidebar is the map:
 
 - **Home** — your dashboard.
 - **Class Catalog** — every class and workshop you can sign up for.
-- **Community Calendar** — everything happening at the space, in one place.
+- **Calendar** — everything happening at the space, in one place.
 - **Spaces** — the floor map and every studio and shared area.
 - **Guild Voting** — rank the guilds you want the monthly funding pool to support.
 - **Help** — the guides you're reading now, with search.
@@ -517,20 +517,20 @@ Refunds aren't automatic: for a paid class, an admin handles the refund — emai
     {
         "slug": "community-calendar",
         "category": "events-community",
-        "title": "The Community Calendar",
+        "title": "The Calendar",
         "sort_order": 10,
         "related": ["propose-an-event", "taking-a-class"],
         "body": """\
-The Community Calendar puts everything happening at the space in one place: guild meetings, classes, and community events.
+The Calendar puts everything happening at the space in one place: guild meetings, classes, and community events.
 
 ### Browse the Calendar {#calendar-browse}
 
-1. Click **Community Calendar** in the left menu.
+1. Click **Calendar** in the left menu.
 2. Use the **Week** / **Month** toggle to switch views, and the arrows to move through time.
 3. The **Events** tab next to **Calendar** shows the same events as a plain list.
 4. Click any event to open its page — the details, plus an **Add to calendar** button that downloads a calendar file for just that event.
 
-![The Community Calendar — Week and Month views, with the Events tab beside them.](/static/help/community-calendar/01-calendar-page.png)
+![The Calendar — Week and Month views, with the Events tab beside them.](/static/help/community-calendar/01-calendar-page.png)
 
 Heads up: some colored events are pulled in from subscribed and guild calendars — not all of them are Past Lives classes, so they won't all appear in the Class Catalog.
 
@@ -562,7 +562,7 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
                 "file": "01-calendar-page.png",
                 "page": "hub_community_calendar",
                 "selector": None,
-                "caption": "The Community Calendar — Week and Month views, with the Events tab beside them.",
+                "caption": "The Calendar — Week and Month views, with the Events tab beside them.",
                 "as_role": "member",
             },
             {
@@ -591,11 +591,11 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
         "sort_order": 20,
         "related": ["community-calendar", "announcements"],
         "body": """\
-Got a workshop, meetup, or hangout in mind? Any member can propose an event for the Community Calendar.
+Got a workshop, meetup, or hangout in mind? Any member can propose an event for the Calendar.
 
 ### Propose It {#event-propose}
 
-1. Open the **Community Calendar** and click **+ Propose an event**.
+1. Open the **Calendar** and click **+ Propose an event**.
 2. Fill in the form: title, when it starts, whether it repeats, and the details. Pick your guild to propose one of its meetings or events, or leave the guild blank for a site-wide community event.
 3. Click **Submit for review**.
 
@@ -1672,7 +1672,7 @@ Three ways to keep members in the loop, each on its own Guild Settings tab. Even
 
 ### Guild Events {#guild-events}
 
-On the **Events** tab, click **+ Add event** to schedule a meeting or event. Your events publish straight away; there's no approval step for guild leads and staff. They show on the Community Calendar and on your guild's own calendar, and members get a heads-up in the app when a new one goes live.
+On the **Events** tab, click **+ Add event** to schedule a meeting or event. Your events publish straight away; there's no approval step for guild leads and staff. They show on the Calendar and on your guild's own calendar, and members get a heads-up in the app when a new one goes live.
 
 ![The Events tab. Add event puts your meetings and events on the calendars.](/static/help/guild-events-hours-notes/01-events-tab.png)
 
@@ -2006,7 +2006,7 @@ Because the Member Portal owns it end to end, this is the path that gives you "c
 
 Anyone with edit access to the Member or Public Google calendar can add an event there. The Member Portal then:
 
-- **Imports** it (read-only) on the nightly sync, so it appears on the Community Calendar.
+- **Imports** it (read-only) on the nightly sync, so it appears on the Calendar.
 - **Mirrors** it into Discord's event list.
 
 The catch: the Member Portal treats these as read-only. You **cannot edit or delete a Google-born event from the Member Portal** — editing the Member Portal copy just gets overwritten on the next sync. To change its date, time, or details, or to remove it, do that **on the Google calendar**; the Member Portal picks up the change on the next sync.

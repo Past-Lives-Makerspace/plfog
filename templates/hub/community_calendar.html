@@ -1,7 +1,7 @@
 {% extends "hub/base.html" %}
 {% load static hub_tags %}
 
-{% block title %}Community Calendar — Past Lives Makerspace{% endblock %}
+{% block title %}Calendar — Past Lives Makerspace{% endblock %}
 
 {% block body_class %}calendar-portal{% endblock %}
 
@@ -23,7 +23,7 @@
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 
 <div class="hub-page-header" style="display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;">
-    <h1 class="hub-page-title">Community Calendar</h1>
+    <h1 class="hub-page-title">Calendar</h1>
     <span x-data="{ open: false }" style="position:relative;display:inline-flex;align-items:center;">
         <button type="button"
                 @mouseenter="open=true" @mouseleave="open=false"

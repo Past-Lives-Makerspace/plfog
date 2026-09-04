@@ -291,6 +291,11 @@ def describe_the_preview_card():
         assert by_name["Location"] == "Shop"
         assert by_name["Description"] == "Bring gloves"
 
+    def it_defaults_the_calendar_target_to_public(linked_member):
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        _result, draft = _preview(admin, title="Open House", when="tomorrow 6pm")
+        assert draft.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
     def it_omits_location_and_description_fields_when_unset(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)
         result, _draft = _preview(admin, title="Plain", when="tomorrow 6pm")
@@ -479,7 +484,7 @@ def describe_confirming_a_preview():
 
         assert result == {}
         payload = _followup_payload(followup)
-        assert "live on the Community Calendar" in payload["content"]
+        assert "live on the Calendar" in payload["content"]
         assert payload["components"][0]["components"][0]["label"] == "Open the event"
         event = CommunityEvent.objects.get(title="Potluck")
         assert event.moderation_state == CommunityEvent.ModerationState.PUBLISHED
@@ -499,7 +504,7 @@ def describe_confirming_a_preview():
         _result, draft = _preview(lead, title="Fiber Night", when="tomorrow 6pm", guild_slug=guild.slug)
 
         _confirm(lead, draft.pk)
-        assert "live on the Community Calendar" in _followup_payload(followup)["content"]
+        assert "live on the Calendar" in _followup_payload(followup)["content"]
         assert CommunityEvent.objects.get(title="Fiber Night").moderation_state == (
             CommunityEvent.ModerationState.PUBLISHED
         )
@@ -566,7 +571,7 @@ def describe_confirming_a_preview():
         _result, draft = _preview(member, title="Open Proposal", when="tomorrow 6pm")
 
         _confirm(member, draft.pk)
-        assert "live on the Community Calendar" in _followup_payload(followup)["content"]
+        assert "live on the Calendar" in _followup_payload(followup)["content"]
         assert CommunityEvent.objects.get(title="Open Proposal").moderation_state == (
             CommunityEvent.ModerationState.PUBLISHED
         )
@@ -707,7 +712,7 @@ def describe_error_handling():
 
         assert result == {}
         content = _followup_payload(followup)["content"]
-        assert "live on the Community Calendar" in content
+        assert "live on the Calendar" in content
         assert "went wrong" not in content
         assert "Emailed" not in content
 
@@ -790,7 +795,7 @@ def describe_instant_calendar_announce():
         _confirm(admin, draft.pk)
 
         payload = _followup_payload(followup)
-        assert "live on the Community Calendar" in payload["content"]  # publish succeeded regardless
+        assert "live on the Calendar" in payload["content"]  # publish succeeded regardless
         labels = [b["label"] for b in payload["components"][0]["components"]]
         assert labels == ["Open the event"]  # no jump button on a failed card post
         event = CommunityEvent.objects.get(title="Cron Fallback")

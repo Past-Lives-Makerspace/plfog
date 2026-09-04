@@ -1788,7 +1788,7 @@ class Guild(HeroCropMixin, models.Model):
         max_length=7,
         blank=True,
         default="#4B9FEE",
-        help_text="Hex color code for this guild's events on the Community Calendar (e.g. #4B9FEE).",
+        help_text="Hex color code for this guild's events on the Calendar (e.g. #4B9FEE).",
     )
     calendar_last_fetched_at = models.DateTimeField(
         null=True,
@@ -4792,7 +4792,7 @@ class InvalidEventTransition(ValueError):
 
 
 class CommunityEvent(models.Model):
-    """A FOG-native event on the Community Calendar (a guild meeting/event, a site-wide
+    """A FOG-native event on the Calendar (a guild meeting/event, a site-wide
     community event, or the cross-guild Guild Lead Meeting).
 
     Unlike :class:`CalendarEvent` (a read-only iCal cache), this is authored inside FOG
@@ -4954,9 +4954,12 @@ class CommunityEvent(models.Model):
     google_calendar_target = models.CharField(
         max_length=10,
         choices=GoogleCalendarTarget.choices,
-        default=GoogleCalendarTarget.MEMBER,
+        default=GoogleCalendarTarget.PUBLIC,
         verbose_name="Which calendar",
-        help_text="Which Google calendar this event syncs to when Google sync is on — the members-only or the public one.",
+        help_text=(
+            "Which Google calendar this event syncs to when Google sync is on. "
+            "Public is the norm; pick the members-only calendar for member-only events."
+        ),
     )
     google_event_id = models.CharField(
         max_length=1024,
@@ -5742,9 +5745,9 @@ class CommunityEvent(models.Model):
         # schedule-aware line is composed here and dropped into event.approved's copy as
         # {{ outcome }} — an approved-but-SCHEDULED event must NOT read "now on the calendar".
         if scheduled:
-            outcome = f"It'll be announced and added to the Community Calendar on {self.publish_at_display}."
+            outcome = f"It'll be announced and added to the Calendar on {self.publish_at_display}."
         else:
-            outcome = "It's now on the Community Calendar."
+            outcome = "It's now on the Calendar."
         emit(
             event_key,
             actor=self.reviewed_by,
@@ -6094,8 +6097,8 @@ class CommunityEventDraft(models.Model):
     google_calendar_target = models.CharField(
         max_length=10,
         choices=CommunityEvent.GoogleCalendarTarget.choices,
-        default=CommunityEvent.GoogleCalendarTarget.MEMBER,
-        help_text="Which Google calendar the published event posts to.",
+        default=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        help_text="Which Google calendar the published event posts to. Public is the norm; members-only is the exception.",
     )
     email_choice = models.CharField(
         max_length=20,
@@ -6578,6 +6581,14 @@ class Meeting(models.Model):
             ends_at=ends,
             location=self._event_location(),
             recurrence=CommunityEvent.Recurrence.NONE,
+            # Explicit, not the model default: a council/lead meeting is internal (its
+            # location often carries the leads' video link), so it stays on the
+            # members-only calendar; a guild meeting follows the public-by-default norm.
+            google_calendar_target=(
+                CommunityEvent.GoogleCalendarTarget.PUBLIC
+                if self.guild_id is not None
+                else CommunityEvent.GoogleCalendarTarget.MEMBER
+            ),
             created_by=by,
         )
         event.save()

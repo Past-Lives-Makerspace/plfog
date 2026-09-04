@@ -92,7 +92,7 @@ def describe_approve():
         event.approve(reviewer=reviewer)
         note = Notification.objects.get(user=proposer, trigger="event.approved")
         assert event.publish_at_display in note.body
-        assert "now on the Community Calendar" not in note.body
+        assert "now on the Calendar" not in note.body
 
     def it_publishes_immediately_with_no_schedule():
         reviewer = _user("rev_now")
@@ -110,7 +110,7 @@ def describe_approve():
         event = CommunityEventFactory(pending=True, submitted_by=proposer, publish_at=None)
         event.approve(reviewer=reviewer)
         note = Notification.objects.get(user=proposer, trigger="event.approved")
-        assert "now on the Community Calendar" in note.body
+        assert "now on the Calendar" in note.body
 
 
 def describe_publish_scheduled():

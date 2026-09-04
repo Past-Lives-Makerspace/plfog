@@ -376,7 +376,7 @@ _SECTION_DESCRIPTIONS: dict[str, str] = {
     "Billing": "Tab receipts and charge notices.",
     "Membership & Account": "Invitations and account-level notices.",
     "Voting": "The monthly guild-funding vote cycle.",
-    "Events": "Community Calendar proposal and publishing workflow.",
+    "Events": "Calendar proposal and publishing workflow.",
     "Announcements & Release": "Staff broadcasts: announcements and release updates.",
     "System/Auth": "Sign-in and account-recovery emails.",
 }

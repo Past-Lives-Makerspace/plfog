@@ -660,7 +660,7 @@ _NEW_EVENTS: list[EventType] = [
     # 9. event.lead_meeting_published — an admin posts the cross-guild Guild Lead Meeting.
     #    Notifies every guild lead/officer/staffer site-wide; in-app on, email ON by default
     #    (owner call, copy-review 2026-08-18), Discord on (central). The event still shows on
-    #    the Community Calendar for all members.
+    #    the Calendar for all members.
     EventType(
         key=EVENT_LEAD_MEETING_PUBLISHED,
         label="Guild Lead Meeting scheduled",
@@ -712,13 +712,13 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # 14. event.submitted — a member proposed a Community Calendar event; it lands in the
+    # 14. event.submitted — a member proposed a Calendar event; it lands in the
     #     review queue. Goes to the guild's leadership OR (site-wide → admins). A per-person
     #     workflow reply: in-app + email, no Discord broadcast.
     EventType(
         key=EVENT_SUBMITTED,
         label="Event proposal submitted",
-        description="A member proposed a Community Calendar event that needs review.",
+        description="A member proposed a Calendar event that needs review.",
         category="Events",
         recipient=Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),

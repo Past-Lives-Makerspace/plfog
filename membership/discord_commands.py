@@ -888,8 +888,8 @@ _CREATE_RECURRENCE_CHOICES: list[tuple[str, str]] = [
     ("monthly", "Monthly"),
 ]
 _CREATE_CALENDAR_CHOICES: list[tuple[str, str]] = [
-    ("member", "Members-only calendar"),
     ("public", "Public calendar"),
+    ("member", "Members-only calendar"),
 ]
 _CREATE_EMAIL_CHOICES: list[tuple[str, str]] = [
     ("none", "No email"),
@@ -1036,7 +1036,7 @@ def _published_reply(event: CommunityEvent, emailed: int, *, calendar_url: str =
     succeeded) adds a second link button so the creator lands on the card people will
     actually RSVP on, not just the hub page.
     """
-    content = "Your event is live on the Community Calendar. ✅"
+    content = "Your event is live on the Calendar. ✅"
     if emailed:
         content += f"\nEmailed {emailed} member{'' if emailed == 1 else 's'}."
     buttons = [{"type": 2, "style": 5, "label": "Open the event", "url": event.public_url}]
@@ -1348,7 +1348,7 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
         guild,
         cast("datetime", when.start),
         cast("datetime", when.end),
-        CommunityEvent.GoogleCalendarTarget.MEMBER,
+        CommunityEvent.GoogleCalendarTarget.PUBLIC,
         location=location,
     )
     if not form.is_valid():
@@ -1371,7 +1371,7 @@ def _create_submit(interaction: Interaction, member: Member | None) -> dict:
         video_url="",
         description=cleaned["description"],
         recurrence=CommunityEvent.Recurrence.NONE,
-        google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+        google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
         email_choice=CommunityEventDraft.EmailChoice.NONE,
         when_had_end=when.had_end,
     )
@@ -1584,7 +1584,7 @@ def _create_component(interaction: Interaction, member: Member | None) -> dict:
 
 CREATE = SlashCommand(
     name="create",
-    description="Create a Community Calendar event.",
+    description="Create a Calendar event.",
     handler=_create_event,
     requires_link=True,
     ephemeral=True,
@@ -1706,7 +1706,7 @@ def _cancel_confirm_card(event: CommunityEvent, branch: str) -> dict:
     else:
         content = (
             f"Cancel **{truncate(event.title, 100)}** ({when_display})? It will be removed from the "
-            "Community Calendar, Google Calendar, and Discord. Members will not be notified automatically."
+            "Calendar, Google Calendar, and Discord. Members will not be notified automatically."
         )
         if event.recurrence != CommunityEvent.Recurrence.NONE:
             content += " This removes the whole repeating series."

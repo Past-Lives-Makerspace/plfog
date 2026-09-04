@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.33.0"
+VERSION = "1.34.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.34.0",
+        "date": "2026-09-04",
+        "title": "One calendar, simpler",
+        "changes": [
+            "The Community Calendar is now just the Calendar.",
+            "New events go on the public Google calendar by default, so anyone can "
+            "see what is happening at the makerspace. You can still mark an event "
+            "members only when you create it.",
+        ],
+    },
     {
         "version": "1.33.0",
         "date": "2026-09-04",

@@ -1183,12 +1183,12 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="New event proposal: {{ event_title }}",
                 body_text=(
-                    "{{ proposer_name }} proposed a Community Calendar event that needs a quick review.\n\n"
+                    "{{ proposer_name }} proposed a Calendar event that needs a quick review.\n\n"
                     "{{ event_title }}\n{{ guild_name }} · {{ when }}\n\n"
                     "Review it: {{ review_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>{{ proposer_name }} proposed a Community Calendar event that needs a quick review.</p>"
+                    "<p>{{ proposer_name }} proposed a Calendar event that needs a quick review.</p>"
                     '<p><strong><a href="{{ review_url }}">{{ event_title }}</a></strong><br>'
                     "{{ guild_name }} · {{ when }}</p>"
                     '<p><a href="{{ review_url }}">Review it in the queue</a></p>'
@@ -1226,15 +1226,15 @@ _CURATED: dict[str, EventCopy] = {
     ),
     # ``outcome`` is composed in Python (CommunityEvent._emit_decision) because the safe
     # renderer only substitutes {{ placeholders }} — it cannot branch. It reads "It's now
-    # on the Community Calendar." for an immediate publish, or "It'll be announced and added
-    # to the Community Calendar on <date>." when the approval was scheduled for later.
+    # on the Calendar." for an immediate publish, or "It'll be announced and added
+    # to the Calendar on <date>." when the approval was scheduled for later.
     "event.approved": EventCopy(
         placeholders=("event_title", "when", "event_url", "outcome"),
         sample_context={
             "event_title": "Forge Night",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "event_url": "https://pastlives.example/events/5/",
-            "outcome": "It's now on the Community Calendar.",
+            "outcome": "It's now on the Calendar.",
         },
         channels={
             Channel.IN_APP: ChannelCopy(

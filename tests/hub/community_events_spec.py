@@ -82,11 +82,18 @@ def describe_form():
         form = CommunityEventForm(data=_event_payload(event_type="guild_meeting", guild=str(guild.pk)), as_admin=True)
         assert form.is_valid(), form.errors
 
-    def it_defaults_the_calendar_target_to_member_when_omitted():
-        # The payload has no google_calendar_target — the forgiving clean coerces it to MEMBER.
+    def it_defaults_the_calendar_target_to_public_when_omitted():
+        # The payload has no google_calendar_target — the forgiving clean coerces it to PUBLIC.
         form = CommunityEventForm(data=_event_payload(event_type="community"), as_admin=True)
         assert form.is_valid(), form.errors
-        assert form.cleaned_data["google_calendar_target"] == CommunityEvent.GoogleCalendarTarget.MEMBER
+        assert form.cleaned_data["google_calendar_target"] == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
+    def it_saves_the_chosen_member_calendar_target():
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", google_calendar_target="member"), as_admin=True
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
 
     def it_saves_the_chosen_public_calendar_target():
         form = CommunityEventForm(

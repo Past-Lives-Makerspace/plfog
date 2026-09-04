@@ -606,7 +606,7 @@ def release_context(data: SampleData) -> dict[str, Any]:
                 ],
             ),
             Card(
-                title="Community Calendar",
+                title="Calendar",
                 bullets=["Every guild meeting and community event, in one place."],
             ),
         ],

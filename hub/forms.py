@@ -237,7 +237,7 @@ class GuildEditForm(forms.ModelForm):
                 "In Google Calendar → Settings → your calendar → 'Secret address in iCal format'. "
                 "Leave blank if you don't use Google Calendar."
             ),
-            "calendar_color": "Color used for your guild's events on the Community Calendar.",
+            "calendar_color": "Color used for your guild's events on the Calendar.",
             "discord_url": "The public invite/link to your channel, shown as a button on your guild page.",
             "discord_webhook_url": (
                 "A private Discord webhook for your channel. Don't paste your public invite link here. "
@@ -849,7 +849,7 @@ class MemberCapabilitiesForm(forms.Form):
     cap_events_approver = forms.BooleanField(
         required=False,
         label="Calendar Administrator",
-        help_text="Reviews Community Calendar and meeting proposals, and gets those emails.",
+        help_text="Reviews Calendar and meeting proposals, and gets those emails.",
     )
     cap_billing_approver = forms.BooleanField(
         required=False,
@@ -2144,7 +2144,7 @@ class CommunityEventForm(forms.ModelForm):
         self.fields["publish_at"].label = "Announce at"
         self.fields["video_url"].label = "Video link"
         # The picker is a <select> that always submits a value in the UI; keep it forgiving so a
-        # value-less POST falls back to the model default (MEMBER) rather than erroring.
+        # value-less POST falls back to the model default (PUBLIC) rather than erroring.
         self.fields["google_calendar_target"].required = False
         self._as_admin = as_admin
         self._as_member = as_member
@@ -2159,15 +2159,10 @@ class CommunityEventForm(forms.ModelForm):
         else:
             del self.fields["event_type"]
             del self.fields["guild"]
-            # A lead authoring a NEW guild meeting defaults to the Public calendar — Google is now
-            # a public mirror. The lead can still switch to the members-only calendar per event, and
-            # editing an existing event keeps its saved target (only the create default changes).
-            if not self.instance.pk:
-                self.fields["google_calendar_target"].initial = CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def clean_google_calendar_target(self) -> str:
-        """Coerce a blank/omitted picker value to the default MEMBER calendar."""
-        return self.cleaned_data.get("google_calendar_target") or CommunityEvent.GoogleCalendarTarget.MEMBER
+        """Coerce a blank/omitted picker value to the default PUBLIC calendar."""
+        return self.cleaned_data.get("google_calendar_target") or CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def clean_publish_at(self) -> Any:
         """Blank ⇒ announce now (valid). A set time must be in the future and strictly

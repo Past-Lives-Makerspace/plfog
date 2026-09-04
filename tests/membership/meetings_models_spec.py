@@ -529,6 +529,20 @@ def describe_Meeting():
                 event = meeting.create_calendar_event(by=_user("c2"))
             assert event.location == "https://meet.example/x"
 
+        def it_targets_the_public_calendar_for_a_guild_meeting():
+            meeting = MeetingFactory(guild=GuildFactory(), scheduled_time=time(18, 0))
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                event = meeting.create_calendar_event(by=_user("cpub"))
+            assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
+        def it_targets_the_members_only_calendar_for_a_council_meeting():
+            # Internal leadership meeting — its location can carry the leads' video link,
+            # so it must never ride the public default.
+            meeting = MeetingFactory(guild=None, scheduled_time=time(19, 0))
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                event = meeting.create_calendar_event(by=_user("cmem"))
+            assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
+
         def it_builds_a_lead_meeting_for_the_council_without_touching_a_guild():
             meeting = MeetingFactory(guild=None, scheduled_time=time(19, 0))
             with patch.object(CommunityEvent, "schedule_or_go_live"):
