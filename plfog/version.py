@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.32.1"
+VERSION = "1.33.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.33.0",
+        "date": "2026-09-04",
+        "title": "Attach photos to feedback",
+        "changes": [
+            "The Send Feedback page now takes photos. Attach up to 5 screenshots "
+            "or pictures (10 MB each) so we can see exactly what you saw.",
+        ],
+    },
     {
         "version": "1.32.1",
         "date": "2026-09-04",

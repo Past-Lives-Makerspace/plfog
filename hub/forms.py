@@ -14,11 +14,13 @@ from django.utils.text import slugify
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+    from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
     from classes.models import ClassOffering
 
 from core.html_sanitize import sanitize_rich_html
+from core.validators import validate_image_size
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission
@@ -628,6 +630,38 @@ class GuildUpdatesPromptForm(forms.Form):
     )
 
 
+# Feedback photo limits. Per-photo size reuses settings.MAX_UPLOAD_IMAGE_BYTES via
+# core.validators.validate_image_size; these two are deliberately module constants
+# (not settings) — they exist for email deliverability, not deployment tuning.
+MAX_FEEDBACK_PHOTOS = 5
+MAX_FEEDBACK_PHOTO_TOTAL_BYTES = 15 * 1024 * 1024
+
+
+class MultiplePhotoInput(forms.ClearableFileInput):
+    """File input that accepts several files at once (Django's documented multi-file pattern)."""
+
+    allow_multiple_selected = True
+
+
+class MultiplePhotoField(forms.FileField):
+    """Optional multi-image upload — every file must be a real image under the per-image cap.
+
+    Django's ``FileField.clean`` handles one file; this maps it over the list the
+    multi-select widget produces. Each file is delegated to ``forms.ImageField`` so
+    it gets the same Pillow verification a normal image field would (a renamed
+    ``.txt`` fails loudly), plus ``validate_image_size`` for the per-file byte cap.
+    """
+
+    widget = MultiplePhotoInput
+
+    def clean(self, data: Any, initial: Any = None) -> list[UploadedFile]:
+        files = list(data) if isinstance(data, (list, tuple)) else ([data] if data else [])
+        if not files and self.required:
+            raise forms.ValidationError(self.error_messages["required"], code="required")
+        single = forms.ImageField(validators=[validate_image_size])
+        return [single.clean(item, initial) for item in files]
+
+
 class BetaFeedbackForm(forms.Form):
     """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 
@@ -642,6 +676,29 @@ class BetaFeedbackForm(forms.Form):
     message = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 6, "placeholder": "Describe your issue or idea..."}), label="Message"
     )
+    photos = MultiplePhotoField(
+        required=False,
+        label="Photos (optional)",
+        help_text=(
+            "Attach up to 5 photos or screenshots. 10 MB each. "
+            "If the form shows an error, please pick your photos again before resending."
+        ),
+        widget=MultiplePhotoInput(attrs={"accept": "image/*"}),
+    )
+
+    def clean_photos(self) -> list[UploadedFile]:
+        """Enforce the photo count and combined-size caps with plain messages."""
+        photos: list[UploadedFile] = self.cleaned_data["photos"]
+        if len(photos) > MAX_FEEDBACK_PHOTOS:
+            raise forms.ValidationError(
+                f"You can attach up to {MAX_FEEDBACK_PHOTOS} photos. Please remove some and try again."
+            )
+        # A cleaned upload always has a size; the stubs type it int | None for unsaved files.
+        total_bytes = sum(cast(int, photo.size) for photo in photos)
+        if total_bytes > MAX_FEEDBACK_PHOTO_TOTAL_BYTES:
+            limit_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
+            raise forms.ValidationError(f"Your photos add up to too much. Please keep the total under {limit_mb} MB.")
+        return photos
 
     def send(self, *, user: User) -> None:
         """Send the feedback email to the configured recipients.
@@ -651,21 +708,33 @@ class BetaFeedbackForm(forms.Form):
         Django's ``send_mail``. Best-effort: a failed feedback email is logged but
         must not 500 the feedback page.
         """
+        from core.email import Attachment
         from core.email import send as send_email
 
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
         subject = f"[{category_label}] {self.cleaned_data['subject']}"
+        photos: list[UploadedFile] = self.cleaned_data["photos"]
+        # The count line makes a stripped-attachment situation visible to the reader.
+        photos_line = f"Photos attached: {len(photos)}\n" if photos else ""
         body = (
             f"From: {user.get_full_name() or user.email} ({user.email})\n"
-            f"Category: {category_label}\n\n"
+            f"Category: {category_label}\n"
+            f"{photos_line}\n"
             f"{self.cleaned_data['message']}"
         )
+        attachments: list[Attachment] = []
+        for photo in photos:
+            photo.seek(0)  # ImageField's Pillow verification may leave the pointer mid-file.
+            # ImageField.to_python rewrote content_type from the verified image format;
+            # octet-stream is only the fallback for a format Pillow knows but MIME doesn't.
+            attachments.append((photo.name or "photo", photo.read(), photo.content_type or "application/octet-stream"))
         send_email(
             to=list(settings.BETA_FEEDBACK_EMAILS),
             subject=subject,
             trigger_kind="hub.beta_feedback",
             text_body=body,
             best_effort=True,
+            attachments=attachments or None,
         )
 
 
