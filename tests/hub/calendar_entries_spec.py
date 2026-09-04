@@ -123,6 +123,19 @@ def describe_google_target_feed_keys():
         CalendarFeed.objects.create(name="Unrelated", ical_url="https://example.com/other.ics", color="#888888")
         assert google_target_feed_keys() == {}
 
+    def it_maps_both_targets_to_the_same_feed_when_they_share_a_calendar_id():
+        # Degenerate config: both targets point at one Google calendar → both keys
+        # resolve to that single feed's chip rather than one target being dropped.
+        from core.models import CalendarFeed
+
+        _configure(member_id="shared@group.calendar.google.com", public_id="shared@group.calendar.google.com")
+        feed = CalendarFeed.objects.create(
+            name="Shared Calendar",
+            ical_url="https://calendar.google.com/calendar/ical/shared%40group.calendar.google.com/public/basic.ics",
+            color="#6fd880",
+        )
+        assert google_target_feed_keys() == {"member": f"feed-{feed.pk}", "public": f"feed-{feed.pk}"}
+
 
 def _guild_series(day_offsets: list[int]) -> object:
     """A guild with a published series whose sessions fall at the given day offsets."""

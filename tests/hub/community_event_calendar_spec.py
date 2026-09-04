@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from django.contrib.auth.models import User
@@ -12,10 +13,13 @@ from django.test import Client, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
-from hub.calendar_entries import EVENT_PK_OFFSET, community_event_entries
+from hub.calendar_entries import EVENT_PK_OFFSET, community_event_entries, upcoming_calendar_events
 from hub.views import _get_calendar_context
 from membership.models import CommunityEvent
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MembershipPlanFactory
+
+if TYPE_CHECKING:
+    from core.models import CalendarFeed
 
 pytestmark = pytest.mark.django_db
 
@@ -35,7 +39,7 @@ def _community_entries(ctx: dict) -> list:
     return [e for e in ctx["month_events"] if getattr(e, "source", "") == "community"]
 
 
-def _map_public_feed():
+def _map_public_feed() -> CalendarFeed:
     """Configure the public Google calendar id and a CalendarFeed mirroring it."""
     from core.models import CalendarFeed, SiteConfiguration
 
@@ -46,6 +50,20 @@ def _map_public_feed():
         name="Public Calendar",
         ical_url="https://calendar.google.com/calendar/ical/public%40group.calendar.google.com/public/basic.ics",
         color="#6fd880",
+    )
+
+
+def _map_member_feed() -> CalendarFeed:
+    """Configure the member Google calendar id and a CalendarFeed mirroring it."""
+    from core.models import CalendarFeed, SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.member_google_calendar_id = "member@group.calendar.google.com"
+    config.save()
+    return CalendarFeed.objects.create(
+        name="Member Calendar",
+        ical_url="https://calendar.google.com/calendar/ical/member%40group.calendar.google.com/public/basic.ics",
+        color="#eeb44b",
     )
 
 
@@ -183,6 +201,48 @@ def describe_feed_key_mapping():
         entry = next(e for e in entries if e.title == "Unmapped Mixer")
         assert entry.feed_key == ""
         assert entry.source_key == "community"
+
+    def describe_events_tab():
+        def it_stamps_a_public_target_event_with_the_public_feed_key():
+            feed = _map_public_feed()
+            now = timezone.now()
+            CommunityEventFactory(
+                community=True,
+                title="Tab Potluck",
+                starts_at=now + timedelta(days=3),
+                ends_at=now + timedelta(days=3, hours=2),
+                google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+            )
+            entry = next(e for e in upcoming_calendar_events() if e.title == "Tab Potluck")
+            assert entry.feed_key == f"feed-{feed.pk}"
+            assert entry.source_key == f"feed-{feed.pk}"
+
+        def it_stamps_a_member_target_event_with_the_member_feed_key():
+            member_feed = _map_member_feed()
+            public_feed = _map_public_feed()
+            now = timezone.now()
+            CommunityEventFactory(
+                community=True,
+                title="Members Night",
+                starts_at=now + timedelta(days=3),
+                ends_at=now + timedelta(days=3, hours=2),
+                google_calendar_target=CommunityEvent.GoogleCalendarTarget.MEMBER,
+            )
+            entry = next(e for e in upcoming_calendar_events() if e.title == "Members Night")
+            assert entry.feed_key == f"feed-{member_feed.pk}"
+            assert entry.feed_key != f"feed-{public_feed.pk}"
+
+        def it_leaves_an_unmapped_event_on_the_community_key():
+            now = timezone.now()
+            CommunityEventFactory(
+                community=True,
+                title="Tab Mixer",
+                starts_at=now + timedelta(days=3),
+                ends_at=now + timedelta(days=3, hours=2),
+            )
+            entry = next(e for e in upcoming_calendar_events() if e.title == "Tab Mixer")
+            assert entry.feed_key == ""
+            assert entry.source_key == "community"
 
 
 def describe_legend_fallback():
