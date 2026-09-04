@@ -81,7 +81,7 @@ PENDING_LEGACY_TARGETS: frozenset[str] = frozenset()
 #: hand-edited intro never matches and is never touched.
 RETIRED_INTRO = """\
 Welcome to the Past Lives member hub. This is where the makerspace runs day to day: your \
-guilds, the class catalog, the community calendar, guild voting, and your account settings.
+guilds, the class catalog, the calendar, guild voting, and your account settings.
 
 Use the menu on the left to get around:
 
@@ -147,7 +147,7 @@ ARTICLES: list[dict[str, Any]] = [
         "title": "Welcome to the Member Portal: What's Where",
         "sort_order": 10,
         "related": ["guilds-and-guild-pages", "taking-a-class"],
-        "body": """The Member Portal is the Past Lives member hub — the app where the makerspace runs day to day. Your guilds, the class catalog, the community calendar, guild voting, and your account settings all live here.
+        "body": """The Member Portal is the Past Lives member hub — the app where the makerspace runs day to day. Your guilds, the class catalog, the calendar, guild voting, and your account settings all live here.
 
 ## Your Home Dashboard {#home-dashboard}
 
@@ -1666,7 +1666,7 @@ Urgent is the break-glass switch: it bypasses each recipient's notification pref
         "sort_order": 60,
         "related": ["community-calendar", "your-guild-page"],
         "body": """\
-Three ways to keep members in the loop, each on its own Guild Settings tab. Events go on the community calendars and send members a heads-up. Studio hours simply show on your guild page — no announcements. Meeting notes are the written record members can read later.
+Three ways to keep members in the loop, each on its own Guild Settings tab. Events go on the calendar and send members a heads-up. Studio hours simply show on your guild page — no announcements. Meeting notes are the written record members can read later.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
@@ -1961,7 +1961,7 @@ You don't have one — at least not one you ever need to know. Internally the sy
 
 Without you doing anything, the Fog Bot:
 
-- Mirrors the community calendar into **Discord's event list**, so events show up where you already hang out.
+- Mirrors the calendar into **Discord's event list**, so events show up where you already hang out.
 - Posts **guild announcements** to Discord channels (for guilds that turn that on).
 - Posts **new classes** when they're published.
 
