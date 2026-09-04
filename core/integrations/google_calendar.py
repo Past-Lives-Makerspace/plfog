@@ -222,6 +222,11 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
 
     body = _build_event_body(event, actor=actor)
     try:
+        if event.google_event_id and event.google_calendar_id and event.google_calendar_id != target:
+            # The target changed after a push. Google event ids are per-calendar, so an
+            # update against the new calendar would 404 — delete the old copy (an
+            # already-gone copy counts) and fall through to a fresh insert.
+            _delete_moved_copy(client, event)
         if event.google_event_id:
             g = client.update_event(target, event.google_event_id, body)
         else:
@@ -232,6 +237,30 @@ def push_community_event(event: CommunityEvent, *, actor: User | None = None) ->
         _mark(event, CE.SyncState.SYNCED, "")
     except GoogleCalendarError as exc:
         _mark(event, CE.SyncState.FAILED, str(exc)[:_SYNC_ERROR_MAX])
+
+
+def _delete_moved_copy(client: GoogleCalendarClient, event: CommunityEvent) -> None:
+    """Delete the Google copy from the calendar the event was previously pushed to.
+
+    Runs when the resolved target calendar differs from the stored ``google_calendar_id``.
+    A 404/410 (the copy is already gone) counts as deleted. Any other failure propagates
+    so :func:`push_community_event` records ``FAILED`` and keeps the stored ids — the
+    event stays where it is and the next push retries the move.
+    """
+    try:
+        client.delete_event(event.google_calendar_id, event.google_event_id)
+    except GoogleCalendarError as exc:
+        if not _is_gone(exc):
+            raise
+    event.google_event_id = ""
+    event.google_ical_uid = ""
+    event.google_calendar_id = ""
+
+
+def _is_gone(exc: GoogleCalendarError) -> bool:
+    """True when the wrapped API error says the remote event no longer exists (404/410)."""
+    status = getattr(getattr(exc.__cause__, "resp", None), "status", None)
+    return status in (404, 410)
 
 
 def remove_community_event(event: CommunityEvent) -> None:

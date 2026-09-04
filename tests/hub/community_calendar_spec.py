@@ -444,7 +444,7 @@ def describe_community_calendar_view():
         _logged_in_user(client)
         response = client.get("/calendar/")
         assert response.status_code == 200
-        assert b"Calendar" in response.content
+        assert b'<h1 class="hub-page-title">Calendar</h1>' in response.content
 
     def it_shows_only_guilds_with_calendars_in_context(client: Client):
         _logged_in_user(client, username="caluser2")

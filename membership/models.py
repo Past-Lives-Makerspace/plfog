@@ -6581,6 +6581,14 @@ class Meeting(models.Model):
             ends_at=ends,
             location=self._event_location(),
             recurrence=CommunityEvent.Recurrence.NONE,
+            # Explicit, not the model default: a council/lead meeting is internal (its
+            # location often carries the leads' video link), so it stays on the
+            # members-only calendar; a guild meeting follows the public-by-default norm.
+            google_calendar_target=(
+                CommunityEvent.GoogleCalendarTarget.PUBLIC
+                if self.guild_id is not None
+                else CommunityEvent.GoogleCalendarTarget.MEMBER
+            ),
             created_by=by,
         )
         event.save()
