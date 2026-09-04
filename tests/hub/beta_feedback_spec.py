@@ -97,6 +97,23 @@ def describe_BetaFeedbackForm():
             assert not form.is_valid()
             assert "photos" in form.errors
 
+        def it_names_every_bad_file_in_one_round_trip():
+            bad_one = SimpleUploadedFile("notes.txt", b"just some text", content_type="text/plain")
+            bad_two = SimpleUploadedFile("recording.mp4", b"not an image either", content_type="video/mp4")
+            form = _form_with_photos([bad_one, _photo("fine.png"), bad_two])
+
+            assert not form.is_valid()
+            joined = " ".join(form.errors["photos"])
+            assert "notes.txt:" in joined
+            assert "recording.mp4:" in joined
+            assert "fine.png" not in joined
+
+        def it_derives_help_text_from_the_real_caps():
+            with override_settings(MAX_UPLOAD_IMAGE_BYTES=3 * 1024 * 1024):
+                form = BetaFeedbackForm()
+
+            assert "3 MB each, 15 MB total" in form.fields["photos"].help_text
+
         def it_rejects_an_oversize_photo():
             with override_settings(MAX_UPLOAD_IMAGE_BYTES=10):
                 form = _form_with_photos([_photo()])  # a real PNG is comfortably over 10 bytes

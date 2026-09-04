@@ -659,7 +659,18 @@ class MultiplePhotoField(forms.FileField):
         if not files and self.required:
             raise forms.ValidationError(self.error_messages["required"], code="required")
         single = forms.ImageField(validators=[validate_image_size])
-        return [single.clean(item, initial) for item in files]
+        cleaned: list[UploadedFile] = []
+        errors: list[forms.ValidationError] = []
+        for item in files:
+            try:
+                cleaned.append(single.clean(item, initial))
+            except forms.ValidationError as exc:
+                # Name the offender and keep going, so one round trip surfaces every problem.
+                name = getattr(item, "name", None) or "file"
+                errors.extend(forms.ValidationError(f"{name}: {message}") for message in exc.messages)
+        if errors:
+            raise forms.ValidationError(errors)
+        return cleaned
 
 
 class BetaFeedbackForm(forms.Form):
@@ -679,12 +690,19 @@ class BetaFeedbackForm(forms.Form):
     photos = MultiplePhotoField(
         required=False,
         label="Photos (optional)",
-        help_text=(
-            "Attach up to 5 photos or screenshots. 10 MB each. "
-            "If the form shows an error, please pick your photos again before resending."
-        ),
         widget=MultiplePhotoInput(attrs={"accept": "image/*"}),
     )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Derive the numbers from the real caps so the copy can never lie
+        # (the per photo cap is env tunable via MAX_UPLOAD_IMAGE_BYTES).
+        per_photo_mb = settings.MAX_UPLOAD_IMAGE_BYTES // (1024 * 1024)
+        total_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
+        self.fields["photos"].help_text = (
+            f"Attach up to {MAX_FEEDBACK_PHOTOS} photos or screenshots. {per_photo_mb} MB each, {total_mb} MB total. "
+            "If the form shows an error, please pick your photos again before resending."
+        )
 
     def clean_photos(self) -> list[UploadedFile]:
         """Enforce the photo count and combined-size caps with plain messages."""
