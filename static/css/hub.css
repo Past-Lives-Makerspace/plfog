@@ -2558,7 +2558,9 @@ a:hover { color: var(--hub-link-hover); }
         left: 8px;
         right: 8px;
         min-width: 0;
-        max-height: calc(100dvh - var(--topbar-height) - env(safe-area-inset-top, 0px) - 14px);
+        /* 5rem bottom clearance keeps the feedback FAB (fixed, z-95, outside
+           the topbar stacking context) from covering the last duty toggle. */
+        max-height: calc(100dvh - var(--topbar-height) - env(safe-area-inset-top, 0px) - 5rem);
         overflow-y: auto;
     }
 }
