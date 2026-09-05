@@ -174,6 +174,16 @@ def describe_OrientationSlot():
             with pytest.raises(OrientationError):
                 slot.book(member)
 
+        def it_reads_the_seat_cap_live_on_a_picker_annotated_instance():
+            # A slot loaded through the picker carries a seat_holding_count snapshot; the
+            # write path must not trust it, or a second book() on the same object overbooks.
+            fresh = OrientationSlotFactory(seats=1)
+            slot = OrientationSlot.objects.with_seat_holding_count().get(pk=fresh.pk)
+            slot.book(MemberFactory())
+            with pytest.raises(OrientationError):
+                slot.book(MemberFactory())
+            assert slot.bookings.seat_holding().count() == 1
+
     def describe_mark_cancelled():
         def it_flips_the_slot_state_without_touching_bookings():
             slot = OrientationSlotFactory(seats=3)

@@ -9104,8 +9104,6 @@ class OrientationSlot(models.Model):
     seat_holding_count: int
     # Queryset annotation (set by OrientationSlotQuerySet.with_booking_history_count)
     booking_history_count: int
-    # View-attached free-seat count for the equipment day picker (seats minus seat_holding_count).
-    seats_open: int
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
@@ -9282,6 +9280,10 @@ class OrientationSlot(models.Model):
             OrientationError: If the slot can't be booked, or the member is already
                 oriented for, mid-checkout on, or actively booked on this orientation type.
         """
+        # The seat cap must read live on the write path: a picker-annotated instance
+        # carries a ``seat_holding_count`` snapshot that would let a second book() on
+        # the same object overbook the last seat. Drop the snapshot before the check.
+        self.__dict__.pop("seat_holding_count", None)
         if not self.is_bookable:
             if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
                 raise OrientationError(
