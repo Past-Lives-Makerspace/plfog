@@ -875,3 +875,111 @@ def describe_rule_pause_retirement():
         joined = " ".join(str(m) for m in response.context["messages"])
         assert joined == "Hours saved."
         assert guild.orientation_rules.count() == 1
+
+
+def describe_slot_length_and_break_in_the_guild_modal():
+    """The shared rule form's optional fields on the guild side: blank keeps one slot per window."""
+
+    def _lead_with_rule(client: Client, username: str):
+        user = _member_user(username, name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
+        client.login(username=username, password="pass")
+        return user, guild, rule
+
+    def _existing_row(rule, **overrides) -> dict[str, str]:
+        data = {
+            "modal_rules-INITIAL_FORMS": "1",
+            "modal_rules-0-id": str(rule.pk),
+            "modal_rules-0-orientation_type": str(rule.orientation_type_id),
+            "modal_rules-0-weekday": str(rule.weekday),
+            "modal_rules-0-start_time": "18:00",
+            "modal_rules-0-end_time": "20:00",
+            "modal_rules-0-seats": str(rule.seats),
+            "modal_rules-0-is_active": "on",
+        }
+        data.update(overrides)
+        return data
+
+    def it_shows_the_two_fields_in_the_modal(client: Client):
+        user, guild, _rule = _lead_with_rule(client, "sl_show")
+        response = client.get(_form_url(guild, user.member.pk))
+        content = response.content.decode()
+        assert "Slot length" in content
+        assert "Break between slots" in content
+        assert "Whole window" in content
+        assert "Leave slot length blank to offer the whole window as one slot." in content
+
+    def it_keeps_one_slot_per_window_when_slot_length_is_blank(client: Client):
+        user, guild, rule = _lead_with_rule(client, "sl_blank")
+        rule.end_time = __import__("datetime").time(20, 0)
+        rule.save(update_fields=["end_time"])
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(str(user.member.pk), **_existing_row(rule)),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule.refresh_from_db()
+        assert rule.slot_minutes is None
+        assert rule.buffer_minutes == 0
+        first = rule.slots.order_by("starts_at").first()
+        assert first is not None
+        assert first.ends_at - first.starts_at == timedelta(hours=2)
+
+    def it_carves_the_window_when_a_slot_length_is_set(client: Client):
+        user, guild, rule = _lead_with_rule(client, "sl_carve")
+        rule.end_time = __import__("datetime").time(20, 0)
+        rule.save(update_fields=["end_time"])
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                **_existing_row(rule, **{"modal_rules-0-slot_minutes": "60", "modal_rules-0-buffer_minutes": "0"}),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule.refresh_from_db()
+        assert rule.slot_minutes == 60
+        starts = sorted(
+            {timezone.localtime(s).strftime("%H:%M") for s in rule.slots.values_list("starts_at", flat=True)}
+        )
+        assert starts == ["18:00", "19:00"]
+
+    def it_rejects_a_slot_length_longer_than_the_window(client: Client):
+        user, guild, rule = _lead_with_rule(client, "sl_short")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                **_existing_row(rule, **{"modal_rules-0-end_time": "18:30", "modal_rules-0-slot_minutes": "60"}),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert b"This window is shorter than one slot." in response.content
+        rule.refresh_from_db()
+        assert rule.slot_minutes is None
+
+
+def describe_shared_rule_form_owner_resolution():
+    """The one rule form serves both owners; with no owner passed it falls back to the row's guild."""
+
+    def it_infers_the_guild_from_an_existing_row():
+        from hub.forms import OrientationAvailabilityForm
+
+        rule = OrientationAvailabilityFactory()
+        OrientationTypeFactory(guild=GuildFactory(), name="Elsewhere")
+        form = OrientationAvailabilityForm(instance=rule)
+        assert list(form.fields["orientation_type"].queryset) == [rule.orientation_type]
+
+    def it_offers_no_types_with_no_owner_at_all():
+        from hub.forms import OrientationAvailabilityForm
+
+        form = OrientationAvailabilityForm()
+        assert list(form.fields["orientation_type"].queryset) == []
+        assert (
+            form.fields["orientation_type"].error_messages["invalid_choice"] == "Pick one of this guild's orientations."
+        )

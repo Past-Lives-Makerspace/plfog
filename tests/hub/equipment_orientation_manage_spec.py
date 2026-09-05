@@ -30,6 +30,7 @@ from tests.membership.factories import (
     EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
+    MemberFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
@@ -109,13 +110,18 @@ def describe_orientation_tab_rendering():
         content = response.content.decode()
         assert "No pending requests." in content
         assert "No orientation types yet. Add one to start taking bookings on the equipment page." in content
-        assert "No upcoming times. Add hours above, or add a one time slot here." in content
-        assert "No orientation hours yet. Add a window and members can start booking." in content
+        assert "No upcoming times. They appear as soon as hours are saved, or add a one time slot here." in content
+        assert "Orientation Schedule" in content
+        assert "No hours published" in content
         assert "+ Add Orientation Type" in content
-        assert "+ Add Hours" in content
-        assert 'id="equip-ohours-empty-template"' in content
         assert "+ Add a Time" in content
         assert "{ showAdd: false }" in content
+        # The 1.35.0 window editor and day chips are gone for good (the Hours tab's own
+        # "+ Add Hours" for reservation hours is unrelated and stays).
+        assert 'id="equip-ohours-form"' not in content
+        assert "Orientation Hours</h2>" not in content
+        assert "pl-orient-days" not in content
+        assert "Show later days" not in content
 
     def it_lists_pending_requests_with_review_links(client: Client):
         equipment = EquipmentFactory()
@@ -231,9 +237,9 @@ def describe_orientation_slot_add():
         data.update(overrides)
         return data
 
-    def it_creates_a_manual_guildless_orienterless_slot(client: Client):
+    def it_creates_a_manual_guildless_slot_that_runs_with_the_acting_manager(client: Client):
         equipment = EquipmentFactory()
-        _manager_login(client, "ot_slot_add", equipment)
+        manager = _manager_login(client, "ot_slot_add", equipment)
         orientation_type = _owned_type(equipment)
         response = client.post(
             reverse("hub_equipment_orientation_slot_add", args=[equipment.slug]), _slot_data(orientation_type)
@@ -241,7 +247,7 @@ def describe_orientation_slot_add():
         assert response.status_code == 302
         slot = orientation_type.slots.get()
         assert slot.guild is None
-        assert slot.orienter is None
+        assert slot.orienter == manager.member  # a plain manager's slot always runs with them
         assert slot.source == OrientationSlot.Source.MANUAL
         assert slot.location == "By the big saw"
 
@@ -305,6 +311,10 @@ def describe_permission_edges():
             (reverse("hub_equipment_orientation_types_save", args=[equipment.slug]), _types_data([])),
             (reverse("hub_equipment_orientation_slot_add", args=[equipment.slug]), {}),
             (reverse("hub_equipment_orientation_slot_cancel", args=[equipment.slug, slot.pk]), {}),
+            (
+                reverse("hub_equipment_orientation_hours_save", args=[equipment.slug]),
+                {"orienter_scope": "", "formset_prefix": "modal_rules"},
+            ),
         ]
 
     def it_403s_a_plain_member_and_a_random_guild_lead_everywhere(client: Client):
@@ -392,50 +402,6 @@ def _at(day: date, hour: int, minute: int = 0) -> datetime:
     return timezone.make_aware(datetime.combine(day, time(hour, minute)))
 
 
-def _ohours_data(rows: list[dict], initial: int = 0) -> dict:
-    data = {
-        "ohours-TOTAL_FORMS": str(len(rows)),
-        "ohours-INITIAL_FORMS": str(initial),
-        "ohours-MIN_NUM_FORMS": "0",
-        "ohours-MAX_NUM_FORMS": "1000",
-    }
-    for i, row in enumerate(rows):
-        for field, value in row.items():
-            data[f"ohours-{i}-{field}"] = value
-    return data
-
-
-def _ohours_row(
-    orientation_type: OrientationType,
-    *,
-    start: str = "10:00",
-    end: str = "12:00",
-    days: list[str] | None = None,
-    slot: str = "60",
-    gap: str = "0",
-    seats: str = "1",
-    active: bool = True,
-    **extra,
-) -> dict:
-    row = {
-        "orientation_type": str(orientation_type.pk),
-        "start_time": start,
-        "end_time": end,
-        "days": days if days is not None else [str(_tool_day().weekday())],
-        "slot_minutes": slot,
-        "buffer_minutes": gap,
-        "seats": seats,
-    }
-    if active:
-        row["is_active"] = "on"
-    row.update(extra)
-    return row
-
-
-def _hours_url(equipment: Equipment) -> str:
-    return reverse("hub_equipment_orientation_hours_save", args=[equipment.slug])
-
-
 def _tool_rule(orientation_type: OrientationType, **overrides) -> OrientationAvailability:
     defaults = {
         "weekday": _tool_day().weekday(),
@@ -457,433 +423,6 @@ def _generated_slot(rule: OrientationAvailability, **overrides) -> OrientationSl
         source=OrientationSlot.Source.GENERATED,
         **overrides,
     )
-
-
-def describe_orientation_hours_form():
-    def _formset(equipment: Equipment, rows: list[dict], initial: int = 0):
-        from hub.forms import EquipmentOrientationHoursWindowFormSet
-
-        return EquipmentOrientationHoursWindowFormSet(
-            _ohours_data(rows, initial),
-            prefix="ohours",
-            initial=equipment.orientation_hours_windows(),
-            form_kwargs={"equipment": equipment},
-        )
-
-    def it_rejects_overlapping_windows_on_a_shared_weekday_across_types():
-        equipment = EquipmentFactory()
-        first = _owned_type(equipment, name="Basics")
-        second = _owned_type(equipment, name="Advanced")
-        formset = _formset(
-            equipment,
-            [_ohours_row(first, days=["5"]), _ohours_row(second, start="11:00", end="13:00", days=["5", "6"])],
-        )
-        assert not formset.is_valid()
-        assert formset.non_form_errors() == ["Those hours overlap on Saturday."]
-
-    def it_accepts_touching_windows():
-        equipment = EquipmentFactory()
-        first = _owned_type(equipment, name="Basics")
-        second = _owned_type(equipment, name="Advanced")
-        formset = _formset(
-            equipment, [_ohours_row(first, days=["5"]), _ohours_row(second, start="12:00", end="14:00", days=["5"])]
-        )
-        assert formset.is_valid()
-
-    def it_requires_at_least_one_day():
-        equipment = EquipmentFactory()
-        formset = _formset(equipment, [_ohours_row(_owned_type(equipment), days=[])])
-        assert not formset.is_valid()
-        assert formset.forms[0].errors["days"] == ["Pick at least one day."]
-
-    def it_rejects_a_slot_longer_than_the_window():
-        equipment = EquipmentFactory()
-        formset = _formset(equipment, [_ohours_row(_owned_type(equipment), end="10:30")])
-        assert not formset.is_valid()
-        assert formset.forms[0].errors["slot_minutes"] == ["This window is shorter than one slot."]
-
-    def it_rejects_another_equipments_type():
-        equipment = EquipmentFactory()
-        _owned_type(equipment)
-        formset = _formset(equipment, [_ohours_row(_owned_type(EquipmentFactory()))])
-        assert not formset.is_valid()
-        assert formset.forms[0].errors["orientation_type"] == ["Pick one of this equipment's orientations."]
-
-    def it_rejects_an_end_before_the_start():
-        equipment = EquipmentFactory()
-        formset = _formset(equipment, [_ohours_row(_owned_type(equipment), start="12:00", end="10:00")])
-        assert not formset.is_valid()
-        assert formset.forms[0].errors["end_time"] == ["The end time must be after the start time."]
-        assert "slot_minutes" not in formset.forms[0].errors
-
-    def it_skips_a_removed_clone_row():
-        equipment = EquipmentFactory()
-        formset = _formset(equipment, [_ohours_row(_owned_type(equipment)), {}])
-        assert formset.is_valid()
-        assert len([form for form in formset if form.cleaned_data]) == 1
-
-    def it_round_trips_an_off_list_duration_as_its_own_choice():
-        from hub.forms import EquipmentOrientationHoursWindowForm
-
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment, duration_minutes=75)
-        form = EquipmentOrientationHoursWindowForm(
-            equipment=equipment, initial={"orientation_type": orientation_type.pk, "slot_minutes": 75}
-        )
-        assert dict(form.fields["slot_minutes"].choices)["75"] == "75 minutes"
-        formset = _formset(equipment, [_ohours_row(orientation_type, slot="75", end="12:30")])
-        assert formset.is_valid()
-        assert formset.forms[0].cleaned_data["slot_minutes"] == 75
-
-    def it_seeds_data_attributes_on_the_type_options():
-        from hub.forms import EquipmentOrientationHoursWindowForm
-
-        equipment = EquipmentFactory()
-        _owned_type(equipment, duration_minutes=45, default_seats=2)
-        html = str(EquipmentOrientationHoursWindowForm(equipment=equipment)["orientation_type"])
-        assert 'data-duration="45"' in html
-        assert 'data-seats="2"' in html
-
-    def it_keeps_a_saved_row_under_a_retired_type_valid():
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        _tool_rule(orientation_type)
-        orientation_type.is_active = False
-        orientation_type.save(update_fields=["is_active"])
-        formset = _formset(equipment, [_ohours_row(orientation_type)], initial=1)
-        assert formset.is_valid()
-
-    def it_rejects_an_unknown_slot_length_without_the_window_check():
-        equipment = EquipmentFactory()
-        formset = _formset(equipment, [_ohours_row(_owned_type(equipment), slot="999")])
-        assert not formset.is_valid()
-        assert "slot_minutes" in formset.forms[0].errors
-        assert "This window is shorter than one slot." not in formset.forms[0].errors["slot_minutes"]
-
-    def it_leaves_a_plain_option_without_data_attributes():
-        from hub.forms import _OrientationTypeSelect
-
-        option = _OrientationTypeSelect().create_option("orientation_type", "", "", False, 0)
-        assert "data-duration" not in option["attrs"]
-        assert "data-seats" not in option["attrs"]
-
-    def it_appends_a_legacy_off_grid_time():
-        from hub.forms import EquipmentOrientationHoursWindowForm
-
-        equipment = EquipmentFactory()
-        form = EquipmentOrientationHoursWindowForm(equipment=equipment, initial={"start_time": "09:15"})
-        assert dict(form.fields["start_time"].choices)["09:15"] == "9:15 AM"
-
-    def describe_one_time_slot_form():
-        def _slot_form(equipment: Equipment, orientation_type: OrientationType, start: str):
-            from hub.forms import EquipmentOrientationSlotForm
-
-            return EquipmentOrientationSlotForm(
-                {
-                    "orientation_type": str(orientation_type.pk),
-                    "date": _tool_day().isoformat(),
-                    "start_time": start,
-                    "duration_minutes": "60",
-                    "seats": "1",
-                    "location": "",
-                },
-                equipment=equipment,
-            )
-
-        def it_rejects_a_time_overlapping_an_existing_slot():
-            equipment = EquipmentFactory()
-            orientation_type = _owned_type(equipment)
-            OrientationSlotFactory(
-                equipment_owned=True,
-                orientation_type=orientation_type,
-                starts_at=_at(_tool_day(), 10),
-                ends_at=_at(_tool_day(), 11),
-            )
-            form = _slot_form(equipment, orientation_type, "10:30")
-            assert not form.is_valid()
-            assert form.errors["start_time"] == ["That time overlaps another orientation time on this tool."]
-
-        def it_seeds_the_location_from_the_types_default():
-            from hub.forms import EquipmentOrientationSlotForm
-
-            equipment = EquipmentFactory()
-            _owned_type(equipment, default_location="Bay 2")
-            form = EquipmentOrientationSlotForm(equipment=equipment)
-            assert form.fields["location"].initial == "Bay 2"
-
-        def it_skips_the_overlap_check_when_the_fields_are_incomplete():
-            from hub.forms import EquipmentOrientationSlotForm
-
-            equipment = EquipmentFactory()
-            orientation_type = _owned_type(equipment)
-            form = EquipmentOrientationSlotForm(
-                {
-                    "orientation_type": str(orientation_type.pk),
-                    "date": "",
-                    "start_time": "10:00",
-                    "duration_minutes": "60",
-                    "seats": "1",
-                    "location": "",
-                },
-                equipment=equipment,
-            )
-            assert not form.is_valid()
-            assert "date" in form.errors
-            assert "starts_at" not in form.cleaned_data
-
-        def it_accepts_a_touching_time():
-            equipment = EquipmentFactory()
-            orientation_type = _owned_type(equipment)
-            OrientationSlotFactory(
-                equipment_owned=True,
-                orientation_type=orientation_type,
-                starts_at=_at(_tool_day(), 10),
-                ends_at=_at(_tool_day(), 11),
-            )
-            assert _slot_form(equipment, orientation_type, "11:00").is_valid()
-
-
-def describe_orientation_hours_save():
-    def _messages(client: Client, equipment: Equipment) -> str:
-        followup = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
-        return " ".join(str(message) for message in followup.context["messages"])
-
-    def it_403s_a_plain_member_and_a_random_guild_lead(client: Client):
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        _login(client, "oh_perm_plain")
-        assert client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)])).status_code == 403
-        lead = _login(client, "oh_perm_lead")
-        GuildFactory(guild_lead=lead.member)
-        assert client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)])).status_code == 403
-        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
-
-    def it_saves_for_every_manager_tier(client: Client):
-        equipment_guild = GuildFactory()
-        equipment = EquipmentFactory(guild=equipment_guild)
-        orientation_type = _owned_type(equipment)
-
-        def post() -> int:
-            initial = len(equipment.orientation_hours_windows())
-            return client.post(
-                _hours_url(equipment), _ohours_data([_ohours_row(orientation_type)], initial)
-            ).status_code
-
-        _manager_login(client, "oh_tier_row", equipment)
-        assert post() == 302
-        lead = _member_user("oh_tier_glead")
-        equipment_guild.guild_lead = lead.member
-        equipment_guild.save(update_fields=["guild_lead"])
-        client.login(username="oh_tier_glead", password="pass")
-        assert post() == 302
-        holder = _login(client, "oh_tier_cap")
-        holder.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        assert post() == 302
-        _login(client, "oh_tier_admin", fog_role=Member.FogRole.ADMIN)
-        assert post() == 302
-
-    def it_refuses_an_admin_previewing_as_a_member_but_not_the_real_account(client: Client):
-        from hub.view_as import ROLE_MEMBER, SESSION_ROLE_KEY
-
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        _login(client, "oh_preview", fog_role=Member.FogRole.ADMIN)
-        session = client.session
-        session[SESSION_ROLE_KEY] = ROLE_MEMBER
-        session.save()
-        assert client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)])).status_code == 403
-        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
-        session = client.session
-        del session[SESSION_ROLE_KEY]
-        session.save()
-        assert client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)])).status_code == 302
-        assert OrientationAvailability.objects.for_equipment(equipment).exists()
-
-    def it_creates_rules_and_slots_and_redirects_with_the_flash(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_save", equipment)
-        orientation_type = _owned_type(equipment)
-        response = client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)]))
-        assert response.status_code == 302
-        assert response["Location"].endswith("?tab=orientation")
-        rule = OrientationAvailability.objects.for_equipment(equipment).get()
-        assert rule.guild is None
-        assert rule.orienter is None
-        assert rule.slot_minutes == 60
-        assert rule.slots.count() == 16  # 8 weekly occurrences, 2 hourly slots each
-        assert _messages(client, equipment) == "Hours saved."
-
-    def it_rerenders_the_tab_with_errors_on_an_invalid_post(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_invalid", equipment)
-        orientation_type = _owned_type(equipment)
-        response = client.post(
-            _hours_url(equipment), _ohours_data([_ohours_row(orientation_type, start="12:00", end="10:00")])
-        )
-        assert response.status_code == 200
-        assert response.context["active_tab"] == "orientation"
-        assert response.context["orientation_hours_formset"].is_bound
-        assert "The end time must be after the start time." in response.content.decode()
-        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
-
-    def it_reports_retirement_counts_for_a_delete(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_delete", equipment)
-        orientation_type = _owned_type(equipment)
-        rule = _tool_rule(orientation_type)
-        open_slot = _generated_slot(rule)
-        booked = _generated_slot(rule, starts_at=timezone.now() + timedelta(days=3))
-        OrientationBookingFactory(slot=booked)
-        response = client.post(
-            _hours_url(equipment), _ohours_data([_ohours_row(orientation_type, DELETE="on")], initial=1)
-        )
-        assert response.status_code == 302
-        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
-        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
-        assert OrientationSlot.objects.filter(pk=booked.pk).exists()
-        assert _messages(client, equipment) == (
-            "Hours saved. Removed 1 upcoming open slot. 1 booked slot kept. Cancel it from the Upcoming Slots card."
-        )
-
-    def it_reports_retirement_counts_for_a_pause(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_pause", equipment)
-        orientation_type = _owned_type(equipment)
-        rule = _tool_rule(orientation_type)
-        _generated_slot(rule)
-        response = client.post(
-            _hours_url(equipment), _ohours_data([_ohours_row(orientation_type, active=False)], initial=1)
-        )
-        assert response.status_code == 302
-        rule.refresh_from_db()
-        assert rule.is_active is False
-        assert not rule.slots.exists()  # paused: nothing regenerated either
-        assert _messages(client, equipment) == "Hours saved. Removed 1 upcoming open slot."
-
-    def it_reports_a_kept_slot_without_a_zero_removed_count(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_kept", equipment)
-        orientation_type = _owned_type(equipment)
-        rule = _tool_rule(orientation_type)
-        OrientationBookingFactory(slot=_generated_slot(rule))
-        response = client.post(
-            _hours_url(equipment), _ohours_data([_ohours_row(orientation_type, active=False)], initial=1)
-        )
-        assert response.status_code == 302
-        assert (
-            _messages(client, equipment) == "Hours saved. 1 booked slot kept. Cancel it from the Upcoming Slots card."
-        )
-
-    def it_reports_retirement_counts_for_a_regrid(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_regrid", equipment)
-        orientation_type = _owned_type(equipment)
-        rule = _tool_rule(orientation_type)
-        _generated_slot(rule)
-        response = client.post(
-            _hours_url(equipment), _ohours_data([_ohours_row(orientation_type, slot="30")], initial=1)
-        )
-        assert response.status_code == 302
-        rule.refresh_from_db()
-        assert rule.slot_minutes == 30
-        assert rule.slots.count() == 32  # regenerated on the new grid: 4 half hour slots x 8 weeks
-        assert all(slot.ends_at - slot.starts_at == timedelta(minutes=30) for slot in rule.slots.all())
-        assert _messages(client, equipment) == "Hours saved. Removed 1 upcoming open slot."
-
-
-def describe_orientation_hours_card_rendering():
-    def it_groups_existing_rules_into_windows_with_delete_confirms(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_render", equipment)
-        orientation_type = _owned_type(equipment)
-        _tool_rule(orientation_type, weekday=5)
-        _tool_rule(orientation_type, weekday=6)
-        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
-        assert [form.initial for form in response.context["orientation_hours_formset"].forms] == [
-            {
-                "orientation_type": orientation_type.pk,
-                "start_time": "10:00",
-                "end_time": "12:00",
-                "days": [5, 6],
-                "slot_minutes": 60,
-                "buffer_minutes": 0,
-                "seats": 1,
-                "is_active": True,
-            }
-        ]
-        content = response.content.decode()
-        assert "Delete these hours?" in content
-        assert 'id="equip-ohours-del-0"' not in content  # the confirm is dispatched by id, teleported to body
-        assert "open-confirm', 'equip-ohours-del-0'" in content
-        assert "No orientation hours yet." not in content
-
-    def it_groups_upcoming_slots_by_day(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_days", equipment)
-        orientation_type = _owned_type(equipment)
-        rule = _tool_rule(orientation_type)
-        day = _tool_day()
-        booked = _generated_slot(rule, starts_at=_at(day, 10), ends_at=_at(day, 11))
-        OrientationBookingFactory(slot=booked)
-        OrientationSlotFactory(
-            equipment_owned=True, orientation_type=orientation_type, starts_at=_at(day, 11), ends_at=_at(day, 12)
-        )
-        quiet_day = _tool_day(3)
-        OrientationSlotFactory(
-            equipment_owned=True,
-            orientation_type=orientation_type,
-            starts_at=_at(quiet_day, 9),
-            ends_at=_at(quiet_day, 10),
-        )
-        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
-        days = response.context["orientation_slot_days"]
-        assert [(d["date"], len(d["slots"]), d["booked_count"], d["open_by_default"]) for d in days] == [
-            (day, 2, 1, True),
-            (quiet_day, 1, 0, False),
-        ]
-        content = response.content.decode()
-        assert "{ open: true }" in content
-        assert "{ open: false }" in content
-        assert "· 2 slots · 1 booked" in content
-        assert "· 1 slot · 0 booked" in content
-        assert ">recurring</span>" in content
-        assert ">one time</span>" in content
-        assert "Show later days" not in content
-
-    def it_hides_detached_retired_rows_from_upcoming_slots(client: Client):
-        from membership import orientations
-
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_detached", equipment)
-        orientation_type = _owned_type(equipment)
-        rule = _tool_rule(orientation_type)
-        day = _tool_day()
-        slot = _generated_slot(rule, starts_at=_at(day, 10), ends_at=_at(day, 11))
-        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.DECLINED)
-        assert orientations.retire_open_slots(rule) == (1, 0)
-        slot.refresh_from_db()
-        assert slot.is_cancelled is True
-        assert slot.availability is None
-        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
-        assert response.context["orientation_upcoming_slots"] == []
-        assert response.context["orientation_slot_days"] == []
-        content = response.content.decode()
-        assert "No upcoming times. Add hours above, or add a one time slot here." in content
-        assert "10:00 AM to 11:00 AM" not in content
-
-    def it_offers_the_later_days_button_beyond_two_weeks(client: Client):
-        equipment = EquipmentFactory()
-        _manager_login(client, "oh_later", equipment)
-        orientation_type = _owned_type(equipment)
-        far = _tool_day(20)
-        OrientationSlotFactory(
-            equipment_owned=True, orientation_type=orientation_type, starts_at=_at(far, 9), ends_at=_at(far, 10)
-        )
-        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
-        assert response.context["orientation_has_later_days"] is True
-        content = response.content.decode()
-        assert "Show later days" in content
-        assert 'x-show="showLater"' in content
 
 
 def describe_blocked_rows():
@@ -921,3 +460,602 @@ def describe_blocked_rows():
         assert blocked not in OrientationSlot.objects.bookable()
         assert clear in OrientationSlot.objects.bookable()
         assert touching in OrientationSlot.objects.bookable()
+
+
+# ── The guild pattern on equipment (equipment-orientations-guild-pattern spec) ────────
+
+
+def _modal_rules(rows: list[dict], *, scope: str, initial: int = 0) -> dict:
+    data = {
+        "orienter_scope": scope,
+        "formset_prefix": "modal_rules",
+        "modal_rules-TOTAL_FORMS": str(len(rows)),
+        "modal_rules-INITIAL_FORMS": str(initial),
+        "modal_rules-MIN_NUM_FORMS": "0",
+        "modal_rules-MAX_NUM_FORMS": "1000",
+    }
+    for i, row in enumerate(rows):
+        for field, value in row.items():
+            data[f"modal_rules-{i}-{field}"] = value
+    return data
+
+
+def _rule_row(
+    orientation_type: OrientationType,
+    *,
+    weekday: int,
+    start: str = "18:00",
+    end: str = "20:00",
+    seats: str = "1",
+    slot: str = "",
+    gap: str = "",
+    active: bool = True,
+    **extra,
+) -> dict:
+    row = {
+        "orientation_type": str(orientation_type.pk),
+        "weekday": str(weekday),
+        "start_time": start,
+        "end_time": end,
+        "seats": seats,
+        "slot_minutes": slot,
+        "buffer_minutes": gap,
+    }
+    if active:
+        row["is_active"] = "on"
+    row.update(extra)
+    return row
+
+
+def _hours_form_url(equipment: Equipment, orienter=None) -> str:
+    url = reverse("hub_equipment_orientation_hours_form", args=[equipment.slug])
+    return f"{url}?orienter={orienter.pk}" if orienter is not None else url
+
+
+def _hours_save_url(equipment: Equipment) -> str:
+    return reverse("hub_equipment_orientation_hours_save", args=[equipment.slug])
+
+
+def _tab(client: Client, equipment: Equipment):
+    return client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
+
+
+def _named_manager(client: Client, username: str, equipment: Equipment, name: str) -> User:
+    user = _manager_login(client, username, equipment)
+    user.member.full_legal_name = name
+    user.member.save(update_fields=["full_legal_name"])
+    return user
+
+
+def _personal_rule(orientation_type: OrientationType, orienter, **overrides) -> OrientationAvailability:
+    defaults = {
+        "weekday": _tool_day().weekday(),
+        "start_time": time(18, 0),
+        "end_time": time(20, 0),
+        "seats": 1,
+        "slot_minutes": None,
+    }
+    defaults.update(overrides)
+    return OrientationAvailabilityFactory(
+        equipment_owned=True, orientation_type=orientation_type, orienter=orienter, **defaults
+    )
+
+
+def describe_orientation_schedule_card():
+    def it_shows_a_lead_level_viewer_every_manager_with_their_rules(client: Client):
+        equipment = EquipmentFactory()
+        _login(client, "sc_admin", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        dana = _member_user("sc_dana")
+        dana.member.full_legal_name = "Dana Reyes"
+        dana.member.save(update_fields=["full_legal_name"])
+        EquipmentStaffMembershipFactory(equipment=equipment, member=dana.member)
+        quiet = _member_user("sc_quiet")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=quiet.member)
+        _personal_rule(
+            orientation_type, dana.member, weekday=5, start_time=time(10, 0), end_time=time(18, 0), slot_minutes=60
+        )
+        response = _tab(client, equipment)
+        content = response.content.decode()
+        assert "Orientation Schedule" in content
+        assert "Everyone who manages this equipment, and when they give orientations." in content
+        assert "Dana Reyes" in content
+        assert "Operator Basics · Saturday · 10:00 a.m. to 6:00 p.m. · 1 seat · 60 min slots" in content
+        assert "No hours published" in content  # the quiet manager's group
+        assert 'id="edit-hours-modal-body"' in content  # the shared Edit Hours modal shell, loaded per scope
+        assert content.count(_hours_form_url(equipment, dana.member)) == 1
+        assert response.context["can_edit_others_hours"] is True
+        assert "pl-orient-days" not in content
+
+    def it_shows_a_plain_manager_only_their_own_group(client: Client):
+        equipment = EquipmentFactory()
+        me = _named_manager(client, "sc_me", equipment, "Dana Reyes")
+        other = _member_user("sc_other")
+        other.member.full_legal_name = "Quinn Other"
+        other.member.save(update_fields=["full_legal_name"])
+        EquipmentStaffMembershipFactory(equipment=equipment, member=other.member)
+        response = _tab(client, equipment)
+        content = response.content.decode()
+        assert "Your weekly orientation hours. Members book you by name." in content
+        assert _hours_form_url(equipment, me.member) in content
+        assert _hours_form_url(equipment, other.member) not in content
+        assert response.context["can_edit_others_hours"] is False
+        assert response.context["slot_form_locked"] is True
+
+    def it_lists_former_managers_orphan_rules_for_the_lead_tier_only(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        stranger = MemberFactory(full_legal_name="Gone Person")
+        _personal_rule(orientation_type, stranger)
+        _login(client, "sc_former_admin", fog_role=Member.FogRole.ADMIN)
+        content = _tab(client, equipment).content.decode()
+        assert "Former Managers" in content
+        assert "Gone Person" in content
+        assert _hours_form_url(equipment, stranger) in content
+        _manager_login(client, "sc_former_plain", equipment)
+        content = _tab(client, equipment).content.decode()
+        assert "Former Managers" not in content
+
+    def it_shows_the_shared_hours_card_only_when_shared_rows_exist(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _manager_login(client, "sc_shared_plain", equipment)
+        assert "Shared Hours (Any Manager)" not in _tab(client, equipment).content.decode()
+        _tool_rule(orientation_type)  # orienter-less: a row from the old window editor
+        content = _tab(client, equipment).content.decode()
+        assert "Shared Hours (Any Manager)" in content
+        assert "Only an administrator or the owning guild's lead can change shared hours." in content
+        assert "Edit Shared Hours" not in content
+        _login(client, "sc_shared_admin", fog_role=Member.FogRole.ADMIN)
+        content = _tab(client, equipment).content.decode()
+        assert "Edit Shared Hours" in content
+        assert _hours_form_url(equipment) in content
+
+    def it_404s_the_removed_window_endpoint(client: Client):
+        equipment = EquipmentFactory()
+        _login(client, "sc_old_url", fog_role=Member.FogRole.ADMIN)
+        response = client.post(f"/equipment/{equipment.slug}/manage/orientation/hours/", {})
+        assert response.status_code == 404
+
+
+def describe_orientation_hours_form_view():
+    def it_serves_a_manager_their_own_modal_with_the_two_new_fields(client: Client):
+        equipment = EquipmentFactory()
+        _owned_type(equipment)
+        me = _named_manager(client, "hf_me", equipment, "Dana Reyes")
+        response = client.get(_hours_form_url(equipment, me.member))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Editing Dana Reyes's Hours" in content
+        assert "Slot length" in content
+        assert "Break between slots" in content
+        assert "Whole window" in content
+        assert "+ Add hours" in content
+        assert _hours_save_url(equipment) in content
+
+    def it_403s_a_plain_manager_opening_someone_elses_or_the_shared_scope(client: Client):
+        equipment = EquipmentFactory()
+        _manager_login(client, "hf_plain", equipment)
+        other = _member_user("hf_other")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=other.member)
+        assert client.get(_hours_form_url(equipment, other.member)).status_code == 403
+        assert client.get(_hours_form_url(equipment)).status_code == 403
+
+    def it_serves_the_shared_scope_to_the_lead_tier_without_an_add_button(client: Client):
+        equipment_guild = GuildFactory()
+        equipment = EquipmentFactory(guild=equipment_guild)
+        _tool_rule(_owned_type(equipment))
+        lead = _member_user("hf_glead")
+        equipment_guild.guild_lead = lead.member
+        equipment_guild.save(update_fields=["guild_lead"])
+        client.login(username="hf_glead", password="pass")
+        response = client.get(_hours_form_url(equipment))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Editing Shared Hours" in content
+        assert "+ Add hours" not in content
+        holder = _login(client, "hf_holder")
+        holder.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert client.get(_hours_form_url(equipment)).status_code == 200
+
+    def it_404s_garbage_scopes(client: Client):
+        equipment = EquipmentFactory()
+        _login(client, "hf_garbage", fog_role=Member.FogRole.ADMIN)
+        assert client.get(f"{_hours_form_url(equipment)}?orienter=abc").status_code == 404
+        assert client.get(f"{_hours_form_url(equipment)}?orienter=999999").status_code == 404
+
+
+def describe_orientation_hours_save_view():
+    def it_lets_a_manager_post_their_own_two_windows(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _named_manager(client, "hs_dana", equipment, "Dana Reyes")
+        friday, saturday = _tool_day(2).weekday(), _tool_day(3).weekday()
+        response = client.post(
+            _hours_save_url(equipment),
+            _modal_rules(
+                [
+                    _rule_row(orientation_type, weekday=friday, start="18:00", end="20:00"),
+                    _rule_row(orientation_type, weekday=saturday, start="12:00", end="16:00"),
+                ],
+                scope=str(dana.member.pk),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        assert response["HX-Redirect"].endswith("?tab=orientation")
+        rules = list(OrientationAvailability.objects.for_equipment(equipment).order_by("start_time"))
+        assert [(rule.weekday, rule.orienter, rule.guild, rule.slot_minutes) for rule in rules] == [
+            (saturday, dana.member, None, None),
+            (friday, dana.member, None, None),
+        ]
+        # Blank slot length: one slot per window, run "with Dana".
+        slots = OrientationSlot.objects.filter(orientation_type=orientation_type)
+        assert slots.count() == 16
+        first = slots.order_by("starts_at").first()
+        assert first is not None
+        assert first.orienter == dana.member
+        assert first.with_label == "with Dana"
+        assert first.ends_at - first.starts_at in (timedelta(hours=2), timedelta(hours=4))
+        followup = _tab(client, equipment)
+        assert "Hours saved." in " ".join(str(m) for m in followup.context["messages"])
+
+    def it_carves_a_window_when_a_slot_length_is_set(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _manager_login(client, "hs_carve", equipment)
+        response = client.post(
+            _hours_save_url(equipment),
+            _modal_rules(
+                [_rule_row(orientation_type, weekday=_tool_day().weekday(), start="18:00", end="20:00", slot="60")],
+                scope=str(dana.member.pk),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.for_equipment(equipment).get()
+        assert rule.slot_minutes == 60
+        assert rule.slots.count() == 16  # two hourly slots per occurrence
+
+    def it_403s_a_plain_manager_posting_anothers_or_the_shared_scope(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _manager_login(client, "hs_plain", equipment)
+        other = _member_user("hs_other")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=other.member)
+        for scope in (str(other.member.pk), ""):
+            response = client.post(
+                _hours_save_url(equipment),
+                _modal_rules([_rule_row(orientation_type, weekday=5)], scope=scope),
+                HTTP_HX_REQUEST="true",
+            )
+            assert response.status_code == 403
+        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
+
+    def it_lets_the_lead_tier_save_on_behalf_and_respects_view_as(client: Client):
+        from hub.view_as import ROLE_MEMBER, SESSION_ROLE_KEY
+
+        equipment_guild = GuildFactory()
+        equipment = EquipmentFactory(guild=equipment_guild)
+        orientation_type = _owned_type(equipment)
+        dana = _member_user("hs_target")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=dana.member)
+        payload = _modal_rules([_rule_row(orientation_type, weekday=5)], scope=str(dana.member.pk))
+
+        _login(client, "hs_admin", fog_role=Member.FogRole.ADMIN)
+        session = client.session
+        session[SESSION_ROLE_KEY] = ROLE_MEMBER
+        session.save()
+        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 403
+        session = client.session
+        del session[SESSION_ROLE_KEY]
+        session.save()
+        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 204
+        OrientationAvailability.objects.for_equipment(equipment).delete()
+
+        holder = _login(client, "hs_holder")
+        holder.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 204
+        OrientationAvailability.objects.for_equipment(equipment).delete()
+
+        lead = _member_user("hs_glead")
+        equipment_guild.guild_lead = lead.member
+        equipment_guild.save(update_fields=["guild_lead"])
+        client.login(username="hs_glead", password="pass")
+        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 204
+        assert OrientationAvailability.objects.for_equipment(equipment).get().orienter == dana.member
+
+    def it_re_renders_the_modal_with_errors_on_an_invalid_post(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _manager_login(client, "hs_invalid", equipment)
+        response = client.post(
+            _hours_save_url(equipment),
+            _modal_rules(
+                [_rule_row(orientation_type, weekday=5, start="18:00", end="18:30", slot="60")],
+                scope=str(dana.member.pk),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "This window is shorter than one slot." in content
+        assert 'id="edit-hours-modal-form"' in content
+        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
+
+    def it_404s_a_non_htmx_post_and_an_unlisted_prefix(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _manager_login(client, "hs_prefix", equipment)
+        payload = _modal_rules([_rule_row(orientation_type, weekday=5)], scope=str(dana.member.pk))
+        assert client.post(_hours_save_url(equipment), payload).status_code == 404
+        assert (
+            client.post(
+                _hours_save_url(equipment), {**payload, "formset_prefix": "rules"}, HTTP_HX_REQUEST="true"
+            ).status_code
+            == 404
+        )
+
+    def it_retires_a_shared_row_with_the_one_way_door_farewell(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        shared = _tool_rule(orientation_type)
+        open_slot = _generated_slot(shared)
+        _login(client, "hs_shared_admin", fog_role=Member.FogRole.ADMIN)
+        response = client.post(
+            _hours_save_url(equipment),
+            _modal_rules(
+                [
+                    {
+                        "id": str(shared.pk),
+                        **_rule_row(orientation_type, weekday=shared.weekday, start="10:00", end="12:00", DELETE="on"),
+                    }
+                ],
+                scope="",
+                initial=1,
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        assert not OrientationAvailability.objects.filter(pk=shared.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        joined = " ".join(str(m) for m in _tab(client, equipment).context["messages"])
+        assert "Shared hours deleted. From now on recurring hours are personal." in joined
+        assert "Use an Any manager one time slot for shared coverage." in joined
+
+    def it_lets_the_lead_tier_retire_a_former_managers_rule(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        stranger = MemberFactory(full_legal_name="Gone Person")
+        rule = _personal_rule(orientation_type, stranger)
+        _login(client, "hs_former", fog_role=Member.FogRole.ADMIN)
+        response = client.post(
+            _hours_save_url(equipment),
+            _modal_rules(
+                [{"id": str(rule.pk), **_rule_row(orientation_type, weekday=rule.weekday, DELETE="on")}],
+                scope=str(stranger.pk),
+                initial=1,
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+
+
+def describe_upcoming_slots_flat_list():
+    def it_lists_slots_with_the_with_chip_attendee_rows_and_source_tags(client: Client):
+        equipment = EquipmentFactory()
+        _manager_login(client, "us_flat", equipment)
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        personal = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            orienter=dana,
+            source=OrientationSlot.Source.GENERATED,
+        )
+        attendee = OrientationBookingFactory(slot=personal)
+        OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        response = _tab(client, equipment)
+        content = response.content.decode()
+        assert "Dana Reyes" in content
+        assert "Any manager" in content
+        assert ">recurring<" in content
+        assert ">one time<" in content
+        assert attendee.member.display_name in content
+        assert reverse("hub_orientation_respond", args=[attendee.pk]) in content
+        assert "{ page: 0, size: 5, total: 2 }" in content
+        assert "pl-orient-daygroup" not in content
+        assert "Show later days" not in content
+
+    def it_hides_detached_retired_rows(client: Client):
+        from membership import orientations
+
+        equipment = EquipmentFactory()
+        _manager_login(client, "us_detached", equipment)
+        orientation_type = _owned_type(equipment)
+        rule = _tool_rule(orientation_type)
+        slot = _generated_slot(rule, starts_at=_at(_tool_day(), 10), ends_at=_at(_tool_day(), 11))
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.DECLINED)
+        assert orientations.retire_open_slots(rule) == (1, 0)
+        response = _tab(client, equipment)
+        assert response.context["orientation_upcoming_slots"] == []
+        assert "No upcoming times." in response.content.decode()
+
+
+def describe_add_a_time_runs_with():
+    def _slot_data(orientation_type: OrientationType, **overrides) -> dict:
+        starts = timezone.localtime(timezone.now() + timedelta(days=2))
+        data = {
+            "orientation_type": str(orientation_type.pk),
+            "date": starts.date().isoformat(),
+            "start_time": "10:00",
+            "duration_minutes": "60",
+            "seats": "4",
+            "location": "",
+        }
+        data.update(overrides)
+        return data
+
+    def it_fixes_a_plain_manager_to_themselves_whatever_the_post_says(client: Client):
+        equipment = EquipmentFactory()
+        me = _manager_login(client, "rw_plain", equipment)
+        other = _member_user("rw_other")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=other.member)
+        orientation_type = _owned_type(equipment)
+        content = _tab(client, equipment).content.decode()
+        assert "Runs with: you" in content
+        response = client.post(
+            reverse("hub_equipment_orientation_slot_add", args=[equipment.slug]),
+            _slot_data(orientation_type, orienter=str(other.member.pk)),
+        )
+        assert response.status_code == 302
+        assert orientation_type.slots.get().orienter == me.member
+
+    def it_lets_the_lead_tier_pick_any_manager_or_a_manager(client: Client):
+        equipment = EquipmentFactory()
+        _login(client, "rw_admin", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        content = _tab(client, equipment).content.decode()
+        assert "Runs with: you" not in content
+        assert "Any manager" in content
+        url = reverse("hub_equipment_orientation_slot_add", args=[equipment.slug])
+        assert client.post(url, _slot_data(orientation_type, orienter="")).status_code == 302
+        assert (
+            client.post(url, _slot_data(orientation_type, start_time="12:00", orienter=str(dana.pk))).status_code == 302
+        )
+        assert sorted(slot.orienter_id for slot in orientation_type.slots.all() if slot.orienter_id) == [dana.pk]
+        assert orientation_type.slots.filter(orienter=None).count() == 1
+
+    def it_rejects_a_non_manager(client: Client):
+        equipment = EquipmentFactory()
+        _login(client, "rw_reject", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        stranger = MemberFactory()
+        response = client.post(
+            reverse("hub_equipment_orientation_slot_add", args=[equipment.slug]),
+            _slot_data(orientation_type, orienter=str(stranger.pk)),
+        )
+        assert response.status_code == 200
+        assert b"Pick someone who manages this equipment." in response.content
+        assert not orientation_type.slots.exists()
+
+
+def describe_one_time_slot_form():
+    def _slot_form(equipment: Equipment, orientation_type: OrientationType, start: str):
+        from hub.forms import EquipmentOrientationSlotForm
+
+        return EquipmentOrientationSlotForm(
+            {
+                "orientation_type": str(orientation_type.pk),
+                "date": _tool_day().isoformat(),
+                "start_time": start,
+                "duration_minutes": "60",
+                "seats": "1",
+                "location": "",
+            },
+            equipment=equipment,
+        )
+
+    def it_rejects_a_time_overlapping_an_existing_slot():
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=_at(_tool_day(), 10),
+            ends_at=_at(_tool_day(), 11),
+        )
+        form = _slot_form(equipment, orientation_type, "10:30")
+        assert not form.is_valid()
+        assert form.errors["start_time"] == ["That time overlaps another orientation time on this tool."]
+
+    def it_accepts_a_touching_time_and_defaults_to_any_manager():
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=_at(_tool_day(), 10),
+            ends_at=_at(_tool_day(), 11),
+        )
+        form = _slot_form(equipment, orientation_type, "11:00")
+        assert form.is_valid()
+        assert form.cleaned_data["orienter"] is None
+
+    def it_saves_the_slot_outright_when_asked_to_commit():
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        form = _slot_form(equipment, orientation_type, "10:00")
+        assert form.is_valid()
+        slot = form.save()
+        assert slot.pk is not None
+        assert slot.orientation_type == orientation_type
+        assert slot.orienter is None
+
+    def it_seeds_the_location_from_the_types_default():
+        from hub.forms import EquipmentOrientationSlotForm
+
+        equipment = EquipmentFactory()
+        _owned_type(equipment, default_location="Bay 2")
+        assert EquipmentOrientationSlotForm(equipment=equipment).fields["location"].initial == "Bay 2"
+
+    def it_skips_the_overlap_check_when_the_fields_are_incomplete():
+        from hub.forms import EquipmentOrientationSlotForm
+
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        form = EquipmentOrientationSlotForm(
+            {
+                "orientation_type": str(orientation_type.pk),
+                "date": "",
+                "start_time": "10:00",
+                "duration_minutes": "60",
+                "seats": "1",
+                "location": "",
+            },
+            equipment=equipment,
+        )
+        assert not form.is_valid()
+        assert "starts_at" not in form.cleaned_data
+
+
+def describe_staff_remove_retirement():
+    def it_retires_a_removed_managers_rules_and_flags_booked_slots(client: Client):
+        equipment = EquipmentFactory()
+        _login(client, "sr_admin", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        rule = _personal_rule(orientation_type, dana)
+        open_slot = _generated_slot(rule, orienter=dana)
+        booked = _generated_slot(rule, orienter=dana, starts_at=timezone.now() + timedelta(days=3))
+        OrientationBookingFactory(slot=booked)
+        response = client.post(reverse("hub_equipment_staff_remove", args=[equipment.slug, row.pk]), follow=True)
+        assert response.status_code == 200
+        joined = " ".join(str(m) for m in response.context["messages"])
+        assert "Dana Reyes no longer manages the" in joined
+        assert "They still have 1 upcoming booked orientation." in joined
+        assert "Upcoming Slots card on the Orientation tab" in joined
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        assert OrientationSlot.objects.filter(pk=booked.pk).exists()
+
+    def it_keeps_the_rules_of_a_manager_who_is_still_owning_guild_staff(client: Client):
+        from tests.membership.factories import GuildStaffMembershipFactory
+
+        equipment_guild = GuildFactory()
+        equipment = EquipmentFactory(guild=equipment_guild)
+        _login(client, "sr_still", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory()
+        GuildStaffMembershipFactory(guild=equipment_guild, member=dana)
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        rule = _personal_rule(orientation_type, dana)
+        response = client.post(reverse("hub_equipment_staff_remove", args=[equipment.slug, row.pk]), follow=True)
+        assert response.status_code == 200
+        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert "They still have" not in " ".join(str(m) for m in response.context["messages"])

@@ -26,7 +26,7 @@ from hub.forms import (
     EquipmentForm,
     EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
-    EquipmentOrientationHoursWindowFormSet,
+    EquipmentOrientationAvailabilityFormSet,
     EquipmentOrientationSlotForm,
     EquipmentOrientationTypeFormSet,
     EquipmentReservationForm,
@@ -34,7 +34,7 @@ from hub.forms import (
     EquipmentStaffAddForm,
 )
 from hub.toast import trigger_toast
-from hub.views import _get_hub_context, _get_member
+from hub.views import _apply_hours_formset, _get_hub_context, _get_member, _hours_save_message, _personal_hours_prefix
 from membership import equipment as equipment_service
 from membership.models import (
     Equipment,
@@ -427,37 +427,16 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
     slots = (
         OrientationSlot.objects.bookable()
         .filter(orientation_type__in=types)
-        .with_seat_holding_count()
-        .select_related("orientation_type")
+        .select_related("orientation_type", "orienter")
         .order_by("starts_at")
     )
     slots_by_type: dict[int, list[Any]] = {}
     for slot in slots:
-        slot.seats_open = max(slot.seats - slot.seat_holding_count, 0)
+        # "with Dana" on a manager's personal slot; empty for a shared slot.
+        slot.with_display = slot.with_label
         slots_by_type.setdefault(slot.orientation_type_id, []).append(slot)
-    # slot_cap=None: the day picker needs the full 8 week carved set, not a flat 30.
-    sections = _orientation_sections(types, member, slots_by_type, slot_cap=None)
-    for section in sections:
-        section["days"] = _slot_days(section["slots"])
-        open_days = [day for day in section["days"] if day["open_count"]]
-        # Default chip = the first day with an open slot, else the first day (its rows
-        # all read Full and the all-full line shows), so the row never renders empty.
-        section["default_day"] = (open_days or section["days"] or [{"iso": ""}])[0]["iso"]
-        section["all_full"] = bool(section["days"]) and not open_days
-    return sections
-
-
-def _slot_days(slots: list[Any]) -> list[dict[str, Any]]:
-    """Group ``starts_at``-ordered picker slots (with ``seats_open``) by local date for the day chips."""
-    days: list[dict[str, Any]] = []
-    for slot in slots:
-        local_day = timezone.localtime(slot.starts_at).date()
-        if not days or days[-1]["date"] != local_day:
-            days.append({"date": local_day, "iso": local_day.isoformat(), "open_count": 0, "slots": []})
-        days[-1]["slots"].append(slot)
-        if slot.seats_open:
-            days[-1]["open_count"] += 1
-    return days
+    # No cap: the guild list's five per page pager bounds the view.
+    return _orientation_sections(types, member, slots_by_type, slot_cap=None)
 
 
 @login_required
@@ -682,10 +661,43 @@ def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
-def _orientation_tab_context(equipment: Equipment) -> dict[str, Any]:
-    """The Orientation tab's read-only lists: pending requests + upcoming slots with attendees."""
-    from membership.models import OrientationBooking, OrientationSlot
+def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict[str, Any]:
+    """The Orientation tab's lists: pending requests, the Orientation Schedule overview, shared rows, slots.
 
+    The guild Orientations tab's shape, per manager: one overview group per
+    ``manager_members()`` entry with their personal rules, a Former Managers group
+    for orphan rules, the shared (orienter-less) rules, and the flat upcoming slot
+    list with attendee sub-rows. ``can_edit_others_hours`` gates the whole-schedule
+    view and the Runs with picker; a plain manager sees only their own group.
+    """
+    from membership.models import OrientationAvailability, OrientationBooking, OrientationSlot
+    from membership.permissions import can_edit_equipment_orienter_hours
+
+    viewer = _get_member(request)
+    can_edit_others_hours = can_edit_equipment_orienter_hours(request, equipment, None)
+    managers = equipment.manager_members()
+    manager_ids = {member.pk for member in managers}
+    rules_by_orienter: dict[int, list[Any]] = {}
+    orphan_orienters: dict[int, Any] = {}
+    personal_rules = (
+        OrientationAvailability.objects.for_equipment(equipment)
+        .exclude(orienter=None)
+        .select_related("orienter", "orientation_type")
+    )
+    for rule in personal_rules:
+        orienter_id = rule.orienter_id
+        assert orienter_id is not None  # guaranteed by the exclude(orienter=None) filter
+        rules_by_orienter.setdefault(orienter_id, []).append(rule)
+        if orienter_id not in manager_ids:
+            orphan_orienters[orienter_id] = rule.orienter
+    orienter_overview = [(member, rules_by_orienter.get(member.pk, [])) for member in managers]
+    former_managers_overview = sorted(
+        ((member, rules_by_orienter[pk]) for pk, member in orphan_orienters.items()),
+        key=lambda pair: pair[0].display_name.lower(),
+    )
+    shared_rules = list(
+        OrientationAvailability.objects.for_equipment(equipment).guild_level().select_related("orientation_type")
+    )
     pending_requests = list(
         OrientationBooking.objects.filter(
             orientation_type__equipment=equipment, status=OrientationBooking.Status.REQUESTED
@@ -698,7 +710,7 @@ def _orientation_tab_context(equipment: Equipment) -> dict[str, Any]:
         .upcoming()
         .with_active_booking_count()
         .with_pending_hold_count()
-        .select_related("orientation_type")
+        .select_related("orientation_type", "orienter")
         .order_by("starts_at")
     )
     attendees_by_slot: dict[int, list[Any]] = {}
@@ -728,44 +740,17 @@ def _orientation_tab_context(equipment: Equipment) -> dict[str, Any]:
             ),
             None,
         )
-    slot_days = _upcoming_slot_days(upcoming_slots)
     return {
         "orientation_pending_requests": pending_requests,
         "orientation_upcoming_slots": upcoming_slots,
-        "orientation_slot_days": slot_days,
-        "orientation_has_later_days": any(day["is_later"] for day in slot_days),
+        "orienter_overview": orienter_overview,
+        "former_managers_overview": former_managers_overview,
+        "shared_rules": shared_rules,
+        "can_edit_others_hours": can_edit_others_hours,
+        "show_my_hours_card": viewer is not None and viewer.pk in manager_ids,
+        "viewer_member_pk": viewer.pk if viewer is not None else None,
+        "slot_form_locked": not can_edit_others_hours,
     }
-
-
-_UPCOMING_SLOTS_NEAR_DAYS = 14
-
-
-def _upcoming_slot_days(slots: list[Any]) -> list[dict[str, Any]]:
-    """Group the manage tab's ``starts_at``-ordered upcoming slots by local date.
-
-    A day opens by default when anyone holds a seat on it (an attendee row or a
-    checkout hold); days beyond the near horizon sit behind a client-side "Show
-    later days" button so eight weeks of carved slots never render as a wall.
-    """
-    later_after = timezone.localdate() + timedelta(days=_UPCOMING_SLOTS_NEAR_DAYS)
-    days: list[dict[str, Any]] = []
-    for slot in slots:
-        local_day = timezone.localtime(slot.starts_at).date()
-        if not days or days[-1]["date"] != local_day:
-            days.append(
-                {
-                    "date": local_day,
-                    "slots": [],
-                    "booked_count": 0,
-                    "open_by_default": False,
-                    "is_later": local_day > later_after,
-                }
-            )
-        days[-1]["slots"].append(slot)
-        days[-1]["booked_count"] += slot.active_booking_count
-        if slot.attendee_bookings or slot.hold_count:
-            days[-1]["open_by_default"] = True
-    return days
 
 
 def _render_manage(
@@ -777,24 +762,17 @@ def _render_manage(
     hours_formset: Any = None,
     settings_form: EquipmentSettingsForm | None = None,
     orientation_types_formset: Any = None,
-    orientation_hours_formset: Any = None,
     slot_add_form: EquipmentOrientationSlotForm | None = None,
     active_tab: str = "details",
 ) -> HttpResponse:
     """Render the manage panel with the given (possibly error-bearing) forms."""
+    orientation_ctx = _orientation_tab_context(request, equipment)
     return render(
         request,
         "hub/equipment_manage.html",
         {
             **_get_hub_context(request),
-            **_orientation_tab_context(equipment),
-            "orientation_hours_formset": orientation_hours_formset
-            if orientation_hours_formset is not None
-            else EquipmentOrientationHoursWindowFormSet(
-                initial=equipment.orientation_hours_windows(),
-                prefix="ohours",
-                form_kwargs={"equipment": equipment},
-            ),
+            **orientation_ctx,
             "equipment": equipment,
             "form": form if form is not None else EquipmentForm(instance=equipment),
             "staff_memberships": list(equipment.staff_memberships.select_related("member", "granted_by")),
@@ -811,7 +789,11 @@ def _render_manage(
             else EquipmentOrientationTypeFormSet(instance=equipment, prefix="otypes"),
             "slot_add_form": slot_add_form
             if slot_add_form is not None
-            else EquipmentOrientationSlotForm(equipment=equipment),
+            else EquipmentOrientationSlotForm(
+                equipment=equipment,
+                acting_member=_get_member(request),
+                lock_to_acting=orientation_ctx["slot_form_locked"],
+            ),
             # The hub's standard Paginator + table_pagination partial, capped at 25 rows.
             "manage_reservations": Paginator(equipment.reservations.upcoming().select_related("member"), 25).get_page(
                 request.GET.get("page", 1)
@@ -898,9 +880,23 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
     if forbidden is not None:
         return forbidden
     staff = get_object_or_404(EquipmentStaffMembership, pk=pk, equipment=equipment)
-    member_name = staff.member.display_name
+    removed_member = staff.member
+    member_name = removed_member.display_name
     staff.delete()
-    messages.success(request, f"{member_name} no longer manages the {equipment.name}.")
+    message = f"{member_name} no longer manages the {equipment.name}."
+    # Retire their personal hours ONLY when they no longer manage the tool at all — they
+    # may still be owning-guild staff or an admin, and those hours must keep generating.
+    if not removed_member.can_manage_equipment(equipment):
+        from membership import orientations
+
+        _removed, booked_remaining = orientations.retire_equipment_orienter(equipment, removed_member)
+        if booked_remaining:
+            message += (
+                f" They still have {booked_remaining} upcoming booked "
+                f"orientation{'' if booked_remaining == 1 else 's'}. Cancel them from the "
+                "Upcoming Slots card on the Orientation tab if they won't be run."
+            )
+    messages.success(request, message)
     return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=staff")
 
 
@@ -926,65 +922,134 @@ def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> Htt
     return _render_manage(request, equipment, orientation_types_formset=formset, active_tab="orientation")
 
 
-def _orientation_hours_save_message(*, removed: int, kept: int) -> str:
-    """The Orientation Hours flash — the counts appear whenever a delete, pause, or re-grid retired slots."""
-    parts = ["Hours saved."]
-    if removed:
-        parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
-    if kept:
-        pronoun = "it" if kept == 1 else "them"
-        parts.append(
-            f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Slots card."
-        )
-    return " ".join(parts)
+def _hours_scope_target(request: HttpRequest, raw: str) -> Member | None:
+    """Resolve an ``orienter`` value to its Member, or None for the shared scope (garbage is a 404)."""
+    if not raw:
+        return None
+    if not raw.isdigit():
+        raise Http404("Unknown orienter scope.")
+    return get_object_or_404(Member, pk=int(raw))
+
+
+def _hours_scope_queryset(equipment: Equipment, target: Member | None) -> Any:
+    """The rules one Edit Hours modal edits: a manager's personal rows, or the shared rows."""
+    from membership.models import OrientationAvailability
+
+    rules = OrientationAvailability.objects.for_equipment(equipment)
+    return rules.for_orienter(target) if target is not None else rules.guild_level()
+
+
+@login_required
+@equipment_feature_required
+def hub_equipment_orientation_hours_form(request: HttpRequest, slug: str) -> HttpResponse:
+    """Return the Edit Hours modal's formset partial for one manager, or the shared rows (HTMX GET).
+
+    ``?orienter=<pk>`` scopes to that manager; empty scopes to the shared (orienter-less)
+    rows. Gated by ``can_edit_equipment_orienter_hours`` (403 otherwise), the same gate the
+    save uses, so a former manager's leftover rows are editable by the "others" tier.
+    """
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    from membership.permissions import can_edit_equipment_orienter_hours
+
+    target = _hours_scope_target(request, request.GET.get("orienter", ""))
+    if not can_edit_equipment_orienter_hours(request, equipment, target):
+        return HttpResponse("Forbidden", status=403)
+    formset = EquipmentOrientationAvailabilityFormSet(
+        prefix="modal_rules",
+        queryset=_hours_scope_queryset(equipment, target),
+        form_kwargs={"equipment": equipment},
+    )
+    return render(
+        request,
+        "hub/partials/_orienter_hours_modal_form.html",
+        {
+            "target": target,
+            "formset": formset,
+            "hours_save_url": reverse("hub_equipment_orientation_hours_save", args=[equipment.slug]),
+        },
+    )
+
+
+_EQUIPMENT_SHARED_FAREWELL = (
+    "Shared hours deleted. From now on recurring hours are personal. "
+    "Use an Any manager one time slot for shared coverage."
+)
 
 
 @login_required
 @equipment_feature_required
 @require_POST
 def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
-    """POST — save the Orientation Hours window formset and regenerate the tool's slots.
+    """Save one scope of recurring orientation hours from the Edit Hours modal (HTMX POST).
 
-    One Save for the card (FRONTEND rule 21); a per-row Delete flips its hidden
-    DELETE and resubmits this same form. The model reconciles windows into per-day
-    rules (retiring what a delete, pause, or re-grid no longer wants) and the
-    service carves the new grid immediately, so the Upcoming Slots card is honest
-    on the redirect.
+    The posted ``orienter_scope`` selects the target (a manager's rows, or empty for the
+    shared rows); ``formset_prefix`` must be ``modal_rules`` on an HTMX request (404
+    otherwise, like the guild modal). Gate is ``can_edit_equipment_orienter_hours``.
+    Deleted rows retire via ``retire_rule``, new rows are stamped with the scope's
+    manager, and saved hours materialize slots immediately. A valid save answers 204 +
+    ``HX-Redirect`` to the Orientation tab; an invalid one re-renders the bound partial
+    inside the modal.
     """
     from membership import orientations
+    from membership.permissions import can_edit_equipment_orienter_hours
 
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
-    forbidden = _require_can_manage(request, equipment)
-    if forbidden is not None:
-        return forbidden
-    formset = EquipmentOrientationHoursWindowFormSet(
+    target = _hours_scope_target(request, request.POST.get("orienter_scope", ""))
+    if not can_edit_equipment_orienter_hours(request, equipment, target):
+        return HttpResponse("Forbidden", status=403)
+    is_htmx = bool(request.headers.get("HX-Request"))
+    prefix = _personal_hours_prefix(request, is_htmx=is_htmx)
+    formset = EquipmentOrientationAvailabilityFormSet(
         request.POST,
-        initial=equipment.orientation_hours_windows(),
-        prefix="ohours",
+        prefix=prefix,
+        queryset=_hours_scope_queryset(equipment, target),
         form_kwargs={"equipment": equipment},
     )
     if formset.is_valid():
-        _deleted_rules, removed, kept = equipment.apply_orientation_hours_windows(
-            [form.cleaned_data for form in formset if form.cleaned_data and not form.cleaned_data.get("DELETE")]
-        )
+        deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
         orientations.generate_slots(equipment=equipment)
-        messages.success(request, _orientation_hours_save_message(removed=removed, kept=kept))
-        return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
-    return _render_manage(request, equipment, orientation_hours_formset=formset, active_tab="orientation")
+        shared_emptied = target is None and not _hours_scope_queryset(equipment, None).exists()
+        messages.success(
+            request,
+            _hours_save_message(
+                deleted_rules=deleted_rules,
+                removed=removed,
+                kept=kept,
+                shared_farewell=_EQUIPMENT_SHARED_FAREWELL if shared_emptied else None,
+            ),
+        )
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation"
+        return response
+    return render(
+        request,
+        "hub/partials/_orienter_hours_modal_form.html",
+        {
+            "target": target,
+            "formset": formset,
+            "hours_save_url": reverse("hub_equipment_orientation_hours_save", args=[equipment.slug]),
+        },
+    )
 
 
 @login_required
 @equipment_feature_required
 @require_POST
 def hub_equipment_orientation_slot_add(request: HttpRequest, slug: str) -> HttpResponse:
-    """POST — add a one-off MANUAL orientation slot (guild None, orienter None)."""
+    """POST — add a one time MANUAL orientation slot (guild None; Runs with a manager or any manager)."""
     from membership.models import OrientationSlot
+    from membership.permissions import can_edit_equipment_orienter_hours
 
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
-    form = EquipmentOrientationSlotForm(request.POST, equipment=equipment)
+    form = EquipmentOrientationSlotForm(
+        request.POST,
+        equipment=equipment,
+        acting_member=_get_member(request),
+        lock_to_acting=not can_edit_equipment_orienter_hours(request, equipment, None),
+    )
     if form.is_valid():
         slot = form.save(commit=False)
         slot.source = OrientationSlot.Source.MANUAL

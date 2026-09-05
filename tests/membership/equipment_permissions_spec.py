@@ -15,7 +15,7 @@ from django.test import RequestFactory
 from classes.factories import UserFactory
 from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_GUEST, ROLE_MEMBER, ViewAs
 from membership.models import AdminCapability, GuildStaffMembership, Member
-from membership.permissions import can_create_equipment, can_manage_equipment
+from membership.permissions import can_create_equipment, can_edit_equipment_orienter_hours, can_manage_equipment
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentStaffMembershipFactory,
@@ -148,3 +148,63 @@ def describe_can_create_equipment():
 
     def it_denies_an_anonymous_request():
         assert can_create_equipment(_request(AnonymousUser())) is False
+
+
+def describe_can_edit_equipment_orienter_hours():
+    """The equipment twin of can_edit_orienter_hours: own hours for any manager, others' for the top tier."""
+
+    def _managed_tool():
+        equipment = EquipmentFactory(guild=GuildFactory())
+        manager = _member_user()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        return equipment, manager
+
+    def it_lets_a_plain_manager_edit_their_own_hours_only():
+        equipment, manager = _managed_tool()
+        other = _member_user()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=other)
+        request = _request(manager.user, roles={ROLE_MEMBER})
+        assert can_edit_equipment_orienter_hours(request, equipment, manager) is True
+        assert can_edit_equipment_orienter_hours(request, equipment, other) is False
+        assert can_edit_equipment_orienter_hours(request, equipment, None) is False
+
+    def it_denies_a_plain_member_even_for_themselves():
+        equipment, _manager = _managed_tool()
+        member = _member_user()
+        assert can_edit_equipment_orienter_hours(_request(member.user, roles={ROLE_MEMBER}), equipment, member) is False
+
+    def it_lets_an_effective_admin_edit_anyone_and_the_shared_rows():
+        equipment, manager = _managed_tool()
+        request = _request(UserFactory(), roles={ROLE_ADMIN, ROLE_MEMBER})
+        assert can_edit_equipment_orienter_hours(request, equipment, manager) is True
+        assert can_edit_equipment_orienter_hours(request, equipment, None) is True
+
+    def it_lets_an_equipment_capability_holder_edit_anyone():
+        equipment, manager = _managed_tool()
+        holder = _member_user()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        request = _request(holder.user, roles={ROLE_MEMBER})
+        assert can_edit_equipment_orienter_hours(request, equipment, manager) is True
+        assert can_edit_equipment_orienter_hours(request, equipment, None) is True
+
+    def it_lets_the_owning_guilds_lead_edit_anyone_but_not_another_guilds_lead():
+        equipment, manager = _managed_tool()
+        lead = _member_user()
+        equipment.guild.guild_lead = lead
+        equipment.guild.save(update_fields=["guild_lead"])
+        assert can_edit_equipment_orienter_hours(_request(lead.user, roles={ROLE_MEMBER}), equipment, manager) is True
+        assert can_edit_equipment_orienter_hours(_request(lead.user, roles={ROLE_MEMBER}), equipment, None) is True
+        stranger_lead = _member_user()
+        GuildFactory(guild_lead=stranger_lead)
+        assert (
+            can_edit_equipment_orienter_hours(_request(stranger_lead.user, roles={ROLE_MEMBER}), equipment, manager)
+            is False
+        )
+
+    def it_denies_a_non_manager_admin_previewing_as_a_member():
+        # Own hours ride can_manage_equipment, whose admin leg demotes under preview.
+        equipment, manager = _managed_tool()
+        admin = _member_user()
+        request = _request(admin.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        assert can_edit_equipment_orienter_hours(request, equipment, admin) is False
+        assert can_edit_equipment_orienter_hours(request, equipment, manager) is False

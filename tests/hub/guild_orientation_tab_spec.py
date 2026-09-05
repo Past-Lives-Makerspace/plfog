@@ -153,7 +153,7 @@ def describe_per_type_sections():
 
 
 def describe_slot_cap():
-    def it_keeps_the_guild_page_capped_at_thirty_slots(client: Client):
+    def it_no_longer_caps_the_guild_page_at_thirty_slots(client: Client):
         _member("cap1")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
@@ -165,4 +165,5 @@ def describe_slot_cap():
             )
         client.login(username="cap1", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert len(response.context["orientation_sections"][0]["slots"]) == 30
+        # No cap for either owner: the five per page pager bounds the view.
+        assert len(response.context["orientation_sections"][0]["slots"]) == 31

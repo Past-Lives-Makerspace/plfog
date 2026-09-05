@@ -513,9 +513,13 @@ def describe_generate_slots_for_equipment():
         inactive_type.orientation_type.save(update_fields=["is_active"])
         assert orientations.generate_slots() == 0
 
-    def it_never_evaluates_the_orienter_skip_for_a_guildless_rule():
+    def it_skips_a_personal_rule_whose_manager_no_longer_manages_the_tool():
+        from tests.membership.factories import EquipmentStaffMembershipFactory
+
         stranger = MemberFactory()
         rule = _equipment_rule(orienter=stranger)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 0
+        EquipmentStaffMembershipFactory(equipment=_tool(rule), member=stranger)
         assert orientations.generate_slots(equipment=_tool(rule)) == 16
         assert rule.slots.first().orienter == stranger
 
@@ -1035,3 +1039,33 @@ def describe_retired_slots_regenerate():
         assert slot.availability == rule
         assert slot.is_cancelled is True
         assert not OrientationSlot.objects.filter(starts_at=slot.starts_at, is_cancelled=False).exists()
+
+
+def describe_retire_equipment_orienter():
+    def it_sweeps_only_the_members_rules_on_that_tool_and_counts_booked_slots():
+        from tests.membership.factories import EquipmentStaffMembershipFactory
+
+        rule = _equipment_rule()
+        tool = _tool(rule)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        EquipmentStaffMembershipFactory(equipment=tool, member=dana)
+        mine = _equipment_rule(orientation_type=rule.orientation_type, orienter=dana)
+        shared = rule  # orienter-less, must survive
+        elsewhere = _equipment_rule(orienter=dana)  # another tool's rule, must survive
+        open_slot = _generated_slot(mine, hour=10)
+        booked = _generated_slot(mine, hour=11)
+        OrientationBookingFactory(slot=booked)
+        for slot in (open_slot, booked):
+            slot.orienter = dana
+            slot.save(update_fields=["orienter"])
+
+        removed, booked_remaining = orientations.retire_equipment_orienter(tool, dana)
+
+        assert (removed, booked_remaining) == (1, 1)
+        assert not OrientationAvailability.objects.filter(pk=mine.pk).exists()
+        assert OrientationAvailability.objects.filter(pk=shared.pk).exists()
+        assert OrientationAvailability.objects.filter(pk=elsewhere.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        booked.refresh_from_db()
+        assert booked.availability is None
+        assert booked.orienter == dana

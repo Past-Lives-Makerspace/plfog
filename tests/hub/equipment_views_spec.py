@@ -891,8 +891,8 @@ def describe_equipment_orientation_surface():
             assert inactive not in queryset
 
 
-def describe_equipment_day_picker():
-    """The equipment page's day chips + time rows picker (equipment-orientation-hours spec §6.4)."""
+def describe_equipment_orientation_list():
+    """The equipment page lists orientation times the way a guild page does (equipment-orientations-guild-pattern)."""
 
     def _day(offset: int) -> date:
         return timezone.localdate() + timedelta(days=offset)
@@ -903,102 +903,108 @@ def describe_equipment_day_picker():
     def _owned_type(equipment: Equipment, **kwargs):
         return OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics", **kwargs)
 
-    def _slot(orientation_type, day: date, hour: int, *, seats: int = 1):
+    def _slot(orientation_type, hour: int, *, orienter=None, seats: int = 1, offset: int = 2):
         return OrientationSlotFactory(
             equipment_owned=True,
             orientation_type=orientation_type,
-            starts_at=_at(day, hour),
-            ends_at=_at(day, hour + 1),
+            orienter=orienter,
+            starts_at=_at(_day(offset), hour),
+            ends_at=_at(_day(offset), hour + 1),
             seats=seats,
         )
 
-    def it_renders_a_chip_per_day_and_selects_the_first_open_day(client: Client):
-        _login(client, "dp_chips")
+    def _dana(equipment: Equipment):
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        return dana
+
+    def it_renders_the_plain_list_with_the_with_cell_and_both_confirm_copies(client: Client):
+        _login(client, "ol_list")
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        full_day, open_day, later_day = _day(2), _day(3), _day(5)
-        OrientationBookingFactory(slot=_slot(orientation_type, full_day, 10))
-        _slot(orientation_type, open_day, 10)
-        _slot(orientation_type, open_day, 11)
-        _slot(orientation_type, later_day, 9)
+        dana = _dana(equipment)
+        personal = _slot(orientation_type, 10, orienter=dana)
+        shared = _slot(orientation_type, 12)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
-        section = response.context["orientation_sections"][0]
-        assert [(d["iso"], d["open_count"], len(d["slots"])) for d in section["days"]] == [
-            (full_day.isoformat(), 0, 1),
-            (open_day.isoformat(), 2, 2),
-            (later_day.isoformat(), 1, 1),
-        ]
-        assert section["default_day"] == open_day.isoformat()
-        assert section["all_full"] is False
         content = response.content.decode()
-        # One static state per chip; the leading space keeps Alpine's :aria-pressed binding out of the count.
-        assert content.count(' aria-pressed="') == 3
-        assert content.count("pl-orient-days__chip--full") == 1
-        assert content.count(' aria-pressed="true"') == 1
-        assert f"{{ day: '{open_day.isoformat()}' }}" in content
-        # Object syntax: Alpine removes the class again when another day is picked.
-        assert ":class=\"{ 'pl-orient-days__chip--active': day === '" + open_day.isoformat() + "' }\"" in content
-        assert 'pl-orient-days__chip-count">Full<' in content
-        assert 'pl-orient-days__chip-count">2 open<' in content
-        assert f"x-show=\"day === '{open_day.isoformat()}'\"" in content
+        section = response.context["orientation_sections"][0]
+        assert [slot.pk for slot in section["slots"]] == [personal.pk, shared.pk]
+        assert section["slots"][0].with_display == "with Dana"
+        assert section["slots"][1].with_display == ""
+        assert "pl-orient-slots__head" in content
         assert "10:00 AM to 11:00 AM" in content
-        assert "1 seat left" in content
-        assert "Request</button>" in content
-        # A string literal passed through {% include with %} is safe text, so the apostrophe stays literal.
+        assert "with Dana" in content
+        assert 'pl-orient-avatar pl-orient-avatar--initials">D<' in content
+        assert content.count("Request</button>") == 2
+        assert "send your request to Dana to confirm" in content
         assert "We'll send your request to the equipment managers to confirm." in content
-        assert 'class="pl-orient-days"' in content
-        assert "pl-orient-slots__pager" not in content
-        assert "Every time is full right now." not in content
+        assert "{ page: 0, size: 5, total: 2 }" in content
+        assert "pl-orient-days" not in content
+        assert "aria-pressed" not in content
 
-    def it_shows_the_all_full_state_and_selects_the_first_day(client: Client):
-        _login(client, "dp_full")
+    def it_pages_five_at_a_time_with_no_cap(client: Client):
+        _login(client, "ol_pager")
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        OrientationBookingFactory(slot=_slot(orientation_type, _day(2), 10))
+        for offset in range(2, 9):
+            _slot(orientation_type, 10, offset=offset)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
-        section = response.context["orientation_sections"][0]
-        assert section["all_full"] is True
-        assert section["default_day"] == _day(2).isoformat()
+        assert len(response.context["orientation_sections"][0]["slots"]) == 7
         content = response.content.decode()
-        assert "Every time is full right now. Check back soon." in content
-        assert "Request</button>" not in content
-        assert "0 of 1 open" in content
+        assert "{ page: 0, size: 5, total: 7 }" in content
+        assert "pl-orient-slots__pager" in content
 
-    def it_shows_open_of_total_for_multi_seat_slots(client: Client):
-        _login(client, "dp_seats")
+    def it_shows_full_and_who_the_member_is_waiting_on(client: Client):
+        user = _login(client, "ol_states")
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        OrientationBookingFactory(slot=_slot(orientation_type, _day(2), 10, seats=4))
+        dana = _dana(equipment)
+        full = _slot(orientation_type, 10)
+        OrientationBookingFactory(slot=full)
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
-        assert "3 of 4 open" in content
+        assert ">Full<" in content
+        assert "Request</button>" not in content
+        booked = _slot(orientation_type, 12, orienter=dana)
+        OrientationBookingFactory(slot=booked, member=user.member)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "· with Dana" in content
+        assert "Waiting for Dana to confirm." in content
 
     def it_renders_for_a_user_with_no_member(client: Client):
-        user = _member_user("dp_nomember")
+        user = _member_user("ol_nomember")
         user.member.delete()
-        client.login(username="dp_nomember", password="pass")
+        client.login(username="ol_nomember", password="pass")
         equipment = EquipmentFactory()
-        _slot(_owned_type(equipment), _day(2), 10)
+        _slot(_owned_type(equipment), 10)
         response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
         assert response.status_code == 200
-        assert len(response.context["orientation_sections"][0]["days"]) == 1
+        assert len(response.context["orientation_sections"][0]["slots"]) == 1
 
-    def it_does_not_pin_a_declined_booking(client: Client):
-        from membership.models import OrientationBooking
-
-        user = _login(client, "dp_declined")
+    def it_hides_a_slot_under_a_confirmed_reservation_until_it_is_cancelled(client: Client):
+        _login(client, "ol_reserved")
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        slot = _slot(orientation_type, _day(2), 10)
-        OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.DECLINED)
-        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
-        assert "Request</button>" in content
+        covered = _slot(orientation_type, 10)
+        _slot(orientation_type, 11)
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, starts_at=_at(_day(2), 10), ends_at=_at(_day(2), 11)
+        )
+
+        def listed() -> list[int]:
+            response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+            return [slot.pk for slot in response.context["orientation_sections"][0]["slots"]]
+
+        assert covered.pk not in listed()
+        reservation.status = "cancelled"
+        reservation.save(update_fields=["status"])
+        assert covered.pk in listed()
 
     def it_closes_a_deleted_windows_slot_when_the_member_cancels(client: Client):
         from membership import orientations
         from membership.models import OrientationBooking, OrientationSlot
         from tests.membership.factories import OrientationAvailabilityFactory
 
-        user = _login(client, "dp_selfcancel")
+        user = _login(client, "ol_selfcancel")
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
         rule = OrientationAvailabilityFactory(equipment_owned=True, orientation_type=orientation_type)
@@ -1019,35 +1025,3 @@ def describe_equipment_day_picker():
         assert slot.is_cancelled is True
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
         assert "No orientation times are posted yet. Check back soon." in content
-
-    def it_hides_a_slot_under_a_confirmed_reservation_until_it_is_cancelled(client: Client):
-        _login(client, "dp_reserved")
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        _slot(orientation_type, _day(2), 10)
-        _slot(orientation_type, _day(2), 11)
-        reservation = EquipmentReservationFactory(
-            equipment=equipment, starts_at=_at(_day(2), 10), ends_at=_at(_day(2), 11)
-        )
-
-        def picker_starts() -> list:
-            response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
-            days = response.context["orientation_sections"][0]["days"]
-            return [slot.starts_at for day in days for slot in day["slots"]]
-
-        # The reservation itself still lists under Upcoming Reservations; only the picker hides the slot.
-        assert picker_starts() == [_at(_day(2), 11)]
-        reservation.status = "cancelled"
-        reservation.save(update_fields=["status"])
-        assert picker_starts() == [_at(_day(2), 10), _at(_day(2), 11)]
-
-    def it_keeps_the_empty_state_with_no_slots(client: Client):
-        _login(client, "dp_empty")
-        equipment = EquipmentFactory()
-        _owned_type(equipment)
-        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
-        section = response.context["orientation_sections"][0]
-        assert section["days"] == []
-        assert section["default_day"] == ""
-        assert section["all_full"] is False
-        assert "No orientation times are posted yet. Check back soon." in response.content.decode()

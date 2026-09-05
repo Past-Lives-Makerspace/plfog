@@ -1926,63 +1926,8 @@ class GuildJoinForm(forms.Form):
     )
 
 
-class OrientationAvailabilityForm(forms.ModelForm):
-    """A single recurring orientation-availability row.
-
-    Times are half-hour ``<select>`` dropdowns (Rule 19), not per-minute pickers; the
-    "HH:MM" choice is parsed back to a ``datetime.time`` on clean, and an existing off-grid
-    value is preserved via :func:`_seed_time_choice`. ``orientation_type`` is scoped to the
-    guild's active types (plus the row's own type, so an existing row under a retired type
-    still validates); it defaults to the guild's first active type.
-    """
-
-    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
-    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
-
-    class Meta:
-        model = OrientationAvailability
-        fields = ["orientation_type", "weekday", "start_time", "end_time", "seats", "is_active"]
-        labels = {"orientation_type": "Orientation"}
-
-    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        if guild is None and self.instance is not None and self.instance.guild_id is not None:
-            guild = self.instance.guild
-        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
-        if guild is not None:
-            allowed = OrientationType.objects.filter(guild=guild).active()
-            if self.instance is not None and self.instance.pk and self.instance.orientation_type_id is not None:
-                allowed = allowed | OrientationType.objects.filter(pk=self.instance.orientation_type_id)
-            type_field.queryset = allowed.distinct()
-            first_type = guild.first_active_orientation_type()
-            if first_type is not None:
-                type_field.initial = first_type.pk
-        type_field.empty_label = None
-        type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
-        if self.instance and self.instance.pk:
-            _seed_time_choice(self, "start_time", self.instance.start_time)
-            _seed_time_choice(self, "end_time", self.instance.end_time)
-
-    def clean_start_time(self) -> time:
-        return _parse_time_choice(self.cleaned_data["start_time"])
-
-    def clean_end_time(self) -> time:
-        return _parse_time_choice(self.cleaned_data["end_time"])
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        start = cleaned.get("start_time")
-        end = cleaned.get("end_time")
-        if start and end and end <= start:
-            self.add_error("end_time", "End time must be after the start time.")
-        return cleaned
-
-
-OrientationAvailabilityFormSet = forms.inlineformset_factory(
-    Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
-)
-
-
+# The shared slot length and break choices: the guild and equipment rule forms and the one
+# time slot forms all read from these lists (Rule 20: no invented durations).
 _SLOT_DURATION_CHOICES: list[tuple[str, str]] = [
     ("30", "30 minutes"),
     ("45", "45 minutes"),
@@ -1991,6 +1936,137 @@ _SLOT_DURATION_CHOICES: list[tuple[str, str]] = [
     ("120", "2 hours"),
     ("180", "3 hours"),
 ]
+
+_ORIENTATION_BUFFER_CHOICES: list[tuple[str, str]] = [
+    ("0", "None"),
+    ("15", "15 minutes"),
+    ("30", "30 minutes"),
+    ("60", "1 hour"),
+]
+
+
+def _duration_choice_label(minutes: int) -> str:
+    """The label for a slot length that is not one of the shared duration choices (a 75 minute type)."""
+    return f"{minutes} minutes"
+
+
+def _append_duration_choice(field: forms.Field, minutes: int) -> None:
+    """Append ``minutes`` to a duration ``<select>`` when it is off the shared list (the off-grid idiom)."""
+    choice_field = cast(forms.ChoiceField, field)
+    choices = cast("list[tuple[str, str]]", choice_field.choices)
+    key = str(minutes)
+    if key not in {choice_value for choice_value, _ in choices}:
+        choice_field.choices = [*choices, (key, _duration_choice_label(minutes))]
+
+
+class OrientationAvailabilityForm(forms.ModelForm):
+    """A single recurring orientation-availability row, for a guild or an equipment owner.
+
+    Times are half-hour ``<select>`` dropdowns (Rule 19), not per-minute pickers; the
+    "HH:MM" choice is parsed back to a ``datetime.time`` on clean, and an existing off-grid
+    value is preserved via :func:`_seed_time_choice`. ``orientation_type`` is scoped to the
+    owner's active types (plus the row's own type, so an existing row under a retired type
+    still validates); it defaults to the owner's first active type. Slot length and break
+    are optional: blank keeps one slot for the whole window (the row stays NULL); a length
+    carves the window, and a saved off-list length round-trips as its own choice.
+    """
+
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
+    slot_minutes = forms.TypedChoiceField(
+        coerce=int,
+        empty_value=None,
+        required=False,
+        choices=[("", "Whole window"), *_SLOT_DURATION_CHOICES],
+        label="Slot length",
+    )
+    # Optional so a row posted without it keeps the model default of no break
+    # (clean_buffer_minutes turns the blank into 0).
+    buffer_minutes = forms.TypedChoiceField(
+        coerce=int,
+        empty_value=None,
+        required=False,
+        choices=_ORIENTATION_BUFFER_CHOICES,
+        label="Break between slots",
+    )
+
+    class Meta:
+        model = OrientationAvailability
+        fields = [
+            "orientation_type",
+            "weekday",
+            "start_time",
+            "end_time",
+            "seats",
+            "slot_minutes",
+            "buffer_minutes",
+            "is_active",
+        ]
+        labels = {"orientation_type": "Orientation"}
+
+    def __init__(
+        self, *args: Any, guild: Guild | None = None, equipment: Equipment | None = None, **kwargs: Any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        if guild is None and equipment is None and self.instance is not None and self.instance.guild_id is not None:
+            guild = self.instance.guild
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        allowed: Any = None
+        if equipment is not None:
+            allowed = equipment.owned_orientation_types.active()
+            type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
+        elif guild is not None:
+            allowed = OrientationType.objects.filter(guild=guild).active()
+            type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+        else:
+            type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+        if allowed is not None:
+            if self.instance is not None and self.instance.pk and self.instance.orientation_type_id is not None:
+                allowed = allowed | OrientationType.objects.filter(pk=self.instance.orientation_type_id)
+            type_field.queryset = allowed.distinct()
+            first_type = allowed.first()
+            if first_type is not None:
+                type_field.initial = first_type.pk
+        type_field.empty_label = None
+        if self.instance and self.instance.pk:
+            _seed_time_choice(self, "start_time", self.instance.start_time)
+            _seed_time_choice(self, "end_time", self.instance.end_time)
+            if self.instance.slot_minutes is not None:
+                _append_duration_choice(self.fields["slot_minutes"], self.instance.slot_minutes)
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
+
+    def clean_buffer_minutes(self) -> int:
+        return cast("int | None", self.cleaned_data.get("buffer_minutes")) or 0
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if start and end and end <= start:
+            self.add_error("end_time", "End time must be after the start time.")
+            return cleaned
+        slot_minutes = cleaned.get("slot_minutes")
+        if start and end and slot_minutes:
+            window_minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+            if window_minutes < slot_minutes:
+                self.add_error("slot_minutes", "This window is shorter than one slot.")
+        return cleaned
+
+
+OrientationAvailabilityFormSet = forms.inlineformset_factory(
+    Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
+)
+
+# The equipment twin: no parent FK to inline on (an equipment rule has guild=None and is
+# owned through its type), so a plain model formset scoped by the view's queryset.
+EquipmentOrientationAvailabilityFormSet = forms.modelformset_factory(
+    OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
+)
 
 
 class OrientationSlotForm(forms.ModelForm):
@@ -3977,14 +4053,29 @@ class EquipmentOrientationSlotForm(forms.ModelForm):
         label="Orientation",
         empty_label=None,
     )
+    orienter = forms.ModelChoiceField(
+        queryset=Member.objects.none(),
+        required=False,
+        label="Runs with",
+        empty_label="Any manager",
+    )
 
     class Meta:
         model = OrientationSlot
         fields = ["seats", "location"]
 
-    def __init__(self, *args: Any, equipment: Equipment, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        equipment: Equipment,
+        acting_member: Member | None = None,
+        lock_to_acting: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._equipment = equipment
+        self._acting_member = acting_member
+        self._lock_to_acting = lock_to_acting
         type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
         type_field.queryset = equipment.owned_orientation_types.active()
         type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
@@ -3994,6 +4085,21 @@ class EquipmentOrientationSlotForm(forms.ModelForm):
             self.fields["seats"].initial = first_type.default_seats
             if first_type.default_location:
                 self.fields["location"].initial = first_type.default_location
+        # Runs with: the manager set plus "Any manager"; a plain manager is fixed to themselves.
+        manager_ids = {member.pk for member in equipment.manager_members()}
+        orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])
+        orienter_field.queryset = Member.objects.filter(pk__in=manager_ids).order_by("full_legal_name")
+        orienter_field.error_messages["invalid_choice"] = "Pick someone who manages this equipment."
+        if acting_member is not None and acting_member.pk in manager_ids:
+            orienter_field.initial = acting_member.pk
+        if lock_to_acting:
+            orienter_field.widget = forms.HiddenInput()
+
+    def clean_orienter(self) -> Member | None:
+        if self._lock_to_acting:
+            # Plain managers add slots for themselves only, whatever the POST carried.
+            return self._acting_member
+        return cast("Member | None", self.cleaned_data.get("orienter"))
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -4024,179 +4130,10 @@ class EquipmentOrientationSlotForm(forms.ModelForm):
         slot.starts_at = self.cleaned_data["starts_at"]
         slot.ends_at = self.cleaned_data["ends_at"]
         slot.orientation_type = self.cleaned_data["orientation_type"]
+        slot.orienter = self.cleaned_data["orienter"]
         if commit:
             slot.save()
         return slot
-
-
-_ORIENTATION_BUFFER_CHOICES: list[tuple[str, str]] = [
-    ("0", "None"),
-    ("15", "15 minutes"),
-    ("30", "30 minutes"),
-    ("60", "1 hour"),
-]
-
-
-def _duration_choice_label(minutes: int) -> str:
-    """The label for a slot length that is not one of the shared duration choices (a 75 minute type)."""
-    return f"{minutes} minutes"
-
-
-def _append_duration_choice(field: forms.Field, minutes: int) -> None:
-    """Append ``minutes`` to a duration ``<select>`` when it is off the shared list (the off-grid idiom)."""
-    choice_field = cast(forms.ChoiceField, field)
-    choices = cast("list[tuple[str, str]]", choice_field.choices)
-    key = str(minutes)
-    if key not in {choice_value for choice_value, _ in choices}:
-        choice_field.choices = [*choices, (key, _duration_choice_label(minutes))]
-
-
-class _OrientationTypeSelect(forms.Select):
-    """A type ``<select>`` whose options carry ``data-duration`` / ``data-seats``.
-
-    The orientation hours row seeds its slot length and seats from the chosen
-    type client side; the attributes ride on the option so the page needs no
-    separate JSON map.
-    """
-
-    def create_option(
-        self,
-        name: str,
-        value: Any,
-        label: Any,
-        selected: bool,
-        index: int,
-        subindex: int | None = None,
-        attrs: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        option = super().create_option(name, value, label, selected, index, subindex, attrs)
-        orientation_type = getattr(value, "instance", None)
-        if orientation_type is not None:
-            option["attrs"]["data-duration"] = str(orientation_type.duration_minutes)
-            option["attrs"]["data-seats"] = str(orientation_type.default_seats)
-        return option
-
-
-class EquipmentOrientationHoursWindowForm(forms.Form):
-    """One recurring orientation hours WINDOW on a piece of equipment.
-
-    The Hours & Limits tab's "hours then days" shape (:class:`EquipmentHoursWindowForm`)
-    plus the orientation type, the slot length the window is carved into, the break
-    between slots, and the seats per slot. Each window expands to per-day
-    :class:`OrientationAvailability` rows on save
-    (:meth:`Equipment.apply_orientation_hours_windows`). Times are full-day half-hour
-    ``<select>`` dropdowns (Rule 20); a legacy off-grid time and an off-list slot
-    length (a type whose duration is 75 minutes) each round-trip via their own
-    appended choice.
-
-    No field carries a seeded initial beyond the Active toggle: a removed clone row
-    posts no keys and must stay a skippable blank extra (see :meth:`has_changed`), so
-    the type select, slot length and seats are seeded client side from the type's
-    ``data-duration`` / ``data-seats`` instead.
-    """
-
-    orientation_type = forms.ModelChoiceField(
-        queryset=OrientationType.objects.none(),
-        label="Orientation",
-        empty_label=None,
-        widget=_OrientationTypeSelect,
-    )
-    start_time = forms.ChoiceField(choices=equipment_hour_choices(), label="Opens")
-    end_time = forms.ChoiceField(choices=equipment_hour_choices(), label="Closes")
-    days = forms.TypedMultipleChoiceField(
-        coerce=int,
-        choices=_EQUIPMENT_DAY_CHOICES,
-        widget=forms.CheckboxSelectMultiple,
-        label="Days",
-        error_messages={"required": "Pick at least one day."},
-    )
-    slot_minutes = forms.TypedChoiceField(coerce=int, choices=_SLOT_DURATION_CHOICES, label="Slot length")
-    buffer_minutes = forms.TypedChoiceField(
-        coerce=int, choices=_ORIENTATION_BUFFER_CHOICES, label="Break between slots"
-    )
-    seats = forms.IntegerField(min_value=1, label="Seats per slot")
-    is_active = forms.BooleanField(
-        required=False,
-        initial=True,
-        label="Active",
-        help_text="Pause a window to stop new slots without deleting it.",
-    )
-
-    def __init__(self, *args: Any, equipment: Equipment, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        initial = self.initial or {}
-        active_types = list(equipment.owned_orientation_types.active())
-        allowed_pks = [orientation_type.pk for orientation_type in active_types]
-        initial_type = initial.get("orientation_type")
-        if initial_type is not None:
-            allowed_pks.append(int(initial_type))  # a saved row under a retired type still validates
-        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
-        type_field.queryset = OrientationType.objects.filter(pk__in=allowed_pks)
-        type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
-        for name in ("start_time", "end_time"):
-            value = initial.get(name)
-            if not value:
-                continue
-            field = cast(forms.ChoiceField, self.fields[name])
-            choices = cast("list[tuple[str, str]]", field.choices)
-            if value not in {choice_value for choice_value, _ in choices}:
-                hour, minute = (int(part) for part in value.split(":"))
-                field.choices = [*choices, (value, _meeting_time_label(hour, minute))]
-        # Decision 3: a type can always be carved at its own length, even off the shared list.
-        durations = {orientation_type.duration_minutes for orientation_type in active_types}
-        if initial.get("slot_minutes"):
-            durations.add(int(initial["slot_minutes"]))
-        for minutes in sorted(durations):
-            _append_duration_choice(self.fields["slot_minutes"], minutes)
-
-    def has_changed(self) -> bool:
-        """A removed clone row (no posted keys) must stay a skippable blank extra.
-
-        The Active toggle's ``initial=True`` would otherwise read "changed to off"
-        for a row the user removed from the DOM, dragging its empty fields into
-        required-field validation and blocking the save.
-        """
-        changed = super().has_changed()
-        if changed and self.empty_permitted:
-            return any(name != "is_active" for name in self.changed_data)
-        return changed
-
-    def clean_start_time(self) -> time:
-        return _parse_time_choice(self.cleaned_data["start_time"])
-
-    def clean_end_time(self) -> time:
-        return _parse_time_choice(self.cleaned_data["end_time"])
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        start = cleaned.get("start_time")
-        end = cleaned.get("end_time")
-        if start and end and end <= start:
-            self.add_error("end_time", "The end time must be after the start time.")
-            return cleaned
-        slot_minutes = cleaned.get("slot_minutes")
-        if start and end and slot_minutes:
-            window_minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
-            if window_minutes < slot_minutes:
-                self.add_error("slot_minutes", "This window is shorter than one slot.")
-        return cleaned
-
-
-class _BaseEquipmentOrientationHoursWindowFormSet(_BaseEquipmentHoursWindowFormSet):
-    """Cross-window guard: no two windows may overlap on a shared weekday, whatever their type.
-
-    The machine is the scarce resource (equipment-orientation-hours decision 8), so
-    the Hours & Limits overlap check applies unchanged across every row, ignoring
-    the orientation type. Windows may touch (a 5:00 end meets a 5:00 start).
-    """
-
-
-EquipmentOrientationHoursWindowFormSet = forms.formset_factory(
-    EquipmentOrientationHoursWindowForm,
-    formset=_BaseEquipmentOrientationHoursWindowFormSet,
-    extra=0,
-    can_delete=True,
-)
 
 
 class EquipmentStaffAddForm(forms.Form):

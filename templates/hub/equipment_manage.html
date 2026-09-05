@@ -175,7 +175,7 @@
   </form>
 </div>
 
-{# ── Orientation tab — pending requests, the type formset, and one-off slot times. ── #}
+{# ── Orientation tab — pending requests, the type formset, per manager hours (the guild pattern), and one time slots. ── #}
 <div x-show="section === 'orientation'" {% if active_tab != "orientation" %}x-cloak{% endif %}>
 
   {# Pending Requests — first, because it is the action item. #}
@@ -278,151 +278,146 @@
     </div>
   </form>
 
-  {# Orientation Hours — the Hours tab's "hours then days" window formset over recurring orientation rules. #}
-  <form id="equip-ohours-form" method="post" action="{% url 'hub_equipment_orientation_hours_save' equipment.slug %}" class="hub-form">
-    {% csrf_token %}
-    <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-      <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Hours</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Post the weekly hours when a manager can give this orientation. We turn them into bookable slots automatically, eight weeks ahead. Pause a window to stop new slots without deleting it.</p>
-      {{ orientation_hours_formset.management_form }}
-      {% for error in orientation_hours_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-      <div id="equip-ohours-rows" class="pl-equip-hours-rows">
-        {% for window in orientation_hours_formset %}
-        <div class="hub-card pl-equip-hours-row pl-orient-window" x-data="plOrientWindow()">
-          {% for error in window.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-          {% include "components/form_field.html" with field=window.orientation_type %}
-          <div class="pl-equip-hours-row__fields">
-            <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=window.start_time %}</div>
-            <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=window.end_time %}</div>
-          </div>
-          {# Day checkboxes render by hand: CheckboxSelectMultiple trips form_field's checkbox-to-toggle auto-detect. #}
-          <div class="pl-form-group">
-            <span class="pl-form-label" id="{{ window.days.auto_id }}-group-label">{{ window.days.label }}</span>
-            <div class="pl-equip-days" role="group" aria-labelledby="{{ window.days.auto_id }}-group-label">{{ window.days }}</div>
-            {% for error in window.days.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-          </div>
-          <div class="pl-equip-hours-row__fields">
-            <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=window.slot_minutes %}</div>
-            <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=window.buffer_minutes %}</div>
-            <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=window.seats %}</div>
-          </div>
-          {# Client-only preview of the carve; the server is the authority. #}
-          <p class="hub-text-muted pl-orient-window__preview" x-text="preview" aria-live="polite"></p>
-          {% include "components/form_field.html" with field=window.is_active %}
-          {% if window.initial %}
-            {# Real delete button behind a confirm: flips the hidden DELETE field and saves the whole form so no work is lost. #}
-            <div style="display:none;">{{ window.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
-                    @click="$dispatch('open-confirm', 'equip-ohours-del-{{ forloop.counter0 }}')">
-              Delete
-            </button>
-            {% with wpks=forloop.counter0|stringformat:"s" windel="document.getElementById('"|add:window.DELETE.id_for_label|add:"').checked = true; document.getElementById('equip-ohours-form').requestSubmit();" %}
-            {% include "components/confirm_modal.html" with confirm_id="equip-ohours-del-"|add:wpks confirm_title="Delete these hours?" confirm_message="Upcoming open slots from this window will be removed. Slots someone already booked stay until you cancel them." confirm_button_text="Delete" confirm_js=windel %}
-            {% endwith %}
-          {% else %}
-            <div style="display:none;">{{ window.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
-          {% endif %}
-        </div>
-        {% empty %}
-        <p class="hub-text-muted">No orientation hours yet. Add a window and members can start booking.</p>
-        {% endfor %}
-      </div>
-
-      {# Hidden empty-form template, cloned by the + Add Hours button below. data-fresh tells the row to seed from its type. #}
-      <template id="equip-ohours-empty-template">
-        <div class="hub-card pl-equip-hours-row pl-orient-window" x-data="plOrientWindow()" data-fresh="1">
-          {% with orientation_hours_formset.empty_form as empty_window %}
-            {% include "components/form_field.html" with field=empty_window.orientation_type %}
-            <div class="pl-equip-hours-row__fields">
-              <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_window.start_time %}</div>
-              <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_window.end_time %}</div>
-            </div>
-            <div class="pl-form-group">
-              <span class="pl-form-label" id="{{ empty_window.days.auto_id }}-group-label">{{ empty_window.days.label }}</span>
-              <div class="pl-equip-days" role="group" aria-labelledby="{{ empty_window.days.auto_id }}-group-label">{{ empty_window.days }}</div>
-            </div>
-            <div class="pl-equip-hours-row__fields">
-              <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_window.slot_minutes %}</div>
-              <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_window.buffer_minutes %}</div>
-              <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_window.seats %}</div>
-            </div>
-            <p class="hub-text-muted pl-orient-window__preview" x-text="preview" aria-live="polite"></p>
-            {% include "components/form_field.html" with field=empty_window.is_active %}
-            <div style="display:none;">{{ empty_window.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
-          {% endwith %}
-        </div>
-      </template>
-
-      <div style="margin-top:1rem;">
-        <button type="button" class="hub-btn hub-btn--sm"
-                onclick="
-                  const tpl = document.getElementById('equip-ohours-empty-template');
-                  const total = document.getElementById('id_ohours-TOTAL_FORMS');
-                  const idx = parseInt(total.value, 10);
-                  const wrap = document.createElement('div');
-                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                  document.getElementById('equip-ohours-rows').appendChild(wrap.firstElementChild);
-                  total.value = idx + 1;
-                ">
-          + Add Hours
-        </button>
-      </div>
-      <div class="pl-equip-save-row">
-        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
-      </div>
-    </div>
-  </form>
-
-  {# Upcoming Slots — grouped by day, with attendee sub-rows so confirmed bookings stay actionable. #}
+  {# Orientation Schedule — everyone who manages this equipment, grouped by person; Edit Hours opens a modal. #}
+  {# A lead-level viewer (can_edit_others_hours) sees + edits every row including their own; a plain #}
+  {# manager (show_my_hours_card only) sees just their own row, still with an Edit Hours button. #}
+  {% if show_my_hours_card or can_edit_others_hours %}
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.75rem;">Upcoming Slots</h2>
-    {% if orientation_slot_days %}
-    <div x-data="{ showLater: false }" class="pl-orient-daygroups">
-      {% for day in orientation_slot_days %}
-      <div class="pl-orient-daygroup" x-data="{ open: {{ day.open_by_default|yesno:'true,false' }} }"{% if day.is_later %} x-show="showLater" x-cloak{% endif %}>
-        <button type="button" class="pl-orient-daygroup__head" @click="open = !open" :aria-expanded="open ? 'true' : 'false'">
-          <span>{{ day.date|date:"D M j" }} <span class="pl-orient-daygroup__meta">· {{ day.slots|length }} slot{{ day.slots|length|pluralize }} · {{ day.booked_count }} booked</span></span>
-          <span class="pl-orient-daygroup__meta" x-text="open ? 'Hide' : 'Show'"></span>
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Schedule</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">{% if can_edit_others_hours %}Everyone who manages this equipment, and when they give orientations.{% else %}Your weekly orientation hours. Members book you by name.{% endif %}</p>
+    {% for manager, manager_rules in orienter_overview %}
+    {% if can_edit_others_hours or manager.pk == viewer_member_pk %}
+    <div class="pl-orient-overview__group">
+      <div class="pl-orient-overview__person">
+        {% if manager.profile_photo %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
+        <strong>{{ manager.display_name }}</strong>
+        <button type="button" class="hub-btn hub-btn--sm"
+                @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
+                hx-get="{% url 'hub_equipment_orientation_hours_form' equipment.slug %}?orienter={{ manager.pk }}"
+                hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
+                hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+                hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+          Edit Hours
         </button>
-        {# Layout lives in the CSS class, never inline: x-show strips an inline display (Rule 12). #}
-        <div class="pl-orient-daygroup__body" x-show="open" x-cloak>
-          {% for slot in day.slots %}
-          <div class="pl-equip-slot-group">
-            <div class="pl-equip-res-row{% if slot.blocking_reservation %} pl-equip-res-row--blocked{% endif %}">
-              <span>{{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }} <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one time{% endif %}</span>{% if slot.blocking_reservation %}<span class="pl-equip-res-row__blocked">Blocked by {{ slot.blocking_reservation.member.display_name }}'s reservation {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% endif %}</span>
-              <span>{{ slot.active_booking_count }} of {{ slot.seats }} booked{% if slot.hold_count %} <span class="hub-text-muted">· {{ slot.hold_count }} seat{{ slot.hold_count|pluralize }} held by a checkout in progress</span>{% endif %}</span>
-              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'equip-slot-cancel-{{ slot.pk }}')">Cancel</button>
-            </div>
-            {% for attendee in slot.attendee_bookings %}
-            <a href="{% url 'hub_orientation_respond' attendee.pk %}" class="pl-equip-attendee-row">
-              <span>{{ attendee.member.display_name }}</span>
-              {% if attendee.status == "confirmed" %}
-              <span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>
-              {% else %}
-              <span class="pl-equip-badge pl-equip-badge--warn">Requested</span>
-              {% endif %}
-              {% if attendee.amount_paid_cents %}<span class="pl-price-chip">Paid</span>{% endif %}
-            </a>
-            {% endfor %}
-            {% url 'hub_equipment_orientation_slot_cancel' equipment.slug slot.pk as slot_cancel_url %}
-            {% with spks=slot.pk|stringformat:"s" %}
-            {% include "components/confirm_modal.html" with confirm_id="equip-slot-cancel-"|add:spks confirm_title="Cancel this orientation time?" confirm_message="Everyone booked on it is notified and paid bookings are refunded." confirm_action_url=slot_cancel_url confirm_button_text="Cancel time" %}
-            {% endwith %}
-          </div>
-          {% endfor %}
-        </div>
       </div>
-      {% endfor %}
-      {% if orientation_has_later_days %}
-      <div class="pl-orient-daygroup__later">
-        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showLater" @click="showLater = true">Show later days</button>
-      </div>
+      {% if manager_rules %}
+      <ul class="pl-orient-overview__rules">
+        {% for r in manager_rules %}
+        <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
       {% endif %}
     </div>
+    {% endif %}
+    {% endfor %}
+    {% if can_edit_others_hours and former_managers_overview %}
+    <h3 class="hub-detail-label" style="margin:1.25rem 0 0.25rem;">Former Managers</h3>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people who no longer manage this equipment. They no longer generate slots. Delete them when you are ready.</p>
+    {% for manager, manager_rules in former_managers_overview %}
+    <div class="pl-orient-overview__group">
+      <div class="pl-orient-overview__person">
+        {% if manager.profile_photo %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
+        <strong>{{ manager.display_name }}</strong>
+        {# Deliberately ungated within this lead-level card: the Edit Hours modal is the only route #}
+        {# to clean up a former manager's leftover rows (they no longer appear in the active list). #}
+        <button type="button" class="hub-btn hub-btn--sm"
+                @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
+                hx-get="{% url 'hub_equipment_orientation_hours_form' equipment.slug %}?orienter={{ manager.pk }}"
+                hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
+                hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+                hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+          Edit Hours
+        </button>
+      </div>
+      <ul class="pl-orient-overview__rules">
+        {% for r in manager_rules %}
+        <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {# One shared Edit Hours modal for every manager row above (and the shared rows); its body is HTMX-loaded per scope. #}
+  {# modal_static: the teleported delete-confirm lives outside this modal's DOM, so click-outside #}
+  {# would otherwise close the editor when confirming/cancelling a delete. #}
+  {% include "components/modal.html" with modal_id="edit-hours-modal" modal_title="Edit Hours" modal_size="lg" modal_static=True %}
+  {% endif %}
+
+  {# Shared Hours (Any Manager) — orienter-less rules from before per-manager hours; keep, edit, retire only. #}
+  {% if shared_rules %}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Shared Hours (Any Manager)</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These shared hours predate personal hours and cannot be recreated once deleted. New recurring hours always belong to a person. For occasional shared coverage, add an Any manager time in Upcoming Slots.</p>
+    <ul class="pl-orient-overview__rules">
+      {% for r in shared_rules %}
+      <li>{{ r.orientation_type.name }} · {{ r.get_weekday_display }} · {{ r.start_time|time:"g:i a" }} to {{ r.end_time|time:"g:i a" }} · {{ r.seats }} seat{{ r.seats|pluralize }}{% if r.slot_minutes %} · {{ r.slot_minutes }} min slots{% endif %}{% if not r.is_active %} <span class="hub-text-muted">paused</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% if can_edit_others_hours %}
+    <button type="button" class="hub-btn hub-btn--sm" style="margin-top:0.75rem;"
+            @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
+            hx-get="{% url 'hub_equipment_orientation_hours_form' equipment.slug %}"
+            hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
+            hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
+            hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
+      Edit Shared Hours
+    </button>
     {% else %}
-    <p class="hub-text-muted" style="margin:0 0 0.5rem;">No upcoming times. Add hours above, or add a one time slot here.</p>
+    <p class="hub-text-muted" style="font-size:0.85rem; margin:0.5rem 0 0;">Only an administrator or the owning guild's lead can change shared hours.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# Upcoming Slots — the guild card's flat paged list with the with-chip, plus the equipment-only attendee sub-rows. #}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Upcoming Slots</h2>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Every bookable slot for the next 8 weeks, from everyone's hours plus one time slots.</p>
+    {% if orientation_upcoming_slots %}
+    <div x-data="{ page: 0, size: 5, total: {{ orientation_upcoming_slots|length }} }">
+      {% for slot in orientation_upcoming_slots %}
+      {% with spks=slot.pk|stringformat:"s" %}
+      <div x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-equip-slot-group">
+        <div class="pl-slot-admin__row{% if slot.blocking_reservation %} pl-equip-res-row--blocked{% endif %}">
+          <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% if slot.blocking_reservation %}<span class="pl-equip-res-row__blocked">Blocked by {{ slot.blocking_reservation.member.display_name }}'s reservation {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% endif %}</span>
+          <span class="pl-slot-admin__with">
+            {% if slot.orienter %}
+              {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
+              {{ slot.orienter.display_name }}
+            {% else %}
+              <span class="hub-text-muted">Any manager</span>
+            {% endif %}
+          </span>
+          <span class="pl-slot-admin__seats">{{ slot.active_booking_count }} of {{ slot.seats }} booked{% if slot.hold_count %} <span class="hub-text-muted">· {{ slot.hold_count }} seat{{ slot.hold_count|pluralize }} held by a checkout in progress</span>{% endif %}</span>
+          <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one time{% endif %}</span>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'equip-slot-cancel-{{ slot.pk }}')">Cancel</button>
+        </div>
+        {% for attendee in slot.attendee_bookings %}
+        <a href="{% url 'hub_orientation_respond' attendee.pk %}" class="pl-equip-attendee-row">
+          <span>{{ attendee.member.display_name }}</span>
+          {% if attendee.status == "confirmed" %}
+          <span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>
+          {% else %}
+          <span class="pl-equip-badge pl-equip-badge--warn">Requested</span>
+          {% endif %}
+          {% if attendee.amount_paid_cents %}<span class="pl-price-chip">Paid</span>{% endif %}
+        </a>
+        {% endfor %}
+        {% url 'hub_equipment_orientation_slot_cancel' equipment.slug slot.pk as slot_cancel_url %}
+        {% include "components/confirm_modal.html" with confirm_id="equip-slot-cancel-"|add:spks confirm_title="Cancel this orientation time?" confirm_message="Everyone booked on it is notified and paid bookings are refunded." confirm_action_url=slot_cancel_url confirm_button_text="Cancel time" %}
+      </div>
+      {% endwith %}
+      {% endfor %}
+      <div x-show="total > size" x-cloak class="pl-orient-slots__pager">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.max(0, page - 1)" :disabled="page === 0" aria-label="Previous slots">←</button>
+        <span class="hub-text-muted" style="font-size:0.85rem;" x-text="(page + 1) + ' / ' + Math.ceil(total / size)"></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>
+      </div>
+    </div>
+    {% else %}
+    <p class="hub-text-muted" style="margin:0 0 0.5rem;">No upcoming times. They appear as soon as hours are saved, or add a one time slot here.</p>
     {% endif %}
 
     {# + Add a Time — a bound (error-bearing) form re-renders revealed, never collapsed. #}
@@ -442,6 +437,12 @@
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=slot_add_form.seats %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=slot_add_form.location %}</div>
             </div>
+            {% if slot_form_locked %}
+            <div style="display:none;">{{ slot_add_form.orienter }}</div>
+            <p class="hub-text-muted" style="font-size:0.85rem; margin:0.5rem 0 0;">Runs with: you</p>
+            {% else %}
+            {% include "components/form_field.html" with field=slot_add_form.orienter %}
+            {% endif %}
           </div>
           <div style="display:flex; gap:0.75rem; margin-top:0.75rem;">
             <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Add</button>
@@ -487,76 +488,9 @@
 {% for staff in staff_memberships %}
   {% url 'hub_equipment_staff_remove' equipment.slug staff.pk as staff_remove_url %}
   {% with pks=staff.pk|stringformat:"s" name=staff.member.display_name %}
-    {% include "components/confirm_modal.html" with confirm_id="del-equip-staff-"|add:pks confirm_action_url=staff_remove_url confirm_title="Remove this manager?" confirm_message="Remove "|add:name|add:" as a manager of the "|add:equipment.name|add:"? You can add them back anytime." confirm_button_text="Remove" %}
+    {% include "components/confirm_modal.html" with confirm_id="del-equip-staff-"|add:pks confirm_action_url=staff_remove_url confirm_title="Remove this manager?" confirm_message="Remove "|add:name|add:" as a manager of the "|add:equipment.name|add:"? You can add them back anytime. Their upcoming orientation hours are removed too. Slots someone already booked stay until you cancel them." confirm_button_text="Remove" %}
   {% endwith %}
 {% endfor %}
 </div>
 
-{% comment %}
-Orientation Hours row component. Each window row reads its own five controls
-(opens, closes, slot length, break, type) to (a) seed slot length + seats from the
-chosen type's data-duration / data-seats on a freshly cloned row or a type change,
-and (b) render the client-only preview line. Alpine picks the function up for rows
-cloned from the template too, so no per-row script is needed. The server is the
-authority; this is a courtesy.
-{% endcomment %}
-<script>
-function plOrientWindow() {
-  return {
-    preview: '',
-    init() {
-      const row = this.$el;
-      const typeSelect = row.querySelector('select[name$="-orientation_type"]');
-      if (row.dataset.fresh) { this.seed(); }
-      row.addEventListener('change', (event) => {
-        if (typeSelect && event.target === typeSelect) { this.seed(); }
-        this.update();
-      });
-      this.update();
-    },
-    seed() {
-      const row = this.$el;
-      const typeSelect = row.querySelector('select[name$="-orientation_type"]');
-      const option = typeSelect ? typeSelect.options[typeSelect.selectedIndex] : null;
-      if (!option) { return; }
-      const duration = option.dataset.duration || '';
-      const seats = option.dataset.seats || '';
-      const slotSelect = row.querySelector('select[name$="-slot_minutes"]');
-      if (slotSelect && duration) {
-        if (!Array.from(slotSelect.options).some((o) => o.value === duration)) {
-          const extra = document.createElement('option');
-          extra.value = duration;
-          extra.textContent = duration + ' minutes';
-          slotSelect.appendChild(extra);
-        }
-        slotSelect.value = duration;
-      }
-      const seatsInput = row.querySelector('input[name$="-seats"]');
-      if (seatsInput && seats) { seatsInput.value = seats; }
-    },
-    update() {
-      const row = this.$el;
-      const read = (suffix) => { const el = row.querySelector('[name$="' + suffix + '"]'); return el ? el.value : ''; };
-      const minutes = (hhmm) => { const parts = hhmm.split(':').map(Number); return parts[0] * 60 + parts[1]; };
-      const opens = read('-start_time');
-      const closes = read('-end_time');
-      const slot = parseInt(read('-slot_minutes'), 10);
-      const gap = parseInt(read('-buffer_minutes'), 10) || 0;
-      if (!opens || !closes || !slot) { this.preview = ''; return; }
-      const starts = [];
-      for (let t = minutes(opens); t + slot <= minutes(closes); t += slot + gap) { starts.push(t); }
-      if (!starts.length) { this.preview = 'This window is shorter than one slot.'; return; }
-      const label = (m) => {
-        const h24 = Math.floor(m / 60);
-        const h12 = h24 % 12 || 12;
-        return h12 + ':' + String(m % 60).padStart(2, '0') + ' ' + (h24 < 12 ? 'AM' : 'PM');
-      };
-      const list = starts.length > 4
-        ? label(starts[0]) + ', ' + label(starts[1]) + ' … ' + label(starts[starts.length - 1])
-        : starts.map(label).join(', ');
-      this.preview = 'Makes ' + starts.length + ' slot' + (starts.length === 1 ? '' : 's') + ' each day: ' + list;
-    }
-  };
-}
-</script>
 {% endblock %}
