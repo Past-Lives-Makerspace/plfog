@@ -481,10 +481,10 @@ def _orientation_sections(
     The SHARED builder both surfaces render from, so their per-type state logic
     cannot drift: completed / live booking / pending-payment hold are computed from
     the member's bookings on exactly these types; the (caller-filtered, ordered)
-    slot lists render only when the type is open for the member. ``slot_cap`` bounds
-    each type's list (the guild page's flat list keeps 30; the equipment day picker
-    passes ``None`` for the full carved horizon). Guild-only extras (availability
-    blocks, custom requests) are layered on by the guild view.
+    slot lists render only when the type is open for the member. ``slot_cap`` can
+    bound each type's list; both pages pass ``None`` (the five per page pager bounds
+    the view). Guild-only extras (availability blocks, custom requests) are layered
+    on by the guild view.
     """
     from membership.models import OrientationBooking
 
@@ -638,7 +638,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # bookable() (not upcoming()) so a departed orienter's surviving personal slot
     # never reappears in the member list once its booking is declined or cancelled.
     all_slots = (
-        list(guild.orientation_slots.bookable().select_related("orienter", "orientation_type").order_by("starts_at"))
+        list(
+            guild.orientation_slots.bookable()
+            .with_seat_holding_count()  # is_full reads the annotation: no COUNT per row
+            .select_related("orienter", "orientation_type")
+            .order_by("starts_at")
+        )
         if show_orientation and orientation is not None and not orientation.is_closed
         else []
     )
@@ -662,7 +667,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         if show_orientation and orientation is not None and not orientation.is_closed
         else []
     )
-    orientation_sections = _orientation_sections(orientation_types, member, slots_by_type)
+    orientation_sections = _orientation_sections(orientation_types, member, slots_by_type, slot_cap=None)
     # Guild-only extra: availability blocks render per type while it is open for the member.
     for section in orientation_sections:
         open_for_type = not (section["is_oriented"] or section["booking"] or section["hold"])
@@ -1120,21 +1125,19 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "hub/guild_edit.html", ctx)
 
 
-def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, removed: int, kept: int) -> str:
+def _hours_save_message(*, deleted_rules: int, removed: int, kept: int, shared_farewell: str | None = None) -> str:
     """The success flash for an hours save — with real retirement counts on a delete or a pause.
 
-    Leads with "Hours deleted." when a rule went, "Hours saved." otherwise, and
-    appends the counts whenever a delete ran or a pause retired something (a pause
-    keeps the rule but its open slots still vanish, so the member-facing effect is
-    named). The shared-hours farewell stays keyed on a delete.
+    Owner-neutral: leads with "Hours deleted." when a rule went, "Hours saved."
+    otherwise, and appends the counts whenever a delete ran or a pause retired
+    something (a pause keeps the rule but its open slots still vanish, so the
+    member-facing effect is named). ``shared_farewell`` is the owner's one-way-door
+    sentence, passed by the caller when a delete emptied the shared rows.
     """
     if not deleted_rules and not removed and not kept:
         return "Hours saved."
-    if deleted_rules and guild_scope and not guild.orientation_rules.guild_level().exists():
-        return (
-            "Shared hours deleted. From now on recurring hours are personal. "
-            "Use an Any orienter one-off slot for shared coverage."
-        )
+    if deleted_rules and shared_farewell:
+        return shared_farewell
     parts = ["Hours deleted." if deleted_rules else "Hours saved."]
     if removed:
         parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
@@ -1144,6 +1147,12 @@ def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, 
             f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Slots card."
         )
     return " ".join(parts)
+
+
+_GUILD_SHARED_FAREWELL = (
+    "Shared hours deleted. From now on recurring hours are personal. "
+    "Use an Any orienter one-off slot for shared coverage."
+)
 
 
 def _personal_hours_prefix(request: HttpRequest, *, is_htmx: bool) -> str:
@@ -1207,10 +1216,14 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
         # Same side effect the combined save had — saved hours materialize slots immediately.
         orientations.generate_slots(guild=guild)
+        shared_emptied = target is None and not guild.orientation_rules.guild_level().exists()
         messages.success(
             request,
             _hours_save_message(
-                guild=guild, guild_scope=target is None, deleted_rules=deleted_rules, removed=removed, kept=kept
+                deleted_rules=deleted_rules,
+                removed=removed,
+                kept=kept,
+                shared_farewell=_GUILD_SHARED_FAREWELL if shared_emptied else None,
             ),
         )
         orientations_tab = f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=orientations"
@@ -1229,7 +1242,12 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         return render(
             request,
             "hub/partials/_orienter_hours_modal_form.html",
-            {"guild": guild, "target": target, "formset": formset},
+            {
+                "guild": guild,
+                "target": target,
+                "formset": formset,
+                "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            },
         )
     # Guild scope is the only other path here — re-render the full page with the bound formset.
     ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)
@@ -1267,7 +1285,12 @@ def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
     return render(
         request,
         "hub/partials/_orienter_hours_modal_form.html",
-        {"guild": guild, "target": target, "formset": formset},
+        {
+            "guild": guild,
+            "target": target,
+            "formset": formset,
+            "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+        },
     )
 
 

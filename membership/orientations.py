@@ -852,6 +852,25 @@ def _request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     return {"guild": booking.guild, "slot": booking.slot}
 
 
+def equipment_personal_audience(equipment: Equipment, orienter: Member) -> list[Member]:
+    """Who hears about a request on a manager's personal slot: the manager, the EQUIPMENT
+    capability holders, and the owning guild's lead if any, deduped (the equipment twin of
+    "the orienter plus the lead")."""
+    from membership.models import AdminCapability
+
+    audience: list[Member] = [orienter]
+    seen = {orienter.pk}
+    holders = AdminCapability.objects.filter(capability=AdminCapability.Capability.EQUIPMENT).select_related("member")
+    for grant in holders:
+        if grant.member_id not in seen:
+            audience.append(grant.member)
+            seen.add(grant.member_id)
+    guild = equipment.guild
+    if guild is not None and guild.guild_lead_id is not None and guild.guild_lead_id not in seen:
+        audience.append(cast("Member", guild.guild_lead))
+    return audience
+
+
 def _request_audience(booking: OrientationBooking) -> list[Member]:
     """Who hears about a request: the slot's orienter + the lead (personal), or all leadership.
 
@@ -860,8 +879,11 @@ def _request_audience(booking: OrientationBooking) -> list[Member]:
     """
     orientation_type = booking.orientation_type
     if orientation_type.is_equipment_owned:
-        # Equipment-owned: the three manage tiers, deduped — managers confirm requests.
-        return cast("Equipment", orientation_type.equipment).manager_members()
+        equipment = cast("Equipment", orientation_type.equipment)
+        if booking.slot.orienter_id is not None and booking.slot.orienter is not None:
+            return equipment_personal_audience(equipment, booking.slot.orienter)
+        # Shared slot: the three manage tiers, deduped — any manager confirms.
+        return equipment.manager_members()
     guild = cast("Guild", booking.guild)  # guild-owned: the one-owner constraint guarantees it
     slot = booking.slot
     if slot.orienter_id is not None and slot.orienter is not None:
@@ -890,9 +912,10 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     # slot's primary responder (personal slot: the orienter; guild slot: the lead)
     # as the token recipient — a paid booking's email-link decline credits them.
     if booking.orientation_type.is_equipment_owned:
-        # Managers confirm explicitly; an email-link decline is then unattributed
-        # (make_action_token accepts recipient=None, same as a lead-less guild).
-        primary_responder = None
+        # A personal slot's manager is its responder; a shared slot has none (managers
+        # confirm explicitly, so an email-link decline is unattributed — make_action_token
+        # accepts recipient=None, same as a lead-less guild).
+        primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else None
     else:
         guild = cast("Guild", booking.guild)
         primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else guild.guild_lead
@@ -1125,19 +1148,25 @@ def _overlaps_other_slot(
     )
 
 
-def _rule_generates(rule: OrientationAvailability) -> bool:
-    """The per-rule gate: an accepting owner, and (guild rules only) an orienter still on leadership.
+def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict[int, set[int]]) -> bool:
+    """The per-rule gate: an accepting owner, and a personal rule's orienter still current.
 
-    A stale personal rule — its orienter left the guild's leadership without the
-    hub's retirement flow (a lead-FK change, a Django-admin removal) — must never
-    materialize new slots. Equipment rules never carry an orienter, so that check
-    is guild-only (``rule.guild`` is None for them).
+    A stale personal rule — its orienter left the guild's leadership (or stopped
+    running orientations on the equipment) without the hub's retirement flow (a
+    lead-FK change, a Django-admin removal) — must never materialize new slots.
+    ``runners_by_equipment`` caches each tool's ``manager_members()`` ids for the run,
+    so six personal rules on one tool cost one lookup, not six.
     """
     if not rule.orientation_type.is_accepting:
         return False
-    if rule.guild_id is None or rule.orienter_id is None:
+    if rule.orienter_id is None:
         return True
-    return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
+    if rule.guild_id is not None:
+        return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
+    equipment = cast("Equipment", rule.orientation_type.equipment)
+    if equipment.pk not in runners_by_equipment:
+        runners_by_equipment[equipment.pk] = {member.pk for member in equipment.manager_members()}
+    return rule.orienter_id in runners_by_equipment[equipment.pk]
 
 
 def _retire_off_grid(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
@@ -1239,8 +1268,11 @@ def generate_slots(
         rules = rules.filter(guild=guild)
     if equipment is not None:
         rules = rules.filter(orientation_type__equipment=equipment)
+    runners_by_equipment: dict[int, set[int]] = {}
     eligible = [
-        (rule, _horizon_spans(rule, today=today, window_weeks=window_weeks)) for rule in rules if _rule_generates(rule)
+        (rule, _horizon_spans(rule, today=today, window_weeks=window_weeks))
+        for rule in rules
+        if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
     ]
     for rule, spans in eligible:
         if rule.orientation_type.equipment_id is not None:
@@ -1381,6 +1413,38 @@ def retire_orienter(guild: Guild, member: Member) -> tuple[int, int]:
     booked_remaining = (
         OrientationSlot.objects.filter(
             guild=guild,
+            orienter=member,
+            is_cancelled=False,
+            starts_at__gte=timezone.now(),
+            bookings__status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        )
+        .distinct()
+        .count()
+    )
+    return removed, booked_remaining
+
+
+def retire_equipment_orienter(equipment: Equipment, member: Member) -> tuple[int, int]:
+    """Retire all of ``member``'s personal rules on ``equipment`` (they no longer manage it).
+
+    The equipment twin of :func:`retire_orienter`: runs :func:`retire_rule` over each
+    of their rules on this tool only. Their booked future slots stay theirs (the
+    former manager may still honor them, or a manager cancels each from the
+    Upcoming Slots card).
+
+    Returns:
+        ``(open_slots_removed, booked_future_slots_remaining)`` — the second number
+        feeds the staff-remove flash message.
+    """
+    from membership.models import OrientationAvailability, OrientationBooking, OrientationSlot
+
+    removed = 0
+    for rule in OrientationAvailability.objects.for_equipment(equipment).filter(orienter=member):
+        rule_removed, _kept = retire_rule(rule)
+        removed += rule_removed
+    booked_remaining = (
+        OrientationSlot.objects.filter(
+            orientation_type__equipment=equipment,
             orienter=member,
             is_cancelled=False,
             starts_at__gte=timezone.now(),

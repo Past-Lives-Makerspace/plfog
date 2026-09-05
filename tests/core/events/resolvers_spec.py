@@ -292,3 +292,45 @@ def describe_guild_orienters_or_equipment_managers():
     def it_fails_loudly_with_neither_key():
         with pytest.raises(KeyError):
             resolvers.resolve(Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"slot": None})
+
+
+def describe_equipment_managers_personal_slot_narrowing():
+    """A personal equipment slot in context narrows the audience like guild_orienters does."""
+
+    def _linked(username):
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()
+        return User.objects.create_user(username=username, email=f"{username}@example.com").member
+
+    def it_narrows_to_the_manager_the_capability_holders_and_the_owning_guild_lead():
+        from membership.models import AdminCapability, EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory, OrientationSlotFactory, OrientationTypeFactory
+
+        lead = _linked("emn_lead")
+        equipment = EquipmentFactory(guild=GuildFactory(guild_lead=lead))
+        dana = _linked("emn_dana")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
+        other = _linked("emn_other")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=other)
+        holder = _linked("emn_holder")
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+        personal = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=dana)
+        shared = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+
+        narrowed = resolvers.equipment_managers({"equipment": equipment, "slot": personal})
+        assert _user_pks(narrowed) == {dana.user_id, holder.user_id, lead.user_id}
+        everyone = resolvers.equipment_managers({"equipment": equipment, "slot": shared})
+        assert _user_pks(everyone) == {dana.user_id, other.user_id, holder.user_id, lead.user_id}
+
+    def it_narrows_to_the_manager_alone_on_a_standalone_tool():
+        from membership.models import EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory, OrientationSlotFactory, OrientationTypeFactory
+
+        equipment = EquipmentFactory(guild=None)
+        dana = _linked("emn_solo")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+        personal = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=dana)
+        assert _user_pks(resolvers.equipment_managers({"equipment": equipment, "slot": personal})) == {dana.user_id}

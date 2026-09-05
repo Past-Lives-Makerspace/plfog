@@ -207,6 +207,15 @@ def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
     from membership.models import AdminCapability
 
     equipment = _require(context, "equipment")
+    slot = context.get("slot")
+    if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
+        # Personal-slot scoping (mirrors guild_orienters): the manager the member booked,
+        # the EQUIPMENT capability holders, and the owning guild's lead, deduped.
+        scoped = _members_to_recipients([slot.orienter], "equipment_staff")
+        lead: list[Recipient] = []
+        if equipment.guild is not None and equipment.guild.guild_lead is not None:
+            lead = _members_to_recipients([equipment.guild.guild_lead], "guild_leadership")
+        return _dedupe([*scoped, *lead, *_capability_recipients(AdminCapability.Capability.EQUIPMENT)])  # type: ignore[list-item]
     staff_members = [staff.member for staff in equipment.staff_memberships.select_related("member__user")]
     staff = _members_to_recipients(staff_members, "equipment_staff")
     leadership: list[Recipient] = []

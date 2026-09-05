@@ -4,10 +4,8 @@ slot-list UX adapted to an equipment owner (no orienter column, no availability
 blocks, no custom requests). Context:
   equipment            — the Equipment
   orientation_sections — one dict per RENDERABLE owned type (active, or pinned by
-      the member's live booking/hold): type / is_oriented / booking / hold / slots,
-      plus the day picker's days (date, iso, open_count, slots with seats_open),
-      default_day (iso of the first day with an open slot, else the first day) and
-      all_full
+      the member's live booking/hold): type / is_oriented / booking / hold / slots
+      (each slot carries with_display, "with Dana" for a manager's personal slot)
   can_manage           — whether the viewer manages this equipment (empty-state link)
 An inactive pinned type renders its state block only — never a slot list.
 {% endcomment %}
@@ -52,9 +50,10 @@ An inactive pinned type renders its state block only — never a slot list.
     <p style="margin:0 0 0.25rem; font-size:1rem; color:var(--hub-text);">
       {{ sec.booking.slot.starts_at|date:"l, F j" }} at {{ sec.booking.slot.starts_at|time:"g:i A" }}
       {% if sec.booking.slot.location %}<span class="hub-text-muted">· {{ sec.booking.slot.location }}</span>{% endif %}
+      {% if sec.booking.slot.with_label %}<span class="hub-text-muted">· {{ sec.booking.slot.with_label }}</span>{% endif %}
     </p>
     {% if sec.booking.status == "requested" %}
-    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Requested. Waiting for a manager to confirm. This isn't official yet.</p>
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Requested. Waiting for {% if sec.booking.slot.orienter %}{{ sec.booking.slot.orienter_first_name }}{% else %}a manager{% endif %} to confirm. This isn't official yet.</p>
     {% else %}
     <p class="pl-orient-confirmed" style="margin:0 0 0.75rem; font-size:0.85rem;">Confirmed. See you there!</p>
     {% endif %}
@@ -78,36 +77,29 @@ An inactive pinned type renders its state block only — never a slot list.
     {% if sec.type.is_paid %}
     <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">You pay when you book. If it can't happen, you get an automatic full refund.</p>
     {% endif %}
-    {% if sec.days %}
-    {# Day chips then time rows: carving makes dozens of slots, so members pick a day first. Alpine only, no endpoint. #}
-    <div x-data="{ day: '{{ sec.default_day }}' }"
-         x-init="$nextTick(() => { const chip = $el.querySelector('.pl-orient-days__chip--active'); if (chip && chip.scrollIntoView) { chip.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } })">
-      <div class="pl-orient-days" role="group" aria-label="Pick a day">
-        {% for day in sec.days %}
-        <button type="button"
-                class="pl-orient-days__chip{% if not day.open_count %} pl-orient-days__chip--full{% endif %}{% if day.iso == sec.default_day %} pl-orient-days__chip--active{% endif %}"
-                :class="{ 'pl-orient-days__chip--active': day === '{{ day.iso }}' }"
-                aria-pressed="{% if day.iso == sec.default_day %}true{% else %}false{% endif %}"
-                :aria-pressed="day === '{{ day.iso }}' ? 'true' : 'false'"
-                @click="day = '{{ day.iso }}'">
-          <span class="pl-orient-days__chip-date">{{ day.date|date:"D M j" }}</span>
-          <span class="pl-orient-days__chip-count">{% if day.open_count %}{{ day.open_count }} open{% else %}Full{% endif %}</span>
-        </button>
-        {% endfor %}
+    {% if sec.slots %}
+    {# The guild list: five at a time with prev/next arrows so a long run of slots stays compact. #}
+    <div x-data="{ page: 0, size: 5, total: {{ sec.slots|length }} }">
+      <div class="pl-orient-slots__head">
+        <span class="pl-orient-slots__date">Date</span>
+        <span class="pl-orient-slots__time">Time</span>
+        <span class="pl-orient-slots__with"></span>
+        <span class="pl-orient-slots__action"></span>
       </div>
-      {% if sec.all_full %}
-      <p class="hub-text-muted" style="margin:0 0 0.5rem; font-size:0.9rem;">Every time is full right now. Check back soon.</p>
-      {% endif %}
-      <ul class="pl-orient-times" aria-live="polite">
-        {% for day in sec.days %}
-        {% for slot in day.slots %}
+      <ul style="list-style:none; padding:0; margin:0;">
+        {% for slot in sec.slots %}
         {% with pks=slot.pk|stringformat:"s" %}
-        {# Layout lives in the row class, never inline: x-show strips an inline display (Rule 12). #}
-        <li x-show="day === '{{ day.iso }}'"{% if day.iso != sec.default_day %} x-cloak{% endif %} class="pl-orient-slots__row pl-orient-times__row">
-          <span class="pl-orient-times__time">{{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }}</span>
-          <span class="pl-orient-times__seats hub-text-muted">{% if slot.seats_open == 1 %}1 seat left{% else %}{{ slot.seats_open }} of {{ slot.seats }} open{% endif %}</span>
+        <li x-show="{{ forloop.counter0 }} >= page * size && {{ forloop.counter0 }} < (page + 1) * size" class="pl-orient-slots__row">
+          <span class="pl-orient-slots__date">{{ slot.starts_at|date:"D M j" }}</span>
+          <span class="pl-orient-slots__time">{{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }}</span>
+          <span class="pl-orient-slots__with">
+            {% if slot.with_display %}
+            {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
+            <span>{{ slot.with_display }}</span>
+            {% endif %}
+          </span>
           <span class="pl-orient-slots__action">
-            {% if not slot.seats_open %}
+            {% if slot.is_full %}
             <span class="hub-text-muted" style="font-size:0.85rem;">Full</span>
             {% else %}
             <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" @click="$dispatch('open-confirm', 'book-equip-slot-{{ slot.pk }}')">Request</button>
@@ -118,6 +110,10 @@ An inactive pinned type renders its state block only — never a slot list.
             {% include "components/confirm_modal.html" with confirm_id="book-equip-slot-"|add:pks confirm_title="Book This Orientation?" confirm_message=paid_msg confirm_action_url=book_url confirm_button_text="Continue to Payment" confirm_button_style="primary" confirm_no_boost=True %}
             {% endwith %}
             {% endwith %}
+            {% elif slot.orienter %}
+            {% with book_msg="We'll send your request to "|add:slot.orienter_first_name|add:" to confirm. You can cancel any time." %}
+            {% include "components/confirm_modal.html" with confirm_id="book-equip-slot-"|add:pks confirm_title="Request this orientation?" confirm_message=book_msg confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
+            {% endwith %}
             {% else %}
             {% include "components/confirm_modal.html" with confirm_id="book-equip-slot-"|add:pks confirm_title="Request this orientation?" confirm_message="We'll send your request to the equipment managers to confirm. You can cancel any time." confirm_action_url=book_url confirm_button_text="Send request" confirm_button_style="primary" %}
             {% endif %}
@@ -126,8 +122,12 @@ An inactive pinned type renders its state block only — never a slot list.
         </li>
         {% endwith %}
         {% endfor %}
-        {% endfor %}
       </ul>
+      <div x-show="total > size" x-cloak class="pl-orient-slots__pager">
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.max(0, page - 1)" :disabled="page === 0" aria-label="Previous slots">←</button>
+        <span class="hub-text-muted" style="font-size:0.85rem;" x-text="(page + 1) + ' / ' + Math.ceil(total / size)"></span>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="page = Math.min(Math.ceil(total / size) - 1, page + 1)" :disabled="page >= Math.ceil(total / size) - 1" aria-label="More slots">→</button>
+      </div>
     </div>
     {% else %}
     <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No orientation times are posted yet. Check back soon.</p>

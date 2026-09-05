@@ -90,6 +90,30 @@ def can_edit_orienter_hours(request: HttpRequest, guild: Guild, orienter: Member
     return member is not None and guild.guild_lead_id == member.pk
 
 
+def can_edit_equipment_orienter_hours(request: HttpRequest, equipment: Equipment, orienter: Member | None) -> bool:
+    """True when this request may edit ``orienter``'s recurring orientation hours on ``equipment``.
+
+    The equipment twin of :func:`can_edit_orienter_hours`. Own hours: anyone who may
+    manage the equipment (all three tiers). Someone else's hours, or the shared rows
+    (``orienter is None``): a full admin (``view_as``-aware), an EQUIPMENT capability
+    holder (preview-independent, like every capability gate), or the owning guild's
+    lead. A plain per-equipment manager therefore edits only their own hours.
+    """
+    from membership.models import AdminCapability
+
+    member = _editing_member(request)
+    if orienter is not None and member is not None and orienter.pk == member.pk:
+        return can_manage_equipment(request, equipment)
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return True
+    guild = equipment.guild
+    return member is not None and guild is not None and guild.guild_lead_id == member.pk
+
+
 def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
     """True when this request may manage the equipment (its manage panel, details, staff).
 

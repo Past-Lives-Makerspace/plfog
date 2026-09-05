@@ -153,7 +153,7 @@ def describe_per_type_sections():
 
 
 def describe_slot_cap():
-    def it_keeps_the_guild_page_capped_at_thirty_slots(client: Client):
+    def it_no_longer_caps_the_guild_page_at_thirty_slots(client: Client):
         _member("cap1")
         guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
@@ -165,4 +165,37 @@ def describe_slot_cap():
             )
         client.login(username="cap1", password="pass")
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
-        assert len(response.context["orientation_sections"][0]["slots"]) == 30
+        # No cap for either owner: the five per page pager bounds the view.
+        assert len(response.context["orientation_sections"][0]["slots"]) == 31
+
+
+def describe_query_count():
+    def it_renders_a_dozen_slots_in_as_many_queries_as_two(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        _member("qc1")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        basics = OrientationTypeFactory(guild=guild, name="Shop Basics")
+        client.login(username="qc1", password="pass")
+        url = reverse("hub_guild_detail", args=[guild.slug])
+
+        def make_slot(hours: int):
+            starts = timezone.now() + timedelta(days=2, hours=hours)
+            return OrientationSlotFactory(
+                guild=guild, orientation_type=basics, starts_at=starts, ends_at=starts + timedelta(hours=1), seats=2
+            )
+
+        def count_queries() -> int:
+            client.get(url)  # warm the session and per-request caches so both samples are steady state
+            with CaptureQueriesContext(connection) as ctx:
+                assert client.get(url).status_code == 200
+            return len(ctx.captured_queries)
+
+        for hours in (0, 1):
+            OrientationBookingFactory(slot=make_slot(hours))
+        with_two = count_queries()
+        for hours in range(2, 12):
+            make_slot(hours)
+        assert count_queries() == with_two

@@ -875,3 +875,164 @@ def describe_rule_pause_retirement():
         joined = " ".join(str(m) for m in response.context["messages"])
         assert joined == "Hours saved."
         assert guild.orientation_rules.count() == 1
+
+
+def describe_slot_length_and_break_in_the_guild_modal():
+    """The shared rule form's optional fields on the guild side: blank keeps one slot per window."""
+
+    def _lead_with_rule(client: Client, username: str):
+        user = _member_user(username, name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
+        client.login(username=username, password="pass")
+        return user, guild, rule
+
+    def _existing_row(rule, **overrides) -> dict[str, str]:
+        data = {
+            "modal_rules-INITIAL_FORMS": "1",
+            "modal_rules-0-id": str(rule.pk),
+            "modal_rules-0-orientation_type": str(rule.orientation_type_id),
+            "modal_rules-0-weekday": str(rule.weekday),
+            "modal_rules-0-start_time": "18:00",
+            "modal_rules-0-end_time": "20:00",
+            "modal_rules-0-seats": str(rule.seats),
+            "modal_rules-0-is_active": "on",
+        }
+        data.update(overrides)
+        return data
+
+    def it_shows_the_two_fields_in_the_modal(client: Client):
+        user, guild, _rule = _lead_with_rule(client, "sl_show")
+        response = client.get(_form_url(guild, user.member.pk))
+        content = response.content.decode()
+        assert "Slot length" in content
+        assert "Break between slots" in content
+        assert "Whole window" in content
+        assert "Leave slot length blank to offer the whole window as one slot." in content
+
+    def it_keeps_one_slot_per_window_when_slot_length_is_blank(client: Client):
+        user, guild, rule = _lead_with_rule(client, "sl_blank")
+        rule.end_time = __import__("datetime").time(20, 0)
+        rule.save(update_fields=["end_time"])
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(str(user.member.pk), **_existing_row(rule)),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule.refresh_from_db()
+        assert rule.slot_minutes is None
+        assert rule.buffer_minutes == 0
+        first = rule.slots.order_by("starts_at").first()
+        assert first is not None
+        assert first.ends_at - first.starts_at == timedelta(hours=2)
+
+    def it_carves_the_window_when_a_slot_length_is_set(client: Client):
+        user, guild, rule = _lead_with_rule(client, "sl_carve")
+        rule.end_time = __import__("datetime").time(20, 0)
+        rule.save(update_fields=["end_time"])
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                **_existing_row(rule, **{"modal_rules-0-slot_minutes": "60", "modal_rules-0-buffer_minutes": "0"}),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule.refresh_from_db()
+        assert rule.slot_minutes == 60
+        starts = sorted(
+            {timezone.localtime(s).strftime("%H:%M") for s in rule.slots.values_list("starts_at", flat=True)}
+        )
+        assert starts == ["18:00", "19:00"]
+
+    def it_rejects_a_slot_length_longer_than_the_window(client: Client):
+        user, guild, rule = _lead_with_rule(client, "sl_short")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                **_existing_row(rule, **{"modal_rules-0-end_time": "18:30", "modal_rules-0-slot_minutes": "60"}),
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert b"This window is shorter than one slot." in response.content
+        rule.refresh_from_db()
+        assert rule.slot_minutes is None
+
+
+def describe_shared_rule_form_owner_resolution():
+    """The one rule form serves both owners; with no owner passed it falls back to the row's guild."""
+
+    def it_infers_the_guild_from_an_existing_row():
+        from hub.forms import OrientationAvailabilityForm
+
+        rule = OrientationAvailabilityFactory()
+        OrientationTypeFactory(guild=GuildFactory(), name="Elsewhere")
+        form = OrientationAvailabilityForm(instance=rule)
+        assert list(form.fields["orientation_type"].queryset) == [rule.orientation_type]
+
+    def it_offers_no_types_with_no_owner_at_all():
+        from hub.forms import OrientationAvailabilityForm
+
+        form = OrientationAvailabilityForm()
+        assert list(form.fields["orientation_type"].queryset) == []
+        assert (
+            form.fields["orientation_type"].error_messages["invalid_choice"] == "Pick one of this guild's orientations."
+        )
+
+
+def describe_invalid_modal_re_render_keeps_the_save_url():
+    """The shared partial posts to hours_save_url; an error re-render must still carry it (both owners)."""
+
+    def it_keeps_the_guild_save_url(client: Client):
+        user = _member_user("url_guild", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        client.login(username="url_guild", password="pass")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(str(user.member.pk), guild=guild, **{"modal_rules-0-end_time": "17:00"}),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert b"End time must be after the start time." in response.content
+        assert f'hx-post="{_hours_url(guild)}"' in content
+        assert 'hx-post=""' not in content
+
+    def it_keeps_the_equipment_save_url(client: Client):
+        from tests.membership.factories import EquipmentFactory, EquipmentStaffMembershipFactory
+
+        user = _member_user("url_equip", name="Dana Reyes")
+        equipment = EquipmentFactory()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+        client.login(username="url_equip", password="pass")
+        save_url = reverse("hub_equipment_orientation_hours_save", args=[equipment.slug])
+        response = client.post(
+            save_url,
+            {
+                "orienter_scope": str(user.member.pk),
+                "formset_prefix": "modal_rules",
+                "modal_rules-TOTAL_FORMS": "1",
+                "modal_rules-INITIAL_FORMS": "0",
+                "modal_rules-MIN_NUM_FORMS": "0",
+                "modal_rules-MAX_NUM_FORMS": "1000",
+                "modal_rules-0-orientation_type": str(orientation_type.pk),
+                "modal_rules-0-weekday": "1",
+                "modal_rules-0-start_time": "18:00",
+                "modal_rules-0-end_time": "17:00",
+                "modal_rules-0-seats": "1",
+                "modal_rules-0-is_active": "on",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "End time must be after the start time." in content
+        assert f'hx-post="{save_url}"' in content
+        assert 'hx-post=""' not in content

@@ -11,7 +11,9 @@ from django.utils import timezone
 from membership import orientations
 from membership.models import OrientationBooking, OrientationError, OrientationSlot, OrientationType
 from tests.membership.factories import (
+    EquipmentFactory,
     EquipmentReservationFactory,
+    EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
@@ -171,6 +173,16 @@ def describe_OrientationSlot():
             slot.book(member)
             with pytest.raises(OrientationError):
                 slot.book(member)
+
+        def it_reads_the_seat_cap_live_on_a_picker_annotated_instance():
+            # A slot loaded through the picker carries a seat_holding_count snapshot; the
+            # write path must not trust it, or a second book() on the same object overbooks.
+            fresh = OrientationSlotFactory(seats=1)
+            slot = OrientationSlot.objects.with_seat_holding_count().get(pk=fresh.pk)
+            slot.book(MemberFactory())
+            with pytest.raises(OrientationError):
+                slot.book(MemberFactory())
+            assert slot.bookings.seat_holding().count() == 1
 
     def describe_mark_cancelled():
         def it_flips_the_slot_state_without_touching_bookings():
@@ -887,3 +899,60 @@ def describe_reservation_gate():
         EquipmentReservationFactory(starts_at=slot.starts_at, ends_at=slot.ends_at)
         assert slot.is_bookable is True
         assert slot in OrientationSlot.objects.bookable()
+
+
+def describe_departed_manager_gate():
+    """A personal equipment slot stops taking new bookings once its manager no longer manages the tool."""
+
+    def _personal_slot(equipment, manager):
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        return OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=manager)
+
+    def _assert_bookable(slot, expected: bool) -> None:
+        slot = OrientationSlot.objects.get(pk=slot.pk)
+        assert slot.is_bookable is expected
+        assert (slot in OrientationSlot.objects.bookable()) is expected
+
+    def it_hides_the_slot_when_the_staff_row_is_gone_but_keeps_its_booking():
+        equipment = EquipmentFactory()
+        manager = MemberFactory()
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        slot = _personal_slot(equipment, manager)
+        booking = OrientationBookingFactory(slot=slot)
+        _assert_bookable(slot, True)
+        row.delete()
+        _assert_bookable(slot, False)
+        booking.confirm()
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CONFIRMED
+
+    def it_keeps_every_other_manager_tier_bookable():
+        from membership.models import AdminCapability
+        from tests.membership.factories import GuildStaffMembershipFactory
+
+        guild = GuildFactory(guild_lead=MemberFactory())
+        equipment = EquipmentFactory(guild=guild)
+        _assert_bookable(_personal_slot(equipment, guild.guild_lead), True)
+        staffer = MemberFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staffer)
+        _assert_bookable(_personal_slot(equipment, staffer), True)
+        holder = MemberFactory()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        _assert_bookable(_personal_slot(equipment, holder), True)
+
+    def it_hides_a_plain_admins_slot_until_they_hold_the_capability():
+        # An admin edits anyone's hours but is only booked by name once they hold the
+        # EQUIPMENT capability, exactly as a guild admin needs a staff row.
+        from membership.models import AdminCapability
+
+        equipment = EquipmentFactory()
+        admin = MemberFactory(fog_role="admin")
+        slot = _personal_slot(equipment, admin)
+        _assert_bookable(slot, False)
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        _assert_bookable(slot, True)
+
+    def it_leaves_a_shared_slot_alone():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        assert slot.orienter is None
+        _assert_bookable(slot, True)

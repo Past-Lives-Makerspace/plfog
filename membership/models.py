@@ -9018,6 +9018,34 @@ class OrientationSlotQuerySet(models.QuerySet):
         """
         return self.annotate(booking_history_count=Count("bookings"))
 
+    @staticmethod
+    def _run_by_gate() -> Q:
+        """The SQL twin of :meth:`Equipment.is_run_by` for a slot's ``orienter``.
+
+        A staff row on the tool, the owning guild's lead, the owning guild's staff, or
+        an EQUIPMENT capability: exactly ``Equipment.manager_members()``. Deliberately
+        no fog-admin leg (see ``is_run_by``). A departed manager's personal slot
+        blocks NEW bookings only.
+        """
+        return (
+            Exists(
+                EquipmentStaffMembership.objects.filter(
+                    equipment_id=OuterRef("orientation_type__equipment_id"), member_id=OuterRef("orienter_id")
+                )
+            )
+            | Q(orienter_id=models.F("orientation_type__equipment__guild__guild_lead_id"))
+            | Exists(
+                GuildStaffMembership.objects.filter(
+                    guild_id=OuterRef("orientation_type__equipment__guild_id"), member_id=OuterRef("orienter_id")
+                )
+            )
+            | Exists(
+                AdminCapability.objects.filter(
+                    member_id=OuterRef("orienter_id"), capability=AdminCapability.Capability.EQUIPMENT
+                )
+            )
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots whose owner is currently accepting bookings (does not check seats).
 
@@ -9025,11 +9053,11 @@ class OrientationSlotQuerySet(models.QuerySet):
         still-on-leadership orienter (a departed staffer's surviving slot must not
         reappear the moment its booking is declined or cancelled). An
         equipment-owned slot (``guild`` is None) requires active, open (not closed
-        for maintenance) equipment and never carries an orienter (the
-        no-per-orienter-machinery decision) and no confirmed reservation over its
-        span (a reserved machine cannot host an orientation). For both owners a
-        slot generated from a paused rule stops taking NEW bookings; a one time
-        slot has no rule and is unaffected.
+        for maintenance) equipment, an orienter who still manages it (or no orienter
+        for a shared slot), and no confirmed reservation over its span (a reserved
+        machine cannot host an orientation). For both owners a slot generated from
+        a paused rule stops taking NEW bookings; a one time slot has no rule and is
+        unaffected.
         """
         still_on_staff = GuildStaffMembership.objects.filter(
             guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
@@ -9044,12 +9072,15 @@ class OrientationSlotQuerySet(models.QuerySet):
             starts_at__lt=OuterRef("ends_at"),
             ends_at__gt=OuterRef("starts_at"),
         )
-        equipment_gate = Q(
-            orientation_type__equipment__isnull=False,
-            orientation_type__equipment__is_active=True,
-            orientation_type__equipment__is_closed=False,
-            orienter__isnull=True,
-        ) & ~Exists(reserved_over_span)
+        equipment_gate = (
+            Q(
+                orientation_type__equipment__isnull=False,
+                orientation_type__equipment__is_active=True,
+                orientation_type__equipment__is_closed=False,
+            )
+            & (Q(orienter__isnull=True) | self._run_by_gate())
+            & ~Exists(reserved_over_span)
+        )
         rule_gate = Q(availability__isnull=True) | Q(availability__is_active=True)
         return (
             self.upcoming()
@@ -9073,8 +9104,6 @@ class OrientationSlot(models.Model):
     seat_holding_count: int
     # Queryset annotation (set by OrientationSlotQuerySet.with_booking_history_count)
     booking_history_count: int
-    # View-attached free-seat count for the equipment day picker (seats minus seat_holding_count).
-    seats_open: int
 
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
@@ -9150,8 +9179,14 @@ class OrientationSlot(models.Model):
         """Seat-holding bookings — a live paid checkout holds its seat like a real booking.
 
         Counts ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` so two members can't buy the
-        last seat at once; declined/cancelled (and deleted holds) free their seat.
+        last seat at once; declined/cancelled (and deleted holds) free their seat. A
+        slot loaded through ``with_seat_holding_count()`` answers from that annotation
+        (a page of rows costs one aggregate, not a COUNT each); such an instance is a
+        snapshot, so code that books or releases a seat refetches before re-reading.
         """
+        annotated = getattr(self, "seat_holding_count", None)
+        if annotated is not None:
+            return annotated
         return self.bookings.seat_holding().count()
 
     @property
@@ -9194,12 +9229,13 @@ class OrientationSlot(models.Model):
 
     @property
     def is_bookable(self) -> bool:
-        """Future, uncancelled, has a free seat, owner accepting, rule not paused, orienter still on staff.
+        """Future, uncancelled, has a free seat, owner accepting, rule not paused, orienter still current.
 
-        A personal slot whose orienter is no longer in the guild's leadership blocks NEW
-        bookings only — existing bookings on it are untouched. A slot whose orientation
-        type was deactivated, or whose recurring rule was paused, blocks new bookings
-        the same way (the per-slot twin of ``bookable()``).
+        A personal slot whose orienter is no longer in the guild's leadership (or no
+        longer manages the equipment) blocks NEW bookings only — existing bookings on
+        it are untouched. A slot whose orientation type was deactivated, or whose
+        recurring rule was paused, blocks new bookings the same way (the per-slot
+        twin of ``bookable()``).
         """
         if self.is_cancelled or self.has_started or self.is_full:
             return False
@@ -9216,6 +9252,10 @@ class OrientationSlot(models.Model):
             if not self.orientation_type.is_accepting:
                 return False
             equipment = cast("Equipment", self.orientation_type.equipment)
+            # A personal slot whose manager no longer RUNS orientations here blocks NEW
+            # bookings only (the equipment twin of the departed-orienter guard).
+            if self.orienter_id is not None and not equipment.is_run_by(cast(Member, self.orienter)):
+                return False
             return not EquipmentReservation.objects.overlapping(equipment, self.starts_at, self.ends_at).exists()
         guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
         if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
@@ -9240,6 +9280,10 @@ class OrientationSlot(models.Model):
             OrientationError: If the slot can't be booked, or the member is already
                 oriented for, mid-checkout on, or actively booked on this orientation type.
         """
+        # The seat cap must read live on the write path: a picker-annotated instance
+        # carries a ``seat_holding_count`` snapshot that would let a second book() on
+        # the same object overbook the last seat. Drop the snapshot before the check.
+        self.__dict__.pop("seat_holding_count", None)
         if not self.is_bookable:
             if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
                 raise OrientationError(
@@ -10646,6 +10690,24 @@ class Equipment(HeroCropMixin, models.Model):
             n += 1
         return slug
 
+    def is_run_by(self, member: Member) -> bool:
+        """True when ``member`` may RUN orientations on this equipment: the :meth:`manager_members` set.
+
+        A staff row on this tool, the owning guild's leadership (lead or staff), or the
+        EQUIPMENT capability. Deliberately NO fog-admin leg, unlike the permission
+        helpers (``can_manage_equipment`` keeps full admins so they can edit anyone's
+        hours and act on requests): an admin who wants to be booked by name grants
+        themselves the capability, exactly as a guild admin needs a staff row. One
+        predicate feeds ``bookable()`` (its SQL twin ``_run_by_gate``), ``is_bookable``,
+        slot generation, the Runs with picker, and the schedule overview.
+        """
+        if member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+            return True
+        guild = self.guild
+        if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
+            return True
+        return self.staff_memberships.filter(member=member).exists()
+
     def manager_members(self) -> list[Member]:
         """Everyone who may manage this equipment, de-duplicated.
 
@@ -10871,120 +10933,6 @@ class Equipment(HeroCropMixin, models.Model):
             if key not in existing:
                 weekday, start, end = key
                 self.hours_rules.create(weekday=weekday, start_time=start, end_time=end, is_active=is_active)
-
-    # --- Orientation hours (equipment-orientation-hours spec §5.3) — the same
-    # --- window <-> per-day reconcile, over OrientationAvailability rules instead.
-
-    def orientation_hours_windows(self) -> list[dict[str, Any]]:
-        """This equipment's recurring orientation rules grouped into editor windows.
-
-        Rows with an identical (type, start, end, slot length, break, seats, active)
-        window collapse to one editor row carrying every weekday they cover. Ordered
-        by start then end time; times as "HH:MM" choice keys. A rule with no slot
-        length (never written by this editor) shows its type's duration, which is
-        what a save then carves it at.
-        """
-        grouped: dict[tuple[int, time_type, time_type, int, int, int, bool], list[int]] = {}
-        rules = (
-            OrientationAvailability.objects.for_equipment(self)
-            .select_related("orientation_type")
-            .order_by("start_time", "end_time", "weekday")
-        )
-        for rule in rules:
-            slot_minutes = (
-                rule.slot_minutes if rule.slot_minutes is not None else rule.orientation_type.duration_minutes
-            )
-            key = (
-                rule.orientation_type_id,
-                rule.start_time,
-                rule.end_time,
-                slot_minutes,
-                rule.buffer_minutes,
-                rule.seats,
-                rule.is_active,
-            )
-            grouped.setdefault(key, []).append(rule.weekday)
-        ordered = sorted(grouped.items(), key=lambda item: (item[0][1], item[0][2], item[0][0]))
-        return [
-            {
-                "orientation_type": type_id,
-                "start_time": start.strftime("%H:%M"),
-                "end_time": end.strftime("%H:%M"),
-                "days": days,
-                "slot_minutes": slot_minutes,
-                "buffer_minutes": buffer_minutes,
-                "seats": seats,
-                "is_active": is_active,
-            }
-            for (type_id, start, end, slot_minutes, buffer_minutes, seats, is_active), days in ordered
-        ]
-
-    def apply_orientation_hours_windows(self, windows: list[dict[str, Any]]) -> tuple[int, int, int]:
-        """Expand editor windows into per-day :class:`OrientationAvailability` rules, honestly.
-
-        Rows are keyed by (type, weekday, start, end). A key nobody wants any more is
-        retired (``retire_rule``: open future generated slots go, booked ones stay). A
-        kept key that is paused, or whose slot length / break / seats changed, keeps its
-        rule row but retires its open future slots so the next generation carves the
-        new grid; booked slots on the old grid survive. New keys are created with
-        ``guild=None`` and no orienter. The caller regenerates afterwards.
-
-        Returns:
-            ``(deleted_rules, open_slots_removed, kept_with_bookings)`` for the flash,
-            counting retirements from pauses and re-grids too, not only deletes.
-        """
-        from membership import orientations
-
-        desired: dict[tuple[int, int, time_type, time_type], dict[str, Any]] = {}
-        for window in windows:
-            for day in window["days"]:
-                key = (window["orientation_type"].pk, int(day), window["start_time"], window["end_time"])
-                desired[key] = window
-        existing = {
-            (rule.orientation_type_id, rule.weekday, rule.start_time, rule.end_time): rule
-            for rule in OrientationAvailability.objects.for_equipment(self)
-        }
-        deleted_rules = removed = kept = 0
-        for key, rule in existing.items():
-            if key not in desired:
-                rule_removed, rule_kept = orientations.retire_rule(rule)
-                deleted_rules += 1
-                removed += rule_removed
-                kept += rule_kept
-                continue
-            window = desired[key]
-            paused = rule.is_active and not window["is_active"]
-            regrid = (rule.slot_minutes, rule.buffer_minutes) != (window["slot_minutes"], window["buffer_minutes"])
-            reseat = rule.seats != window["seats"]
-            if paused or regrid:
-                rule_removed, rule_kept = orientations.retire_open_slots(rule)
-                removed += rule_removed
-                kept += rule_kept
-            if regrid or reseat or rule.is_active != window["is_active"]:
-                rule.slot_minutes, rule.buffer_minutes = window["slot_minutes"], window["buffer_minutes"]
-                rule.seats = window["seats"]
-                rule.is_active = window["is_active"]
-                rule.save(update_fields=["slot_minutes", "buffer_minutes", "seats", "is_active"])
-            if reseat and not (paused or regrid):
-                # A seats-only edit is not a re-grid: existing slots follow the new count
-                # in place, booked ones never below what is already taken.
-                orientations.reseat_slots(rule)
-        for key, window in desired.items():
-            if key not in existing:
-                type_id, weekday, start, end = key
-                OrientationAvailability.objects.create(
-                    guild=None,
-                    orienter=None,
-                    orientation_type_id=type_id,
-                    weekday=weekday,
-                    start_time=start,
-                    end_time=end,
-                    slot_minutes=window["slot_minutes"],
-                    buffer_minutes=window["buffer_minutes"],
-                    seats=window["seats"],
-                    is_active=window["is_active"],
-                )
-        return deleted_rules, removed, kept
 
     def _snap_forward(self, value: datetime_type) -> datetime_type:
         """The first wall-clock half-hour-grid instant at or after ``value`` (local time)."""

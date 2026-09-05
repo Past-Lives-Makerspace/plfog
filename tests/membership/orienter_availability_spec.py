@@ -513,9 +513,13 @@ def describe_generate_slots_for_equipment():
         inactive_type.orientation_type.save(update_fields=["is_active"])
         assert orientations.generate_slots() == 0
 
-    def it_never_evaluates_the_orienter_skip_for_a_guildless_rule():
+    def it_skips_a_personal_rule_whose_manager_no_longer_manages_the_tool():
+        from tests.membership.factories import EquipmentStaffMembershipFactory
+
         stranger = MemberFactory()
         rule = _equipment_rule(orienter=stranger)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 0
+        EquipmentStaffMembershipFactory(equipment=_tool(rule), member=stranger)
         assert orientations.generate_slots(equipment=_tool(rule)) == 16
         assert rule.slots.first().orienter == stranger
 
@@ -534,6 +538,46 @@ def describe_generate_slots_for_equipment():
         assert slot.availability == rule  # still attached: the manager's cancel owns the time
         assert rule.slots.filter(starts_at=slot.starts_at).count() == 1
         assert not OrientationSlot.objects.filter(starts_at=slot.starts_at, is_cancelled=False).exists()
+
+    def it_skips_a_plain_admins_personal_rule_until_they_hold_the_capability():
+        from membership.models import AdminCapability
+
+        admin = MemberFactory(fog_role="admin")
+        rule = _equipment_rule(orienter=admin)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 0
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+
+    def it_looks_a_tools_runners_up_once_per_run():
+        from tests.membership.factories import EquipmentStaffMembershipFactory
+
+        first = _equipment_rule(slot_minutes=None)
+        tool = _tool(first)
+        dana = MemberFactory()
+        EquipmentStaffMembershipFactory(equipment=tool, member=dana)
+        first.orienter = dana
+        first.save(update_fields=["orienter"])
+        # Every candidate is "past" against this reference, so no slot is inserted and the
+        # remaining queries are the rules, one off-grid cleanup per equipment rule, the
+        # runner set, and the occupied set.
+        far_future = timezone.now() + timedelta(days=400)
+
+        def query_count() -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                orientations.generate_slots(equipment=tool, now=far_future)
+            return len(ctx.captured_queries)
+
+        one_rule = query_count()
+        for offset in range(3, 8):
+            _equipment_rule(
+                orientation_type=first.orientation_type,
+                orienter=dana,
+                weekday=_tool_day(offset).weekday(),
+                slot_minutes=None,
+            )
+        # Each extra rule costs exactly its own off-grid cleanup query; the runner set
+        # (staff rows + capability holders) is never looked up again per rule.
+        assert query_count() - one_rule == 5
 
     def it_covers_both_owners_with_no_scope():
         guild, _staff = _staffed_guild()
@@ -1035,3 +1079,33 @@ def describe_retired_slots_regenerate():
         assert slot.availability == rule
         assert slot.is_cancelled is True
         assert not OrientationSlot.objects.filter(starts_at=slot.starts_at, is_cancelled=False).exists()
+
+
+def describe_retire_equipment_orienter():
+    def it_sweeps_only_the_members_rules_on_that_tool_and_counts_booked_slots():
+        from tests.membership.factories import EquipmentStaffMembershipFactory
+
+        rule = _equipment_rule()
+        tool = _tool(rule)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        EquipmentStaffMembershipFactory(equipment=tool, member=dana)
+        mine = _equipment_rule(orientation_type=rule.orientation_type, orienter=dana)
+        shared = rule  # orienter-less, must survive
+        elsewhere = _equipment_rule(orienter=dana)  # another tool's rule, must survive
+        open_slot = _generated_slot(mine, hour=10)
+        booked = _generated_slot(mine, hour=11)
+        OrientationBookingFactory(slot=booked)
+        for slot in (open_slot, booked):
+            slot.orienter = dana
+            slot.save(update_fields=["orienter"])
+
+        removed, booked_remaining = orientations.retire_equipment_orienter(tool, dana)
+
+        assert (removed, booked_remaining) == (1, 1)
+        assert not OrientationAvailability.objects.filter(pk=mine.pk).exists()
+        assert OrientationAvailability.objects.filter(pk=shared.pk).exists()
+        assert OrientationAvailability.objects.filter(pk=elsewhere.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        booked.refresh_from_db()
+        assert booked.availability is None
+        assert booked.orienter == dana

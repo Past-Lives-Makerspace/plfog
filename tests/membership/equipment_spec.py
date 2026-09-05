@@ -8,7 +8,7 @@ EQUIPMENT capability backfill migration, and the ``Member`` permission twins.
 from __future__ import annotations
 
 import importlib
-from datetime import time, timedelta
+from datetime import timedelta
 
 import pytest
 from django.apps import apps as django_apps
@@ -22,7 +22,6 @@ from membership.models import (
     EquipmentStaffMembership,
     GuildStaffMembership,
     Member,
-    OrientationAvailability,
     OrientationBooking,
     OrientationSlot,
 )
@@ -33,7 +32,6 @@ from tests.membership.factories import (
     GuildMembershipFactory,
     GuildStaffMembershipFactory,
     MemberFactory,
-    OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
@@ -356,248 +354,6 @@ def describe_member_can_create_equipment():
 # ── Orientation hours reconcile (equipment-orientation-hours spec §5.3) ─────────────
 
 
-def describe_Equipment_orientation_hours():
-    def _tool_type(**overrides):
-        return OrientationTypeFactory(equipment_owned=True, **overrides)
-
-    def _rule(orientation_type, **overrides):
-        defaults = {
-            "weekday": 5,
-            "start_time": time(10, 0),
-            "end_time": time(12, 0),
-            "slot_minutes": 60,
-            "buffer_minutes": 0,
-            "seats": 1,
-        }
-        defaults.update(overrides)
-        return OrientationAvailabilityFactory(equipment_owned=True, orientation_type=orientation_type, **defaults)
-
-    def _window(orientation_type, days, **overrides):
-        window = {
-            "orientation_type": orientation_type,
-            "start_time": time(10, 0),
-            "end_time": time(12, 0),
-            "days": days,
-            "slot_minutes": 60,
-            "buffer_minutes": 0,
-            "seats": 1,
-            "is_active": True,
-        }
-        window.update(overrides)
-        return window
-
-    def _open_slot(rule, **overrides):
-        return OrientationSlotFactory(
-            equipment_owned=True,
-            orientation_type=rule.orientation_type,
-            availability=rule,
-            source=OrientationSlot.Source.GENERATED,
-            **overrides,
-        )
-
-    def _booked_slot(rule, **booking_overrides):
-        slot = _open_slot(rule)
-        OrientationBookingFactory(slot=slot, **booking_overrides)
-        return slot
-
-    def describe_orientation_hours_windows():
-        def it_groups_per_day_rules_into_one_editor_row():
-            orientation_type = _tool_type()
-            _rule(orientation_type, weekday=5)
-            _rule(orientation_type, weekday=6)
-            _rule(orientation_type, weekday=1, start_time=time(9, 0), end_time=time(11, 0), slot_minutes=30, seats=2)
-            assert orientation_type.equipment.orientation_hours_windows() == [
-                {
-                    "orientation_type": orientation_type.pk,
-                    "start_time": "09:00",
-                    "end_time": "11:00",
-                    "days": [1],
-                    "slot_minutes": 30,
-                    "buffer_minutes": 0,
-                    "seats": 2,
-                    "is_active": True,
-                },
-                {
-                    "orientation_type": orientation_type.pk,
-                    "start_time": "10:00",
-                    "end_time": "12:00",
-                    "days": [5, 6],
-                    "slot_minutes": 60,
-                    "buffer_minutes": 0,
-                    "seats": 1,
-                    "is_active": True,
-                },
-            ]
-
-        def it_shows_the_types_duration_for_a_rule_with_no_slot_length():
-            orientation_type = _tool_type(duration_minutes=45)
-            _rule(orientation_type, slot_minutes=None)
-            assert orientation_type.equipment.orientation_hours_windows()[0]["slot_minutes"] == 45
-
-        def it_ignores_other_equipments_rules():
-            orientation_type = _tool_type()
-            _rule(_tool_type())
-            assert orientation_type.equipment.orientation_hours_windows() == []
-
-    def describe_apply_orientation_hours_windows():
-        def it_creates_guildless_orienterless_rules_per_checked_day():
-            orientation_type = _tool_type()
-            equipment = orientation_type.equipment
-            assert equipment.apply_orientation_hours_windows([_window(orientation_type, [5, 6])]) == (0, 0, 0)
-            rules = list(OrientationAvailability.objects.for_equipment(equipment).order_by("weekday"))
-            assert [rule.weekday for rule in rules] == [5, 6]
-            assert all(rule.guild is None and rule.orienter is None for rule in rules)
-            assert rules[0].slot_minutes == 60
-            assert rules[0].seats == 1
-
-        def it_retires_the_row_for_an_unchecked_day():
-            orientation_type = _tool_type()
-            saturday = _rule(orientation_type, weekday=5)
-            sunday = _rule(orientation_type, weekday=6)
-            gone = _open_slot(sunday)
-            result = orientation_type.equipment.apply_orientation_hours_windows([_window(orientation_type, [5])])
-            assert result == (1, 1, 0)
-            assert OrientationAvailability.objects.filter(pk=saturday.pk).exists()
-            assert not OrientationAvailability.objects.filter(pk=sunday.pk).exists()
-            assert not OrientationSlot.objects.filter(pk=gone.pk).exists()
-
-        def it_retires_every_day_of_a_deleted_window_and_reports_counts():
-            orientation_type = _tool_type()
-            saturday = _rule(orientation_type, weekday=5)
-            sunday = _rule(orientation_type, weekday=6)
-            _open_slot(saturday)
-            booked = _booked_slot(sunday)
-            assert orientation_type.equipment.apply_orientation_hours_windows([]) == (2, 1, 1)
-            assert not OrientationAvailability.objects.for_equipment(orientation_type.equipment).exists()
-            booked.refresh_from_db()
-            assert booked.availability is None
-            assert booked.seats == 1
-
-        def it_pauses_and_retires_open_slots_but_keeps_booked_ones():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type)
-            open_slot = _open_slot(rule)
-            booked = _booked_slot(rule)
-            result = orientation_type.equipment.apply_orientation_hours_windows(
-                [_window(orientation_type, [5], is_active=False)]
-            )
-            assert result == (0, 1, 1)
-            rule.refresh_from_db()
-            assert rule.is_active is False
-            assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
-            booked.refresh_from_db()
-            assert booked.availability == rule
-
-        def it_unpauses_without_touching_slots():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type, is_active=False)
-            open_slot = _open_slot(rule)
-            assert orientation_type.equipment.apply_orientation_hours_windows([_window(orientation_type, [5])]) == (
-                0,
-                0,
-                0,
-            )
-            rule.refresh_from_db()
-            assert rule.is_active is True
-            assert OrientationSlot.objects.filter(pk=open_slot.pk).exists()
-
-        def it_regrids_when_the_slot_length_changes():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type)
-            open_slot = _open_slot(rule)
-            booked = _booked_slot(rule)
-            result = orientation_type.equipment.apply_orientation_hours_windows(
-                [_window(orientation_type, [5], slot_minutes=30)]
-            )
-            assert result == (0, 1, 1)
-            rule.refresh_from_db()
-            assert rule.slot_minutes == 30
-            assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
-            assert OrientationSlot.objects.filter(pk=booked.pk).exists()
-
-        def it_treats_a_seats_only_change_as_a_reseat_not_a_regrid():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type)
-            open_slot = _open_slot(rule, seats=1)
-            result = orientation_type.equipment.apply_orientation_hours_windows(
-                [_window(orientation_type, [5], seats=2)]
-            )
-            assert result == (0, 0, 0)
-            rule.refresh_from_db()
-            assert rule.seats == 2
-            open_slot.refresh_from_db()
-            assert open_slot.seats == 2
-
-        def it_raises_seats_on_open_and_booked_slots_alike():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type, seats=1)
-            open_slot = _open_slot(rule, seats=1)
-            booked = _open_slot(rule, seats=1)
-            OrientationBookingFactory(slot=booked)
-            result = orientation_type.equipment.apply_orientation_hours_windows(
-                [_window(orientation_type, [5], seats=4)]
-            )
-            assert result == (0, 0, 0)
-            open_slot.refresh_from_db()
-            booked.refresh_from_db()
-            assert open_slot.seats == 4
-            assert booked.seats == 4
-            assert booked.seats_remaining == 3
-
-        def it_never_lowers_a_booked_slot_below_its_taken_seats():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type, seats=4)
-            open_slot = _open_slot(rule, seats=4)
-            booked = _open_slot(rule, seats=4)
-            OrientationBookingFactory(slot=booked)
-            OrientationBookingFactory(slot=booked)
-            result = orientation_type.equipment.apply_orientation_hours_windows(
-                [_window(orientation_type, [5], seats=1)]
-            )
-            assert result == (0, 0, 0)
-            open_slot.refresh_from_db()
-            booked.refresh_from_db()
-            assert open_slot.seats == 1
-            assert booked.seats == 2
-
-        def it_regrids_when_the_break_changes():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type)
-            _open_slot(rule)
-            result = orientation_type.equipment.apply_orientation_hours_windows(
-                [_window(orientation_type, [5], buffer_minutes=15)]
-            )
-            assert result == (0, 1, 0)
-            rule.refresh_from_db()
-            assert rule.buffer_minutes == 15
-
-        def it_spares_a_slot_with_a_checkout_hold():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type)
-            held = _booked_slot(rule, status=OrientationBooking.Status.PENDING_PAYMENT)
-            assert orientation_type.equipment.apply_orientation_hours_windows([]) == (1, 0, 1)
-            assert OrientationSlot.objects.filter(pk=held.pk).exists()
-
-        def it_never_touches_manual_slots():
-            orientation_type = _tool_type()
-            _rule(orientation_type)
-            manual = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
-            orientation_type.equipment.apply_orientation_hours_windows([])
-            assert OrientationSlot.objects.filter(pk=manual.pk).exists()
-
-        def it_leaves_an_unchanged_window_alone():
-            orientation_type = _tool_type()
-            rule = _rule(orientation_type)
-            open_slot = _open_slot(rule)
-            assert orientation_type.equipment.apply_orientation_hours_windows([_window(orientation_type, [5])]) == (
-                0,
-                0,
-                0,
-            )
-            assert OrientationAvailability.objects.for_equipment(orientation_type.equipment).get().pk == rule.pk
-            assert OrientationSlot.objects.filter(pk=open_slot.pk).exists()
-
-
 def describe_holding_seats_on():
     """The seat-holding overlap query both the busy spans and the reservation guard read."""
 
@@ -644,3 +400,53 @@ def describe_holding_seats_on():
         window_start = open_slot.starts_at
         window_end = open_slot.starts_at + timedelta(hours=4)
         assert not OrientationSlot.objects.holding_seats_on(equipment, window_start, window_end).exists()
+
+
+def describe_is_run_by():
+    """The set that RUNS orientations is manager_members(): no fog-admin leg, unlike the permission helpers."""
+
+    def _tool():
+        return EquipmentFactory(guild=GuildFactory(guild_lead=MemberFactory()))
+
+    def _agrees(equipment, member, expected: bool) -> None:
+        assert equipment.is_run_by(member) is expected
+        assert (member in equipment.manager_members()) is expected
+        # The SQL twin the booking gate reads must agree with the predicate.
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=member)
+        assert (slot in OrientationSlot.objects.bookable()) is expected
+        assert slot.is_bookable is expected
+
+    def it_includes_a_staff_row_holder():
+        equipment = _tool()
+        manager = MemberFactory()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        _agrees(equipment, manager, True)
+
+    def it_includes_the_owning_guilds_lead_and_staff():
+        equipment = _tool()
+        _agrees(equipment, equipment.guild.guild_lead, True)
+        staffer = MemberFactory()
+        GuildStaffMembershipFactory(guild=equipment.guild, member=staffer)
+        _agrees(equipment, staffer, True)
+
+    def it_includes_an_equipment_capability_holder():
+        equipment = _tool()
+        holder = MemberFactory()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        _agrees(equipment, holder, True)
+
+    def it_excludes_a_full_admin_without_the_capability_but_not_their_permissions():
+        equipment = _tool()
+        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        _agrees(equipment, admin, False)
+        assert admin.can_manage_equipment(equipment) is True  # still edits anyone's hours, acts on requests
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert equipment.is_run_by(admin) is True
+
+    def it_excludes_a_plain_member_and_another_guilds_lead():
+        equipment = _tool()
+        _agrees(equipment, MemberFactory(), False)
+        other_lead = MemberFactory()
+        GuildFactory(guild_lead=other_lead)
+        _agrees(equipment, other_lead, False)
