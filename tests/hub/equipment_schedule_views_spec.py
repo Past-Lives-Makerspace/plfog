@@ -985,6 +985,26 @@ def describe_orientation_spans_on_the_timeline():
         assert "Orientations booked on this tool show here too." in content
         assert _at(_day(), 11) in response.context["starts"]
 
+    def it_renders_a_legacy_overlap_as_consecutive_segments(client: Client):
+        # A reservation and a booked orientation that overlapped before the guards existed.
+        _login(client, "orient_span_legacy")
+        equipment = _open_tool()
+        EquipmentReservationFactory(equipment=equipment, starts_at=_at(_day(), 10), ends_at=_at(_day(), 12))
+        slot = _slot(equipment, 11)
+        slot.ends_at = _at(_day(), 13)
+        slot.save(update_fields=["ends_at"])
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_legacy_sam", "Sam Reyes"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        busy = [s for s in response.context["timeline"] if not s["is_free"]]
+        assert [(s["kind"], s["starts_at"], s["ends_at"]) for s in busy] == [
+            ("reservation", _at(_day(), 10), _at(_day(), 12)),
+            ("orientation", _at(_day(), 12), _at(_day(), 13)),
+        ]
+        timeline = response.context["timeline"]
+        assert all(
+            later["starts_at"] >= earlier["ends_at"] for earlier, later in zip(timeline, timeline[1:], strict=False)
+        )
+
     def it_hides_the_legend_line_on_a_tool_without_orientations(client: Client):
         _login(client, "orient_span_none")
         equipment = _open_tool()

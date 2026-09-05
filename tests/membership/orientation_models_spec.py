@@ -872,6 +872,16 @@ def describe_reservation_gate():
         assert slot.is_bookable is True
         assert slot in OrientationSlot.objects.bookable()
 
+    def it_ignores_a_reservation_ending_exactly_at_the_slot_start():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        EquipmentReservationFactory(
+            equipment=slot.orientation_type.equipment,
+            starts_at=slot.starts_at - timedelta(hours=1),
+            ends_at=slot.starts_at,
+        )
+        assert slot.is_bookable is True
+        assert slot in OrientationSlot.objects.bookable()
+
     def it_leaves_guild_slots_alone():
         slot = OrientationSlotFactory()
         EquipmentReservationFactory(starts_at=slot.starts_at, ends_at=slot.ends_at)

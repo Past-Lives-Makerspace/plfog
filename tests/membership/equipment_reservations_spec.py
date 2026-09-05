@@ -256,6 +256,60 @@ def describe_availability_line():
         assert tone == "busy"
         assert text.startswith("Reserved until ")
 
+    def _all_day_tool() -> Equipment:
+        equipment = EquipmentFactory()
+        EquipmentHoursFactory(
+            equipment=equipment,
+            weekday=timezone.localtime().weekday(),
+            start_time=time(0, 0),
+            end_time=time(23, 59),
+        )
+        return equipment
+
+    def _running_slot(equipment: Equipment):
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=30),
+            seats=1,
+        )
+
+    def it_reports_busy_during_a_booked_orientation():
+        equipment = _all_day_tool()
+        slot = _running_slot(equipment)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        ends_local = timezone.localtime(slot.ends_at)
+        hour = ends_local.hour % 12 or 12
+        suffix = "AM" if ends_local.hour < 12 else "PM"
+        assert equipment.availability_line() == ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+
+    def it_reports_the_later_end_when_a_reservation_and_an_orientation_both_run():
+        equipment = _all_day_tool()
+        slot = _running_slot(equipment)
+        OrientationBookingFactory(slot=slot)
+        EquipmentReservationFactory(
+            equipment=equipment,
+            starts_at=timezone.now() - timedelta(minutes=10),
+            ends_at=timezone.now() + timedelta(minutes=90),
+        )
+        ends_local = timezone.localtime(equipment.reservations.get().ends_at)
+        hour = ends_local.hour % 12 or 12
+        suffix = "AM" if ends_local.hour < 12 else "PM"
+        assert equipment.availability_line() == ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+
+    def it_ignores_an_open_unbooked_slot():
+        equipment = _all_day_tool()
+        _running_slot(equipment)
+        assert equipment.availability_line() == ("free", "Available now")
+
+    def it_reads_the_index_attachment_instead_of_querying_when_supplied():
+        equipment = _all_day_tool()
+        OrientationBookingFactory(slot=_running_slot(equipment))
+        equipment.current_orientation_slots = []
+        assert equipment.availability_line() == ("free", "Available now")
+
     def it_reports_open_and_after_hours_states():
         equipment = EquipmentFactory()
         local = timezone.localtime()

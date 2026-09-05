@@ -8,6 +8,7 @@ permission guard → form/model/service call → toast, redirect, or render.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -187,7 +188,9 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
                 {
                     "is_free": False,
                     "kind": item["kind"],
-                    "starts_at": max(item["starts_at"], window_start),
+                    # Clamp to the cursor: a legacy overlap (a reservation and a booked
+                    # orientation from before the guards) renders as consecutive segments.
+                    "starts_at": max(item["starts_at"], cursor),
                     "ends_at": min(item["ends_at"], window_end),
                     "reservation": item["reservation"],
                     "label": item["label"],
@@ -296,6 +299,26 @@ def _schedule_context(
     }
 
 
+def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: datetime) -> None:
+    """Give every card its ``current_orientation_slots`` (booked orientations running now) in one query."""
+    from membership.models import OrientationSlot
+
+    running = (
+        OrientationSlot.objects.holding_seats()
+        .filter(
+            orientation_type__equipment__in=[equipment.pk for equipment in equipment_list],
+            starts_at__lt=now,
+            ends_at__gt=now,
+        )
+        .select_related("orientation_type")
+    )
+    by_equipment: dict[int, list[Any]] = {}
+    for slot in running:
+        by_equipment.setdefault(slot.orientation_type.equipment_id, []).append(slot)
+    for equipment in equipment_list:
+        equipment.current_orientation_slots = by_equipment.get(equipment.pk, [])
+
+
 @login_required
 @equipment_feature_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
@@ -325,6 +348,8 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
             to_attr="current_reservations",
         ),
     )
+    equipment_list = list(filtered)
+    _attach_running_orientations(equipment_list, now=now)
     oriented_ids, guild_ids = _member_access_sets(member)
     cards = [
         {
@@ -332,7 +357,7 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
             "access_state": equipment.access_state(member, oriented_type_ids=oriented_ids, member_guild_ids=guild_ids),
             "availability": equipment.availability_line(),
         }
-        for equipment in filtered
+        for equipment in equipment_list
     ]
     return render(
         request,

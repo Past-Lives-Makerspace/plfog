@@ -900,6 +900,9 @@ def describe_blocked_rows():
         clear = OrientationSlotFactory(
             equipment_owned=True, orientation_type=orientation_type, starts_at=_at(day, 13), ends_at=_at(day, 14)
         )
+        touching = OrientationSlotFactory(
+            equipment_owned=True, orientation_type=orientation_type, starts_at=_at(day, 12), ends_at=_at(day, 13)
+        )
         reserver = _member_user("oh_blocked_sam")
         reserver.member.full_legal_name = "Sam Reyes"
         reserver.member.save(update_fields=["full_legal_name"])
@@ -910,9 +913,11 @@ def describe_blocked_rows():
         by_pk = {slot.pk: slot for slot in response.context["orientation_upcoming_slots"]}
         assert by_pk[blocked.pk].blocking_reservation == reservation
         assert by_pk[clear.pk].blocking_reservation is None
+        assert by_pk[touching.pk].blocking_reservation is None  # 12:00 start meets the 12:00 end: not blocked
         content = response.content.decode()
         assert "Blocked by Sam Reyes's reservation 10:00 AM to 12:00 PM" in content
         assert content.count("pl-equip-res-row--blocked") == 1
         # The member picker never offers the blocked slot while the reservation stands.
         assert blocked not in OrientationSlot.objects.bookable()
         assert clear in OrientationSlot.objects.bookable()
+        assert touching in OrientationSlot.objects.bookable()

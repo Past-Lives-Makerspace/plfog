@@ -84,6 +84,39 @@ def describe_equipment_index():
         assert b"Woodshop members only" in response.content
         assert user is not None  # the badge set proves the bulk access sets flowed through
 
+    def it_shows_a_running_orientation_as_reserved_on_the_card(client: Client):
+        from datetime import time, timedelta
+
+        from django.utils import timezone
+
+        from tests.membership.factories import EquipmentHoursFactory, OrientationBookingFactory, OrientationSlotFactory
+
+        _login(client, "eq_card_orient")
+        busy_tool = EquipmentFactory(name="Busy Router")
+        free_tool = EquipmentFactory(name="Free Router")
+        for equipment in (busy_tool, free_tool):
+            EquipmentHoursFactory(
+                equipment=equipment,
+                weekday=timezone.localtime().weekday(),
+                start_time=time(0, 0),
+                end_time=time(23, 59),
+            )
+            slot = OrientationSlotFactory(
+                equipment_owned=True,
+                orientation_type=OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics"),
+                starts_at=timezone.now() - timedelta(minutes=30),
+                ends_at=timezone.now() + timedelta(minutes=30),
+                seats=1,
+            )
+            if equipment is busy_tool:
+                OrientationBookingFactory(slot=slot)
+        response = client.get(reverse("hub_equipment_index"))
+        cards = {card["equipment"].name: card["availability"] for card in response.context["cards"]}
+        assert cards["Busy Router"][0] == "busy"
+        assert cards["Busy Router"][1].startswith("Reserved until ")
+        assert cards["Free Router"] == ("free", "Available now")
+        assert b"Reserved until " in response.content
+
     def it_shows_membership_inactive_badges_to_a_former_member(client: Client):
         user = _login(client, "eq_former")
         user.member.status = Member.Status.FORMER

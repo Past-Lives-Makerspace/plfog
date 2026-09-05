@@ -8981,27 +8981,33 @@ class OrientationSlotQuerySet(models.QuerySet):
             )
         )
 
-    def holding_seats_on(
-        self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
-    ) -> OrientationSlotQuerySet:
-        """Uncancelled slots of ``equipment``'s owned types overlapping ``[starts_at, ends_at)`` that hold a seat.
+    def holding_seats(self) -> OrientationSlotQuerySet:
+        """Uncancelled slots that hold a seat: a ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking.
 
         Busy time on the tool's reservation schedule (equipment-orientation-hours
-        PR 2): a ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking occupies the
-        machine; an open, unbooked slot does NOT, otherwise every posted window
-        would freeze the tool. Strict inequalities: touching spans never conflict.
+        PR 2): a booked orientation occupies the machine; an open, unbooked slot
+        does NOT, otherwise every posted window would freeze the tool.
         """
         return self.filter(
-            orientation_type__equipment=equipment,
             is_cancelled=False,
-            starts_at__lt=ends_at,
-            ends_at__gt=starts_at,
             bookings__status__in=[
                 OrientationBooking.Status.PENDING_PAYMENT,
                 OrientationBooking.Status.REQUESTED,
                 OrientationBooking.Status.CONFIRMED,
             ],
         ).distinct()
+
+    def holding_seats_on(
+        self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
+    ) -> OrientationSlotQuerySet:
+        """:meth:`holding_seats` narrowed to ``equipment``'s owned types overlapping ``[starts_at, ends_at)``.
+
+        Strict inequalities: touching spans never conflict. Pass ``now`` for both
+        bounds to ask what is running right now.
+        """
+        return self.holding_seats().filter(
+            orientation_type__equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
+        )
 
     def with_booking_history_count(self) -> OrientationSlotQuerySet:
         """Annotate each slot with ``booking_history_count`` — booking rows of ANY status.
@@ -10608,6 +10614,10 @@ class Equipment(HeroCropMixin, models.Model):
 
     RESERVATION_SNAP_MINUTES = 30
 
+    # View-attached by the index (hub_equipment_index): booked orientation slots running
+    # right now, so availability_line() reads them without a per-card query.
+    current_orientation_slots: list[OrientationSlot]
+
     class Meta:
         ordering = ["name"]
         verbose_name_plural = "Equipment"
@@ -11006,11 +11016,11 @@ class Equipment(HeroCropMixin, models.Model):
     def availability_line(self) -> tuple[str, str]:
         """The index card's ``(tone, text)`` availability line, computed from now.
 
-        Tones: ``free`` (available now), ``busy`` (reserved right now), ``closed``,
-        ``muted`` (no hours yet, or outside open hours). Reads prefetched
-        ``hours_rules`` and a ``current_reservations`` ``to_attr`` when the index
-        view supplies them, so a page of cards runs no per-card queries; without the
-        prefetch it queries per call.
+        Tones: ``free`` (available now), ``busy`` (reserved or in an orientation
+        right now), ``closed``, ``muted`` (no hours yet, or outside open hours).
+        Reads prefetched ``hours_rules``, a ``current_reservations`` ``to_attr`` and a
+        ``current_orientation_slots`` list when the index view supplies them, so a
+        page of cards runs no per-card queries; without them it queries per call.
         """
         now = timezone.now()
         if self.is_closed:
@@ -11023,8 +11033,15 @@ class Equipment(HeroCropMixin, models.Model):
             current = list(
                 EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
-        if current:
-            ends_local = timezone.localtime(max(reservation.ends_at for reservation in current))
+        busy_ends = [reservation.ends_at for reservation in current]
+        # A booked orientation running now occupies the tool exactly like a reservation
+        # (the detail page already shows it busy); an open, unbooked slot does not.
+        running_slots = getattr(self, "current_orientation_slots", None)
+        if running_slots is None:
+            running_slots = list(OrientationSlot.objects.holding_seats_on(self, now, now))
+        busy_ends.extend(slot.ends_at for slot in running_slots)
+        if busy_ends:
+            ends_local = timezone.localtime(max(busy_ends))
             hour = ends_local.hour % 12 or 12
             suffix = "AM" if ends_local.hour < 12 else "PM"
             return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
