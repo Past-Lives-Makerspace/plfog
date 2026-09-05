@@ -668,7 +668,9 @@ def recap_orphaned_slot(slot: OrientationSlot) -> None:
         return
     remaining = slot.bookings.seat_holding().count()
     if remaining == 0:
-        slot.mark_cancelled(reason=_RETIRED_SLOT_REASON)
+        # Detached as well as cancelled: a paused rule's kept slot must not own its
+        # (rule, start) key as a dead row, or the time never comes back on unpause.
+        slot.mark_retired(reason=_RETIRED_SLOT_REASON)
     elif slot.seats != remaining:
         slot.seats = remaining
         slot.save(update_fields=["seats"])
@@ -1263,7 +1265,10 @@ def _retire_slots(slots: Any) -> tuple[int, int]:
                 slot.seats = slot.seat_holding_count
                 slot.save(update_fields=["seats"])
         elif slot.booking_history_count:
-            slot.mark_cancelled(reason=_RETIRED_SLOT_REASON)
+            # Cancelled AND detached from the rule: the row keeps its history, and the
+            # time regenerates fresh when the rule is live again instead of staying a
+            # permanent hole at its (rule, start) key.
+            slot.mark_retired(reason=_RETIRED_SLOT_REASON)
             removed += 1
         else:
             slot.delete()

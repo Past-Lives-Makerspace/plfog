@@ -9252,6 +9252,21 @@ class OrientationSlot(models.Model):
         self.cancelled_reason = reason
         self.save(update_fields=["is_cancelled", "cancelled_reason"])
 
+    def mark_retired(self, *, reason: str) -> None:
+        """Cancel a generated slot its hours no longer justify AND detach it from its rule, in one save.
+
+        The cancelled row keeps its booking history (``OrientationBooking.slot``
+        cascades, so it is never deleted), but with ``availability`` cleared it no
+        longer owns the ``(rule, start)`` key: the next generation creates a fresh
+        open slot at that time once the rule is live again. A manager's deliberate
+        cancel (:meth:`mark_cancelled`) stays attached and dead on purpose, so the
+        time is never quietly re-offered.
+        """
+        self.is_cancelled = True
+        self.cancelled_reason = reason
+        self.availability = None
+        self.save(update_fields=["is_cancelled", "cancelled_reason", "availability"])
+
     def cancel(self, *, reason: str = "") -> None:
         """Call off the slot and cancel each of its still-active bookings."""
         self.mark_cancelled(reason=reason)

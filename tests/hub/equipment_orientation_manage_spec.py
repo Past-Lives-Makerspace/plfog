@@ -849,6 +849,27 @@ def describe_orientation_hours_card_rendering():
         assert ">one time</span>" in content
         assert "Show later days" not in content
 
+    def it_hides_detached_retired_rows_from_upcoming_slots(client: Client):
+        from membership import orientations
+
+        equipment = EquipmentFactory()
+        _manager_login(client, "oh_detached", equipment)
+        orientation_type = _owned_type(equipment)
+        rule = _tool_rule(orientation_type)
+        day = _tool_day()
+        slot = _generated_slot(rule, starts_at=_at(day, 10), ends_at=_at(day, 11))
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.DECLINED)
+        assert orientations.retire_open_slots(rule) == (1, 0)
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        assert slot.availability is None
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
+        assert response.context["orientation_upcoming_slots"] == []
+        assert response.context["orientation_slot_days"] == []
+        content = response.content.decode()
+        assert "No upcoming times. Add hours above, or add a one time slot here." in content
+        assert "10:00 AM to 11:00 AM" not in content
+
     def it_offers_the_later_days_button_beyond_two_weeks(client: Client):
         equipment = EquipmentFactory()
         _manager_login(client, "oh_later", equipment)
