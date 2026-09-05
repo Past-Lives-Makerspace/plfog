@@ -8,6 +8,7 @@ EQUIPMENT capability backfill migration, and the ``Member`` permission twins.
 from __future__ import annotations
 
 import importlib
+from datetime import time
 
 import pytest
 from django.apps import apps as django_apps
@@ -20,6 +21,9 @@ from membership.models import (
     EquipmentStaffMembership,
     GuildStaffMembership,
     Member,
+    OrientationAvailability,
+    OrientationBooking,
+    OrientationSlot,
 )
 from tests.membership.factories import (
     EquipmentFactory,
@@ -28,6 +32,7 @@ from tests.membership.factories import (
     GuildMembershipFactory,
     GuildStaffMembershipFactory,
     MemberFactory,
+    OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
@@ -345,3 +350,213 @@ def describe_member_can_create_equipment():
         GuildFactory(guild_lead=lead)
         assert lead.can_create_equipment() is False
         assert MemberFactory().can_create_equipment() is False
+
+
+# ── Orientation hours reconcile (equipment-orientation-hours spec §5.3) ─────────────
+
+
+def describe_Equipment_orientation_hours():
+    def _tool_type(**overrides):
+        return OrientationTypeFactory(equipment_owned=True, **overrides)
+
+    def _rule(orientation_type, **overrides):
+        defaults = {
+            "weekday": 5,
+            "start_time": time(10, 0),
+            "end_time": time(12, 0),
+            "slot_minutes": 60,
+            "buffer_minutes": 0,
+            "seats": 1,
+        }
+        defaults.update(overrides)
+        return OrientationAvailabilityFactory(equipment_owned=True, orientation_type=orientation_type, **defaults)
+
+    def _window(orientation_type, days, **overrides):
+        window = {
+            "orientation_type": orientation_type,
+            "start_time": time(10, 0),
+            "end_time": time(12, 0),
+            "days": days,
+            "slot_minutes": 60,
+            "buffer_minutes": 0,
+            "seats": 1,
+            "is_active": True,
+        }
+        window.update(overrides)
+        return window
+
+    def _open_slot(rule):
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=rule.orientation_type,
+            availability=rule,
+            source=OrientationSlot.Source.GENERATED,
+        )
+
+    def _booked_slot(rule, **booking_overrides):
+        slot = _open_slot(rule)
+        OrientationBookingFactory(slot=slot, **booking_overrides)
+        return slot
+
+    def describe_orientation_hours_windows():
+        def it_groups_per_day_rules_into_one_editor_row():
+            orientation_type = _tool_type()
+            _rule(orientation_type, weekday=5)
+            _rule(orientation_type, weekday=6)
+            _rule(orientation_type, weekday=1, start_time=time(9, 0), end_time=time(11, 0), slot_minutes=30, seats=2)
+            assert orientation_type.equipment.orientation_hours_windows() == [
+                {
+                    "orientation_type": orientation_type.pk,
+                    "start_time": "09:00",
+                    "end_time": "11:00",
+                    "days": [1],
+                    "slot_minutes": 30,
+                    "buffer_minutes": 0,
+                    "seats": 2,
+                    "is_active": True,
+                },
+                {
+                    "orientation_type": orientation_type.pk,
+                    "start_time": "10:00",
+                    "end_time": "12:00",
+                    "days": [5, 6],
+                    "slot_minutes": 60,
+                    "buffer_minutes": 0,
+                    "seats": 1,
+                    "is_active": True,
+                },
+            ]
+
+        def it_shows_the_types_duration_for_a_rule_with_no_slot_length():
+            orientation_type = _tool_type(duration_minutes=45)
+            _rule(orientation_type, slot_minutes=None)
+            assert orientation_type.equipment.orientation_hours_windows()[0]["slot_minutes"] == 45
+
+        def it_ignores_other_equipments_rules():
+            orientation_type = _tool_type()
+            _rule(_tool_type())
+            assert orientation_type.equipment.orientation_hours_windows() == []
+
+    def describe_apply_orientation_hours_windows():
+        def it_creates_guildless_orienterless_rules_per_checked_day():
+            orientation_type = _tool_type()
+            equipment = orientation_type.equipment
+            assert equipment.apply_orientation_hours_windows([_window(orientation_type, [5, 6])]) == (0, 0, 0)
+            rules = list(OrientationAvailability.objects.for_equipment(equipment).order_by("weekday"))
+            assert [rule.weekday for rule in rules] == [5, 6]
+            assert all(rule.guild is None and rule.orienter is None for rule in rules)
+            assert rules[0].slot_minutes == 60
+            assert rules[0].seats == 1
+
+        def it_retires_the_row_for_an_unchecked_day():
+            orientation_type = _tool_type()
+            saturday = _rule(orientation_type, weekday=5)
+            sunday = _rule(orientation_type, weekday=6)
+            gone = _open_slot(sunday)
+            result = orientation_type.equipment.apply_orientation_hours_windows([_window(orientation_type, [5])])
+            assert result == (1, 1, 0)
+            assert OrientationAvailability.objects.filter(pk=saturday.pk).exists()
+            assert not OrientationAvailability.objects.filter(pk=sunday.pk).exists()
+            assert not OrientationSlot.objects.filter(pk=gone.pk).exists()
+
+        def it_retires_every_day_of_a_deleted_window_and_reports_counts():
+            orientation_type = _tool_type()
+            saturday = _rule(orientation_type, weekday=5)
+            sunday = _rule(orientation_type, weekday=6)
+            _open_slot(saturday)
+            booked = _booked_slot(sunday)
+            assert orientation_type.equipment.apply_orientation_hours_windows([]) == (2, 1, 1)
+            assert not OrientationAvailability.objects.for_equipment(orientation_type.equipment).exists()
+            booked.refresh_from_db()
+            assert booked.availability is None
+            assert booked.seats == 1
+
+        def it_pauses_and_retires_open_slots_but_keeps_booked_ones():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type)
+            open_slot = _open_slot(rule)
+            booked = _booked_slot(rule)
+            result = orientation_type.equipment.apply_orientation_hours_windows(
+                [_window(orientation_type, [5], is_active=False)]
+            )
+            assert result == (0, 1, 1)
+            rule.refresh_from_db()
+            assert rule.is_active is False
+            assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+            booked.refresh_from_db()
+            assert booked.availability == rule
+
+        def it_unpauses_without_touching_slots():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type, is_active=False)
+            open_slot = _open_slot(rule)
+            assert orientation_type.equipment.apply_orientation_hours_windows([_window(orientation_type, [5])]) == (
+                0,
+                0,
+                0,
+            )
+            rule.refresh_from_db()
+            assert rule.is_active is True
+            assert OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+
+        def it_regrids_when_the_slot_length_changes():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type)
+            open_slot = _open_slot(rule)
+            booked = _booked_slot(rule)
+            result = orientation_type.equipment.apply_orientation_hours_windows(
+                [_window(orientation_type, [5], slot_minutes=30)]
+            )
+            assert result == (0, 1, 1)
+            rule.refresh_from_db()
+            assert rule.slot_minutes == 30
+            assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+            assert OrientationSlot.objects.filter(pk=booked.pk).exists()
+
+        def it_regrids_when_seats_change():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type)
+            _open_slot(rule)
+            result = orientation_type.equipment.apply_orientation_hours_windows(
+                [_window(orientation_type, [5], seats=2)]
+            )
+            assert result == (0, 1, 0)
+            rule.refresh_from_db()
+            assert rule.seats == 2
+
+        def it_regrids_when_the_break_changes():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type)
+            _open_slot(rule)
+            result = orientation_type.equipment.apply_orientation_hours_windows(
+                [_window(orientation_type, [5], buffer_minutes=15)]
+            )
+            assert result == (0, 1, 0)
+            rule.refresh_from_db()
+            assert rule.buffer_minutes == 15
+
+        def it_spares_a_slot_with_a_checkout_hold():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type)
+            held = _booked_slot(rule, status=OrientationBooking.Status.PENDING_PAYMENT)
+            assert orientation_type.equipment.apply_orientation_hours_windows([]) == (1, 0, 1)
+            assert OrientationSlot.objects.filter(pk=held.pk).exists()
+
+        def it_never_touches_manual_slots():
+            orientation_type = _tool_type()
+            _rule(orientation_type)
+            manual = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+            orientation_type.equipment.apply_orientation_hours_windows([])
+            assert OrientationSlot.objects.filter(pk=manual.pk).exists()
+
+        def it_leaves_an_unchanged_window_alone():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type)
+            open_slot = _open_slot(rule)
+            assert orientation_type.equipment.apply_orientation_hours_windows([_window(orientation_type, [5])]) == (
+                0,
+                0,
+                0,
+            )
+            assert OrientationAvailability.objects.for_equipment(orientation_type.equipment).get().pk == rule.pk
+            assert OrientationSlot.objects.filter(pk=open_slot.pk).exists()

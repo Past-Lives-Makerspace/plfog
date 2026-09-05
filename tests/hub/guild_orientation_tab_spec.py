@@ -8,10 +8,13 @@ the new tab via the page's ``x-init``.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from tests.membership.factories import (
     GuildFactory,
@@ -147,3 +150,19 @@ def describe_per_type_sections():
         response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         form = response.context["custom_request_form"]
         assert list(form.fields["orientation_type"].queryset) == [basics]
+
+
+def describe_slot_cap():
+    def it_keeps_the_guild_page_capped_at_thirty_slots(client: Client):
+        _member("cap1")
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        basics = OrientationTypeFactory(guild=guild, name="Shop Basics")
+        for hours in range(31):
+            starts = timezone.now() + timedelta(days=2, hours=hours)
+            OrientationSlotFactory(
+                guild=guild, orientation_type=basics, starts_at=starts, ends_at=starts + timedelta(hours=1)
+            )
+        client.login(username="cap1", password="pass")
+        response = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert len(response.context["orientation_sections"][0]["slots"]) == 30

@@ -24,6 +24,7 @@ from tests.membership.factories import (
     EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     MembershipPlanFactory,
+    OrientationAvailabilityFactory,
     OrientationTypeFactory,
 )
 
@@ -872,3 +873,55 @@ def describe_index_availability_line():
         )
         response = client.get(reverse("hub_equipment_index"))
         assert b"Reserved until" in response.content
+
+
+def describe_reopen_regeneration():
+    """Flipping Closed off regenerates the tool's orientation slots (equipment-orientation-hours §5.4)."""
+
+    def _limits(**overrides):
+        data = {
+            "hours-TOTAL_FORMS": "0",
+            "hours-INITIAL_FORMS": "0",
+            "hours-MIN_NUM_FORMS": "0",
+            "hours-MAX_NUM_FORMS": "1000",
+            "closed_message": "",
+            "min_duration_minutes": "30",
+            "max_duration_minutes": "240",
+            "max_advance_days": "30",
+            "max_active_reservations_per_member": "2",
+        }
+        data.update(overrides)
+        return data
+
+    def _tool_rule(equipment: Equipment):
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        return OrientationAvailabilityFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            weekday=_day().weekday(),
+            start_time=time(10, 0),
+            end_time=time(12, 0),
+            seats=1,
+        )
+
+    def it_regenerates_orientation_slots_when_a_closed_tool_reopens(client: Client):
+        _login(client, "reopen_admin", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory(is_closed=True)
+        rule = _tool_rule(equipment)
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits())
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.is_closed is False
+        assert rule.slots.count() == 16
+
+    def it_generates_nothing_when_closing_or_staying_open(client: Client):
+        _login(client, "close_admin", fog_role=Member.FogRole.ADMIN)
+        equipment = EquipmentFactory()
+        rule = _tool_rule(equipment)
+        assert client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits()).status_code == 302
+        assert not rule.slots.exists()
+        response = client.post(reverse("hub_equipment_hours_save", args=[equipment.slug]), _limits(is_closed="on"))
+        assert response.status_code == 302
+        equipment.refresh_from_db()
+        assert equipment.is_closed is True
+        assert not rule.slots.exists()

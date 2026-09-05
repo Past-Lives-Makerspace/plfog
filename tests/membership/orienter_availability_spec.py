@@ -8,10 +8,13 @@ confirm/complete crediting chain, and the retirement flows (``retire_rule`` /
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from membership import orientations
@@ -31,6 +34,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -333,3 +337,452 @@ def describe_retire_orienter():
         assert removed == 1
         assert booked_remaining == 1
         assert OrientationSlot.objects.filter(pk=booked.pk).exists()
+
+
+# ── Equipment orientation hours (equipment-orientation-hours spec, PR 1) ──────────────
+
+
+def _tool_day(offset: int = 2) -> date:
+    return timezone.localdate() + timedelta(days=offset)
+
+
+def _at(day: date, hour: int, minute: int = 0) -> datetime:
+    return timezone.make_aware(datetime.combine(day, time(hour, minute)))
+
+
+def _equipment_rule(**overrides):
+    """A carved equipment rule on the weekday two days out: 10:00 to 12:00, 60 minute slots, 1 seat."""
+    defaults = {
+        "weekday": _tool_day().weekday(),
+        "start_time": time(10, 0),
+        "end_time": time(12, 0),
+        "slot_minutes": 60,
+        "seats": 1,
+    }
+    defaults.update(overrides)
+    return OrientationAvailabilityFactory(equipment_owned=True, **defaults)
+
+
+def _tool(rule):
+    return rule.orientation_type.equipment
+
+
+def _generated_slot(rule, *, hour: int = 10, minute: int = 0, seats: int = 4, day: date | None = None):
+    """A GENERATED slot on ``rule`` (one hour long) — the shape retirement and cleanup act on."""
+    day = day or _tool_day()
+    return OrientationSlotFactory(
+        equipment_owned=True,
+        orientation_type=rule.orientation_type,
+        availability=rule,
+        source=OrientationSlot.Source.GENERATED,
+        starts_at=_at(day, hour, minute),
+        ends_at=_at(day, hour + 1, minute),
+        seats=seats,
+    )
+
+
+def _local_times(instants) -> list[str]:
+    return [timezone.localtime(instant).strftime("%H:%M") for instant in instants]
+
+
+def describe_equipment_rules():
+    def it_names_the_equipment_in_str():
+        rule = _equipment_rule()
+        assert str(rule).startswith(f"{_tool(rule).name} orientation:")
+        assert "(any orienter)" in str(rule)
+
+    def it_filters_rules_for_one_equipment():
+        mine = _equipment_rule()
+        _equipment_rule()
+        OrientationAvailabilityFactory()
+        assert list(OrientationAvailability.objects.for_equipment(_tool(mine))) == [mine]
+
+    def it_rejects_a_zero_slot_length():
+        with pytest.raises(IntegrityError), transaction.atomic():
+            _equipment_rule(slot_minutes=0)
+
+    def it_accepts_an_empty_or_positive_slot_length():
+        assert _equipment_rule(slot_minutes=None).slot_minutes is None
+        assert _equipment_rule(slot_minutes=45).slot_minutes == 45
+
+    def describe_clean():
+        def it_rejects_a_quarter_hour_time_on_a_carved_window():
+            rule = _equipment_rule(start_time=time(9, 15))
+            with pytest.raises(ValidationError) as excinfo:
+                rule.clean()
+            assert "start_time" in excinfo.value.message_dict
+            assert "end_time" not in excinfo.value.message_dict
+
+        def it_accepts_half_hour_times_on_a_carved_window():
+            _equipment_rule(start_time=time(9, 30)).clean()
+
+        def it_leaves_a_legacy_one_slot_rule_alone():
+            OrientationAvailabilityFactory(start_time=time(9, 15), end_time=time(10, 15)).clean()
+
+
+def describe_carve_starts():
+    def it_yields_one_start_for_a_legacy_rule():
+        rule = OrientationAvailabilityFactory(start_time=time(18, 0), end_time=time(20, 0))
+        assert _local_times(rule.carve_starts(_tool_day())) == ["18:00"]
+        ((_start, end),) = rule.carve_spans(_tool_day())
+        assert _local_times([end]) == ["20:00"]
+
+    def it_carves_a_full_day_into_hourly_starts():
+        rule = _equipment_rule(start_time=time(10, 0), end_time=time(18, 0))
+        expected = [f"{hour}:00" for hour in range(10, 18)]
+        assert _local_times(rule.carve_starts(_tool_day())) == expected
+
+    def it_drops_a_start_whose_slot_would_not_fit_after_the_break():
+        rule = _equipment_rule(start_time=time(10, 0), end_time=time(12, 0), buffer_minutes=15)
+        assert _local_times(rule.carve_starts(_tool_day())) == ["10:00"]
+
+    def it_steps_by_slot_plus_break():
+        rule = _equipment_rule(start_time=time(10, 0), end_time=time(12, 15), buffer_minutes=15)
+        assert _local_times(rule.carve_starts(_tool_day())) == ["10:00", "11:15"]
+
+    def it_yields_nothing_when_the_window_is_shorter_than_one_slot():
+        rule = _equipment_rule(start_time=time(10, 0), end_time=time(10, 30))
+        assert rule.carve_starts(_tool_day()) == []
+
+    def it_ends_each_carved_slot_one_length_after_its_start():
+        rule = _equipment_rule(start_time=time(10, 0), end_time=time(12, 0), slot_minutes=45)
+        assert [_local_times([end]) for _start, end in rule.carve_spans(_tool_day())] == [["10:45"], ["11:30"]]
+
+    def it_keeps_the_wall_clock_grid_on_a_dst_change_day():
+        rule = _equipment_rule(start_time=time(10, 0), end_time=time(18, 0))
+        ordinary = _local_times(rule.carve_starts(date(2026, 11, 8)))
+        assert _local_times(rule.carve_starts(date(2026, 11, 1))) == ordinary  # fall back
+        assert _local_times(rule.carve_starts(date(2026, 3, 8))) == ordinary  # spring forward
+
+
+def describe_generate_slots_for_equipment():
+    def it_carves_guildless_orienterless_slots_from_the_rule():
+        rule = _equipment_rule()
+        created = orientations.generate_slots(equipment=_tool(rule))
+        # 8 weekly occurrences inside the 8 week window, 2 hourly slots each.
+        assert created == 16
+        slots = list(rule.slots.order_by("starts_at"))
+        assert len(slots) == 16
+        first, second = slots[0], slots[1]
+        assert first.guild is None
+        assert first.orienter is None
+        assert first.source == OrientationSlot.Source.GENERATED
+        assert first.seats == 1
+        assert _local_times([first.starts_at, first.ends_at]) == ["10:00", "11:00"]
+        assert _local_times([second.starts_at, second.ends_at]) == ["11:00", "12:00"]
+
+    def it_uses_the_types_default_location():
+        rule = _equipment_rule()
+        rule.orientation_type.default_location = "By the big saw"
+        rule.orientation_type.save(update_fields=["default_location"])
+        orientations.generate_slots(equipment=_tool(rule))
+        assert rule.slots.first().location == "By the big saw"
+
+    def it_is_idempotent():
+        rule = _equipment_rule()
+        orientations.generate_slots(equipment=_tool(rule))
+        assert orientations.generate_slots(equipment=_tool(rule)) == 0
+
+    def it_scopes_to_one_tool():
+        mine = _equipment_rule()
+        other = _equipment_rule()
+        orientations.generate_slots(equipment=_tool(mine))
+        assert mine.slots.exists()
+        assert not other.slots.exists()
+
+    def it_refuses_both_scopes():
+        rule = _equipment_rule()
+        with pytest.raises(ValueError, match="not both"):
+            orientations.generate_slots(guild=GuildFactory(), equipment=_tool(rule))
+
+    def it_generates_nothing_for_a_closed_retired_or_inactive_type_tool():
+        closed = _equipment_rule()
+        _tool(closed).is_closed = True
+        _tool(closed).save(update_fields=["is_closed"])
+        retired = _equipment_rule()
+        _tool(retired).is_active = False
+        _tool(retired).save(update_fields=["is_active"])
+        inactive_type = _equipment_rule()
+        inactive_type.orientation_type.is_active = False
+        inactive_type.orientation_type.save(update_fields=["is_active"])
+        assert orientations.generate_slots() == 0
+
+    def it_never_evaluates_the_orienter_skip_for_a_guildless_rule():
+        stranger = MemberFactory()
+        rule = _equipment_rule(orienter=stranger)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+        assert rule.slots.first().orienter == stranger
+
+    def it_covers_both_owners_with_no_scope():
+        guild, _staff = _staffed_guild()
+        guild_rule = OrientationAvailabilityFactory(guild=guild)
+        tool_rule = _equipment_rule()
+        orientations.generate_slots()
+        assert guild_rule.slots.exists()
+        assert tool_rule.slots.exists()
+
+
+def describe_slot_layer_overlap():
+    def it_skips_candidates_overlapping_a_booked_old_grid_slot():
+        rule = _equipment_rule()
+        day = _tool_day()
+        kept = _generated_slot(rule, hour=10, minute=30, seats=1)
+        OrientationBookingFactory(slot=kept)
+        created = orientations.generate_slots(equipment=_tool(rule))
+        assert created == 14  # both hourly candidates on that day overlap the kept 10:30 slot
+        assert list(rule.slots.filter(starts_at__gte=_at(day, 0), starts_at__lt=_at(day + timedelta(days=1), 0))) == [
+            kept
+        ]
+
+    def it_skips_a_candidate_overlapping_a_one_time_slot():
+        rule = _equipment_rule()
+        day = _tool_day()
+        manual = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=rule.orientation_type,
+            starts_at=_at(day, 10),
+            ends_at=_at(day, 10, 30),
+        )
+        assert orientations.generate_slots(equipment=_tool(rule)) == 15
+        assert not rule.slots.filter(starts_at=_at(day, 10)).exists()
+        assert rule.slots.filter(starts_at=_at(day, 11)).exists()
+        assert OrientationSlot.objects.filter(pk=manual.pk).exists()
+
+    def it_skips_a_candidate_overlapping_a_sibling_types_slot():
+        rule = _equipment_rule()
+        day = _tool_day()
+        sibling = OrientationTypeFactory(equipment_owned=True, equipment=_tool(rule), name="Advanced")
+        OrientationSlotFactory(
+            equipment_owned=True, orientation_type=sibling, starts_at=_at(day, 11), ends_at=_at(day, 12)
+        )
+        assert orientations.generate_slots(equipment=_tool(rule)) == 15
+        assert rule.slots.filter(starts_at=_at(day, 10)).exists()
+        assert not rule.slots.filter(starts_at=_at(day, 11)).exists()
+
+    def it_ignores_a_cancelled_slot():
+        rule = _equipment_rule()
+        day = _tool_day()
+        OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=rule.orientation_type,
+            starts_at=_at(day, 10),
+            ends_at=_at(day, 11),
+            is_cancelled=True,
+        )
+        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+
+    def it_lets_a_later_rule_see_slots_carved_earlier_in_the_run():
+        first = _equipment_rule()
+        sibling = OrientationTypeFactory(equipment_owned=True, equipment=_tool(first), name="Advanced")
+        second = _equipment_rule(orientation_type=sibling, start_time=time(11, 0), end_time=time(13, 0))
+        assert orientations.generate_slots(equipment=_tool(first)) == 24
+        assert first.slots.count() == 16
+        assert sorted(set(_local_times(second.slots.values_list("starts_at", flat=True)))) == ["12:00"]
+
+    def it_still_lets_guild_rules_generate_over_each_other():
+        guild, _staff = _staffed_guild()
+        weekday = _tool_day().weekday()
+        first = OrientationAvailabilityFactory(
+            guild=guild, weekday=weekday, start_time=time(18, 0), end_time=time(19, 0)
+        )
+        second = OrientationAvailabilityFactory(
+            guild=guild, weekday=weekday, start_time=time(18, 30), end_time=time(19, 30)
+        )
+        orientations.generate_slots(guild=guild)
+        assert first.slots.count() == 8
+        assert second.slots.count() == 8
+
+    def it_loads_the_overlap_set_once_per_run():
+        rule = _equipment_rule()
+        tool = _tool(rule)
+        # Every candidate is "past" against this reference, so no slot is inserted and the
+        # remaining queries are exactly: the rules, one off-grid cleanup per rule, the set.
+        far_future = timezone.now() + timedelta(days=400)
+
+        def query_count() -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                orientations.generate_slots(equipment=tool, now=far_future)
+            return len(ctx.captured_queries)
+
+        one_rule = query_count()
+        _equipment_rule(orientation_type=rule.orientation_type, weekday=_tool_day(3).weekday())
+        _equipment_rule(orientation_type=rule.orientation_type, weekday=_tool_day(4).weekday())
+        assert query_count() - one_rule == 2
+
+
+def describe_off_grid_cleanup():
+    def it_deletes_an_open_old_grid_slot_before_carving():
+        rule = _equipment_rule()
+        stale = _generated_slot(rule, hour=10, minute=30, seats=1)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+        assert not OrientationSlot.objects.filter(pk=stale.pk).exists()
+
+    def it_regrids_a_capped_on_grid_slot_whose_booking_was_cancelled():
+        rule = _equipment_rule(seats=2)
+        capped = _generated_slot(rule, hour=10, seats=1)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+        assert not OrientationSlot.objects.filter(pk=capped.pk).exists()
+        assert rule.slots.get(starts_at=_at(_tool_day(), 10)).seats == 2
+
+    def it_keeps_a_booked_old_grid_slot():
+        rule = _equipment_rule()
+        booked = _generated_slot(rule, hour=10, minute=30, seats=1)
+        OrientationBookingFactory(slot=booked)
+        orientations.generate_slots(equipment=_tool(rule))
+        assert OrientationSlot.objects.filter(pk=booked.pk).exists()
+
+    def it_never_touches_manual_slots():
+        rule = _equipment_rule()
+        other_day = _tool_day(3)
+        manual = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=rule.orientation_type,
+            starts_at=_at(other_day, 9),
+            ends_at=_at(other_day, 9, 30),
+        )
+        orientations.generate_slots(equipment=_tool(rule))
+        assert OrientationSlot.objects.filter(pk=manual.pk).exists()
+
+
+def describe_retire_open_slots():
+    def it_removes_open_future_generated_slots_but_keeps_the_rule():
+        rule = _equipment_rule()
+        open_slot = _generated_slot(rule, hour=10)
+        booked = _generated_slot(rule, hour=11)
+        OrientationBookingFactory(slot=booked)
+        manual = OrientationSlotFactory(equipment_owned=True, orientation_type=rule.orientation_type, availability=rule)
+        assert orientations.retire_open_slots(rule) == (1, 1)
+        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        assert OrientationSlot.objects.filter(pk=booked.pk).exists()
+        assert OrientationSlot.objects.filter(pk=manual.pk).exists()
+
+    def it_caps_a_kept_slot_to_its_taken_seats():
+        rule = _equipment_rule()
+        slot = _generated_slot(rule, seats=4)
+        OrientationBookingFactory(slot=slot)
+        assert orientations.retire_open_slots(rule) == (0, 1)
+        slot.refresh_from_db()
+        assert slot.seats == 1
+        assert slot.is_full
+        with pytest.raises(OrientationError):
+            slot.book(MemberFactory())
+
+    def it_caps_a_slot_held_only_by_a_checkout_hold_to_one():
+        rule = _equipment_rule()
+        slot = _generated_slot(rule, seats=4)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT)
+        assert orientations.retire_open_slots(rule) == (0, 1)
+        slot.refresh_from_db()
+        assert slot.seats == 1
+
+    def it_leaves_an_already_capped_slot_alone():
+        rule = _equipment_rule()
+        slot = _generated_slot(rule, seats=1)
+        OrientationBookingFactory(slot=slot)
+        assert orientations.retire_open_slots(rule) == (0, 1)
+        slot.refresh_from_db()
+        assert slot.seats == 1
+
+    def it_deletes_the_rule_only_through_retire_rule():
+        rule = _equipment_rule()
+        open_slot = _generated_slot(rule, hour=10)
+        booked = _generated_slot(rule, hour=11)
+        OrientationBookingFactory(slot=booked)
+        assert orientations.retire_rule(rule) == (1, 1)
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        booked.refresh_from_db()
+        assert booked.availability is None
+        assert booked.seats == 1
+
+
+def describe_hold_expiry_recap():
+    def _held(rule, *, seats: int = 4):
+        slot = _generated_slot(rule, seats=seats)
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        return slot, hold
+
+    def it_cancels_a_kept_slot_when_its_only_hold_is_released_after_the_rule_is_gone():
+        rule = _equipment_rule()
+        slot, hold = _held(rule)
+        orientations.retire_rule(rule)
+        assert orientations.release_hold_if_unpaid(hold) == "released"
+        slot.refresh_from_db()
+        assert slot.availability is None
+        assert slot.is_cancelled is True
+        assert slot.cancelled_reason == "The hours this time came from are no longer posted."
+
+    def it_cancels_a_kept_slot_under_a_paused_rule():
+        rule = _equipment_rule()
+        slot, hold = _held(rule)
+        rule.is_active = False
+        rule.save(update_fields=["is_active"])
+        orientations.retire_open_slots(rule)
+        orientations.release_hold_if_unpaid(hold)
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+
+    def it_recaps_to_the_confirmed_booking_when_a_hold_expires():
+        rule = _equipment_rule()
+        slot, hold = _held(rule)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        rule.is_active = False
+        rule.save(update_fields=["is_active"])
+        assert orientations.retire_open_slots(rule) == (0, 1)
+        slot.refresh_from_db()
+        assert slot.seats == 2
+        orientations.release_hold_if_unpaid(hold)
+        slot.refresh_from_db()
+        assert slot.seats == 1
+        assert slot.is_cancelled is False
+
+    def it_leaves_a_recapped_slot_alone_when_the_cap_already_matches():
+        rule = _equipment_rule()
+        slot, hold = _held(rule, seats=1)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        rule.is_active = False
+        rule.save(update_fields=["is_active"])
+        orientations.release_hold_if_unpaid(hold)
+        slot.refresh_from_db()
+        assert slot.seats == 1
+        assert slot.is_cancelled is False
+
+    def it_leaves_a_slot_under_a_live_rule_alone():
+        rule = _equipment_rule()
+        slot, hold = _held(rule)
+        orientations.release_hold_if_unpaid(hold)
+        slot.refresh_from_db()
+        assert slot.seats == 4
+        assert slot.is_cancelled is False
+
+    def it_deletes_an_orphan_one_seat_manual_slot_instead_of_recapping():
+        slot = OrientationSlotFactory(equipment_owned=True, seats=1)
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        orientations.release_hold_if_unpaid(hold)
+        assert not OrientationSlot.objects.filter(pk=slot.pk).exists()
+
+    def it_leaves_everything_alone_when_a_webhook_finalized_the_hold_first():
+        rule = _equipment_rule()
+        slot, hold = _held(rule)
+        hold.status = OrientationBooking.Status.REQUESTED
+        hold.save(update_fields=["status"])
+        assert orientations.release_hold_if_unpaid(hold) == "released"
+        slot.refresh_from_db()
+        assert slot.seats == 4
+        assert slot.is_cancelled is False
+        assert OrientationBooking.objects.filter(pk=hold.pk).exists()
+
+    def it_ignores_a_one_time_slot():
+        slot = OrientationSlotFactory(equipment_owned=True, seats=4)
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        orientations.release_hold_if_unpaid(hold)
+        slot.refresh_from_db()
+        assert slot.seats == 4
+        assert slot.is_cancelled is False
