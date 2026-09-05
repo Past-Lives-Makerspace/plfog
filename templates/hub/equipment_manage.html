@@ -390,8 +390,8 @@
         <div class="pl-orient-daygroup__body" x-show="open" x-cloak>
           {% for slot in day.slots %}
           <div class="pl-equip-slot-group">
-            <div class="pl-equip-res-row">
-              <span>{{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }} <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one time{% endif %}</span></span>
+            <div class="pl-equip-res-row{% if slot.blocking_reservation %} pl-equip-res-row--blocked{% endif %}">
+              <span>{{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }} <span class="pl-slot-admin__source hub-text-muted">{% if slot.source == "generated" %}recurring{% else %}one time{% endif %}</span>{% if slot.blocking_reservation %}<span class="pl-equip-res-row__blocked">Blocked by {{ slot.blocking_reservation.member.display_name }}'s reservation {{ slot.blocking_reservation.starts_at|time:"g:i A" }} to {{ slot.blocking_reservation.ends_at|time:"g:i A" }}</span>{% endif %}</span>
               <span>{{ slot.active_booking_count }} of {{ slot.seats }} booked{% if slot.hold_count %} <span class="hub-text-muted">· {{ slot.hold_count }} seat{{ slot.hold_count|pluralize }} held by a checkout in progress</span>{% endif %}</span>
               <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'equip-slot-cancel-{{ slot.pk }}')">Cancel</button>
             </div>

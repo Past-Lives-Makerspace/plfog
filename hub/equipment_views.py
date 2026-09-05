@@ -107,36 +107,93 @@ def _duration_label(minutes: int) -> str:
     return f"{hours:g} hours"
 
 
+def _short_name(display_name: str) -> str:
+    """ "Sam Reyes" -> "Sam R.": the reserver-name norm, shortened for a busy timeline row."""
+    parts = display_name.split()
+    if len(parts) < 2:
+        return display_name
+    return f"{parts[0]} {parts[-1][0]}."
+
+
+def _orientation_busy_items(equipment: Equipment, day_start: datetime, day_end: datetime) -> list[dict[str, Any]]:
+    """The day's seat-holding orientation slots as busy timeline items labeled "Orientation · Sam R."."""
+    from membership.models import OrientationBooking, OrientationSlot
+
+    seat_holding = (
+        OrientationBooking.objects.filter(
+            status__in=[
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.CONFIRMED,
+            ]
+        )
+        .select_related("member")
+        .order_by("pk")  # booking order, so the label reads the same on every render
+    )
+    slots = (
+        OrientationSlot.objects.holding_seats_on(equipment, day_start, day_end)
+        .prefetch_related(Prefetch("bookings", queryset=seat_holding, to_attr="seat_holders"))
+        .order_by("starts_at")
+    )
+    items: list[dict[str, Any]] = []
+    for slot in slots:
+        names = ", ".join(_short_name(booking.member.display_name) for booking in slot.seat_holders)
+        items.append(
+            {
+                "kind": "orientation",
+                "starts_at": slot.starts_at,
+                "ends_at": slot.ends_at,
+                "label": f"Orientation · {names}",
+                "reservation": None,
+            }
+        )
+    return items
+
+
 def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, Any]]:
     """The selected day's ordered free/busy segments for the timeline list.
 
-    Each open window is split around the day's confirmed reservations; busy
-    segments carry the reservation (reserver name + purpose are shown to every
-    logged-in member, the locked privacy decision).
+    Each open window is split around the day's busy items: confirmed reservations
+    (reserver name + purpose are shown to every logged-in member, the locked
+    privacy decision) and booked orientation slots ("Orientation · Sam R.", the
+    same visibility norm). Busy segments carry ``kind`` so the template can tell
+    them apart.
     """
     day_start = timezone.make_aware(datetime.combine(selected_day, time.min))
-    busy_list = list(
-        EquipmentReservation.objects.overlapping(equipment, day_start, day_start + timedelta(days=1))
-        .select_related("member")
-        .order_by("starts_at")
-    )
+    day_end = day_start + timedelta(days=1)
+    busy_list: list[dict[str, Any]] = [
+        {
+            "kind": "reservation",
+            "starts_at": reservation.starts_at,
+            "ends_at": reservation.ends_at,
+            "label": "",
+            "reservation": reservation,
+        }
+        for reservation in EquipmentReservation.objects.overlapping(equipment, day_start, day_end).select_related(
+            "member"
+        )
+    ]
+    busy_list.extend(_orientation_busy_items(equipment, day_start, day_end))
+    busy_list.sort(key=lambda item: item["starts_at"])
     timeline: list[dict[str, Any]] = []
     for window_start, window_end in equipment.open_intervals_for_day(selected_day):
         cursor = window_start
-        for reservation in busy_list:
-            if reservation.ends_at <= cursor or reservation.starts_at >= window_end:
+        for item in busy_list:
+            if item["ends_at"] <= cursor or item["starts_at"] >= window_end:
                 continue
-            if reservation.starts_at > cursor:
-                timeline.append({"is_free": True, "starts_at": cursor, "ends_at": reservation.starts_at})
+            if item["starts_at"] > cursor:
+                timeline.append({"is_free": True, "starts_at": cursor, "ends_at": item["starts_at"]})
             timeline.append(
                 {
                     "is_free": False,
-                    "starts_at": max(reservation.starts_at, window_start),
-                    "ends_at": min(reservation.ends_at, window_end),
-                    "reservation": reservation,
+                    "kind": item["kind"],
+                    "starts_at": max(item["starts_at"], window_start),
+                    "ends_at": min(item["ends_at"], window_end),
+                    "reservation": item["reservation"],
+                    "label": item["label"],
                 }
             )
-            cursor = max(cursor, reservation.ends_at)
+            cursor = max(cursor, item["ends_at"])
         if cursor < window_end:
             timeline.append({"is_free": True, "starts_at": cursor, "ends_at": window_end})
     if selected_day == timezone.localdate():
@@ -231,6 +288,8 @@ def _schedule_context(
         "can_book": not blockers and bool(starts),
         "blockers": blockers,
         "has_hours": bool(active_weekdays),
+        # The timeline's legend line renders only where an orientation could ever show.
+        "has_orientations": equipment.owned_orientation_types.active().exists(),
         "my_reservations": my_reservations,
         "upcoming_reservations": list(equipment.reservations.upcoming().select_related("member")[:20]),
         "manages": manages,
@@ -623,8 +682,22 @@ def _orientation_tab_context(equipment: Equipment) -> dict[str, Any]:
     )
     for booking in attendee_rows:
         attendees_by_slot.setdefault(booking.slot_id, []).append(booking)
+    # A manager may post a slot over an existing reservation (they might mean to
+    # bump it); such a slot renders muted with "Blocked by ..." and never reaches
+    # members (bookable() hides it) until the reservation is cancelled.
+    reservations = (
+        list(equipment.reservations.upcoming().select_related("member").order_by("starts_at")) if upcoming_slots else []
+    )
     for slot in upcoming_slots:
         slot.attendee_bookings = attendees_by_slot.get(slot.pk, [])
+        slot.blocking_reservation = next(
+            (
+                reservation
+                for reservation in reservations
+                if reservation.starts_at < slot.ends_at and reservation.ends_at > slot.starts_at
+            ),
+            None,
+        )
     slot_days = _upcoming_slot_days(upcoming_slots)
     return {
         "orientation_pending_requests": pending_requests,

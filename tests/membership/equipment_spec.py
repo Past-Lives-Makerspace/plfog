@@ -8,12 +8,13 @@ EQUIPMENT capability backfill migration, and the ``Member`` permission twins.
 from __future__ import annotations
 
 import importlib
-from datetime import time
+from datetime import time, timedelta
 
 import pytest
 from django.apps import apps as django_apps
 from django.db import IntegrityError
 from django.db.models.deletion import ProtectedError
+from django.utils import timezone
 
 from membership.models import (
     AdminCapability,
@@ -595,3 +596,51 @@ def describe_Equipment_orientation_hours():
             )
             assert OrientationAvailability.objects.for_equipment(orientation_type.equipment).get().pk == rule.pk
             assert OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+
+
+def describe_holding_seats_on():
+    """The seat-holding overlap query both the busy spans and the reservation guard read."""
+
+    def _slot(equipment, offset_hours: int = 0, *, length: int = 60):
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        start = timezone.now().replace(minute=0, second=0, microsecond=0) + timedelta(days=2, hours=offset_hours)
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=start,
+            ends_at=start + timedelta(minutes=length),
+            seats=2,
+        )
+
+    def it_returns_each_seat_holding_slot_once():
+        equipment = EquipmentFactory()
+        slot = _slot(equipment)
+        OrientationBookingFactory(slot=slot)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        result = OrientationSlot.objects.holding_seats_on(equipment, slot.starts_at, slot.ends_at)
+        assert list(result) == [slot]
+
+    def it_uses_strict_inequalities():
+        equipment = EquipmentFactory()
+        slot = _slot(equipment)
+        OrientationBookingFactory(slot=slot)
+        touching_after = OrientationSlot.objects.holding_seats_on(
+            equipment, slot.ends_at, slot.ends_at + timedelta(hours=1)
+        )
+        touching_before = OrientationSlot.objects.holding_seats_on(
+            equipment, slot.starts_at - timedelta(hours=1), slot.starts_at
+        )
+        assert not touching_after.exists()
+        assert not touching_before.exists()
+
+    def it_excludes_open_cancelled_and_other_tools_slots():
+        equipment = EquipmentFactory()
+        open_slot = _slot(equipment)
+        cancelled = _slot(equipment, 2)
+        OrientationBookingFactory(slot=cancelled)
+        cancelled.mark_cancelled(reason="Machine down")
+        elsewhere = _slot(EquipmentFactory())
+        OrientationBookingFactory(slot=elsewhere)
+        window_start = open_slot.starts_at
+        window_end = open_slot.starts_at + timedelta(hours=4)
+        assert not OrientationSlot.objects.holding_seats_on(equipment, window_start, window_end).exists()

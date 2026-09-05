@@ -242,13 +242,34 @@ def _fan_out_request(booking: OrientationBooking) -> None:
     _emit_lead_request(booking)
 
 
+def _lock_equipment_row(equipment: Equipment) -> Equipment:
+    """Take the Equipment row lock every competing booking on the tool takes.
+
+    The same lock object ``reserve()`` (``membership/equipment.py``) takes, so a
+    reservation and an orientation request racing for one span serialize on it
+    and exactly one wins. Must run inside ``transaction.atomic()``.
+    """
+    from membership.models import Equipment
+
+    return Equipment.objects.select_for_update().get(pk=equipment.pk)
+
+
 def request_orientation(slot: OrientationSlot, member: Member, *, note: str = "") -> OrientationBooking:
     """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
+
+    An equipment-owned slot books under the Equipment row lock (guard + create in
+    one ``transaction.atomic()``), so it can never double book a machine against a
+    reservation landing at the same moment. Guild-owned slots are untouched.
 
     Raises:
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
     """
-    booking = slot.book(member, note=note)
+    if slot.orientation_type.is_equipment_owned:
+        with transaction.atomic():
+            _lock_equipment_row(cast("Equipment", slot.orientation_type.equipment))
+            booking = slot.book(member, note=note)
+    else:
+        booking = slot.book(member, note=note)
     _fan_out_request(booking)
     return booking
 
@@ -475,17 +496,29 @@ def start_orientation_checkout(slot: OrientationSlot, member: Member, *, note: s
     orientation_type = slot.orientation_type
     if not orientation_type.is_paid:
         raise OrientationError("This orientation doesn't charge to book.")
-    slot.ensure_bookable_for(member)
-    # amount_paid_cents stays 0 until money is actually in hand — the finalize
-    # step stamps it from the session's amount_total. A provisional amount here
-    # would make never-paid holds render as paid rows in staff surfaces.
-    booking = OrientationBooking.objects.create(
-        slot=slot,
-        guild=slot.guild,
-        member=member,
-        member_note=note,
-        status=OrientationBooking.Status.PENDING_PAYMENT,
-    )
+
+    def create_hold() -> OrientationBooking:
+        slot.ensure_bookable_for(member)
+        # amount_paid_cents stays 0 until money is actually in hand — the finalize
+        # step stamps it from the session's amount_total. A provisional amount here
+        # would make never-paid holds render as paid rows in staff surfaces.
+        return OrientationBooking.objects.create(
+            slot=slot,
+            guild=slot.guild,
+            member=member,
+            member_note=note,
+            status=OrientationBooking.Status.PENDING_PAYMENT,
+        )
+
+    if orientation_type.is_equipment_owned:
+        # The Equipment row lock covers ONLY the guard and the hold: it is committed
+        # before the Stripe round trip below, never held across it (a lock held over
+        # a network call would stall every reservation on the tool).
+        with transaction.atomic():
+            _lock_equipment_row(cast("Equipment", orientation_type.equipment))
+            booking = create_hold()
+    else:
+        booking = create_hold()
     token = make_checkout_token(booking)
     metadata = {"kind": "orientation_booking", "booking_id": str(booking.pk)}
     try:

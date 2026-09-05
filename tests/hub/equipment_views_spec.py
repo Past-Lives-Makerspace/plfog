@@ -19,6 +19,7 @@ from django.utils import timezone
 from membership.models import AdminCapability, Equipment, EquipmentStaffMembership, Member
 from tests.membership.factories import (
     EquipmentFactory,
+    EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
@@ -985,6 +986,27 @@ def describe_equipment_day_picker():
         assert slot.is_cancelled is True
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
         assert "No orientation times are posted yet. Check back soon." in content
+
+    def it_hides_a_slot_under_a_confirmed_reservation_until_it_is_cancelled(client: Client):
+        _login(client, "dp_reserved")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _slot(orientation_type, _day(2), 10)
+        _slot(orientation_type, _day(2), 11)
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, starts_at=_at(_day(2), 10), ends_at=_at(_day(2), 11)
+        )
+
+        def picker_starts() -> list:
+            response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+            days = response.context["orientation_sections"][0]["days"]
+            return [slot.starts_at for day in days for slot in day["slots"]]
+
+        # The reservation itself still lists under Upcoming Reservations; only the picker hides the slot.
+        assert picker_starts() == [_at(_day(2), 11)]
+        reservation.status = "cancelled"
+        reservation.save(update_fields=["status"])
+        assert picker_starts() == [_at(_day(2), 10), _at(_day(2), 11)]
 
     def it_keeps_the_empty_state_with_no_slots(client: Client):
         _login(client, "dp_empty")

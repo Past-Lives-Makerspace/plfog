@@ -27,6 +27,7 @@ from membership.models import (
 )
 from tests.membership.factories import (
     EquipmentFactory,
+    EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     MembershipPlanFactory,
@@ -883,3 +884,35 @@ def describe_orientation_hours_card_rendering():
         content = response.content.decode()
         assert "Show later days" in content
         assert 'x-show="showLater"' in content
+
+
+def describe_blocked_rows():
+    """A slot posted over a confirmed reservation renders muted with who holds the machine (PR 2)."""
+
+    def it_marks_the_slot_under_a_reservation_and_leaves_the_rest_alone(client: Client):
+        equipment = EquipmentFactory()
+        _manager_login(client, "oh_blocked", equipment)
+        orientation_type = _owned_type(equipment)
+        day = _tool_day()
+        blocked = OrientationSlotFactory(
+            equipment_owned=True, orientation_type=orientation_type, starts_at=_at(day, 10), ends_at=_at(day, 11)
+        )
+        clear = OrientationSlotFactory(
+            equipment_owned=True, orientation_type=orientation_type, starts_at=_at(day, 13), ends_at=_at(day, 14)
+        )
+        reserver = _member_user("oh_blocked_sam")
+        reserver.member.full_legal_name = "Sam Reyes"
+        reserver.member.save(update_fields=["full_legal_name"])
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, member=reserver.member, starts_at=_at(day, 10), ends_at=_at(day, 12)
+        )
+        response = client.get(reverse("hub_equipment_manage", args=[equipment.slug]), {"tab": "orientation"})
+        by_pk = {slot.pk: slot for slot in response.context["orientation_upcoming_slots"]}
+        assert by_pk[blocked.pk].blocking_reservation == reservation
+        assert by_pk[clear.pk].blocking_reservation is None
+        content = response.content.decode()
+        assert "Blocked by Sam Reyes's reservation 10:00 AM to 12:00 PM" in content
+        assert content.count("pl-equip-res-row--blocked") == 1
+        # The member picker never offers the blocked slot while the reservation stands.
+        assert blocked not in OrientationSlot.objects.bookable()
+        assert clear in OrientationSlot.objects.bookable()

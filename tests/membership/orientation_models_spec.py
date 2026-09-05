@@ -11,6 +11,7 @@ from django.utils import timezone
 from membership import orientations
 from membership.models import OrientationBooking, OrientationError, OrientationSlot, OrientationType
 from tests.membership.factories import (
+    EquipmentReservationFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
@@ -835,3 +836,44 @@ def describe_paused_rule_gate():
         slot = OrientationSlot.objects.get(pk=slot.pk)
         assert slot.is_bookable is False
         assert slot not in OrientationSlot.objects.bookable()
+
+
+def describe_reservation_gate():
+    """A confirmed reservation over an equipment slot's span hides it until the reservation goes (PR 2)."""
+
+    def _reserved_slot():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        reservation = EquipmentReservationFactory(
+            equipment=slot.orientation_type.equipment, starts_at=slot.starts_at, ends_at=slot.ends_at
+        )
+        return slot, reservation
+
+    def it_hides_an_equipment_slot_under_a_confirmed_reservation():
+        slot, _reservation = _reserved_slot()
+        assert slot.is_bookable is False
+        assert slot not in OrientationSlot.objects.bookable()
+        with pytest.raises(OrientationError, match="not available to book"):
+            slot.book(MemberFactory())
+
+    def it_frees_the_slot_when_the_reservation_is_cancelled():
+        slot, reservation = _reserved_slot()
+        reservation.status = "cancelled"
+        reservation.save(update_fields=["status"])
+        assert slot.is_bookable is True
+        assert slot in OrientationSlot.objects.bookable()
+
+    def it_ignores_a_touching_reservation():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        EquipmentReservationFactory(
+            equipment=slot.orientation_type.equipment,
+            starts_at=slot.ends_at,
+            ends_at=slot.ends_at + timedelta(hours=1),
+        )
+        assert slot.is_bookable is True
+        assert slot in OrientationSlot.objects.bookable()
+
+    def it_leaves_guild_slots_alone():
+        slot = OrientationSlotFactory()
+        EquipmentReservationFactory(starts_at=slot.starts_at, ends_at=slot.ends_at)
+        assert slot.is_bookable is True
+        assert slot in OrientationSlot.objects.bookable()
