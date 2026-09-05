@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
-VERSION = "1.36.0"
+VERSION = "1.37.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.37.0",
+        "date": "2026-09-05",
+        "title": "Equipment orientations work like guild orientations",
+        "changes": [
+            "Each tool's managers now post their own weekly orientation hours, the same way guild "
+            "staff do, and when you book a time you see who you're meeting.",
+            "Tool pages list orientation times the same way guild pages do.",
+        ],
+    },
     {
         "version": "1.36.0",
         "date": "2026-09-05",
