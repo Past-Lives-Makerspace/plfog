@@ -427,6 +427,7 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
     slots = (
         OrientationSlot.objects.bookable()
         .filter(orientation_type__in=types)
+        .with_seat_holding_count()  # is_full reads the annotation: no COUNT per row
         .select_related("orientation_type", "orienter")
         .order_by("starts_at")
     )
@@ -884,9 +885,10 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
     member_name = removed_member.display_name
     staff.delete()
     message = f"{member_name} no longer manages the {equipment.name}."
-    # Retire their personal hours ONLY when they no longer manage the tool at all — they
-    # may still be owning-guild staff or an admin, and those hours must keep generating.
-    if not removed_member.can_manage_equipment(equipment):
+    # Retire their personal hours ONLY when they no longer RUN orientations here at all —
+    # they may still be owning-guild staff or hold the capability, and those hours keep
+    # generating (the same is_run_by set the booking gate and generation read).
+    if not equipment.is_run_by(removed_member):
         from membership import orientations
 
         _removed, booked_remaining = orientations.retire_equipment_orienter(equipment, removed_member)

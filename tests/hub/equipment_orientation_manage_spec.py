@@ -611,6 +611,28 @@ def describe_orientation_schedule_card():
         assert "Edit Shared Hours" in content
         assert _hours_form_url(equipment) in content
 
+    def it_treats_a_plain_admin_as_a_former_manager_until_they_hold_the_capability(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        admin = _login(client, "sc_plain_admin", fog_role=Member.FogRole.ADMIN)
+        admin.member.full_legal_name = "Ada Admin"
+        admin.member.save(update_fields=["full_legal_name"])
+        _personal_rule(orientation_type, admin.member)
+        response = _tab(client, equipment)
+        content = response.content.decode()
+        assert "Former Managers" in content
+        assert "Ada Admin" in content
+        assert [m.pk for m, _rules in response.context["orienter_overview"]] == []
+        runs_with = response.context["slot_add_form"].fields["orienter"]
+        assert admin.member.pk not in [m.pk for m in runs_with.queryset]
+        assert runs_with.initial is None
+        admin.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        response = _tab(client, equipment)
+        assert "Former Managers" not in response.content.decode()
+        assert [m.pk for m, _rules in response.context["orienter_overview"]] == [admin.member.pk]
+        runs_with = response.context["slot_add_form"].fields["orienter"]
+        assert runs_with.initial == admin.member.pk
+
     def it_404s_the_removed_window_endpoint(client: Client):
         equipment = EquipmentFactory()
         _login(client, "sc_old_url", fog_role=Member.FogRole.ADMIN)
@@ -657,6 +679,49 @@ def describe_orientation_hours_form_view():
         holder = _login(client, "hf_holder")
         holder.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         assert client.get(_hours_form_url(equipment)).status_code == 200
+
+    def it_names_the_one_way_door_on_a_shared_rows_delete_confirm(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _tool_rule(orientation_type)
+        dana = _member_user("hf_door_dana")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=dana.member)
+        _personal_rule(orientation_type, dana.member)
+        _login(client, "hf_door_admin", fog_role=Member.FogRole.ADMIN)
+        shared = client.get(_hours_form_url(equipment)).content.decode()
+        assert "Delete these shared hours?" in shared
+        assert "Shared recurring hours cannot be recreated." in shared
+        personal = client.get(_hours_form_url(equipment, dana.member)).content.decode()
+        assert "Delete these hours?" in personal
+        assert "Delete these shared hours?" not in personal
+
+    def it_round_trips_an_off_list_slot_length_and_names_the_equipment_on_a_foreign_type(client: Client):
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        shared = _tool_rule(orientation_type, slot_minutes=75)
+        _login(client, "hf_75_admin", fog_role=Member.FogRole.ADMIN)
+        content = client.get(_hours_form_url(equipment)).content.decode()
+        assert '<option value="75" selected>75 minutes</option>' in content
+        row = {
+            "id": str(shared.pk),
+            **_rule_row(orientation_type, weekday=shared.weekday, start="10:00", end="12:00", slot="75"),
+        }
+        response = client.post(
+            _hours_save_url(equipment), _modal_rules([row], scope="", initial=1), HTTP_HX_REQUEST="true"
+        )
+        assert response.status_code == 204
+        shared.refresh_from_db()
+        assert shared.slot_minutes == 75
+        foreign = _owned_type(EquipmentFactory(), name="Foreign")
+        response = client.post(
+            _hours_save_url(equipment),
+            _modal_rules([{**row, "orientation_type": str(foreign.pk)}], scope="", initial=1),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert "Pick one of this equipment&#x27;s orientations." in response.content.decode()
+        shared.refresh_from_db()
+        assert shared.orientation_type == orientation_type
 
     def it_404s_garbage_scopes(client: Client):
         equipment = EquipmentFactory()
@@ -781,6 +846,7 @@ def describe_orientation_hours_save_view():
         content = response.content.decode()
         assert "This window is shorter than one slot." in content
         assert 'id="edit-hours-modal-form"' in content
+        assert f'hx-post="{_hours_save_url(equipment)}"' in content  # the re-render still posts to the right place
         assert not OrientationAvailability.objects.for_equipment(equipment).exists()
 
     def it_404s_a_non_htmx_post_and_an_unlisted_prefix(client: Client):

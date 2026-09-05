@@ -1148,12 +1148,14 @@ def _overlaps_other_slot(
     )
 
 
-def _rule_generates(rule: OrientationAvailability) -> bool:
+def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict[int, set[int]]) -> bool:
     """The per-rule gate: an accepting owner, and a personal rule's orienter still current.
 
     A stale personal rule — its orienter left the guild's leadership (or stopped
-    managing the equipment) without the hub's retirement flow (a lead-FK change, a
-    Django-admin removal) — must never materialize new slots.
+    running orientations on the equipment) without the hub's retirement flow (a
+    lead-FK change, a Django-admin removal) — must never materialize new slots.
+    ``runners_by_equipment`` caches each tool's ``manager_members()`` ids for the run,
+    so six personal rules on one tool cost one lookup, not six.
     """
     if not rule.orientation_type.is_accepting:
         return False
@@ -1161,11 +1163,10 @@ def _rule_generates(rule: OrientationAvailability) -> bool:
         return True
     if rule.guild_id is not None:
         return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
-    # Equipment: a personal rule whose manager no longer passes the role twin of
-    # can_manage_equipment (removed from the Staff tab, left the owning guild's
-    # leadership, lost the capability) must not materialize new slots.
     equipment = cast("Equipment", rule.orientation_type.equipment)
-    return cast("Member", rule.orienter).can_manage_equipment(equipment)
+    if equipment.pk not in runners_by_equipment:
+        runners_by_equipment[equipment.pk] = {member.pk for member in equipment.manager_members()}
+    return rule.orienter_id in runners_by_equipment[equipment.pk]
 
 
 def _retire_off_grid(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
@@ -1267,8 +1268,11 @@ def generate_slots(
         rules = rules.filter(guild=guild)
     if equipment is not None:
         rules = rules.filter(orientation_type__equipment=equipment)
+    runners_by_equipment: dict[int, set[int]] = {}
     eligible = [
-        (rule, _horizon_spans(rule, today=today, window_weeks=window_weeks)) for rule in rules if _rule_generates(rule)
+        (rule, _horizon_spans(rule, today=today, window_weeks=window_weeks))
+        for rule in rules
+        if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
     ]
     for rule, spans in eligible:
         if rule.orientation_type.equipment_id is not None:

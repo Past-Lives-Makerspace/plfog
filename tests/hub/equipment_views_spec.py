@@ -942,6 +942,29 @@ def describe_equipment_orientation_list():
         assert "pl-orient-days" not in content
         assert "aria-pressed" not in content
 
+    def it_renders_a_dozen_slots_in_as_many_queries_as_two(client: Client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        _login(client, "ol_queries")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = _dana(equipment)
+        url = reverse("hub_equipment_detail", args=[equipment.slug])
+
+        def count_queries() -> int:
+            client.get(url)  # warm the session and per-request caches so both samples are steady state
+            with CaptureQueriesContext(connection) as ctx:
+                assert client.get(url).status_code == 200
+            return len(ctx.captured_queries)
+
+        for hour in (10, 11):
+            OrientationBookingFactory(slot=_slot(orientation_type, hour, orienter=dana, seats=2))
+        with_two = count_queries()
+        for hour in range(12, 22):
+            _slot(orientation_type, hour, orienter=dana, seats=2)
+        assert count_queries() == with_two  # is_full reads the one aggregate, never a COUNT per row
+
     def it_pages_five_at_a_time_with_no_cap(client: Client):
         _login(client, "ol_pager")
         equipment = EquipmentFactory()

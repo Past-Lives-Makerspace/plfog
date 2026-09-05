@@ -983,3 +983,56 @@ def describe_shared_rule_form_owner_resolution():
         assert (
             form.fields["orientation_type"].error_messages["invalid_choice"] == "Pick one of this guild's orientations."
         )
+
+
+def describe_invalid_modal_re_render_keeps_the_save_url():
+    """The shared partial posts to hours_save_url; an error re-render must still carry it (both owners)."""
+
+    def it_keeps_the_guild_save_url(client: Client):
+        user = _member_user("url_guild", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        client.login(username="url_guild", password="pass")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(str(user.member.pk), guild=guild, **{"modal_rules-0-end_time": "17:00"}),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert b"End time must be after the start time." in response.content
+        assert f'hx-post="{_hours_url(guild)}"' in content
+        assert 'hx-post=""' not in content
+
+    def it_keeps_the_equipment_save_url(client: Client):
+        from tests.membership.factories import EquipmentFactory, EquipmentStaffMembershipFactory
+
+        user = _member_user("url_equip", name="Dana Reyes")
+        equipment = EquipmentFactory()
+        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+        client.login(username="url_equip", password="pass")
+        save_url = reverse("hub_equipment_orientation_hours_save", args=[equipment.slug])
+        response = client.post(
+            save_url,
+            {
+                "orienter_scope": str(user.member.pk),
+                "formset_prefix": "modal_rules",
+                "modal_rules-TOTAL_FORMS": "1",
+                "modal_rules-INITIAL_FORMS": "0",
+                "modal_rules-MIN_NUM_FORMS": "0",
+                "modal_rules-MAX_NUM_FORMS": "1000",
+                "modal_rules-0-orientation_type": str(orientation_type.pk),
+                "modal_rules-0-weekday": "1",
+                "modal_rules-0-start_time": "18:00",
+                "modal_rules-0-end_time": "17:00",
+                "modal_rules-0-seats": "1",
+                "modal_rules-0-is_active": "on",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "End time must be after the start time." in content
+        assert f'hx-post="{save_url}"' in content
+        assert 'hx-post=""' not in content

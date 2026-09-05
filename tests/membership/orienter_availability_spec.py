@@ -539,6 +539,46 @@ def describe_generate_slots_for_equipment():
         assert rule.slots.filter(starts_at=slot.starts_at).count() == 1
         assert not OrientationSlot.objects.filter(starts_at=slot.starts_at, is_cancelled=False).exists()
 
+    def it_skips_a_plain_admins_personal_rule_until_they_hold_the_capability():
+        from membership.models import AdminCapability
+
+        admin = MemberFactory(fog_role="admin")
+        rule = _equipment_rule(orienter=admin)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 0
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+
+    def it_looks_a_tools_runners_up_once_per_run():
+        from tests.membership.factories import EquipmentStaffMembershipFactory
+
+        first = _equipment_rule(slot_minutes=None)
+        tool = _tool(first)
+        dana = MemberFactory()
+        EquipmentStaffMembershipFactory(equipment=tool, member=dana)
+        first.orienter = dana
+        first.save(update_fields=["orienter"])
+        # Every candidate is "past" against this reference, so no slot is inserted and the
+        # remaining queries are the rules, one off-grid cleanup per equipment rule, the
+        # runner set, and the occupied set.
+        far_future = timezone.now() + timedelta(days=400)
+
+        def query_count() -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                orientations.generate_slots(equipment=tool, now=far_future)
+            return len(ctx.captured_queries)
+
+        one_rule = query_count()
+        for offset in range(3, 8):
+            _equipment_rule(
+                orientation_type=first.orientation_type,
+                orienter=dana,
+                weekday=_tool_day(offset).weekday(),
+                slot_minutes=None,
+            )
+        # Each extra rule costs exactly its own off-grid cleanup query; the runner set
+        # (staff rows + capability holders) is never looked up again per rule.
+        assert query_count() - one_rule == 5
+
     def it_covers_both_owners_with_no_scope():
         guild, _staff = _staffed_guild()
         guild_rule = OrientationAvailabilityFactory(guild=guild)

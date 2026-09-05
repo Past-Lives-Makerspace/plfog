@@ -54,7 +54,12 @@ one slot for the whole window.
           Delete
         </button>
         {% with rpks=rule.instance.pk|stringformat:"s" ruledel="document.getElementById('"|add:rule.DELETE.id_for_label|add:"').checked = true; document.getElementById('edit-hours-modal-form').requestSubmit();" %}
+        {% if target %}
         {% include "components/confirm_modal.html" with confirm_id="modal-rule-del-"|add:rpks confirm_title="Delete these hours?" confirm_message="Upcoming open slots from this window will be removed. Slots someone already booked stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
+        {% else %}
+        {# Shared rows are the one-way door: once deleted they cannot be recreated. #}
+        {% include "components/confirm_modal.html" with confirm_id="modal-rule-del-"|add:rpks confirm_title="Delete these shared hours?" confirm_message="Shared recurring hours cannot be recreated. Upcoming open slots from this window will be removed; booked slots stay until you cancel them." confirm_button_text="Delete" confirm_js=ruledel %}
+        {% endif %}
         {% endwith %}
       {% endif %}
     </div>

@@ -638,7 +638,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # bookable() (not upcoming()) so a departed orienter's surviving personal slot
     # never reappears in the member list once its booking is declined or cancelled.
     all_slots = (
-        list(guild.orientation_slots.bookable().select_related("orienter", "orientation_type").order_by("starts_at"))
+        list(
+            guild.orientation_slots.bookable()
+            .with_seat_holding_count()  # is_full reads the annotation: no COUNT per row
+            .select_related("orienter", "orientation_type")
+            .order_by("starts_at")
+        )
         if show_orientation and orientation is not None and not orientation.is_closed
         else []
     )
@@ -1237,7 +1242,12 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
         return render(
             request,
             "hub/partials/_orienter_hours_modal_form.html",
-            {"guild": guild, "target": target, "formset": formset},
+            {
+                "guild": guild,
+                "target": target,
+                "formset": formset,
+                "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
+            },
         )
     # Guild scope is the only other path here — re-render the full page with the bound formset.
     ctx = _guild_edit_context(request, guild, guild_rule_formset=formset)

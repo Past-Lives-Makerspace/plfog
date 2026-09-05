@@ -9018,6 +9018,34 @@ class OrientationSlotQuerySet(models.QuerySet):
         """
         return self.annotate(booking_history_count=Count("bookings"))
 
+    @staticmethod
+    def _run_by_gate() -> Q:
+        """The SQL twin of :meth:`Equipment.is_run_by` for a slot's ``orienter``.
+
+        A staff row on the tool, the owning guild's lead, the owning guild's staff, or
+        an EQUIPMENT capability: exactly ``Equipment.manager_members()``. Deliberately
+        no fog-admin leg (see ``is_run_by``). A departed manager's personal slot
+        blocks NEW bookings only.
+        """
+        return (
+            Exists(
+                EquipmentStaffMembership.objects.filter(
+                    equipment_id=OuterRef("orientation_type__equipment_id"), member_id=OuterRef("orienter_id")
+                )
+            )
+            | Q(orienter_id=models.F("orientation_type__equipment__guild__guild_lead_id"))
+            | Exists(
+                GuildStaffMembership.objects.filter(
+                    guild_id=OuterRef("orientation_type__equipment__guild_id"), member_id=OuterRef("orienter_id")
+                )
+            )
+            | Exists(
+                AdminCapability.objects.filter(
+                    member_id=OuterRef("orienter_id"), capability=AdminCapability.Capability.EQUIPMENT
+                )
+            )
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots whose owner is currently accepting bookings (does not check seats).
 
@@ -9044,35 +9072,13 @@ class OrientationSlotQuerySet(models.QuerySet):
             starts_at__lt=OuterRef("ends_at"),
             ends_at__gt=OuterRef("starts_at"),
         )
-        # "Still a manager" mirrors Equipment.manager_members() in SQL: a staff row on the
-        # tool, the owning guild's lead, the owning guild's staff, an EQUIPMENT capability,
-        # or a full admin. A departed manager's personal slot blocks NEW bookings only.
-        still_manager = (
-            Exists(
-                EquipmentStaffMembership.objects.filter(
-                    equipment_id=OuterRef("orientation_type__equipment_id"), member_id=OuterRef("orienter_id")
-                )
-            )
-            | Q(orienter_id=models.F("orientation_type__equipment__guild__guild_lead_id"))
-            | Exists(
-                GuildStaffMembership.objects.filter(
-                    guild_id=OuterRef("orientation_type__equipment__guild_id"), member_id=OuterRef("orienter_id")
-                )
-            )
-            | Exists(
-                AdminCapability.objects.filter(
-                    member_id=OuterRef("orienter_id"), capability=AdminCapability.Capability.EQUIPMENT
-                )
-            )
-            | Q(orienter__fog_role=Member.FogRole.ADMIN)
-        )
         equipment_gate = (
             Q(
                 orientation_type__equipment__isnull=False,
                 orientation_type__equipment__is_active=True,
                 orientation_type__equipment__is_closed=False,
             )
-            & (Q(orienter__isnull=True) | still_manager)
+            & (Q(orienter__isnull=True) | self._run_by_gate())
             & ~Exists(reserved_over_span)
         )
         rule_gate = Q(availability__isnull=True) | Q(availability__is_active=True)
@@ -9175,8 +9181,14 @@ class OrientationSlot(models.Model):
         """Seat-holding bookings — a live paid checkout holds its seat like a real booking.
 
         Counts ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` so two members can't buy the
-        last seat at once; declined/cancelled (and deleted holds) free their seat.
+        last seat at once; declined/cancelled (and deleted holds) free their seat. A
+        slot loaded through ``with_seat_holding_count()`` answers from that annotation
+        (a page of rows costs one aggregate, not a COUNT each); such an instance is a
+        snapshot, so code that books or releases a seat refetches before re-reading.
         """
+        annotated = getattr(self, "seat_holding_count", None)
+        if annotated is not None:
+            return annotated
         return self.bookings.seat_holding().count()
 
     @property
@@ -9242,9 +9254,9 @@ class OrientationSlot(models.Model):
             if not self.orientation_type.is_accepting:
                 return False
             equipment = cast("Equipment", self.orientation_type.equipment)
-            # A personal slot whose manager no longer manages the tool blocks NEW bookings
-            # only (the equipment twin of the departed-orienter guard).
-            if self.orienter_id is not None and not cast(Member, self.orienter).can_manage_equipment(equipment):
+            # A personal slot whose manager no longer RUNS orientations here blocks NEW
+            # bookings only (the equipment twin of the departed-orienter guard).
+            if self.orienter_id is not None and not equipment.is_run_by(cast(Member, self.orienter)):
                 return False
             return not EquipmentReservation.objects.overlapping(equipment, self.starts_at, self.ends_at).exists()
         guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
@@ -10675,6 +10687,24 @@ class Equipment(HeroCropMixin, models.Model):
             slug = f"{base}-{n}"
             n += 1
         return slug
+
+    def is_run_by(self, member: Member) -> bool:
+        """True when ``member`` may RUN orientations on this equipment: the :meth:`manager_members` set.
+
+        A staff row on this tool, the owning guild's leadership (lead or staff), or the
+        EQUIPMENT capability. Deliberately NO fog-admin leg, unlike the permission
+        helpers (``can_manage_equipment`` keeps full admins so they can edit anyone's
+        hours and act on requests): an admin who wants to be booked by name grants
+        themselves the capability, exactly as a guild admin needs a staff row. One
+        predicate feeds ``bookable()`` (its SQL twin ``_run_by_gate``), ``is_bookable``,
+        slot generation, the Runs with picker, and the schedule overview.
+        """
+        if member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+            return True
+        guild = self.guild
+        if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
+            return True
+        return self.staff_memberships.filter(member=member).exists()
 
     def manager_members(self) -> list[Member]:
         """Everyone who may manage this equipment, de-duplicated.

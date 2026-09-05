@@ -929,8 +929,18 @@ def describe_departed_manager_gate():
         holder = MemberFactory()
         holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         _assert_bookable(_personal_slot(equipment, holder), True)
+
+    def it_hides_a_plain_admins_slot_until_they_hold_the_capability():
+        # An admin edits anyone's hours but is only booked by name once they hold the
+        # EQUIPMENT capability, exactly as a guild admin needs a staff row.
+        from membership.models import AdminCapability
+
+        equipment = EquipmentFactory()
         admin = MemberFactory(fog_role="admin")
-        _assert_bookable(_personal_slot(equipment, admin), True)
+        slot = _personal_slot(equipment, admin)
+        _assert_bookable(slot, False)
+        admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        _assert_bookable(slot, True)
 
     def it_leaves_a_shared_slot_alone():
         slot = OrientationSlotFactory(equipment_owned=True)
