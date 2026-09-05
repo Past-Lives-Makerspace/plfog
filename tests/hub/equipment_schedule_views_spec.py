@@ -1005,6 +1005,43 @@ def describe_orientation_spans_on_the_timeline():
             later["starts_at"] >= earlier["ends_at"] for earlier, later in zip(timeline, timeline[1:], strict=False)
         )
 
+    def it_draws_nothing_for_a_legacy_overlap_that_straddles_closing_time(client: Client):
+        # Reservation 3 to 5 plus a pre guard orientation 4 to 6 on a tool that closes at 5:
+        # the orientation has nothing left to draw once clamped, never a zero or inverted row.
+        _login(client, "orient_span_straddle")
+        equipment = _open_tool()
+        EquipmentReservationFactory(equipment=equipment, starts_at=_at(_day(), 15), ends_at=_at(_day(), 17))
+        slot = _slot(equipment, 16)
+        slot.ends_at = _at(_day(), 18)
+        slot.save(update_fields=["ends_at"])
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_straddle_sam", "Sam Reyes"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        busy = [s for s in response.context["timeline"] if not s["is_free"]]
+        assert [(s["kind"], s["starts_at"], s["ends_at"]) for s in busy] == [
+            ("reservation", _at(_day(), 15), _at(_day(), 17)),
+        ]
+        assert all(s["starts_at"] < s["ends_at"] for s in response.context["timeline"])
+
+    def it_draws_one_segment_for_two_overlapping_legacy_orientations_past_closing(client: Client):
+        _login(client, "orient_span_straddle_two")
+        equipment = _open_tool()
+        first = _slot(equipment, 15)
+        first.ends_at = _at(_day(), 18)
+        first.save(update_fields=["ends_at"])
+        OrientationBookingFactory(slot=first, member=_named("orient_span_straddle_ana", "Ana Torres"))
+        second = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=first.orientation_type,
+            starts_at=_at(_day(), 16),
+            ends_at=_at(_day(), 19),
+            seats=1,
+        )
+        OrientationBookingFactory(slot=second, member=_named("orient_span_straddle_bo", "Bo Lin"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        busy = [s for s in response.context["timeline"] if not s["is_free"]]
+        assert [(s["starts_at"], s["ends_at"]) for s in busy] == [(_at(_day(), 15), _at(_day(), 17))]
+        assert all(s["starts_at"] < s["ends_at"] for s in response.context["timeline"])
+
     def it_hides_the_legend_line_on_a_tool_without_orientations(client: Client):
         _login(client, "orient_span_none")
         equipment = _open_tool()

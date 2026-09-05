@@ -184,19 +184,24 @@ def _day_timeline(equipment: Equipment, selected_day: date) -> list[dict[str, An
                 continue
             if item["starts_at"] > cursor:
                 timeline.append({"is_free": True, "starts_at": cursor, "ends_at": item["starts_at"]})
+            # Clamp to the cursor and the window: a legacy overlap (a reservation and a
+            # booked orientation from before the guards) renders as consecutive segments,
+            # and one that straddles closing time draws nothing rather than an inverted row.
+            segment_start = max(item["starts_at"], cursor)
+            segment_end = min(item["ends_at"], window_end)
+            cursor = max(cursor, item["ends_at"])
+            if segment_start >= segment_end:
+                continue
             timeline.append(
                 {
                     "is_free": False,
                     "kind": item["kind"],
-                    # Clamp to the cursor: a legacy overlap (a reservation and a booked
-                    # orientation from before the guards) renders as consecutive segments.
-                    "starts_at": max(item["starts_at"], cursor),
-                    "ends_at": min(item["ends_at"], window_end),
+                    "starts_at": segment_start,
+                    "ends_at": segment_end,
                     "reservation": item["reservation"],
                     "label": item["label"],
                 }
             )
-            cursor = max(cursor, item["ends_at"])
         if cursor < window_end:
             timeline.append({"is_free": True, "starts_at": cursor, "ends_at": window_end})
     if selected_day == timezone.localdate():
