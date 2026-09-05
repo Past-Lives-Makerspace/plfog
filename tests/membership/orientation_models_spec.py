@@ -8,6 +8,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from membership import orientations
 from membership.models import OrientationBooking, OrientationError, OrientationSlot, OrientationType
 from tests.membership.factories import (
     GuildFactory,
@@ -736,3 +737,101 @@ def describe_equipment_owned_types():
         equipment_type = _equipment_type()
         with pytest.raises(ProtectedError):
             equipment_type.equipment.delete()
+
+
+# ── Owner + rule gates (equipment-orientation-hours spec §5.4) ──────────────────────
+
+
+def describe_OrientationType_is_accepting_for_equipment():
+    def it_is_true_for_an_active_open_tool():
+        assert OrientationTypeFactory(equipment_owned=True).is_accepting is True
+
+    def it_is_false_when_the_tool_is_closed():
+        orientation_type = OrientationTypeFactory(equipment_owned=True)
+        orientation_type.equipment.is_closed = True
+        orientation_type.equipment.save(update_fields=["is_closed"])
+        assert orientation_type.is_accepting is False
+
+    def it_is_false_when_the_tool_is_retired():
+        orientation_type = OrientationTypeFactory(equipment_owned=True)
+        orientation_type.equipment.is_active = False
+        orientation_type.equipment.save(update_fields=["is_active"])
+        assert orientation_type.is_accepting is False
+
+
+def describe_bookable_closure_gate():
+    def it_excludes_slots_on_a_closed_tool():
+        open_slot = OrientationSlotFactory(equipment_owned=True)
+        closed_slot = OrientationSlotFactory(equipment_owned=True)
+        closed_slot.orientation_type.equipment.is_closed = True
+        closed_slot.orientation_type.equipment.save(update_fields=["is_closed"])
+        result = OrientationSlot.objects.bookable()
+        assert open_slot in result
+        assert closed_slot not in result
+        assert open_slot.is_bookable is True
+        assert closed_slot.is_bookable is False
+
+
+def describe_paused_rule_gate():
+    def _guild_generated(rule, **overrides):
+        return OrientationSlotFactory(
+            guild=rule.guild,
+            orientation_type=rule.orientation_type,
+            availability=rule,
+            source=OrientationSlot.Source.GENERATED,
+            **overrides,
+        )
+
+    def _tool_generated(rule, **overrides):
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=rule.orientation_type,
+            availability=rule,
+            source=OrientationSlot.Source.GENERATED,
+            **overrides,
+        )
+
+    def it_hides_a_paused_guild_rules_slot():
+        rule = OrientationAvailabilityFactory(is_active=False)
+        slot = _guild_generated(rule)
+        assert slot not in OrientationSlot.objects.bookable()
+        assert slot.is_bookable is False
+        rule.is_active = True
+        rule.save(update_fields=["is_active"])
+        slot = OrientationSlot.objects.get(pk=slot.pk)
+        assert slot in OrientationSlot.objects.bookable()
+        assert slot.is_bookable is True
+
+    def it_hides_a_paused_equipment_rules_slot():
+        rule = OrientationAvailabilityFactory(equipment_owned=True, is_active=False)
+        slot = _tool_generated(rule)
+        assert slot not in OrientationSlot.objects.bookable()
+        assert slot.is_bookable is False
+
+    def it_leaves_a_one_time_slot_alone():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        assert slot.availability is None
+        assert slot in OrientationSlot.objects.bookable()
+        assert slot.is_bookable is True
+
+    def it_keeps_an_existing_booking_on_a_paused_rules_slot_confirmable():
+        rule = OrientationAvailabilityFactory(equipment_owned=True)
+        booking = OrientationBookingFactory(slot=_tool_generated(rule))
+        rule.is_active = False
+        rule.save(update_fields=["is_active"])
+        booking.confirm()
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CONFIRMED
+
+    def it_does_not_reopen_the_slot_when_a_hold_expires_while_paused():
+        rule = OrientationAvailabilityFactory(equipment_owned=True)
+        slot = _tool_generated(rule, seats=1)
+        hold = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
+        )
+        rule.is_active = False
+        rule.save(update_fields=["is_active"])
+        assert orientations.release_hold_if_unpaid(hold) == "released"
+        slot = OrientationSlot.objects.get(pk=slot.pk)
+        assert slot.is_bookable is False
+        assert slot not in OrientationSlot.objects.bookable()

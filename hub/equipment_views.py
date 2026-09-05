@@ -25,6 +25,7 @@ from hub.forms import (
     EquipmentForm,
     EquipmentHoursWindowFormSet,
     EquipmentManagerCancelForm,
+    EquipmentOrientationHoursWindowFormSet,
     EquipmentOrientationSlotForm,
     EquipmentOrientationTypeFormSet,
     EquipmentReservationForm,
@@ -337,13 +338,37 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
     slots = (
         OrientationSlot.objects.bookable()
         .filter(orientation_type__in=types)
+        .with_seat_holding_count()
         .select_related("orientation_type")
         .order_by("starts_at")
     )
     slots_by_type: dict[int, list[Any]] = {}
     for slot in slots:
+        slot.seats_open = max(slot.seats - slot.seat_holding_count, 0)
         slots_by_type.setdefault(slot.orientation_type_id, []).append(slot)
-    return _orientation_sections(types, member, slots_by_type)
+    # slot_cap=None: the day picker needs the full 8 week carved set, not a flat 30.
+    sections = _orientation_sections(types, member, slots_by_type, slot_cap=None)
+    for section in sections:
+        section["days"] = _slot_days(section["slots"])
+        open_days = [day for day in section["days"] if day["open_count"]]
+        # Default chip = the first day with an open slot, else the first day (its rows
+        # all read Full and the all-full line shows), so the row never renders empty.
+        section["default_day"] = (open_days or section["days"] or [{"iso": ""}])[0]["iso"]
+        section["all_full"] = bool(section["days"]) and not open_days
+    return sections
+
+
+def _slot_days(slots: list[Any]) -> list[dict[str, Any]]:
+    """Group ``starts_at``-ordered picker slots (with ``seats_open``) by local date for the day chips."""
+    days: list[dict[str, Any]] = []
+    for slot in slots:
+        local_day = timezone.localtime(slot.starts_at).date()
+        if not days or days[-1]["date"] != local_day:
+            days.append({"date": local_day, "iso": local_day.isoformat(), "open_count": 0, "slots": []})
+        days[-1]["slots"].append(slot)
+        if slot.seats_open:
+            days[-1]["open_count"] += 1
+    return days
 
 
 @login_required
@@ -538,10 +563,15 @@ def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     One Save for the tab (FRONTEND rule 21); a per-row Delete flips its hidden DELETE
     and resubmits this same form, so closure and limit edits are never lost.
     """
+    from membership import orientations
+
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
     forbidden = _require_can_manage(request, equipment)
     if forbidden is not None:
         return forbidden
+    # Read BEFORE the settings form binds: its validation writes the posted value onto
+    # this same instance, so a later read could never see the flip.
+    was_closed = equipment.is_closed
     hours_formset = EquipmentHoursWindowFormSet(request.POST, initial=equipment.hours_windows(), prefix="hours")
     settings_form = EquipmentSettingsForm(request.POST, instance=equipment)
     if hours_formset.is_valid() and settings_form.is_valid():
@@ -549,6 +579,9 @@ def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
             [form.cleaned_data for form in hours_formset if form.cleaned_data and not form.cleaned_data.get("DELETE")]
         )
         settings_form.save()
+        if was_closed and not equipment.is_closed:
+            # A reopened tool must not sit orientation-empty until the nightly job.
+            orientations.generate_slots(equipment=equipment)
         messages.success(request, "Saved.")
         return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=hours")
     return _render_manage(
@@ -592,7 +625,44 @@ def _orientation_tab_context(equipment: Equipment) -> dict[str, Any]:
         attendees_by_slot.setdefault(booking.slot_id, []).append(booking)
     for slot in upcoming_slots:
         slot.attendee_bookings = attendees_by_slot.get(slot.pk, [])
-    return {"orientation_pending_requests": pending_requests, "orientation_upcoming_slots": upcoming_slots}
+    slot_days = _upcoming_slot_days(upcoming_slots)
+    return {
+        "orientation_pending_requests": pending_requests,
+        "orientation_upcoming_slots": upcoming_slots,
+        "orientation_slot_days": slot_days,
+        "orientation_has_later_days": any(day["is_later"] for day in slot_days),
+    }
+
+
+_UPCOMING_SLOTS_NEAR_DAYS = 14
+
+
+def _upcoming_slot_days(slots: list[Any]) -> list[dict[str, Any]]:
+    """Group the manage tab's ``starts_at``-ordered upcoming slots by local date.
+
+    A day opens by default when anyone holds a seat on it (an attendee row or a
+    checkout hold); days beyond the near horizon sit behind a client-side "Show
+    later days" button so eight weeks of carved slots never render as a wall.
+    """
+    later_after = timezone.localdate() + timedelta(days=_UPCOMING_SLOTS_NEAR_DAYS)
+    days: list[dict[str, Any]] = []
+    for slot in slots:
+        local_day = timezone.localtime(slot.starts_at).date()
+        if not days or days[-1]["date"] != local_day:
+            days.append(
+                {
+                    "date": local_day,
+                    "slots": [],
+                    "booked_count": 0,
+                    "open_by_default": False,
+                    "is_later": local_day > later_after,
+                }
+            )
+        days[-1]["slots"].append(slot)
+        days[-1]["booked_count"] += slot.active_booking_count
+        if slot.attendee_bookings or slot.hold_count:
+            days[-1]["open_by_default"] = True
+    return days
 
 
 def _render_manage(
@@ -604,6 +674,7 @@ def _render_manage(
     hours_formset: Any = None,
     settings_form: EquipmentSettingsForm | None = None,
     orientation_types_formset: Any = None,
+    orientation_hours_formset: Any = None,
     slot_add_form: EquipmentOrientationSlotForm | None = None,
     active_tab: str = "details",
 ) -> HttpResponse:
@@ -614,6 +685,13 @@ def _render_manage(
         {
             **_get_hub_context(request),
             **_orientation_tab_context(equipment),
+            "orientation_hours_formset": orientation_hours_formset
+            if orientation_hours_formset is not None
+            else EquipmentOrientationHoursWindowFormSet(
+                initial=equipment.orientation_hours_windows(),
+                prefix="ohours",
+                form_kwargs={"equipment": equipment},
+            ),
             "equipment": equipment,
             "form": form if form is not None else EquipmentForm(instance=equipment),
             "staff_memberships": list(equipment.staff_memberships.select_related("member", "granted_by")),
@@ -743,6 +821,53 @@ def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> Htt
         messages.success(request, "Saved.")
         return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
     return _render_manage(request, equipment, orientation_types_formset=formset, active_tab="orientation")
+
+
+def _orientation_hours_save_message(*, removed: int, kept: int) -> str:
+    """The Orientation Hours flash — the counts appear whenever a delete, pause, or re-grid retired slots."""
+    parts = ["Hours saved."]
+    if removed:
+        parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
+    if kept:
+        pronoun = "it" if kept == 1 else "them"
+        parts.append(
+            f"{kept} booked slot{'' if kept == 1 else 's'} kept. Cancel {pronoun} from the Upcoming Slots card."
+        )
+    return " ".join(parts)
+
+
+@login_required
+@equipment_feature_required
+@require_POST
+def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
+    """POST — save the Orientation Hours window formset and regenerate the tool's slots.
+
+    One Save for the card (FRONTEND rule 21); a per-row Delete flips its hidden
+    DELETE and resubmits this same form. The model reconciles windows into per-day
+    rules (retiring what a delete, pause, or re-grid no longer wants) and the
+    service carves the new grid immediately, so the Upcoming Slots card is honest
+    on the redirect.
+    """
+    from membership import orientations
+
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    forbidden = _require_can_manage(request, equipment)
+    if forbidden is not None:
+        return forbidden
+    formset = EquipmentOrientationHoursWindowFormSet(
+        request.POST,
+        initial=equipment.orientation_hours_windows(),
+        prefix="ohours",
+        form_kwargs={"equipment": equipment},
+    )
+    if formset.is_valid():
+        _deleted_rules, removed, kept = equipment.apply_orientation_hours_windows(
+            [form.cleaned_data for form in formset if form.cleaned_data and not form.cleaned_data.get("DELETE")]
+        )
+        orientations.generate_slots(equipment=equipment)
+        messages.success(request, _orientation_hours_save_message(removed=removed, kept=kept))
+        return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+    return _render_manage(request, equipment, orientation_hours_formset=formset, active_tab="orientation")
 
 
 @login_required

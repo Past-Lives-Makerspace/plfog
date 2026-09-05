@@ -473,14 +473,18 @@ def _orientation_sections(
     orientation_types: list[Any],
     member: Member | None,
     slots_by_type: dict[int, list[Any]],
+    *,
+    slot_cap: int | None = 30,
 ) -> list[dict[str, Any]]:
     """One per-type section dict for an orientation slot-list surface (guild page or equipment page).
 
     The SHARED builder both surfaces render from, so their per-type state logic
     cannot drift: completed / live booking / pending-payment hold are computed from
     the member's bookings on exactly these types; the (caller-filtered, ordered)
-    slot lists render only when the type is open for the member. Guild-only extras
-    (availability blocks, custom requests) are layered on by the guild view.
+    slot lists render only when the type is open for the member. ``slot_cap`` bounds
+    each type's list (the guild page's flat list keeps 30; the equipment day picker
+    passes ``None`` for the full carved horizon). Guild-only extras (availability
+    blocks, custom requests) are layered on by the guild view.
     """
     from membership.models import OrientationBooking
 
@@ -507,13 +511,14 @@ def _orientation_sections(
         hold = hold_by_type.get(orientation_type.pk)
         done = orientation_type.pk in completed_type_ids
         open_for_type = not (done or live_booking or hold)
+        type_slots = slots_by_type.get(orientation_type.pk, []) if open_for_type else []
         sections.append(
             {
                 "type": orientation_type,
                 "is_oriented": done,
                 "booking": live_booking,
                 "hold": hold,
-                "slots": slots_by_type.get(orientation_type.pk, [])[:30] if open_for_type else [],
+                "slots": type_slots[:slot_cap] if slot_cap is not None else type_slots,
             }
         )
     return sections
@@ -1116,18 +1121,23 @@ def guild_orientation_types_save(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, removed: int, kept: int) -> str:
-    """The success flash for an hours save — with real retirement counts on a delete."""
-    if not deleted_rules:
+    """The success flash for an hours save — with real retirement counts on a delete or a pause.
+
+    Leads with "Hours deleted." when a rule went, "Hours saved." otherwise, and
+    appends the counts whenever a delete ran or a pause retired something (a pause
+    keeps the rule but its open slots still vanish, so the member-facing effect is
+    named). The shared-hours farewell stays keyed on a delete.
+    """
+    if not deleted_rules and not removed and not kept:
         return "Hours saved."
-    if guild_scope and not guild.orientation_rules.guild_level().exists():
+    if deleted_rules and guild_scope and not guild.orientation_rules.guild_level().exists():
         return (
             "Shared hours deleted. From now on recurring hours are personal. "
             "Use an Any orienter one-off slot for shared coverage."
         )
-    parts = [
-        "Hours deleted.",
-        f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.",
-    ]
+    parts = ["Hours deleted." if deleted_rules else "Hours saved."]
+    if removed:
+        parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
     if kept:
         pronoun = "it" if kept == 1 else "them"
         parts.append(
@@ -1261,8 +1271,19 @@ def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
     )
 
 
+def _flipped_off(rule_form: Any) -> bool:
+    """True for a saved rule whose Active toggle just went from on to off (never a delete or a new row)."""
+    if not rule_form.instance.pk or not rule_form.cleaned_data or rule_form.cleaned_data.get("DELETE"):
+        return False
+    return "is_active" in rule_form.changed_data and not rule_form.cleaned_data["is_active"]
+
+
 def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
     """Apply a valid hours formset: retire deleted rules, stamp + save the kept rows.
+
+    A saved rule whose Active toggle flipped from on to off also retires its future
+    open generated slots (booked ones stay, capped), so a pause is as honest as a
+    delete; the ``bookable()`` rule gate stops new bookings on the kept slots.
 
     Returns ``(deleted_rules, open_slots_removed, kept_with_bookings)`` for the flash.
     """
@@ -1275,10 +1296,15 @@ def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
             removed += rule_removed
             kept += rule_kept
             deleted_rules += 1
+    paused = [rule_form.instance for rule_form in formset.forms if _flipped_off(rule_form)]
     for rule in formset.save(commit=False):
         if rule.orienter_id is None and target is not None:
             rule.orienter = target  # scope stamps new rows — orienter is write-once from the UI
         rule.save()
+    for rule in paused:
+        rule_removed, rule_kept = orientations.retire_open_slots(rule)
+        removed += rule_removed
+        kept += rule_kept
     return deleted_rules, removed, kept
 
 

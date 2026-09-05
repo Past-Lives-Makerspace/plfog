@@ -497,7 +497,8 @@ def describe_rule_delete_retirement():
         )
         assert response.status_code == 200
         joined = " ".join(str(m) for m in response.context["messages"])
-        assert "Hours deleted. Removed 0 upcoming open slots." in joined
+        assert "Hours deleted." in joined
+        assert "Removed" not in joined  # nothing was retired, so no zero count is announced
         assert "Shared hours deleted." not in joined
 
 
@@ -780,3 +781,97 @@ def describe_staff_remove_retirement():
         joined = " ".join(str(m) for m in response.context["messages"])
         assert "They still have 1 upcoming booked orientation." in joined
         assert "Upcoming Slots card" in joined
+
+
+def describe_rule_pause_retirement():
+    def it_retires_open_slots_and_keeps_booked_ones_when_a_rule_is_paused(client: Client):
+        user = _member_user("pause_lead", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        rule = OrientationAvailabilityFactory(guild=guild)
+        open_slot = OrientationSlotFactory(guild=guild, availability=rule, source=OrientationSlot.Source.GENERATED)
+        booked = OrientationSlotFactory(guild=guild, availability=rule, source=OrientationSlot.Source.GENERATED)
+        OrientationBookingFactory(slot=booked)
+        client.login(username="pause_lead", password="pass")
+        response = client.post(
+            _hours_url(guild),
+            {
+                "orienter_scope": "",
+                "guild_rules-TOTAL_FORMS": "1",
+                "guild_rules-INITIAL_FORMS": "1",
+                "guild_rules-MIN_NUM_FORMS": "0",
+                "guild_rules-MAX_NUM_FORMS": "1000",
+                "guild_rules-0-id": str(rule.pk),
+                "guild_rules-0-orientation_type": str(rule.orientation_type_id),
+                "guild_rules-0-weekday": str(rule.weekday),
+                "guild_rules-0-start_time": "18:00",
+                "guild_rules-0-end_time": "19:00",
+                "guild_rules-0-seats": str(rule.seats),
+                # is_active deliberately absent: the rule is paused, not deleted.
+            },
+            follow=True,
+        )
+        assert response.status_code == 200
+        joined = " ".join(str(m) for m in response.context["messages"])
+        assert "Hours saved. Removed 1 upcoming open slot." in joined
+        assert "1 booked slot kept." in joined
+        assert "Hours deleted." not in joined
+        rule.refresh_from_db()
+        assert rule.is_active is False
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+        booked.refresh_from_db()
+        assert booked.seats == 1
+        assert booked.is_bookable is False
+
+    def it_says_hours_saved_alone_when_a_pause_retires_nothing(client: Client):
+        user = _member_user("pause_quiet", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        rule = OrientationAvailabilityFactory(guild=guild)
+        client.login(username="pause_quiet", password="pass")
+        response = client.post(
+            _hours_url(guild),
+            {
+                "orienter_scope": "",
+                "guild_rules-TOTAL_FORMS": "1",
+                "guild_rules-INITIAL_FORMS": "1",
+                "guild_rules-MIN_NUM_FORMS": "0",
+                "guild_rules-MAX_NUM_FORMS": "1000",
+                "guild_rules-0-id": str(rule.pk),
+                "guild_rules-0-orientation_type": str(rule.orientation_type_id),
+                "guild_rules-0-weekday": str(rule.weekday),
+                "guild_rules-0-start_time": "18:00",
+                "guild_rules-0-end_time": "19:00",
+                "guild_rules-0-seats": str(rule.seats),
+            },
+            follow=True,
+        )
+        joined = " ".join(str(m) for m in response.context["messages"])
+        assert joined == "Hours saved."
+
+    def it_ignores_a_deleted_unsaved_row(client: Client):
+        user = _member_user("pause_ghost", name="Lead Person")
+        guild = GuildFactory(guild_lead=user.member)
+        rule = OrientationAvailabilityFactory(guild=guild)
+        client.login(username="pause_ghost", password="pass")
+        response = client.post(
+            _hours_url(guild),
+            {
+                "orienter_scope": "",
+                "guild_rules-TOTAL_FORMS": "1",
+                "guild_rules-INITIAL_FORMS": "0",
+                "guild_rules-MIN_NUM_FORMS": "0",
+                "guild_rules-MAX_NUM_FORMS": "1000",
+                "guild_rules-0-orientation_type": str(rule.orientation_type_id),
+                "guild_rules-0-weekday": "4",
+                "guild_rules-0-start_time": "18:00",
+                "guild_rules-0-end_time": "19:00",
+                "guild_rules-0-seats": "4",
+                "guild_rules-0-is_active": "on",
+                "guild_rules-0-DELETE": "on",
+            },
+            follow=True,
+        )
+        assert response.status_code == 200
+        joined = " ".join(str(m) for m in response.context["messages"])
+        assert joined == "Hours saved."
+        assert guild.orientation_rules.count() == 1

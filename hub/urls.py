@@ -341,6 +341,11 @@ urlpatterns = [
         name="hub_equipment_orientation_types_save",
     ),
     path(
+        "equipment/<slug:slug>/manage/orientation/hours/",
+        equipment_views.hub_equipment_orientation_hours_save,
+        name="hub_equipment_orientation_hours_save",
+    ),
+    path(
         "equipment/<slug:slug>/manage/orientation/slots/add/",
         equipment_views.hub_equipment_orientation_slot_add,
         name="hub_equipment_orientation_slot_add",

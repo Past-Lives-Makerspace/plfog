@@ -482,8 +482,23 @@ class OrientationTypeFactory(factory.django.DjangoModelFactory):
 
 
 class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
+    """A guild-owned Tuesday 6 to 7 PM rule by default; ``equipment_owned=True`` for a carved equipment one.
+
+    The equipment trait sets ``guild=None``, an equipment-owned type, and a 60 minute
+    slot length (the equipment editor always sets one). The guild direction stays as
+    it was: the type's guild derives from the rule's guild, so a guild row never
+    silently gets ``None``.
+    """
+
     class Meta:
         model = OrientationAvailability
+
+    class Params:
+        equipment_owned = factory.Trait(
+            guild=None,
+            orientation_type=factory.SubFactory(OrientationTypeFactory, equipment_owned=True),
+            slot_minutes=60,
+        )
 
     guild = factory.SubFactory(GuildFactory)
     orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))

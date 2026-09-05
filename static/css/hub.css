@@ -8005,3 +8005,111 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     text-decoration: none;
     font-size: 0.9rem;
 }
+
+/* ── Equipment orientation hours (equipment-orientation-hours spec): window preview,
+   day-grouped Upcoming Slots on the manage tab, and the member day-chip picker ── */
+.pl-orient-window__preview {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+}
+.pl-orient-daygroups {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-orient-daygroup {
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-orient-daygroup__head {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    background: none;
+    border: 0;
+    color: var(--hub-text);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+.pl-orient-daygroup__head:hover {
+    color: var(--color-tuscan-yellow);
+}
+.pl-orient-daygroup__meta {
+    color: var(--hub-text-muted);
+    font-weight: 400;
+    font-size: 0.85rem;
+}
+.pl-orient-daygroup__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0 0.85rem 0.75rem;
+}
+.pl-orient-daygroup__later {
+    margin-top: 0.5rem;
+}
+.pl-orient-days {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    max-width: 100%;
+    padding: 0.25rem 0 0.5rem;
+    margin: 0 0 0.5rem;
+    scrollbar-width: thin;
+}
+.pl-orient-days__chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    min-height: 2.75rem;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font: inherit;
+    font-size: 0.85rem;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.pl-orient-days__chip:hover {
+    border-color: var(--color-tuscan-yellow);
+}
+.pl-orient-days__chip--full {
+    color: var(--hub-text-muted);
+}
+.pl-orient-days__chip--active,
+.pl-orient-days__chip--active.pl-orient-days__chip--full {
+    background: var(--color-navy);
+    border-color: var(--color-navy);
+    color: var(--color-tuscan-yellow);
+}
+.pl-orient-days__chip-count {
+    font-size: 0.72rem;
+}
+.pl-orient-times {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.pl-orient-times__time {
+    flex: 0 0 11rem;
+    font-weight: 500;
+}
+.pl-orient-times__seats {
+    flex: 1;
+    font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+    .pl-orient-times__time {
+        flex-basis: 100%;
+    }
+}

@@ -9,7 +9,7 @@ transition logs ``SiteActivity`` and fires an in-app notification.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import icalendar
@@ -633,6 +633,47 @@ def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) ->
     one_off_sources = (OrientationSlot.Source.MANUAL, OrientationSlot.Source.FROM_BLOCK)
     if slot.seats == 1 and slot.source in one_off_sources and not slot.bookings.exists():
         slot.delete()
+        return
+    recap_orphaned_slot(slot)
+
+
+# The cancel reason stamped on a generated slot its hours no longer justify (retirement
+# of a slot with booking history, or the last seat freeing on an orphaned slot).
+_RETIRED_SLOT_REASON = "The hours this time came from are no longer posted."
+
+
+def recap_orphaned_slot(slot: OrientationSlot) -> None:
+    """Re-cap a kept GENERATED slot whose rule is gone or paused after a seat on it frees.
+
+    Retirement capped the slot to its taken seats so it could take no new booking
+    through the ``availability`` SET_NULL door or a paused rule; when a hold,
+    booking, or request that counted toward that cap is released, cancelled, or
+    declined, the freed seat must not reopen. With nothing seat-holding left the
+    slot is cancelled outright (nothing remains to keep it for); otherwise it is
+    capped again to what still holds a seat. A slot under a live rule, an already
+    cancelled slot (a manager's reason must survive the fan-out), and any MANUAL /
+    FROM_BLOCK slot are untouched. Runs at the end of every seat-freeing path.
+    """
+    from membership.models import OrientationSlot
+
+    if slot.source != OrientationSlot.Source.GENERATED:
+        return
+    # The caller's slot may predate the retirement that SET_NULL'd its rule and capped
+    # its seats (a booking made before the rule went); read the current row.
+    slot.refresh_from_db()
+    if slot.is_cancelled:
+        return
+    rule = slot.availability
+    if rule is not None and rule.is_active:
+        return
+    remaining = slot.bookings.seat_holding().count()
+    if remaining == 0:
+        # Detached as well as cancelled: a paused rule's kept slot must not own its
+        # (rule, start) key as a dead row, or the time never comes back on unpause.
+        slot.mark_retired(reason=_RETIRED_SLOT_REASON)
+    elif slot.seats != remaining:
+        slot.seats = remaining
+        slot.save(update_fields=["seats"])
 
 
 def release_hold_if_unpaid(booking: OrientationBooking) -> str:
@@ -881,6 +922,8 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
         in_app_title="Orientation not confirmed",
         in_app_body=f"Your orientation request for {booking.orientation_type.owner_name} couldn't be confirmed.",
     )
+    # A freed seat on a slot whose hours are gone or paused must not reopen to members.
+    recap_orphaned_slot(booking.slot)
 
 
 def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: User | None = None) -> None:
@@ -913,6 +956,10 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:cancel",
     )
+    # Member self-cancel, lead cancel, and token cancel all land here: a freed seat on a
+    # slot whose hours are gone or paused must not reopen. A slot cancel (cancel_slot)
+    # has already marked the slot, so the recap leaves its reason alone.
+    recap_orphaned_slot(booking.slot)
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
@@ -1009,88 +1056,274 @@ def auto_complete(*, now: datetime | None = None) -> int:
     return count
 
 
-def generate_slots(*, guild: Guild | None = None, window_weeks: int = 8, now: datetime | None = None) -> int:
-    """Materialize bookable slots from active recurring rules across a rolling window.
+def _horizon_spans(rule: OrientationAvailability, *, today: date, window_weeks: int) -> list[tuple[datetime, datetime]]:
+    """Every ``(start, end)`` span ``rule`` yields across the rolling window, in order."""
+    spans: list[tuple[datetime, datetime]] = []
+    for offset in range(window_weeks * 7):
+        day = today + timedelta(days=offset)
+        if day.weekday() != rule.weekday:
+            continue
+        spans.extend(rule.carve_spans(day))
+    return spans
 
-    Idempotent (a slot is keyed by its rule + start time), and skips guilds that
-    aren't currently accepting bookings. Returns the number of slots created. Pass
-    ``guild`` to materialize just one guild's rules (e.g. right after an editor save).
+
+def _occupied_spans(equipment: Equipment, *, reference: datetime) -> list[tuple[int | None, datetime, datetime]]:
+    """Every uncancelled, still-ahead slot on this equipment's owned types, as ``(rule id, start, end)``.
+
+    Loaded ONCE per equipment per generation run — the slot-layer overlap check is
+    list math over this, never a query per candidate.
     """
-    from membership.models import GuildOrientationSettings, OrientationAvailability, OrientationSlot
+    from membership.models import OrientationSlot
 
-    reference = now or timezone.now()
-    today = timezone.localdate()
-    created = 0
-    # A rule whose orientation type was deactivated stops generating (existing slots
-    # are handled by the bookable() type-active filter, not deleted).
-    rules = OrientationAvailability.objects.filter(is_active=True, orientation_type__is_active=True).select_related(
-        "guild", "orientation_type"
+    return list(
+        OrientationSlot.objects.filter(
+            orientation_type__equipment=equipment, is_cancelled=False, ends_at__gt=reference
+        ).values_list("availability_id", "starts_at", "ends_at")
     )
-    if guild is not None:
-        rules = rules.filter(guild=guild)
-    for rule in rules:
-        settings_obj = GuildOrientationSettings.objects.filter(guild=rule.guild).first()
-        if settings_obj is None or not settings_obj.is_accepting:
+
+
+def _overlaps_other_slot(
+    occupied: list[tuple[int | None, datetime, datetime]], *, rule_id: int, start: datetime, end: datetime
+) -> bool:
+    """True when ``[start, end)`` overlaps any occupied span other than this rule's own slot at ``start``."""
+    return any(
+        slot_start < end and slot_end > start and not (rule_pk == rule_id and slot_start == start)
+        for rule_pk, slot_start, slot_end in occupied
+    )
+
+
+def _rule_generates(rule: OrientationAvailability) -> bool:
+    """The per-rule gate: an accepting owner, and (guild rules only) an orienter still on leadership.
+
+    A stale personal rule — its orienter left the guild's leadership without the
+    hub's retirement flow (a lead-FK change, a Django-admin removal) — must never
+    materialize new slots. Equipment rules never carry an orienter, so that check
+    is guild-only (``rule.guild`` is None for them).
+    """
+    if not rule.orientation_type.is_accepting:
+        return False
+    if rule.guild_id is None or rule.orienter_id is None:
+        return True
+    return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
+
+
+def _retire_off_grid(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
+    """Off-grid cleanup: retire the rule's future generated slots whose TIME fell off its current grid.
+
+    A kept old-grid slot whose booking was since cancelled must not linger and
+    block the new grid. Booked off-grid slots survive (capped) exactly as in a
+    delete or pause. Slots still on the time grid instead follow the rule's seat
+    count (a seats edit is not a re-grid): open ones take it, booked ones keep at
+    least their taken seats. Runs for every rule BEFORE any carving so the
+    per-equipment occupied set is loaded clean.
+    """
+    grid = set(spans)
+    candidates = list(_retire_candidates(rule))
+    _retire_slots([slot for slot in candidates if (slot.starts_at, slot.ends_at) not in grid])
+    _reseat([slot for slot in candidates if (slot.starts_at, slot.ends_at) in grid], seats=rule.seats)
+
+
+def _materialize(
+    rule: OrientationAvailability,
+    spans: list[tuple[datetime, datetime]],
+    *,
+    reference: datetime,
+    occupied: list[tuple[int | None, datetime, datetime]] | None,
+) -> int:
+    """Create the rule's missing future slots from ``spans``; returns how many were created.
+
+    ``occupied`` (equipment rules only) is the tool's live overlap set: a candidate
+    overlapping any other slot on it is skipped, and each created slot joins it so
+    later rules in the same run see it. ``None`` (guild rules) skips the check.
+    """
+    from membership.models import OrientationSlot
+
+    created = 0
+    for start_dt, end_dt in spans:
+        if start_dt <= reference:
             continue
-        # Stale personal rule — its orienter left the guild's leadership without the
-        # hub's retirement flow (e.g. a lead-FK change or a Django-admin removal).
-        # Belt-and-braces: never materialize new slots for a departed staffer.
-        if rule.orienter_id is not None and rule.orienter_id not in {
-            member.pk for member in rule.guild.leadership_members()
-        }:
+        if occupied is not None and _overlaps_other_slot(occupied, rule_id=rule.pk, start=start_dt, end=end_dt):
             continue
-        for offset in range(window_weeks * 7):
-            day = today + timedelta(days=offset)
-            if day.weekday() != rule.weekday:
-                continue
-            start_dt = timezone.make_aware(datetime.combine(day, rule.start_time))
-            if start_dt <= reference:
-                continue
-            _slot, was_created = OrientationSlot.objects.get_or_create(
-                availability=rule,
-                starts_at=start_dt,
-                defaults={
-                    "guild": rule.guild,
-                    # The rule's type rides onto every slot it materializes (issue #282).
-                    "orientation_type": rule.orientation_type,
-                    "orienter": rule.orienter,
-                    "ends_at": timezone.make_aware(datetime.combine(day, rule.end_time)),
-                    "seats": rule.seats,
-                    "location": rule.location or rule.orientation_type.default_location,
-                    "source": OrientationSlot.Source.GENERATED,
-                },
-            )
-            if was_created:
-                created += 1
+        _slot, was_created = OrientationSlot.objects.get_or_create(
+            availability=rule,
+            starts_at=start_dt,
+            defaults={
+                "guild": rule.guild,
+                # The rule's type rides onto every slot it materializes (issue #282).
+                "orientation_type": rule.orientation_type,
+                "orienter": rule.orienter,
+                "ends_at": end_dt,
+                "seats": rule.seats,
+                "location": rule.location or rule.orientation_type.default_location,
+                "source": OrientationSlot.Source.GENERATED,
+            },
+        )
+        if was_created:
+            created += 1
+            if occupied is not None:
+                occupied.append((rule.pk, start_dt, end_dt))
     return created
 
 
-def retire_rule(rule: OrientationAvailability) -> tuple[int, int]:
-    """Delete a recurring rule AND its future open generated slots — the honest delete path.
+def generate_slots(
+    *,
+    guild: Guild | None = None,
+    equipment: Equipment | None = None,
+    window_weeks: int = 8,
+    now: datetime | None = None,
+) -> int:
+    """Materialize bookable slots from active recurring rules across a rolling window.
 
-    Future GENERATED slots holding no seat-holding booking are removed with the rule;
-    slots someone already booked survive (keeping their ``orienter``; ``availability``
-    goes SET_NULL) to be handled individually via the Upcoming Slots card. Past and
-    MANUAL slots are never touched. Replaces the old silent slot-stranding.
+    Idempotent (a slot is keyed by its rule + start time), and skips owners that
+    aren't currently accepting bookings (``OrientationType.is_accepting``: the guild
+    settings gate, or active + open equipment). Returns the number of slots created.
+    Pass ``guild`` or ``equipment`` to materialize just one owner's rules (e.g. right
+    after an editor save); neither means everything, as the nightly job runs it.
 
-    The keep/delete guard runs at ``bookings.seat_holding()`` scope — an
+    Equipment rules are carved by their slot length (``carve_spans``) and the
+    machine is the scarce resource: before carving, each rule's future open
+    generated slots that fell off its current grid are retired, and a candidate that
+    would overlap any other uncancelled slot on the tool (a booked slot kept from an
+    old grid, a one time slot, a sibling type's slot) is skipped. The overlap set is
+    loaded once per equipment per run. Guild rules keep their one-slot-per-window
+    shape and generate over each other exactly as before.
+
+    Raises:
+        ValueError: If both ``guild`` and ``equipment`` are given.
+    """
+    from membership.models import OrientationAvailability
+
+    if guild is not None and equipment is not None:
+        raise ValueError("Pass guild or equipment, not both.")
+    reference = now or timezone.now()
+    today = timezone.localdate()
+    # A rule whose orientation type was deactivated stops generating (existing slots
+    # are handled by the bookable() type-active filter, not deleted).
+    rules = OrientationAvailability.objects.filter(is_active=True, orientation_type__is_active=True).select_related(
+        "guild", "orientation_type", "orientation_type__equipment"
+    )
+    if guild is not None:
+        rules = rules.filter(guild=guild)
+    if equipment is not None:
+        rules = rules.filter(orientation_type__equipment=equipment)
+    eligible = [
+        (rule, _horizon_spans(rule, today=today, window_weeks=window_weeks)) for rule in rules if _rule_generates(rule)
+    ]
+    for rule, spans in eligible:
+        if rule.orientation_type.equipment_id is not None:
+            _retire_off_grid(rule, spans)
+    occupied_by_equipment: dict[int, list[tuple[int | None, datetime, datetime]]] = {}
+    created = 0
+    for rule, spans in eligible:
+        occupied: list[tuple[int | None, datetime, datetime]] | None = None
+        equipment_id = rule.orientation_type.equipment_id
+        if equipment_id is not None:
+            if equipment_id not in occupied_by_equipment:
+                occupied_by_equipment[equipment_id] = _occupied_spans(
+                    cast("Equipment", rule.orientation_type.equipment), reference=reference
+                )
+            occupied = occupied_by_equipment[equipment_id]
+        created += _materialize(rule, spans, reference=reference, occupied=occupied)
+    return created
+
+
+def _future_generated(rule: OrientationAvailability) -> Any:
+    """The rule's uncancelled GENERATED slots that have not started yet — the only slots retirement may touch.
+
+    A manager-cancelled slot stays cancelled: it is neither deleted nor re-seated,
+    and generation finds it on the grid and leaves it alone.
+    """
+    from membership.models import OrientationSlot
+
+    return rule.slots.filter(starts_at__gte=timezone.now(), source=OrientationSlot.Source.GENERATED, is_cancelled=False)
+
+
+def _retire_candidates(rule: OrientationAvailability) -> Any:
+    """The retirement candidates with both counts retirement decides on, in one query."""
+    return _future_generated(rule).with_seat_holding_count().with_booking_history_count()
+
+
+def _retire_slots(slots: Any) -> tuple[int, int]:
+    """Retire the open slots in ``slots``; cap and keep the ones holding a seat.
+
+    ``slots`` carry ``seat_holding_count`` and ``booking_history_count``. An open
+    slot with no booking rows at all is deleted; an open slot with booking history
+    (a declined, cancelled, or refunded booking) is cancelled instead, because
+    ``OrientationBooking.slot`` cascades and deleting it would erase that history.
+    Both count as removed for the member-facing message. A kept slot is capped to
+    its taken seats so the ``availability`` SET_NULL door (or a paused rule) can
+    never let a 1 of 4 booked slot take three more bookings.
+
+    Returns:
+        ``(open_slots_removed, kept_with_bookings)``.
+    """
+    removed = kept = 0
+    for slot in slots:
+        if slot.seat_holding_count:
+            kept += 1
+            if slot.seats != slot.seat_holding_count:
+                slot.seats = slot.seat_holding_count
+                slot.save(update_fields=["seats"])
+        elif slot.booking_history_count:
+            # Cancelled AND detached from the rule: the row keeps its history, and the
+            # time regenerates fresh when the rule is live again instead of staying a
+            # permanent hole at its (rule, start) key.
+            slot.mark_retired(reason=_RETIRED_SLOT_REASON)
+            removed += 1
+        else:
+            slot.delete()
+            removed += 1
+    return removed, kept
+
+
+def _reseat(slots: Any, *, seats: int) -> None:
+    """Follow a seat count onto ``slots`` (annotated with ``seat_holding_count``): never below the seats taken."""
+    for slot in slots:
+        wanted = max(seats, slot.seat_holding_count)
+        if slot.seats != wanted:
+            slot.seats = wanted
+            slot.save(update_fields=["seats"])
+
+
+def reseat_slots(rule: OrientationAvailability) -> None:
+    """Apply a seats-only edit to the rule's future open generated slots without a re-grid.
+
+    Open slots take the rule's new count; booked ones take ``max(new, taken)`` so a
+    raise reaches already-booked days and a lower never drops below what is held.
+    """
+    _reseat(_future_generated(rule).with_seat_holding_count(), seats=rule.seats)
+
+
+def retire_open_slots(rule: OrientationAvailability) -> tuple[int, int]:
+    """Retire a rule's future open generated slots WITHOUT deleting the rule.
+
+    Future uncancelled GENERATED slots holding no seat-holding booking are removed
+    (deleted, or cancelled when they carry booking history); slots someone already
+    booked survive, capped to their taken seats. Past, cancelled, and MANUAL slots
+    are never touched. Used by delete (via :func:`retire_rule`), by a pause (Active
+    toggled off) and by a re-grid (slot length or break changed).
+
+    The keep/remove guard runs at ``bookings.seat_holding()`` scope — an
     ``active()``-only test would cascade a live paid ``PENDING_PAYMENT`` hold away
     with the slot, eating a checkout mid-payment.
 
     Returns:
         ``(open_slots_removed, kept_with_bookings)`` for the success message.
     """
-    from membership.models import OrientationSlot
+    return _retire_slots(_retire_candidates(rule))
 
-    removed = 0
-    kept = 0
-    future = rule.slots.filter(starts_at__gte=timezone.now(), source=OrientationSlot.Source.GENERATED)
-    for slot in future:
-        if slot.bookings.seat_holding().exists():
-            kept += 1
-        else:
-            slot.delete()
-            removed += 1
+
+def retire_rule(rule: OrientationAvailability) -> tuple[int, int]:
+    """Delete a recurring rule AND its future open generated slots — the honest delete path.
+
+    :func:`retire_open_slots` then ``rule.delete()``: kept booked slots survive
+    (keeping their ``orienter``; ``availability`` goes SET_NULL) to be handled
+    individually via the Upcoming Slots card. Replaces the old silent slot-stranding.
+
+    Returns:
+        ``(open_slots_removed, kept_with_bookings)`` for the success message.
+    """
+    removed, kept = retire_open_slots(rule)
     rule.delete()
     return removed, kept
 

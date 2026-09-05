@@ -7,11 +7,14 @@ Staff) — including crafted-POST permission probes for every gated endpoint.
 
 from __future__ import annotations
 
+from datetime import date, datetime, time, timedelta
+
 import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from membership.models import AdminCapability, Equipment, EquipmentStaffMembership, Member
 from tests.membership.factories import (
@@ -21,6 +24,8 @@ from tests.membership.factories import (
     GuildOrientationSettingsFactory,
     MemberFactory,
     MembershipPlanFactory,
+    OrientationBookingFactory,
+    OrientationSlotFactory,
     OrientationTypeFactory,
     tiny_png_bytes,
 )
@@ -850,3 +855,144 @@ def describe_equipment_orientation_surface():
             response = client.get(reverse("hub_equipment_manage", args=[fresh.slug]))
             queryset = response.context["form"].fields["required_orientation"].queryset
             assert inactive not in queryset
+
+
+def describe_equipment_day_picker():
+    """The equipment page's day chips + time rows picker (equipment-orientation-hours spec §6.4)."""
+
+    def _day(offset: int) -> date:
+        return timezone.localdate() + timedelta(days=offset)
+
+    def _at(day: date, hour: int) -> datetime:
+        return timezone.make_aware(datetime.combine(day, time(hour, 0)))
+
+    def _owned_type(equipment: Equipment, **kwargs):
+        return OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics", **kwargs)
+
+    def _slot(orientation_type, day: date, hour: int, *, seats: int = 1):
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=_at(day, hour),
+            ends_at=_at(day, hour + 1),
+            seats=seats,
+        )
+
+    def it_renders_a_chip_per_day_and_selects_the_first_open_day(client: Client):
+        _login(client, "dp_chips")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        full_day, open_day, later_day = _day(2), _day(3), _day(5)
+        OrientationBookingFactory(slot=_slot(orientation_type, full_day, 10))
+        _slot(orientation_type, open_day, 10)
+        _slot(orientation_type, open_day, 11)
+        _slot(orientation_type, later_day, 9)
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        section = response.context["orientation_sections"][0]
+        assert [(d["iso"], d["open_count"], len(d["slots"])) for d in section["days"]] == [
+            (full_day.isoformat(), 0, 1),
+            (open_day.isoformat(), 2, 2),
+            (later_day.isoformat(), 1, 1),
+        ]
+        assert section["default_day"] == open_day.isoformat()
+        assert section["all_full"] is False
+        content = response.content.decode()
+        # One static state per chip; the leading space keeps Alpine's :aria-pressed binding out of the count.
+        assert content.count(' aria-pressed="') == 3
+        assert content.count("pl-orient-days__chip--full") == 1
+        assert content.count(' aria-pressed="true"') == 1
+        assert f"{{ day: '{open_day.isoformat()}' }}" in content
+        # Object syntax: Alpine removes the class again when another day is picked.
+        assert ":class=\"{ 'pl-orient-days__chip--active': day === '" + open_day.isoformat() + "' }\"" in content
+        assert 'pl-orient-days__chip-count">Full<' in content
+        assert 'pl-orient-days__chip-count">2 open<' in content
+        assert f"x-show=\"day === '{open_day.isoformat()}'\"" in content
+        assert "10:00 AM to 11:00 AM" in content
+        assert "1 seat left" in content
+        assert "Request</button>" in content
+        # A string literal passed through {% include with %} is safe text, so the apostrophe stays literal.
+        assert "We'll send your request to the equipment managers to confirm." in content
+        assert 'class="pl-orient-days"' in content
+        assert "pl-orient-slots__pager" not in content
+        assert "Every time is full right now." not in content
+
+    def it_shows_the_all_full_state_and_selects_the_first_day(client: Client):
+        _login(client, "dp_full")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        OrientationBookingFactory(slot=_slot(orientation_type, _day(2), 10))
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        section = response.context["orientation_sections"][0]
+        assert section["all_full"] is True
+        assert section["default_day"] == _day(2).isoformat()
+        content = response.content.decode()
+        assert "Every time is full right now. Check back soon." in content
+        assert "Request</button>" not in content
+        assert "0 of 1 open" in content
+
+    def it_shows_open_of_total_for_multi_seat_slots(client: Client):
+        _login(client, "dp_seats")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        OrientationBookingFactory(slot=_slot(orientation_type, _day(2), 10, seats=4))
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "3 of 4 open" in content
+
+    def it_renders_for_a_user_with_no_member(client: Client):
+        user = _member_user("dp_nomember")
+        user.member.delete()
+        client.login(username="dp_nomember", password="pass")
+        equipment = EquipmentFactory()
+        _slot(_owned_type(equipment), _day(2), 10)
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        assert response.status_code == 200
+        assert len(response.context["orientation_sections"][0]["days"]) == 1
+
+    def it_does_not_pin_a_declined_booking(client: Client):
+        from membership.models import OrientationBooking
+
+        user = _login(client, "dp_declined")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        slot = _slot(orientation_type, _day(2), 10)
+        OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.DECLINED)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "Request</button>" in content
+
+    def it_closes_a_deleted_windows_slot_when_the_member_cancels(client: Client):
+        from membership import orientations
+        from membership.models import OrientationBooking, OrientationSlot
+        from tests.membership.factories import OrientationAvailabilityFactory
+
+        user = _login(client, "dp_selfcancel")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        rule = OrientationAvailabilityFactory(equipment_owned=True, orientation_type=orientation_type)
+        slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            availability=rule,
+            source=OrientationSlot.Source.GENERATED,
+            starts_at=_at(_day(2), 10),
+            ends_at=_at(_day(2), 11),
+            seats=4,
+        )
+        booking = OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.CONFIRMED)
+        orientations.retire_rule(rule)  # the window is gone; the booked slot survives capped to 1
+        response = client.post(reverse("hub_orientation_cancel_mine", args=[booking.pk]))
+        assert response.status_code == 302
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "No orientation times are posted yet. Check back soon." in content
+
+    def it_keeps_the_empty_state_with_no_slots(client: Client):
+        _login(client, "dp_empty")
+        equipment = EquipmentFactory()
+        _owned_type(equipment)
+        response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+        section = response.context["orientation_sections"][0]
+        assert section["days"] == []
+        assert section["default_day"] == ""
+        assert section["all_full"] is False
+        assert "No orientation times are posted yet. Check back soon." in response.content.decode()
