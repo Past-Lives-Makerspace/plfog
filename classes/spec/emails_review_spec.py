@@ -104,7 +104,9 @@ def describe_send_guild_lead_review_request():
         GuildStaffMembershipFactory(guild=cat.guild, member=staff_member, role=GuildStaffMembership.Role.CO_LEAD)
         inst_user = UserFactory(username="inststaff@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="InstS", instructor_slug="insts")
-        offering = ClassOfferingFactory(instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            ready=True, instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT
+        )
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
 
         send_guild_lead_review_request(offering, row)
@@ -148,7 +150,9 @@ def describe_guild_lead_review_request_no_double_send():
             user=lead_user, event_key="class_review_requested", channel="email", enabled=True
         )
         instructor = InstructorFactory(user=UserFactory(email="i@example.com"), instructor_slug="i-rev")
-        offering = ClassOfferingFactory(instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            ready=True, instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT
+        )
         SiteActivity.objects.all().delete()
 
         offering.submit_for_review()

@@ -217,14 +217,17 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     "class_cancelled": EventCopy(
-        placeholders=("member_name", "class_title", "class_starts_at", "classes_url"),
+        placeholders=("member_name", "class_title", "class_starts_at", "classes_url", "reason"),
         sample_context={
             "member_name": "Robin Vale",
             "class_title": "Intro to Lost-Wax Casting",
             "class_starts_at": "Saturday, July 12",
             "classes_url": "https://pastlives.example/classes/",
+            "reason": "The instructor is unwell and we could not find another date.",
         },
         channels={
+            # The in-app broadcast reaches every active member, so it carries no reason:
+            # a reason written for registrants is not for every member's bell.
             Channel.IN_APP: ChannelCopy(
                 subject="{{ class_title }} was cancelled",
                 body_text="{{ class_title }} on {{ class_starts_at }} has been cancelled.",
@@ -236,6 +239,7 @@ _CURATED: dict[str, EventCopy] = {
                     "Life happens... and due to rare and unfortunate circumstances, {{ class_title }} "
                     "on {{ class_starts_at }} has been cancelled. Any payment will be refunded in full, "
                     "and we're really sorry for any inconvenience.\n\n"
+                    "Reason: {{ reason }}\n\n"
                     "We'd still love to see you in our space. Find another class: {{ classes_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
@@ -244,6 +248,7 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Life happens... and due to rare and unfortunate circumstances, "
                     "<strong>{{ class_title }}</strong> on {{ class_starts_at }} has been cancelled. "
                     "Any payment will be refunded in full, and we're really sorry for any inconvenience.</p>"
+                    "<p><strong>Reason:</strong> {{ reason }}</p>"
                     "<p>We'd still love to see you in our space. Click below to find another class.</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ classes_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'

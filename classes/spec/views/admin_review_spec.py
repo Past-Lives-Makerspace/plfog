@@ -11,21 +11,21 @@ from classes.models import ClassApproval, ClassOffering
 
 def describe_admin_class_review():
     def it_renders_200_for_admin(admin_user, client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         offering.submit_for_review()
         client.force_login(admin_user)
         response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
 
     def it_creates_an_approval_row_for_a_pending_offering_if_none_exists(admin_user, client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING)
         client.force_login(admin_user)
         response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert offering.approvals.exists()
 
     def it_redirects_to_admin_class_review_after_post(admin_user, client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         offering.submit_for_review()
         client.force_login(admin_user)
         response = client.post(
@@ -36,7 +36,7 @@ def describe_admin_class_review():
         assert response.url == reverse("classes:admin_class_review", kwargs={"pk": offering.pk})
 
     def it_gates_behind_admin_role(member_user, client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         client.force_login(member_user)
         response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
         assert response.status_code == 403
@@ -45,7 +45,7 @@ def describe_admin_class_review():
         """Only a PENDING class is reviewable — the page never mints rows or accepts decisions otherwise."""
 
         def it_does_not_mint_an_approval_row_for_a_draft(admin_user, client, db):
-            offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
             client.force_login(admin_user)
             response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
             assert response.status_code == 200
@@ -53,7 +53,7 @@ def describe_admin_class_review():
             assert not offering.approvals.exists()
 
         def it_rejects_an_approve_decision_on_a_draft(admin_user, client, db):
-            offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
             client.force_login(admin_user)
             response = client.post(
                 reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
@@ -65,7 +65,7 @@ def describe_admin_class_review():
             assert not offering.approvals.exists()
 
         def it_rejects_an_approve_decision_on_an_archived_class(admin_user, client, db):
-            offering = ClassOfferingFactory(status=ClassOffering.Status.ARCHIVED)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.ARCHIVED)
             client.force_login(admin_user)
             response = client.post(
                 reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
@@ -80,7 +80,7 @@ def describe_admin_class_review():
 
             stamp = timezone.now()
             offering = ClassOfferingFactory(
-                status=ClassOffering.Status.PUBLISHED, approved_by=admin_user, published_at=stamp
+                ready=True, status=ClassOffering.Status.PUBLISHED, approved_by=admin_user, published_at=stamp
             )
             client.force_login(admin_user)
             response = client.post(
@@ -96,7 +96,7 @@ def describe_admin_class_review():
         def it_refuses_a_stale_tokenized_link_on_a_draft(client, db):
             # A leftover undecided row (e.g. after a bounce to DRAFT) must not let
             # the emailed token page record a decision on a non-pending class.
-            offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
             row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
             response = client.post(
                 reverse("classes:class_review", kwargs={"token": row.token}),
@@ -110,7 +110,7 @@ def describe_admin_class_review():
             assert row.decision == ""
 
         def it_keeps_a_published_class_published_on_a_rejection_post(admin_user, client, db):
-            offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PUBLISHED)
             client.force_login(admin_user)
             response = client.post(
                 reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
@@ -142,7 +142,7 @@ def describe_admin_class_approve():
     def it_publishes_even_while_the_guild_gate_is_open(admin_user, client, db):
         """Admin approval is final: approving publishes immediately and closes the guild-lead gate."""
         cat = _make_guilded_category(db)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, category=cat)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, category=cat)
         offering.submit_for_review()
 
         client.force_login(admin_user)

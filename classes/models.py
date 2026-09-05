@@ -6,12 +6,13 @@ import logging
 import re
 import secrets
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import date as date_type, datetime
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
 from django.db import IntegrityError, models, transaction
-from django.db.models import CheckConstraint, Exists, F, OuterRef, Q
+from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.html import format_html, strip_tags
@@ -225,6 +226,89 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
 
     def pending_review(self) -> "ClassOfferingQuerySet":
         return self.filter(status="pending")
+
+    # --- Derived lifecycle (one property, one badge) -------------------------
+
+    def with_lifecycle_inputs(self) -> "ClassOfferingQuerySet":
+        """Annotate the three inputs :attr:`ClassOffering.lifecycle` needs, so lists resolve
+        every row's badge with no per-row queries.
+
+        ``last_session_at`` (the latest session end), ``open_guild_gate`` (an undecided
+        GUILD_LEAD row exists) and ``bounced`` (a CHANGES_REQUESTED / DENIED row exists)
+        are the only facts the property reads beyond the row itself; ``lifecycle_order``
+        is the same resolution folded into one integer so a list can sort on it. Calling
+        this twice is safe: an already-annotated queryset is returned unchanged.
+        """
+        if "lifecycle_order" in self.query.annotations:
+            return self
+        now = timezone.now()
+        open_guild = ClassApproval.objects.filter(
+            class_offering=OuterRef("pk"), role=ClassApproval.Role.GUILD_LEAD, decision=""
+        )
+        bounced = ClassApproval.objects.filter(class_offering=OuterRef("pk"), decision__in=_BOUNCE_DECISIONS)
+        return self.annotate(
+            last_session_at=Max("sessions__ends_at"),
+            open_guild_gate=Exists(open_guild),
+            bounced=Exists(bounced),
+        ).annotate(
+            lifecycle_order=Case(
+                When(status=ClassOffering.Status.DRAFT, bounced=True, then=Value(1)),
+                When(status=ClassOffering.Status.DRAFT, then=Value(0)),
+                When(status=ClassOffering.Status.PENDING, open_guild_gate=True, then=Value(2)),
+                When(status=ClassOffering.Status.PENDING, then=Value(3)),
+                When(
+                    status=ClassOffering.Status.PUBLISHED,
+                    scheduling_model=ClassOffering.SchedulingModel.FIXED,
+                    last_session_at__lt=now,
+                    then=Value(5),
+                ),
+                When(status=ClassOffering.Status.PUBLISHED, then=Value(4)),
+                When(status=ClassOffering.Status.CANCELLED, then=Value(6)),
+                default=Value(7),
+                output_field=IntegerField(),
+            )
+        )
+
+    def awaiting_admin(self) -> "ClassOfferingQuerySet":
+        """PENDING classes with no open guild-lead gate: the admin's own queue.
+
+        A PENDING class with zero approval rows still lands here, so nothing waits on
+        nobody.
+        """
+        return self.with_lifecycle_inputs().filter(status=ClassOffering.Status.PENDING, open_guild_gate=False)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+
+    def awaiting_guild_lead_any(self) -> "ClassOfferingQuerySet":
+        """PENDING classes whose guild-lead gate is still open, for any guild."""
+        return self.with_lifecycle_inputs().filter(status=ClassOffering.Status.PENDING, open_guild_gate=True)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+
+    def changes_requested(self) -> "ClassOfferingQuerySet":
+        """Drafts a reviewer bounced (changes requested or declined) and nobody resubmitted."""
+        return self.with_lifecycle_inputs().filter(status=ClassOffering.Status.DRAFT, bounced=True)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+
+    def upcoming_published(self) -> "ClassOfferingQuerySet":
+        """Published classes that have not finished: flexible, undated, or with a session still to come."""
+        now = timezone.now()
+        return (
+            self.with_lifecycle_inputs()
+            .filter(status=ClassOffering.Status.PUBLISHED)
+            .filter(
+                Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+                | Q(last_session_at__isnull=True)
+                | Q(last_session_at__gte=now)
+            )
+        )
+
+    def completed(self) -> "ClassOfferingQuerySet":
+        """Published, dated classes whose last session has ended."""
+        now = timezone.now()
+        return self.with_lifecycle_inputs().filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FIXED,
+            last_session_at__lt=now,
+        )
+
+    def cancelled(self) -> "ClassOfferingQuerySet":
+        return self.filter(status=ClassOffering.Status.CANCELLED)
 
     def awaiting_guild_lead(self, member: "Member") -> "ClassOfferingQuerySet":
         """Pending classes whose undecided guild-lead gate this member can act on.
@@ -440,12 +524,95 @@ _COMPILED_GUILD_CATEGORY_KEYWORDS: tuple[tuple[str, re.Pattern[str]], ...] = tup
 
 DEFAULT_SALE_BANNER_TEXT = "🔥 Limited-time sale — save on this class while it lasts!"
 
+# Reviewer decisions that send a class back to DRAFT. A draft carrying one of these
+# rows reads "Changes requested" everywhere instead of masquerading as a fresh draft.
+_BOUNCE_DECISIONS: tuple[str, ...] = ("changes_requested", "denied")
+
+# The shortest description that counts as "a real description" for readiness.
+READINESS_MIN_DESCRIPTION_CHARS = 40
+
+
+@dataclass(frozen=True)
+class ReadinessItem:
+    """One line of the submit checklist: what a class needs before it can go to a reviewer.
+
+    ``anchor`` is the DOM id of the field on the edit page the hint links to.
+    """
+
+    ok: bool
+    label: str
+    hint: str
+    anchor: str
+
+
+@dataclass(frozen=True)
+class PipelineStep:
+    """One step of the review pipeline strip (Submitted, Guild lead, Admin, Live).
+
+    ``state`` is one of ``done`` / ``current`` / ``ahead`` / ``changes_requested``;
+    ``detail`` is the tooltip line ("Approved by Sam, Sep 3") and ``note`` carries the
+    reviewer's notes when the step is the bouncing one.
+    """
+
+    key: str
+    label: str
+    state: str
+    detail: str = ""
+    note: str = ""
+
+    @property
+    def marker(self) -> str:
+        """The plain-text marker for this step, shared by the text email and the page."""
+        return {"done": "✓", "current": "●", "changes_requested": "↩"}.get(self.state, " ")
+
+
+@dataclass(frozen=True)
+class ReviewPipeline:
+    """The review pipeline for one class: the strip every page and every review email draws.
+
+    ``muted`` is True for cancelled and archived classes, which render their last known
+    strip under a muted headline. ``fill_percent`` is how far the connector fills (up to
+    the current or bouncing step).
+    """
+
+    steps: tuple[PipelineStep, ...]
+    headline: str
+    note: str
+    is_live: bool
+    is_bounced: bool
+    muted: bool = False
+
+    @property
+    def fill_percent(self) -> int:
+        reached = [i for i, step in enumerate(self.steps) if step.state != "ahead"]
+        if not reached or len(self.steps) < 2:
+            return 0
+        return round(100 * max(reached) / (len(self.steps) - 1))
+
+    @property
+    def text_line(self) -> str:
+        """The one-line bracketed strip for text emails: ``[✓] Submitted  [●] Guild lead  [ ] Admin  [ ] Live``."""
+        return "  ".join(f"[{step.marker}] {step.label}" for step in self.steps)
+
 
 class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         PENDING = "pending", "Pending Review"
         PUBLISHED = "published", "Published"
+        CANCELLED = "cancelled", "Cancelled"
+        ARCHIVED = "archived", "Archived"
+
+    class Lifecycle(models.TextChoices):
+        """Where a class is, derived from status + approval rows + sessions (never stored)."""
+
+        DRAFT = "draft", "Draft"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        AWAITING_GUILD_LEAD = "awaiting_guild_lead", "With guild lead"
+        AWAITING_ADMIN = "awaiting_admin", "Awaiting admin"
+        UPCOMING = "upcoming", "Upcoming"
+        COMPLETED = "completed", "Completed"
+        CANCELLED = "cancelled", "Cancelled"
         ARCHIVED = "archived", "Archived"
 
     class SaleKind(models.TextChoices):
@@ -570,6 +737,22 @@ class ClassOffering(HeroCropMixin, models.Model):
         help_text="Admin user who approved publication.",
     )
     published_at = models.DateTimeField(null=True, blank=True, help_text="Stamp on first publish.")
+    cancelled_at = models.DateTimeField(
+        null=True, blank=True, help_text="When this class was cancelled (status CANCELLED)."
+    )
+    cancelled_by = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Member who cancelled this class, when known.",
+    )
+    cancellation_reason = models.CharField(
+        max_length=300,
+        blank=True,
+        help_text="Why the class was cancelled. Emailed to everyone registered.",
+    )
     channel_announced_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -815,12 +998,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
-        if not self.has_submittable_image:
+        if not self.is_ready:
             from django.core.exceptions import ValidationError
 
-            raise ValidationError(
-                "Add photos before submitting — a class needs its own hero image and at least one gallery photo."
-            )
+            raise ValidationError(self.readiness_error("submit"))
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
         # Clear out any stale approval rows from a prior submission cycle, then
@@ -885,33 +1066,183 @@ class ClassOffering(HeroCropMixin, models.Model):
         row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
         return row
 
-    def archive(self) -> None:
-        self.status = self.Status.ARCHIVED
-        self.save(update_fields=["status", "updated_at"])
+    def publish(self, actor: "User | None") -> None:
+        """The single place a class goes live: stamps the row, logs it, and announces it.
+
+        Called by the admin's final review approval (``on_review_decision_recorded``) and
+        by the admin's direct create path. Refuses an unready class (no photos, no dates,
+        no real description, no capacity) so the catalog never shows a class nobody can
+        book.
+
+        Raises:
+            ValidationError: When :attr:`is_ready` is False, naming every failing item.
+        """
+        if not self.is_ready:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(self.readiness_error("publish"))
+        from django.urls import reverse
+
+        from classes import activity
+        from classes.emails import _absolute_url
+        from core.events.emit import emit
+
+        self.status = self.Status.PUBLISHED
+        self.approved_by = actor
+        self.published_at = timezone.now()
+        self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+        activity.log(CmsActivity.Kind.CLASS_PUBLISHED, class_offering=self, actor=actor)
+        # The instructor's "Your class was approved" bell row + the rich "live!" email
+        # both fan out from the ``instructor_class_approved`` event emitted by
+        # ``classes.emails.send_class_review_decision`` (called by the view right after
+        # the publishing decision). This broadcast is the "a new class is live" in-app
+        # fan-out to ALL active members (resolved by the ``class_published`` event); its
+        # EMAIL channel defaults off, matching the old in-app-only dispatch.
+        class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
+        emit(
+            "class_published",
+            actor=actor,
+            target=self,
+            context={
+                "class_title": self.title,
+                "class_url": class_url,
+                "class_image_html": self.email_hero_image_html,
+            },
+            url=class_url,
+            period=f"offering:{self.pk}:published",
+        )
+
+    def cancel(self, actor: "User | None", reason: str) -> None:
+        """Cancel a live class: the member-facing event. Everyone registered is told why.
+
+        Distinct from :meth:`archive` (quiet housekeeping). Sets the three cancel columns,
+        logs ``CLASS_CANCELLED``, and emits ``class_cancelled``: an in-app broadcast to all
+        active members (as before) and the cancellation EMAIL, carrying ``reason``, to the
+        people who actually booked, including guests with no account. Refunds stay a
+        staff action through the per-registration refund panel.
+
+        Raises:
+            ValueError: If the class is not PUBLISHED, or ``reason`` is blank.
+        """
+        if self.status != self.Status.PUBLISHED:
+            raise ValueError(f"Only published classes can be cancelled; got {self.status}.")
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("A cancellation reason is required.")
         from classes import activity
         from core.events.emit import emit
 
-        activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
-        # In-app broadcast to all active members (the ``class_cancelled`` event resolves
-        # ALL_ACTIVE_MEMBERS), but the EMAIL goes ONLY to the people who actually booked
-        # the class — including guests with no account, who are unreachable by the
-        # resolver. ``suppress_email=True`` is unconditional (not merely implied by a
-        # non-empty ``email_to``) so archiving a class nobody booked can never turn into a
+        self.status = self.Status.CANCELLED
+        self.cancelled_at = timezone.now()
+        self.cancelled_by = getattr(actor, "member", None) if actor is not None else None
+        self.cancellation_reason = reason
+        self.save(
+            update_fields=["status", "cancelled_at", "cancelled_by", "cancellation_reason", "updated_at"],
+        )
+        activity.log(
+            CmsActivity.Kind.CLASS_CANCELLED,
+            class_offering=self,
+            actor=actor,
+            payload={"reason": reason},
+        )
+        # ``suppress_email=True`` is unconditional (not merely implied by a non-empty
+        # ``email_to``) so cancelling a class nobody booked can never turn into a
         # site-wide email blast to every active member.
         emit(
             "class_cancelled",
+            actor=actor,
             target=self,
             context={
                 "member_name": "there",
                 "class_title": self.title,
                 "class_starts_at": self.cancellation_date_label,
                 "classes_url": f"{settings.BOOK_BASE_URL}/classes/",
+                "reason": reason,
             },
             url="/classes/",
             email_to=self.registrant_notice_emails,
             suppress_email=True,
-            period=f"offering:{self.pk}:archived",
+            period=f"offering:{self.pk}:cancelled",
         )
+
+    @property
+    def archive_blocker(self) -> str:
+        """Why :meth:`archive` would refuse right now, or ``""`` when archiving is allowed.
+
+        An upcoming class with active registrations must be cancelled (so registrants
+        hear about it), never quietly archived.
+        """
+        if self.lifecycle != self.Lifecycle.UPCOMING:
+            return ""
+        active = self.active_registration_count
+        if not active:
+            return ""
+        return f"Cancel this class instead. It has upcoming dates and {active} active registrations."
+
+    def archive(self) -> None:
+        """Quiet housekeeping: the class leaves every list and the catalog. Nobody is told.
+
+        Registrations stay on record and :meth:`restore` brings the class back as a draft.
+
+        Raises:
+            ValueError: For an upcoming class with active registrations (see
+                :attr:`archive_blocker`); cancel it instead.
+        """
+        blocker = self.archive_blocker
+        if blocker:
+            raise ValueError(blocker)
+        self.status = self.Status.ARCHIVED
+        self.save(update_fields=["status", "updated_at"])
+        from classes import activity
+
+        activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=self)
+
+    def restore(self) -> None:
+        """Bring an archived class back as a draft. It needs review again before it goes live.
+
+        Raises:
+            ValueError: If the class is not ARCHIVED.
+        """
+        if self.status != self.Status.ARCHIVED:
+            raise ValueError(f"Only archived classes can be restored; got {self.status}.")
+        from classes import activity
+
+        self.approvals.all().delete()
+        self.status = self.Status.DRAFT
+        self.cancelled_at = None
+        self.cancelled_by = None
+        self.cancellation_reason = ""
+        self.save(
+            update_fields=["status", "cancelled_at", "cancelled_by", "cancellation_reason", "updated_at"],
+        )
+        activity.log(CmsActivity.Kind.CLASS_RESTORED, class_offering=self)
+
+    @property
+    def active_registration_count(self) -> int:
+        """Registrations still on the books: confirmed, pending payment, or waitlisted."""
+        return self.registrations.filter(
+            status__in=[
+                Registration.Status.CONFIRMED,
+                Registration.Status.PENDING,
+                Registration.Status.WAITLISTED,
+            ]
+        ).count()
+
+    @property
+    def paid_registration_count(self) -> int:
+        """Active registrations that have paid something, so a cancel can name the refund work."""
+        return self.registrations.filter(
+            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING],
+            amount_paid_cents__gt=0,
+        ).count()
+
+    @property
+    def cancellation_reason_sentence(self) -> str:
+        """The cancellation reason as a full sentence (ends with a period) for member copy."""
+        reason = self.cancellation_reason.strip()
+        if not reason:
+            return ""
+        return reason if reason[-1] in ".!?" else f"{reason}."
 
     @property
     def cancellation_date_label(self) -> str:
@@ -1032,40 +1363,10 @@ class ClassOffering(HeroCropMixin, models.Model):
                     notes="Approved automatically when an admin gave final approval.",
                     decided_at=timezone.now(),
                 )
-                self.status = self.Status.PUBLISHED
-                self.approved_by = row.decided_by
-                self.published_at = timezone.now()
-                self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
-                activity.log(
-                    CmsActivity.Kind.CLASS_PUBLISHED,
-                    class_offering=self,
-                    actor=row.decided_by,
-                )
-                # The instructor's "Your class was approved" bell row + the rich "live!"
-                # email now both fan out from the single ``instructor_class_approved`` event
-                # emitted by ``classes.emails.send_class_review_decision`` (called by the
-                # view right after the publishing decision). This separate broadcast is the
-                # "a new class is live" in-app fan-out to ALL active members (resolved by the
-                # ``class_published`` event); its EMAIL channel defaults off, matching the old
-                # in-app-only dispatch.
-                from django.urls import reverse
-
-                from classes.emails import _absolute_url
-                from core.events.emit import emit
-
-                class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
-                emit(
-                    "class_published",
-                    actor=row.decided_by,
-                    target=self,
-                    context={
-                        "class_title": self.title,
-                        "class_url": class_url,
-                        "class_image_html": self.email_hero_image_html,
-                    },
-                    url=class_url,
-                    period=f"offering:{self.pk}:published",
-                )
+                # ``ClassApproval.decide`` already refused an unready class before saving
+                # the row, so this publish cannot raise on readiness in practice; the guard
+                # inside ``publish`` is defense in depth for any other caller.
+                self.publish(row.decided_by)
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -1305,6 +1606,257 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         return self.gallery_images.count() < 3
 
+    # --- Derived lifecycle --------------------------------------------------
+
+    @property
+    def _last_session_ends_at(self) -> datetime | None:
+        """Latest session end; reads the ``with_lifecycle_inputs`` annotation when present."""
+        annotated = getattr(self, "last_session_at", None)
+        if annotated is not None or hasattr(self, "last_session_at"):
+            return annotated
+        return self.sessions.aggregate(last=Max("ends_at"))["last"]
+
+    @property
+    def _has_open_guild_gate(self) -> bool:
+        annotated = getattr(self, "open_guild_gate", None)
+        if annotated is not None:
+            return bool(annotated)
+        return self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").exists()
+
+    @property
+    def _is_bounced(self) -> bool:
+        annotated = getattr(self, "bounced", None)
+        if annotated is not None:
+            return bool(annotated)
+        return self.approvals.filter(decision__in=_BOUNCE_DECISIONS).exists()
+
+    @property
+    def latest_bounce_row(self) -> "ClassApproval | None":
+        """The most recent CHANGES_REQUESTED / DENIED row (by ``decided_at``), if any."""
+        rows = [row for row in self.approvals.all() if row.decision in _BOUNCE_DECISIONS and row.decided_at]
+        if not rows:
+            return None
+        return max(rows, key=lambda row: cast(datetime, row.decided_at))
+
+    @property
+    def lifecycle(self) -> "ClassOffering.Lifecycle":
+        """Where this class is, resolved from status, approval rows, and sessions.
+
+        Resolution order: ARCHIVED, CANCELLED, PENDING with an open guild-lead row
+        (AWAITING_GUILD_LEAD), other PENDING (AWAITING_ADMIN), DRAFT with a bouncing row
+        (CHANGES_REQUESTED), other DRAFT, PUBLISHED dated and finished (COMPLETED), other
+        PUBLISHED (UPCOMING). A flexible published class never completes on its own, and
+        a dated published class with no sessions reads Upcoming with a "No dates yet"
+        note while ``bookable()`` keeps it out of the catalog.
+        """
+        status = self.status
+        if status == self.Status.ARCHIVED:
+            return self.Lifecycle.ARCHIVED
+        if status == self.Status.CANCELLED:
+            return self.Lifecycle.CANCELLED
+        if status == self.Status.PENDING:
+            return self.Lifecycle.AWAITING_GUILD_LEAD if self._has_open_guild_gate else self.Lifecycle.AWAITING_ADMIN
+        if status == self.Status.DRAFT:
+            return self.Lifecycle.CHANGES_REQUESTED if self._is_bounced else self.Lifecycle.DRAFT
+        if self.scheduling_model == self.SchedulingModel.FIXED:
+            last = self._last_session_ends_at
+            if last is not None and last < timezone.now():
+                return self.Lifecycle.COMPLETED
+        return self.Lifecycle.UPCOMING
+
+    @property
+    def _guild_name(self) -> str:
+        if self.category_id and self.category.guild is not None:
+            return self.category.guild.name
+        return ""
+
+    @property
+    def lifecycle_label(self) -> str:
+        """The badge text: the lifecycle label, naming the guild while a lead holds the class."""
+        lifecycle = self.lifecycle
+        if lifecycle == self.Lifecycle.AWAITING_GUILD_LEAD and self._guild_name:
+            return f"With guild lead ({self._guild_name})"
+        return str(lifecycle.label)
+
+    @property
+    def lifecycle_note(self) -> str:
+        """The stage detail behind the badge: guild name, reviewer note, end date, or no-dates note."""
+        lifecycle = self.lifecycle
+        if lifecycle == self.Lifecycle.AWAITING_GUILD_LEAD:
+            return self._guild_name
+        if lifecycle == self.Lifecycle.CHANGES_REQUESTED:
+            row = self.latest_bounce_row
+            if row is None:
+                return ""
+            verb = "asked for changes" if row.decision == ClassApproval.Decision.CHANGES_REQUESTED else "declined it"
+            who = "The guild lead" if row.role == ClassApproval.Role.GUILD_LEAD else "An admin"
+            excerpt = " ".join((row.notes or "").split())
+            return f"{who} {verb}: {excerpt}" if excerpt else f"{who} {verb}."
+        if lifecycle == self.Lifecycle.COMPLETED:
+            last = self._last_session_ends_at
+            return f"Ended {date_format(localtime(last), 'M j')}" if last is not None else ""
+        if (
+            lifecycle == self.Lifecycle.UPCOMING
+            and self.scheduling_model == self.SchedulingModel.FIXED
+            and self._last_session_ends_at is None
+        ):
+            return "No dates yet"
+        return ""
+
+    # --- Readiness ------------------------------------------------------------
+
+    def readiness(self) -> list[ReadinessItem]:
+        """The submit checklist: five things a class needs before a reviewer sees it."""
+        description_ok = len(" ".join(strip_tags(self.description or "").split())) >= READINESS_MIN_DESCRIPTION_CHARS
+        if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
+            dates_ok = bool(self.flexible_note.strip())
+            dates_hint = "Say how students pick a time."
+        else:
+            dates_ok = self.sessions.filter(starts_at__gte=timezone.now()).exists()
+            dates_hint = "Add at least one date."
+        return [
+            ReadinessItem(bool(self.image), "Hero photo", "Add a hero photo.", "hero-preview"),
+            ReadinessItem(self.gallery_images.exists(), "Gallery photo", "Add one gallery photo.", "gallery-manager"),
+            ReadinessItem(description_ok, "Description", "Write a short description.", "id_description"),
+            ReadinessItem(dates_ok, "Dates", dates_hint, "class-dates"),
+            ReadinessItem(self.capacity >= 1, "Capacity", "Set how many can attend.", "id_capacity"),
+        ]
+
+    @property
+    def is_ready(self) -> bool:
+        return all(item.ok for item in self.readiness())
+
+    def readiness_error(self, verb: str) -> str:
+        """The one-line error naming every failing readiness item: "Not ready to submit: Add at least one date."."""
+        hints = " ".join(item.hint for item in self.readiness() if not item.ok)
+        return f"Not ready to {verb}: {hints}"
+
+    @property
+    def first_gate_label(self) -> str:
+        """Who reviews first, for the honest submit message: "the guild lead (Woodshop)" or "an admin"."""
+        if ClassApproval.Role.GUILD_LEAD in self.required_review_roles:
+            return f"the guild lead ({self._guild_name})"
+        return "an admin"
+
+    # --- Review pipeline ------------------------------------------------------
+
+    @staticmethod
+    def _decider_name(row: "ClassApproval") -> str:
+        user = row.decided_by
+        if user is None:
+            return ""
+        return user.get_full_name() or user.email or user.get_username()
+
+    def _pipeline_detail(self, row: "ClassApproval") -> str:
+        """Tooltip text for a decided row: "Approved by Sam, Sep 3" / "Waiting since Sep 1"."""
+        if not row.decision:
+            return f"Waiting since {date_format(localtime(row.created_at), 'M j')}"
+        verb = {
+            ClassApproval.Decision.APPROVED: "Approved",
+            ClassApproval.Decision.CHANGES_REQUESTED: "Changes requested",
+            ClassApproval.Decision.DENIED: "Declined",
+        }[ClassApproval.Decision(row.decision)]
+        who = self._decider_name(row)
+        when = date_format(localtime(row.decided_at), "M j") if row.decided_at else ""
+        parts = [f"{verb} by {who}" if who else verb]
+        if when:
+            parts.append(when)
+        return ", ".join(parts)
+
+    def review_pipeline(self) -> ReviewPipeline:
+        """The review pipeline strip: Submitted, Guild lead (when required), Admin, Live.
+
+        Reads only this cycle's approval rows (``submit_for_review`` clears rows on
+        resubmit) and never errors on any status: cancelled and archived classes render
+        their last known strip under a muted headline, and legacy rows from an old
+        cycle are read as they are.
+        """
+        status = self.status
+        is_pending = status == self.Status.PENDING
+        is_draft = status == self.Status.DRAFT
+        muted = status in (self.Status.CANCELLED, self.Status.ARCHIVED)
+        was_live = status == self.Status.PUBLISHED or (muted and self.published_at is not None)
+        rows = sorted(self.approvals.all(), key=lambda row: row.created_at)
+        latest_by_role: dict[str, ClassApproval] = {row.role: row for row in rows}
+        bounce = self.latest_bounce_row
+        bounced = is_draft and bounce is not None
+        guild_row = latest_by_role.get(ClassApproval.Role.GUILD_LEAD)
+        admin_row = latest_by_role.get(ClassApproval.Role.ADMIN)
+        guild_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles or guild_row is not None
+
+        submitted_state = "done" if (is_pending or was_live or bounce is not None or rows) else "current"
+        steps = [PipelineStep("submitted", "Submitted", submitted_state)]
+
+        guild_open = guild_row is not None and not guild_row.decision
+        if guild_required:
+            steps.append(self._pipeline_step("guild_lead", "Guild lead", guild_row, was_live, is_pending or muted))
+        if admin_row is None and is_pending and not guild_open:
+            admin_step = PipelineStep("admin", "Admin", "current", detail="Waiting on an admin")
+        else:
+            admin_step = self._pipeline_step("admin", "Admin", admin_row, was_live, is_pending or muted)
+            if admin_step.state == "current" and guild_open and not was_live:
+                admin_step = PipelineStep("admin", "Admin", "ahead")
+        steps.append(admin_step)
+        steps.append(PipelineStep("live", "Live", "done" if was_live else "ahead"))
+
+        headline = self._pipeline_headline(steps, bounce if bounced else None, was_live, muted)
+        note = " ".join((bounce.notes or "").split()) if bounced and bounce is not None else ""
+        return ReviewPipeline(
+            steps=tuple(steps),
+            headline=headline,
+            note=note,
+            is_live=status == self.Status.PUBLISHED,
+            is_bounced=bounced,
+            muted=muted,
+        )
+
+    def _pipeline_step(
+        self,
+        key: str,
+        label: str,
+        row: "ClassApproval | None",
+        was_live: bool,
+        may_be_current: bool,
+    ) -> PipelineStep:
+        """Resolve one reviewer step from its row: done, current, changes requested, or ahead."""
+        if row is not None and row.decision in _BOUNCE_DECISIONS:
+            return PipelineStep(
+                key, label, "changes_requested", self._pipeline_detail(row), " ".join(row.notes.split())
+            )
+        if was_live or (row is not None and row.decision == ClassApproval.Decision.APPROVED):
+            detail = self._pipeline_detail(row) if row is not None and row.decision else ""
+            return PipelineStep(key, label, "done", detail)
+        if row is not None and not row.decision and may_be_current:
+            return PipelineStep(key, label, "current", self._pipeline_detail(row))
+        return PipelineStep(key, label, "ahead")
+
+    def _pipeline_headline(
+        self,
+        steps: list[PipelineStep],
+        bounce: "ClassApproval | None",
+        was_live: bool,
+        muted: bool,
+    ) -> str:
+        if self.status == self.Status.CANCELLED:
+            return "Cancelled"
+        if self.status == self.Status.ARCHIVED:
+            return "Archived"
+        if self.status == self.Status.PUBLISHED:
+            when = date_format(localtime(self.published_at), "M j") if self.published_at else ""
+            return f"Live since {when}" if when else "Live"
+        if bounce is not None:
+            who = "the guild lead" if bounce.role == ClassApproval.Role.GUILD_LEAD else "an admin"
+            verb = "Changes requested" if bounce.decision == ClassApproval.Decision.CHANGES_REQUESTED else "Declined"
+            return f"{verb} by {who}"
+        current = next((step for step in steps if step.state == "current"), None)
+        if current is None or current.key == "submitted":
+            return "Not submitted yet"
+        if current.key == "guild_lead":
+            return (
+                f"Waiting on the guild lead ({self._guild_name})" if self._guild_name else "Waiting on the guild lead"
+            )
+        return "Waiting on an admin"
+
     @property
     def first_upcoming_session_at(self) -> datetime | None:
         session = self.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at").first()
@@ -1439,11 +1991,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         base_slug = f"{self.slug}-copy"
         self.pk = None
         self.title = f"{self.title} (copy)"
+        self._reset_lifecycle_for_clone()
+        _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
+        return self
+
+    def _reset_lifecycle_for_clone(self) -> None:
+        """A clone starts as a fresh draft: no publish stamps and no cancel record ride along."""
         self.status = self.Status.DRAFT
         self.published_at = None
         self.approved_by = None
-        _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
-        return self
+        self.cancelled_at = None
+        self.cancelled_by = None
+        self.cancellation_reason = ""
 
     def duplicate_as_new_run(self) -> "ClassOffering":
         """Clone as a fresh draft "run" of the SAME class on a new set of dates.
@@ -1459,9 +2018,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         base_slug = f"{self.slug}-run"
         self.pk = None
-        self.status = self.Status.DRAFT
-        self.published_at = None
-        self.approved_by = None
+        self._reset_lifecycle_for_clone()
         self.legacy_cms_id = ""
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         return self
@@ -1574,6 +2131,13 @@ class ClassApproval(models.Model):
             raise ValueError(f"Unknown decision: {decision!r}")
         if self.class_offering.status != ClassOffering.Status.PENDING:
             raise ValueError(f"Only pending classes can accept review decisions; got {self.class_offering.status}.")
+        if decision == self.Decision.APPROVED and self.role == self.Role.ADMIN and not self.class_offering.is_ready:
+            # The admin's approval is the publishing decision. Refuse BEFORE saving the
+            # row so an unready class never strands an APPROVED admin row on a class
+            # that stays PENDING; the reviewer sees the failing items as a form error.
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(self.class_offering.readiness_error("publish"))
         self.decision = decision
         self.decided_by = user
         self.notes = notes
@@ -2764,6 +3328,10 @@ class CmsActivity(models.Model):
         CLASS_DENIED = "class_denied", "Declined"
         CLASS_PUBLISHED = "class_published", "Published"
         CLASS_ARCHIVED = "class_archived", "Archived"
+        CLASS_CANCELLED = "class_cancelled", "Class cancelled"
+        CLASS_WITHDRAWN = "class_withdrawn", "Submission withdrawn"
+        CLASS_RESTORED = "class_restored", "Restored to draft"
+        CLASS_CHANGE_REQUESTED = "class_change_requested", "Change requested by instructor"
         REGISTRATION_CREATED = "registration_created", "Registered"
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
         REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"

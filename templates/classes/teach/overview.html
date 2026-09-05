@@ -54,25 +54,37 @@ the instructor tour's step-2 target.{% endcomment %}
 {% else %}
   <div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
 
-    {# ① Needs you: drafts to finish + classes awaiting admin review #}
+    {# ① Needs you: bounced classes first (with the reviewer's note), then drafts, then classes in review #}
     <section class="hub-card" style="margin:0;" data-help-key="teach.review-pipeline">
-      <h2 class="overview-title">Needs your attention <span class="overview-title__count">({{ stats.drafts|add:stats.pending }})</span></h2>
+      <h2 class="overview-title">Needs your attention <span class="overview-title__count">({{ stats.attention }})</span></h2>
+      {% for c in bounced_classes %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <a href="{% url 'classes:teach_class_edit' pk=c.pk %}">{{ c.title }}</a>
+            <span class="pl-review-excerpt" style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.lifecycle_note|truncatechars:120 }}</span>
+          </span>
+          <span style="display:flex;align-items:center;gap:8px;">
+            {% include "classes/_components/lifecycle_badge.html" with offering=c %}
+            <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'classes:teach_class_edit' pk=c.pk %}">Fix and resubmit</a>
+          </span>
+        </div>
+      {% endfor %}
       {% for c in drafts %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
           <a href="{% url 'classes:teach_class_edit' pk=c.pk %}">{{ c.title }}</a>
           <span style="display:flex;align-items:center;gap:8px;">
-            <span style="color:var(--hub-text-muted);">Draft</span>
-            <a class="hub-btn hub-btn--sm" href="{% url 'classes:teach_class_edit' pk=c.pk %}">Finish &amp; submit</a>
+            {% include "classes/_components/lifecycle_badge.html" with offering=c %}
+            <a class="hub-btn hub-btn--sm" href="{% url 'classes:teach_class_edit' pk=c.pk %}">Finish and submit</a>
           </span>
         </div>
       {% endfor %}
       {% for c in pending_classes %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
           <a href="{% url 'classes:teach_class_edit' pk=c.pk %}">{{ c.title }}</a>
-          <span class="hub-pill" style="color:var(--hub-text-muted);white-space:nowrap;">Awaiting admin review</span>
+          {% include "classes/_components/lifecycle_badge.html" with offering=c %}
         </div>
       {% endfor %}
-      {% if not pending_classes and not drafts %}
+      {% if not pending_classes and not drafts and not bounced_classes %}
         <p style="color:var(--hub-text-muted);">Nothing needs your attention — you're all caught up! 🎉</p>
       {% endif %}
     </section>

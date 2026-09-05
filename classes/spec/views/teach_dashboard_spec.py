@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
+    READY_DESCRIPTION,
     CategoryFactory,
     ClassOfferingFactory,
     InstructorFactory,
@@ -143,7 +144,7 @@ def describe_instructor_create_class():
             {
                 "title": "Submit-Me",
                 "category": cat.pk,
-                "description": "d",
+                "description": READY_DESCRIPTION,
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -155,7 +156,7 @@ def describe_instructor_create_class():
                 "scheduling_model": "flexible",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "flexible_note": "",
+                "flexible_note": "We will find a time together.",
                 "recurring_pattern": "",
                 "sessions-TOTAL_FORMS": "0",
                 "sessions-INITIAL_FORMS": "0",
@@ -297,6 +298,7 @@ def describe_instructor_edit_class():
 def describe_instructor_submit():
     def it_flips_draft_to_pending(instructor_fixture, client):
         mine = ClassOfferingFactory(
+            ready=True,
             instructor=instructor_fixture,
             slug="to-submit",
             status=ClassOffering.Status.DRAFT,
@@ -427,7 +429,7 @@ def describe_instructor_class_edit_post():
             {
                 "title": mine.title,
                 "category": cat.pk,
-                "description": "d",
+                "description": READY_DESCRIPTION,
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",

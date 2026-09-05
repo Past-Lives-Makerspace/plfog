@@ -4,7 +4,7 @@
 <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:0.75rem;">
     <div>
         <h2 style="margin:0 0 0.25rem;">{{ offering.title }}</h2>
-        <span style="font-size:0.8rem; padding:0.15rem 0.6rem; border-radius:4px; background:rgba(238,180,75,0.1); color:var(--hub-text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">{{ offering.get_status_display }}</span>
+        {% include "classes/_components/lifecycle_badge.html" with offering=offering show_note=True %}
     </div>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'hub_compose' %}?audience=class:{{ offering.pk }}&amp;lock=1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:0.35rem;vertical-align:-2px;"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Send Email</a>

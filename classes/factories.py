@@ -81,6 +81,9 @@ class InstructorFactory(DjangoModelFactory):
         return super()._create(model_class, *args, **kwargs)
 
 
+READY_DESCRIPTION = "A hands-on class where you build a real project, learn the tools safely, and take your work home."
+
+
 class ClassOfferingFactory(DjangoModelFactory):
     class Meta:
         model = models.ClassOffering
@@ -109,6 +112,21 @@ class ClassOfferingFactory(DjangoModelFactory):
         count = 1 if extracted is None else extracted
         for i in range(count):
             ClassImageFactory(class_offering=obj, sort_order=i)
+
+    @factory.post_generation
+    def ready(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
+        """``ready=True`` makes the class pass every readiness check (``ClassOffering.readiness``).
+
+        Adds a real description and one session two days out on top of the default hero,
+        gallery photo, and capacity. Specs that submit or publish a class use it; everything
+        else keeps the lean default so unrelated suites never gain a session.
+        """
+        if not create or not extracted:
+            return
+        obj.description = READY_DESCRIPTION
+        obj.save(update_fields=["description"])
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=obj, starts_at=start, ends_at=start + timedelta(hours=2))
 
 
 class SeriesClassOfferingFactory(ClassOfferingFactory):

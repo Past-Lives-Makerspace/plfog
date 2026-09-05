@@ -1,0 +1,13 @@
+{% comment %}Email-safe review pipeline: one table row, one cell per step, inline styles only (no SVG, no external CSS). Rendered by the {% review_pipeline offering %} tag; the .txt twin is _review_pipeline.txt.{% endcomment %}
+<p style="margin:16px 0 6px;font-size:14px;font-weight:700;color:{% if pipeline.muted %}#55697a{% else %}#092E4C{% endif %};">{{ pipeline.headline }}</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 14px;border-collapse:collapse;">
+  <tr>
+    {% for step in pipeline.steps %}
+    <td style="padding:0 14px 0 0;text-align:center;vertical-align:top;">
+      <span style="display:inline-block;width:26px;height:26px;line-height:26px;border-radius:13px;font-size:14px;font-weight:700;text-align:center;{% if step.state == 'done' %}background:#2f8f4e;color:#FFFFFF;{% elif step.state == 'current' %}background:#EEB44B;color:#092E4C;{% elif step.state == 'changes_requested' %}background:#2f6fb0;color:#FFFFFF;{% else %}background:#e6e9ee;color:#8b97a8;border:1px solid #c9d1d9;line-height:24px;{% endif %}">{% if step.state == 'done' %}&#10003;{% elif step.state == 'current' %}&#9679;{% elif step.state == 'changes_requested' %}&#8617;{% else %}&#9675;{% endif %}</span>
+      <div style="margin-top:4px;font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:{% if step.state == 'ahead' %}#8b97a8{% elif step.state == 'changes_requested' %}#2f6fb0{% else %}#092E4C{% endif %};">{{ step.label }}</div>
+    </td>
+    {% endfor %}
+  </tr>
+</table>
+{% if pipeline.note %}<div style="margin:0 0 14px;padding:12px 14px;background:rgba(47,111,176,0.08);border-left:3px solid #2f6fb0;border-radius:0 6px 6px 0;color:#33424f;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ pipeline.note }}</div>{% endif %}

@@ -37,7 +37,7 @@ def guilded_pending_offering(db):
     lead = Member.objects.get(user=lead_user)
     guild = GuildFactory(name="Capability Guild", guild_lead=lead)
     cat = CategoryFactory(guild=guild)
-    offering = ClassOfferingFactory(slug="cap-pending", category=cat, status=ClassOffering.Status.PENDING)
+    offering = ClassOfferingFactory(ready=True, slug="cap-pending", category=cat, status=ClassOffering.Status.PENDING)
     ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
     return offering
 

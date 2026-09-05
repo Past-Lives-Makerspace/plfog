@@ -13,6 +13,41 @@ def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
+def _real_image_file(name: str = "hero.png") -> SimpleUploadedFile:
+    """A genuine PNG: the hero ``image`` form field runs Pillow validation, unlike gallery files."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+def _future_session_fields() -> dict[str, str]:
+    """One session ten days out, so a created class passes the publish readiness check."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    start = timezone.now() + timedelta(days=10)
+    return {
+        "sessions-TOTAL_FORMS": "1",
+        "sessions-0-starts_at": start.strftime("%Y-%m-%dT%H:%M"),
+        "sessions-0-ends_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+    }
+
+
+def _publishable_fields() -> dict:
+    """The readiness essentials the admin create form must carry to publish: photos + a real description."""
+    from classes.factories import READY_DESCRIPTION
+
+    return {
+        "description": READY_DESCRIPTION,
+        "image": _real_image_file(),
+        "gallery_images": [_image_file("ready.png")],
+        **_future_session_fields(),
+    }
+
+
 def describe_status_filter():
     def it_shows_all_by_default(admin_user, client, db):
         from classes.factories import ClassOfferingFactory
@@ -195,7 +230,6 @@ def describe_create_class():
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -204,7 +238,6 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
-                "sessions-TOTAL_FORMS": "0",
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
@@ -216,6 +249,7 @@ def describe_create_class():
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
+                **_publishable_fields(),
             },
         )
         assert response.status_code == 302
@@ -231,11 +265,13 @@ def describe_create_class():
 
     def it_date_stamps_the_slug_from_the_first_session(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
         from classes.models import ClassOffering
 
         client.force_login(admin_user)
         cat = CategoryFactory()
         inst = InstructorFactory()
+        session_fields = _future_session_fields()
         response = client.post(
             reverse("classes:admin_class_create"),
             {
@@ -248,7 +284,9 @@ def describe_create_class():
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                "gallery_images": [_image_file("g.png")],
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -257,7 +295,6 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
-                "sessions-TOTAL_FORMS": "1",
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
@@ -265,8 +302,7 @@ def describe_create_class():
                 "faq-INITIAL_FORMS": "0",
                 "faq-MIN_NUM_FORMS": "0",
                 "faq-MAX_NUM_FORMS": "1000",
-                "sessions-0-starts_at": "2026-08-20T18:00",
-                "sessions-0-ends_at": "2026-08-20T20:00",
+                **session_fields,
                 "images-TOTAL_FORMS": "0",
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
@@ -275,10 +311,11 @@ def describe_create_class():
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Admin Stamped")
-        assert offering.slug == "admin-stamped-2026-08-20"
+        assert offering.slug == "admin-stamped-" + session_fields["sessions-0-starts_at"][:10]
 
     def it_saves_gallery_images_on_create(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
         from classes.models import ClassImage, ClassOffering
 
         client.force_login(admin_user)
@@ -297,7 +334,9 @@ def describe_create_class():
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                **_future_session_fields(),
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -306,7 +345,6 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
-                "sessions-TOTAL_FORMS": "0",
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
@@ -532,7 +570,7 @@ def describe_mine_filter():
         ClassOfferingFactory(title="Zeta Published", instructor=me, status=ClassOffering.Status.PUBLISHED)
         ClassOfferingFactory(title="Alpha NotMine", status=ClassOffering.Status.PUBLISHED)
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_classes") + "?mine=1&status=published&q=Alpha")
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&status=upcoming&q=Alpha")
         assert b"Alpha Published" in response.content
         assert b"Alpha Draft" not in response.content  # wrong status
         assert b"Zeta Published" not in response.content  # does not match q
@@ -699,7 +737,7 @@ def describe_approve_class():
         from classes.models import ClassOffering
 
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING)
         response = client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
         assert response.status_code == 302
         offering.refresh_from_db()

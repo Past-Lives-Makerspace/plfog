@@ -1,0 +1,9 @@
+{% comment %}
+Lifecycle badge: one pill for every class state, read from ClassOffering.lifecycle.
+
+  {% include "classes/_components/lifecycle_badge.html" with offering=c %}
+
+Optional: show_note=True adds a .pl-help bubble carrying offering.lifecycle_note
+(the guild name, the reviewer's note excerpt, the end date, or "No dates yet").
+{% endcomment %}
+{% with lifecycle=offering.lifecycle %}<span class="pl-lifecycle-badge pl-lifecycle-badge--{{ lifecycle.value }}">{{ offering.lifecycle_label }}{% if show_note and offering.lifecycle_note %} <span class="pl-help"><span class="pl-help__icon" tabindex="0" role="img" aria-label="{{ offering.lifecycle_note }}">?</span><span class="pl-help__bubble">{{ offering.lifecycle_note }}</span></span>{% endif %}</span>{% endwith %}

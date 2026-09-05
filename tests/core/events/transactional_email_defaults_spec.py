@@ -102,7 +102,7 @@ def describe_class_cancelled_email():
         )
         mail.outbox.clear()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         sent = _emails_to("booked@example.com")
         assert len(sent) == 1
@@ -118,7 +118,7 @@ def describe_class_cancelled_email():
         )
         mail.outbox.clear()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         sent = _emails_to("guest@example.com")
         assert len(sent) == 1
@@ -135,7 +135,7 @@ def describe_class_cancelled_email():
         )
         mail.outbox.clear()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         body = _emails_to("dated@example.com")[0].body
         assert "Wheel Throwing" in body
@@ -152,7 +152,7 @@ def describe_class_cancelled_email():
         )
         mail.outbox.clear()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         assert _emails_to("gone@example.com") == []
 
@@ -169,7 +169,7 @@ def describe_class_cancelled_email():
         )
         mail.outbox.clear()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         assert _emails_to("bystander@example.com") == []
         assert Notification.objects.filter(trigger="class_cancelled", user=bystander_user).exists()
@@ -180,7 +180,7 @@ def describe_class_cancelled_email():
             offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
             mail.outbox.clear()
 
-            offering.archive()
+            offering.cancel(None, "The kiln broke.")
 
             assert mail.outbox == []
 

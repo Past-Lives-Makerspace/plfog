@@ -28,10 +28,16 @@ def describe_activity_mirror_to_site_activity():
         cms_activity.log(CmsActivity.Kind.CLASS_APPROVED, class_offering=offering)
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_APPROVED).exists()
 
-    def it_mirrors_class_archived_as_class_cancelled():
+    def it_mirrors_class_cancelled_to_site_activity():
         offering = ClassOfferingFactory()
-        cms_activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=offering)
+        cms_activity.log(CmsActivity.Kind.CLASS_CANCELLED, class_offering=offering)
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_CANCELLED).exists()
+
+    def it_does_not_mirror_a_quiet_archive_as_a_cancel():
+        offering = ClassOfferingFactory()
+        SiteActivity.objects.all().delete()
+        cms_activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=offering)
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_CANCELLED).exists()
 
     def it_mirrors_registration_created_with_registration_as_target():
         offering = ClassOfferingFactory()

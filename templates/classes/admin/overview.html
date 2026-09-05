@@ -4,22 +4,56 @@
 {% block tab_content %}
 <div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
 
-  {# ① Classes awaiting approval — full width #}
+  {# ① Waiting on you: PENDING classes with no open guild-lead gate. Approve opens the publish confirm. #}
   <section class="hub-card" style="margin:0;">
-    <h2 class="overview-title" data-help-key="admin.review-queue">Needs your attention <span class="overview-title__count">({{ stats.pending }})</span></h2>
-    {% for c in pending_classes %}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
-        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+    <h2 class="overview-title" data-help-key="admin.review-queue">Waiting on You <span class="overview-title__count">({{ stats.awaiting_you }})</span></h2>
+    {% for c in waiting_on_you %}
+      {% url 'classes:admin_class_approve' pk=c.pk as approve_url %}
+      {% concat "publish-class-" c.pk as publish_modal_id %}
+      {% concat "“" c.title "” goes live in the catalog, every active member gets a new class notice, and it posts to Discord. Use Review with notes to ask for changes instead." as publish_message %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+        <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+          <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+          <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor.display_name }} · {{ c.category.name }} · waiting {{ c.created_at|timesince }}</span>
+        </span>
         <span class="pl-row-actions">
           <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
-          <form method="post" action="{% url 'classes:admin_class_approve' pk=c.pk %}" style="display:inline;">
-            {% csrf_token %}
-            <button type="submit" class="hub-btn hub-btn--sm hub-btn--success">Approve</button>
-          </form>
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', '{{ publish_modal_id }}')">Approve</button>
+          {% include "components/confirm_modal.html" with confirm_id=publish_modal_id confirm_title="Publish this class?" confirm_message=publish_message confirm_action_url=approve_url confirm_button_text="Publish" confirm_button_style="primary" %}
         </span>
       </div>
     {% empty %}
-      <p style="color:var(--hub-text-muted);">Nothing waiting — you're all caught up! 🎉</p>
+      <p style="color:var(--hub-text-muted);">Nothing waiting on you.</p>
+    {% endfor %}
+  </section>
+
+  {# ② With guild leads: the lead holds the gate; admins may nudge them or step in. #}
+  <section class="hub-card" style="margin:0;">
+    <h2 class="overview-title">With Guild Leads <span class="overview-title__count">({{ stats.with_leads }})</span></h2>
+    {% for item in with_guild_leads %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+        <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+          <a href="{% url 'classes:admin_class_detail' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+          <span style="color:var(--hub-text-muted);font-size:0.85rem;">
+            {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.display_name|urlencode }}">{{ item.lead.display_name }}</a>{% else %}No lead{% endif %}
+            · waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}
+          </span>
+        </span>
+        <span class="pl-row-actions">
+          {% if item.leadless %}
+            <span class="pl-queue-note">This guild has no lead. Review it yourself.</span>
+            <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'classes:admin_class_review' pk=item.offering.pk %}">Review</a>
+          {% else %}
+            <form hx-post="{% url 'classes:admin_class_remind_lead' pk=item.offering.pk %}" hx-swap="none" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Remind lead</button>
+            </form>
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=item.offering.pk %}">Review</a>
+          {% endif %}
+        </span>
+      </div>
+    {% empty %}
+      <p style="color:var(--hub-text-muted);">Nothing with guild leads.</p>
     {% endfor %}
   </section>
 
@@ -64,7 +98,8 @@
     </div>
     <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:stretch;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex:1;min-width:240px;">
-        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.pending }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting approval</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.awaiting_you }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting you</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.with_leads }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">with leads</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.new_regs }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">new sign-ups</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.active_registrations }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">confirmed registrations</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.collected|cents_as_dollars }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">collected</div></div>

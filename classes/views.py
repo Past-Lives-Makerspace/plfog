@@ -31,11 +31,12 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import AbstractUser
+    from django.contrib.auth.models import AbstractUser, User
 
     from classes.forms import PaymentRefundForm, RegistrationMoveForm
     from membership.models import Member
 
+from hub.toast import trigger_toast
 from hub.view_as import classes_review_access_required, refund_authority_required
 
 from classes.emails import (
@@ -44,14 +45,17 @@ from classes.emails import (
     send_class_review_decision,
     send_class_welcome_email,
     send_class_welcome_email_test,
+    send_guild_lead_review_reminder,
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
+from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
 from classes.table import prepare_table
 from classes.templatetags.classes_tags import member_price_cents as compute_member_price_cents
 from classes.forms import (
     CategoryForm,
+    ClassCancelForm,
     ClassOfferingForm,
     ClassReviewDecisionForm,
     ClassSessionFormSet,
@@ -814,11 +818,17 @@ def my_registration(request: HttpRequest, token: str) -> HttpResponse:
     )
     offering = registration.class_offering
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    can_self_cancel = registration.status in {
-        Registration.Status.PENDING,
-        Registration.Status.CONFIRMED,
-        Registration.Status.WAITLISTED,
-    } and (not upcoming_sessions or upcoming_sessions[0].starts_at > timezone.now())
+    class_cancelled = offering.status == ClassOffering.Status.CANCELLED
+    can_self_cancel = (
+        registration.status
+        in {
+            Registration.Status.PENDING,
+            Registration.Status.CONFIRMED,
+            Registration.Status.WAITLISTED,
+        }
+        and (not upcoming_sessions or upcoming_sessions[0].starts_at > timezone.now())
+        and not class_cancelled
+    )
     return render(
         request,
         "classes/public/my_registration.html",
@@ -827,6 +837,7 @@ def my_registration(request: HttpRequest, token: str) -> HttpResponse:
             "offering": offering,
             "upcoming_sessions": upcoming_sessions,
             "can_self_cancel": can_self_cancel,
+            "class_cancelled": class_cancelled,
             "paid_banner": request.GET.get("paid") == "1",
             "settings_obj": ClassSettings.load(),
             "site_config": SiteConfiguration.load(),
@@ -1174,8 +1185,14 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     my_classes = ClassOffering.objects.for_instructor(teaching_member)
     now = timezone.now()
 
-    drafts = my_classes.filter(status=ClassOffering.Status.DRAFT).select_related("category").order_by("-updated_at")
-    pending = my_classes.filter(status=ClassOffering.Status.PENDING).select_related("category").order_by("created_at")
+    # Bounced drafts (a reviewer asked for changes or declined) lead the attention list
+    # with the reviewer's note and a Fix and resubmit button; plain drafts follow; then
+    # the classes in review, each carrying its stage badge. Every row is annotated so
+    # the badge resolves with no per-row queries.
+    attention_base = my_classes.with_lifecycle_inputs().select_related("category__guild")
+    bounced = attention_base.filter(status=ClassOffering.Status.DRAFT, bounced=True).order_by("-updated_at")  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+    drafts = attention_base.filter(status=ClassOffering.Status.DRAFT, bounced=False).order_by("-updated_at")  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+    pending = attention_base.filter(status=ClassOffering.Status.PENDING).order_by("created_at")
     week_end = now + timedelta(days=7)
     upcoming_classes = (
         my_classes.filter(  # type: ignore[misc]  # django-stubs can't see annotate() aliases
@@ -1209,14 +1226,17 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         .order_by("-registered_at")[:8]
     )
 
+    bounced_rows = list(bounced)
     stats = {
         "published": my_classes.filter(status=ClassOffering.Status.PUBLISHED).count(),
         "pending": pending.count(),
         "drafts": drafts.count(),
+        "bounced": len(bounced_rows),
         "total_signups": Registration.objects.filter(
             class_offering__instructor=teaching_member, status=Registration.Status.CONFIRMED
         ).count(),
     }
+    stats["attention"] = stats["drafts"] + stats["bounced"] + stats["pending"]
 
     is_guild_lead = teaching_member.is_guild_lead
     guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
@@ -1238,6 +1258,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         {
             "active_tab": "overview",
             "instructor": teaching_member,
+            "bounced_classes": bounced_rows,
             "drafts": drafts,
             "pending_classes": pending,
             "upcoming_classes": upcoming_classes,
@@ -1278,14 +1299,18 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
 
 @teaching_member_required
 def teach_dashboard(request: HttpRequest) -> HttpResponse:
-    """My classes — list view for the logged-in teaching member."""
+    """My classes — list view for the logged-in teaching member, faceted by lifecycle."""
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    classes = (
+    base = (
         ClassOffering.objects.for_instructor(teaching_member)
-        .select_related("category")
-        .annotate(registration_count=Count("registrations"))
-        .order_by("-created_at")
+        .with_lifecycle_inputs()
+        .select_related("category__guild")
+        # distinct=True so the sessions join behind the lifecycle inputs never inflates the tally.
+        .annotate(registration_count=Count("registrations", distinct=True))
     )
+    facet = resolve_facet(INSTRUCTOR_FACETS, request.GET.get("facet", "").strip())
+    classes = facet.apply(base).order_by("-created_at")  # type: ignore[arg-type]  # annotated queryset keeps its aliases
+    facets = facet_rows(INSTRUCTOR_FACETS, base, facet, lambda key: f"?facet={key}" if key else "?")  # type: ignore[arg-type]
     return render(
         request,
         "classes/teach/classes_list.html",
@@ -1293,6 +1318,9 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
             "active_tab": "classes",
             "instructor": teaching_member,
             "classes": classes,
+            "facets": facets,
+            "selected_facet": facet,
+            "has_any_classes": base.exists(),
         },
     )
 
@@ -1326,6 +1354,9 @@ def _render_teach_class_form(
                 }
             )
 
+    # The pipeline card ("Where Your Class Is") and the readiness card ("Ready to
+    # Submit?") need a saved class; the create form shows neither.
+    saved = offering if offering is not None and offering.pk else None
     return render(
         request,
         "classes/teach/class_form.html",
@@ -1339,6 +1370,8 @@ def _render_teach_class_form(
             "mode": mode,
             "offering": offering,
             "faq_formset": faq_formset,
+            "pipeline": saved.review_pipeline() if saved is not None else None,
+            "readiness": saved.readiness() if saved is not None else None,
         },
     )
 
@@ -1366,7 +1399,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
                 except ValidationError as exc:
                     messages.error(request, exc.messages[0])
                 else:
-                    messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                    messages.success(request, _submitted_message(offering))
                     if offering.needs_photo_nudge:
                         messages.info(request, _PHOTO_NUDGE_MESSAGE)
             else:
@@ -1407,7 +1440,7 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             except ValidationError as exc:
                 messages.error(request, exc.messages[0])
             else:
-                messages.success(request, f"Submitted “{offering.title}” for admin review.")
+                messages.success(request, _submitted_message(offering))
                 if offering.needs_photo_nudge:
                     messages.info(request, _PHOTO_NUDGE_MESSAGE)
         else:
@@ -1443,17 +1476,19 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
     if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
         try:
-            (first_gate,) = offering.submit_for_review()
+            offering.submit_for_review()
         except ValidationError as exc:
             messages.error(request, exc.messages[0])
             return redirect("classes:teach_class_edit", pk=offering.pk)
-        messages.success(
-            request,
-            f"Submitted “{offering.title}” for review by {first_gate.get_role_display()}.",
-        )
+        messages.success(request, _submitted_message(offering))
         if offering.needs_photo_nudge:
             messages.info(request, _PHOTO_NUDGE_MESSAGE)
     return redirect("classes:teach_dashboard")
+
+
+def _submitted_message(offering: ClassOffering) -> str:
+    """The honest submit message, naming who actually reviews first (create, edit, and submit paths)."""
+    return f"Submitted “{offering.title}” for review by {offering.first_gate_label}."
 
 
 @teaching_member_required
@@ -1644,6 +1679,7 @@ def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "active_subtab": "overview",
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
             "offering": offering,
+            "pipeline": offering.review_pipeline(),
             **_class_workspace_counts(offering),
         },
     )
@@ -2026,7 +2062,12 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     if range_start is not None:
         registrations = registrations.filter(registered_at__gte=range_start)
 
-    pending = ClassOffering.objects.pending_review().select_related("instructor", "category").order_by("created_at")
+    # Two-stage queue: what waits on the admin (PENDING with no open guild-lead gate,
+    # including a PENDING class with zero rows) and what is still with a guild lead.
+    waiting_on_you = list(
+        ClassOffering.objects.awaiting_admin().select_related("instructor", "category").order_by("created_at")
+    )
+    with_guild_leads = _with_guild_leads_queue(now)
 
     week_end = now + timedelta(days=7)
     upcoming_classes = (
@@ -2080,7 +2121,9 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
 
     confirmed = registrations.filter(status=Registration.Status.CONFIRMED)
     stats = {
-        "pending": pending.count(),
+        "awaiting_you": len(waiting_on_you),
+        "with_leads": len(with_guild_leads),
+        "pending": len(waiting_on_you) + len(with_guild_leads),
         "new_regs": registrations.count(),
         "active_registrations": confirmed.count(),
         "collected": confirmed.aggregate(total=Sum("amount_paid_cents"))["total"] or 0,
@@ -2091,7 +2134,8 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         "classes/admin/overview.html",
         {
             "active_tab": "overview",
-            "pending_classes": pending,
+            "waiting_on_you": waiting_on_you,
+            "with_guild_leads": with_guild_leads,
             "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
@@ -2105,12 +2149,55 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     )
 
 
+class _GuildLeadQueueRow(TypedDict):
+    """One "With Guild Leads" row on the admin overview."""
+
+    offering: ClassOffering
+    row: ClassApproval
+    lead: Any
+    days_waiting: int
+    leadless: bool
+
+
+def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
+    """Every PENDING class whose guild-lead gate is open, with who holds it and for how long.
+
+    ``leadless`` marks a guild whose lead and staff have all gone (nobody to remind), so
+    the row offers "Review it yourself" instead of Remind lead.
+    """
+    from classes.emails import _guild_leadership_recipients
+
+    offerings = (
+        ClassOffering.objects.awaiting_guild_lead_any()
+        .select_related("instructor", "category__guild__guild_lead")
+        .prefetch_related("approvals")
+        .order_by("created_at")
+    )
+    queue: list[_GuildLeadQueueRow] = []
+    for offering in offerings:
+        gate = next(
+            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
+            None,
+        )
+        if gate is None:
+            continue
+        guild = offering.category.guild
+        queue.append(
+            {
+                "offering": offering,
+                "row": gate,
+                "lead": guild.guild_lead if guild is not None else None,
+                "days_waiting": max(0, (now - gate.created_at).days),
+                "leadless": not _guild_leadership_recipients(guild),
+            }
+        )
+    return queue
+
+
 @classes_review_access_required
 def admin_classes(request: HttpRequest) -> HttpResponse:
-    valid_statuses = {choice.value for choice in ClassOffering.Status}
-    status_filter = request.GET.get("status", "").strip()
-    if status_filter not in valid_statuses:
-        status_filter = ""
+    facet = resolve_facet(ADMIN_FACETS, request.GET.get("status", "").strip())
+    status_filter = facet.key
     instructor_filter = request.GET.get("instructor", "").strip()
 
     # For grouped classes (same title+category on multiple dates), show only the
@@ -2134,7 +2221,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     )
 
     base = (
-        ClassOffering.objects.select_related("instructor", "category")
+        ClassOffering.objects.select_related("instructor", "category__guild")
+        .with_lifecycle_inputs()
         .annotate(
             # distinct=True so the sessions join below doesn't inflate the registration tally.
             registration_count=Count("registrations", distinct=True),
@@ -2145,7 +2233,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         )
         .filter(Q(grouping_key="") | Q(pk=F("_group_rep_pk")))
     )
-    qs = base.filter(status=status_filter) if status_filter else base
+    qs = facet.apply(base)  # type: ignore[arg-type]  # annotated queryset keeps its aliases
     if instructor_filter:
         qs = qs.filter(instructor_id=instructor_filter)  # type: ignore[misc]  # Django coerces the str PK at query time
 
@@ -2159,9 +2247,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         # hosted_by / none() return the base queryset type; qs carries annotate() aliases.
         qs = qs.hosted_by(own_member) if own_member is not None else qs.none()  # type: ignore[assignment]
 
-    status_counts = {row["status"]: row["count"] for row in base.values("status").annotate(count=Count("pk"))}
     # mine_count is global — all statuses, ignoring q and the Instructor dropdown —
-    # to match how the status-pill counts ignore the search box and each other.
+    # to match how the facet-chip counts ignore the search box and each other.
     mine_count = base.hosted_by(own_member).count() if own_member is not None else 0
 
     # Every view-computed URL starts from a normalized copy of the GET params: a
@@ -2180,14 +2267,16 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         return params.urlencode()
 
     mine_toggle_url = _url_without("mine") if mine_active else _url_without(mine="1")
+    # Lifecycle facet chips (All, Needs review, With guild lead, ...), each counted
+    # against the ungrouped base so the numbers ignore the search box and each other.
     status_filters = [
-        (
-            _url_without("status", **({"status": value} if value else {})),
-            label,
-            base.count() if not value else status_counts.get(value, 0),
-            status_filter == value,
+        (row.url, row.label, row.count, row.is_selected)
+        for row in facet_rows(
+            ADMIN_FACETS,
+            base,  # type: ignore[arg-type]  # annotated queryset keeps its aliases
+            facet,
+            lambda key: "?" + _url_without("status", **({"status": key} if key else {})),
         )
-        for value, label in [("", "All"), *[(c.value, c.label) for c in ClassOffering.Status]]
     ]
     search_clear_url = _url_without("q")
     _search_preserved = normalized.copy()
@@ -2234,14 +2323,19 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
     if request.method == "POST" and form.is_valid() and session_formset.is_valid():
+        # Save as a DRAFT first, attach sessions and gallery, THEN publish through the
+        # single publish path: ``is_ready`` needs the photos and dates that do not exist
+        # at ``form.save()`` time. A failing readiness item rolls the half-created class
+        # back and surfaces as a form error, exactly like the gallery path.
         offering = form.save(commit=False)
-        offering.status = ClassOffering.Status.PUBLISHED
+        offering.status = ClassOffering.Status.DRAFT
         offering.save()
         session_formset.instance = offering
         session_formset.save()
         offering.finalize_recurring_slug()
         try:
             offering.add_gallery_images(request.FILES.getlist("gallery_images"))
+            offering.publish(cast("User", request.user))  # the admin decorator guarantees a logged-in user
         except ValidationError as exc:
             offering.delete()  # roll back the half-created offering
             form.add_error(None, exc.messages[0])
@@ -2379,14 +2473,23 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
     }
 
 
-@classes_review_access_required
-def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(
-        ClassOffering.objects.select_related("instructor", "category")
+def _admin_class_detail_offering(pk: int) -> ClassOffering:
+    return get_object_or_404(
+        ClassOffering.objects.select_related("instructor", "category__guild")
         .prefetch_related("sessions")
         .annotate(registration_count=Count("registrations")),
         pk=pk,
     )
+
+
+def _render_admin_class_detail(
+    request: HttpRequest, offering: ClassOffering, cancel_form: ClassCancelForm
+) -> HttpResponse:
+    """The admin workspace Overview: pipeline strip, summary, and the action row by state.
+
+    A bound, invalid ``cancel_form`` re-renders the page with the Cancel class modal open
+    and the error inside it (the modal is server-rendered inline, never fetched).
+    """
     return render(
         request,
         "classes/admin/class_detail.html",
@@ -2394,9 +2497,73 @@ def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "active_tab": "classes",
             "active_subtab": "overview",
             "offering": offering,
+            "lifecycle": offering.lifecycle,
+            "pipeline": offering.review_pipeline(),
+            "cancel_form": cancel_form,
+            "archive_blocker": offering.archive_blocker,
+            "paid_registration_count": offering.paid_registration_count,
             **_class_workspace_counts(offering),
         },
     )
+
+
+@classes_review_access_required
+def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    offering = _admin_class_detail_offering(pk)
+    return _render_admin_class_detail(request, offering, ClassCancelForm())
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    """Cancel a live class with a reason: registrants are emailed, every member gets the bell row."""
+    offering = _admin_class_detail_offering(pk)
+    form = ClassCancelForm(request.POST)
+    if not form.is_valid():
+        return _render_admin_class_detail(request, offering, form)
+    try:
+        offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:admin_class_detail", pk=offering.pk)
+    messages.success(request, "Class cancelled. Everyone registered has been told.")
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_restore(request: HttpRequest, pk: int) -> HttpResponse:
+    """Restore an archived class to a draft. It needs review again before it goes live."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    try:
+        offering.restore()
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:admin_class_detail", pk=offering.pk)
+    messages.success(request, f"{offering.title} restored to draft. It needs review again before it goes live.")
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
+    """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    response = HttpResponse(status=204)
+    gate = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").order_by("-created_at").first()
+    if gate is None or offering.status != ClassOffering.Status.PENDING:
+        trigger_toast(response, "This class is not waiting on a guild lead.", "error")
+        return response
+    result = send_guild_lead_review_reminder(gate)
+    if result is None:
+        trigger_toast(response, "This guild has no lead. Review it yourself.", "error")
+    elif result.delivered:
+        guild = offering.category.guild
+        lead = guild.guild_lead if guild is not None else None
+        trigger_toast(response, f"Reminder sent to {lead.display_name if lead is not None else 'the guild leads'}.")
+    else:
+        trigger_toast(response, "Already reminded today.", "info")
+    return response
 
 
 @classes_admin_access_required
@@ -2518,6 +2685,10 @@ def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
             row = offering.approve(request.user)
         except ValueError as exc:
             messages.error(request, str(exc))
+            return redirect("classes:admin_class_detail", pk=offering.pk)
+        except ValidationError as exc:
+            # An unready class (no dates, no photos, ...) never publishes; say why.
+            messages.error(request, exc.messages[0])
             return redirect("classes:admin_class_detail", pk=offering.pk)
         send_class_review_decision(offering, row)
         messages.success(request, f"{offering.title} is published.")
@@ -2692,20 +2863,27 @@ def _class_review_view(
         and not approval.decision
         and form.is_valid()
     ):
-        approval.decide(
-            form.cleaned_data["decision"],
-            user=request.user if request.user.is_authenticated else None,
-            notes=form.cleaned_data.get("notes", ""),
-        )
-        # refresh from DB to pick up the new state
-        approval.refresh_from_db()
-        offering.refresh_from_db()
-        send_class_review_decision(offering, approval)
-        messages.success(request, "Your decision has been recorded. Thanks for reviewing.")
-        if token:
-            return redirect("classes:class_review", token=token)
-        return redirect("classes:admin_class_review", pk=offering.pk)
+        try:
+            approval.decide(
+                form.cleaned_data["decision"],
+                user=request.user if request.user.is_authenticated else None,
+                notes=form.cleaned_data.get("notes", ""),
+            )
+        except ValidationError as exc:
+            # The publishing decision refused an unready class; show the failing
+            # items as a form error on both the admin and the tokenized page.
+            form.add_error(None, exc.messages[0])
+        else:
+            # refresh from DB to pick up the new state
+            approval.refresh_from_db()
+            offering.refresh_from_db()
+            send_class_review_decision(offering, approval)
+            messages.success(request, "Your decision has been recorded. Thanks for reviewing.")
+            if token:
+                return redirect("classes:class_review", token=token)
+            return redirect("classes:admin_class_review", pk=offering.pk)
 
+    readiness = offering.readiness()
     return render(
         request,
         "classes/admin/class_review.html",
@@ -2720,6 +2898,9 @@ def _class_review_view(
             "upcoming_sessions": upcoming_sessions,
             "is_tokenized": token is not None,
             "active_tab": "classes",
+            "pipeline": offering.review_pipeline(),
+            "readiness": readiness,
+            "is_ready": all(item.ok for item in readiness),
         },
     )
 
@@ -2728,8 +2909,13 @@ def _class_review_view(
 def admin_class_archive(request: HttpRequest, pk: int) -> HttpResponse:
     offering = get_object_or_404(ClassOffering, pk=pk)
     if request.method == "POST":
-        offering.archive()
-        messages.success(request, f"{offering.title} archived.")
+        try:
+            offering.archive()
+        except ValueError as exc:
+            # An upcoming class with active registrations must be cancelled, not hidden.
+            messages.error(request, str(exc))
+            return redirect("classes:admin_class_detail", pk=offering.pk)
+        messages.success(request, f"{offering.title} archived. Nobody was notified.")
         return redirect("classes:admin_classes")
     return redirect("classes:admin_class_detail", pk=offering.pk)
 
