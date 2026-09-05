@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
-VERSION = "1.37.0"
+VERSION = "1.38.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.38.0",
+        "date": "2026-09-05",
+        "title": "Clearer class status",
+        "changes": [
+            "Every class now shows exactly where it is on a simple review pipeline, Submitted, "
+            "Guild lead, Admin, Live, with a check for each step that is done. You see it on your "
+            "class page and in every review email.",
+            "If a reviewer asks for changes, their notes show right on your class with a Fix and resubmit button.",
+            "A class needs photos, a description, and dates before it can be submitted.",
+            "Admins now cancel a live class with a reason and everyone registered is told, while "
+            "archiving is quiet housekeeping that can be undone.",
+        ],
+    },
     {
         "version": "1.37.0",
         "date": "2026-09-05",
