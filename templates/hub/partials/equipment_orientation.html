@@ -86,7 +86,7 @@ An inactive pinned type renders its state block only — never a slot list.
         {% for day in sec.days %}
         <button type="button"
                 class="pl-orient-days__chip{% if not day.open_count %} pl-orient-days__chip--full{% endif %}{% if day.iso == sec.default_day %} pl-orient-days__chip--active{% endif %}"
-                :class="day === '{{ day.iso }}' ? 'pl-orient-days__chip--active' : ''"
+                :class="{ 'pl-orient-days__chip--active': day === '{{ day.iso }}' }"
                 aria-pressed="{% if day.iso == sec.default_day %}true{% else %}false{% endif %}"
                 :aria-pressed="day === '{{ day.iso }}' ? 'true' : 'false'"
                 @click="day = '{{ day.iso }}'">

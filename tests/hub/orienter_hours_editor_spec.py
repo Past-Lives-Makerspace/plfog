@@ -497,7 +497,8 @@ def describe_rule_delete_retirement():
         )
         assert response.status_code == 200
         joined = " ".join(str(m) for m in response.context["messages"])
-        assert "Hours deleted. Removed 0 upcoming open slots." in joined
+        assert "Hours deleted." in joined
+        assert "Removed" not in joined  # nothing was retired, so no zero count is announced
         assert "Shared hours deleted." not in joined
 
 

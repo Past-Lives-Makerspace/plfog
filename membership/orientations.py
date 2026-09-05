@@ -634,32 +634,41 @@ def _delete_hold(booking: OrientationBooking, *, expire_session: bool = True) ->
     if slot.seats == 1 and slot.source in one_off_sources and not slot.bookings.exists():
         slot.delete()
         return
-    _recap_orphaned_generated_slot(slot)
+    recap_orphaned_slot(slot)
 
 
-def _recap_orphaned_generated_slot(slot: OrientationSlot) -> None:
-    """Re-cap a kept GENERATED slot whose rule is gone or paused after a hold on it is released.
+# The cancel reason stamped on a generated slot its hours no longer justify (retirement
+# of a slot with booking history, or the last seat freeing on an orphaned slot).
+_RETIRED_SLOT_REASON = "The hours this time came from are no longer posted."
+
+
+def recap_orphaned_slot(slot: OrientationSlot) -> None:
+    """Re-cap a kept GENERATED slot whose rule is gone or paused after a seat on it frees.
 
     Retirement capped the slot to its taken seats so it could take no new booking
-    through the ``availability`` SET_NULL door or a paused rule; when a hold that
-    counted toward that cap expires, the freed seat must not reopen. With nothing
-    seat-holding left the slot is cancelled outright (nothing remains to keep it
-    for); otherwise it is capped again to what still holds a seat. A slot under a
-    live rule is untouched, as is any MANUAL / FROM_BLOCK slot.
+    through the ``availability`` SET_NULL door or a paused rule; when a hold,
+    booking, or request that counted toward that cap is released, cancelled, or
+    declined, the freed seat must not reopen. With nothing seat-holding left the
+    slot is cancelled outright (nothing remains to keep it for); otherwise it is
+    capped again to what still holds a seat. A slot under a live rule, an already
+    cancelled slot (a manager's reason must survive the fan-out), and any MANUAL /
+    FROM_BLOCK slot are untouched. Runs at the end of every seat-freeing path.
     """
     from membership.models import OrientationSlot
 
     if slot.source != OrientationSlot.Source.GENERATED:
         return
     # The caller's slot may predate the retirement that SET_NULL'd its rule and capped
-    # its seats (a hold created before the rule went); read the current row.
+    # its seats (a booking made before the rule went); read the current row.
     slot.refresh_from_db()
+    if slot.is_cancelled:
+        return
     rule = slot.availability
     if rule is not None and rule.is_active:
         return
     remaining = slot.bookings.seat_holding().count()
     if remaining == 0:
-        slot.mark_cancelled(reason="The hours this time came from are no longer posted.")
+        slot.mark_cancelled(reason=_RETIRED_SLOT_REASON)
     elif slot.seats != remaining:
         slot.seats = remaining
         slot.save(update_fields=["seats"])
@@ -911,6 +920,8 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
         in_app_title="Orientation not confirmed",
         in_app_body=f"Your orientation request for {booking.orientation_type.owner_name} couldn't be confirmed.",
     )
+    # A freed seat on a slot whose hours are gone or paused must not reopen to members.
+    recap_orphaned_slot(booking.slot)
 
 
 def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: User | None = None) -> None:
@@ -943,6 +954,10 @@ def cancel_orientation(booking: OrientationBooking, *, actor_label: str, actor: 
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:cancel",
     )
+    # Member self-cancel, lead cancel, and token cancel all land here: a freed seat on a
+    # slot whose hours are gone or paused must not reopen. A slot cancel (cancel_slot)
+    # has already marked the slot, so the recap leaves its reason alone.
+    recap_orphaned_slot(booking.slot)
 
 
 def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
@@ -1091,20 +1106,19 @@ def _rule_generates(rule: OrientationAvailability) -> bool:
 
 
 def _retire_off_grid(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
-    """Off-grid cleanup: retire the rule's future open generated slots that fell off its current grid.
+    """Off-grid cleanup: retire the rule's future generated slots whose TIME fell off its current grid.
 
     A kept old-grid slot whose booking was since cancelled must not linger and
     block the new grid. Booked off-grid slots survive (capped) exactly as in a
-    delete or pause. Runs for every rule BEFORE any carving so the per-equipment
-    occupied set is loaded clean.
+    delete or pause. Slots still on the time grid instead follow the rule's seat
+    count (a seats edit is not a re-grid): open ones take it, booked ones keep at
+    least their taken seats. Runs for every rule BEFORE any carving so the
+    per-equipment occupied set is loaded clean.
     """
     grid = set(spans)
-    off_grid = [
-        slot
-        for slot in _future_generated(rule).with_seat_holding_count()
-        if (slot.starts_at, slot.ends_at) not in grid or slot.seats != rule.seats
-    ]
-    _retire_slots(off_grid)
+    candidates = list(_retire_candidates(rule))
+    _retire_slots([slot for slot in candidates if (slot.starts_at, slot.ends_at) not in grid])
+    _reseat([slot for slot in candidates if (slot.starts_at, slot.ends_at) in grid], seats=rule.seats)
 
 
 def _materialize(
@@ -1212,17 +1226,31 @@ def generate_slots(
 
 
 def _future_generated(rule: OrientationAvailability) -> Any:
-    """The rule's GENERATED slots that have not started yet — the only slots retirement may touch."""
+    """The rule's uncancelled GENERATED slots that have not started yet — the only slots retirement may touch.
+
+    A manager-cancelled slot stays cancelled: it is neither deleted nor re-seated,
+    and generation finds it on the grid and leaves it alone.
+    """
     from membership.models import OrientationSlot
 
-    return rule.slots.filter(starts_at__gte=timezone.now(), source=OrientationSlot.Source.GENERATED)
+    return rule.slots.filter(starts_at__gte=timezone.now(), source=OrientationSlot.Source.GENERATED, is_cancelled=False)
+
+
+def _retire_candidates(rule: OrientationAvailability) -> Any:
+    """The retirement candidates with both counts retirement decides on, in one query."""
+    return _future_generated(rule).with_seat_holding_count().with_booking_history_count()
 
 
 def _retire_slots(slots: Any) -> tuple[int, int]:
-    """Delete the open slots in ``slots`` (annotated with ``seat_holding_count``); cap and keep the rest.
+    """Retire the open slots in ``slots``; cap and keep the ones holding a seat.
 
-    A kept slot is capped to its taken seats so the ``availability`` SET_NULL door
-    (or a paused rule) can never let a 1 of 4 booked slot take three more bookings.
+    ``slots`` carry ``seat_holding_count`` and ``booking_history_count``. An open
+    slot with no booking rows at all is deleted; an open slot with booking history
+    (a declined, cancelled, or refunded booking) is cancelled instead, because
+    ``OrientationBooking.slot`` cascades and deleting it would erase that history.
+    Both count as removed for the member-facing message. A kept slot is capped to
+    its taken seats so the ``availability`` SET_NULL door (or a paused rule) can
+    never let a 1 of 4 booked slot take three more bookings.
 
     Returns:
         ``(open_slots_removed, kept_with_bookings)``.
@@ -1234,28 +1262,50 @@ def _retire_slots(slots: Any) -> tuple[int, int]:
             if slot.seats != slot.seat_holding_count:
                 slot.seats = slot.seat_holding_count
                 slot.save(update_fields=["seats"])
+        elif slot.booking_history_count:
+            slot.mark_cancelled(reason=_RETIRED_SLOT_REASON)
+            removed += 1
         else:
             slot.delete()
             removed += 1
     return removed, kept
 
 
+def _reseat(slots: Any, *, seats: int) -> None:
+    """Follow a seat count onto ``slots`` (annotated with ``seat_holding_count``): never below the seats taken."""
+    for slot in slots:
+        wanted = max(seats, slot.seat_holding_count)
+        if slot.seats != wanted:
+            slot.seats = wanted
+            slot.save(update_fields=["seats"])
+
+
+def reseat_slots(rule: OrientationAvailability) -> None:
+    """Apply a seats-only edit to the rule's future open generated slots without a re-grid.
+
+    Open slots take the rule's new count; booked ones take ``max(new, taken)`` so a
+    raise reaches already-booked days and a lower never drops below what is held.
+    """
+    _reseat(_future_generated(rule).with_seat_holding_count(), seats=rule.seats)
+
+
 def retire_open_slots(rule: OrientationAvailability) -> tuple[int, int]:
     """Retire a rule's future open generated slots WITHOUT deleting the rule.
 
-    Future GENERATED slots holding no seat-holding booking are deleted; slots
-    someone already booked survive, capped to their taken seats. Past and MANUAL
-    slots are never touched. Used by delete (via :func:`retire_rule`), by a pause
-    (Active toggled off) and by a re-grid (slot length / break / seats changed).
+    Future uncancelled GENERATED slots holding no seat-holding booking are removed
+    (deleted, or cancelled when they carry booking history); slots someone already
+    booked survive, capped to their taken seats. Past, cancelled, and MANUAL slots
+    are never touched. Used by delete (via :func:`retire_rule`), by a pause (Active
+    toggled off) and by a re-grid (slot length or break changed).
 
-    The keep/delete guard runs at ``bookings.seat_holding()`` scope — an
+    The keep/remove guard runs at ``bookings.seat_holding()`` scope — an
     ``active()``-only test would cascade a live paid ``PENDING_PAYMENT`` hold away
     with the slot, eating a checkout mid-payment.
 
     Returns:
         ``(open_slots_removed, kept_with_bookings)`` for the success message.
     """
-    return _retire_slots(_future_generated(rule).with_seat_holding_count())
+    return _retire_slots(_retire_candidates(rule))
 
 
 def retire_rule(rule: OrientationAvailability) -> tuple[int, int]:

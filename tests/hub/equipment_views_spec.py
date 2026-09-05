@@ -902,6 +902,8 @@ def describe_equipment_day_picker():
         assert content.count("pl-orient-days__chip--full") == 1
         assert content.count(' aria-pressed="true"') == 1
         assert f"{{ day: '{open_day.isoformat()}' }}" in content
+        # Object syntax: Alpine removes the class again when another day is picked.
+        assert ":class=\"{ 'pl-orient-days__chip--active': day === '" + open_day.isoformat() + "' }\"" in content
         assert 'pl-orient-days__chip-count">Full<' in content
         assert 'pl-orient-days__chip-count">2 open<' in content
         assert f"x-show=\"day === '{open_day.isoformat()}'\"" in content
@@ -956,6 +958,33 @@ def describe_equipment_day_picker():
         OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.DECLINED)
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
         assert "Request</button>" in content
+
+    def it_closes_a_deleted_windows_slot_when_the_member_cancels(client: Client):
+        from membership import orientations
+        from membership.models import OrientationBooking, OrientationSlot
+        from tests.membership.factories import OrientationAvailabilityFactory
+
+        user = _login(client, "dp_selfcancel")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        rule = OrientationAvailabilityFactory(equipment_owned=True, orientation_type=orientation_type)
+        slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            availability=rule,
+            source=OrientationSlot.Source.GENERATED,
+            starts_at=_at(_day(2), 10),
+            ends_at=_at(_day(2), 11),
+            seats=4,
+        )
+        booking = OrientationBookingFactory(slot=slot, member=user.member, status=OrientationBooking.Status.CONFIRMED)
+        orientations.retire_rule(rule)  # the window is gone; the booked slot survives capped to 1
+        response = client.post(reverse("hub_orientation_cancel_mine", args=[booking.pk]))
+        assert response.status_code == 302
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "No orientation times are posted yet. Check back soon." in content
 
     def it_keeps_the_empty_state_with_no_slots(client: Client):
         _login(client, "dp_empty")

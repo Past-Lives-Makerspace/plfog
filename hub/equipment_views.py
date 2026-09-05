@@ -825,9 +825,9 @@ def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> Htt
 
 def _orientation_hours_save_message(*, removed: int, kept: int) -> str:
     """The Orientation Hours flash — the counts appear whenever a delete, pause, or re-grid retired slots."""
-    if not removed and not kept:
-        return "Hours saved."
-    parts = ["Hours saved.", f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}."]
+    parts = ["Hours saved."]
+    if removed:
+        parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
     if kept:
         pronoun = "it" if kept == 1 else "them"
         parts.append(

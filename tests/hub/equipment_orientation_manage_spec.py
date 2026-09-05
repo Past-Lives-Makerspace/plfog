@@ -681,6 +681,23 @@ def describe_orientation_hours_save():
         _login(client, "oh_tier_admin", fog_role=Member.FogRole.ADMIN)
         assert post() == 302
 
+    def it_refuses_an_admin_previewing_as_a_member_but_not_the_real_account(client: Client):
+        from hub.view_as import ROLE_MEMBER, SESSION_ROLE_KEY
+
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _login(client, "oh_preview", fog_role=Member.FogRole.ADMIN)
+        session = client.session
+        session[SESSION_ROLE_KEY] = ROLE_MEMBER
+        session.save()
+        assert client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)])).status_code == 403
+        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
+        session = client.session
+        del session[SESSION_ROLE_KEY]
+        session.save()
+        assert client.post(_hours_url(equipment), _ohours_data([_ohours_row(orientation_type)])).status_code == 302
+        assert OrientationAvailability.objects.for_equipment(equipment).exists()
+
     def it_creates_rules_and_slots_and_redirects_with_the_flash(client: Client):
         equipment = EquipmentFactory()
         _manager_login(client, "oh_save", equipment)
@@ -741,6 +758,20 @@ def describe_orientation_hours_save():
         assert rule.is_active is False
         assert not rule.slots.exists()  # paused: nothing regenerated either
         assert _messages(client, equipment) == "Hours saved. Removed 1 upcoming open slot."
+
+    def it_reports_a_kept_slot_without_a_zero_removed_count(client: Client):
+        equipment = EquipmentFactory()
+        _manager_login(client, "oh_kept", equipment)
+        orientation_type = _owned_type(equipment)
+        rule = _tool_rule(orientation_type)
+        OrientationBookingFactory(slot=_generated_slot(rule))
+        response = client.post(
+            _hours_url(equipment), _ohours_data([_ohours_row(orientation_type, active=False)], initial=1)
+        )
+        assert response.status_code == 302
+        assert (
+            _messages(client, equipment) == "Hours saved. 1 booked slot kept. Cancel it from the Upcoming Slots card."
+        )
 
     def it_reports_retirement_counts_for_a_regrid(client: Client):
         equipment = EquipmentFactory()

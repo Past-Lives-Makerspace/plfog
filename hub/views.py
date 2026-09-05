@@ -1135,10 +1135,9 @@ def _hours_save_message(*, guild: Guild, guild_scope: bool, deleted_rules: int, 
             "Shared hours deleted. From now on recurring hours are personal. "
             "Use an Any orienter one-off slot for shared coverage."
         )
-    parts = [
-        "Hours deleted." if deleted_rules else "Hours saved.",
-        f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.",
-    ]
+    parts = ["Hours deleted." if deleted_rules else "Hours saved."]
+    if removed:
+        parts.append(f"Removed {removed} upcoming open slot{'' if removed == 1 else 's'}.")
     if kept:
         pronoun = "it" if kept == 1 else "them"
         parts.append(

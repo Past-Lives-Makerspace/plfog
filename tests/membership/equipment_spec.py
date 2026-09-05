@@ -385,12 +385,13 @@ def describe_Equipment_orientation_hours():
         window.update(overrides)
         return window
 
-    def _open_slot(rule):
+    def _open_slot(rule, **overrides):
         return OrientationSlotFactory(
             equipment_owned=True,
             orientation_type=rule.orientation_type,
             availability=rule,
             source=OrientationSlot.Source.GENERATED,
+            **overrides,
         )
 
     def _booked_slot(rule, **booking_overrides):
@@ -513,16 +514,50 @@ def describe_Equipment_orientation_hours():
             assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
             assert OrientationSlot.objects.filter(pk=booked.pk).exists()
 
-        def it_regrids_when_seats_change():
+        def it_treats_a_seats_only_change_as_a_reseat_not_a_regrid():
             orientation_type = _tool_type()
             rule = _rule(orientation_type)
-            _open_slot(rule)
+            open_slot = _open_slot(rule, seats=1)
             result = orientation_type.equipment.apply_orientation_hours_windows(
                 [_window(orientation_type, [5], seats=2)]
             )
-            assert result == (0, 1, 0)
+            assert result == (0, 0, 0)
             rule.refresh_from_db()
             assert rule.seats == 2
+            open_slot.refresh_from_db()
+            assert open_slot.seats == 2
+
+        def it_raises_seats_on_open_and_booked_slots_alike():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type, seats=1)
+            open_slot = _open_slot(rule, seats=1)
+            booked = _open_slot(rule, seats=1)
+            OrientationBookingFactory(slot=booked)
+            result = orientation_type.equipment.apply_orientation_hours_windows(
+                [_window(orientation_type, [5], seats=4)]
+            )
+            assert result == (0, 0, 0)
+            open_slot.refresh_from_db()
+            booked.refresh_from_db()
+            assert open_slot.seats == 4
+            assert booked.seats == 4
+            assert booked.seats_remaining == 3
+
+        def it_never_lowers_a_booked_slot_below_its_taken_seats():
+            orientation_type = _tool_type()
+            rule = _rule(orientation_type, seats=4)
+            open_slot = _open_slot(rule, seats=4)
+            booked = _open_slot(rule, seats=4)
+            OrientationBookingFactory(slot=booked)
+            OrientationBookingFactory(slot=booked)
+            result = orientation_type.equipment.apply_orientation_hours_windows(
+                [_window(orientation_type, [5], seats=1)]
+            )
+            assert result == (0, 0, 0)
+            open_slot.refresh_from_db()
+            booked.refresh_from_db()
+            assert open_slot.seats == 1
+            assert booked.seats == 2
 
         def it_regrids_when_the_break_changes():
             orientation_type = _tool_type()

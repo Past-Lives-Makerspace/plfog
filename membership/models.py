@@ -8981,6 +8981,15 @@ class OrientationSlotQuerySet(models.QuerySet):
             )
         )
 
+    def with_booking_history_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``booking_history_count`` — booking rows of ANY status.
+
+        Retirement reads it to decide between deleting a slot nobody ever touched
+        and cancelling one whose declined / cancelled / refunded bookings must
+        survive (``OrientationBooking.slot`` cascades).
+        """
+        return self.annotate(booking_history_count=Count("bookings"))
+
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots whose owner is currently accepting bookings (does not check seats).
 
@@ -9028,6 +9037,8 @@ class OrientationSlot(models.Model):
     hold_count: int
     # Queryset annotation (set by OrientationSlotQuerySet.with_seat_holding_count)
     seat_holding_count: int
+    # Queryset annotation (set by OrientationSlotQuerySet.with_booking_history_count)
+    booking_history_count: int
     # View-attached free-seat count for the equipment day picker (seats minus seat_holding_count).
     seats_open: int
 
@@ -10871,16 +10882,21 @@ class Equipment(HeroCropMixin, models.Model):
                 continue
             window = desired[key]
             paused = rule.is_active and not window["is_active"]
-            new_grid = (window["slot_minutes"], window["buffer_minutes"], window["seats"])
-            regrid = (rule.slot_minutes, rule.buffer_minutes, rule.seats) != new_grid
+            regrid = (rule.slot_minutes, rule.buffer_minutes) != (window["slot_minutes"], window["buffer_minutes"])
+            reseat = rule.seats != window["seats"]
             if paused or regrid:
                 rule_removed, rule_kept = orientations.retire_open_slots(rule)
                 removed += rule_removed
                 kept += rule_kept
-            if regrid or rule.is_active != window["is_active"]:
-                rule.slot_minutes, rule.buffer_minutes, rule.seats = new_grid
+            if regrid or reseat or rule.is_active != window["is_active"]:
+                rule.slot_minutes, rule.buffer_minutes = window["slot_minutes"], window["buffer_minutes"]
+                rule.seats = window["seats"]
                 rule.is_active = window["is_active"]
                 rule.save(update_fields=["slot_minutes", "buffer_minutes", "seats", "is_active"])
+            if reseat and not (paused or regrid):
+                # A seats-only edit is not a re-grid: existing slots follow the new count
+                # in place, booked ones never below what is already taken.
+                orientations.reseat_slots(rule)
         for key, window in desired.items():
             if key not in existing:
                 type_id, weekday, start, end = key

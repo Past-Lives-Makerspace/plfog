@@ -9,6 +9,7 @@ confirm/complete crediting chain, and the retirement flows (``retire_rule`` /
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -17,6 +18,7 @@ from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from billing.models import PaymentRefund
 from membership import orientations
 from membership.models import (
     GuildStaffMembership,
@@ -303,8 +305,12 @@ def describe_retire_rule():
 
         removed, kept = orientations.retire_rule(rule)
 
+        # Removed from members' view, but cancelled rather than deleted: the slot carries
+        # booking history and OrientationBooking.slot cascades.
         assert (removed, kept) == (1, 0)
-        assert not OrientationSlot.objects.filter(pk=slot.pk).exists()
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        assert OrientationBooking.objects.filter(pk=booking.pk).exists()
 
 
 def describe_retire_orienter():
@@ -513,6 +519,20 @@ def describe_generate_slots_for_equipment():
         assert orientations.generate_slots(equipment=_tool(rule)) == 16
         assert rule.slots.first().orienter == stranger
 
+    def it_never_regenerates_a_cancelled_slot_open():
+        rule = _equipment_rule()
+        orientations.generate_slots(equipment=_tool(rule))
+        slot = rule.slots.get(starts_at=_at(_tool_day(), 10))
+        slot.mark_cancelled(reason="Machine down")
+        rule.slot_minutes = 30
+        rule.save(update_fields=["slot_minutes"])
+        assert orientations.retire_open_slots(rule) == (15, 0)
+        orientations.generate_slots(equipment=_tool(rule))
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        assert slot.cancelled_reason == "Machine down"
+        assert rule.slots.filter(starts_at=slot.starts_at).count() == 1
+
     def it_covers_both_owners_with_no_scope():
         guild, _staff = _staffed_guild()
         guild_rule = OrientationAvailabilityFactory(guild=guild)
@@ -617,12 +637,22 @@ def describe_off_grid_cleanup():
         assert orientations.generate_slots(equipment=_tool(rule)) == 16
         assert not OrientationSlot.objects.filter(pk=stale.pk).exists()
 
-    def it_regrids_a_capped_on_grid_slot_whose_booking_was_cancelled():
+    def it_reseats_an_on_grid_slot_to_the_rules_count():
+        # A seats mismatch alone is not off-grid: the slot stays and follows the rule.
         rule = _equipment_rule(seats=2)
         capped = _generated_slot(rule, hour=10, seats=1)
-        assert orientations.generate_slots(equipment=_tool(rule)) == 16
-        assert not OrientationSlot.objects.filter(pk=capped.pk).exists()
-        assert rule.slots.get(starts_at=_at(_tool_day(), 10)).seats == 2
+        assert orientations.generate_slots(equipment=_tool(rule)) == 15
+        capped.refresh_from_db()
+        assert capped.seats == 2
+
+    def it_keeps_a_booked_on_grid_slot_at_its_taken_seats_when_the_rule_is_lower():
+        rule = _equipment_rule(seats=1)
+        booked = _generated_slot(rule, hour=10, seats=2)
+        OrientationBookingFactory(slot=booked)
+        OrientationBookingFactory(slot=booked)
+        orientations.generate_slots(equipment=_tool(rule))
+        booked.refresh_from_db()
+        assert booked.seats == 2
 
     def it_keeps_a_booked_old_grid_slot():
         rule = _equipment_rule()
@@ -683,6 +713,41 @@ def describe_retire_open_slots():
         assert orientations.retire_open_slots(rule) == (0, 1)
         slot.refresh_from_db()
         assert slot.seats == 1
+
+    def it_leaves_a_cancelled_slot_alone():
+        rule = _equipment_rule()
+        cancelled = _generated_slot(rule)
+        cancelled.mark_cancelled(reason="Machine down")
+        assert orientations.retire_open_slots(rule) == (0, 0)
+        cancelled.refresh_from_db()
+        assert cancelled.is_cancelled is True
+        assert cancelled.cancelled_reason == "Machine down"
+
+    def it_cancels_rather_than_deletes_a_slot_with_booking_history():
+        rule = _equipment_rule()
+        slot = _generated_slot(rule)
+        declined = OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.DECLINED)
+        assert orientations.retire_open_slots(rule) == (1, 0)
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        assert slot.cancelled_reason == "The hours this time came from are no longer posted."
+        assert OrientationBooking.objects.filter(pk=declined.pk).exists()
+        assert slot not in OrientationSlot.objects.bookable()
+
+    def it_cancels_a_slot_with_a_refunded_booking_and_keeps_the_refund_history():
+        rule = _equipment_rule()
+        slot = _generated_slot(rule)
+        refunded = OrientationBookingFactory(
+            slot=slot, status=OrientationBooking.Status.CANCELLED, amount_paid_cents=1500
+        )
+        refund = PaymentRefund.objects.create(
+            orientation_booking=refunded, amount_cents=1500, status=PaymentRefund.Status.SUCCEEDED
+        )
+        assert orientations.retire_open_slots(rule) == (1, 0)
+        assert OrientationSlot.objects.filter(pk=slot.pk, is_cancelled=True).exists()
+        assert PaymentRefund.objects.filter(pk=refund.pk).exists()
+        refunded.refresh_from_db()
+        assert refunded.refund_state == "full"
 
     def it_deletes_the_rule_only_through_retire_rule():
         rule = _equipment_rule()
@@ -786,3 +851,93 @@ def describe_hold_expiry_recap():
         slot.refresh_from_db()
         assert slot.seats == 4
         assert slot.is_cancelled is False
+
+
+def describe_cancel_and_decline_recap():
+    """A freed seat on a slot whose hours are gone or paused must not reopen (review finding 2)."""
+
+    def _booked(rule, *, paid: bool = False, status: str | None = None):
+        slot = _generated_slot(rule, seats=4)
+        extra: dict = {"amount_paid_cents": 1500, "stripe_payment_id": "pi_recap"} if paid else {}
+        if status is not None:
+            extra["status"] = status
+        return slot, OrientationBookingFactory(slot=slot, **extra)
+
+    def _deleted_window(rule) -> None:
+        orientations.retire_rule(rule)
+
+    def _paused_window(rule) -> None:
+        rule.is_active = False
+        rule.save(update_fields=["is_active"])
+        orientations.retire_open_slots(rule)
+
+    def _assert_closed(slot) -> None:
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        assert slot.cancelled_reason == "The hours this time came from are no longer posted."
+        assert slot not in OrientationSlot.objects.bookable()
+
+    def it_cancels_a_deleted_windows_slot_when_its_free_booking_is_cancelled():
+        rule = _equipment_rule()
+        slot, booking = _booked(rule, status=OrientationBooking.Status.CONFIRMED)
+        _deleted_window(rule)
+        slot.refresh_from_db()
+        assert slot.seats == 1
+        orientations.cancel_orientation(booking, actor_label="Sam")
+        _assert_closed(slot)
+
+    @patch("billing.refunds.issue_refund")
+    def it_cancels_a_deleted_windows_slot_when_its_paid_booking_is_cancelled(mock_issue):
+        rule = _equipment_rule()
+        slot, booking = _booked(rule, paid=True, status=OrientationBooking.Status.CONFIRMED)
+        _deleted_window(rule)
+        orientations.cancel_orientation(booking, actor_label="Sam")
+        mock_issue.assert_called_once()
+        _assert_closed(slot)
+
+    def it_cancels_a_paused_windows_slot_when_its_free_request_is_declined():
+        rule = _equipment_rule()
+        slot, booking = _booked(rule)
+        _paused_window(rule)
+        orientations.decline_orientation(booking, note="Sorry")
+        _assert_closed(slot)
+
+    @patch("billing.refunds.issue_refund")
+    def it_cancels_a_paused_windows_slot_when_its_paid_request_is_declined(mock_issue):
+        rule = _equipment_rule()
+        slot, booking = _booked(rule, paid=True)
+        _paused_window(rule)
+        orientations.decline_orientation(booking, note="Sorry")
+        mock_issue.assert_called_once()
+        _assert_closed(slot)
+
+    def it_recaps_to_the_remaining_booking_instead_of_cancelling():
+        rule = _equipment_rule()
+        slot, booking = _booked(rule)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        _deleted_window(rule)
+        slot.refresh_from_db()
+        assert slot.seats == 2
+        orientations.cancel_orientation(booking, actor_label="Sam")
+        slot.refresh_from_db()
+        assert slot.seats == 1
+        assert slot.is_cancelled is False
+        assert slot.is_full
+
+    def it_leaves_a_live_rules_slot_alone():
+        rule = _equipment_rule()
+        slot, booking = _booked(rule)
+        orientations.cancel_orientation(booking, actor_label="Sam")
+        slot.refresh_from_db()
+        assert slot.seats == 4
+        assert slot.is_cancelled is False
+
+    def it_keeps_a_managers_cancel_reason_through_the_fan_out():
+        rule = _equipment_rule()
+        slot, _booking = _booked(rule, status=OrientationBooking.Status.CONFIRMED)
+        _deleted_window(rule)
+        slot.refresh_from_db()  # the manage panel fetches the slot fresh; drop the deleted rule from the cache
+        orientations.cancel_slot(slot, reason="Machine down")
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True
+        assert slot.cancelled_reason == "Machine down"
