@@ -19,6 +19,7 @@ from django.utils import timezone
 from membership.models import AdminCapability, Equipment, EquipmentStaffMembership, Member
 from tests.membership.factories import (
     EquipmentFactory,
+    EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
@@ -82,6 +83,39 @@ def describe_equipment_index():
         assert b"Orientation needed" in response.content
         assert b"Woodshop members only" in response.content
         assert user is not None  # the badge set proves the bulk access sets flowed through
+
+    def it_shows_a_running_orientation_as_reserved_on_the_card(client: Client):
+        from datetime import time, timedelta
+
+        from django.utils import timezone
+
+        from tests.membership.factories import EquipmentHoursFactory, OrientationBookingFactory, OrientationSlotFactory
+
+        _login(client, "eq_card_orient")
+        busy_tool = EquipmentFactory(name="Busy Router")
+        free_tool = EquipmentFactory(name="Free Router")
+        for equipment in (busy_tool, free_tool):
+            EquipmentHoursFactory(
+                equipment=equipment,
+                weekday=timezone.localtime().weekday(),
+                start_time=time(0, 0),
+                end_time=time(23, 59),
+            )
+            slot = OrientationSlotFactory(
+                equipment_owned=True,
+                orientation_type=OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics"),
+                starts_at=timezone.now() - timedelta(minutes=30),
+                ends_at=timezone.now() + timedelta(minutes=30),
+                seats=1,
+            )
+            if equipment is busy_tool:
+                OrientationBookingFactory(slot=slot)
+        response = client.get(reverse("hub_equipment_index"))
+        cards = {card["equipment"].name: card["availability"] for card in response.context["cards"]}
+        assert cards["Busy Router"][0] == "busy"
+        assert cards["Busy Router"][1].startswith("Reserved until ")
+        assert cards["Free Router"] == ("free", "Available now")
+        assert b"Reserved until " in response.content
 
     def it_shows_membership_inactive_badges_to_a_former_member(client: Client):
         user = _login(client, "eq_former")
@@ -985,6 +1019,27 @@ def describe_equipment_day_picker():
         assert slot.is_cancelled is True
         content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
         assert "No orientation times are posted yet. Check back soon." in content
+
+    def it_hides_a_slot_under_a_confirmed_reservation_until_it_is_cancelled(client: Client):
+        _login(client, "dp_reserved")
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        _slot(orientation_type, _day(2), 10)
+        _slot(orientation_type, _day(2), 11)
+        reservation = EquipmentReservationFactory(
+            equipment=equipment, starts_at=_at(_day(2), 10), ends_at=_at(_day(2), 11)
+        )
+
+        def picker_starts() -> list:
+            response = client.get(reverse("hub_equipment_detail", args=[equipment.slug]))
+            days = response.context["orientation_sections"][0]["days"]
+            return [slot.starts_at for day in days for slot in day["slots"]]
+
+        # The reservation itself still lists under Upcoming Reservations; only the picker hides the slot.
+        assert picker_starts() == [_at(_day(2), 11)]
+        reservation.status = "cancelled"
+        reservation.save(update_fields=["status"])
+        assert picker_starts() == [_at(_day(2), 10), _at(_day(2), 11)]
 
     def it_keeps_the_empty_state_with_no_slots(client: Client):
         _login(client, "dp_empty")

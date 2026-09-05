@@ -25,6 +25,8 @@ from tests.membership.factories import (
     EquipmentStaffMembershipFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
+    OrientationBookingFactory,
+    OrientationSlotFactory,
     OrientationTypeFactory,
 )
 
@@ -925,3 +927,123 @@ def describe_reopen_regeneration():
         equipment.refresh_from_db()
         assert equipment.is_closed is True
         assert not rule.slots.exists()
+
+
+def describe_orientation_spans_on_the_timeline():
+    """Booked orientations show on the schedule as their own busy span (equipment-orientation-hours PR 2)."""
+
+    def _slot(equipment: Equipment, hour: int, *, seats: int = 1):
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=_at(_day(), hour),
+            ends_at=_at(_day(), hour + 1),
+            seats=seats,
+        )
+
+    def _named(username: str, name: str):
+        user = _member_user(username)
+        user.member.full_legal_name = name
+        user.member.save(update_fields=["full_legal_name"])
+        return user.member
+
+    def it_renders_a_booked_orientation_as_its_own_labeled_span(client: Client):
+        _login(client, "orient_span")
+        equipment = _open_tool()
+        slot = _slot(equipment, 11)
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_sam", "Sam Reyes"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        content = response.content.decode()
+        assert "pl-equip-slot--orientation" in content
+        assert "Orientation · Sam R." in content
+        assert "Orientations booked on this tool show here too." in content
+        segment = next(s for s in response.context["timeline"] if not s["is_free"])
+        assert segment["kind"] == "orientation"
+        assert (segment["starts_at"], segment["ends_at"]) == (_at(_day(), 11), _at(_day(), 12))
+        starts = response.context["starts"]
+        assert _at(_day(), 11) not in starts
+        assert _at(_day(), 11, 30) not in starts
+        assert _at(_day(), 12) in starts
+
+    def it_lists_every_seat_holder_and_keeps_a_single_name_whole(client: Client):
+        _login(client, "orient_span_group")
+        equipment = _open_tool()
+        slot = _slot(equipment, 11, seats=2)
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_ana", "Ana Torres Vega"))
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_cher", "Cher"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        assert "Orientation · Ana V., Cher" in response.content.decode()
+
+    def it_does_not_show_an_open_unbooked_slot_as_busy(client: Client):
+        _login(client, "orient_span_open")
+        equipment = _open_tool()
+        _slot(equipment, 11)
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        content = response.content.decode()
+        assert "pl-equip-slot--orientation" not in content
+        assert "Orientations booked on this tool show here too." in content
+        assert _at(_day(), 11) in response.context["starts"]
+
+    def it_renders_a_legacy_overlap_as_consecutive_segments(client: Client):
+        # A reservation and a booked orientation that overlapped before the guards existed.
+        _login(client, "orient_span_legacy")
+        equipment = _open_tool()
+        EquipmentReservationFactory(equipment=equipment, starts_at=_at(_day(), 10), ends_at=_at(_day(), 12))
+        slot = _slot(equipment, 11)
+        slot.ends_at = _at(_day(), 13)
+        slot.save(update_fields=["ends_at"])
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_legacy_sam", "Sam Reyes"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        busy = [s for s in response.context["timeline"] if not s["is_free"]]
+        assert [(s["kind"], s["starts_at"], s["ends_at"]) for s in busy] == [
+            ("reservation", _at(_day(), 10), _at(_day(), 12)),
+            ("orientation", _at(_day(), 12), _at(_day(), 13)),
+        ]
+        timeline = response.context["timeline"]
+        assert all(
+            later["starts_at"] >= earlier["ends_at"] for earlier, later in zip(timeline, timeline[1:], strict=False)
+        )
+
+    def it_draws_nothing_for_a_legacy_overlap_that_straddles_closing_time(client: Client):
+        # Reservation 3 to 5 plus a pre guard orientation 4 to 6 on a tool that closes at 5:
+        # the orientation has nothing left to draw once clamped, never a zero or inverted row.
+        _login(client, "orient_span_straddle")
+        equipment = _open_tool()
+        EquipmentReservationFactory(equipment=equipment, starts_at=_at(_day(), 15), ends_at=_at(_day(), 17))
+        slot = _slot(equipment, 16)
+        slot.ends_at = _at(_day(), 18)
+        slot.save(update_fields=["ends_at"])
+        OrientationBookingFactory(slot=slot, member=_named("orient_span_straddle_sam", "Sam Reyes"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        busy = [s for s in response.context["timeline"] if not s["is_free"]]
+        assert [(s["kind"], s["starts_at"], s["ends_at"]) for s in busy] == [
+            ("reservation", _at(_day(), 15), _at(_day(), 17)),
+        ]
+        assert all(s["starts_at"] < s["ends_at"] for s in response.context["timeline"])
+
+    def it_draws_one_segment_for_two_overlapping_legacy_orientations_past_closing(client: Client):
+        _login(client, "orient_span_straddle_two")
+        equipment = _open_tool()
+        first = _slot(equipment, 15)
+        first.ends_at = _at(_day(), 18)
+        first.save(update_fields=["ends_at"])
+        OrientationBookingFactory(slot=first, member=_named("orient_span_straddle_ana", "Ana Torres"))
+        second = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=first.orientation_type,
+            starts_at=_at(_day(), 16),
+            ends_at=_at(_day(), 19),
+            seats=1,
+        )
+        OrientationBookingFactory(slot=second, member=_named("orient_span_straddle_bo", "Bo Lin"))
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        busy = [s for s in response.context["timeline"] if not s["is_free"]]
+        assert [(s["starts_at"], s["ends_at"]) for s in busy] == [(_at(_day(), 15), _at(_day(), 17))]
+        assert all(s["starts_at"] < s["ends_at"] for s in response.context["timeline"])
+
+    def it_hides_the_legend_line_on_a_tool_without_orientations(client: Client):
+        _login(client, "orient_span_none")
+        equipment = _open_tool()
+        response = client.get(reverse("hub_equipment_schedule", args=[equipment.slug]), {"day": _day().isoformat()})
+        assert "Orientations booked on this tool show here too." not in response.content.decode()

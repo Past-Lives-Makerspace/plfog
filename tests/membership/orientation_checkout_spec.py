@@ -13,6 +13,8 @@ from core.models import SiteActivity
 from membership import orientations
 from membership.models import OrientationBooking, OrientationError, OrientationSlot
 from tests.membership.factories import (
+    EquipmentFactory,
+    EquipmentReservationFactory,
     GuildOrientationSettingsFactory,
     MemberFactory,
     OrientationBookingFactory,
@@ -428,3 +430,46 @@ def describe_equipment_owned_paid_flow():
         member_email = next(m for m in mail.outbox if "request received" in m.subject)
         assert "CNC Router" in member_email.subject
         assert "[missing:" not in member_email.body
+
+
+def describe_equipment_paid_checkout():
+    """The equipment-owned paid path locks the Equipment row for the guard and the hold only (PR 2)."""
+
+    def _equipment_paid_slot() -> OrientationSlot:
+        equipment = EquipmentFactory()
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, price_cents=1500)
+        return OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+
+    def it_commits_the_hold_before_the_stripe_call_and_holds_no_lock_across_it():
+        from django.db import connection
+
+        slot = _equipment_paid_slot()
+        member = MemberFactory()
+        seen: dict = {}
+
+        def fake_create(**kwargs):
+            seen["hold_exists"] = OrientationBooking.objects.filter(
+                slot=slot, status=OrientationBooking.Status.PENDING_PAYMENT
+            ).exists()
+            # Savepoint depth equal to the test's own baseline means the lock's
+            # atomic block has already closed when Stripe is called.
+            seen["depth"] = len(connection.savepoint_ids)
+            return _SESSION
+
+        baseline = len(connection.savepoint_ids)
+        with patch("billing.stripe_utils.create_checkout_session", side_effect=fake_create):
+            url = orientations.start_orientation_checkout(slot, member)
+        assert url == _SESSION["url"]
+        assert seen == {"hold_exists": True, "depth": baseline}
+        assert OrientationBooking.objects.get(slot=slot).stripe_session_id == _SESSION["id"]
+
+    @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
+    def it_refuses_a_slot_under_a_confirmed_reservation_before_touching_stripe(mock_create):
+        slot = _equipment_paid_slot()
+        EquipmentReservationFactory(
+            equipment=slot.orientation_type.equipment, starts_at=slot.starts_at, ends_at=slot.ends_at
+        )
+        with pytest.raises(OrientationError, match="not available to book"):
+            orientations.start_orientation_checkout(slot, MemberFactory())
+        mock_create.assert_not_called()
+        assert not slot.bookings.exists()

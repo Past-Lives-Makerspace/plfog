@@ -55,10 +55,12 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <h3 class="hub-detail-label" style="margin:1rem 0 0.5rem;">{{ selected_day|date:"l, F j" }}</h3>
     <ul class="pl-equip-timeline">
       {% for segment in timeline %}
-      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% else %}pl-equip-slot--busy{% endif %}">
+      <li class="pl-equip-slot {% if segment.is_free %}pl-equip-slot--free{% elif segment.kind == "orientation" %}pl-equip-slot--orientation{% else %}pl-equip-slot--busy{% endif %}">
         <span class="pl-equip-slot__when">{{ segment.starts_at|time:"g:i A" }} to {{ segment.ends_at|time:"g:i A" }}</span>
         {% if segment.is_free %}
         <span class="pl-equip-slot__label">Open</span>
+        {% elif segment.kind == "orientation" %}
+        <span class="pl-equip-slot__label">{{ segment.label }}</span>
         {% else %}
         <span class="pl-equip-slot__label">{{ segment.reservation.member.display_name }}{% if segment.reservation.purpose %} · {{ segment.reservation.purpose }}{% endif %}</span>
         {% endif %}
@@ -67,6 +69,9 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       <li class="pl-equip-slot pl-equip-slot--free"><span class="hub-text-muted">No open hours this day.</span></li>
       {% endfor %}
     </ul>
+    {% if has_orientations %}
+    <p class="hub-text-muted pl-equip-timeline__note">Orientations booked on this tool show here too.</p>
+    {% endif %}
     {% endif %}
   </div>
 

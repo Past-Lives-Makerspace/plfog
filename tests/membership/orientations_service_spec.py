@@ -13,8 +13,9 @@ from django.utils import timezone
 
 from core.models import EventDelivery, Notification, SiteActivity
 from membership import orientations
-from membership.models import GuildStaffMembership, OrientationBooking, OrientationSlot
+from membership.models import GuildStaffMembership, OrientationBooking, OrientationError, OrientationSlot
 from tests.membership.factories import (
+    EquipmentReservationFactory,
     GuildFactory,
     GuildMembershipFactory,
     GuildOrientationSettingsFactory,
@@ -684,3 +685,22 @@ def describe_equipment_owned_orientations_service():
         orientations.complete_orientation(booking)
         thankyou = next(m for m in mail.outbox if "Kiln Room" in m.subject)
         assert "[missing:" not in thankyou.body
+
+
+def describe_equipment_request_lock():
+    """An equipment-owned request books under the Equipment row lock ``reserve()`` takes (PR 2)."""
+
+    def it_refuses_a_request_under_a_confirmed_reservation():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        EquipmentReservationFactory(
+            equipment=slot.orientation_type.equipment, starts_at=slot.starts_at, ends_at=slot.ends_at
+        )
+        with pytest.raises(OrientationError, match="not available to book"):
+            orientations.request_orientation(slot, _member_with_user("lock_refused"))
+        assert not slot.bookings.exists()
+
+    def it_books_under_the_lock_otherwise():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        booking = orientations.request_orientation(slot, _member_with_user("lock_booked"))
+        assert booking.status == OrientationBooking.Status.REQUESTED
+        assert slot.bookings.count() == 1

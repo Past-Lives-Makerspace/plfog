@@ -25,7 +25,16 @@ from core.events.registry import Channel, ChannelDefault, Recipients, get_event
 from core.events.rendering import render_text
 from core.models import Notification
 from membership import equipment as equipment_service
-from membership.models import AdminCapability, Equipment, EquipmentError, EquipmentReservation, Member
+from membership import orientations
+from membership.models import (
+    AdminCapability,
+    Equipment,
+    EquipmentError,
+    EquipmentReservation,
+    Member,
+    OrientationBooking,
+    OrientationError,
+)
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentHoursFactory,
@@ -35,6 +44,8 @@ from tests.membership.factories import (
     GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
+    OrientationBookingFactory,
+    OrientationSlotFactory,
     OrientationTypeFactory,
 )
 
@@ -244,6 +255,60 @@ def describe_availability_line():
         tone, text = equipment.availability_line()
         assert tone == "busy"
         assert text.startswith("Reserved until ")
+
+    def _all_day_tool() -> Equipment:
+        equipment = EquipmentFactory()
+        EquipmentHoursFactory(
+            equipment=equipment,
+            weekday=timezone.localtime().weekday(),
+            start_time=time(0, 0),
+            end_time=time(23, 59),
+        )
+        return equipment
+
+    def _running_slot(equipment: Equipment):
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        return OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=timezone.now() - timedelta(minutes=30),
+            ends_at=timezone.now() + timedelta(minutes=30),
+            seats=1,
+        )
+
+    def it_reports_busy_during_a_booked_orientation():
+        equipment = _all_day_tool()
+        slot = _running_slot(equipment)
+        OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        ends_local = timezone.localtime(slot.ends_at)
+        hour = ends_local.hour % 12 or 12
+        suffix = "AM" if ends_local.hour < 12 else "PM"
+        assert equipment.availability_line() == ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+
+    def it_reports_the_later_end_when_a_reservation_and_an_orientation_both_run():
+        equipment = _all_day_tool()
+        slot = _running_slot(equipment)
+        OrientationBookingFactory(slot=slot)
+        EquipmentReservationFactory(
+            equipment=equipment,
+            starts_at=timezone.now() - timedelta(minutes=10),
+            ends_at=timezone.now() + timedelta(minutes=90),
+        )
+        ends_local = timezone.localtime(equipment.reservations.get().ends_at)
+        hour = ends_local.hour % 12 or 12
+        suffix = "AM" if ends_local.hour < 12 else "PM"
+        assert equipment.availability_line() == ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+
+    def it_ignores_an_open_unbooked_slot():
+        equipment = _all_day_tool()
+        _running_slot(equipment)
+        assert equipment.availability_line() == ("free", "Available now")
+
+    def it_reads_the_index_attachment_instead_of_querying_when_supplied():
+        equipment = _all_day_tool()
+        OrientationBookingFactory(slot=_running_slot(equipment))
+        equipment.current_orientation_slots = []
+        assert equipment.availability_line() == ("free", "Available now")
 
     def it_reports_open_and_after_hours_states():
         equipment = EquipmentFactory()
@@ -674,3 +739,130 @@ def describe_equipment_events():
             ).decode()
             assert "METHOD:CANCEL" in payload
             assert "STATUS:CANCELLED" in payload
+
+
+# ── Orientations and reservations stay out of each other's way (equipment-orientation-hours PR 2) ──
+
+
+def _tool_slot(equipment: Equipment, hour: int, *, length: int = 60, day=None):
+    """An equipment-owned orientation slot on ``day`` (default +2) from ``hour`` for ``length`` minutes."""
+    orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+    start = _at(day if day is not None else _day(), hour)
+    return OrientationSlotFactory(
+        equipment_owned=True,
+        orientation_type=orientation_type,
+        starts_at=start,
+        ends_at=start + timedelta(minutes=length),
+        seats=2,
+    )
+
+
+def _booked(slot, **overrides):
+    OrientationBookingFactory(slot=slot, **overrides)
+    return slot
+
+
+def describe_busy_spans_for_day():
+    def it_is_empty_when_every_slot_is_open_and_unbooked():
+        equipment = _open_tool()
+        _tool_slot(equipment, 10)
+        assert equipment.busy_spans_for_day(_day()) == []
+
+    def it_counts_a_requested_confirmed_or_held_seat_as_busy():
+        equipment = _open_tool()
+        _booked(_tool_slot(equipment, 10))
+        _booked(_tool_slot(equipment, 12), status=OrientationBooking.Status.CONFIRMED)
+        _booked(_tool_slot(equipment, 14), status=OrientationBooking.Status.PENDING_PAYMENT)
+        assert equipment.busy_spans_for_day(_day()) == [
+            (_at(_day(), 10), _at(_day(), 11)),
+            (_at(_day(), 12), _at(_day(), 13)),
+            (_at(_day(), 14), _at(_day(), 15)),
+        ]
+
+    def it_frees_the_span_when_the_slot_is_cancelled():
+        equipment = _open_tool()
+        slot = _booked(_tool_slot(equipment, 10), status=OrientationBooking.Status.CONFIRMED)
+        slot.mark_cancelled(reason="Machine down")
+        assert equipment.busy_spans_for_day(_day()) == []
+
+    def it_frees_the_span_when_the_booking_is_resolved():
+        equipment = _open_tool()
+        _booked(_tool_slot(equipment, 10), status=OrientationBooking.Status.DECLINED)
+        _booked(_tool_slot(equipment, 12), status=OrientationBooking.Status.CANCELLED)
+        assert equipment.busy_spans_for_day(_day()) == []
+
+    def it_merges_reservations_with_booked_orientations():
+        equipment = _open_tool()
+        EquipmentReservationFactory(equipment=equipment, starts_at=_at(_day(), 10), ends_at=_at(_day(), 12))
+        _booked(_tool_slot(equipment, 11, length=120))
+        assert equipment.busy_spans_for_day(_day()) == [(_at(_day(), 10), _at(_day(), 13))]
+
+    def it_ignores_another_tools_booked_slot():
+        equipment = _open_tool()
+        _booked(_tool_slot(_open_tool(), 10))
+        assert equipment.busy_spans_for_day(_day()) == []
+
+
+def describe_free_time_around_a_booked_orientation():
+    def it_omits_starts_that_would_run_into_the_orientation():
+        equipment = _open_tool()
+        _booked(_tool_slot(equipment, 11))
+        starts = equipment.free_starts_for_day(_day())
+        assert _at(_day(), 10, 30) in starts  # 10:30 + the 30 minute minimum ends as the orientation begins
+        assert _at(_day(), 11) not in starts
+        assert _at(_day(), 11, 30) not in starts
+        assert _at(_day(), 12) in starts
+
+    def it_caps_durations_at_the_orientation():
+        equipment = _open_tool()
+        _booked(_tool_slot(equipment, 11))
+        assert equipment.durations_for(_at(_day(), 10)) == [30, 60]
+
+    def it_leaves_every_start_when_the_slot_is_unbooked():
+        equipment = _open_tool()
+        _tool_slot(equipment, 11)
+        assert _at(_day(), 11) in equipment.free_starts_for_day(_day())
+
+
+def describe_ensure_reservable_orientation_guard():
+    def it_refuses_a_crafted_time_over_a_booked_orientation():
+        # The UI never offers this start; a stale or crafted POST still hits the guard under the lock.
+        equipment = _open_tool()
+        _booked(_tool_slot(equipment, 11))
+        with pytest.raises(EquipmentError, match="overlaps a booked orientation"):
+            equipment_service.reserve(equipment, _linked_member("res_over_orient"), _at(_day(), 11), 60)
+        assert not equipment.reservations.exists()
+
+    def it_allows_a_touching_time():
+        equipment = _open_tool()
+        _booked(_tool_slot(equipment, 11))
+        reservation = equipment_service.reserve(equipment, _linked_member("res_touch_orient"), _at(_day(), 12), 60)
+        assert reservation.status == EquipmentReservation.Status.CONFIRMED
+
+    def it_ignores_an_open_unbooked_slot():
+        equipment = _open_tool()
+        _tool_slot(equipment, 11)
+        reservation = equipment_service.reserve(equipment, _linked_member("res_open_orient"), _at(_day(), 11), 60)
+        assert reservation.status == EquipmentReservation.Status.CONFIRMED
+
+
+def describe_reservation_vs_orientation_race():
+    """The sequential shape the shared Equipment row lock serializes: exactly one winner per span."""
+
+    def it_lets_the_reservation_win_when_it_lands_first():
+        equipment = _open_tool()
+        slot = _tool_slot(equipment, 10)
+        winner = equipment_service.reserve(equipment, _linked_member("race_res_first"), _at(_day(), 10), 60)
+        with pytest.raises(OrientationError, match="not available to book"):
+            orientations.request_orientation(slot, _linked_member("race_orient_second"))
+        assert winner.status == EquipmentReservation.Status.CONFIRMED
+        assert not slot.bookings.exists()
+
+    def it_lets_the_orientation_win_when_it_lands_first():
+        equipment = _open_tool()
+        slot = _tool_slot(equipment, 10)
+        booking = orientations.request_orientation(slot, _linked_member("race_orient_first"))
+        with pytest.raises(EquipmentError, match="overlaps a booked orientation"):
+            equipment_service.reserve(equipment, _linked_member("race_res_second"), _at(_day(), 10), 60)
+        assert booking.status == OrientationBooking.Status.REQUESTED
+        assert not equipment.reservations.exists()

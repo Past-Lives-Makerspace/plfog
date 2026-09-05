@@ -8113,3 +8113,24 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         flex-basis: 100%;
     }
 }
+
+/* ── Orientations on the reservation schedule (equipment-orientation-hours PR 2) ── */
+.pl-equip-slot--orientation {
+    border-left-color: var(--hub-blue);
+}
+.pl-equip-slot--orientation .pl-equip-slot__label {
+    color: var(--hub-blue);
+}
+.pl-equip-timeline__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+}
+/* An Upcoming Slots row sitting under a confirmed reservation: muted, never offered to members. */
+.pl-equip-res-row--blocked {
+    opacity: 0.65;
+}
+.pl-equip-res-row__blocked {
+    display: block;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}

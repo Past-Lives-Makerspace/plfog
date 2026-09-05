@@ -8981,6 +8981,34 @@ class OrientationSlotQuerySet(models.QuerySet):
             )
         )
 
+    def holding_seats(self) -> OrientationSlotQuerySet:
+        """Uncancelled slots that hold a seat: a ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking.
+
+        Busy time on the tool's reservation schedule (equipment-orientation-hours
+        PR 2): a booked orientation occupies the machine; an open, unbooked slot
+        does NOT, otherwise every posted window would freeze the tool.
+        """
+        return self.filter(
+            is_cancelled=False,
+            bookings__status__in=[
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.CONFIRMED,
+            ],
+        ).distinct()
+
+    def holding_seats_on(
+        self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
+    ) -> OrientationSlotQuerySet:
+        """:meth:`holding_seats` narrowed to ``equipment``'s owned types overlapping ``[starts_at, ends_at)``.
+
+        Strict inequalities: touching spans never conflict. Pass ``now`` for both
+        bounds to ask what is running right now.
+        """
+        return self.holding_seats().filter(
+            orientation_type__equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
+        )
+
     def with_booking_history_count(self) -> OrientationSlotQuerySet:
         """Annotate each slot with ``booking_history_count`` — booking rows of ANY status.
 
@@ -8998,9 +9026,10 @@ class OrientationSlotQuerySet(models.QuerySet):
         reappear the moment its booking is declined or cancelled). An
         equipment-owned slot (``guild`` is None) requires active, open (not closed
         for maintenance) equipment and never carries an orienter (the
-        no-per-orienter-machinery decision). For both owners a slot generated from
-        a paused rule stops taking NEW bookings; a one time slot has no rule and is
-        unaffected.
+        no-per-orienter-machinery decision) and no confirmed reservation over its
+        span (a reserved machine cannot host an orientation). For both owners a
+        slot generated from a paused rule stops taking NEW bookings; a one time
+        slot has no rule and is unaffected.
         """
         still_on_staff = GuildStaffMembership.objects.filter(
             guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
@@ -9010,12 +9039,17 @@ class OrientationSlotQuerySet(models.QuerySet):
             guild__orientation_settings__is_enabled=True,
             guild__orientation_settings__is_closed=False,
         ) & (Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
+        reserved_over_span = EquipmentReservation.objects.confirmed().filter(
+            equipment=OuterRef("orientation_type__equipment"),
+            starts_at__lt=OuterRef("ends_at"),
+            ends_at__gt=OuterRef("starts_at"),
+        )
         equipment_gate = Q(
             orientation_type__equipment__isnull=False,
             orientation_type__equipment__is_active=True,
             orientation_type__equipment__is_closed=False,
             orienter__isnull=True,
-        )
+        ) & ~Exists(reserved_over_span)
         rule_gate = Q(availability__isnull=True) | Q(availability__is_active=True)
         return (
             self.upcoming()
@@ -9176,8 +9210,13 @@ class OrientationSlot(models.Model):
             return False
         if self.orientation_type.is_equipment_owned:
             # No orienter-leadership check and no settings gate for equipment — the
-            # equipment's active + open state is the whole switch (via is_accepting).
-            return self.orientation_type.is_accepting
+            # equipment's active + open state is the whole switch (via is_accepting),
+            # plus the machine itself must be free: a confirmed reservation over this
+            # span hides the slot until that reservation is cancelled (PR 2).
+            if not self.orientation_type.is_accepting:
+                return False
+            equipment = cast("Equipment", self.orientation_type.equipment)
+            return not EquipmentReservation.objects.overlapping(equipment, self.starts_at, self.ends_at).exists()
         guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
         if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
             return False
@@ -10575,6 +10614,10 @@ class Equipment(HeroCropMixin, models.Model):
 
     RESERVATION_SNAP_MINUTES = 30
 
+    # View-attached by the index (hub_equipment_index): booked orientation slots running
+    # right now, so availability_line() reads them without a per-card query.
+    current_orientation_slots: list[OrientationSlot]
+
     class Meta:
         ordering = ["name"]
         verbose_name_plural = "Equipment"
@@ -10713,14 +10756,28 @@ class Equipment(HeroCropMixin, models.Model):
                 windows.append((start, end))
         return windows
 
-    def _busy_spans_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
-        """Merged confirmed-reservation spans overlapping the local ``day``, sorted."""
+    def busy_spans_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """Merged busy spans overlapping the local ``day``, sorted.
+
+        The union of confirmed reservations and this equipment's orientation slots
+        that hold a seat (a ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking): a
+        booked orientation on a CNC occupies the CNC. Open, unbooked slots are NOT
+        busy, or every posted window would freeze the tool. ``free_intervals_for_day``,
+        ``free_starts_for_day`` and ``durations_for`` all inherit this union, so the
+        Book a Time selects never offer a start over a booked orientation.
+        """
         day_start = timezone.make_aware(datetime_type.combine(day, time_type.min))
         day_end = day_start + timedelta(days=1)
+        spans = [
+            (reservation.starts_at, reservation.ends_at)
+            for reservation in EquipmentReservation.objects.overlapping(self, day_start, day_end)
+        ]
+        spans.extend(
+            (slot.starts_at, slot.ends_at)
+            for slot in OrientationSlot.objects.holding_seats_on(self, day_start, day_end)
+        )
         merged: list[tuple[datetime_type, datetime_type]] = []
-        overlapping = EquipmentReservation.objects.overlapping(self, day_start, day_end).order_by("starts_at")
-        for reservation in overlapping:
-            start, end = reservation.starts_at, reservation.ends_at
+        for start, end in sorted(spans):
             if merged and start <= merged[-1][1]:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
@@ -10728,9 +10785,9 @@ class Equipment(HeroCropMixin, models.Model):
         return merged
 
     def free_intervals_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
-        """The day's open windows minus confirmed reservations, in order (the free time)."""
+        """The day's open windows minus the busy spans, in order (the free time)."""
         free: list[tuple[datetime_type, datetime_type]] = []
-        busy = self._busy_spans_for_day(day)
+        busy = self.busy_spans_for_day(day)
         for window_start, window_end in self.open_intervals_for_day(day):
             cursor = window_start
             for busy_start, busy_end in busy:
@@ -10959,11 +11016,11 @@ class Equipment(HeroCropMixin, models.Model):
     def availability_line(self) -> tuple[str, str]:
         """The index card's ``(tone, text)`` availability line, computed from now.
 
-        Tones: ``free`` (available now), ``busy`` (reserved right now), ``closed``,
-        ``muted`` (no hours yet, or outside open hours). Reads prefetched
-        ``hours_rules`` and a ``current_reservations`` ``to_attr`` when the index
-        view supplies them, so a page of cards runs no per-card queries; without the
-        prefetch it queries per call.
+        Tones: ``free`` (available now), ``busy`` (reserved or in an orientation
+        right now), ``closed``, ``muted`` (no hours yet, or outside open hours).
+        Reads prefetched ``hours_rules``, a ``current_reservations`` ``to_attr`` and a
+        ``current_orientation_slots`` list when the index view supplies them, so a
+        page of cards runs no per-card queries; without them it queries per call.
         """
         now = timezone.now()
         if self.is_closed:
@@ -10976,8 +11033,15 @@ class Equipment(HeroCropMixin, models.Model):
             current = list(
                 EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
             )
-        if current:
-            ends_local = timezone.localtime(max(reservation.ends_at for reservation in current))
+        busy_ends = [reservation.ends_at for reservation in current]
+        # A booked orientation running now occupies the tool exactly like a reservation
+        # (the detail page already shows it busy); an open, unbooked slot does not.
+        running_slots = getattr(self, "current_orientation_slots", None)
+        if running_slots is None:
+            running_slots = list(OrientationSlot.objects.holding_seats_on(self, now, now))
+        busy_ends.extend(slot.ends_at for slot in running_slots)
+        if busy_ends:
+            ends_local = timezone.localtime(max(busy_ends))
             hour = ends_local.hour % 12 or 12
             suffix = "AM" if ends_local.hour < 12 else "PM"
             return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
@@ -10997,8 +11061,9 @@ class Equipment(HeroCropMixin, models.Model):
         competing booking takes), so two members can never hold one interval. Checks,
         in order: member blockers (active / orientation / guild / closure), the start
         is in the future and inside the horizon, the half hour grid, duration bounds,
-        inside open hours, the per-member cap, and no overlapping confirmed
-        reservation.
+        inside open hours, the per-member cap, no overlapping confirmed reservation,
+        and no overlapping booked orientation (checked directly, never through the
+        busy spans, so a stale or crafted POST cannot double book the machine).
 
         Raises:
             EquipmentError: With member-facing copy naming the failed check.
@@ -11031,6 +11096,8 @@ class Equipment(HeroCropMixin, models.Model):
             )
         if EquipmentReservation.objects.overlapping(self, starts_at, ends_at).exists():
             raise EquipmentError("That time was just taken. Please pick another time.")
+        if OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).exists():
+            raise EquipmentError("That time overlaps a booked orientation. Please pick another time.")
 
     def _ensure_duration_valid(self, duration_minutes: int) -> None:
         """Raise :class:`EquipmentError` unless the duration is on grid and within bounds."""
