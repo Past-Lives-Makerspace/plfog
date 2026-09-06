@@ -45,6 +45,11 @@ def _png(name: str = "shot.png") -> SimpleUploadedFile:
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
+def _teach_image_base() -> str:
+    """The per-image route prefix, from the route itself — never a retyped literal."""
+    return reverse("classes:teach_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
+
+
 def _own(instructor, status) -> ClassOffering:
     offering = ClassOfferingFactory(instructor=instructor, status=status, published_at=timezone.now())
     if status == Status.PUBLISHED:
@@ -155,7 +160,7 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert f'data-upload-url="{reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})}"' in html
         assert f'data-reorder-url="{reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})}"' in html
-        assert 'data-image-url-base="/classes/teach/images/"' in html
+        assert f'data-image-url-base="{_teach_image_base()}"' in html
         assert f'data-upload-url="{reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
         assert "/classes/admin/images/" not in html
         assert reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk}) not in html
@@ -165,7 +170,7 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert f'data-upload-url="{reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})}"' in html
-        assert 'data-image-url-base="/classes/teach/images/"' in html
+        assert f'data-image-url-base="{_teach_image_base()}"' in html
         assert "/classes/admin/images/" not in html
 
     def it_keeps_the_admin_edit_page_on_the_admin_endpoints(admin_user, client):
@@ -173,5 +178,79 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert f'data-upload-url="{reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})}"' in html
-        assert 'data-image-url-base="/classes/admin/images/"' in html
+        admin_base = reverse("classes:admin_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
+        assert f'data-image-url-base="{admin_base}"' in html
         assert f'data-upload-url="{reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
+
+
+def describe_instructor_image_routes_validate_their_input():
+    def it_rejects_an_oversize_hero_upload(instructor_fixture, client, settings):
+        # The hero path never reaches full_clean(), so the model field's validate_image_size
+        # does not run: the cap has to be enforced in the view or it is not enforced at all.
+        settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024
+        offering = _own(instructor_fixture, Status.DRAFT)
+        was = offering.image.name
+        client.force_login(instructor_fixture.user)
+        big = SimpleUploadedFile("big.png", b"\x89PNG" + b"\x00" * (1024 * 1024 + 1), content_type="image/png")
+        resp = client.post(reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}), {"image": big})
+        assert resp.status_code == 400
+        assert "1 MB" in resp.json()["error"]
+        offering.refresh_from_db()
+        assert offering.image.name == was
+
+    def it_rejects_an_oversize_gallery_upload(instructor_fixture, client, settings):
+        settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024
+        offering = _own(instructor_fixture, Status.DRAFT)
+        before = offering.gallery_images.count()
+        client.force_login(instructor_fixture.user)
+        big = SimpleUploadedFile("big.png", b"\x89PNG" + b"\x00" * (1024 * 1024 + 1), content_type="image/png")
+        resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": big})
+        assert resp.status_code == 400
+        assert offering.gallery_images.count() == before
+
+    def it_rejects_alt_text_that_is_not_a_string(instructor_fixture, client):
+        offering = _own(instructor_fixture, Status.DRAFT)
+        image = ClassImageFactory(class_offering=offering, alt_text="kept")
+        client.force_login(instructor_fixture.user)
+        for payload in ({"alt_text": 42}, {"alt_text": None}, {"alt_text": ["a", "b"]}):
+            resp = client.post(
+                reverse("classes:teach_class_image_alt", kwargs={"pk": image.pk}),
+                json.dumps(payload),
+                content_type="application/json",
+            )
+            assert resp.status_code == 400, payload
+        image.refresh_from_db()
+        assert image.alt_text == "kept"
+
+
+def describe_instructor_image_routes_follow_the_edit_pages_status_gate():
+    """teach_class_edit bounces cancelled and archived classes to an admin; so do these."""
+
+    @pytest.mark.parametrize("closed_status", [Status.CANCELLED, Status.ARCHIVED])
+    def it_404s_every_route_on_a_closed_class(instructor_fixture, client, closed_status):
+        offering = _own(instructor_fixture, Status.PUBLISHED)
+        image = ClassImageFactory(class_offering=offering, alt_text="kept")
+        offering.status = closed_status
+        offering.save(update_fields=["status"])
+        client.force_login(instructor_fixture.user)
+        posts = [
+            (reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}), {"image": _png()}, None),
+            (reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()}, None),
+            (
+                reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk}),
+                json.dumps({"order": [image.pk]}),
+                "application/json",
+            ),
+            (
+                reverse("classes:teach_class_image_alt", kwargs={"pk": image.pk}),
+                json.dumps({"alt_text": "changed"}),
+                "application/json",
+            ),
+            (reverse("classes:teach_class_image_delete", kwargs={"pk": image.pk}), {}, None),
+        ]
+        for url, data, content_type in posts:
+            resp = client.post(url, data, content_type=content_type) if content_type else client.post(url, data)
+            assert resp.status_code == 404, url
+        image.refresh_from_db()
+        assert image.alt_text == "kept"
+        assert ClassImage.objects.filter(pk=image.pk).exists()

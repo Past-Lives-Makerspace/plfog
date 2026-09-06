@@ -13,6 +13,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import UploadedFile
 from django.core.paginator import Paginator
 from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
 
     from classes.forms import PaymentRefundForm, RegistrationMoveForm
+    from classes.models import ClassOfferingQuerySet
     from membership.models import Member
 
 from hub.toast import trigger_toast
@@ -1496,7 +1498,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             # Request a change posts through the instructor-only scope, so only the
             # instructor sees it; guild staff making light edits get the page without it.
             "is_own_class": offering.instructor_id == teaching_member.pk,
-            **_teach_gallery_context(offering),
+            **_teach_gallery_context(offering, with_hero=False),
         },
     )
 
@@ -1766,11 +1768,6 @@ def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
 def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
     """Cancel my own live class with a reason: registrants are told; refunds stay with the admins."""
     offering = _teach_class_or_404(request, pk)
-    if offering.lifecycle == ClassOffering.Lifecycle.COMPLETED:
-        # Still PUBLISHED, but every session has ended: cancelling would email past
-        # registrants about a class they already took.
-        messages.error(request, "This class has already happened.")
-        return redirect("classes:teach_class_detail", pk=offering.pk)
     form = ClassCancelForm(request.POST)
     if not form.is_valid():
         return _render_teach_class_overview(request, offering, cancel_form=form)
@@ -1792,9 +1789,6 @@ def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
     """Ask the admins to change a live class's title, dates, price, or capacity."""
     offering = _teach_class_or_404(request, pk)
-    if offering.lifecycle == ClassOffering.Lifecycle.COMPLETED:
-        messages.error(request, "This class has already happened.")
-        return redirect("classes:teach_class_detail", pk=offering.pk)
     form = ClassChangeRequestForm(request.POST)
     if not form.is_valid():
         return _render_teach_class_overview(request, offering, change_form=form)
@@ -2660,9 +2654,6 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
     """Sub-tab badge counts shared by every per-class Workspace tab."""
     regs = offering.registrations
     return {
-        "active_registration_count": regs.exclude(
-            status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
-        ).count(),
         "confirmed_registration_count": regs.filter(
             status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
         ).count(),
@@ -3200,30 +3191,55 @@ def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
 # plus guild staff who may edit the draft); anyone else gets a 404, never a 403.
 
 
+def _teach_editable_offerings(member: Member) -> "ClassOfferingQuerySet":
+    """The classes this member may edit photos on: their editable set, minus the closed ones.
+
+    ``teach_class_edit`` bounces cancelled and archived classes to an admin, so the image
+    routes behind that page exclude them too. A page gate and a mutation gate that disagree
+    are how an instructor ends up curling a surface the UI never offers.
+    """
+    return ClassOffering.objects.editable_by(member).exclude(
+        status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED]
+    )
+
+
 def _teach_editable_offering_or_404(request: HttpRequest, pk: int) -> ClassOffering:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(ClassOffering.objects.editable_by(teaching_member), pk=pk)
+    return get_object_or_404(_teach_editable_offerings(teaching_member), pk=pk)
 
 
 def _teach_editable_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     return get_object_or_404(
-        ClassImage.objects.filter(class_offering__in=ClassOffering.objects.editable_by(teaching_member)), pk=pk
+        ClassImage.objects.filter(class_offering__in=_teach_editable_offerings(teaching_member)), pk=pk
     )
 
 
-def _teach_gallery_context(offering: ClassOffering) -> dict[str, str]:
-    """The URLs the hero + gallery components post to on the instructor edit pages."""
+def _teach_gallery_context(offering: ClassOffering, *, with_hero: bool = True) -> dict[str, str]:
+    """The URLs the hero + gallery components post to on the instructor edit pages.
+
+    ``with_hero=False`` for the live-edit page, which renders the gallery but not the hero
+    field: shipping a hero URL a page never posts to only invites drift.
+    """
+    hero = (
+        {"hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})} if with_hero else {}
+    )
     return {
-        "hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}),
+        **hero,
         "gallery_upload_url": reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}),
         "gallery_reorder_url": reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk}),
-        "gallery_image_url_base": TEACH_IMAGE_URL_BASE,
+        "gallery_image_url_base": teach_image_url_base(),
     }
 
 
-# The per-image delete / alt routes below hang off this prefix (``<base><id>/delete/``).
-TEACH_IMAGE_URL_BASE = "/classes/teach/images/"
+def teach_image_url_base() -> str:
+    """The prefix the per-image delete / alt routes hang off (``<base><id>/delete/``).
+
+    Derived from the route rather than typed out, so re-prefixing the URL include can never
+    leave the JS posting to a path that 404s. ``reverse`` is resolver-cached, so calling this
+    per render is free.
+    """
+    return reverse("classes:teach_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
 
 
 @teaching_member_required
@@ -3260,6 +3276,9 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
+    oversize = _oversize_image_error(file)
+    if oversize is not None:
+        return oversize
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -3269,16 +3288,29 @@ def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     return JsonResponse({"url": offering.image.url})
 
 
+def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
+    """The 400 for an upload over ``MAX_UPLOAD_IMAGE_BYTES``, or None when it fits.
+
+    Shared by the hero and gallery routes so the two cannot drift apart again: the model
+    field's ``validate_image_size`` runs only under ``full_clean()``, which the hero path
+    does not reach, so the cap has to be enforced here.
+    """
+    assert file.size is not None  # an uploaded file always reports its size
+    if file.size <= settings.MAX_UPLOAD_IMAGE_BYTES:
+        return None
+    limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
+    return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
+
+
 def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    assert file.size is not None  # an uploaded file always reports its size
-    if file.size > settings.MAX_UPLOAD_IMAGE_BYTES:
-        limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
-        return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
+    oversize = _oversize_image_error(file)
+    if oversize is not None:
+        return oversize
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()
@@ -3309,6 +3341,8 @@ def _gallery_alt(request: HttpRequest, img: ClassImage) -> HttpResponse:
     try:
         alt_text = json.loads(request.body)["alt_text"]
     except (json.JSONDecodeError, KeyError):
+        return JsonResponse({"error": "Invalid payload."}, status=400)
+    if not isinstance(alt_text, str):
         return JsonResponse({"error": "Invalid payload."}, status=400)
     img.alt_text = alt_text[:255]
     img.save(update_fields=["alt_text"])

@@ -420,6 +420,48 @@ def _completed_class(instructor) -> ClassOffering:
     return offering
 
 
+def describe_the_completed_guard_lives_on_the_model():
+    """The precondition sits on ``cancel``/``request_change`` so every caller inherits it.
+
+    It used to be a check in the two teach views, which left the admin cancel button free to
+    email everyone who took a class that finished last month.
+    """
+
+    def it_refuses_an_admin_cancel_of_a_class_that_already_happened(instructor_fixture, admin_user, client):
+        offering = _completed_class(instructor_fixture)
+        RegistrationFactory(class_offering=offering, email="past@example.com", status=Registration.Status.CONFIRMED)
+        mail.outbox.clear()
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Oops"})
+        assert resp.status_code == 302
+        assert "This class has already happened." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.status == Status.PUBLISHED
+        assert [m for m in mail.outbox if m.to == ["past@example.com"]] == []
+        assert Notification.objects.filter(trigger="class_cancelled").count() == 0
+
+    def it_raises_from_cancel_itself(instructor_fixture, admin_user):
+        offering = _completed_class(instructor_fixture)
+        with pytest.raises(ValueError, match="already happened"):
+            offering.cancel(admin_user, "Oops")
+
+    def it_raises_from_request_change_itself(instructor_fixture):
+        offering = _completed_class(instructor_fixture)
+        with pytest.raises(ValueError, match="already happened"):
+            offering.request_change(instructor_fixture, "Please move it")
+
+    def it_still_allows_cancelling_a_run_with_one_session_left(instructor_fixture, admin_user, client):
+        # Multi-session parity: some occurrences are past, so the class is not COMPLETED.
+        offering = _completed_class(instructor_fixture)
+        upcoming = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=offering, starts_at=upcoming, ends_at=upcoming + timedelta(hours=2))
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Snow"})
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.status == Status.CANCELLED
+
+
 def describe_withdraw_activity_actor():
     def it_records_the_instructor_as_the_actor(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING)

@@ -1173,10 +1173,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         staff action through the per-registration refund panel.
 
         Raises:
-            ValueError: If the class is not PUBLISHED, or ``reason`` is blank.
+            ValueError: If the class is not PUBLISHED, has already finished, or ``reason``
+                is blank.
         """
         if self.status != self.Status.PUBLISHED:
             raise ValueError(f"Only published classes can be cancelled; got {self.status}.")
+        if self.lifecycle == self.Lifecycle.COMPLETED:
+            # Still PUBLISHED, but every session has ended: cancelling would email people
+            # about a class they already took. Guard here so the admin path is covered too.
+            raise ValueError("This class has already happened.")
         reason = reason.strip()
         if not reason:
             raise ValueError("A cancellation reason is required.")
@@ -1280,10 +1285,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         its own dedupe period.
 
         Raises:
-            ValueError: If the class is not PUBLISHED, or ``note`` is blank.
+            ValueError: If the class is not PUBLISHED, has already finished, or ``note``
+                is blank.
         """
         if self.status != self.Status.PUBLISHED:
             raise ValueError(f"Only published classes can request a change; got {self.status}.")
+        if self.lifecycle == self.Lifecycle.COMPLETED:
+            raise ValueError("This class has already happened.")
         note = " ".join(note.split())
         if not note:
             raise ValueError("Say what needs to change.")
