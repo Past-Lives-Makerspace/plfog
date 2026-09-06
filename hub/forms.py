@@ -4085,8 +4085,9 @@ class EquipmentOrientationSlotForm(forms.ModelForm):
             self.fields["seats"].initial = first_type.default_seats
             if first_type.default_location:
                 self.fields["location"].initial = first_type.default_location
-        # Runs with: the manager set plus "Any manager"; a plain manager is fixed to themselves.
-        manager_ids = {member.pk for member in equipment.manager_members()}
+        # Runs with: this tool's orienters plus "Any manager"; a plain manager is fixed to
+        # themselves. Mirrors the guild slot form, which offers ``leadership_members()``.
+        manager_ids = {member.pk for member in equipment.orienter_members()}
         orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])
         orienter_field.queryset = Member.objects.filter(pk__in=manager_ids).order_by("full_legal_name")
         orienter_field.error_messages["invalid_choice"] = "Pick someone who manages this equipment."

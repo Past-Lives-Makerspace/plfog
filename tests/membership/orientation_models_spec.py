@@ -926,8 +926,7 @@ def describe_departed_manager_gate():
         booking.refresh_from_db()
         assert booking.status == OrientationBooking.Status.CONFIRMED
 
-    def it_keeps_every_other_manager_tier_bookable():
-        from membership.models import AdminCapability
+    def it_keeps_the_owning_guilds_leadership_bookable():
         from tests.membership.factories import GuildStaffMembershipFactory
 
         guild = GuildFactory(guild_lead=MemberFactory())
@@ -936,13 +935,25 @@ def describe_departed_manager_gate():
         staffer = MemberFactory()
         GuildStaffMembershipFactory(guild=guild, member=staffer)
         _assert_bookable(_personal_slot(equipment, staffer), True)
+
+    def it_hides_a_capability_holders_slot_until_they_run_this_tool():
+        """Site-wide EQUIPMENT authority does not make someone bookable by name here.
+
+        The booking gate reads the same narrow set that generates slots and fills the
+        Orientation Schedule, so a slot is bookable exactly while its orienter is one of
+        the tool's orienters. A guild orienter needs a staff row for the same reason.
+        """
+        from membership.models import AdminCapability
+
+        equipment = EquipmentFactory()
         holder = MemberFactory()
         holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        _assert_bookable(_personal_slot(equipment, holder), True)
+        slot = _personal_slot(equipment, holder)
+        _assert_bookable(slot, False)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=holder)
+        _assert_bookable(slot, True)
 
-    def it_hides_a_plain_admins_slot_until_they_hold_the_capability():
-        # An admin edits anyone's hours but is only booked by name once they hold the
-        # EQUIPMENT capability, exactly as a guild admin needs a staff row.
+    def it_hides_a_plain_admins_slot_until_they_run_this_tool():
         from membership.models import AdminCapability
 
         equipment = EquipmentFactory()
@@ -950,6 +961,8 @@ def describe_departed_manager_gate():
         slot = _personal_slot(equipment, admin)
         _assert_bookable(slot, False)
         admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        _assert_bookable(slot, False)
+        EquipmentStaffMembershipFactory(equipment=equipment, member=admin)
         _assert_bookable(slot, True)
 
     def it_leaves_a_shared_slot_alone():

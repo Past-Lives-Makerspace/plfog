@@ -30,6 +30,7 @@ from tests.membership.factories import (
     EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
+    GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
@@ -611,7 +612,12 @@ def describe_orientation_schedule_card():
         assert "Edit Shared Hours" in content
         assert _hours_form_url(equipment) in content
 
-    def it_treats_a_plain_admin_as_a_former_manager_until_they_hold_the_capability(client: Client):
+    def it_treats_an_admin_as_a_former_manager_until_they_are_added_on_the_staff_tab(client: Client):
+        """The site-wide EQUIPMENT capability is authority over every tool, not a slot on its roster.
+
+        Listing every capability holder here is what put thirteen council members on the
+        Orientation Schedule of a machine with no assigned staff at all.
+        """
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
         admin = _login(client, "sc_plain_admin", fog_role=Member.FogRole.ADMIN)
@@ -626,12 +632,36 @@ def describe_orientation_schedule_card():
         runs_with = response.context["slot_add_form"].fields["orienter"]
         assert admin.member.pk not in [m.pk for m in runs_with.queryset]
         assert runs_with.initial is None
+        # The capability alone changes nothing about the roster.
         admin.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        response = _tab(client, equipment)
+        assert "Former Managers" in response.content.decode()
+        assert [m.pk for m, _rules in response.context["orienter_overview"]] == []
+        # Being added as a manager of this tool does.
+        EquipmentStaffMembershipFactory(equipment=equipment, member=admin.member)
         response = _tab(client, equipment)
         assert "Former Managers" not in response.content.decode()
         assert [m.pk for m, _rules in response.context["orienter_overview"]] == [admin.member.pk]
         runs_with = response.context["slot_add_form"].fields["orienter"]
         assert runs_with.initial == admin.member.pk
+
+    def it_names_the_staff_tab_when_nobody_runs_orientations_yet(client: Client):
+        equipment = EquipmentFactory()
+        _owned_type(equipment)
+        _login(client, "sc_empty_roster", fog_role=Member.FogRole.ADMIN)
+        content = _tab(client, equipment).content.decode()
+        assert "Nobody is set up to give orientations on this equipment yet." in content
+        assert "Staff tab" in content
+
+    def it_lists_the_owning_guilds_leadership(client: Client):
+        guild = GuildFactory()
+        staffer = MemberFactory(full_legal_name="Gwen Guild")
+        GuildStaffMembershipFactory(guild=guild, member=staffer)
+        equipment = EquipmentFactory(guild=guild)
+        _owned_type(equipment)
+        _login(client, "sc_guild_roster", fog_role=Member.FogRole.ADMIN)
+        response = _tab(client, equipment)
+        assert staffer.pk in [m.pk for m, _rules in response.context["orienter_overview"]]
 
     def it_404s_the_removed_window_endpoint(client: Client):
         equipment = EquipmentFactory()
@@ -1109,6 +1139,49 @@ def describe_staff_remove_retirement():
         assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
         assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
         assert OrientationSlot.objects.filter(pk=booked.pk).exists()
+
+    def it_retires_a_removed_manager_who_also_holds_the_equipment_capability(client: Client):
+        """The capability is authority over every tool, not a reason to keep their slots live.
+
+        This is the case that broke when generation narrowed to orienter_members() while
+        the retirement check still asked the capability-inclusive is_run_by(): the rules
+        stopped extending but the already-generated slots stayed publicly bookable with a
+        removed manager's name on them.
+        """
+        equipment = EquipmentFactory()
+        _login(client, "sr_capability", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        dana.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        rule = _personal_rule(orientation_type, dana)
+        open_slot = _generated_slot(rule, orienter=dana)
+        response = client.post(reverse("hub_equipment_staff_remove", args=[equipment.slug, row.pk]), follow=True)
+        assert response.status_code == 200
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+
+    def it_stops_a_departed_orienters_surviving_slot_taking_new_bookings(client: Client):
+        """is_bookable and bookable() read the same narrow set, so stranded slots self heal.
+
+        The guild side already behaved this way; equipment did not until is_run_by lost
+        its capability leg.
+        """
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        dana.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        rule = _personal_rule(orientation_type, dana)
+        booked = _generated_slot(rule, orienter=dana, starts_at=timezone.now() + timedelta(days=3))
+        OrientationBookingFactory(slot=booked)
+        assert booked.is_bookable is True
+        assert booked.pk in set(OrientationSlot.objects.bookable().values_list("pk", flat=True))
+        row.delete()
+        booked.refresh_from_db()
+        assert equipment.is_run_by(dana) is False
+        assert booked.is_bookable is False
+        assert booked.pk not in set(OrientationSlot.objects.bookable().values_list("pk", flat=True))
 
     def it_keeps_the_rules_of_a_manager_who_is_still_owning_guild_staff(client: Client):
         from tests.membership.factories import GuildStaffMembershipFactory

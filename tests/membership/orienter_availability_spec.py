@@ -539,14 +539,40 @@ def describe_generate_slots_for_equipment():
         assert rule.slots.filter(starts_at=slot.starts_at).count() == 1
         assert not OrientationSlot.objects.filter(starts_at=slot.starts_at, is_cancelled=False).exists()
 
-    def it_skips_a_plain_admins_personal_rule_until_they_hold_the_capability():
+    def it_skips_an_admins_personal_rule_until_they_run_the_tool():
+        """The site-wide EQUIPMENT capability does not make someone one of a tool's orienters.
+
+        It grants authority over every machine, which is the right audience for
+        notifications and the right permission gate — but it listed all thirteen council
+        members as orienters on a tool nobody had been assigned to. Joining the tool's
+        Staff tab is what makes a personal rule generate, mirroring how an admin joins a
+        guild's leadership to publish hours there.
+        """
         from membership.models import AdminCapability
+        from tests.membership.factories import EquipmentStaffMembershipFactory
 
         admin = MemberFactory(fog_role="admin")
         rule = _equipment_rule(orienter=admin)
-        assert orientations.generate_slots(equipment=_tool(rule)) == 0
+        tool = _tool(rule)
+        assert orientations.generate_slots(equipment=tool) == 0
         admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        assert orientations.generate_slots(equipment=_tool(rule)) == 16
+        assert orientations.generate_slots(equipment=tool) == 0
+        EquipmentStaffMembershipFactory(equipment=tool, member=admin)
+        assert orientations.generate_slots(equipment=tool) == 16
+
+    def it_generates_for_the_owning_guilds_leadership():
+        """A tool owned by a guild inherits that guild's leadership as its orienters."""
+        from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+
+        staffer = MemberFactory()
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staffer)
+        rule = _equipment_rule(orienter=staffer)
+        tool = _tool(rule)
+        assert orientations.generate_slots(equipment=tool) == 0
+        tool.guild = guild
+        tool.save(update_fields=["guild"])
+        assert orientations.generate_slots(equipment=tool) == 16
 
     def it_looks_a_tools_runners_up_once_per_run():
         from tests.membership.factories import EquipmentStaffMembershipFactory

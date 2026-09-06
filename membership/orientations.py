@@ -1154,8 +1154,11 @@ def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict
     A stale personal rule — its orienter left the guild's leadership (or stopped
     running orientations on the equipment) without the hub's retirement flow (a
     lead-FK change, a Django-admin removal) — must never materialize new slots.
-    ``runners_by_equipment`` caches each tool's ``manager_members()`` ids for the run,
-    so six personal rules on one tool cost one lookup, not six.
+    ``runners_by_equipment`` caches each tool's ``orienter_members()`` ids for the run,
+    so six personal rules on one tool cost one lookup, not six. That is the same narrow
+    set the Orientation Schedule lists, so a rule generates exactly while its owner is
+    shown as an orienter — the guild branch above reads ``leadership_members()`` for the
+    identical reason.
     """
     if not rule.orientation_type.is_accepting:
         return False
@@ -1165,7 +1168,7 @@ def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict
         return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
     equipment = cast("Equipment", rule.orientation_type.equipment)
     if equipment.pk not in runners_by_equipment:
-        runners_by_equipment[equipment.pk] = {member.pk for member in equipment.manager_members()}
+        runners_by_equipment[equipment.pk] = {member.pk for member in equipment.orienter_members()}
     return rule.orienter_id in runners_by_equipment[equipment.pk]
 
 

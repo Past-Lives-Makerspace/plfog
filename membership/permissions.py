@@ -94,15 +94,22 @@ def can_edit_equipment_orienter_hours(request: HttpRequest, equipment: Equipment
     """True when this request may edit ``orienter``'s recurring orientation hours on ``equipment``.
 
     The equipment twin of :func:`can_edit_orienter_hours`. Own hours: anyone who may
-    manage the equipment (all three tiers). Someone else's hours, or the shared rows
-    (``orienter is None``): a full admin (``view_as``-aware), an EQUIPMENT capability
-    holder (preview-independent, like every capability gate), or the owning guild's
-    lead. A plain per-equipment manager therefore edits only their own hours.
+    manage the equipment (all three tiers) — but ONLY while actually one of the tool's
+    orienters. An admin or capability holder who has not been added on the Staff tab must
+    not publish hours for themselves: ``_rule_generates`` skips personal rules whose owner
+    is off ``orienter_members()``, so such a save would be a silent no-op — fail loudly
+    here instead (they can still edit on behalf, the ``orienter != self`` path).
+    Someone else's hours, or the shared rows (``orienter is None``): a full admin
+    (``view_as``-aware), an EQUIPMENT capability holder (preview-independent, like every
+    capability gate), or the owning guild's lead. A plain per-equipment manager therefore
+    edits only their own hours.
     """
     from membership.models import AdminCapability
 
     member = _editing_member(request)
     if orienter is not None and member is not None and orienter.pk == member.pk:
+        if all(runner.pk != member.pk for runner in equipment.orienter_members()):
+            return False  # self scope off this tool's orienters would only make dead rules
         return can_manage_equipment(request, equipment)
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:

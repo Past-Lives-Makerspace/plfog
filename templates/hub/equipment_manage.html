@@ -311,10 +311,12 @@
       {% endif %}
     </div>
     {% endif %}
+    {% empty %}
+    <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">Nobody is set up to give orientations on this equipment yet. Add them as a manager on the Staff tab, then publish their hours here.</p>
     {% endfor %}
     {% if can_edit_others_hours and former_managers_overview %}
     <h3 class="hub-detail-label" style="margin:1.25rem 0 0.25rem;">Former Managers</h3>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people who no longer manage this equipment. They no longer generate slots. Delete them when you are ready.</p>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people who no longer give orientations on this equipment. They no longer generate slots. Delete them when you are ready.</p>
     {% for manager, manager_rules in former_managers_overview %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">

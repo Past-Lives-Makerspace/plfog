@@ -666,7 +666,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     """The Orientation tab's lists: pending requests, the Orientation Schedule overview, shared rows, slots.
 
     The guild Orientations tab's shape, per manager: one overview group per
-    ``manager_members()`` entry with their personal rules, a Former Managers group
+    ``orienter_members()`` entry with their personal rules, a Former Managers group
     for orphan rules, the shared (orienter-less) rules, and the flat upcoming slot
     list with attendee sub-rows. ``can_edit_others_hours`` gates the whole-schedule
     view and the Runs with picker; a plain manager sees only their own group.
@@ -676,7 +676,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
 
     viewer = _get_member(request)
     can_edit_others_hours = can_edit_equipment_orienter_hours(request, equipment, None)
-    managers = equipment.manager_members()
+    managers = equipment.orienter_members()
     manager_ids = {member.pk for member in managers}
     rules_by_orienter: dict[int, list[Any]] = {}
     orphan_orienters: dict[int, Any] = {}
@@ -886,8 +886,8 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
     staff.delete()
     message = f"{member_name} no longer manages the {equipment.name}."
     # Retire their personal hours ONLY when they no longer RUN orientations here at all —
-    # they may still be owning-guild staff or hold the capability, and those hours keep
-    # generating (the same is_run_by set the booking gate and generation read).
+    # they may still be on the owning guild's leadership, and those hours keep generating.
+    # is_run_by is the same narrow set generation, the roster, and the booking gate read.
     if not equipment.is_run_by(removed_member):
         from membership import orientations
 
