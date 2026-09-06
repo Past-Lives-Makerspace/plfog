@@ -141,13 +141,23 @@ def describe_send_results_when_another_snapshot_is_still_pending():
         older, newer = _two_pending_snapshots()
         body = admin_client.post(reverse("hub_admin_voting_send_results", args=[newer.pk])).content.decode()
         assert 'hx-swap-oob="outerHTML"' in body
-        assert f"Results are in for {older.cycle_label}" in body
+        # On the pk, not the cycle_label. take() with no title stamps "%B %Y", so both
+        # snapshots here are labelled the same month and a label assertion would be
+        # satisfied by either one — leaving the snapshot_at ordering above unproven.
+        assert f'id="results-send-control-{older.pk}"' in body
+        assert f'id="results-send-control-{newer.pk}"' in body
 
     def it_renders_the_banner_exactly_once(admin_client):
         older, newer = _two_pending_snapshots()
         body = admin_client.post(reverse("hub_admin_voting_send_results", args=[newer.pk])).content.decode()
         assert body.count('id="results-review-region"') == 1
         assert body.count("pl-results-banner__title") == 1
+        # Both confirm forms keep their CSRF token. This is what rejects the other
+        # obvious fix: `{% include ... only %}` also stops the recursion and also passes
+        # every other assertion here, but it cuts csrf_token out of the child context,
+        # so the banner's own Send button would 403. Without this line the suite cannot
+        # tell the two fixes apart.
+        assert body.count('name="csrfmiddlewaretoken"') == 2
 
     def it_still_reports_already_sent_without_blowing_the_stack(admin_client):
         older, newer = _two_pending_snapshots()
