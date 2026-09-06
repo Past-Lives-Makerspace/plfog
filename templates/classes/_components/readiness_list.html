@@ -5,8 +5,11 @@ Readiness checklist: the five things a class needs before it can be submitted.
 
 link_hints=True links each failing hint to its field anchor on the edit page; leave it
 off on the review page, where the anchors do not exist.
+
+grid=True lays the items out in columns from 720px up. Use it in a full width card (the
+review page); leave it off in a narrow column, where one item per row already reads well.
 {% endcomment %}
-<ul class="pl-readiness">
+<ul class="pl-readiness{% if grid %} pl-readiness--grid{% endif %}">
   {% for item in readiness %}
     <li class="pl-readiness__item pl-readiness__item--{% if item.ok %}ok{% else %}todo{% endif %}">
       <span class="pl-readiness__mark" aria-hidden="true">{% if item.ok %}&#10003;{% else %}&#9675;{% endif %}</span>

@@ -73,7 +73,7 @@
 {% include "components/toast.html" %}
 {% include "components/loading_bar.html" %}
 {% block extra_body %}{% endblock %}
-    {% if user.is_authenticated and not request.GET.public and not is_guest_surface %}
+    {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>
     <aside class="hub-sidebar" :class="{ 'hub-sidebar--closed': !sidebarOpen }">
         <a href="{% url 'hub_home' %}" class="pl-brand">
@@ -433,8 +433,10 @@
     </a>
     {% endif %}
 
-    <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public or is_guest_surface %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public and not is_guest_surface %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
-        {% if user.is_authenticated and not request.GET.public and not is_guest_surface %}
+    <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public or is_guest_surface or is_framed %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
+        {% if is_framed %}
+        {# Framed preview: no chrome of any kind, including the public topbar below. #}
+        {% elif user.is_authenticated and not request.GET.public and not is_guest_surface %}
         <header class="pl-topbar">
             <button class="pl-topbar__toggle" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle sidebar">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
