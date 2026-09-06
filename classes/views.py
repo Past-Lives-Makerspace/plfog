@@ -2076,6 +2076,11 @@ def _render_class_preview(
         request,
         "classes/public/detail.html",
         {
+            # ``?framed=1`` drops the hub sidebar and every topbar so the review page's
+            # iframe shows the class page itself, not a page nested inside another page.
+            # Read here rather than in a context processor: only the preview is framed,
+            # and no other surface should be strippable by a query parameter.
+            "is_framed": request.GET.get("framed") == "1",
             "offering": offering,
             "can_edit_offering": can_edit_offering,
             "edit_url": edit_url,
@@ -3096,6 +3101,7 @@ def _class_review_view(
             "active_tab": "classes",
             "pipeline": offering.review_pipeline(),
             "readiness": readiness,
+            "readiness_ready_count": sum(1 for item in readiness if item.ok),
             "is_ready": all(item.ok for item in readiness),
         },
     )

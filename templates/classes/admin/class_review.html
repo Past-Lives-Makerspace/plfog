@@ -20,6 +20,52 @@
     {% endif %}
   </div>
 
+  {# Where this class stands, first: a reviewer's opening question is which step they are. #}
+  <h2 style="font-size:1.1rem;margin:0 0 0.5rem;">Review Pipeline</h2>
+  <div style="margin:0 0 1.5rem;">
+    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
+  </div>
+
+  {# Then what they are deciding on. #}
+  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>
+  <dl class="pl-review-details">
+    <dt>Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
+    {% if offering.member_discount_pct %}<dt>Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
+    <dt>Capacity</dt><dd>{{ offering.capacity }}</dd>
+    <dt>Sessions</dt>
+    <dd>
+      {% if upcoming_sessions %}
+        <ul style="margin:0;padding-left:18px;">
+          {% for session in upcoming_sessions %}
+            <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}</li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <em style="color:var(--hub-text-muted);">No upcoming sessions scheduled yet.</em>
+      {% endif %}
+    </dd>
+    {% if offering.description %}
+      <dt>Description</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.description }}</dd>
+    {% endif %}
+    {% if offering.prerequisites %}
+      <dt>Prerequisites</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.prerequisites }}</dd>
+    {% endif %}
+    {% if offering.materials_included %}
+      <dt>Materials included</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.materials_included }}</dd>
+    {% endif %}
+    {% if offering.materials_to_bring %}
+      <dt>Bring with you</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.materials_to_bring }}</dd>
+    {% endif %}
+    {% if offering.safety_requirements %}
+      <dt>Safety</dt>
+      <dd style="white-space:pre-wrap;">{{ offering.safety_requirements }}</dd>
+    {% endif %}
+  </dl>
+
   {# Already-decided summary, a not-awaiting-review notice, OR the decision form #}
   {% if approval.decision %}
     <div style="padding:14px 16px;background:rgba(123,200,143,0.10);border:1px solid var(--color-success);border-radius:8px;margin-bottom:1.25rem;">
@@ -44,8 +90,11 @@
   {% else %}
     {# Readiness: what the class still needs. A red item never disables the form; Approve carries a hint. #}
     <section style="margin-bottom:1.25rem;">
-      <h2 style="font-size:1.1rem;margin:0 0 0.25rem;">Readiness</h2>
-      {% include "classes/_components/readiness_list.html" with readiness=readiness %}
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:0.5rem;">
+        <h2 style="font-size:1.1rem;margin:0;">Readiness</h2>
+        <span class="pl-readiness-count{% if is_ready %} pl-readiness-count--ready{% endif %}">{{ readiness_ready_count }} of {{ readiness|length }} ready</span>
+      </div>
+      {% include "classes/_components/readiness_list.html" with readiness=readiness grid=True %}
     </section>
     <form method="post" style="margin-bottom:1.5rem;">
       {% csrf_token %}
@@ -79,67 +128,9 @@
     </form>
   {% endif %}
 
-  {# Live student preview — exactly how the published class page will look #}
-  {% if is_tokenized %}{% url 'classes:class_review_preview' token=approval.token as preview_url %}{% else %}{% url 'classes:class_preview' pk=offering.pk as preview_url %}{% endif %}
-  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin:1.5rem 0 0.5rem;">
-    <h2 style="font-size:1.1rem;margin:0;">Student Preview</h2>
-    <a href="{{ preview_url }}" target="_blank" rel="noopener" style="font-size:0.85rem;white-space:nowrap;">Open in a new tab ↗</a>
-  </div>
-  <p style="color:var(--hub-text-muted);font-size:0.9rem;margin:0 0 0.75rem;">Exactly how this class page will look to a prospective student once it's published.</p>
-  <div style="border:1px solid var(--hub-card-border);border-radius:8px;overflow:hidden;background:var(--hub-bg);margin-bottom:1.5rem;">
-    <iframe title="Student preview of {{ offering.title }}" loading="lazy" src="{{ preview_url }}"
-            style="display:block;width:100%;height:720px;border:0;"></iframe>
-  </div>
-
-  {# The review pipeline across every required role #}
-  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review Pipeline</h2>
-  <div style="margin:0 0 1.5rem;">
-    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
-  </div>
-
-  {# Class details for the reviewer to read #}
-  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>
-  <dl style="display:grid;grid-template-columns:140px 1fr;gap:10px 18px;font-size:14px;margin:0 0 1.5rem;">
-    <dt style="color:var(--hub-text-muted);">Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
-    {% if offering.member_discount_pct %}<dt style="color:var(--hub-text-muted);">Member discount</dt><dd>{{ offering.member_discount_pct }}%</dd>{% endif %}
-    <dt style="color:var(--hub-text-muted);">Capacity</dt><dd>{{ offering.capacity }}</dd>
-    <dt style="color:var(--hub-text-muted);">Sessions</dt>
-    <dd>
-      {% if upcoming_sessions %}
-        <ul style="margin:0;padding-left:18px;">
-          {% for session in upcoming_sessions %}
-            <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} – {{ session.ends_at|time:"g:i A" }}</li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <em style="color:var(--hub-text-muted);">No upcoming sessions scheduled yet.</em>
-      {% endif %}
-    </dd>
-    {% if offering.description %}
-      <dt style="color:var(--hub-text-muted);">Description</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.description }}</dd>
-    {% endif %}
-    {% if offering.prerequisites %}
-      <dt style="color:var(--hub-text-muted);">Prerequisites</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.prerequisites }}</dd>
-    {% endif %}
-    {% if offering.materials_included %}
-      <dt style="color:var(--hub-text-muted);">Materials included</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.materials_included }}</dd>
-    {% endif %}
-    {% if offering.materials_to_bring %}
-      <dt style="color:var(--hub-text-muted);">Bring with you</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.materials_to_bring }}</dd>
-    {% endif %}
-    {% if offering.safety_requirements %}
-      <dt style="color:var(--hub-text-muted);">Safety</dt>
-      <dd style="white-space:pre-wrap;">{{ offering.safety_requirements }}</dd>
-    {% endif %}
-  </dl>
-
   {% if history %}
     <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review History</h2>
-    <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;">
+    <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:6px;">
       {% for h in history %}
         <li style="padding:10px 14px;background:var(--hub-bg);border:1px solid var(--hub-card-border);border-radius:6px;font-size:13px;">
           <strong>{{ h.get_role_display }}</strong> ·
@@ -150,5 +141,19 @@
       {% endfor %}
     </ul>
   {% endif %}
+
+  {# Student preview last, and chromeless: ?framed=1 drops the sidebar and topbar so the #}
+  {# iframe shows the class page itself rather than a page inside a page. The new-tab link #}
+  {# deliberately omits it, so that opens the real thing a student would land on. #}
+  {% if is_tokenized %}{% url 'classes:class_review_preview' token=approval.token as preview_url %}{% else %}{% url 'classes:class_preview' pk=offering.pk as preview_url %}{% endif %}
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin:1.5rem 0 0.5rem;">
+    <h2 style="font-size:1.1rem;margin:0;">Student Preview</h2>
+    <a href="{{ preview_url }}" target="_blank" rel="noopener" style="font-size:0.85rem;white-space:nowrap;">Open in a new tab ↗</a>
+  </div>
+  <p style="color:var(--hub-text-muted);font-size:0.9rem;margin:0 0 0.75rem;">Exactly how this class page will look to a prospective student once it's published.</p>
+  <div style="border:1px solid var(--hub-card-border);border-radius:8px;overflow:hidden;background:var(--hub-bg);">
+    <iframe title="Student preview of {{ offering.title }}" loading="lazy" src="{{ preview_url }}?framed=1"
+            style="display:block;width:100%;height:720px;border:0;"></iframe>
+  </div>
 </div>
 {% endblock %}

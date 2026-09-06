@@ -123,3 +123,70 @@ def describe_class_review_preview():
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         response = client.get(reverse("classes:class_review_preview", kwargs={"token": row.token}))
         assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
+
+
+def describe_the_review_page_layout():
+    """Pipeline and details lead, the decision follows, the preview closes the page."""
+
+    def _review_html(client, db) -> str:
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, title="Kiln Basics")
+        (row,) = offering.submit_for_review()
+        return client.get(reverse("classes:class_review", kwargs={"token": row.token})).content.decode()
+
+    def it_puts_the_pipeline_and_details_above_the_decision_and_the_preview_last(client, db):
+        html = _review_html(client, db)
+        pipeline = html.index("Review Pipeline")
+        details = html.index("Class Details")
+        decision = html.index("Submit decision")
+        preview = html.index("Student Preview")
+        assert pipeline < details < decision < preview
+
+    def it_frames_the_preview_chromeless_but_links_the_real_page_for_a_new_tab(client, db):
+        offering = ClassOfferingFactory(ready=True, slug="layout-frame", status=ClassOffering.Status.DRAFT)
+        (row,) = offering.submit_for_review()
+        html = client.get(reverse("classes:class_review", kwargs={"token": row.token})).content.decode()
+        preview_url = reverse("classes:class_review_preview", kwargs={"token": row.token})
+        # The iframe strips the chrome; the "Open in a new tab" link deliberately does not,
+        # so that opens the page a student actually lands on.
+        assert f'src="{preview_url}?framed=1"' in html
+        assert f'href="{preview_url}" target="_blank"' in html
+
+    def it_lays_readiness_out_as_a_grid_with_a_count(client, db):
+        # A class can only be submitted once it is ready, so build the pending review row
+        # directly to reach the readiness card while the class is still awaiting a decision.
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, title="Grid Readiness")
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        html = client.get(reverse("classes:class_review", kwargs={"token": row.token})).content.decode()
+        assert "pl-readiness--grid" in html
+        assert "pl-readiness-count" in html
+        assert "5 of 5 ready" in html
+
+
+def describe_the_framed_preview():
+    """``?framed=1`` strips every chrome layer; without it the page is unchanged."""
+
+    def _preview(client, offering, *, framed: bool):
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        url = reverse("classes:class_review_preview", kwargs={"token": row.token})
+        return client.get(f"{url}?framed=1" if framed else url)
+
+    def it_drops_the_sidebar_and_every_topbar_when_framed(client, db):
+        offering = ClassOfferingFactory(ready=True, slug="framed-on", status=ClassOffering.Status.PENDING)
+        html = _preview(client, offering, framed=True).content.decode()
+        assert "hub-sidebar" not in html
+        assert "pl-topbar" not in html
+        assert "pl-public-topbar" not in html
+        assert "cp-topbar" not in html
+        assert offering.title in html  # the class page itself is still all there
+
+    def it_keeps_the_chrome_without_the_flag(client, db):
+        offering = ClassOfferingFactory(ready=True, slug="framed-off", status=ClassOffering.Status.PENDING)
+        html = _preview(client, offering, framed=False).content.decode()
+        assert "topbar" in html
+        assert offering.title in html
+
+    def it_ignores_the_flag_on_any_other_page(client, db, admin_user):
+        # Only the preview honors it: no other surface can be stripped by a query param.
+        client.force_login(admin_user)
+        html = client.get(f"{reverse('hub_home')}?framed=1").content.decode()
+        assert "hub-sidebar" in html
