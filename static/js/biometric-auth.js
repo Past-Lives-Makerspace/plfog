@@ -442,9 +442,15 @@
   // relative "//evil.com" and sending the member off site right after they signed in. That
   // is a phishing handoff wearing our login page as the first hop.
   //
-  // So parse it and let the URL parser do the normalizing, then insist on our own origin and
-  // rebuild the target from the parsed parts. Nothing attacker supplied reaches the browser
-  // as a raw string.
+  // So parse it, let the URL parser do the normalizing, insist on our own origin, and hand
+  // back the ABSOLUTE href.
+  //
+  // Returning the parsed path instead is a trap, and an earlier version of this fell into it:
+  // checking the origin and then returning pathname + search + hash throws the origin away,
+  // and location.replace re-resolves the bare string. "/..//evil.com" parses to our origin,
+  // so the check passes, but its pathname is "//evil.com", which is protocol relative and
+  // lands on evil.com. parsed.href is already absolute and already origin checked, so the
+  // hostile input degrades to a harmless path on our own host.
   function safeNextUrl(raw) {
     if (!raw) {
       return "/";
@@ -458,7 +464,7 @@
     if (parsed.origin !== window.location.origin) {
       return "/";
     }
-    return parsed.pathname + parsed.search + parsed.hash;
+    return parsed.href;
   }
 
   function runUnlock(mount, button, statusEl) {

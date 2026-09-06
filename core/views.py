@@ -405,21 +405,49 @@ def fcm_unregister(request):
 # core.models.BiometricCredentialManager; these views parse, call it, and answer.
 
 _BIOMETRIC_UNLOCK_SCOPE = "biometric_unlock"
-# An unlock happens once when the app opens, so a real member never comes near these.
-# They exist to stop someone spraying guessed secrets at the endpoint.
-_BIOMETRIC_UNLOCK_HOURLY_LIMIT = 20
-_BIOMETRIC_UNLOCK_DAILY_LIMIT = 100
+# These caps are a COST bound, not a guessing defense. Guessing is already hopeless: the
+# secret is BIOMETRIC_SECRET_BYTES of urlsafe entropy, so no achievable number of tries
+# moves the needle. What the cap actually buys is a ceiling on how much work one address
+# can make the server do (see the limiter's real cost, below).
+#
+# So they are set where a shared connection cannot trip them. Every member on the shop
+# wifi leaves through ONE egress address, and an enrolled phone spends a slot each time the
+# app is opened signed out, so a cap tuned to one person's usage silently disables
+# biometric sign in for everyone behind that NAT for the rest of the day. These numbers are
+# far above a whole makerspace's daily app opens and far below anything that costs us.
+_BIOMETRIC_UNLOCK_HOURLY_LIMIT = 240
+_BIOMETRIC_UNLOCK_DAILY_LIMIT = 2000
 
 # One message for every unlock failure. Saying which secrets exist would help an attacker.
 # Platform neutral on purpose: an Android member unlocks with a fingerprint, not Face ID.
 _BIOMETRIC_UNLOCK_FAILED = "We could not sign you in. Use an emailed code instead."
 
+# A forwarded-for entry is an IP, so anything longer is junk; bound it before it becomes a
+# cache key.
+_RATE_LIMIT_KEY_MAX_CHARS = 64
 
-def _client_ip(request: HttpRequest) -> str:
-    """Best-effort client IP, honoring X-Forwarded-For when behind a proxy."""
+
+def _rate_limit_key(request: HttpRequest) -> str:
+    """The address to rate limit an unauthenticated caller by.
+
+    Deliberately NOT the leftmost ``X-Forwarded-For`` entry, which is what a "client IP"
+    helper normally reaches for (``classes.views._client_ip`` included). Proxies APPEND to
+    that header, so the leftmost value is whatever the client chose to send. On an
+    unauthenticated, csrf-exempt endpoint that makes the rate-limit key itself attacker
+    controlled: rotate one header value per request and every attempt lands in a fresh
+    bucket, so the cap never applies to the one caller it exists to bound.
+
+    The RIGHTMOST entry is the one our own edge proxy appended, describing the address that
+    actually opened a connection to it. A client cannot forge that: anything it sends is
+    pushed left by the proxy's own append.
+
+    ``REMOTE_ADDR`` is the fallback for a direct connection with no proxy in front (local
+    dev, tests). Note this keys on our edge's view of the caller, so everyone behind one
+    NAT shares a bucket — which is why the caps above are sized for a whole makerspace.
+    """
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.rsplit(",", 1)[-1].strip()[:_RATE_LIMIT_KEY_MAX_CHARS]
     return request.META.get("REMOTE_ADDR", "")
 
 
@@ -470,28 +498,54 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
 
     ``csrf_exempt`` is deliberate here, and it is the ONLY endpoint in this feature that
     gets it. The caller has no session yet — that is the whole point of unlocking — so it
-    may have no CSRF cookie to send. What CSRF protection buys you is the guarantee that a
-    cross-site page cannot forge a request the browser will attach credentials to; here the
-    request carries no ambient credential at all. Its authority comes entirely from a
-    48-byte secret in the body, which a cross-site attacker cannot read or guess. That
-    secret is doing CSRF's job. Enroll and disable both keep CSRF, because both ride on an
-    existing session cookie.
+    may have no CSRF cookie to send. Enroll and disable both keep CSRF, because both ride
+    on an existing session cookie.
 
-    Expects JSON body with: secret. Returns ``{"ok": true, "secret": <new secret>}``.
+    Dropping CSRF here gives up two different things, and only one of them is harmless:
+
+    * **Forging a request with the victim's authority** — not a risk. The request carries
+      no ambient credential; its authority is entirely the secret in the body, which a
+      cross-site attacker can neither read nor guess.
+    * **Login CSRF** — a real risk, and the reason for the content-type check below. An
+      attacker who posts THEIR OWN secret from a page the victim visits can silently sign
+      the victim's browser into the ATTACKER's account, and then watch whatever the victim
+      does there. A plain HTML form can only send urlencoded, multipart, or text/plain
+      bodies, and this view parses JSON from any of them, so ``enctype="text/plain"`` would
+      otherwise carry the attack with no script at all. Requiring ``application/json``
+      closes it: a form cannot produce that content type, and a cross-origin ``fetch`` that
+      sets it becomes preflighted — and nothing in this project answers a CORS preflight.
+
+    Expects a JSON body (``Content-Type: application/json``) with: secret.
+    Returns ``{"ok": true, "secret": <new secret>}``.
     """
     from core.abuse_limits import record_keyed_attempt
     from core.models import BiometricCredential, InvalidBiometricCredential
 
-    # Counted before anything touches the database, so a flood of guesses costs a cache
-    # increment rather than a query each.
+    # Login-CSRF guard, checked before the limiter so a cross-site form cannot even spend
+    # the victim's rate budget. See the content-type reasoning in the docstring.
+    if request.content_type != "application/json":
+        return JsonResponse({"error": "Expected a JSON body."}, status=415)
+
+    # Counted before the credential lookup, so a flood stops at a bounded cost instead of
+    # reaching the credential table.
+    #
+    # "Bounded", not "free": production CACHES.default is DatabaseCache, so this limiter is
+    # itself several database round trips, and a refused attempt still pays them. That is
+    # the honest cost, and it is why the key must not be attacker controlled — see
+    # _rate_limit_key. DatabaseCache also has no atomic incr (it inherits BaseCache's
+    # get-then-set), so simultaneous attempts can undercount and the cap can overshoot
+    # under concurrency. Acceptable here because the cap is a cost ceiling rather than a
+    # guessing defense, and overshooting a generous ceiling by a few requests changes
+    # nothing. It would NOT be acceptable for a limiter guarding something guessable.
+    rate_key = _rate_limit_key(request)
     allowed, reason = record_keyed_attempt(
         _BIOMETRIC_UNLOCK_SCOPE,
-        _client_ip(request),
+        rate_key,
         hourly_limit=_BIOMETRIC_UNLOCK_HOURLY_LIMIT,
         daily_limit=_BIOMETRIC_UNLOCK_DAILY_LIMIT,
     )
     if not allowed:
-        logger.warning("Biometric unlock rate limited (%s) for ip=%s", reason, _client_ip(request))
+        logger.warning("Biometric unlock rate limited (%s) for ip=%s", reason, rate_key)
         return JsonResponse({"error": "Too many tries. Sign in with an emailed code."}, status=429)
 
     try:
@@ -502,7 +556,12 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
             return JsonResponse({"error": "Missing secret"}, status=400)
 
         try:
-            user, new_secret = BiometricCredential.objects.redeem(secret)
+            # Rebound onto `secret` on purpose, rather than a `new_secret` local. Sentry
+            # runs with send_default_pii=True and redacts frame locals by exact key match
+            # against a denylist that contains "secret" and nothing like "new_secret", so a
+            # more descriptive name here would ship a live bearer token with any 500 raised
+            # below (login() included). See the naming note in core/models.py.
+            user, secret = BiometricCredential.objects.redeem(secret)
         except InvalidBiometricCredential:
             return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
 
@@ -515,7 +574,7 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
             return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        return JsonResponse({"ok": True, "secret": new_secret})
+        return JsonResponse({"ok": True, "secret": secret})
 
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({"error": "Invalid JSON"}, status=400)

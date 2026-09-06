@@ -9,15 +9,17 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.test import Client
+from django.test import Client, RequestFactory
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import BiometricCredential
+from core import views as core_views
+from core.models import BIOMETRIC_ROTATION_GRACE_SECONDS, BiometricCredential
 
 pytestmark = pytest.mark.django_db
 
@@ -44,8 +46,13 @@ def other_user(db):
     return User.objects.create_user(username="other", email="other@example.com")
 
 
-def _post(client, url, payload):
-    return client.post(url, data=json.dumps(payload), content_type="application/json")
+def _post(client, url, payload, *, remote_addr=None, xff=None):
+    extra = {}
+    if remote_addr is not None:
+        extra["REMOTE_ADDR"] = remote_addr
+    if xff is not None:
+        extra["HTTP_X_FORWARDED_FOR"] = xff
+    return client.post(url, data=json.dumps(payload), content_type="application/json", **extra)
 
 
 def _authenticated_user_id(client):
@@ -290,12 +297,81 @@ def describe_biometric_unlock():
     def it_refuses_a_GET(client):
         assert client.get(UNLOCK_URL).status_code == 405
 
-    def describe_rate_limiting():
-        def it_returns_429_once_the_hourly_cap_is_passed(client, member_user):
-            for _ in range(20):
-                _post(client, UNLOCK_URL, {"secret": "wrong"})
+    def describe_the_failure_message():
+        """Every rejection must read identically. The moment one flavor of failure is
+        distinguishable from another, the endpoint answers "does this secret exist?" and
+        "did it used to exist?" for anyone willing to ask, which is the probing oracle the
+        single shared message exists to deny."""
 
-            response = _post(client, UNLOCK_URL, {"secret": "wrong"})
+        def _body_for_unknown(client):
+            return _post(client, UNLOCK_URL, {"secret": "never-issued"}).json()
+
+        def _body_for_expired(client, user):
+            credential, secret = BiometricCredential.objects.issue(
+                user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+            credential.expires_at = timezone.now() - timedelta(seconds=1)
+            credential.save(update_fields=["expires_at"])
+            return _post(client, UNLOCK_URL, {"secret": secret}).json()
+
+        def _body_for_revoked(client, user):
+            credential, secret = BiometricCredential.objects.issue(
+                user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+            BiometricCredential.objects.revoke(credential)
+            return _post(client, UNLOCK_URL, {"secret": secret}).json()
+
+        def _body_for_replayed(client, user):
+            credential, secret = BiometricCredential.objects.issue(
+                user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+            BiometricCredential.objects.redeem(secret)
+            credential.rotated_at = timezone.now() - timedelta(seconds=BIOMETRIC_ROTATION_GRACE_SECONDS + 1)
+            credential.save(update_fields=["rotated_at"])
+            return _post(client, UNLOCK_URL, {"secret": secret}).json()
+
+        def _body_for_inactive(client, user):
+            _credential, secret = BiometricCredential.objects.issue(
+                user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+            return _post(client, UNLOCK_URL, {"secret": secret}).json()
+
+        def it_is_word_for_word_identical_however_the_secret_failed(client, member_user, other_user):
+            bodies = [
+                _body_for_unknown(client),
+                _body_for_expired(client, member_user),
+                _body_for_revoked(client, member_user),
+                _body_for_replayed(client, member_user),
+                _body_for_inactive(client, other_user),
+            ]
+
+            assert all(body == bodies[0] for body in bodies), bodies
+
+        def it_never_says_which_kind_of_failure_it_was(client, member_user):
+            body = _body_for_replayed(client, member_user)
+
+            leaky = ["revoke", "expire", "replay", "unknown", "already", "inactive", "disabled"]
+            assert not any(word in body["error"].lower() for word in leaky), body
+
+    def describe_rate_limiting():
+        """The caps are exercised through patched constants so the boundary is exact and the
+        test does not have to make a few hundred requests. The production numbers get their
+        own assertion below."""
+
+        def it_allows_attempts_right_up_to_the_cap(client):
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 3):
+                statuses = [_post(client, UNLOCK_URL, {"secret": "wrong"}).status_code for _ in range(3)]
+
+            assert statuses == [401, 401, 401]
+
+        def it_returns_429_on_the_attempt_after_the_cap(client):
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 3):
+                for _ in range(3):
+                    _post(client, UNLOCK_URL, {"secret": "wrong"})
+
+                response = _post(client, UNLOCK_URL, {"secret": "wrong"})
 
             assert response.status_code == 429
 
@@ -303,10 +379,11 @@ def describe_biometric_unlock():
             _credential, secret = BiometricCredential.objects.issue(
                 member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
             )
-            for _ in range(20):
-                _post(client, UNLOCK_URL, {"secret": "wrong"})
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 2):
+                for _ in range(2):
+                    _post(client, UNLOCK_URL, {"secret": "wrong"})
 
-            response = _post(client, UNLOCK_URL, {"secret": secret})
+                response = _post(client, UNLOCK_URL, {"secret": secret})
 
             assert response.status_code == 429
             assert _authenticated_user_id(client) is None
@@ -315,13 +392,104 @@ def describe_biometric_unlock():
             _credential, secret = BiometricCredential.objects.issue(
                 member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
             )
-            for _ in range(21):
-                _post(client, UNLOCK_URL, {"secret": "wrong"})
-            cache.clear()
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 2):
+                for _ in range(3):
+                    _post(client, UNLOCK_URL, {"secret": "wrong"})
+                cache.clear()
 
-            response = _post(client, UNLOCK_URL, {"secret": secret})
+                response = _post(client, UNLOCK_URL, {"secret": secret})
 
             assert response.status_code == 200
+
+        def it_gives_separate_budgets_to_separate_addresses(client):
+            """Without this, keying the limiter on a constant survives every other test here
+            — and that mutant lets one attacker lock every member out of biometric sign in."""
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 1):
+                _post(client, UNLOCK_URL, {"secret": "wrong"}, remote_addr="10.0.0.1")
+                exhausted = _post(client, UNLOCK_URL, {"secret": "wrong"}, remote_addr="10.0.0.1")
+                neighbour = _post(client, UNLOCK_URL, {"secret": "wrong"}, remote_addr="10.0.0.2")
+
+            assert exhausted.status_code == 429
+            assert neighbour.status_code == 401
+
+        def it_keys_on_the_caps_this_project_actually_ships(client):
+            """Finding 5: everyone on the shop wifi leaves through one address, and an
+            enrolled phone spends a slot on every signed-out app open. Caps tuned to one
+            person silently disable biometric sign in for the whole building."""
+            assert core_views._BIOMETRIC_UNLOCK_HOURLY_LIMIT >= 200
+            assert core_views._BIOMETRIC_UNLOCK_DAILY_LIMIT >= 1000
+
+    def describe_the_rate_limit_key():
+        """The key must come from an address the caller cannot choose. If it does not, the
+        cap simply does not exist for the one caller it is meant to bound."""
+
+        def it_ignores_a_client_supplied_forwarded_for_entry(client):
+            """Proxies APPEND, so the LEFTMOST entry is whatever the client sent. Rotating
+            it must not buy a fresh budget."""
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 1):
+                _post(client, UNLOCK_URL, {"secret": "wrong"}, xff="1.1.1.1, 203.0.113.9")
+                response = _post(client, UNLOCK_URL, {"secret": "wrong"}, xff="2.2.2.2, 203.0.113.9")
+
+            assert response.status_code == 429
+
+        def it_separates_budgets_by_the_entry_our_own_proxy_appended(client):
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 1):
+                _post(client, UNLOCK_URL, {"secret": "wrong"}, xff="1.1.1.1, 203.0.113.9")
+                exhausted = _post(client, UNLOCK_URL, {"secret": "wrong"}, xff="1.1.1.1, 203.0.113.9")
+                other_edge = _post(client, UNLOCK_URL, {"secret": "wrong"}, xff="1.1.1.1, 198.51.100.4")
+
+            assert exhausted.status_code == 429
+            assert other_edge.status_code == 401
+
+        def it_falls_back_to_the_connecting_address_with_no_proxy_header(client):
+            assert core_views._rate_limit_key(RequestFactory().post("/", REMOTE_ADDR="192.0.2.7")) == "192.0.2.7"
+
+        def it_takes_the_rightmost_forwarded_for_entry(client):
+            request = RequestFactory().post("/", HTTP_X_FORWARDED_FOR="1.1.1.1, 2.2.2.2, 203.0.113.9")
+
+            assert core_views._rate_limit_key(request) == "203.0.113.9"
+
+        def it_bounds_an_absurdly_long_header_before_it_becomes_a_cache_key(client):
+            request = RequestFactory().post("/", HTTP_X_FORWARDED_FOR="x" * 5000)
+
+            assert len(core_views._rate_limit_key(request)) <= 64
+
+    def describe_the_login_csrf_guard():
+        """csrf_exempt gives up login-CSRF protection as well as forgery protection. An
+        attacker posting THEIR OWN secret from a page the victim visits would sign the
+        victim's browser into the attacker's account. A plain HTML form cannot send
+        application/json, so requiring it is what closes that."""
+
+        def it_refuses_a_form_encoded_post(client, member_user):
+            _credential, secret = BiometricCredential.objects.issue(
+                member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+
+            response = client.post(UNLOCK_URL, data={"secret": secret})
+
+            assert response.status_code == 415
+            assert _authenticated_user_id(client) is None
+
+        def it_refuses_the_text_plain_body_a_cross_site_form_can_send(client, member_user):
+            """enctype="text/plain" is the one that needs no script at all."""
+            _credential, secret = BiometricCredential.objects.issue(
+                member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+            )
+
+            response = client.post(UNLOCK_URL, data=json.dumps({"secret": secret}), content_type="text/plain")
+
+            assert response.status_code == 415
+            assert _authenticated_user_id(client) is None
+
+        def it_does_not_spend_the_victims_rate_budget(client, member_user):
+            """Checked before the limiter, so a cross-site form cannot burn the budget of
+            whoever the victim shares an address with."""
+            with patch.object(core_views, "_BIOMETRIC_UNLOCK_HOURLY_LIMIT", 1):
+                client.post(UNLOCK_URL, data={"secret": "wrong"})
+
+                response = _post(client, UNLOCK_URL, {"secret": "still-wrong"})
+
+            assert response.status_code == 401
 
 
 def describe_biometric_disable():
@@ -417,6 +585,21 @@ def describe_biometric_disable():
 
         assert response.status_code == 200
         assert BiometricCredential.objects.active_for(member_user).count() == 1
+
+    def it_treats_a_zero_credential_id_as_a_targeted_revoke_not_revoke_everything(client, member_user):
+        """`credential_id is not None`, not a truthiness test. Under `if credential_id:` a
+        zero id falls through to the empty-body branch and silently revokes every device the
+        member owns — one phone logging out taking the rest of their phones with it."""
+        phone, _phone_secret = BiometricCredential.objects.issue(
+            member_user, device_label="iPhone", platform=BiometricCredential.Platform.IOS
+        )
+        client.force_login(member_user)
+
+        response = _post(client, DISABLE_URL, {"credential_id": 0})
+
+        assert response.status_code == 200
+        phone.refresh_from_db()
+        assert phone.revoked_at is None
 
     def it_rejects_a_credential_id_that_is_not_a_number(client, member_user):
         client.force_login(member_user)

@@ -156,8 +156,20 @@ BIOMETRIC_TTL_DAYS = 90
 # How long after a rotation the superseded secret is still accepted. See `redeem`.
 BIOMETRIC_ROTATION_GRACE_SECONDS = 60
 
+# NAMING IS LOAD-BEARING BELOW. Every variable, parameter, and attribute holding a raw
+# biometric secret is called exactly `secret`, never `raw_secret` or `new_secret` or
+# anything else descriptive.
+#
+# Sentry runs with send_default_pii=True, so an unhandled 500 raised anywhere in this call
+# stack ships the frame locals. Its scrubber matches denylist entries against the WHOLE key
+# (EventScrubber.scrub_dict does `k.lower() in self.denylist`), not as a substring, and the
+# default denylist contains "secret" — so a local named `secret` is redacted and a local
+# named `raw_secret` is transmitted in full. A rename here for readability would silently
+# start leaking live bearer tokens to a third party, with nothing failing to warn you.
+# tests/core/biometric_credential_spec.py pins this.
 
-def hash_biometric_secret(raw_secret: str) -> str:
+
+def hash_biometric_secret(secret: str) -> str:
     """SHA-256 hex digest of a raw biometric secret.
 
     A deliberately slow password hash (bcrypt/argon2) would buy nothing here: the input is
@@ -166,12 +178,12 @@ def hash_biometric_secret(raw_secret: str) -> str:
     database leak yields no usable secrets.
 
     Args:
-        raw_secret: The raw secret as handed to the device.
+        secret: The raw secret as handed to the device.
 
     Returns:
         The 64-character lowercase hex digest stored on the row.
     """
-    return hashlib.sha256(raw_secret.encode("utf-8")).hexdigest()
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
 class BiometricCredentialManager(models.Manager["BiometricCredential"]):
@@ -191,18 +203,18 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
         Returns:
             The stored credential and the raw secret the device must keep.
         """
-        raw_secret = secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES)
+        secret = secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES)
         now = timezone.now()
         credential = self.create(
             user=user,
-            secret_hash=hash_biometric_secret(raw_secret),
+            secret_hash=hash_biometric_secret(secret),
             device_label=device_label,
             platform=platform,
             expires_at=now + timedelta(days=BIOMETRIC_TTL_DAYS),
         )
-        return credential, raw_secret
+        return credential, secret
 
-    def redeem(self, raw_secret: str) -> tuple[User, str]:
+    def redeem(self, secret: str) -> tuple[User, str]:
         """Exchange a raw secret for its member and a freshly rotated secret.
 
         The state machine, in the order it is checked:
@@ -219,7 +231,7 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
         4. **No hit** — raise.
 
         Args:
-            raw_secret: The secret the device read out of its Keychain/Keystore.
+            secret: The secret the device read out of its Keychain/Keystore.
 
         Returns:
             The member to log in, and the new raw secret the device must store.
@@ -227,10 +239,10 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
         Raises:
             InvalidBiometricCredential: On every failure. Never returns ``None``.
         """
-        if not raw_secret:
+        if not secret:
             raise InvalidBiometricCredential("No biometric secret supplied.")
 
-        digest = hash_biometric_secret(raw_secret)
+        digest = hash_biometric_secret(secret)
         now = timezone.now()
 
         # select_for_update pins the row for the read-modify-write below so two redeems
@@ -258,7 +270,10 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
                 rotated_at is not None and (now - rotated_at).total_seconds() <= BIOMETRIC_ROTATION_GRACE_SECONDS
             )
             if within_grace:
-                return superseded.user, superseded.rotate(now)
+                # keep_previous: the caller presented the SPENT secret, so that hash has to stay
+                # recognizable. Sliding the window here would let a thief erase replay detection
+                # by redeeming twice inside it. See BiometricCredential.rotate.
+                return superseded.user, superseded.rotate(now, keep_previous=True)
 
             replayed = superseded
 
@@ -361,27 +376,44 @@ class BiometricCredential(models.Model):
         """Whether this credential can still be redeemed."""
         return self.revoked_at is None and self.expires_at > timezone.now()
 
-    def rotate(self, now: datetime) -> str:
+    def rotate(self, now: datetime, *, keep_previous: bool = False) -> str:
         """Replace the live secret with a fresh one and return the raw replacement.
 
-        The outgoing hash moves to ``previous_secret_hash`` so a retry of the request whose
-        reply was lost is still recognized for :data:`BIOMETRIC_ROTATION_GRACE_SECONDS`.
-        The expiry is pushed out from here, so a phone in regular use never ages out.
+        The outgoing hash normally moves to ``previous_secret_hash`` so a retry of the request
+        whose reply was lost is still recognized for
+        :data:`BIOMETRIC_ROTATION_GRACE_SECONDS`. The expiry is pushed out from here, so a
+        phone in regular use never ages out.
+
+        ``keep_previous`` is for the grace-window redeem, and it is a security control, not a
+        tidiness option. That branch is reached by presenting the ALREADY SPENT secret, so
+        shifting the window would overwrite the spent hash with the live one and erase the only
+        record that the spent secret ever existed. Anyone holding a stolen copy could then wipe
+        replay detection by redeeming twice inside the window: the real device's next attempt
+        would look merely unknown instead of replayed, so nothing would be revoked and the
+        thief's credential would stay live and keep renewing its expiry.
+
+        Pinning the window to the original rotation also fixes the honest case it mirrors, two
+        dropped replies in a row, which would otherwise fail for exactly the same reason.
 
         Args:
             now: The redeem timestamp, so one redeem stamps every field identically.
+            keep_previous: Leave ``previous_secret_hash`` and ``rotated_at`` untouched, so the
+                spent secret stays recognizable and the grace window does not slide forward.
 
         Returns:
             The new raw secret. It is returned once and stored nowhere.
         """
-        raw_secret = secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES)
-        self.previous_secret_hash = self.secret_hash
-        self.rotated_at = now
-        self.secret_hash = hash_biometric_secret(raw_secret)
+        secret = secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES)
+        updated = ["secret_hash", "last_used_at", "expires_at"]
+        if not keep_previous:
+            self.previous_secret_hash = self.secret_hash
+            self.rotated_at = now
+            updated += ["previous_secret_hash", "rotated_at"]
+        self.secret_hash = hash_biometric_secret(secret)
         self.last_used_at = now
         self.expires_at = now + timedelta(days=BIOMETRIC_TTL_DAYS)
-        self.save(update_fields=["previous_secret_hash", "rotated_at", "secret_hash", "last_used_at", "expires_at"])
-        return raw_secret
+        self.save(update_fields=updated)
+        return secret
 
 
 # The starting content of the #important-info "Important Links" embed — the pinned post's

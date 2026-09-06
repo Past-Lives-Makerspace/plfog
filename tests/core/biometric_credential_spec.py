@@ -11,17 +11,22 @@ tests are exact and instant.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
 from django.utils import timezone
+from sentry_sdk.scrubber import DEFAULT_DENYLIST
 
+from core import views as core_views
 from core.models import (
     BIOMETRIC_ROTATION_GRACE_SECONDS,
+    BIOMETRIC_SECRET_BYTES,
     BIOMETRIC_TTL_DAYS,
     BiometricCredential,
+    BiometricCredentialManager,
     InvalidBiometricCredential,
     hash_biometric_secret,
 )
@@ -47,6 +52,81 @@ def _age_rotation(credential: BiometricCredential, seconds: float) -> None:
     """Backdate the rotation so `seconds` appear to have passed since it happened."""
     credential.rotated_at = timezone.now() - timedelta(seconds=seconds)
     credential.save(update_fields=["rotated_at"])
+
+
+def describe_the_secret_itself():
+    """The size of the secret and the hash over it are the two numbers the whole feature
+    rests on, and neither is visible in any behavioral test — every other spec passes just
+    as happily with an 8-character token or an MD5 digest."""
+
+    def it_mints_secrets_of_the_documented_size():
+        assert BIOMETRIC_SECRET_BYTES == 48
+
+    def it_issues_a_secret_with_the_full_entropy_of_that_size(member_user):
+        _credential, secret = _issue(member_user)
+
+        # 48 bytes of urlsafe base64, unpadded. Shrinking BIOMETRIC_SECRET_BYTES makes a
+        # guessable bearer token, and nothing else in the suite would notice.
+        assert len(secret) == 64
+
+    def it_hashes_with_sha256_and_not_some_other_digest():
+        # A published SHA-256 vector. Asserting the function against itself would accept
+        # MD5, SHA-1, or any other digest swapped in underneath it.
+        assert hash_biometric_secret("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+    def it_produces_a_64_character_hex_digest():
+        digest = hash_biometric_secret("anything")
+
+        assert len(digest) == 64
+        assert digest == digest.lower()
+        assert all(character in "0123456789abcdef" for character in digest)
+
+    def it_gives_different_secrets_different_hashes():
+        assert hash_biometric_secret("one") != hash_biometric_secret("two")
+
+
+def describe_the_secret_variable_naming():
+    """Sentry runs with send_default_pii=True, so a 500 anywhere in the biometric call
+    stack ships that frame's locals. The scrubber matches denylist entries against the
+    WHOLE key, so a local named `secret` is redacted and one named `raw_secret` is
+    transmitted in full. The protection is a naming convention with nothing enforcing it,
+    which is exactly the kind of thing a readability refactor undoes by accident."""
+
+    # Names that hold a HASH rather than a live secret, and so are safe to transmit.
+    _HASH_HOLDERS = {"secret_hash", "previous_secret_hash"}
+
+    def it_keeps_secret_in_sentrys_default_denylist():
+        # If a Sentry upgrade ever drops this entry, every name below stops being scrubbed
+        # and this test is the only thing that would say so.
+        assert "secret" in DEFAULT_DENYLIST
+
+    def it_scrubs_by_whole_key_so_a_prefixed_name_would_not_match():
+        assert "raw_secret" not in DEFAULT_DENYLIST
+        assert "new_secret" not in DEFAULT_DENYLIST
+
+    @pytest.mark.parametrize(
+        "func",
+        [
+            hash_biometric_secret,
+            BiometricCredentialManager.issue,
+            BiometricCredentialManager.redeem,
+            BiometricCredential.rotate,
+            core_views.biometric_enroll,
+            core_views.biometric_unlock,
+        ],
+    )
+    def it_names_every_secret_bearing_local_something_sentry_scrubs(func):
+        unwrapped = inspect.unwrap(func)
+        offenders = [
+            name
+            for name in unwrapped.__code__.co_varnames
+            if "secret" in name and name != "secret" and name not in _HASH_HOLDERS
+        ]
+
+        assert offenders == [], (
+            f"{unwrapped.__qualname__} has local(s) {offenders} holding secret material under a "
+            "name Sentry's denylist does not match. Call it exactly `secret`."
+        )
 
 
 def describe_issue():
@@ -285,9 +365,71 @@ def describe_redeem():
                 with pytest.raises(InvalidBiometricCredential):
                     BiometricCredential.objects.redeem(secret)
 
-            assert "Stolen Phone" in caplog.text
-            assert str(member_user.pk) in caplog.text
+            # The WHOLE rendered line, not "both values appear somewhere": asserting
+            # membership would pass just as well with the user and the device swapped into
+            # each other's slots, which is a log that names the wrong thing in an incident.
+            assert caplog.messages == [
+                f"Biometric credential replay: spent secret reused for user pk={member_user.pk}, "
+                f"device 'Stolen Phone'. Credential revoked."
+            ]
             assert secret not in caplog.text
+
+    def describe_when_a_thief_redeems_a_stolen_secret_twice_inside_the_grace_window():
+        """Regression: the grace branch must NOT slide previous_secret_hash forward.
+
+        Rotating normally there would overwrite the spent hash with the live one and erase
+        the only record the spent secret ever existed. A thief could then wipe replay
+        detection by redeeming twice inside the window: the real device's next attempt
+        would look merely unknown, nothing would be revoked, and the stolen credential
+        would stay live and keep renewing its own expiry. This shipped broken once.
+        """
+
+        def it_keeps_the_spent_secret_recognizable(member_user):
+            credential, stolen = _issue(member_user)
+            spent_hash = credential.secret_hash
+            BiometricCredential.objects.redeem(stolen)
+            _age_rotation(credential, BIOMETRIC_ROTATION_GRACE_SECONDS - 1)
+
+            BiometricCredential.objects.redeem(stolen)
+
+            credential.refresh_from_db()
+            assert credential.previous_secret_hash == spent_hash
+
+        def it_does_not_slide_the_grace_window_forward(member_user):
+            credential, stolen = _issue(member_user)
+            BiometricCredential.objects.redeem(stolen)
+            _age_rotation(credential, BIOMETRIC_ROTATION_GRACE_SECONDS - 1)
+            pinned_rotated_at = BiometricCredential.objects.get(pk=credential.pk).rotated_at
+
+            BiometricCredential.objects.redeem(stolen)
+
+            credential.refresh_from_db()
+            assert credential.rotated_at == pinned_rotated_at
+
+        def it_still_revokes_when_the_real_device_comes_back(member_user):
+            credential, stolen = _issue(member_user)
+            BiometricCredential.objects.redeem(stolen)
+            _age_rotation(credential, BIOMETRIC_ROTATION_GRACE_SECONDS - 1)
+            BiometricCredential.objects.redeem(stolen)  # the thief's second redeem
+            _age_rotation(credential, BIOMETRIC_ROTATION_GRACE_SECONDS + 1)
+
+            with pytest.raises(InvalidBiometricCredential):
+                BiometricCredential.objects.redeem(stolen)  # the real device returns
+
+            credential.refresh_from_db()
+            assert credential.revoked_at is not None
+
+        def it_kills_the_secret_the_thief_was_left_holding(member_user):
+            credential, stolen = _issue(member_user)
+            BiometricCredential.objects.redeem(stolen)
+            _age_rotation(credential, BIOMETRIC_ROTATION_GRACE_SECONDS - 1)
+            _user, thiefs_secret = BiometricCredential.objects.redeem(stolen)
+            _age_rotation(credential, BIOMETRIC_ROTATION_GRACE_SECONDS + 1)
+            with pytest.raises(InvalidBiometricCredential):
+                BiometricCredential.objects.redeem(stolen)
+
+            with pytest.raises(InvalidBiometricCredential):
+                BiometricCredential.objects.redeem(thiefs_secret)
 
 
 def describe_active_for():
@@ -359,6 +501,18 @@ def describe_revoke_all():
         user, _new_secret = BiometricCredential.objects.redeem(their_secret)
         assert user == other_user
 
+    def it_keeps_the_original_timestamp_on_an_already_revoked_credential(member_user):
+        """The revoked_at__isnull guard. Without it a later revoke_all restamps rows that
+        were revoked long ago, rewriting when a device actually lost access."""
+        credential, _secret = _issue(member_user)
+        revoked_long_ago = timezone.now() - timedelta(days=30)
+        BiometricCredential.objects.filter(pk=credential.pk).update(revoked_at=revoked_long_ago)
+
+        BiometricCredential.objects.revoke_all(member_user)
+
+        credential.refresh_from_db()
+        assert credential.revoked_at == revoked_long_ago
+
 
 def describe_is_active():
     def it_is_true_for_a_fresh_credential(member_user):
@@ -377,6 +531,29 @@ def describe_is_active():
         credential.expires_at = timezone.now() - timedelta(seconds=1)
 
         assert credential.is_active is False
+
+
+def describe_model_defaults():
+    def it_defaults_the_platform_to_android(member_user):
+        """A credential written without an explicit platform must not land as iOS and tell
+        the member's settings card the wrong thing about their phone."""
+        credential = BiometricCredential.objects.create(
+            user=member_user,
+            secret_hash=hash_biometric_secret("some-secret"),
+            device_label="Unspecified",
+            expires_at=timezone.now() + timedelta(days=BIOMETRIC_TTL_DAYS),
+        )
+
+        assert credential.platform == BiometricCredential.Platform.ANDROID
+
+    def it_orders_newest_first_by_default(member_user):
+        """Meta.ordering, exercised through a plain queryset rather than asserted as
+        metadata, so dropping it actually fails here."""
+        older = _issue(member_user, label="Old Phone")[0]
+        newer = _issue(member_user, label="New Phone")[0]
+        BiometricCredential.objects.filter(pk=older.pk).update(created_at=timezone.now() - timedelta(days=3))
+
+        assert list(BiometricCredential.objects.all()) == [newer, older]
 
 
 def describe_str():
