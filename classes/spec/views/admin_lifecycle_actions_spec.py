@@ -65,6 +65,83 @@ def _upcoming_published(**kwargs) -> ClassOffering:
     return offering
 
 
+def _payload(cat, inst, **extra) -> dict:
+    payload = {
+        "title": "Direct Publish",
+        "category": cat.pk,
+        "instructor": inst.pk,
+        "price_cents": "50.00",
+        "member_discount_pct": 10,
+        "capacity": 6,
+        "scheduling_model": "flexible",
+        "sale_kind": "percent",
+        "scheduling_type": "single_session",
+        "description": "d",
+        "prerequisites": "",
+        "materials_included": "",
+        "materials_to_bring": "",
+        "safety_requirements": "",
+        "age_guardian_note": "",
+        "flexible_note": "",
+        "private_for_name": "",
+        "recurring_pattern": "",
+        "sessions-TOTAL_FORMS": "0",
+        "sessions-INITIAL_FORMS": "0",
+        "sessions-MIN_NUM_FORMS": "0",
+        "sessions-MAX_NUM_FORMS": "1000",
+        "faq-TOTAL_FORMS": "0",
+        "faq-INITIAL_FORMS": "0",
+        "faq-MIN_NUM_FORMS": "0",
+        "faq-MAX_NUM_FORMS": "1000",
+        "images-TOTAL_FORMS": "0",
+        "images-INITIAL_FORMS": "0",
+        "images-MIN_NUM_FORMS": "0",
+        "images-MAX_NUM_FORMS": "1000",
+    }
+    payload.update(extra)
+    return payload
+
+
+def _stored_class_images() -> set[str]:
+    from django.core.files.storage import default_storage
+
+    from classes.models import CLASS_IMAGE_PREFIX
+
+    try:
+        return set(default_storage.listdir(CLASS_IMAGE_PREFIX)[1])
+    except FileNotFoundError:
+        return set()
+
+
+def _real_png(name: str = "hero.png"):
+    from io import BytesIO
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+def _fake_png(name: str):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    return SimpleUploadedFile(name, b"\x89PNG\r\n\x1a\n" + b"\x00" * 64, content_type="image/png")
+
+
+def _bounced_admin_rows(n: int, start: int = 0) -> None:
+    for i in range(start, start + n):
+        offering = ClassOfferingFactory(title=f"Bounced {i}", status=Status.DRAFT)
+        ClassApproval.objects.create(
+            class_offering=offering,
+            role=ClassApproval.Role.ADMIN,
+            decision=ClassApproval.Decision.CHANGES_REQUESTED,
+            notes=f"Note {i}",
+            decided_at=timezone.now(),
+        )
+
+
 def describe_admin_overview_queue():
     def it_splits_waiting_on_you_from_with_guild_leads(admin_user, client, db):
         lead_user = _lead_user()
@@ -282,9 +359,22 @@ def describe_admin_class_cancel():
         assert resp.status_code == 200
         html = resp.content.decode()
         assert "Please tell people why." in html
-        assert "$dispatch('open-modal', 'cancel-class')" in html
+        # The reopen waits a tick so the child modal's listener is bound before the dispatch.
+        assert "x-init=\"$nextTick(() => $dispatch('open-modal', 'cancel-class'))\"" in html
+        assert "@open-modal.window=\"if ($event.detail === 'cancel-class') open = true\"" in html
+        # The error renders inside the modal body, not stranded on the page.
+        body_at = html.index('id="cancel-class-body"')
+        assert html.index("Please tell people why.") > body_at
+        assert html.index("</form>", body_at) > html.index("Please tell people why.")
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
+
+    def it_does_not_dispatch_the_reopen_on_a_plain_get(admin_user, client, db):
+        offering = _upcoming_published()
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        # The Cancel button dispatches the same event on click; only the auto-reopen is absent.
+        assert "x-init=\"$nextTick(() => $dispatch('open-modal', 'cancel-class'))\"" not in html
 
     def it_refuses_a_class_that_is_not_published(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
@@ -351,7 +441,29 @@ def describe_readiness_guard_on_approve():
         assert any(m.startswith("Not ready to publish:") for m in _messages(resp))
         offering.refresh_from_db()
         assert offering.status == Status.PENDING
-        assert offering.approvals.filter(decision="").count() == 1
+        # Refused before the admin row is minted, so nothing is stranded open.
+        assert not offering.approvals.exists()
+
+    def it_refused_quick_approve_does_not_block_the_guild_leads_later_escalation(admin_user, client, db):
+        from membership.models import AdminCapability, Member
+
+        lead_user = _lead_user("escalate-lead@example.com")
+        guild = _guild_with_lead(lead_user, "Escalate Guild")
+        offering = ClassOfferingFactory(
+            status=Status.PENDING, description="Short", category=CategoryFactory(guild=guild)
+        )
+        gate = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        holder_user = UserFactory(username="cms-esc@example.com", email="cms-esc@example.com")
+        Member.objects.get(user=holder_user).admin_capabilities.create(
+            capability=AdminCapability.Capability.CLASS_APPROVER
+        )
+        client.force_login(admin_user)
+        client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
+        assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+        mail.outbox = []
+        gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+        assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
+        assert [m for m in mail.outbox if m.to == ["cms-esc@example.com"]]
 
     def it_admin_review_page_shows_the_readiness_message_as_a_form_error(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
@@ -398,51 +510,85 @@ def describe_readiness_guard_on_approve():
 
 
 def describe_admin_class_create_publish_path():
-    def _payload(cat, inst, **extra) -> dict:
-        payload = {
-            "title": "Direct Publish",
-            "category": cat.pk,
-            "instructor": inst.pk,
-            "price_cents": "50.00",
-            "member_discount_pct": 10,
-            "capacity": 6,
-            "scheduling_model": "flexible",
-            "sale_kind": "percent",
-            "scheduling_type": "single_session",
-            "description": "d",
-            "prerequisites": "",
-            "materials_included": "",
-            "materials_to_bring": "",
-            "safety_requirements": "",
-            "age_guardian_note": "",
-            "flexible_note": "",
-            "private_for_name": "",
-            "recurring_pattern": "",
-            "sessions-TOTAL_FORMS": "0",
-            "sessions-INITIAL_FORMS": "0",
-            "sessions-MIN_NUM_FORMS": "0",
-            "sessions-MAX_NUM_FORMS": "1000",
-            "faq-TOTAL_FORMS": "0",
-            "faq-INITIAL_FORMS": "0",
-            "faq-MIN_NUM_FORMS": "0",
-            "faq-MAX_NUM_FORMS": "1000",
-            "images-TOTAL_FORMS": "0",
-            "images-INITIAL_FORMS": "0",
-            "images-MIN_NUM_FORMS": "0",
-            "images-MAX_NUM_FORMS": "1000",
-        }
-        payload.update(extra)
-        return payload
-
-    def it_shows_the_form_error_and_saves_nothing_for_an_unready_class(admin_user, client, db):
+    def it_refuses_an_unready_class_before_writing_anything(admin_user, client, db):
         from classes.factories import InstructorFactory
+        from core.models import SiteActivity
 
+        files_before = _stored_class_images()
+        activity_before = CmsActivity.objects.count()
+        site_before = SiteActivity.objects.count()
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_create"), _payload(CategoryFactory(), InstructorFactory()))
+        # Photos present, but the description is short and a flexible class has no note.
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                CategoryFactory(),
+                InstructorFactory(),
+                image=_real_png(),
+                gallery_images=[_fake_png("g.png")],
+            ),
+        )
         assert resp.status_code == 200
-        assert "Not ready to publish:" in resp.content.decode()
+        assert "Not ready to publish: Write a short description. Say how students pick a time." in (
+            resp.content.decode()
+        )
         assert not ClassOffering.objects.filter(title="Direct Publish").exists()
-        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED).exists()
+        assert _stored_class_images() == files_before
+        assert CmsActivity.objects.count() == activity_before
+        assert SiteActivity.objects.count() == site_before
+
+    def it_reads_a_past_session_as_no_date(admin_user, client, db):
+        from classes.factories import READY_DESCRIPTION, InstructorFactory
+
+        past = timezone.now() - timedelta(days=2)
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                CategoryFactory(),
+                InstructorFactory(),
+                description=READY_DESCRIPTION,
+                scheduling_model="fixed",
+                image=_real_png(),
+                gallery_images=[_fake_png("g.png")],
+                **{
+                    "sessions-TOTAL_FORMS": "1",
+                    "sessions-0-starts_at": past.strftime("%Y-%m-%dT%H:%M"),
+                    "sessions-0-ends_at": (past + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+                },
+            ),
+        )
+        assert resp.status_code == 200
+        assert "Not ready to publish: Add at least one date." in resp.content.decode()
+        assert not ClassOffering.objects.filter(title="Direct Publish").exists()
+
+    def it_rolls_back_files_and_activity_when_the_gallery_cap_refuses_after_the_save(admin_user, client, db):
+        from classes.factories import READY_DESCRIPTION, InstructorFactory
+        from classes.models import MAX_GALLERY_IMAGES, ClassImage
+        from core.models import SiteActivity
+
+        files_before = _stored_class_images()
+        activity_before = CmsActivity.objects.count()
+        site_before = SiteActivity.objects.count()
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _payload(
+                CategoryFactory(),
+                InstructorFactory(),
+                description=READY_DESCRIPTION,
+                flexible_note="We will pick a time together.",
+                image=_real_png(),
+                gallery_images=[_fake_png(f"g{i}.png") for i in range(MAX_GALLERY_IMAGES + 1)],
+            ),
+        )
+        assert resp.status_code == 200
+        assert f"at most {MAX_GALLERY_IMAGES} images" in resp.content.decode()
+        assert not ClassOffering.objects.filter(title="Direct Publish").exists()
+        assert not ClassImage.objects.exists()
+        assert _stored_class_images() == files_before
+        assert CmsActivity.objects.count() == activity_before
+        assert SiteActivity.objects.count() == site_before
 
     def it_publishes_a_ready_class_through_publish_exactly_once(admin_user, client, db):
         from io import BytesIO
@@ -532,6 +678,25 @@ def describe_admin_classes_facets():
         resp = client.get(reverse("classes:admin_classes") + "?sort=lifecycle_order&dir=asc")
         titles = [c.title for c in resp.context["page"]]
         assert titles == ["Zed Draft", "Alpha Archived"]
+
+
+def describe_admin_classes_query_count():
+    def it_holds_the_query_count_constant_from_two_to_ten_bounced_rows(admin_user, client, db):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        client.force_login(admin_user)
+        url = reverse("classes:admin_classes")
+        _bounced_admin_rows(2)
+        client.get(url)  # warm-up: first-request work (session, tour state) must not skew the count
+        with CaptureQueriesContext(connection) as two:
+            resp = client.get(url)
+        assert resp.status_code == 200 and b"Note 1" in resp.content
+        _bounced_admin_rows(8, start=2)
+        with CaptureQueriesContext(connection) as ten:
+            resp = client.get(url)
+        assert b"Note 9" in resp.content
+        assert len(ten) == len(two)
 
 
 def describe_permission_edges():

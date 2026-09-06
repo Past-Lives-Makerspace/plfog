@@ -147,6 +147,49 @@ def describe_teach_classes_list():
         assert b"pl-facets" not in resp.content
 
 
+def describe_edit_gate():
+    def it_sends_a_cancelled_class_back_to_the_list(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED)
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_dashboard")
+        assert "Published, cancelled, and archived classes can only be edited by an admin." in _messages(resp)
+
+    def it_still_opens_a_bounced_draft(instructor_fixture, client):
+        offering = _bounced(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        assert client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).status_code == 200
+
+
+def describe_query_counts():
+    def it_holds_the_query_count_constant_on_the_list_and_overview(instructor_fixture, client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        client.force_login(instructor_fixture.user)
+        for i in range(2):
+            _bounced(instructor_fixture, title=f"Bounced {i}", notes=f"Note {i}")
+        pages = ("classes:teach_dashboard", "classes:teach_overview")
+        for name in pages:
+            # Warm-up: the first hub request creates the member's billing tab row
+            # (savepoint, insert, release), which is first-request work, not row cost.
+            client.get(reverse(name))
+        counts_at_two = {}
+        for name in pages:
+            with CaptureQueriesContext(connection) as ctx:
+                resp = client.get(reverse(name))
+            assert resp.status_code == 200 and b"Note 1" in resp.content
+            counts_at_two[name] = len(ctx)
+        for i in range(2, 10):
+            _bounced(instructor_fixture, title=f"Bounced {i}", notes=f"Note {i}")
+        for name in pages:
+            with CaptureQueriesContext(connection) as ctx:
+                resp = client.get(reverse(name))
+            assert b"Note 9" in resp.content
+            assert len(ctx) == counts_at_two[name], name
+
+
 def describe_edit_page_cards():
     def it_shows_the_pipeline_card_with_the_note_on_a_bounced_class(instructor_fixture, client):
         offering = _bounced(instructor_fixture, notes="More photos please")

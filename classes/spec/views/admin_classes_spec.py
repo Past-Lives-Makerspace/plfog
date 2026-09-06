@@ -365,6 +365,7 @@ def describe_create_class():
 
     def it_rejects_an_over_cap_gallery_batch_without_publishing(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
         from classes.models import ClassOffering
 
         client.force_login(admin_user)
@@ -380,16 +381,17 @@ def describe_create_class():
                 "price_cents": "50.00",
                 "member_discount_pct": 10,
                 "capacity": 6,
-                "scheduling_model": "fixed",
+                "scheduling_model": "flexible",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
                 "safety_requirements": "",
                 "age_guardian_note": "",
-                "flexible_note": "",
+                "flexible_note": "We will pick a time together.",
                 "private_for_name": "",
                 "recurring_pattern": "",
                 "sessions-TOTAL_FORMS": "0",

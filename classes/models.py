@@ -545,6 +545,45 @@ class ReadinessItem:
     anchor: str
 
 
+def readiness_items(
+    *,
+    has_hero: bool,
+    has_gallery: bool,
+    description: str,
+    scheduling_model: str,
+    flexible_note: str,
+    has_future_session: bool,
+    capacity: int,
+) -> list[ReadinessItem]:
+    """The five readiness checks as pure rules over their inputs.
+
+    :meth:`ClassOffering.readiness` feeds it from a saved row; the admin create view feeds
+    it from the validated form BEFORE anything is written, so an unready class is refused
+    without leaving a hero file, gallery files, or activity rows behind. One function, one
+    rule set, so the two can never disagree.
+    """
+    description_ok = len(" ".join(strip_tags(description or "").split())) >= READINESS_MIN_DESCRIPTION_CHARS
+    if scheduling_model == "flexible":
+        dates_ok = bool(flexible_note.strip())
+        dates_hint = "Say how students pick a time."
+    else:
+        dates_ok = has_future_session
+        dates_hint = "Add at least one date."
+    return [
+        ReadinessItem(has_hero, "Hero photo", "Add a hero photo.", "hero-preview"),
+        ReadinessItem(has_gallery, "Gallery photo", "Add one gallery photo.", "gallery-manager"),
+        ReadinessItem(description_ok, "Description", "Write a short description.", "id_description"),
+        ReadinessItem(dates_ok, "Dates", dates_hint, "class-dates"),
+        ReadinessItem(capacity >= 1, "Capacity", "Set how many can attend.", "id_capacity"),
+    ]
+
+
+def readiness_error_text(items: list[ReadinessItem], verb: str) -> str:
+    """The one-line error naming every failing item: "Not ready to submit: Add at least one date."."""
+    hints = " ".join(item.hint for item in items if not item.ok)
+    return f"Not ready to {verb}: {hints}"
+
+
 @dataclass(frozen=True)
 class PipelineStep:
     """One step of the review pipeline strip (Submitted, Guild lead, Admin, Live).
@@ -1056,6 +1095,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
+        if not self.is_ready:
+            # Refuse BEFORE minting the admin row: a stranded open ADMIN row would stop
+            # the guild lead's later approval from escalating (it only opens the admin
+            # gate when none exists yet).
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(self.readiness_error("publish"))
         row = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first() or ClassApproval.objects.create(
             class_offering=self, role=ClassApproval.Role.ADMIN
         )
@@ -1632,11 +1678,17 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     @property
     def latest_bounce_row(self) -> "ClassApproval | None":
-        """The most recent CHANGES_REQUESTED / DENIED row (by ``decided_at``), if any."""
-        rows = [row for row in self.approvals.all() if row.decision in _BOUNCE_DECISIONS and row.decided_at]
+        """The most recent CHANGES_REQUESTED / DENIED row, if any.
+
+        Ordered by ``decided_at``, falling back to ``created_at`` for a row that was never
+        stamped, so this agrees with :attr:`_is_bounced` and the ``bounced`` annotation
+        (neither of which requires a stamp). Reads ``approvals.all()`` so a prefetched
+        list resolves it with no query.
+        """
+        rows = [row for row in self.approvals.all() if row.decision in _BOUNCE_DECISIONS]
         if not rows:
             return None
-        return max(rows, key=lambda row: cast(datetime, row.decided_at))
+        return max(rows, key=lambda row: row.decided_at or row.created_at)
 
     @property
     def lifecycle(self) -> "ClassOffering.Lifecycle":
@@ -1707,20 +1759,15 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     def readiness(self) -> list[ReadinessItem]:
         """The submit checklist: five things a class needs before a reviewer sees it."""
-        description_ok = len(" ".join(strip_tags(self.description or "").split())) >= READINESS_MIN_DESCRIPTION_CHARS
-        if self.scheduling_model == self.SchedulingModel.FLEXIBLE:
-            dates_ok = bool(self.flexible_note.strip())
-            dates_hint = "Say how students pick a time."
-        else:
-            dates_ok = self.sessions.filter(starts_at__gte=timezone.now()).exists()
-            dates_hint = "Add at least one date."
-        return [
-            ReadinessItem(bool(self.image), "Hero photo", "Add a hero photo.", "hero-preview"),
-            ReadinessItem(self.gallery_images.exists(), "Gallery photo", "Add one gallery photo.", "gallery-manager"),
-            ReadinessItem(description_ok, "Description", "Write a short description.", "id_description"),
-            ReadinessItem(dates_ok, "Dates", dates_hint, "class-dates"),
-            ReadinessItem(self.capacity >= 1, "Capacity", "Set how many can attend.", "id_capacity"),
-        ]
+        return readiness_items(
+            has_hero=bool(self.image),
+            has_gallery=self.gallery_images.exists(),
+            description=self.description,
+            scheduling_model=self.scheduling_model,
+            flexible_note=self.flexible_note,
+            has_future_session=self.sessions.filter(starts_at__gte=timezone.now()).exists(),
+            capacity=self.capacity,
+        )
 
     @property
     def is_ready(self) -> bool:
@@ -1728,8 +1775,7 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     def readiness_error(self, verb: str) -> str:
         """The one-line error naming every failing readiness item: "Not ready to submit: Add at least one date."."""
-        hints = " ".join(item.hint for item in self.readiness() if not item.ok)
-        return f"Not ready to {verb}: {hints}"
+        return readiness_error_text(self.readiness(), verb)
 
     @property
     def first_gate_label(self) -> str:

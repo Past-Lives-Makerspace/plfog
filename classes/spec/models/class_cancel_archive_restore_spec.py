@@ -186,6 +186,13 @@ def describe_publish():
         assert row.decision == ""
         assert offering.status == Status.PENDING
 
+    def it_approve_refuses_an_unready_class_without_minting_an_admin_row(db, admin_user):
+        offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
+        with pytest.raises(ValidationError) as excinfo:
+            offering.approve(admin_user)
+        assert excinfo.value.messages[0].startswith("Not ready to publish:")
+        assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+
     def it_still_lets_a_guild_lead_approve_an_unready_class(db, admin_user):
         # The lead's approval only escalates; the readiness gate sits on the publishing decision.
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")

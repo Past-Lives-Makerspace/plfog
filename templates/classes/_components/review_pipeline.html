@@ -11,7 +11,7 @@ equals the headline. Under 480px the strip stacks with the fill running down the
   <ol class="pl-pipeline{% if pipeline.muted %} pl-pipeline--muted{% endif %}{% if pipeline.is_bounced %} pl-pipeline--bounced{% endif %}" aria-label="{{ pipeline.headline }}" style="--pl-pipeline-fill: {{ pipeline.fill_percent }}%;">
     <li class="pl-pipeline__track" aria-hidden="true"><div class="pl-pipeline__fill" style="width: {{ pipeline.fill_percent }}%;"></div></li>
     {% for step in pipeline.steps %}
-      <li class="pl-pipeline__step pl-pipeline__step--{{ step.state }}" data-step="{{ step.key }}"{% if step.detail %} title="{{ step.detail }}"{% endif %}>
+      <li class="pl-pipeline__step pl-pipeline__step--{{ step.state }}" data-step="{{ step.key }}">
         <span class="pl-pipeline__dot" aria-hidden="true">{% if step.state == 'done' %}&#10003;{% elif step.state == 'changes_requested' %}&#8617;{% elif step.state == 'current' %}&#9679;{% endif %}</span>
         <span class="pl-pipeline__label">{{ step.label }}{% if step.detail %} <span class="pl-pipeline__detail">{{ step.detail }}</span>{% endif %}</span>
       </li>

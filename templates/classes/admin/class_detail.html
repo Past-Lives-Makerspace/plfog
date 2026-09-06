@@ -3,8 +3,10 @@
 {% block detail_content %}
 {% comment %}The Cancel class modal is server-rendered inline. A POST that fails validation
 re-renders this page with the bound form, and the x-init below reopens the modal so the
-error shows inside it (components/modal.html only opens on the open-modal event).{% endcomment %}
-<div x-data{% if cancel_form.is_bound %} x-init="$dispatch('open-modal', 'cancel-class')"{% endif %}>
+error shows inside it (components/modal.html only opens on the open-modal event). The
+dispatch waits a tick: the child modal's @open-modal.window listener is not bound yet when
+the parent's x-init runs, so a synchronous dispatch would fire into the void.{% endcomment %}
+<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% endif %}>
 {% if offering.status == 'pending' or pipeline.is_bounced %}
   {# The review pipeline strip, no card chrome, while the class is in review or bounced. #}
   <div style="margin-bottom:1rem;">

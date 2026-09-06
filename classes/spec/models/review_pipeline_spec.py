@@ -272,6 +272,8 @@ def describe_pipeline_components():
     def it_renders_the_page_strip_with_the_headline_as_aria_label(half_way):
         html = render_to_string("classes/_components/review_pipeline.html", {"pipeline": half_way.review_pipeline()})
         assert 'aria-label="Waiting on an admin"' in html
+        assert " title=" not in html  # Rule 19: no native title bubbles; the inline detail carries it
+        assert "Approved by Sam Reed" in html
         assert 'data-step="guild_lead"' in html and "pl-pipeline__step--done" in html
         assert 'data-step="admin"' in html and "pl-pipeline__step--current" in html
         assert "width: 67%" in html
@@ -405,4 +407,5 @@ def describe_review_emails_carry_the_pipeline():
         assert "[✓] Submitted  [↩] Admin  [ ] Live" in text
         assert "Changes requested by an admin" in text
         assert "Changes requested by an admin" in html
-        assert html.count("Add the price.") >= 2  # the reviewer note block and the pipeline note
+        assert html.count("Add the price.") == 1  # the pipeline's note block is the one copy
+        assert text.count("Add the price.") == 1

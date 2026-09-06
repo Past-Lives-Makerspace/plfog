@@ -107,6 +107,14 @@ img {
     --color-success: #7bc88f;
     --color-success-bg: rgba(123, 200, 143, 0.12);
 
+    /* Class lifecycle badge / review pipeline / readiness marks (class-lifecycle spec
+       PR 1). Text-on-surface tones: bright on Obsidian here, darkened to readable
+       amber / green / red on Slate (overridden below). */
+    --pl-lifecycle-review: var(--color-tuscan-yellow);
+    --pl-lifecycle-live: var(--color-success);
+    --pl-lifecycle-cancelled: var(--color-error);
+    --pl-lifecycle-live-contrast: var(--color-navy);
+
     /* Google Calendar sync-state badge (Screen C) — theme tokens so the badge
        stays legible on both Obsidian (here) and Slate (overridden below). */
     --pl-sync-synced: #6ee7b7;
@@ -156,6 +164,10 @@ img {
 
     --hub-blue: #2f6fb0;
     --hub-blue-soft: rgba(9, 46, 75, 0.08);
+    --pl-lifecycle-review: #9a6a00;
+    --pl-lifecycle-live: #1f7a52;
+    --pl-lifecycle-cancelled: #b03030;
+    --pl-lifecycle-live-contrast: #ffffff;
     --hub-hero-from: #f8fafc;
     --hub-hero-mid: #f1f5f9;
     --hub-hero-to: #e2e8f0;
@@ -8031,7 +8043,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    Class lifecycle (class-lifecycle spec PR 1)
    One badge for every class state, the review pipeline strip, the reviewer
    note block, the readiness checklist, and the list facet chips. Theme tokens
-   only; light-theme legibility overrides sit at the bottom of the block.
+   only: the --pl-lifecycle-* tones are defined on :root and [data-theme="light"]
+   at the top of this file.
    ======================================== */
 .pl-lifecycle-badge {
     display: inline-flex;
@@ -8050,7 +8063,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-lifecycle-badge--awaiting_guild_lead,
 .pl-lifecycle-badge--awaiting_admin {
     background: rgba(238, 180, 75, 0.16);
-    color: var(--color-tuscan-yellow);
+    color: var(--pl-lifecycle-review);
 }
 .pl-lifecycle-badge--changes_requested {
     background: var(--hub-blue-soft);
@@ -8058,7 +8071,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-lifecycle-badge--upcoming {
     background: var(--color-success-bg);
-    color: var(--color-success);
+    color: var(--pl-lifecycle-live);
 }
 .pl-lifecycle-badge--completed {
     background: rgba(123, 200, 143, 0.08);
@@ -8066,7 +8079,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-lifecycle-badge--cancelled {
     background: var(--color-error-bg);
-    color: var(--color-error);
+    color: var(--pl-lifecycle-cancelled);
 }
 .pl-lifecycle-badge .pl-help {
     text-transform: none;
@@ -8096,7 +8109,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-pipeline__fill {
     height: 100%;
-    background: var(--color-success);
+    background: var(--pl-lifecycle-live);
     border-radius: 2px;
 }
 .pl-pipeline--bounced .pl-pipeline__fill {
@@ -8128,13 +8141,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 .pl-pipeline__step--done .pl-pipeline__dot {
-    background: var(--color-success);
-    border-color: var(--color-success);
-    color: var(--color-navy);
+    background: var(--pl-lifecycle-live);
+    border-color: var(--pl-lifecycle-live);
+    color: var(--pl-lifecycle-live-contrast);
 }
 .pl-pipeline__step--current .pl-pipeline__dot {
     border-color: var(--color-tuscan-yellow);
-    color: var(--color-tuscan-yellow);
+    color: var(--pl-lifecycle-review);
     box-shadow: 0 0 0 4px rgba(238, 180, 75, 0.22);
 }
 .pl-pipeline__step--changes_requested .pl-pipeline__dot {
@@ -8239,10 +8252,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 .pl-readiness__item--ok .pl-readiness__mark {
-    color: var(--color-success);
+    color: var(--pl-lifecycle-live);
 }
 .pl-readiness__item--todo .pl-readiness__mark {
-    color: var(--color-error);
+    color: var(--pl-lifecycle-cancelled);
 }
 .pl-readiness__hint {
     color: var(--hub-text-muted);
@@ -8279,7 +8292,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-class-cancelled {
     padding: 0.9rem 1rem;
     margin-bottom: 1rem;
-    border: 1px solid var(--color-error);
+    border: 1px solid var(--pl-lifecycle-cancelled);
     background: var(--color-error-bg);
     border-radius: 8px;
     color: var(--hub-text);
@@ -8289,28 +8302,4 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-queue-note {
     font-size: 0.8rem;
     color: var(--hub-text-muted);
-}
-
-[data-theme="light"] .pl-lifecycle-badge--awaiting_guild_lead,
-[data-theme="light"] .pl-lifecycle-badge--awaiting_admin {
-    color: #9a6a00;
-}
-[data-theme="light"] .pl-lifecycle-badge--upcoming,
-[data-theme="light"] .pl-readiness__item--ok .pl-readiness__mark {
-    color: #1f7a52;
-}
-[data-theme="light"] .pl-lifecycle-badge--cancelled,
-[data-theme="light"] .pl-readiness__item--todo .pl-readiness__mark {
-    color: #b03030;
-}
-[data-theme="light"] .pl-pipeline__step--done .pl-pipeline__dot {
-    background: #1f7a52;
-    border-color: #1f7a52;
-    color: #fff;
-}
-[data-theme="light"] .pl-pipeline__fill {
-    background: #1f7a52;
-}
-[data-theme="light"] .pl-pipeline__step--current .pl-pipeline__dot {
-    color: #9a6a00;
 }

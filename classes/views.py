@@ -79,6 +79,8 @@ from classes.models import (
     DiscountCode,
     Registration,
     RegistrationQuestion,
+    readiness_error_text,
+    readiness_items,
 )
 from core.models import SiteConfiguration
 
@@ -1189,7 +1191,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     # with the reviewer's note and a Fix and resubmit button; plain drafts follow; then
     # the classes in review, each carrying its stage badge. Every row is annotated so
     # the badge resolves with no per-row queries.
-    attention_base = my_classes.with_lifecycle_inputs().select_related("category__guild")
+    # ``approvals`` is prefetched so a bounced row's note (the latest bouncing row) costs
+    # no query per row.
+    attention_base = my_classes.with_lifecycle_inputs().select_related("category__guild").prefetch_related("approvals")
     bounced = attention_base.filter(status=ClassOffering.Status.DRAFT, bounced=True).order_by("-updated_at")  # type: ignore[misc]  # django-stubs can't see annotate() aliases
     drafts = attention_base.filter(status=ClassOffering.Status.DRAFT, bounced=False).order_by("-updated_at")  # type: ignore[misc]  # django-stubs can't see annotate() aliases
     pending = attention_base.filter(status=ClassOffering.Status.PENDING).order_by("created_at")
@@ -1305,6 +1309,8 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
         ClassOffering.objects.for_instructor(teaching_member)
         .with_lifecycle_inputs()
         .select_related("category__guild")
+        # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
+        .prefetch_related("approvals")
         # distinct=True so the sessions join behind the lifecycle inputs never inflates the tally.
         .annotate(registration_count=Count("registrations", distinct=True))
     )
@@ -1421,8 +1427,12 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
         pk=pk,
     )
-    if offering.status in {ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED}:
-        messages.info(request, "Published and archived classes can only be edited by an admin.")
+    if offering.status in {
+        ClassOffering.Status.PUBLISHED,
+        ClassOffering.Status.CANCELLED,
+        ClassOffering.Status.ARCHIVED,
+    }:
+        messages.info(request, "Published, cancelled, and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
     form = TeachClassOfferingForm(
         request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
@@ -2223,6 +2233,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     base = (
         ClassOffering.objects.select_related("instructor", "category__guild")
         .with_lifecycle_inputs()
+        # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
+        .prefetch_related("approvals")
         .annotate(
             # distinct=True so the sessions join below doesn't inflate the registration tally.
             registration_count=Count("registrations", distinct=True),
@@ -2318,30 +2330,80 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _create_form_readiness(form: ClassOfferingForm, session_formset: Any, gallery_files: list[Any]) -> list[Any]:
+    """The readiness checklist for a not-yet-saved admin create, read from the validated forms."""
+    data = form.cleaned_data
+    now = timezone.now()
+    has_future_session = any(
+        session.cleaned_data.get("starts_at") is not None
+        and session.cleaned_data["starts_at"] >= now
+        and not session.cleaned_data.get("DELETE")
+        for session in session_formset.forms
+        if getattr(session, "cleaned_data", None)
+    )
+    return readiness_items(
+        has_hero=bool(data.get("image")),
+        has_gallery=bool(gallery_files),
+        description=data.get("description") or "",
+        scheduling_model=data["scheduling_model"],
+        flexible_note=data.get("flexible_note") or "",
+        has_future_session=has_future_session,
+        capacity=data.get("capacity") or 0,
+    )
+
+
+def _discard_half_created_offering(offering: ClassOffering) -> None:
+    """Roll back an admin create that could not publish: files, activity rows, then the row.
+
+    ``ClassOffering.delete`` alone would leave the hero and gallery objects in storage and
+    the ``class_created`` activity rows dangling (their FK is SET_NULL). Files are removed
+    only when no other row shares the same storage key (images are content-addressed).
+    """
+    from core.files import delete_if_unreferenced
+    from core.models import SiteActivity
+
+    for gallery_image in list(offering.gallery_images.all()):
+        name = gallery_image.image.name
+        gallery_image.delete()
+        delete_if_unreferenced(ClassImage, "image", name)
+    hero_name = offering.image.name if offering.image else ""
+    SiteActivity.objects.filter(
+        target_ct=ContentType.objects.get_for_model(ClassOffering), target_id=offering.pk
+    ).delete()
+    CmsActivity.objects.filter(class_offering=offering).delete()
+    offering.delete()
+    delete_if_unreferenced(ClassOffering, "image", hero_name)
+
+
 @classes_admin_access_required
 def admin_class_create(request: HttpRequest) -> HttpResponse:
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
     if request.method == "POST" and form.is_valid() and session_formset.is_valid():
-        # Save as a DRAFT first, attach sessions and gallery, THEN publish through the
-        # single publish path: ``is_ready`` needs the photos and dates that do not exist
-        # at ``form.save()`` time. A failing readiness item rolls the half-created class
-        # back and surfaces as a form error, exactly like the gallery path.
-        offering = form.save(commit=False)
-        offering.status = ClassOffering.Status.DRAFT
-        offering.save()
-        session_formset.instance = offering
-        session_formset.save()
-        offering.finalize_recurring_slug()
-        try:
-            offering.add_gallery_images(request.FILES.getlist("gallery_images"))
-            offering.publish(cast("User", request.user))  # the admin decorator guarantees a logged-in user
-        except ValidationError as exc:
-            offering.delete()  # roll back the half-created offering
-            form.add_error(None, exc.messages[0])
+        gallery_files = request.FILES.getlist("gallery_images")
+        # Readiness is checked from the validated form BEFORE anything is written, so an
+        # unready class is refused without a hero file, gallery files, or activity rows
+        # ever landing. Only the gallery cap (checked inside ``add_gallery_images``) can
+        # still refuse after the save; that path rolls everything back.
+        preflight = _create_form_readiness(form, session_formset, gallery_files)
+        if not all(item.ok for item in preflight):
+            form.add_error(None, readiness_error_text(preflight, "publish"))
         else:
-            messages.success(request, f"{offering.title} is published.")
-            return redirect("classes:admin_class_edit", pk=offering.pk)
+            offering = form.save(commit=False)
+            offering.status = ClassOffering.Status.DRAFT
+            offering.save()
+            session_formset.instance = offering
+            session_formset.save()
+            offering.finalize_recurring_slug()
+            try:
+                offering.add_gallery_images(gallery_files)
+                offering.publish(cast("User", request.user))  # the admin decorator guarantees a logged-in user
+            except ValidationError as exc:
+                _discard_half_created_offering(offering)
+                form.add_error(None, exc.messages[0])
+            else:
+                messages.success(request, f"{offering.title} is published.")
+                return redirect("classes:admin_class_edit", pk=offering.pk)
 
     sessions_data: list[dict] = []
     if session_formset.is_bound:

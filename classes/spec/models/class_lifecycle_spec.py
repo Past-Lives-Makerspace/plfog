@@ -126,13 +126,34 @@ def describe_lifecycle():
             _bounce(offering, ClassApproval.Role.GUILD_LEAD, ClassApproval.Decision.CHANGES_REQUESTED)
             assert offering.lifecycle_note == "The guild lead asked for changes."
 
-        def it_is_empty_for_a_bounced_draft_whose_row_was_never_stamped(db):
+        def it_falls_back_to_created_at_for_a_bounced_row_that_was_never_stamped(db):
+            # The badge (``bounced`` annotation) and the pipeline must agree on an unstamped row.
             offering = ClassOfferingFactory(status=Status.DRAFT)
             ClassApproval.objects.create(
                 class_offering=offering, role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.DENIED
             )
             assert offering.lifecycle == Lifecycle.CHANGES_REQUESTED
-            assert offering.lifecycle_note == ""
+            assert offering.lifecycle_note == "An admin declined it."
+            pipeline = offering.review_pipeline()
+            assert pipeline.is_bounced is True
+            assert pipeline.headline == "Declined by an admin"
+
+        def it_ranks_an_unstamped_newer_row_above_an_older_stamped_one(db):
+            offering = ClassOfferingFactory(status=Status.DRAFT)
+            _bounce(
+                offering,
+                ClassApproval.Role.GUILD_LEAD,
+                ClassApproval.Decision.CHANGES_REQUESTED,
+                "Older",
+                when=timezone.now() - timedelta(days=5),
+            )
+            ClassApproval.objects.create(
+                class_offering=offering,
+                role=ClassApproval.Role.ADMIN,
+                decision=ClassApproval.Decision.DENIED,
+                notes="Newer",
+            )
+            assert offering.lifecycle_note == "An admin declined it: Newer"
 
         def it_is_empty_for_a_plain_draft(db):
             assert ClassOfferingFactory(status=Status.DRAFT).lifecycle_note == ""
