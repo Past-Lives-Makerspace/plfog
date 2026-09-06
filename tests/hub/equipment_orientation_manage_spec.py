@@ -1140,6 +1140,49 @@ def describe_staff_remove_retirement():
         assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
         assert OrientationSlot.objects.filter(pk=booked.pk).exists()
 
+    def it_retires_a_removed_manager_who_also_holds_the_equipment_capability(client: Client):
+        """The capability is authority over every tool, not a reason to keep their slots live.
+
+        This is the case that broke when generation narrowed to orienter_members() while
+        the retirement check still asked the capability-inclusive is_run_by(): the rules
+        stopped extending but the already-generated slots stayed publicly bookable with a
+        removed manager's name on them.
+        """
+        equipment = EquipmentFactory()
+        _login(client, "sr_capability", fog_role=Member.FogRole.ADMIN)
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        dana.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        rule = _personal_rule(orientation_type, dana)
+        open_slot = _generated_slot(rule, orienter=dana)
+        response = client.post(reverse("hub_equipment_staff_remove", args=[equipment.slug, row.pk]), follow=True)
+        assert response.status_code == 200
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
+
+    def it_stops_a_departed_orienters_surviving_slot_taking_new_bookings(client: Client):
+        """is_bookable and bookable() read the same narrow set, so stranded slots self heal.
+
+        The guild side already behaved this way; equipment did not until is_run_by lost
+        its capability leg.
+        """
+        equipment = EquipmentFactory()
+        orientation_type = _owned_type(equipment)
+        dana = MemberFactory(full_legal_name="Dana Reyes")
+        dana.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        row = EquipmentStaffMembershipFactory(equipment=equipment, member=dana)
+        rule = _personal_rule(orientation_type, dana)
+        booked = _generated_slot(rule, orienter=dana, starts_at=timezone.now() + timedelta(days=3))
+        OrientationBookingFactory(slot=booked)
+        assert booked.is_bookable is True
+        assert booked.pk in set(OrientationSlot.objects.bookable().values_list("pk", flat=True))
+        row.delete()
+        booked.refresh_from_db()
+        assert equipment.is_run_by(dana) is False
+        assert booked.is_bookable is False
+        assert booked.pk not in set(OrientationSlot.objects.bookable().values_list("pk", flat=True))
+
     def it_keeps_the_rules_of_a_manager_who_is_still_owning_guild_staff(client: Client):
         from tests.membership.factories import GuildStaffMembershipFactory
 

@@ -886,8 +886,8 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
     staff.delete()
     message = f"{member_name} no longer manages the {equipment.name}."
     # Retire their personal hours ONLY when they no longer RUN orientations here at all —
-    # they may still be owning-guild staff or hold the capability, and those hours keep
-    # generating (the same is_run_by set the booking gate and generation read).
+    # they may still be on the owning guild's leadership, and those hours keep generating.
+    # is_run_by is the same narrow set generation, the roster, and the booking gate read.
     if not equipment.is_run_by(removed_member):
         from membership import orientations
 

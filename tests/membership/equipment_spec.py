@@ -438,14 +438,18 @@ def describe_holding_seats_on():
 
 
 def describe_is_run_by():
-    """The set that RUNS orientations is manager_members(): no fog-admin leg, unlike the permission helpers."""
+    """The set that RUNS orientations is orienter_members(): this tool's own people.
+
+    No fog-admin leg and no site-wide EQUIPMENT capability leg, unlike the permission
+    helpers — authority over every tool is not the same as running orientations on one.
+    """
 
     def _tool():
         return EquipmentFactory(guild=GuildFactory(guild_lead=MemberFactory()))
 
     def _agrees(equipment, member, expected: bool) -> None:
         assert equipment.is_run_by(member) is expected
-        assert (member in equipment.manager_members()) is expected
+        assert (member in equipment.orienter_members()) is expected
         # The SQL twin the booking gate reads must agree with the predicate.
         orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
         slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=member)
@@ -465,18 +469,26 @@ def describe_is_run_by():
         GuildStaffMembershipFactory(guild=equipment.guild, member=staffer)
         _agrees(equipment, staffer, True)
 
-    def it_includes_an_equipment_capability_holder():
+    def it_excludes_an_equipment_capability_holder_who_is_not_on_this_tool():
         equipment = _tool()
         holder = MemberFactory()
         holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        _agrees(equipment, holder, False)
+        # The capability is unchanged as a permission: they still manage every tool.
+        assert holder in equipment.manager_members()
+        assert holder.can_manage_equipment(equipment) is True
+        # A staff row is what puts them on this tool's roster.
+        EquipmentStaffMembershipFactory(equipment=equipment, member=holder)
         _agrees(equipment, holder, True)
 
-    def it_excludes_a_full_admin_without_the_capability_but_not_their_permissions():
+    def it_excludes_a_full_admin_but_not_their_permissions():
         equipment = _tool()
         admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
         _agrees(equipment, admin, False)
         assert admin.can_manage_equipment(equipment) is True  # still edits anyone's hours, acts on requests
         admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        assert equipment.is_run_by(admin) is False  # authority over every tool is not a slot on this roster
+        EquipmentStaffMembershipFactory(equipment=equipment, member=admin)
         assert equipment.is_run_by(admin) is True
 
     def it_excludes_a_plain_member_and_another_guilds_lead():

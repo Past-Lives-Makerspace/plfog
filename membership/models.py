@@ -9035,12 +9035,12 @@ class OrientationSlotQuerySet(models.QuerySet):
     def _run_by_gate() -> Q:
         """The SQL twin of :meth:`Equipment.is_run_by` for a slot's ``orienter``.
 
-        A staff row on the tool, the owning guild's lead, the owning guild's staff, or
-        an EQUIPMENT capability: exactly ``Equipment.manager_members()``. Deliberately
-        no fog-admin leg (see ``is_run_by``). A departed manager's personal slot
+        A staff row on the tool, the owning guild's lead, or the owning guild's staff:
+        exactly ``Equipment.orienter_members()``. Deliberately no fog-admin leg and no
+        EQUIPMENT capability leg (see ``is_run_by``). A departed manager's personal slot
         blocks NEW bookings only.
         """
-        return (
+        gate = (
             Exists(
                 EquipmentStaffMembership.objects.filter(
                     equipment_id=OuterRef("orientation_type__equipment_id"), member_id=OuterRef("orienter_id")
@@ -9052,12 +9052,9 @@ class OrientationSlotQuerySet(models.QuerySet):
                     guild_id=OuterRef("orientation_type__equipment__guild_id"), member_id=OuterRef("orienter_id")
                 )
             )
-            | Exists(
-                AdminCapability.objects.filter(
-                    member_id=OuterRef("orienter_id"), capability=AdminCapability.Capability.EQUIPMENT
-                )
-            )
         )
+        # ``Exists | Q`` really is a Q at runtime; django-stubs widens the chain to Combinable.
+        return cast(Q, gate)
 
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots whose owner is currently accepting bookings (does not check seats).
@@ -10704,18 +10701,21 @@ class Equipment(HeroCropMixin, models.Model):
         return slug
 
     def is_run_by(self, member: Member) -> bool:
-        """True when ``member`` may RUN orientations on this equipment: the :meth:`manager_members` set.
+        """True when ``member`` may RUN orientations on this equipment: the :meth:`orienter_members` set.
 
-        A staff row on this tool, the owning guild's leadership (lead or staff), or the
-        EQUIPMENT capability. Deliberately NO fog-admin leg, unlike the permission
-        helpers (``can_manage_equipment`` keeps full admins so they can edit anyone's
-        hours and act on requests): an admin who wants to be booked by name grants
-        themselves the capability, exactly as a guild admin needs a staff row. One
-        predicate feeds ``bookable()`` (its SQL twin ``_run_by_gate``), ``is_bookable``,
-        slot generation, the Runs with picker, and the schedule overview.
+        A staff row on this tool, or the owning guild's leadership (lead or staff).
+        Deliberately NO fog-admin leg and NO site-wide EQUIPMENT capability leg, unlike
+        the permission helpers (``can_manage_equipment`` keeps both, so an admin can still
+        edit anyone's hours and act on requests): authority over every tool is not the same
+        as running orientations on this one. An admin who wants to be booked by name adds
+        themselves on the Staff tab, exactly as a guild admin needs a staff row.
+
+        One predicate, and it must stay one: it feeds ``bookable()`` (its SQL twin
+        ``_run_by_gate``), ``is_bookable``, slot generation, the Runs with picker, the
+        schedule overview, and the staff-removal retirement check. When it drifted wider
+        than the set that generates slots, a removed manager's slots stopped extending but
+        stayed publicly bookable with their name on them.
         """
-        if member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
-            return True
         guild = self.guild
         if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
             return True
@@ -10729,18 +10729,8 @@ class Equipment(HeroCropMixin, models.Model):
         the ``equipment.reservation_made`` notification audience (the
         ``equipment_managers`` resolver) when reservations land in PR 2.
         """
-        members: list[Member] = []
-        seen: set[int] = set()
-        # Staff rows are unique per (equipment, member), so no in-loop dedupe needed here.
-        for staff in self.staff_memberships.select_related("member"):
-            members.append(staff.member)
-            seen.add(staff.member_id)
-        guild = self.guild
-        if guild is not None:
-            for leader in guild.leadership_members():
-                if leader.pk not in seen:
-                    members.append(leader)
-                    seen.add(leader.pk)
+        members = self.orienter_members()
+        seen = {member.pk for member in members}
         capability_rows = AdminCapability.objects.filter(
             capability=AdminCapability.Capability.EQUIPMENT
         ).select_related("member")
