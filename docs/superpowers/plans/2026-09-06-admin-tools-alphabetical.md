@@ -81,15 +81,30 @@ template and fails on a key that is not in `HELP_KEYS`, so a half-done rename is
 ## Explicitly NOT in scope
 
 **The Quickstart help pages stay.** Only the Admin Tools tiles are removed. Both articles
-remain published, seeded, and reachable:
+remain published and seeded in `membership/help_content.py` (slugs `instructor-quickstart`
+and `guild-lead-quickstart`).
 
-- the Help Center itself (`membership/help_content.py`, slugs `instructor-quickstart` and
-  `guild-lead-quickstart`),
-- the example guild page (`membership/example_guild.py`),
-- the guild-lead and instructor onboarding announcements
-  (pinned by `tests/hub/announcement_compose_spec.py`).
+Counting the surviving paths honestly, because an earlier draft of this spec got it wrong:
 
-So removing the tiles costs one discovery path, not the guides.
+- **Live and default on: the Help Center, and only the Help Center.** Both articles sit at
+  `sort_order: 10`, the top of their categories, reachable from `/help/`,
+  `/help/teaching/`, `/help/running-a-guild/`, and help search.
+- **Gated off by default:** the example guild page (`membership/example_guild.py`) links
+  them, but it is seeded `is_active=False` and only surfaces when the `display_demo_guild`
+  site setting is on. Not a live path on production as configured.
+- **Prose, not links:** two tour popovers (`core/tours.py`) name the guides in body text.
+
+So this costs the one discovery path the tiles provided and leaves one real one. That is
+thinner than "still reachable from several places" would suggest, and worth knowing before
+shipping, but the articles are genuinely not orphaned.
+
+**`tests/hub/announcement_compose_spec.py` covers the TILES, not onboarding
+announcements.** Its `describe_quickstart_guide_cards` block GETs `hub_admin_tools` and
+asserts the Quickstart hrefs are present, so it fails on this change. The block is
+inverted rather than deleted: same three roles, now asserting no Quickstart link renders
+on that page. An earlier draft of this spec mis-read that file as covering onboarding
+announcements and cited it as evidence the guides stayed reachable, which is exactly
+backwards and hid a breaking test.
 
 ## UI/UX completeness
 
@@ -115,6 +130,8 @@ So removing the tiles costs one discovery path, not the guides.
   compares against `sorted(...)`, so it fails on a future card inserted in the wrong place
   rather than pinning a hardcoded list that has to be edited every time a tool is added.
 - `tests/hub/help_keys_spec.py` covers the key rename with no edit needed.
+- `tests/hub/announcement_compose_spec.py` — invert its `describe_quickstart_guide_cards`
+  block, which pins the removed tiles. RUN THIS FILE; it is the one that breaks.
 - Re-run `tests/core/tours_spec.py` and `tests/hub/tours_spec.py` for the tour step edit.
 
 ## Versioning

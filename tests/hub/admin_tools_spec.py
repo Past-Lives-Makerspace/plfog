@@ -153,6 +153,7 @@ def describe_admin_tools_card_order():
     def it_lists_a_fog_admins_cards_alphabetically(client: Client):
         _login_superuser(client, "order_admin")
         titles = _card_titles(client)
+        assert titles, "the grid rendered no cards, so the ordering assertion would be vacuous"
         assert titles == sorted(titles)
 
     def it_shows_a_fog_admin_every_tool_card(client: Client):

@@ -894,21 +894,32 @@ def describe_admin_tools_page():
         assert resp.url == reverse("hub_home")
 
     def describe_quickstart_guide_cards():
-        def it_shows_both_quickstarts_to_an_admin(client: Client):
+        """The two Quickstart tiles were removed from Admin Tools.
+
+        This block used to pin their per-role gating: an admin saw both, a guild lead
+        saw only the guild-lead guide, an instructor only the instructor guide. The
+        tiles are gone, so the coverage is inverted rather than deleted — no role gets
+        a Quickstart link on this page any more. The guides themselves stay published
+        in the Help Center, which tests/hub/admin_tools_spec.py pins.
+        """
+
+        _QUICKSTART_HREFS = (
+            "/help/running-a-guild/guild-lead-quickstart/",
+            "/help/teaching/instructor-quickstart/",
+        )
+
+        def it_shows_neither_quickstart_to_an_admin(client: Client):
             _login_admin(client)
             content = client.get(reverse("hub_admin_tools")).content.decode()
-            assert "/help/running-a-guild/guild-lead-quickstart/" in content
-            assert "/help/teaching/instructor-quickstart/" in content
+            assert not [href for href in _QUICKSTART_HREFS if href in content]
 
-        def it_shows_only_the_guild_lead_quickstart_to_a_guild_lead(client: Client):
+        def it_shows_neither_quickstart_to_a_guild_lead(client: Client):
             guild = GuildFactory()
             _login_lead(client, guild)
             content = client.get(reverse("hub_admin_tools")).content.decode()
-            assert "/help/running-a-guild/guild-lead-quickstart/" in content
-            assert "/help/teaching/instructor-quickstart/" not in content
+            assert not [href for href in _QUICKSTART_HREFS if href in content]
 
-        def it_shows_only_the_instructor_quickstart_to_a_pure_instructor(client: Client):
+        def it_shows_neither_quickstart_to_a_pure_instructor(client: Client):
             _instructor(client)
             content = client.get(reverse("hub_admin_tools")).content.decode()
-            assert "/help/teaching/instructor-quickstart/" in content
-            assert "/help/running-a-guild/guild-lead-quickstart/" not in content
+            assert not [href for href in _QUICKSTART_HREFS if href in content]
