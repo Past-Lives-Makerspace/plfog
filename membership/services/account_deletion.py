@@ -42,6 +42,7 @@ def delete_own_account(member: "Member") -> None:
     from allauth.account.models import EmailAddress
 
     from core.models import (
+        BiometricCredential,
         FcmDevice,
         Notification,
         NotificationPreference,
@@ -75,6 +76,9 @@ def delete_own_account(member: "Member") -> None:
         # Clear device/notification state (FK is to User).
         PushSubscription.objects.filter(user=user).delete()
         FcmDevice.objects.filter(user=user).delete()
+        # A biometric credential is a live bearer key. Left behind it would sign someone
+        # into a deleted account from a phone the member no longer controls.
+        BiometricCredential.objects.filter(user=user).delete()
         Notification.objects.filter(user=user).delete()
         NotificationPreference.objects.filter(user=user).delete()
         UserProfile.objects.filter(user=user).update(

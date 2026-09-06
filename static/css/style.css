@@ -1018,3 +1018,31 @@ p:last-child {
         color: black;
     }
 }
+
+/* Biometric sign in on the login page. The whole block starts hidden and only the native
+   app reveals it (static/js/biometric-auth.js), and only on a phone that already holds a
+   stored secret; a browser never sees it. The `hidden` attribute is only a UA-stylesheet
+   `display:none`, so an explicit rule is safer than trusting it to outrank future styles. */
+.pl-biometric-unlock[hidden] {
+    display: none;
+}
+
+.pl-biometric-unlock {
+    margin-bottom: var(--spacing-md);
+}
+
+.pl-biometric-unlock__status {
+    margin: var(--spacing-xs) 0 0;
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    text-align: center;
+}
+
+.pl-biometric-unlock__divider {
+    margin: var(--spacing-md) 0;
+    text-align: center;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+}

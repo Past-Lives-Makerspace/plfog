@@ -69,7 +69,7 @@
     </script>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
+<body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
 {% include "components/toast.html" %}
 {% include "components/loading_bar.html" %}
 {% block extra_body %}{% endblock %}
@@ -711,6 +711,11 @@
     {% block extra_js %}{% endblock %}
     <script src="{% static 'js/hero_placement.js' %}?v=1.1"></script>
     <script src="{% static 'js/session_calendar.js' %}"></script>
+    {% comment %}Biometric sign in for the native app. This document is not a child of
+    base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices
+    settings card both live on hub pages. The file no-ops in a browser, no-ops in an app
+    build without the plugin, and refuses to run twice under hx-boost.{% endcomment %}
+    <script src="{% static 'js/biometric-auth.js' %}" defer></script>
     {% block tour_runtime %}{% include "hub/partials/_tour.html" %}{% endblock %}
 </body>
 </html>

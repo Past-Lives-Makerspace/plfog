@@ -1,0 +1,65 @@
+{% comment %}
+"Signed In Devices" card on the Account tab of settings.
+
+Lists the phones that can sign this member in with a face or a fingerprint, one row each,
+with a Revoke button per row. The list is server rendered from
+BiometricCredential.objects.active_for(request.user), so it is honest on the web too: a
+member can see and kill a phone's access from a laptop.
+
+The app-only half ([data-biometric-app-only]) starts hidden. static/js/biometric-auth.js
+reveals it inside the native app and fills in the "Turn on ..." button, which is where the
+enrollment offer's Not Now sends people. A browser never sees it, because there is no
+Keychain to put a secret in.
+
+This whole card is the htmx swap target of a Revoke, so its outer element carries the id.
+Context: biometric_credentials.
+{% endcomment %}
+<div class="hub-card pl-biometric-devices" id="biometric-devices">
+  <h2 class="pl-biometric-devices__title">Signed In Devices</h2>
+  <p class="hub-text-muted pl-biometric-devices__intro">
+    Phones that can sign you in with your face or fingerprint instead of an emailed code.
+  </p>
+
+  {% if biometric_credentials %}
+    <ul class="pl-biometric-devices__list">
+      {% for credential in biometric_credentials %}
+        {% comment %}The confirm_id is built through stringformat first: the `add` filter
+        returns an empty string when asked to join text to an integer, which would give
+        every row the same blank id.{% endcomment %}
+        {% with row_id=credential.pk|stringformat:"s" %}
+        {% with confirm_id="revoke-biometric-"|add:row_id %}
+        <li class="pl-biometric-devices__row">
+          <div class="pl-biometric-devices__device">
+            {# device_label is client supplied. Django autoescapes it here; do not add |safe. #}
+            <span class="pl-biometric-devices__name">{{ credential.device_label }}</span>
+            <span class="pl-biometric-devices__meta">
+              {{ credential.get_platform_display }}
+              {% if credential.last_used_at %}
+                &middot; last used {{ credential.last_used_at|date:"M j, Y" }}
+              {% else %}
+                &middot; not used yet
+              {% endif %}
+            </span>
+          </div>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                  @click="$dispatch('open-confirm', '{{ confirm_id }}')">Revoke</button>
+          {% url 'hub_biometric_revoke' credential.pk as revoke_url %}
+          {% include "components/confirm_modal.html" with confirm_id=confirm_id confirm_title="Revoke this device?" confirm_message="That phone will ask for an emailed code the next time you sign in. You can turn it back on from the phone." confirm_button_text="Revoke" confirm_hx_post=revoke_url confirm_hx_target="#biometric-devices" %}
+        </li>
+        {% endwith %}
+        {% endwith %}
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="hub-text-muted pl-biometric-devices__empty">
+      No devices yet. Open the Past Lives app on your phone to set one up.
+    </p>
+  {% endif %}
+
+  <div class="pl-biometric-devices__app" data-biometric-app-only hidden>
+    <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-biometric-enable hidden>
+      Turn on face or fingerprint sign in
+    </button>
+    <p class="hub-text-muted pl-biometric-devices__note" data-biometric-note hidden></p>
+  </div>
+</div>

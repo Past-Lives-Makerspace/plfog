@@ -70,10 +70,13 @@ const config: CapacitorConfig = {
     },
   },
   android: {
-    includePlugins: ['@capacitor/push-notifications'],
+    // @capgo/capacitor-native-biometric is here AND in the iOS list below: biometric sign in
+    // is a both-platforms feature, and these lists are allowlists, so a plugin missing from
+    // one is silently absent from that native project with no build error.
+    includePlugins: ['@capacitor/push-notifications', '@capgo/capacitor-native-biometric'],
   },
   ios: {
-    includePlugins: ['@capacitor-firebase/messaging'],
+    includePlugins: ['@capacitor-firebase/messaging', '@capgo/capacitor-native-biometric'],
     // Let the web layer own safe-area insets via CSS env(safe-area-inset-*).
     contentInset: 'never',
   },

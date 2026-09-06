@@ -3,12 +3,15 @@
 import json
 import logging
 from pathlib import Path
+from typing import cast
 
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -394,6 +397,182 @@ def fcm_unregister(request):
     except Exception:
         logger.exception("FCM device unregistration failed")
         return JsonResponse({"error": "Unregistration failed. Please try again."}, status=500)
+
+
+# ── Biometric login ───────────────────────────────────────────────────────────
+# The app stores a rotating secret in the Keychain/Keystore behind Face ID or a
+# fingerprint and trades it for a session. All of the logic is in
+# core.models.BiometricCredentialManager; these views parse, call it, and answer.
+
+_BIOMETRIC_UNLOCK_SCOPE = "biometric_unlock"
+# An unlock happens once when the app opens, so a real member never comes near these.
+# They exist to stop someone spraying guessed secrets at the endpoint.
+_BIOMETRIC_UNLOCK_HOURLY_LIMIT = 20
+_BIOMETRIC_UNLOCK_DAILY_LIMIT = 100
+
+# One message for every unlock failure. Saying which secrets exist would help an attacker.
+# Platform neutral on purpose: an Android member unlocks with a fingerprint, not Face ID.
+_BIOMETRIC_UNLOCK_FAILED = "We could not sign you in. Use an emailed code instead."
+
+
+def _client_ip(request: HttpRequest) -> str:
+    """Best-effort client IP, honoring X-Forwarded-For when behind a proxy."""
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+@require_POST
+@login_required
+def biometric_enroll(request: HttpRequest) -> JsonResponse:
+    """Mint a biometric credential for the caller's device and return its raw secret.
+
+    Being logged in IS the security boundary here: the secret is handed only to a session
+    that has already proved who it belongs to with an emailed login code.
+
+    Expects JSON body with: device_label, and optional platform (defaults to android).
+    Returns ``{"secret": ..., "credential_id": ...}``. The secret is returned exactly once
+    and is never stored. The id is not a secret and buys nothing on its own — it exists so
+    the app can revoke THIS device on logout without reading the secret back out of the
+    Keychain, which would mean a Face ID prompt in the middle of signing out.
+    """
+    from core.models import BiometricCredential
+
+    try:
+        data = json.loads(request.body)
+        device_label = str(data.get("device_label", "")).strip()
+        platform = data.get("platform", BiometricCredential.Platform.ANDROID)
+
+        if not device_label:
+            return JsonResponse({"error": "Missing device label"}, status=400)
+        if platform not in BiometricCredential.Platform.values:
+            return JsonResponse({"error": "Invalid platform"}, status=400)
+
+        # The label is client-supplied cosmetic text shown back to the member. Trim it to
+        # the column width rather than 500ing on an over-long one; it is escaped on render.
+        credential, secret = BiometricCredential.objects.issue(
+            cast(User, request.user), device_label=device_label[:120], platform=platform
+        )
+        return JsonResponse({"secret": secret, "credential_id": credential.pk})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("Biometric enrollment failed")
+        return JsonResponse({"error": "Enrollment failed. Please try again."}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def biometric_unlock(request: HttpRequest) -> JsonResponse:
+    """Trade a biometric secret for a session, and hand back the rotated replacement.
+
+    ``csrf_exempt`` is deliberate here, and it is the ONLY endpoint in this feature that
+    gets it. The caller has no session yet — that is the whole point of unlocking — so it
+    may have no CSRF cookie to send. What CSRF protection buys you is the guarantee that a
+    cross-site page cannot forge a request the browser will attach credentials to; here the
+    request carries no ambient credential at all. Its authority comes entirely from a
+    48-byte secret in the body, which a cross-site attacker cannot read or guess. That
+    secret is doing CSRF's job. Enroll and disable both keep CSRF, because both ride on an
+    existing session cookie.
+
+    Expects JSON body with: secret. Returns ``{"ok": true, "secret": <new secret>}``.
+    """
+    from core.abuse_limits import record_keyed_attempt
+    from core.models import BiometricCredential, InvalidBiometricCredential
+
+    # Counted before anything touches the database, so a flood of guesses costs a cache
+    # increment rather than a query each.
+    allowed, reason = record_keyed_attempt(
+        _BIOMETRIC_UNLOCK_SCOPE,
+        _client_ip(request),
+        hourly_limit=_BIOMETRIC_UNLOCK_HOURLY_LIMIT,
+        daily_limit=_BIOMETRIC_UNLOCK_DAILY_LIMIT,
+    )
+    if not allowed:
+        logger.warning("Biometric unlock rate limited (%s) for ip=%s", reason, _client_ip(request))
+        return JsonResponse({"error": "Too many tries. Sign in with an emailed code."}, status=429)
+
+    try:
+        data = json.loads(request.body)
+        secret = data.get("secret")
+
+        if not secret:
+            return JsonResponse({"error": "Missing secret"}, status=400)
+
+        try:
+            user, new_secret = BiometricCredential.objects.redeem(secret)
+        except InvalidBiometricCredential:
+            return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
+
+        # login() does not check is_active — only authenticate() does, and this path skips
+        # it. A deleted account keeps its User row (deactivated), so without this a stale
+        # credential would sign a locked-out member back in.
+        if not user.is_active:
+            BiometricCredential.objects.revoke_all(user)
+            logger.warning("Biometric unlock refused for inactive user pk=%s; credentials revoked.", user.pk)
+            return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return JsonResponse({"ok": True, "secret": new_secret})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("Biometric unlock failed")
+        return JsonResponse({"error": "Sign in failed. Please try again."}, status=500)
+
+
+@require_POST
+@login_required
+def biometric_disable(request: HttpRequest) -> JsonResponse:
+    """Revoke the caller's biometric credentials — one device, or all of them.
+
+    Expects a JSON body with either ``secret`` or ``credential_id`` to revoke just that one
+    device. An empty body revokes every credential on the account.
+
+    ``credential_id`` is what app logout uses. Revoking by secret would mean reading the
+    secret back out of the Keychain, which raises a Face ID prompt in the middle of signing
+    out; revoking everything would kill the member's other phone at the same time. The id
+    is not a secret, and every lookup here is scoped to the caller, so it grants nothing.
+
+    Silent success when nothing matches, matching :func:`fcm_unregister`: the caller's goal
+    (that credential no longer works) is already true, and saying otherwise would confirm
+    which secrets and ids exist.
+    """
+    from core.models import BiometricCredential, hash_biometric_secret
+
+    try:
+        data = json.loads(request.body) if request.body else {}
+        secret = data.get("secret", "")
+        credential_id = data.get("credential_id")
+
+        user = cast(User, request.user)
+        # Scoped to the caller in every branch: neither a secret nor an id belonging to
+        # someone else may be revocable by whoever happens to be logged in.
+        owned = BiometricCredential.objects.filter(user=user)
+
+        if secret:
+            # Matched against the superseded hash too, so a logout still lands when the app
+            # is holding a secret whose rotation reply never arrived.
+            digest = hash_biometric_secret(secret)
+            credential = owned.filter(Q(secret_hash=digest) | Q(previous_secret_hash=digest)).first()
+        elif credential_id is not None:
+            credential = owned.filter(pk=credential_id).first()
+        else:
+            BiometricCredential.objects.revoke_all(user)
+            return JsonResponse({"success": True})
+
+        if credential is not None:
+            BiometricCredential.objects.revoke(credential)
+        return JsonResponse({"success": True})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("Biometric disable failed")
+        return JsonResponse({"error": "We could not turn that off. Please try again."}, status=500)
 
 
 @staff_member_required

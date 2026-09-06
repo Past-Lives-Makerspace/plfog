@@ -462,6 +462,8 @@ urlpatterns = [
     path("settings/skills/<int:skill_pk>/remove/", views.skill_remove, name="hub_skill_remove"),
     path("settings/skills/suggest/", views.skill_suggest, name="hub_skill_suggest"),
     path("settings/guilds/<int:pk>/", views.guild_membership_set, name="hub_guild_membership_set"),
+    # Revoke one phone's biometric sign in from the Signed In Devices card.
+    path("settings/biometric/<int:pk>/revoke/", views.biometric_revoke, name="hub_biometric_revoke"),
     # Discord account-linking for the per-member Discord DM notification channel.
     path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
     path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),

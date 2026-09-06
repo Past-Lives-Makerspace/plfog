@@ -52,4 +52,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Biometric sign in. BiometricPrompt gates the Keystore key that the rotating
+         login secret is encrypted under (@capgo/capacitor-native-biometric). Without
+         this the prompt never shows and the secret can never be read back. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 </manifest>
