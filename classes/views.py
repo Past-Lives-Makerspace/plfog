@@ -56,6 +56,7 @@ from classes.templatetags.classes_tags import member_price_cents as compute_memb
 from classes.forms import (
     CategoryForm,
     ClassCancelForm,
+    ClassChangeRequestForm,
     ClassOfferingForm,
     ClassReviewDecisionForm,
     ClassSessionFormSet,
@@ -63,6 +64,7 @@ from classes.forms import (
     DiscountCodeForm,
     InstructorOrientationCompleteForm,
     TeachClassOfferingForm,
+    TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
@@ -1427,13 +1429,12 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
         pk=pk,
     )
-    if offering.status in {
-        ClassOffering.Status.PUBLISHED,
-        ClassOffering.Status.CANCELLED,
-        ClassOffering.Status.ARCHIVED,
-    }:
-        messages.info(request, "Published, cancelled, and archived classes can only be edited by an admin.")
+    if offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}:
+        messages.info(request, "Cancelled and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
+    if offering.status == ClassOffering.Status.PUBLISHED:
+        # A live class gets the light-edit form on the same URL: content only, no re-review.
+        return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
         request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
     )
@@ -1464,6 +1465,34 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         mode="edit",
         offering=offering,
         faq_formset=faq_formset,
+    )
+
+
+def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
+    """The published class edit page: light fields + FAQ + gallery, structural facts locked.
+
+    Keeps ``teach_class_edit``'s ``editable_by`` scope (guild staff who can edit a draft can
+    make light edits too). Saves with one Save button and no submit: nothing to review.
+    """
+    form = TeachPublishedClassForm(request.POST or None, instance=offering)
+    faq_formset = build_class_faq_formset(request.POST or None, offering)
+    if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
+        form.save()
+        faq_formset.save()
+        messages.success(request, "Class updated.")
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    return render(
+        request,
+        "classes/teach/class_form_published.html",
+        {
+            "active_tab": "classes",
+            "instructor": teaching_member,
+            "form": form,
+            "faq_formset": faq_formset,
+            "offering": offering,
+            "sessions": list(offering.sessions.order_by("starts_at")),
+            "change_form": ClassChangeRequestForm(),
+        },
     )
 
 
@@ -1678,9 +1707,18 @@ def _teach_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
     return get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
 
 
-@teaching_member_required
-def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+def _render_teach_class_overview(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    cancel_form: ClassCancelForm | None = None,
+    change_form: ClassChangeRequestForm | None = None,
+) -> HttpResponse:
+    """The instructor workspace Overview: pipeline card, summary, and the action row by state.
+
+    The Cancel class and Request a change modals are server-rendered inline; a bound,
+    invalid form re-renders the page with that modal open and the error inside it.
+    """
     return render(
         request,
         "classes/teach/class_overview.html",
@@ -1689,10 +1727,72 @@ def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "active_subtab": "overview",
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
             "offering": offering,
+            "lifecycle": offering.lifecycle,
             "pipeline": offering.review_pipeline(),
+            "cancel_form": cancel_form or ClassCancelForm(),
+            "change_form": change_form or ClassChangeRequestForm(),
+            "paid_registration_count": offering.paid_registration_count,
             **_class_workspace_counts(offering),
         },
     )
+
+
+@teaching_member_required
+def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    return _render_teach_class_overview(request, _teach_class_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """Take back a submission in review: the class goes back to draft, reviewers stop seeing it."""
+    offering = _teach_class_or_404(request, pk)
+    try:
+        offering.withdraw_submission()
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Submission withdrawn.")
+    return redirect("classes:teach_class_detail", pk=offering.pk)
+
+
+@teaching_member_required
+@require_POST
+def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    """Cancel my own live class with a reason: registrants are told; refunds stay with the admins."""
+    offering = _teach_class_or_404(request, pk)
+    form = ClassCancelForm(request.POST)
+    if not form.is_valid():
+        return _render_teach_class_overview(request, offering, cancel_form=form)
+    had_paid = offering.paid_registration_count > 0
+    try:
+        offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    message = "Class cancelled. Everyone registered has been told."
+    if had_paid:
+        message += " An admin will handle refunds."
+    messages.success(request, message)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
+
+
+@teaching_member_required
+@require_POST
+def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
+    """Ask the admins to change a live class's title, dates, price, or capacity."""
+    offering = _teach_class_or_404(request, pk)
+    form = ClassChangeRequestForm(request.POST)
+    if not form.is_valid():
+        return _render_teach_class_overview(request, offering, change_form=form)
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    try:
+        offering.request_change(teaching_member, form.cleaned_data["note"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    messages.success(request, "Sent to the admins.")
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
 def _refunds_prefetch() -> Prefetch:
@@ -1921,7 +2021,29 @@ def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 def teach_profile(request: HttpRequest) -> HttpResponse:
-    return redirect(reverse("hub_user_settings") + "?tab=profile")
+    """The portal's Profile tab: when the public instructor page goes live, and where to edit it.
+
+    The bio and photo themselves are edited on the hub Profile settings (the
+    Instructor tab there); this page states the public page's status and links across.
+    """
+    from classes.emails import _absolute_url
+
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    public_url = (
+        _absolute_url(reverse("classes:public_instructor", kwargs={"slug": teaching_member.instructor_slug}))
+        if teaching_member.instructor_slug
+        else ""
+    )
+    return render(
+        request,
+        "classes/teach/profile.html",
+        {
+            "active_tab": "profile",
+            "instructor": teaching_member,
+            "public_profile_url": public_url,
+            "profile_settings_url": reverse("hub_user_settings") + "?tab=profile",
+        },
+    )
 
 
 def _render_class_preview(

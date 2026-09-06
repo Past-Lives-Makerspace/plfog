@@ -260,6 +260,24 @@ def billing_approvers(context: dict[str, Any]) -> list[Recipient]:
     return _capability_recipients(AdminCapability.Capability.BILLING_APPROVER)
 
 
+def refund_authority(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — everyone who may issue a refund: fog admins OR ``REFUNDS`` holders.
+
+    Exactly the set ``hub.view_as.refund_authority_required`` admits, so the
+    "paid registrations need refunds" notice reaches the people who can act on it.
+    Unlike the other capability audiences this is a union with the Admin role: the
+    capability was backfilled only for the admins of that day, so "admins hold every
+    capability" is not reliable. Deduped on the User.
+    """
+    from membership.models import AdminCapability, Member
+
+    admins = list(Member.objects.filter(fog_role=Member.FogRole.ADMIN).select_related("user"))
+    return _dedupe(
+        [_member_user(m, "fog_admin") for m in admins]
+        + list(_capability_recipients(AdminCapability.Capability.REFUNDS))
+    )
+
+
 def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead only (staff excluded), for lead-only events."""
     guild: Guild = _require(context, "guild")
@@ -640,6 +658,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.EVENTS_APPROVERS: events_approvers,
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: guild_leadership_or_events_approvers,
     Recipients.BILLING_APPROVERS: billing_approvers,
+    Recipients.REFUND_AUTHORITY: refund_authority,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,

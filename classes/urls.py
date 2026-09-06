@@ -29,6 +29,13 @@ urlpatterns = [
         name="teach_class_duplicate_run",
     ),
     path("teach/classes/<int:pk>/", views.teach_class_detail, name="teach_class_detail"),
+    path("teach/classes/<int:pk>/withdraw/", views.teach_class_withdraw, name="teach_class_withdraw"),
+    path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
+    path(
+        "teach/classes/<int:pk>/request-change/",
+        views.teach_class_request_change,
+        name="teach_class_request_change",
+    ),
     path(
         "teach/classes/<int:pk>/registrations/",
         views.teach_class_registrations,

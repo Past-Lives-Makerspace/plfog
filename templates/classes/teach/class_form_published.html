@@ -1,0 +1,69 @@
+{% extends "classes/teach/base.html" %}
+{% load classes_tags static %}
+{% block tab_content %}
+<div x-data>
+<h2 style="margin-top:0;">Edit Class — {{ offering.title }}</h2>
+{# A live class: content edits only, no re-review. The locked facts change through an admin. #}
+<section class="hub-card pl-live-edit-banner" style="margin:1rem 0;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+        <p style="margin:0;">This class is live. You can update the description, photos, and what to bring any time. To change the title, dates, price, or capacity, ask an admin.</p>
+        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>
+    </div>
+</section>
+
+<section class="hub-card pl-locked-summary" style="margin:0 0 1rem;">
+    <h3 style="margin:0 0 0.5rem;">Locked Details</h3>
+    <dl style="display:grid;grid-template-columns:140px 1fr;gap:8px 18px;font-size:14px;margin:0;">
+        <dt style="color:var(--hub-text-muted);">Title</dt><dd style="margin:0;">{{ offering.title }}</dd>
+        <dt style="color:var(--hub-text-muted);">Guild Type</dt><dd style="margin:0;">{{ offering.category.name }}</dd>
+        <dt style="color:var(--hub-text-muted);">Price</dt>
+        <dd style="margin:0;">{{ offering.price_cents|cents_as_price }}{% if offering.member_discount_pct %} <span style="color:var(--hub-text-muted);">({{ offering.member_discount_pct }}% member discount)</span>{% endif %}{% if offering.sale_is_active %} <span style="color:var(--hub-text-muted);">· sale: {{ offering.sale_savings_display }}</span>{% endif %}</dd>
+        <dt style="color:var(--hub-text-muted);">Capacity</dt><dd style="margin:0;">{{ offering.capacity }}</dd>
+        <dt style="color:var(--hub-text-muted);">Dates</dt>
+        <dd style="margin:0;">
+            {% if sessions %}
+                <ul style="margin:0;padding-left:18px;">
+                    {% for session in sessions %}
+                        <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} to {{ session.ends_at|time:"g:i A" }}</li>
+                    {% endfor %}
+                </ul>
+            {% elif offering.scheduling_model == 'flexible' %}
+                <span style="color:var(--hub-text-muted);">Arranged with each student</span>
+            {% else %}
+                <span style="color:var(--hub-text-muted);">No dates yet</span>
+            {% endif %}
+        </dd>
+    </dl>
+</section>
+
+<form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+    <ul class="pl-field-errors" style="margin-bottom:1rem;">
+        {% for error in form.non_field_errors %}
+        <li class="pl-field-error">{{ error }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% for field in form %}
+        {% if field.name == 'video_url' %}
+            {% include "components/form_field.html" with field=field %}
+        {% else %}
+            {% include "classes/_components/collapsible_field.html" with field=field %}
+        {% endif %}
+    {% endfor %}
+
+    <h3 style="margin-top:1.75rem; margin-bottom:0.25rem;">Gallery Images</h3>
+    <p style="color:var(--hub-text-muted); font-size:0.85rem; margin-top:0;">Extra photos shown below the hero on the public class page. Images save instantly.</p>
+    {% include "classes/_components/image_formset.html" with offering=offering %}
+
+    {% include "classes/_components/faq_formset.html" %}
+
+    <div style="display:flex; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
+        <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Save</button>
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_detail' pk=offering.pk %}">Cancel</a>
+    </div>
+</form>
+{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}
+</div>
+{% endblock %}

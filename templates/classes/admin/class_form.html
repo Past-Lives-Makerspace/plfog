@@ -72,13 +72,6 @@
         <a href="{% url 'classes:admin_classes' %}" class="hub-btn">Cancel</a>
     </div>
 </form>
-{% if mode == 'edit' and offering and offering.pk %}
-<form method="post" action="{% url 'classes:admin_class_duplicate_run' pk=offering.pk %}" style="margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid var(--hub-border,#2a3550);">
-    {% csrf_token %}
-    <button type="submit" class="hub-btn hub-btn--sm">+ Offer on another set of dates</button>
-    <p style="color:var(--hub-text-muted); font-size:0.8rem; margin:0.4rem 0 0;">Runs this same class again on a different date-set. Creates a draft copy with no dates yet — add the new dates, then publish. It stays grouped under this class on the public page.</p>
-</form>
-{% endif %}
 <link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
 {% endblock %}

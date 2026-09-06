@@ -114,13 +114,14 @@ def describe_teach_overview_tab():
         # Draft → Edit action available
         assert reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}).encode() in resp.content
 
-    def it_hides_edit_for_published_classes(instructor_fixture, client):
+    def it_offers_light_edit_details_for_an_upcoming_published_class(instructor_fixture, client):
         mine = ClassOfferingFactory(
             instructor=instructor_fixture, slug="mine-pub", status=ClassOffering.Status.PUBLISHED
         )
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_class_detail", kwargs={"pk": mine.pk}))
-        assert reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}).encode() not in resp.content
+        assert reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}).encode() in resp.content
+        assert b"Edit details" in resp.content
 
 
 def describe_teach_registrations_tab():

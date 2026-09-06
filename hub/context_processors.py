@@ -24,7 +24,13 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
     """
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
-        return {"guilds": Guild.objects.none(), "user_initials": "", "user_profile_photo_url": ""}
+        return {
+            "guilds": Guild.objects.none(),
+            "user_initials": "",
+            "user_profile_photo_url": "",
+            "can_create_classes": False,
+            "teach_nav": None,
+        }
 
     initials = ""
     photo_url = ""
@@ -42,7 +48,27 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "user_profile_photo_url": photo_url,
         "can_use_admin_tools": _can_use_admin_tools(request, member),
         "view_as_capabilities": _admin_capability_rows(request, member),
+        "can_create_classes": member is not None and member.can_create_classes,
+        "teach_nav": _teach_nav(request, member),
     }
+
+
+def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
+    """The sidebar's Teach entry for an active member, or ``None`` when there is nobody to teach.
+
+    A locked member gets "Teach a Class" pointing at the orientation (the explainer, never
+    a 403); once ``can_create_classes`` it reads "Teaching" and opens the portal. Active on
+    every ``/classes/teach/`` path, which the Class Catalog entry excludes.
+    """
+    from django.urls import reverse
+
+    if member is None or member.status != Member.Status.ACTIVE:
+        return None
+    if member.can_create_classes:
+        label, url = "Teaching", reverse("classes:teach_overview")
+    else:
+        label, url = "Teach a Class", reverse("classes:teach_orientation")
+    return {"label": label, "url": url, "is_active": request.path.startswith("/classes/teach/")}
 
 
 def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:
