@@ -1268,6 +1268,16 @@ class Member(models.Model):
         self.save(update_fields=["instructor_slug"])
         return True
 
+    #: What the unified Instructor permission does, in one plain sentence — the SINGLE source of
+    #: that copy, the twin of :attr:`AdminCapability.DESCRIPTIONS`. The member edit Permissions tab
+    #: shows it under its Instructor toggle and the "View As" dropdown shows it as the "?" tooltip
+    #: beside its own, so the two surfaces can never drift. Written without a subject so it reads
+    #: correctly whether the reader is granting the permission to someone else or to themselves.
+    INSTRUCTOR_PERMISSION_DESCRIPTION = (
+        "Gives a public instructor page and the ability to create classes. "
+        "Turning it off removes both (existing classes are untouched)."
+    )
+
     def grant_instructor(self, *, granted_by: "Member | None") -> None:
         """Make this member a public instructor: a bio page (``instructor_slug``) + teaching access.
 
@@ -2432,6 +2442,30 @@ class AdminCapability(models.Model):
         BILLING_APPROVER = "billing_approver", "Billing Administrator"
         REFUNDS = "refunds", "Refunds"
         EQUIPMENT = "equipment", "Equipment Administrator"
+
+    #: What each duty actually does, in one plain sentence — the SINGLE source of the
+    #: human explanation. The member edit Permissions tab reads it for its toggle help
+    #: text (``hub.forms.MemberCapabilitiesForm``) and the "View As" dropdown reads it
+    #: for the "?" tooltip beside each of an admin's own duties, so the two can never
+    #: drift. Written without a subject so each line reads correctly whether the reader is
+    #: granting a duty to someone else or to themselves.
+    DESCRIPTIONS: dict[str, str] = {
+        Capability.CLASS_APPROVER: "Approves and publishes classes for every guild, and gets class-review emails.",
+        Capability.SPACE_APPROVER: "Reviews space and cubby requests, and gets those request emails.",
+        Capability.DISCOUNT_APPROVER: "Approves discount codes, and gets discount-request emails.",
+        Capability.EVENTS_APPROVER: "Reviews Calendar and meeting proposals, and gets those emails.",
+        Capability.BILLING_APPROVER: (
+            "Sees the admin Payments dashboard and gets an alert when a member's automatic payment fails."
+        ),
+        Capability.REFUNDS: (
+            "Sends Stripe refunds for class and orientation payments. Adds Refund buttons to payment pages "
+            "that are already reachable, and opens no new pages, so pair it with Billing Administrator "
+            "for the Payments panel."
+        ),
+        Capability.EQUIPMENT: (
+            "Adds new equipment and manages every tool site-wide, including its details, staff, orientations, and hours."
+        ),
+    }
 
     member = models.ForeignKey(
         Member,

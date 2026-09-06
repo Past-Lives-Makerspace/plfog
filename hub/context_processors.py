@@ -48,6 +48,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "user_profile_photo_url": photo_url,
         "can_use_admin_tools": _can_use_admin_tools(request, member),
         "view_as_capabilities": _admin_capability_rows(request, member),
+        "view_as_instructor": _instructor_row(request, member),
         "can_create_classes": member is not None and member.can_create_classes,
         "teach_nav": _teach_nav(request, member),
     }
@@ -86,19 +87,42 @@ def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
 def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:
     """Rows for the "View As" dropdown's self-service admin-duty toggles.
 
-    Returns one ``{value, label, checked}`` dict per :class:`AdminCapability` for an
+    Returns one ``{value, label, checked, description}`` dict per :class:`AdminCapability` for an
     ACTUAL admin (``request.view_as.actual_is_admin`` — a view-as preview can't unlock
     it), and an empty list otherwise. ``checked`` reflects the current member's own held
-    capabilities so the toggles start in the right state.
+    capabilities so the toggles start in the right state. ``description`` is the shared
+    ``AdminCapability.DESCRIPTIONS`` line the member edit page also shows, rendered here as
+    the "?" tooltip beside each duty.
     """
     view_as = getattr(request, "view_as", None)
     if member is None or view_as is None or not view_as.actual_is_admin:
         return []
     held = set(member.admin_capabilities.values_list("capability", flat=True))
     return [
-        {"value": value, "label": label, "checked": value in held}
+        {
+            "value": value,
+            "label": label,
+            "checked": value in held,
+            "description": AdminCapability.DESCRIPTIONS[value],
+        }
         for value, label in AdminCapability.Capability.choices
     ]
+
+
+def _instructor_row(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
+    """The "View As" dropdown's self-service Instructor toggle, or ``None`` when it has no place.
+
+    Same audience and same realness as :func:`_admin_capability_rows`: an ACTUAL admin only
+    (a view-as preview can't unlock it), and flipping it is a REAL grant on their own member,
+    not a preview. Mirrors the member edit Permissions tab, where Instructor is one unified
+    permission sitting above the admin capabilities — so the dropdown puts it in the same
+    place, above the duty toggles, and shows the same shared
+    ``Member.INSTRUCTOR_PERMISSION_DESCRIPTION`` copy that page does.
+    """
+    view_as = getattr(request, "view_as", None)
+    if member is None or view_as is None or not view_as.actual_is_admin:
+        return None
+    return {"checked": member.is_instructor, "description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION}
 
 
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:

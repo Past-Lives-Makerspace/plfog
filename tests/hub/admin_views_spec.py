@@ -591,6 +591,17 @@ def describe_admin_member_edit():
         target.member.refresh_from_db()
         assert target.member.full_legal_name == "Updated Name"
 
+    def it_describes_the_instructor_permission_under_its_toggle(client):
+        # The description is a context key, not a template literal, so that this page and the
+        # View As dropdown always say the same thing. Dropping the key would silently render
+        # an empty .pl-toggle-desc here, which line coverage alone would not catch.
+        _create_superuser(client)
+        target = _create_member_user(username="instdesc")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        expected = f'<div class="pl-toggle-desc">{Member.INSTRUCTOR_PERMISSION_DESCRIPTION}</div>'
+        assert expected in response.content.decode()
+
     def it_shows_the_self_approve_discounts_toggle(client):
         _create_superuser(client)
         target = _create_member_user(username="dctoggle")

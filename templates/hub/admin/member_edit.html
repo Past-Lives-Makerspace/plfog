@@ -92,7 +92,7 @@
     <div class="pl-toggle-row">
       <div class="pl-toggle-info">
         <div class="pl-toggle-label">Instructor</div>
-        <div class="pl-toggle-desc">Gives them a public instructor page and lets them create their own classes. Turning this off removes both (their existing classes are untouched).</div>
+        <div class="pl-toggle-desc">{{ instructor_description }}</div>
       </div>
       <label class="pl-toggle">
         <input type="checkbox" {% if member.is_instructor %}checked{% endif %}

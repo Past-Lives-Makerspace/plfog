@@ -2625,12 +2625,16 @@ a:hover { color: var(--hub-link-hover); }
 }
 
 .pl-view-as-popover__duties {
-    min-width: 252px;
+    /* Wide enough that the longest duty name plus its "?" bubble stays on one line. */
+    min-width: 284px;
     margin-top: 4px;
     border-top: 1px solid var(--hub-dropdown-border);
 }
 
-.pl-view-as-popover__duty {
+/* Doubled-up class so this beats components.css's own .pl-toggle-row padding — that
+   sheet loads after this one, and its 1rem rows made the popover tall enough to run
+   off the bottom of a short laptop screen. */
+.pl-view-as-popover__duty.pl-toggle-row {
     padding: 6px 8px;
     gap: 12px;
     border-bottom: none;
@@ -2639,6 +2643,20 @@ a:hover { color: var(--hub-link-hover); }
 .pl-view-as-popover__duty .pl-toggle-label {
     font-size: 13px;
     font-weight: 400;
+}
+
+/* The "?" help bubble trails the duty name in normal text flow (not a flex item), so on a
+   two-line name it sits right after the last word instead of floating beside the block. */
+.pl-view-as-popover__duty .pl-help {
+    margin-left: 5px;
+    vertical-align: -0.15em;
+}
+
+/* Scaled to the popover's 13px rows — the page-level 1.125rem icon dwarfs them. */
+.pl-view-as-popover__duty .pl-help__icon {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    font-size: 0.625rem;
 }
 
 .pl-view-as-popover__duties .pl-view-as-popover__hint {

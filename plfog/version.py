@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
-VERSION = "1.42.0"
+VERSION = "1.42.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.42.1",
+        "date": "2026-09-06",
+        "title": "Plain-language permissions for admins",
+        "changes": [
+            "Every permission in the Viewing as menu now has a question mark you can hover to read what it does.",
+            "Admins can switch their own Instructor access on or off there, without opening their member page.",
+        ],
+    },
     {
         "version": "1.42.0",
         "date": "2026-09-05",

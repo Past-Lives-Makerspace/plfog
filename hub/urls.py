@@ -502,6 +502,7 @@ urlpatterns = [
     path("events/<int:pk>/qr.<str:fmt>/", views.event_qr, name="hub_event_qr"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
     path("view-as/capability/set/", views.view_as_capability_set, name="hub_view_as_capability_set"),
+    path("view-as/instructor/set/", views.view_as_instructor_set, name="hub_view_as_instructor_set"),
     path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
     path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),
     path("manage/voting/history/<int:pk>/", views.voting_history_detail, name="hub_admin_voting_history_detail"),

@@ -5900,6 +5900,43 @@ def view_as_capability_set(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"ok": True, "capability": capability, "enabled": enabled})
 
 
+@require_POST
+@login_required
+def view_as_instructor_set(request: HttpRequest) -> JsonResponse:
+    """Grant or revoke the CURRENT admin's OWN Instructor permission.
+
+    Body: ``{"enabled": true}``. The same unified Instructor permission the member edit
+    Permissions tab grants (public instructor page + teaching access), applied to the
+    caller's own member straight from the "View As" dropdown — a REAL change, not a
+    preview. Revoking leaves existing classes untouched, and re-granting mints the same
+    public page slug back, so the toggle is safely reversible.
+
+    SECURITY: gated exactly like :func:`view_as_capability_set` — on the caller's ACTUAL
+    admin role (``view_as.has_actual(ROLE_ADMIN)``), never the view-as *effective* role,
+    and only ever applied to the caller's OWN linked member; no target member id is accepted.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.has_actual(ROLE_ADMIN):
+        return JsonResponse({"error": "Admin access required."}, status=403)
+
+    try:
+        payload = json.loads(request.body or b"{}")
+        enabled = _coerce_enabled(payload["enabled"])
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return JsonResponse({"error": "Invalid request"}, status=400)
+
+    member = _get_member(request)
+    if member is None:
+        return JsonResponse({"error": "No member on this account."}, status=403)
+
+    if enabled:
+        member.grant_instructor(granted_by=member)
+    else:
+        member.revoke_instructor(revoked_by=member)
+
+    return JsonResponse({"ok": True, "enabled": enabled})
+
+
 @fog_admin_required
 def voting_overview(request: HttpRequest) -> HttpResponse:
     """Voting → Overview tab — current-cycle pool stats and live vote leaders (read-only)."""
@@ -6321,6 +6358,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "member": member,
             "form": form,
             "capabilities_form": cap_form,
+            "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,

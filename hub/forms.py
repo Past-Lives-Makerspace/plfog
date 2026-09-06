@@ -826,6 +826,10 @@ class MemberCapabilitiesForm(forms.Form):
     dashboard. These are SITE-WIDE — per-guild lead/staff authority is managed on the
     guild's own Staff tab, not here.
 
+    Labels and help text come from :class:`membership.models.AdminCapability` (its
+    ``Capability`` labels and ``DESCRIPTIONS`` map) so this page and the "View As"
+    dropdown's self-service duty toggles always describe a duty the same way.
+
     Build for GET with ``MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))``;
     on POST, ``form.selected()`` returns the checked capability values for
     :meth:`membership.models.Member.sync_admin_capabilities`.
@@ -833,38 +837,33 @@ class MemberCapabilitiesForm(forms.Form):
 
     cap_class_approver = forms.BooleanField(
         required=False,
-        label="CMS Administrator",
-        help_text="Approves and publishes classes for every guild, and gets class-review emails.",
+        label=AdminCapability.Capability.CLASS_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.CLASS_APPROVER],
     )
     cap_space_approver = forms.BooleanField(
         required=False,
-        label="Space & Cubby Administrator",
-        help_text="Reviews space and cubby requests, and gets those request emails.",
+        label=AdminCapability.Capability.SPACE_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.SPACE_APPROVER],
     )
     cap_discount_approver = forms.BooleanField(
         required=False,
-        label="Discount Code Administrator",
-        help_text="Approves discount codes, and gets discount-request emails.",
+        label=AdminCapability.Capability.DISCOUNT_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.DISCOUNT_APPROVER],
     )
     cap_events_approver = forms.BooleanField(
         required=False,
-        label="Calendar Administrator",
-        help_text="Reviews Calendar and meeting proposals, and gets those emails.",
+        label=AdminCapability.Capability.EVENTS_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENTS_APPROVER],
     )
     cap_billing_approver = forms.BooleanField(
         required=False,
-        label="Billing Administrator",
-        help_text="Sees the admin Payments dashboard and gets an alert when a member's automatic payment fails.",
+        label=AdminCapability.Capability.BILLING_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.BILLING_APPROVER],
     )
     cap_refunds = forms.BooleanField(
         required=False,
-        label="Refunds",
-        help_text=(
-            "Can send Stripe refunds for class and orientation payments. "
-            "Adds Refund buttons on payment pages this member can already reach. "
-            "It does not open any new pages, so pair it with Billing Administrator "
-            "for the Payments panel."
-        ),
+        label=AdminCapability.Capability.REFUNDS.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.REFUNDS],
     )
 
     # Field name → the capability it grants. The single source of truth both
