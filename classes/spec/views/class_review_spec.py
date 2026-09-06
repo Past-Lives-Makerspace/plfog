@@ -198,6 +198,9 @@ def describe_the_framed_preview():
         framed = client.get(f"{url}?framed=1").content.decode()
         assert "hub-sidebar" not in framed
         assert "pl-topbar" not in framed
+        # The wrapper must lose its sidebar offset too, or the preview renders with a dead
+        # 220px gutter inside the iframe: no sidebar, but still the margin left for one.
+        assert "hub-main-wrapper--expanded" in framed
         assert offering.title in framed
 
     def it_keeps_the_chrome_without_the_flag(client, db):
