@@ -1,0 +1,122 @@
+{% comment %}
+"Push On This Device" card, shown above the notification matrix on the settings page.
+
+The matrix has a Push column, but nothing there tells a member whether push actually works
+on the phone in their hand, and there is no way back if they dismissed the OS prompt. This
+card is that missing piece. It starts hidden and only the native app reveals it: a normal
+browser has no client-side Web Push flow in this codebase (nothing calls /webpush/subscribe/),
+so there is no browser push state to honestly describe.
+
+All of the plugin work happens in static/js/native-push.js, which exposes window.PLNativePush.
+This card never touches a Capacitor plugin directly, so the Android/iOS split lives in exactly
+one place. Context: push_device_count (omitted for token-scoped viewers, who get no card).
+{% endcomment %}
+<div class="hub-card pl-push-device" id="push-this-device" hidden>
+  <h3 class="pl-push-device__title">Push On This Device</h3>
+
+  <p class="pl-push-device__status" data-push-status>Checking this device.</p>
+
+  <p class="pl-push-device__help" data-push-help hidden></p>
+
+  <div class="pl-push-device__actions" data-push-actions hidden>
+    <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-push-enable hidden>Turn On Push</button>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-push-disable hidden>Turn Off Push</button>
+  </div>
+
+  {% if push_device_count %}
+    <p class="hub-text-muted pl-push-device__others">
+      Your account has push set up on {{ push_device_count }} device{{ push_device_count|pluralize }}.
+    </p>
+  {% endif %}
+</div>
+
+<script>
+  (function () {
+    "use strict";
+
+    // native-push.js is deferred, so it has already run by DOMContentLoaded; this inline
+    // script has not, which is why the whole card is wired up inside the listener.
+    document.addEventListener("DOMContentLoaded", function () {
+      var api = window.PLNativePush;
+      if (!api) {
+        return; // normal browser, or a native build without the push plugin: leave the card hidden
+      }
+
+      var card = document.getElementById("push-this-device");
+      if (!card) {
+        return;
+      }
+      var statusEl = card.querySelector("[data-push-status]");
+      var helpEl = card.querySelector("[data-push-help]");
+      var actionsEl = card.querySelector("[data-push-actions]");
+      var enableBtn = card.querySelector("[data-push-enable]");
+      var disableBtn = card.querySelector("[data-push-disable]");
+
+      card.hidden = false;
+
+      function paint(state, message) {
+        statusEl.textContent = message;
+        enableBtn.hidden = state !== "off";
+        disableBtn.hidden = state !== "on";
+        // Blocked has no button worth showing; drop the row so it leaves no empty gap.
+        actionsEl.hidden = enableBtn.hidden && disableBtn.hidden;
+        if (state === "blocked") {
+          helpEl.textContent =
+            "Open your device settings, find Past Lives, and turn notifications on. Then come back here.";
+          helpEl.hidden = false;
+        } else {
+          helpEl.hidden = true;
+        }
+      }
+
+      // The honest source of truth is the OS permission plus the member's own opt out.
+      // Deliberately NOT the registered token: that arrives a moment after page load, so
+      // reading it here would flash "off" on a device where push is working fine.
+      function repaint() {
+        return api
+          .checkPermissions()
+          .then(function (status) {
+            if (status.receive === "denied") {
+              paint("blocked", "Notifications are blocked for Past Lives on this device.");
+            } else if (status.receive === "granted" && !api.isOptedOut()) {
+              paint("on", "Push is on for this device.");
+            } else {
+              paint("off", "Push is off on this device.");
+            }
+          })
+          .catch(function () {
+            paint("off", "We could not check this device. Try again in a moment.");
+          });
+      }
+
+      enableBtn.addEventListener("click", function () {
+        enableBtn.disabled = true;
+        api
+          .enable()
+          .catch(function () {
+            /* repaint below reports the real state either way */
+          })
+          .then(function () {
+            enableBtn.disabled = false;
+            return repaint();
+          });
+      });
+
+      disableBtn.addEventListener("click", function () {
+        disableBtn.disabled = true;
+        api
+          .disable()
+          .then(function () {
+            disableBtn.disabled = false;
+            return repaint();
+          })
+          .catch(function () {
+            disableBtn.disabled = false;
+            statusEl.textContent = "Push is still starting up. Try again in a moment.";
+          });
+      });
+
+      repaint();
+    });
+  })();
+</script>

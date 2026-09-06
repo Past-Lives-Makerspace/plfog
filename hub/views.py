@@ -2689,6 +2689,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         messages.info(request, "Your account is not linked to a membership.")
 
     from core.events import settings_matrix
+    from core.events.channels import push_device_count
     from hub.guild_membership import build_my_guilds_rows
 
     notif_matrix = settings_matrix.build_matrix(user, include_staff_section=include_staff)
@@ -2726,6 +2727,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
+            "push_device_count": push_device_count(user),
             "tours_form": tours_form,
             "my_guilds_rows": build_my_guilds_rows(member),
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,

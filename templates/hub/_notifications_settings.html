@@ -1,4 +1,13 @@
 {% load hub_tags %}
+{% comment %}
+The push card sits ABOVE the matrix as its own card, not nested inside it: the matrix says
+which notices go to push, this says whether push reaches the device you are holding. It is
+skipped for the token-scoped email-preferences page, which has no signed-in user to own a
+device and no Capacitor bridge to ask.
+{% endcomment %}
+{% if user.is_authenticated and not prefs_token %}
+  {% include "hub/partials/_push_this_device.html" %}
+{% endif %}
 <div class="hub-card">
   <h2 class="pl-notif-title">Notifications</h2>
   <p class="hub-text-muted pl-notif-intro">

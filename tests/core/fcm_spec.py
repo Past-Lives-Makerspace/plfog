@@ -63,6 +63,51 @@ def describe_send_fcm():
         sent = json.loads(route.calls.last.request.content)
         assert sent["message"]["android"]["priority"] == "normal"
 
+    def describe_the_apns_block():
+        """iOS delivery options. Without these an iOS push arrives silent and ungrouped."""
+
+        def _sent_payload(user, channel_id):
+            device = _device(user, token=f"tok-{channel_id}")
+            with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:
+                route = respx.post(_FCM_URL).mock(return_value=httpx.Response(200, json={"name": "ok"}))
+                fcm.send_fcm(device, title="Hi", body="There", url="/x/", channel_id=channel_id)
+            return json.loads(route.calls.last.request.content)["message"]
+
+        def it_ships_alert_headers_and_a_sound(user):
+            apns = _sent_payload(user, "general")["apns"]
+            assert apns["headers"]["apns-push-type"] == "alert"
+            assert apns["payload"]["aps"]["sound"] == "default"
+
+        def it_sends_the_urgent_channel_at_apns_priority_10(user):
+            assert _sent_payload(user, "urgent")["apns"]["headers"]["apns-priority"] == "10"
+
+        @pytest.mark.parametrize("channel_id", ["guilds", "classes", "general"])
+        def it_sends_non_urgent_channels_at_apns_priority_5(user, channel_id):
+            assert _sent_payload(user, channel_id)["apns"]["headers"]["apns-priority"] == "5"
+
+        @pytest.mark.parametrize("channel_id", ["urgent", "guilds", "classes", "general"])
+        def it_groups_the_tray_by_channel_id(user, channel_id):
+            # iOS has no channels, so channel_id doubles as the APNs thread-id group key.
+            assert _sent_payload(user, channel_id)["apns"]["payload"]["aps"]["thread-id"] == channel_id
+
+        def it_carries_no_badge_count(user):
+            # A badge needs an unread tally this path does not have; a wrong badge is worse than none.
+            assert "badge" not in _sent_payload(user, "urgent")["apns"]["payload"]["aps"]
+
+        def it_leaves_the_android_block_untouched(user):
+            # Adding iOS options must not disturb the shipped Android path.
+            message = _sent_payload(user, "urgent")
+            assert message["android"] == {"priority": "high", "notification": {"channel_id": "urgent"}}
+            assert message["data"] == {"url": "/x/"}
+            assert message["notification"] == {"title": "Hi", "body": "There"}
+
+    def describe_apns_priority():
+        def it_maps_urgent_to_10_and_everything_else_to_5():
+            assert fcm._apns_priority(fcm.PUSH_CHANNEL_URGENT) == "10"
+            assert fcm._apns_priority(fcm.PUSH_CHANNEL_GUILDS) == "5"
+            assert fcm._apns_priority(fcm.PUSH_CHANNEL_CLASSES) == "5"
+            assert fcm._apns_priority(fcm.PUSH_CHANNEL_GENERAL) == "5"
+
     def it_deletes_device_on_404_unregistered(user):
         device = _device(user, token="dead")
         with patch("core.fcm._access_token_and_project", return_value=("access-tok", "proj")), respx.mock:

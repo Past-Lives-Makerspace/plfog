@@ -53,6 +53,16 @@ def _android_priority(channel_id: str) -> str:
     return "high" if channel_id == PUSH_CHANNEL_URGENT else "normal"
 
 
+def _apns_priority(channel_id: str) -> str:
+    """APNs delivery priority — the iOS counterpart of :func:`_android_priority`.
+
+    ``"10"`` delivers immediately; ``"5"`` lets iOS batch for power. Urgent notices
+    (a class starting soon, a cancellation, a freed waitlist seat, a failed charge)
+    go ``10``; everything else rides ``5``.
+    """
+    return "10" if channel_id == PUSH_CHANNEL_URGENT else "5"
+
+
 def _access_token_and_project() -> tuple[str, str] | None:
     """Mint an OAuth access token + resolve the project id from the service account.
 
@@ -84,7 +94,8 @@ def send_fcm(device: FcmDevice, *, title: str, body: str, url: str, channel_id: 
     ``channel_id`` names the Android notification channel the tray posts this under.
     The native app creates the channels (see ``static/js/native-push.js``); a member
     controls each one independently in system settings. It must match a created channel
-    id or Android falls back to a generic channel.
+    id or Android falls back to a generic channel. On iOS the same id rides through as
+    the APNs ``thread-id`` (iOS has no channels), so the tray still groups by kind.
     """
     auth = _access_token_and_project()
     if auth is None:
@@ -95,6 +106,17 @@ def send_fcm(device: FcmDevice, *, title: str, body: str, url: str, channel_id: 
             "token": device.token,
             "notification": {"title": title, "body": body},
             "android": {"priority": _android_priority(channel_id), "notification": {"channel_id": channel_id}},
+            # iOS has no notification channels, so ``channel_id`` doubles as the APNs
+            # ``thread-id``: the tray groups a member's notices by kind, which is the
+            # closest iOS analogue. No badge count — that needs an unread tally this
+            # path does not have, and a wrong badge is worse than none.
+            "apns": {
+                "headers": {
+                    "apns-priority": _apns_priority(channel_id),
+                    "apns-push-type": "alert",
+                },
+                "payload": {"aps": {"sound": "default", "thread-id": channel_id}},
+            },
             "data": {"url": url},
         }
     }
