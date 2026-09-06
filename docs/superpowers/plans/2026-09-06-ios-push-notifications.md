@@ -265,7 +265,16 @@ checks.
 ## Handoff — what Jo does outside the repo
 
 1. Firebase console → Project Settings → Add app → iOS, bundle id
-   `app.pastlives.hub` → download `GoogleService-Info.plist`.
+   `app.pastlives.hub` → download `GoogleService-Info.plist` into
+   `mobile/ios/App/App/`, **and add it to the App target's Copy Bundle
+   Resources** in Xcode.
+
+   Dragging the file into the folder is not enough and the failure is loud. The
+   project uses a classic group layout: no `PBXFileSystemSynchronizedRootGroup`,
+   and `PBXResourcesBuildPhase` carries an explicit file list. A plist that is not
+   in that list never reaches the bundle, and the plugin's `load()` calls
+   `FirebaseApp.configure()` unconditionally, which **fatal-errors on launch**
+   without it. The build succeeds and the app dies on open.
 2. Apple Developer → Certificates, Identifiers & Profiles → Keys → new key with
    Apple Push Notifications service (APNs) enabled → download the `.p8` **once**.
 3. Firebase console → Project Settings → Cloud Messaging → APNs Authentication
