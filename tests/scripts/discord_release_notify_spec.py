@@ -72,19 +72,34 @@ def describe_discord_release_notify():
             )
             assert [e["title"] for e in module._release_entries()] == ["Feature one", "Feature two"]
 
-        def it_falls_back_to_the_first_entry_when_no_version_matches(monkeypatch):
-            module = _load_script()
-            monkeypatch.setattr(module, "VERSION", "9.9.9")
-            monkeypatch.setattr(
-                module,
-                "CHANGELOG",
-                [
-                    {"version": "0.20.1", "title": "Newest", "changes": ["a"]},
-                    {"version": "0.19.17", "title": "Older", "changes": ["b"]},
-                ],
-            )
-            entries = module._release_entries()
-            assert entries == [module.CHANGELOG[0]]
+        def describe_when_no_version_matches():
+            def _loaded(monkeypatch) -> ModuleType:
+                module = _load_script()
+                monkeypatch.setattr(module, "VERSION", "9.9.9")
+                monkeypatch.setattr(
+                    module,
+                    "CHANGELOG",
+                    [
+                        {"version": "0.20.1", "title": "Newest", "changes": ["a"]},
+                        {"version": "0.19.17", "title": "Older", "changes": ["b"]},
+                    ],
+                )
+                return module
+
+            def it_falls_back_to_the_first_entry_on_a_forced_run(monkeypatch):
+                module = _loaded(monkeypatch)
+                monkeypatch.setenv("FORCE_ANNOUNCE", "true")
+                assert module._release_entries() == [module.CHANGELOG[0]]
+
+            def it_announces_nothing_on_an_automatic_run(monkeypatch):
+                module = _loaded(monkeypatch)
+                monkeypatch.delenv("FORCE_ANNOUNCE", raising=False)
+                assert module._release_entries() == []
+
+            def it_announces_nothing_when_the_force_flag_is_not_true(monkeypatch):
+                module = _loaded(monkeypatch)
+                monkeypatch.setenv("FORCE_ANNOUNCE", "false")
+                assert module._release_entries() == []
 
     def describe_bullets():
         def it_flattens_every_entrys_changes_into_bullets():
@@ -169,6 +184,22 @@ def describe_discord_release_notify():
             module.main()
             assert posts == []
             assert "skipping" in capsys.readouterr().out.lower()
+
+        def it_skips_posting_when_no_entry_is_stamped_at_the_current_version(monkeypatch, capsys):
+            module = _load_script()
+            monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://example.test/webhook")
+            monkeypatch.delenv("FORCE_ANNOUNCE", raising=False)
+            monkeypatch.setattr(module, "VERSION", "9.9.9")
+            monkeypatch.setattr(
+                module,
+                "CHANGELOG",
+                [{"version": "0.20.1", "title": "Already announced", "changes": ["a"]}],
+            )
+            posts: list[object] = []
+            monkeypatch.setattr(module, "_post", lambda webhook, payload: posts.append(payload))
+            module.main()
+            assert posts == []
+            assert "nothing member-facing to announce" in capsys.readouterr().out
 
         def it_posts_a_single_titled_embed_for_one_chunk(monkeypatch):
             module = _load_script()
