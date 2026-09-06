@@ -32,7 +32,48 @@ const config: CapacitorConfig = {
     //   url: 'http://192.168.1.50:8000',
     //   cleartext: true,
   },
+  /*
+   * PUSH PLUGINS ARE SPLIT BY PLATFORM ON PURPOSE.
+   *
+   * Android uses @capacitor/push-notifications; iOS uses @capacitor-firebase/messaging,
+   * because on iOS the former only ever yields the raw APNs device token and FCM's
+   * message.token field rejects that. Both packages are real dependencies, and npm has no
+   * notion of "iOS only", so without the allowlists below `npx cap sync` installs BOTH into
+   * BOTH native projects. That breaks push on each platform in its own way:
+   *
+   *   Android: both plugins declare a service bound to com.google.firebase.MESSAGING_EVENT.
+   *            Firebase delivers a message to only the first matching service in the merged
+   *            manifest, so one plugin silently swallows every push.
+   *   iOS:     both plugins claim the single bridge.notificationRouter.pushNotificationHandler
+   *            slot in load(). Capacitor iterates plugins out of a Swift Set, whose order is
+   *            unspecified and hash seeded per process, so the winner can differ from launch
+   *            to launch and foreground banners plus tap deep links work only sometimes.
+   *
+   * !!! THESE ARE ALLOWLISTS, NOT DENYLISTS !!!
+   * Any NEW Capacitor plugin must be added to the list for every platform that should get it,
+   * or `npx cap sync` will silently leave it out of the native project.
+   */
+  plugins: {
+    FirebaseMessaging: {
+      /*
+       * This block is global (it is copied into the Android config too), but only iOS has the
+       * FirebaseMessaging plugin, so only iOS reads it.
+       *
+       * The plugin defaults to ["badge", "sound", "alert"], which tells iOS to draw
+       * its own system banner for a push that arrives while the app is open. It ALSO fires
+       * notificationReceived, and static/js/native-push.js draws the in-app banner from that,
+       * so a foreground push would appear twice. Android's plugin does not present in the
+       * foreground at all, so the custom banner is the established behavior; an empty array
+       * (explicitly supported) matches iOS to it and leaves one banner.
+       */
+      presentationOptions: [],
+    },
+  },
+  android: {
+    includePlugins: ['@capacitor/push-notifications'],
+  },
   ios: {
+    includePlugins: ['@capacitor-firebase/messaging'],
     // Let the web layer own safe-area insets via CSS env(safe-area-inset-*).
     contentInset: 'never',
   },

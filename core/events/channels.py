@@ -300,6 +300,16 @@ class PushAdapter:
             send_fcm(device, title=title, body=body, url=message.url, channel_id=channel_id)
 
 
+def push_device_count(user: User) -> int:
+    """How many of a member's devices a push can currently reach.
+
+    Counts both transports :class:`PushAdapter` fans out to, so the number a member reads
+    on their settings page is derived from the same definition that does the sending and
+    cannot drift from it. Used for the "Push On This Device" card's context line.
+    """
+    return PushSubscription.objects.filter(user=user).count() + FcmDevice.objects.filter(user=user).count()
+
+
 class _ShellAdapter:
     """Base for any future registered-but-unbuilt adapter.
 

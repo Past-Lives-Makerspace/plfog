@@ -360,6 +360,60 @@
     font-size: 0.85rem;
 }
 
+/* "Push On This Device" card, above the notifications matrix. Only the native app ever
+   reveals it (static/js/native-push.js clears [hidden]), so the default is hidden and the
+   rule is explicit rather than leaning on the UA stylesheet, which .hub-card could outrank. */
+.pl-push-device[hidden] {
+    display: none;
+}
+
+/* The `hidden` attribute is ONLY a UA-stylesheet `display: none`, so any author rule that sets
+   display outranks it and the element stays on screen no matter what the script sets. That is
+   real here: `.pl-btn` is `display: inline-flex`, so hiding a button by attribute alone did
+   nothing and both Turn On and Turn Off showed at once. One rule for every descendant the
+   script toggles, so elements added to this card later are covered too. */
+.pl-push-device [hidden] {
+    display: none;
+}
+
+.pl-push-device {
+    margin-bottom: 1rem;
+}
+
+.pl-push-device__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+.pl-push-device__status {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text, #F4EFDD);
+}
+
+/* The blocked state: the only one a member cannot fix from inside the app, so it gets
+   room for the plain instructions rather than being crammed onto the status line. */
+.pl-push-device__help {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted, #8b97a8);
+}
+
+/* display lives here, not inline, so toggling [hidden] cannot strand a display:flex on it.
+   The card-wide `.pl-push-device [hidden]` rule above is what actually hides it. */
+.pl-push-device__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.pl-push-device__others {
+    margin: 1rem 0 0;
+    font-size: 0.85rem;
+}
+
 /* Discord account-linking control on the Notifications tab: a themed banner with the
    linked status on the left and the Connect/Disconnect action on the right. Uses the
    hub surface/border/text tokens so it adapts to both Obsidian (dark) and Slate

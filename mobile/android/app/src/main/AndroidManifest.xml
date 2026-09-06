@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:allowBackup="true"
@@ -33,6 +34,19 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- Backstop, not the primary fix. Android keeps @capacitor/push-notifications;
+             @capacitor-firebase/messaging is an iOS-only dependency (on iOS the former yields
+             only a raw APNs token, which FCM rejects). android.includePlugins in
+             capacitor.config.ts already keeps the Firebase plugin out of this project, so this
+             service normally is not in the merged manifest at all and the directive is a no-op.
+             It stays because if that allowlist is ever widened or dropped, both plugins would
+             declare a service on com.google.firebase.MESSAGING_EVENT, Firebase would deliver to
+             only the first match, and Android push would break silently. The JS never calls
+             FirebaseMessaging on Android, so removing it here is always safe. -->
+        <service
+            android:name="io.capawesome.capacitorjs.plugins.firebase.messaging.MessagingService"
+            tools:node="remove" />
     </application>
 
     <!-- Permissions -->

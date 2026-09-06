@@ -46,4 +46,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+    // APNs hands the device token to the app delegate, but a Capacitor push plugin listens on
+    // NotificationCenter instead. Without these two forwards the plugin's observer never fires
+    // and no FCM token is ever produced, which is why iOS push was dead rather than merely
+    // unconfigured. Required setup for @capacitor-firebase/messaging.
+    func application(_ application: UIApplication,
+                     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(
+            name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    func application(_ application: UIApplication,
+                     didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(
+            name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
 }

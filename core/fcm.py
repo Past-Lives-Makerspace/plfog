@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from django.conf import settings
@@ -53,6 +53,16 @@ def _android_priority(channel_id: str) -> str:
     return "high" if channel_id == PUSH_CHANNEL_URGENT else "normal"
 
 
+def _apns_priority(channel_id: str) -> str:
+    """APNs delivery priority — the iOS counterpart of :func:`_android_priority`.
+
+    ``"10"`` delivers immediately; ``"5"`` lets iOS batch for power. Urgent notices
+    (a class starting soon, a cancellation, a freed waitlist seat, a failed charge)
+    go ``10``; everything else rides ``5``.
+    """
+    return "10" if channel_id == PUSH_CHANNEL_URGENT else "5"
+
+
 def _access_token_and_project() -> tuple[str, str] | None:
     """Mint an OAuth access token + resolve the project id from the service account.
 
@@ -84,20 +94,34 @@ def send_fcm(device: FcmDevice, *, title: str, body: str, url: str, channel_id: 
     ``channel_id`` names the Android notification channel the tray posts this under.
     The native app creates the channels (see ``static/js/native-push.js``); a member
     controls each one independently in system settings. It must match a created channel
-    id or Android falls back to a generic channel.
+    id or Android falls back to a generic channel. On iOS the same id rides through as
+    the APNs ``thread-id`` (iOS has no channels), so the tray still groups by kind.
     """
     auth = _access_token_and_project()
     if auth is None:
         return False
     token, project_id = auth
-    payload = {
-        "message": {
-            "token": device.token,
-            "notification": {"title": title, "body": body},
-            "android": {"priority": _android_priority(channel_id), "notification": {"channel_id": channel_id}},
-            "data": {"url": url},
-        }
+    message: dict[str, Any] = {
+        "token": device.token,
+        "notification": {"title": title, "body": body},
+        "android": {"priority": _android_priority(channel_id), "notification": {"channel_id": channel_id}},
+        "data": {"url": url},
     }
+    # iOS delivery options, attached ONLY for an iOS device. An Android send has no use for
+    # them, and FCM rejects a whole message when any part of it is malformed — which this
+    # function turns into a logged False, i.e. push would die quietly on BOTH platforms. Gating
+    # keeps the blast radius of anything wrong here on iOS alone.
+    #
+    # ``channel_id`` doubles as the APNs ``thread-id`` (iOS has no notification channels), so
+    # the tray still groups a member's notices by kind. No ``apns-push-type``: FCM sets that
+    # itself. No badge count either — that needs an unread tally this path does not have, and a
+    # wrong badge is worse than none.
+    if device.platform == device.Platform.IOS:
+        message["apns"] = {
+            "headers": {"apns-priority": _apns_priority(channel_id)},
+            "payload": {"aps": {"sound": "default", "thread-id": channel_id}},
+        }
+    payload = {"message": message}
     try:
         response = httpx.post(
             _FCM_ENDPOINT.format(project_id=project_id),

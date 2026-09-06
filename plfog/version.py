@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.42.1"
+VERSION = "1.43.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.43.0",
+        "date": "2026-09-06",
+        "title": "Push notifications on iPhone",
+        "changes": [
+            "Push notifications now work on iPhone and iPad, the same ones Android has had. "
+            "They start arriving with the next app update.",
+            "Settings now has a Push On This Device card. It tells you whether push is working "
+            "on the phone in your hand, turns it on or off, and says what to do if notifications "
+            "are switched off for Past Lives in your phone's own settings.",
+        ],
+    },
     {
         "version": "1.42.1",
         "date": "2026-09-06",
