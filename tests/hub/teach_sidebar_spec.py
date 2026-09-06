@@ -81,13 +81,6 @@ def describe_teach_entry():
 
 
 def describe_active_states():
-    def _active_links(nav: str) -> list[str]:
-        return [
-            chunk.split(">")[0]
-            for chunk in nav.split('class="hub-sidebar__link')
-            if chunk.startswith(" active") or " active" in chunk.split(">")[0]
-        ]
-
     def it_lights_teach_not_class_catalog_on_the_portal(plain_user, client):
         _unlock(plain_user)
         client.force_login(plain_user)

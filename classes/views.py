@@ -1380,6 +1380,7 @@ def _render_teach_class_form(
             "faq_formset": faq_formset,
             "pipeline": saved.review_pipeline() if saved is not None else None,
             "readiness": saved.readiness() if saved is not None else None,
+            **(_teach_gallery_context(saved) if saved is not None else {}),
         },
     )
 
@@ -1492,6 +1493,10 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "offering": offering,
             "sessions": list(offering.sessions.order_by("starts_at")),
             "change_form": ClassChangeRequestForm(),
+            # Request a change posts through the instructor-only scope, so only the
+            # instructor sees it; guild staff making light edits get the page without it.
+            "is_own_class": offering.instructor_id == teaching_member.pk,
+            **_teach_gallery_context(offering),
         },
     )
 
@@ -1748,7 +1753,7 @@ def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
     """Take back a submission in review: the class goes back to draft, reviewers stop seeing it."""
     offering = _teach_class_or_404(request, pk)
     try:
-        offering.withdraw_submission()
+        offering.withdraw_submission(actor=cast("User", request.user))
     except ValueError as exc:
         messages.error(request, str(exc))
     else:
@@ -1761,6 +1766,11 @@ def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
 def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
     """Cancel my own live class with a reason: registrants are told; refunds stay with the admins."""
     offering = _teach_class_or_404(request, pk)
+    if offering.lifecycle == ClassOffering.Lifecycle.COMPLETED:
+        # Still PUBLISHED, but every session has ended: cancelling would email past
+        # registrants about a class they already took.
+        messages.error(request, "This class has already happened.")
+        return redirect("classes:teach_class_detail", pk=offering.pk)
     form = ClassCancelForm(request.POST)
     if not form.is_valid():
         return _render_teach_class_overview(request, offering, cancel_form=form)
@@ -1782,6 +1792,9 @@ def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
     """Ask the admins to change a live class's title, dates, price, or capacity."""
     offering = _teach_class_or_404(request, pk)
+    if offering.lifecycle == ClassOffering.Lifecycle.COMPLETED:
+        messages.error(request, "This class has already happened.")
+        return redirect("classes:teach_class_detail", pk=offering.pk)
     form = ClassChangeRequestForm(request.POST)
     if not form.is_valid():
         return _render_teach_class_overview(request, offering, change_form=form)
@@ -3001,7 +3014,12 @@ def class_review(request: HttpRequest, token: str) -> HttpResponse:
     current state. The token identifies the ClassApproval row and therefore
     which role's gate the visitor satisfies.
     """
-    approval = get_object_or_404(ClassApproval, token=token)
+    approval = ClassApproval.objects.filter(token=token).select_related("class_offering").first()
+    if approval is None:
+        # A withdraw or resubmit deletes the cycle's rows, so an emailed link can outlive
+        # its token. Render the same "not awaiting review" state, naming nothing about
+        # the class (the token is the only credential and it no longer resolves).
+        return render(request, "classes/admin/class_review_unknown.html", {"active_tab": "classes"})
     return _class_review_view(
         request,
         offering=approval.class_offering,
@@ -3147,7 +3165,98 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @classes_admin_access_required
 @require_POST
 def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    return _hero_upload(request, get_object_or_404(ClassOffering, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_upload(request, get_object_or_404(ClassOffering, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_reorder(request, get_object_or_404(ClassOffering, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_delete(get_object_or_404(ClassImage, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_alt(request, get_object_or_404(ClassImage, pk=pk))
+
+
+# --- Instructor-scoped image endpoints ----------------------------------------
+#
+# The hero and gallery components post instantly (drag, drop, reorder, alt text). The
+# instructor edit pages point them at these routes, which share the admin handlers
+# above but scope the class through the teach portal's ``editable_by`` (the instructor,
+# plus guild staff who may edit the draft); anyone else gets a 404, never a 403.
+
+
+def _teach_editable_offering_or_404(request: HttpRequest, pk: int) -> ClassOffering:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    return get_object_or_404(ClassOffering.objects.editable_by(teaching_member), pk=pk)
+
+
+def _teach_editable_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    return get_object_or_404(
+        ClassImage.objects.filter(class_offering__in=ClassOffering.objects.editable_by(teaching_member)), pk=pk
+    )
+
+
+def _teach_gallery_context(offering: ClassOffering) -> dict[str, str]:
+    """The URLs the hero + gallery components post to on the instructor edit pages."""
+    return {
+        "hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}),
+        "gallery_upload_url": reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}),
+        "gallery_reorder_url": reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk}),
+        "gallery_image_url_base": TEACH_IMAGE_URL_BASE,
+    }
+
+
+# The per-image delete / alt routes below hang off this prefix (``<base><id>/delete/``).
+TEACH_IMAGE_URL_BASE = "/classes/teach/images/"
+
+
+@teaching_member_required
+@require_POST
+def teach_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    return _hero_upload(request, _teach_editable_offering_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_upload(request, _teach_editable_offering_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_reorder(request, _teach_editable_offering_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_delete(_teach_editable_image_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_alt(request, _teach_editable_image_or_404(request, pk))
+
+
+def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
@@ -3160,10 +3269,7 @@ def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
     return JsonResponse({"url": offering.image.url})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
@@ -3180,10 +3286,7 @@ def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     return JsonResponse({"id": img.pk, "url": img.image.url, "alt_text": "", "sort_order": img.sort_order})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     try:
         order = json.loads(request.body)["order"]
     except (json.JSONDecodeError, KeyError):
@@ -3196,19 +3299,13 @@ def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
     return JsonResponse({"ok": True})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    img = get_object_or_404(ClassImage, pk=pk)
+def _gallery_delete(img: ClassImage) -> HttpResponse:
     img.image.delete(save=False)
     img.delete()
     return JsonResponse({"ok": True})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
-    img = get_object_or_404(ClassImage, pk=pk)
+def _gallery_alt(request: HttpRequest, img: ClassImage) -> HttpResponse:
     try:
         alt_text = json.loads(request.body)["alt_text"]
     except (json.JSONDecodeError, KeyError):

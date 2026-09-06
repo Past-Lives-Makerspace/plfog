@@ -58,12 +58,14 @@ def describe_withdraw_submission():
             class_offering=offering, role=ClassApproval.Role.GUILD_LEAD, decision=ClassApproval.Decision.APPROVED
         )
         ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
-        offering.withdraw_submission()
+        actor = UserFactory(username="withdrawer@example.com")
+        offering.withdraw_submission(actor=actor)
         offering.refresh_from_db()
         assert offering.status == Status.DRAFT
         assert offering.approvals.count() == 0
         assert offering.lifecycle == ClassOffering.Lifecycle.DRAFT
-        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=offering).exists()
+        row = CmsActivity.objects.get(kind=CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=offering)
+        assert row.actor == actor
 
     def it_refuses_a_class_that_is_not_in_review(db):
         for status in (Status.DRAFT, Status.PUBLISHED, Status.CANCELLED, Status.ARCHIVED):
@@ -74,9 +76,12 @@ def describe_withdraw_submission():
         offering = ClassOfferingFactory(ready=True, status=Status.DRAFT)
         (row,) = offering.submit_for_review()
         offering.withdraw_submission()
-        # The token row is gone; a leftover bookmark 404s. A reviewer who kept a fresh
-        # row (legacy) sees the not-awaiting state: model the second with a stale row.
-        assert client.get(reverse("classes:class_review", kwargs={"token": row.token})).status_code == 404
+        # The token row is gone: the emailed link renders the not-awaiting state and names
+        # nothing about the class. A stale row left on the draft reads the same.
+        resp = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
+        assert resp.status_code == 200
+        assert b"not awaiting review" in resp.content
+        assert offering.title.encode() not in resp.content
         stale = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         resp = client.get(reverse("classes:class_review", kwargs={"token": stale.token}))
         assert b"not awaiting review" in resp.content

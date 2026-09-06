@@ -29,6 +29,12 @@ urlpatterns = [
         name="teach_class_duplicate_run",
     ),
     path("teach/classes/<int:pk>/", views.teach_class_detail, name="teach_class_detail"),
+    # Instructor-scoped hero + gallery endpoints (the edit pages' instant uploads).
+    path("teach/classes/<int:pk>/hero/upload/", views.teach_class_hero_upload, name="teach_class_hero_upload"),
+    path("teach/classes/<int:pk>/images/upload/", views.teach_class_image_upload, name="teach_class_image_upload"),
+    path("teach/classes/<int:pk>/images/reorder/", views.teach_class_image_reorder, name="teach_class_image_reorder"),
+    path("teach/images/<int:pk>/delete/", views.teach_class_image_delete, name="teach_class_image_delete"),
+    path("teach/images/<int:pk>/alt/", views.teach_class_image_alt, name="teach_class_image_alt"),
     path("teach/classes/<int:pk>/withdraw/", views.teach_class_withdraw, name="teach_class_withdraw"),
     path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
     path(

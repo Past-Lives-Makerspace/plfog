@@ -2417,8 +2417,9 @@ class AdminCapability(models.Model):
     holders, the same set ``refund_authority_required`` admits); refund *failure* alerts
     still go to the Billing Administrators. ``BILLING_APPROVER`` additionally gates the
     admin Payments dashboard views.
-    The capability is the master switch: ONLY holders receive the matching notifications
-    (and see them on the settings page). A plain Admin who does not hold it gets nothing
+    For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
+    receive the matching notifications (and see them on the settings page); the refund
+    notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
     until it is granted — they can self-grant on their own member page. See
     :func:`core.events.resolvers._capability_recipients`.
     """

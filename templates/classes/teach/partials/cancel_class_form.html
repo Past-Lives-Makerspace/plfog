@@ -1,7 +1,7 @@
 {% comment %}Body of the Cancel class modal on the instructor workspace Overview. Rendered inline through components/modal.html's modal_body_include so a bound, invalid form re-renders its error inside the modal.{% endcomment %}
 <form method="post" action="{% url 'classes:teach_class_cancel' pk=offering.pk %}" class="pl-cancel-class-form" hx-boost="false">
   {% csrf_token %}
-  <p style="margin:0 0 0.75rem;color:var(--hub-text-muted);">{{ active_registration_count }} registered, {{ paid_registration_count }} paid.{% if paid_registration_count %} An admin handles the refunds.{% endif %}</p>
+  <p style="margin:0 0 0.75rem;color:var(--hub-text-muted);">{{ confirmed_registration_count }} registered, {{ paid_registration_count }} paid.{% if paid_registration_count %} An admin handles the refunds.{% endif %}</p>
   <div class="hub-form-group">
     {% include "components/form_field.html" with field=cancel_form.reason %}
   </div>

@@ -327,7 +327,13 @@ def describe_instructor_profile():
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_profile"))
         assert response.status_code == 200
-        assert b"Your public instructor page is live:" in response.content
+        html = response.content.decode()
+        card = html[
+            html.index('data-card="instructor-page"') : html.index(
+                "</section>", html.index('data-card="instructor-page"')
+            )
+        ]
+        assert "Your public instructor page is live:" in card
         assert reverse("classes:public_instructor", kwargs={"slug": instructor_fixture.instructor_slug}).encode() in (
             response.content
         )

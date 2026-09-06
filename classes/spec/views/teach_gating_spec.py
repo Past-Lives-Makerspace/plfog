@@ -75,7 +75,14 @@ def describe_teaching_member_required():
         client.force_login(user)
         response = client.get(reverse("classes:teach_profile"))
         assert response.status_code == 200
-        assert b"goes live with your first published class" in response.content
+        html = response.content.decode()
+        # Scoped to the profile card: the changelog widget on every hub page can echo the phrase.
+        card = html[
+            html.index('data-card="instructor-page"') : html.index(
+                "</section>", html.index('data-card="instructor-page"')
+            )
+        ]
+        assert "goes live with your first published class" in card
 
     def it_200s_a_grandfathered_instructor(db, client):
         # InstructorFactory mirrors the 0110 backfill: slug holders carry the unlock.

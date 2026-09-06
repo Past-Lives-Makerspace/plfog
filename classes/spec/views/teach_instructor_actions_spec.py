@@ -364,6 +364,80 @@ def describe_profile_tab():
         member.save(update_fields=["instructor_oriented_at"])
         client.force_login(user)
         html = client.get(reverse("classes:teach_profile")).content.decode()
-        assert "Your public instructor page goes live with your first published class." in html
+        card = html[
+            html.index('data-card="instructor-page"') : html.index(
+                "</section>", html.index('data-card="instructor-page"')
+            )
+        ]
+        assert "Your public instructor page goes live with your first published class." in card
         assert "?tab=profile" in html
         assert "Save Profile" not in html
+
+
+def describe_light_edit_scope():
+    def it_hides_request_a_change_from_guild_staff_but_shows_it_to_the_instructor(
+        instructor_fixture, other_instructor, client
+    ):
+        guild = GuildFactory(name="Scope Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = _live(other_instructor, category=CategoryFactory(guild=guild))
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "This class is live." in html
+        assert "Request a change" not in html
+        assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) not in html
+        client.force_login(other_instructor.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "Request a change" in html
+        assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) in html
+
+
+def describe_completed_class_refusals():
+    def it_refuses_to_cancel_a_class_that_already_happened(instructor_fixture, client):
+        offering = _completed_class(instructor_fixture)
+        RegistrationFactory(class_offering=offering, email="past@example.com", status=Registration.Status.CONFIRMED)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Oops"})
+        assert resp.status_code == 302
+        assert "This class has already happened." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.status == Status.PUBLISHED
+        assert [m for m in mail.outbox if m.to == ["past@example.com"]] == []
+
+    def it_refuses_a_change_request_on_a_class_that_already_happened(instructor_fixture, client):
+        offering = _completed_class(instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}), {"note": "x"})
+        assert resp.status_code == 302
+        assert "This class has already happened." in _messages(resp)
+        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).exists()
+
+
+def _completed_class(instructor) -> ClassOffering:
+    offering = ClassOfferingFactory(instructor=instructor, status=Status.PUBLISHED, published_at=timezone.now())
+    start = timezone.now() - timedelta(days=3)
+    ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+    return offering
+
+
+def describe_withdraw_activity_actor():
+    def it_records_the_instructor_as_the_actor(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING)
+        client.force_login(instructor_fixture.user)
+        client.post(reverse("classes:teach_class_withdraw", kwargs={"pk": offering.pk}))
+        row = CmsActivity.objects.get(kind=CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=offering)
+        assert row.actor == instructor_fixture.user
+
+
+def describe_cancel_modal_counts():
+    def it_counts_seats_as_registered_and_leaves_the_waitlist_out(instructor_fixture, client):
+        # "registered" is the Capacity row's number (confirmed plus pending payment); a
+        # waitlisted person holds no seat and is not counted.
+        offering = _live(instructor_fixture)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED, amount_paid_cents=5000)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.PENDING)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert "2 registered, 1 paid." in html
+        assert "3 registered" not in html

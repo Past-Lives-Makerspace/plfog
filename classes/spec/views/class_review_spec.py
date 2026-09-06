@@ -24,9 +24,14 @@ def describe_class_review():
         assert b"pl-form-group" in response.content
         assert b'name="notes"' in response.content
 
-    def it_returns_404_with_invalid_token(client, db):
+    def it_renders_the_not_awaiting_state_for_an_unknown_token_without_class_details(client, db):
+        offering = ClassOfferingFactory(title="Secret Draft", status=ClassOffering.Status.DRAFT)
         response = client.get(reverse("classes:class_review", kwargs={"token": "not-a-real-token"}))
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert b"not awaiting review" in response.content
+        assert b"Secret Draft" not in response.content
+        assert b'name="decision"' not in response.content
+        assert offering.approvals.count() == 0
 
     def it_does_not_require_login(client, db):
         offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)

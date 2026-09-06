@@ -7,7 +7,7 @@
 <section class="hub-card pl-live-edit-banner" style="margin:1rem 0;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
         <p style="margin:0;">This class is live. You can update the description, photos, and what to bring any time. To change the title, dates, price, or capacity, ask an admin.</p>
-        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>
+        {% if is_own_class %}<button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>{% endif %}
     </div>
 </section>
 
@@ -64,6 +64,6 @@
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_detail' pk=offering.pk %}">Cancel</a>
     </div>
 </form>
-{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}
+{% if is_own_class %}{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}{% endif %}
 </div>
 {% endblock %}

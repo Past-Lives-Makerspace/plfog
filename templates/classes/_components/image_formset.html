@@ -111,8 +111,9 @@ On create (no pk): multi-file input that submits with the form, with local previ
 {% if offering and offering.pk %}
 <div id="gallery-manager"
      data-help-key="teach.class-gallery"
-     data-upload-url="{% url 'classes:admin_class_image_upload' pk=offering.pk %}"
-     data-reorder-url="{% url 'classes:admin_class_image_reorder' pk=offering.pk %}"
+     data-upload-url="{% if gallery_upload_url %}{{ gallery_upload_url }}{% else %}{% url 'classes:admin_class_image_upload' pk=offering.pk %}{% endif %}"
+     data-reorder-url="{% if gallery_reorder_url %}{{ gallery_reorder_url }}{% else %}{% url 'classes:admin_class_image_reorder' pk=offering.pk %}{% endif %}"
+     data-image-url-base="{{ gallery_image_url_base|default:'/classes/admin/images/' }}"
      data-csrf="{{ csrf_token }}">
 
     <div id="gallery-grid" class="cls-image-grid">
@@ -148,6 +149,7 @@ On create (no pk): multi-file input that submits with the form, with local previ
     const fileInput = document.getElementById('gallery-file-input');
     const countEl = document.getElementById('gallery-count');
     const uploadUrl = manager.dataset.uploadUrl;
+    const imageUrlBase = manager.dataset.imageUrlBase;
     const reorderUrl = manager.dataset.reorderUrl;
     const csrf = manager.dataset.csrf;
     const MAX_IMAGES = 10;
@@ -211,12 +213,12 @@ On create (no pk): multi-file input that submits with the form, with local previ
     function bindCard(card) {
         card.querySelector('.cls-image-remove').addEventListener('click', function() {
             const id = this.dataset.id;
-            fetch(`/classes/admin/images/${id}/delete/`, { method: 'POST', headers: {'X-CSRFToken': csrf} })
+            fetch(`${imageUrlBase}${id}/delete/`, { method: 'POST', headers: {'X-CSRFToken': csrf} })
                 .then(r => { if (r.ok) { card.remove(); updateCount(); } });
         });
         card.querySelector('.cls-image-alt').addEventListener('change', function() {
             const id = this.dataset.id;
-            fetch(`/classes/admin/images/${id}/alt/`, {
+            fetch(`${imageUrlBase}${id}/alt/`, {
                 method: 'POST',
                 headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/json'},
                 body: JSON.stringify({alt_text: this.value})

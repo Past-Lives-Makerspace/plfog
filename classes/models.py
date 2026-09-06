@@ -1251,12 +1251,13 @@ class ClassOffering(HeroCropMixin, models.Model):
             period=f"offering:{self.pk}:cancelled:refunds",
         )
 
-    def withdraw_submission(self) -> None:
+    def withdraw_submission(self, actor: "User | None" = None) -> None:
         """Take back a PENDING submission: back to DRAFT, reviewers stop seeing it.
 
         Every approval row is deleted, including an APPROVED guild-lead row, so the draft
         reads plain Draft rather than masquerading as a bounce. Submitting again opens a
-        fresh first-stage gate as usual.
+        fresh first-stage gate as usual. ``actor`` is the instructor's user, threaded into
+        the activity row so the feed shows a name rather than "System".
 
         Raises:
             ValueError: If the class is not PENDING.
@@ -1268,7 +1269,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.approvals.all().delete()
         self.status = self.Status.DRAFT
         self.save(update_fields=["status", "updated_at"])
-        activity.log(CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=self)
+        activity.log(CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=self, actor=actor)
 
     def request_change(self, instructor: "Member", note: str) -> None:
         """Ask an admin to change a live class's title, dates, price, or capacity.

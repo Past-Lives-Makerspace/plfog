@@ -1,7 +1,7 @@
 {% extends "classes/teach/base.html" %}
 {% block tab_content %}
 {# The public instructor page is minted by the first published class; the bio and photo live on the hub Profile settings. #}
-<section class="hub-card" style="margin:0 0 1rem;">
+<section class="hub-card" style="margin:0 0 1rem;" data-card="instructor-page">
     <h3 style="margin:0 0 0.5rem;">Your Public Instructor Page</h3>
     {% if public_profile_url %}
         <p style="margin:0;">Your public instructor page is live: <a href="{{ public_profile_url }}" target="_blank" rel="noopener">{{ public_profile_url }}</a></p>
