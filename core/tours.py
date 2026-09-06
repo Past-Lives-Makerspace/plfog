@@ -558,11 +558,11 @@ TOURS: dict[str, Tour] = {
                 navigate="manage_activity",
             ),
             TourStep(
-                target='[data-help-key="admin.quickstart-guides"]',
+                target='[data-help-key="admin.tools-grid"]',
                 title="Your Admin Home",
                 body=(
-                    "Every tool lives on this page, and the Guild Lead and Instructor Quickstart guides at the "
-                    "bottom spell out each role. That is the lap."
+                    "Every tool you can reach lives on this page, in alphabetical order, and the page only "
+                    "shows the ones your roles unlock. That is the lap."
                 ),
                 navigate="hub_admin_tools",
             ),
