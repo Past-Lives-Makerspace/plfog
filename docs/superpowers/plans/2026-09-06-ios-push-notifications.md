@@ -169,6 +169,33 @@ func application(_ application: UIApplication,
   `App/App/App.entitlements` with `aps-environment`; commit it.
 - Bump `CURRENT_PROJECT_VERSION` in the Xcode project (build 2 shipped).
 
+### Android manifest conflict (verified 2026-09-06, must be mitigated here)
+
+npm and Capacitor plugin installs are **not per-platform**. `npx cap sync` adds
+`@capacitor-firebase/messaging` to the Android project too, and both push plugins
+declare an Android service bound to the same intent filter:
+
+- `com.capacitorjs.plugins.pushnotifications.MessagingService`
+- `io.capawesome.capacitorjs.plugins.firebase.messaging.MessagingService`
+
+both with `<action android:name="com.google.firebase.MESSAGING_EVENT" />`.
+
+Firebase delivers an incoming message to **only one** service, the first match in
+the merged manifest. With both present, one silently wins and the other's JS
+listeners never fire. The shipped Android APK is unaffected because it carries
+only the one plugin, so this does not bite on merge. It bites on the **next
+Android rebuild**, which is the biometric-login PR immediately after this one.
+
+Fix it here, in `mobile/android/app/src/main/AndroidManifest.xml`: declare
+`xmlns:tools` on the root element and remove the capawesome service from the
+Android merge with `tools:node="remove"`, with a comment saying why. Android then
+keeps `@capacitor/push-notifications` exactly as it ships today, and the JS never
+calls `FirebaseMessaging` on Android.
+
+Confirm the edit survives `npx cap sync android` (that command owns
+`capacitor.build.gradle` and `capacitor.settings.gradle`, not the app manifest),
+and check whether the two plugins pull in skewed `firebase-messaging` versions.
+
 ## Phase 4 — "Push on this device" in notification settings
 
 The notification settings block (`templates/hub/_notifications_settings.html`,
