@@ -3829,12 +3829,6 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_notifications": is_admin,
             "tool_site_settings": is_admin,
             "tool_push_test": is_admin,
-            # Quickstart guide links — shown to whoever the guide is for. The
-            # instructor card includes the teaching unlock, not just the public
-            # Instructor role, so new teachers find their map too.
-            "guide_guild_lead": can_orient,
-            "guide_instructor": is_admin
-            or (member is not None and (member.is_instructor or member.can_create_classes)),
         },
     )
 

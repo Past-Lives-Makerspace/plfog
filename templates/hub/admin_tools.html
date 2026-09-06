@@ -4,7 +4,16 @@
 <h1 class="hub-page-title">Admin Tools</h1>
 <p class="pl-wizard-lead">Staff and leadership tools, in one place.</p>
 
-<div class="pl-tools-grid" data-help-key="admin.quickstart-guides">
+<div class="pl-tools-grid" data-help-key="admin.tools-grid">
+  {% if tool_activity %}
+  <a class="hub-card pl-tool-card" href="{% url 'manage_activity' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Activity</span>
+    <span class="pl-tool-card__desc">The site-wide feed of what's happening across the makerspace.</span>
+  </a>
+  {% endif %}
   {% if tool_announcements %}
   <a class="hub-card pl-tool-card" href="{% url 'hub_compose' %}">
     <span class="pl-tool-card__icon">
@@ -12,24 +21,6 @@
     </span>
     <span class="pl-tool-card__title">Announcements</span>
     <span class="pl-tool-card__desc">Send an announcement to a class, a guild, or the whole makerspace.</span>
-  </a>
-  {% endif %}
-  {% if tool_orientations %}
-  <a class="hub-card pl-tool-card" href="{% url 'hub_orientations_dashboard' %}">
-    <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
-    </span>
-    <span class="pl-tool-card__title">Orientations</span>
-    <span class="pl-tool-card__desc">Review and run new-member orientations for your guild.</span>
-  </a>
-  {% endif %}
-  {% if tool_manage_members %}
-  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_members' %}">
-    <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-    </span>
-    <span class="pl-tool-card__title">Manage Members</span>
-    <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
   </a>
   {% endif %}
   {% if tool_manage_classes %}
@@ -41,31 +32,13 @@
     <span class="pl-tool-card__desc">Review, approve, and schedule classes and workshops across the makerspace.</span>
   </a>
   {% endif %}
-  {% if tool_payments %}
-  <a class="hub-card pl-tool-card" href="{% url 'billing_admin_dashboard' %}">
+  {% if tool_manage_members %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_members' %}">
     <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
     </span>
-    <span class="pl-tool-card__title">Payments</span>
-    <span class="pl-tool-card__desc">Review payments across the makerspace, with refund history and CSV export.</span>
-  </a>
-  {% endif %}
-  {% if tool_reports %}
-  <a class="hub-card pl-tool-card" href="{% url 'billing_admin_reports' %}">
-    <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-    </span>
-    <span class="pl-tool-card__title">Reports</span>
-    <span class="pl-tool-card__desc">Revenue reports and guild payout summaries, with CSV export.</span>
-  </a>
-  {% endif %}
-  {% if tool_activity %}
-  <a class="hub-card pl-tool-card" href="{% url 'manage_activity' %}">
-    <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-    </span>
-    <span class="pl-tool-card__title">Activity</span>
-    <span class="pl-tool-card__desc">The site-wide feed of what's happening across the makerspace.</span>
+    <span class="pl-tool-card__title">Manage Members</span>
+    <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
   </a>
   {% endif %}
   {% if tool_notifications %}
@@ -77,13 +50,22 @@
     <span class="pl-tool-card__desc">Configure which events notify members, and how.</span>
   </a>
   {% endif %}
-  {% if tool_site_settings %}
-  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_site_settings' %}">
+  {% if tool_orientations %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_orientations_dashboard' %}">
     <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
     </span>
-    <span class="pl-tool-card__title">Site Settings</span>
-    <span class="pl-tool-card__desc">Configure the site: registration, integrations, and content.</span>
+    <span class="pl-tool-card__title">Orientations</span>
+    <span class="pl-tool-card__desc">Review and run new-member orientations for your guild.</span>
+  </a>
+  {% endif %}
+  {% if tool_payments %}
+  <a class="hub-card pl-tool-card" href="{% url 'billing_admin_dashboard' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Payments</span>
+    <span class="pl-tool-card__desc">Review payments across the makerspace, with refund history and CSV export.</span>
   </a>
   {% endif %}
   {% if tool_push_test %}
@@ -95,22 +77,22 @@
     <span class="pl-tool-card__desc">Check a member's push devices and send them a test notification.</span>
   </a>
   {% endif %}
-  {% if guide_guild_lead %}
-  <a class="hub-card pl-tool-card" href="/help/running-a-guild/guild-lead-quickstart/">
+  {% if tool_reports %}
+  <a class="hub-card pl-tool-card" href="{% url 'billing_admin_reports' %}">
     <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
     </span>
-    <span class="pl-tool-card__title">Guild Lead Quickstart</span>
-    <span class="pl-tool-card__desc">Everything a guild lead or staff member can do, on one page.</span>
+    <span class="pl-tool-card__title">Reports</span>
+    <span class="pl-tool-card__desc">Revenue reports and guild payout summaries, with CSV export.</span>
   </a>
   {% endif %}
-  {% if guide_instructor %}
-  <a class="hub-card pl-tool-card" href="/help/teaching/instructor-quickstart/">
+  {% if tool_site_settings %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_site_settings' %}">
     <span class="pl-tool-card__icon">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </span>
-    <span class="pl-tool-card__title">Instructor Quickstart</span>
-    <span class="pl-tool-card__desc">Everything an instructor can do, on one page.</span>
+    <span class="pl-tool-card__title">Site Settings</span>
+    <span class="pl-tool-card__desc">Configure the site: registration, integrations, and content.</span>
   </a>
   {% endif %}
 </div>
