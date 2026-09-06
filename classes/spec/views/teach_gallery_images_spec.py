@@ -8,7 +8,7 @@ from io import BytesIO
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.urls import reverse
+from django.urls import resolve, reverse
 from django.utils import timezone
 
 from classes.factories import (
@@ -20,6 +20,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassImage, ClassOffering
+from classes.views import teach_class_image_delete, teach_image_url_base
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 Status = ClassOffering.Status
@@ -48,6 +49,17 @@ def _png(name: str = "shot.png") -> SimpleUploadedFile:
 def _teach_image_base() -> str:
     """The per-image route prefix, from the route itself — never a retyped literal."""
     return reverse("classes:teach_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
+
+
+def describe_the_per_image_url_base_round_trips():
+    def it_resolves_back_to_the_delete_route(instructor_fixture, db):
+        # ``removesuffix`` is a silent no-op if the route verb ever changes, and both the view
+        # and a recomputed expectation would move together — so assert the round trip instead.
+        offering = _own(instructor_fixture, Status.DRAFT)
+        image = ClassImageFactory(class_offering=offering)
+        match = resolve(f"{teach_image_url_base()}{image.pk}/delete/")
+        assert match.func is teach_class_image_delete
+        assert match.kwargs == {"pk": image.pk}
 
 
 def _own(instructor, status) -> ClassOffering:
