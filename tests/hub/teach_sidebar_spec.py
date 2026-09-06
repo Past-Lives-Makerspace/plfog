@@ -1,4 +1,4 @@
-"""BDD specs for the hub sidebar's Teach entry, the admin Manage Classes entry, and their active states."""
+"""BDD specs for the hub sidebar's Teaching entry, its Admin Tools card, and their active states."""
 
 from __future__ import annotations
 
@@ -42,12 +42,21 @@ def _sidebar(client) -> str:
 
 
 def describe_teach_entry():
-    def it_reads_teach_a_class_and_opens_the_orientation_while_locked(plain_user, client):
+    def it_is_absent_for_a_member_who_cannot_teach(plain_user, client):
+        """No recruiting entry: the sidebar offers Teaching exactly when it opens something.
+
+        It used to show every active member "Teach a Class" pointing at the orientation
+        explainer, which put a teaching link in front of the whole membership.
+        """
         client.force_login(plain_user)
         nav = _sidebar(client)
-        assert "Teach a Class" in nav
-        assert reverse("classes:teach_orientation") in nav
-        assert "Teaching</a>" not in nav
+        assert 'data-nav="teach"' not in nav
+        assert "Teach a Class" not in nav
+        assert reverse("classes:teach_orientation") not in nav
+
+    def it_is_absent_for_an_admin_who_has_not_been_set_up_to_teach(admin_user, client):
+        client.force_login(admin_user)
+        assert 'data-nav="teach"' not in _sidebar(client)
 
     def it_reads_teaching_and_opens_the_portal_once_unlocked(plain_user, client):
         _unlock(plain_user)
@@ -62,22 +71,37 @@ def describe_teach_entry():
         assert reverse("classes:teach_overview") in nav
         assert "Teach a Class" not in nav
 
-    def it_is_absent_for_a_former_member(plain_user, client):
-        member = Member.objects.get(user=plain_user)
+    def it_is_absent_for_a_former_member_even_once_unlocked(plain_user, client):
+        member = _unlock(plain_user)
         member.status = Member.Status.FORMER
         member.save(update_fields=["status"])
         client.force_login(plain_user)
         assert 'data-nav="teach"' not in _sidebar(client)
 
-    def it_shows_manage_classes_only_in_the_admin_variant(plain_user, admin_user, client):
+
+def describe_manage_classes():
+    """It moved off the sidebar and onto Admin Tools, where the rest of the staff tools live."""
+
+    def it_is_gone_from_every_sidebar(plain_user, admin_user, client):
         client.force_login(plain_user)
         assert 'data-nav="manage-classes"' not in _sidebar(client)
         client.force_login(admin_user)
-        nav = _sidebar(client)
-        assert 'data-nav="manage-classes"' in nav
-        assert reverse("classes:admin_overview") in nav
-        assert "Manage Classes" in nav
-        assert 'data-nav="teach"' in nav
+        assert 'data-nav="manage-classes"' not in _sidebar(client)
+
+    def it_is_an_admin_tools_card(admin_user, client):
+        client.force_login(admin_user)
+        html = client.get(reverse("hub_admin_tools")).content.decode()
+        assert "Manage Classes" in html
+        assert f'href="{reverse("classes:admin_overview")}"' in html
+
+    def it_is_absent_from_admin_tools_for_a_non_admin(plain_user, client):
+        # An instructor reaches Admin Tools for its own cards and must not see this one.
+        # Match the card's href, not the bare path: base.html carries "/classes/admin/"
+        # as a literal in the Class Catalog active-state check.
+        _unlock(plain_user)
+        client.force_login(plain_user)
+        html = client.get(reverse("hub_admin_tools"), follow=True).content.decode()
+        assert f'href="{reverse("classes:admin_overview")}"' not in html
 
 
 def describe_active_states():
@@ -92,13 +116,13 @@ def describe_active_states():
         catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
         assert "active" not in catalog
 
-    def it_lights_manage_classes_not_class_catalog_on_the_class_admin(admin_user, client):
+    def it_does_not_light_class_catalog_on_the_class_admin(admin_user, client):
+        # Manage Classes has no sidebar entry to light any more, but the class admin must
+        # still not borrow the Class Catalog's highlight.
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_overview")).content.decode()
         start = html.index('aria-label="Hub navigation"')
         nav = html[start : html.index("</nav>", start)]
-        manage = nav[nav.index('data-nav="manage-classes"') - 200 : nav.index('data-nav="manage-classes"')]
-        assert "active" in manage
         catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
         assert "active" not in catalog
 
@@ -117,17 +141,16 @@ def describe_context_processor():
         request.user = plain_user
         ctx = hub_sidebar(request)
         assert ctx["can_create_classes"] is False
-        assert ctx["teach_nav"] == {
-            "label": "Teach a Class",
-            "url": reverse("classes:teach_orientation"),
-            "is_active": True,
-        }
+        assert ctx["teach_nav"] is None
         _unlock(plain_user)
         request.user = type(plain_user).objects.get(pk=plain_user.pk)
         ctx = hub_sidebar(request)
         assert ctx["can_create_classes"] is True
-        assert ctx["teach_nav"]["label"] == "Teaching"
-        assert ctx["teach_nav"]["url"] == reverse("classes:teach_overview")
+        assert ctx["teach_nav"] == {
+            "label": "Teaching",
+            "url": reverse("classes:teach_overview"),
+            "is_active": True,
+        }
 
     def it_gives_anonymous_visitors_no_teach_entry(rf):
         from django.contrib.auth.models import AnonymousUser
