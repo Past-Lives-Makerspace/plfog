@@ -60,8 +60,7 @@ def describe_teaching_member_required():
         assert response.status_code == 302
         assert response["Location"] == reverse("classes:teach_orientation")
 
-    # teach_profile is itself a redirect view (→ settings), so the 200 set excludes it.
-    @pytest.mark.parametrize("route", [r for r in TEACH_ROUTES if r != "classes:teach_profile"])
+    @pytest.mark.parametrize("route", TEACH_ROUTES)
     def it_200s_an_unlocked_active_member(db, client, route):
         user, member = _locked_member_user(f"unlocked-{route.split(':')[1]}@example.com")
         member.instructor_oriented_at = timezone.now()
@@ -69,14 +68,21 @@ def describe_teaching_member_required():
         client.force_login(user)
         assert client.get(reverse(route)).status_code == 200
 
-    def it_sends_an_unlocked_member_through_teach_profile_to_settings_not_orientation(db, client):
+    def it_tells_an_unlocked_member_without_a_slug_when_their_page_goes_live(db, client):
         user, member = _locked_member_user("unlocked-profile@example.com")
         member.instructor_oriented_at = timezone.now()
         member.save(update_fields=["instructor_oriented_at"])
         client.force_login(user)
         response = client.get(reverse("classes:teach_profile"))
-        assert response.status_code == 302
-        assert response["Location"] != reverse("classes:teach_orientation")
+        assert response.status_code == 200
+        html = response.content.decode()
+        # Scoped to the profile card: the changelog widget on every hub page can echo the phrase.
+        card = html[
+            html.index('data-card="instructor-page"') : html.index(
+                "</section>", html.index('data-card="instructor-page"')
+            )
+        ]
+        assert "goes live with your first published class" in card
 
     def it_200s_a_grandfathered_instructor(db, client):
         # InstructorFactory mirrors the 0110 backfill: slug holders carry the unlock.

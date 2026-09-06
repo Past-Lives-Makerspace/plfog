@@ -1,6 +1,11 @@
 {% extends "classes/teach/class_detail_base.html" %}
 {% load classes_tags %}
 {% block detail_content %}
+{% comment %}The Cancel class and Request a change modals are server-rendered inline. A POST that
+fails validation re-renders this page with the bound form, and the x-init below reopens
+that modal so the error shows inside it. The dispatch waits a tick: the child modal's
+@open-modal.window listener is not bound yet when the parent's x-init runs.{% endcomment %}
+<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% elif change_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'request-change'))"{% endif %}>
 {% if pipeline and not pipeline.is_live and not pipeline.muted %}
 <section class="hub-card pl-pipeline-card" style="margin:0 0 1rem;" data-help-key="teach.review-pipeline">
     <h3 style="margin:0;">Where Your Class Is</h3>
@@ -10,6 +15,8 @@
             <span class="pl-review-note__label">Reviewer's note</span>{% if pipeline.note %}{{ pipeline.note }}{% else %}The reviewer left no note.{% endif %}
         </div>
         <p style="margin:0.75rem 0 0;color:var(--hub-text-muted);">Fix the notes and submit again.</p>
+    {% elif offering.status == 'pending' %}
+        <p style="margin:0.5rem 0 0;color:var(--hub-text-muted);">Reviewers can see it now. You can still edit it, or take it back to draft.</p>
     {% endif %}
 </section>
 {% endif %}
@@ -54,6 +61,8 @@
 </table>
 </div>
 
+{% url 'classes:teach_class_duplicate_run' pk=offering.pk as run_again_url %}
+{% url 'classes:teach_class_withdraw' pk=offering.pk as withdraw_url %}
 <div class="admin-toolbar">
     <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
         {% if offering.status == 'draft' or offering.status == 'pending' %}
@@ -65,12 +74,35 @@
                 <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">{% if pipeline.is_bounced %}Fix and resubmit{% else %}Submit for review{% endif %}</button>
             </form>
         {% endif %}
+        {% if offering.status == 'pending' %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'withdraw-submission')">Withdraw submission</button>
+            {% include "components/confirm_modal.html" with confirm_id="withdraw-submission" confirm_title="Take back this submission?" confirm_message="It goes back to draft and reviewers stop seeing it. You can submit again any time." confirm_action_url=withdraw_url confirm_button_text="Withdraw" %}
+        {% endif %}
+        {% if lifecycle == 'upcoming' %}
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=offering.pk %}">Edit details</a>
+            <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-modal', 'cancel-class')">Cancel class</button>
+        {% endif %}
+        {% if lifecycle == 'upcoming' or lifecycle == 'completed' or lifecycle == 'cancelled' %}
+            <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'run-again')">Run it again</button>
+            {% include "components/confirm_modal.html" with confirm_id="run-again" confirm_title="Run this class again?" confirm_message="We make a draft copy with no dates. Add the new dates, then submit it for review." confirm_action_url=run_again_url confirm_button_text="Make a Draft Copy" confirm_button_style="primary" %}
+        {% endif %}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
     </div>
     {% if offering.status == 'cancelled' %}
         <span style="font-size:0.8rem; color:var(--hub-text-muted);">Cancelled{% if offering.cancellation_reason %}: {{ offering.cancellation_reason }}{% endif %}</span>
-    {% elif offering.status != 'draft' and offering.status != 'pending' %}
-        <span style="font-size:0.8rem; color:var(--hub-text-muted);">Published and archived classes are edited by an admin.</span>
+    {% elif offering.status == 'archived' %}
+        <span style="font-size:0.8rem; color:var(--hub-text-muted);">Archived classes are managed by an admin.</span>
+    {% elif lifecycle == 'completed' %}
+        <span style="font-size:0.8rem; color:var(--hub-text-muted);">This class has ended.</span>
     {% endif %}
+</div>
+
+{% if lifecycle == 'upcoming' %}
+{# Cancel class: reason required, emailed to everyone registered; refunds stay with the admins. #}
+{% include "components/modal.html" with modal_id="cancel-class" modal_title="Cancel this class?" modal_size="sm" modal_body_include="classes/teach/partials/cancel_class_form.html" %}
+{# Request a change: the one note that reaches the admins who can change the locked facts. #}
+{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}
+{% endif %}
 </div>
 {% endblock %}

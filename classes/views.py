@@ -13,6 +13,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import UploadedFile
 from django.core.paginator import Paginator
 from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import TruncDate
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
 
     from classes.forms import PaymentRefundForm, RegistrationMoveForm
+    from classes.models import ClassOfferingQuerySet
     from membership.models import Member
 
 from hub.toast import trigger_toast
@@ -56,6 +58,7 @@ from classes.templatetags.classes_tags import member_price_cents as compute_memb
 from classes.forms import (
     CategoryForm,
     ClassCancelForm,
+    ClassChangeRequestForm,
     ClassOfferingForm,
     ClassReviewDecisionForm,
     ClassSessionFormSet,
@@ -63,6 +66,7 @@ from classes.forms import (
     DiscountCodeForm,
     InstructorOrientationCompleteForm,
     TeachClassOfferingForm,
+    TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
@@ -1378,6 +1382,7 @@ def _render_teach_class_form(
             "faq_formset": faq_formset,
             "pipeline": saved.review_pipeline() if saved is not None else None,
             "readiness": saved.readiness() if saved is not None else None,
+            **(_teach_gallery_context(saved) if saved is not None else {}),
         },
     )
 
@@ -1427,13 +1432,12 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
         pk=pk,
     )
-    if offering.status in {
-        ClassOffering.Status.PUBLISHED,
-        ClassOffering.Status.CANCELLED,
-        ClassOffering.Status.ARCHIVED,
-    }:
-        messages.info(request, "Published, cancelled, and archived classes can only be edited by an admin.")
+    if offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}:
+        messages.info(request, "Cancelled and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
+    if offering.status == ClassOffering.Status.PUBLISHED:
+        # A live class gets the light-edit form on the same URL: content only, no re-review.
+        return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
         request.POST or None, request.FILES or None, instance=offering, teaching_member=teaching_member
     )
@@ -1464,6 +1468,38 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         mode="edit",
         offering=offering,
         faq_formset=faq_formset,
+    )
+
+
+def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
+    """The published class edit page: light fields + FAQ + gallery, structural facts locked.
+
+    Keeps ``teach_class_edit``'s ``editable_by`` scope (guild staff who can edit a draft can
+    make light edits too). Saves with one Save button and no submit: nothing to review.
+    """
+    form = TeachPublishedClassForm(request.POST or None, instance=offering)
+    faq_formset = build_class_faq_formset(request.POST or None, offering)
+    if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
+        form.save()
+        faq_formset.save()
+        messages.success(request, "Class updated.")
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    return render(
+        request,
+        "classes/teach/class_form_published.html",
+        {
+            "active_tab": "classes",
+            "instructor": teaching_member,
+            "form": form,
+            "faq_formset": faq_formset,
+            "offering": offering,
+            "sessions": list(offering.sessions.order_by("starts_at")),
+            "change_form": ClassChangeRequestForm(),
+            # Request a change posts through the instructor-only scope, so only the
+            # instructor sees it; guild staff making light edits get the page without it.
+            "is_own_class": offering.instructor_id == teaching_member.pk,
+            **_teach_gallery_context(offering, with_hero=False),
+        },
     )
 
 
@@ -1678,9 +1714,18 @@ def _teach_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
     return get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
 
 
-@teaching_member_required
-def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+def _render_teach_class_overview(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    cancel_form: ClassCancelForm | None = None,
+    change_form: ClassChangeRequestForm | None = None,
+) -> HttpResponse:
+    """The instructor workspace Overview: pipeline card, summary, and the action row by state.
+
+    The Cancel class and Request a change modals are server-rendered inline; a bound,
+    invalid form re-renders the page with that modal open and the error inside it.
+    """
     return render(
         request,
         "classes/teach/class_overview.html",
@@ -1689,10 +1734,72 @@ def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
             "active_subtab": "overview",
             "instructor": request.teaching_member,  # type: ignore[attr-defined]
             "offering": offering,
+            "lifecycle": offering.lifecycle,
             "pipeline": offering.review_pipeline(),
+            "cancel_form": cancel_form or ClassCancelForm(),
+            "change_form": change_form or ClassChangeRequestForm(),
+            "paid_registration_count": offering.paid_registration_count,
             **_class_workspace_counts(offering),
         },
     )
+
+
+@teaching_member_required
+def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    return _render_teach_class_overview(request, _teach_class_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """Take back a submission in review: the class goes back to draft, reviewers stop seeing it."""
+    offering = _teach_class_or_404(request, pk)
+    try:
+        offering.withdraw_submission(actor=cast("User", request.user))
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Submission withdrawn.")
+    return redirect("classes:teach_class_detail", pk=offering.pk)
+
+
+@teaching_member_required
+@require_POST
+def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
+    """Cancel my own live class with a reason: registrants are told; refunds stay with the admins."""
+    offering = _teach_class_or_404(request, pk)
+    form = ClassCancelForm(request.POST)
+    if not form.is_valid():
+        return _render_teach_class_overview(request, offering, cancel_form=form)
+    had_paid = offering.paid_registration_count > 0
+    try:
+        offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    message = "Class cancelled. Everyone registered has been told."
+    if had_paid:
+        message += " An admin will handle refunds."
+    messages.success(request, message)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
+
+
+@teaching_member_required
+@require_POST
+def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
+    """Ask the admins to change a live class's title, dates, price, or capacity."""
+    offering = _teach_class_or_404(request, pk)
+    form = ClassChangeRequestForm(request.POST)
+    if not form.is_valid():
+        return _render_teach_class_overview(request, offering, change_form=form)
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    try:
+        offering.request_change(teaching_member, form.cleaned_data["note"])
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    messages.success(request, "Sent to the admins.")
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
 def _refunds_prefetch() -> Prefetch:
@@ -1921,7 +2028,29 @@ def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 def teach_profile(request: HttpRequest) -> HttpResponse:
-    return redirect(reverse("hub_user_settings") + "?tab=profile")
+    """The portal's Profile tab: when the public instructor page goes live, and where to edit it.
+
+    The bio and photo themselves are edited on the hub Profile settings (the
+    Instructor tab there); this page states the public page's status and links across.
+    """
+    from classes.emails import _absolute_url
+
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    public_url = (
+        _absolute_url(reverse("classes:public_instructor", kwargs={"slug": teaching_member.instructor_slug}))
+        if teaching_member.instructor_slug
+        else ""
+    )
+    return render(
+        request,
+        "classes/teach/profile.html",
+        {
+            "active_tab": "profile",
+            "instructor": teaching_member,
+            "public_profile_url": public_url,
+            "profile_settings_url": reverse("hub_user_settings") + "?tab=profile",
+        },
+    )
 
 
 def _render_class_preview(
@@ -2525,9 +2654,6 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
     """Sub-tab badge counts shared by every per-class Workspace tab."""
     regs = offering.registrations
     return {
-        "active_registration_count": regs.exclude(
-            status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
-        ).count(),
         "confirmed_registration_count": regs.filter(
             status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
         ).count(),
@@ -2879,7 +3005,12 @@ def class_review(request: HttpRequest, token: str) -> HttpResponse:
     current state. The token identifies the ClassApproval row and therefore
     which role's gate the visitor satisfies.
     """
-    approval = get_object_or_404(ClassApproval, token=token)
+    approval = ClassApproval.objects.filter(token=token).select_related("class_offering").first()
+    if approval is None:
+        # A withdraw or resubmit deletes the cycle's rows, so an emailed link can outlive
+        # its token. Render the same "not awaiting review" state, naming nothing about
+        # the class (the token is the only credential and it no longer resolves).
+        return render(request, "classes/admin/class_review_unknown.html", {"active_tab": "classes"})
     return _class_review_view(
         request,
         offering=approval.class_offering,
@@ -3025,10 +3156,129 @@ def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @classes_admin_access_required
 @require_POST
 def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    return _hero_upload(request, get_object_or_404(ClassOffering, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_upload(request, get_object_or_404(ClassOffering, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_reorder(request, get_object_or_404(ClassOffering, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_delete(get_object_or_404(ClassImage, pk=pk))
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_alt(request, get_object_or_404(ClassImage, pk=pk))
+
+
+# --- Instructor-scoped image endpoints ----------------------------------------
+#
+# The hero and gallery components post instantly (drag, drop, reorder, alt text). The
+# instructor edit pages point them at these routes, which share the admin handlers
+# above but scope the class through the teach portal's ``editable_by`` (the instructor,
+# plus guild staff who may edit the draft); anyone else gets a 404, never a 403.
+
+
+def _teach_editable_offerings(member: Member) -> "ClassOfferingQuerySet":
+    """The classes this member may edit photos on: their editable set, minus the closed ones.
+
+    ``teach_class_edit`` bounces cancelled and archived classes to an admin, so the image
+    routes behind that page exclude them too. A page gate and a mutation gate that disagree
+    are how an instructor ends up curling a surface the UI never offers.
+    """
+    return ClassOffering.objects.editable_by(member).exclude(
+        status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED]
+    )
+
+
+def _teach_editable_offering_or_404(request: HttpRequest, pk: int) -> ClassOffering:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    return get_object_or_404(_teach_editable_offerings(teaching_member), pk=pk)
+
+
+def _teach_editable_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
+    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    return get_object_or_404(
+        ClassImage.objects.filter(class_offering__in=_teach_editable_offerings(teaching_member)), pk=pk
+    )
+
+
+def _teach_gallery_context(offering: ClassOffering, *, with_hero: bool = True) -> dict[str, str]:
+    """The URLs the hero + gallery components post to on the instructor edit pages.
+
+    ``with_hero=False`` for the live-edit page, which renders the gallery but not the hero
+    field: shipping a hero URL a page never posts to only invites drift.
+    """
+    hero = (
+        {"hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})} if with_hero else {}
+    )
+    return {
+        **hero,
+        "gallery_upload_url": reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}),
+        "gallery_reorder_url": reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk}),
+        "gallery_image_url_base": teach_image_url_base(),
+    }
+
+
+def teach_image_url_base() -> str:
+    """The prefix the per-image delete / alt routes hang off (``<base><id>/delete/``).
+
+    Derived from the route rather than typed out, so re-prefixing the URL include can never
+    leave the JS posting to a path that 404s. ``reverse`` is resolver-cached, so calling this
+    per render is free.
+    """
+    return reverse("classes:teach_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
+
+
+@teaching_member_required
+@require_POST
+def teach_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    return _hero_upload(request, _teach_editable_offering_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_upload(request, _teach_editable_offering_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_reorder(request, _teach_editable_offering_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_delete(_teach_editable_image_or_404(request, pk))
+
+
+@teaching_member_required
+@require_POST
+def teach_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
+    return _gallery_alt(request, _teach_editable_image_or_404(request, pk))
+
+
+def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
+    oversize = _oversize_image_error(file)
+    if oversize is not None:
+        return oversize
     offering.image = file
     offering.hero_crop_x = None
     offering.hero_crop_y = None
@@ -3038,19 +3288,29 @@ def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
     return JsonResponse({"url": offering.image.url})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+def _oversize_image_error(file: UploadedFile) -> JsonResponse | None:
+    """The 400 for an upload over ``MAX_UPLOAD_IMAGE_BYTES``, or None when it fits.
+
+    Shared by the hero and gallery routes so the two cannot drift apart again: the model
+    field's ``validate_image_size`` runs only under ``full_clean()``, which the hero path
+    does not reach, so the cap has to be enforced here.
+    """
+    assert file.size is not None  # an uploaded file always reports its size
+    if file.size <= settings.MAX_UPLOAD_IMAGE_BYTES:
+        return None
+    limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
+    return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
+
+
+def _gallery_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     if offering.gallery_images.count() >= MAX_GALLERY_IMAGES:
         return JsonResponse({"error": f"A class can have at most {MAX_GALLERY_IMAGES} images."}, status=400)
     file = request.FILES.get("image")
     if not file:
         return JsonResponse({"error": "No file provided."}, status=400)
-    assert file.size is not None  # an uploaded file always reports its size
-    if file.size > settings.MAX_UPLOAD_IMAGE_BYTES:
-        limit_mb = settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024)
-        return JsonResponse({"error": f"Image must be {limit_mb:.0f} MB or smaller."}, status=400)
+    oversize = _oversize_image_error(file)
+    if oversize is not None:
+        return oversize
     next_order = (offering.gallery_images.order_by("-sort_order").values_list("sort_order", flat=True).first() or 0) + 1
     img = ClassImage(class_offering=offering, image=file, sort_order=next_order)
     img.full_clean()
@@ -3058,10 +3318,7 @@ def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
     return JsonResponse({"id": img.pk, "url": img.image.url, "alt_text": "", "sort_order": img.sort_order})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+def _gallery_reorder(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
     try:
         order = json.loads(request.body)["order"]
     except (json.JSONDecodeError, KeyError):
@@ -3074,22 +3331,18 @@ def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
     return JsonResponse({"ok": True})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    img = get_object_or_404(ClassImage, pk=pk)
+def _gallery_delete(img: ClassImage) -> HttpResponse:
     img.image.delete(save=False)
     img.delete()
     return JsonResponse({"ok": True})
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
-    img = get_object_or_404(ClassImage, pk=pk)
+def _gallery_alt(request: HttpRequest, img: ClassImage) -> HttpResponse:
     try:
         alt_text = json.loads(request.body)["alt_text"]
     except (json.JSONDecodeError, KeyError):
+        return JsonResponse({"error": "Invalid payload."}, status=400)
+    if not isinstance(alt_text, str):
         return JsonResponse({"error": "Invalid payload."}, status=400)
     img.alt_text = alt_text[:255]
     img.save(update_fields=["alt_text"])

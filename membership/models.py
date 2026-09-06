@@ -1241,6 +1241,33 @@ class Member(models.Model):
             target=self,
         )
 
+    def ensure_instructor_slug(self) -> bool:
+        """Mint the public instructor page slug (``instructor_slug``) if this member has none.
+
+        The ONE slug-minting loop: the admin Instructor toggle (:meth:`grant_instructor`),
+        the older role dropdown (:meth:`apply_admin_role`), and a class's first publish
+        (``ClassOffering.publish``) all route here. Derives ``slugify(display name)`` and
+        suffixes ``-2``, ``-3``, … until unique. Idempotent: an existing slug is kept and
+        nothing is written. Never touches ``instructor_oriented_at`` (the teaching unlock
+        is a separate grant).
+
+        Returns:
+            True when a slug was minted and saved, False when one already existed.
+        """
+        from django.utils.text import slugify
+
+        if self.instructor_slug:
+            return False
+        base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
+        slug = base
+        n = 1
+        while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
+            n += 1
+            slug = f"{base}-{n}"
+        self.instructor_slug = slug
+        self.save(update_fields=["instructor_slug"])
+        return True
+
     def grant_instructor(self, *, granted_by: "Member | None") -> None:
         """Make this member a public instructor: a bio page (``instructor_slug``) + teaching access.
 
@@ -1251,21 +1278,10 @@ class Member(models.Model):
         is still audited: ``grant_teaching`` no-ops when teaching was already unlocked, so the
         slug mint logs its own ``SiteActivity`` here rather than going unrecorded.
         """
-        from django.utils.text import slugify
-
         from core.models import SiteActivity
 
         already_teaching = self.instructor_oriented_at is not None
-        minted = not self.instructor_slug
-        if minted:
-            base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
-            slug = base
-            n = 1
-            while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
-                n += 1
-                slug = f"{base}-{n}"
-            self.instructor_slug = slug
-            self.save(update_fields=["instructor_slug"])
+        minted = self.ensure_instructor_slug()
         self.grant_teaching(granted_by=granted_by)  # logs TEACHING_GRANTED unless already unlocked
         if minted and already_teaching:
             # The teaching half no-op'd, but the public page just went live — record it.
@@ -1364,8 +1380,6 @@ class Member(models.Model):
         `status`, and instructor_slug. Idempotent — re-promoting an existing
         instructor is a no-op if they already have a slug.
         """
-        from django.utils.text import slugify
-
         valid = {c.value for c in self.FogRole} | {self.ADMIN_ROLE_INSTRUCTOR, self.ADMIN_ROLE_GUEST}
         if picked_role not in valid:
             raise ValueError(f"Invalid admin role token: {picked_role!r}")
@@ -1374,14 +1388,9 @@ class Member(models.Model):
         if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
             self.fog_role = self.FogRole.MEMBER
             self.status = self.Status.ACTIVE
-            if not self.instructor_slug:
-                base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
-                slug = base
-                n = 1
-                while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
-                    n += 1
-                    slug = f"{base}-{n}"
-                self.instructor_slug = slug
+            # ``ensure_instructor_slug`` saves the slug column itself; the ``save()`` below
+            # then persists the role and status (and the unlock, when it applies).
+            if self.ensure_instructor_slug():
                 # First-time promotion implies the teaching unlock (Spec D §5) — an
                 # explicit "make them an Instructor" must not strand them at the
                 # orientation redirect. Scoped to this slug-minting branch ON
@@ -2402,11 +2411,15 @@ class AdminCapability(models.Model):
     discount code, a calendar proposal, or a failed charge) and *grant the action* —
     a holder can approve or decline that object type. This lets the makerspace hand out
     a single duty (e.g. "you review classes") without promoting someone to full admin.
-    Two exceptions: ``REFUNDS`` is action-only (it routes no notifications — refund
-    failure alerts go to the Billing Administrators), and ``BILLING_APPROVER``
-    additionally gates the admin Payments dashboard views.
-    The capability is the master switch: ONLY holders receive the matching notifications
-    (and see them on the settings page). A plain Admin who does not hold it gets nothing
+    Two notes: ``REFUNDS`` routes exactly one notification, the
+    ``class_cancelled_admin_notice`` an instructor's cancel raises when paid
+    registrations need refunds (via the ``refund_authority`` resolver: fog admins OR
+    holders, the same set ``refund_authority_required`` admits); refund *failure* alerts
+    still go to the Billing Administrators. ``BILLING_APPROVER`` additionally gates the
+    admin Payments dashboard views.
+    For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
+    receive the matching notifications (and see them on the settings page); the refund
+    notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
     until it is granted — they can self-grant on their own member page. See
     :func:`core.events.resolvers._capability_recipients`.
     """

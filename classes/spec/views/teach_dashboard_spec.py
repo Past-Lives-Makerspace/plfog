@@ -274,15 +274,14 @@ def describe_instructor_edit_class():
         response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": theirs.pk}))
         assert response.status_code == 404
 
-    def it_redirects_for_published_classes(instructor_fixture, client):
+    def it_opens_the_light_edit_page_for_published_classes(instructor_fixture, client):
         mine = ClassOfferingFactory(
-            instructor=instructor_fixture,
-            slug="mine-published",
-            status=ClassOffering.Status.PUBLISHED,
+            instructor=instructor_fixture, slug="pub-light", status=ClassOffering.Status.PUBLISHED
         )
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}))
-        assert response.status_code == 302
+        assert response.status_code == 200
+        assert b"This class is live." in response.content
 
     def it_renders_the_edit_form_for_drafts(instructor_fixture, client):
         mine = ClassOfferingFactory(
@@ -324,11 +323,21 @@ def describe_instructor_registrations():
 
 
 def describe_instructor_profile():
-    def it_redirects_to_hub_settings(instructor_fixture, client):
+    def it_states_the_live_public_page_and_links_to_profile_settings(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_profile"))
-        assert response.status_code == 302
-        assert response["Location"].endswith("/settings/?tab=profile")
+        assert response.status_code == 200
+        html = response.content.decode()
+        card = html[
+            html.index('data-card="instructor-page"') : html.index(
+                "</section>", html.index('data-card="instructor-page"')
+            )
+        ]
+        assert "Your public instructor page is live:" in card
+        assert reverse("classes:public_instructor", kwargs={"slug": instructor_fixture.instructor_slug}).encode() in (
+            response.content
+        )
+        assert b"/settings/?tab=profile" in response.content
 
 
 def describe_instructor_class_create_invalid():

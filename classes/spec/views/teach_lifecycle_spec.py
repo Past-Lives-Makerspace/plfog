@@ -154,7 +154,7 @@ def describe_edit_gate():
         resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         assert resp.status_code == 302
         assert resp.url == reverse("classes:teach_dashboard")
-        assert "Published, cancelled, and archived classes can only be edited by an admin." in _messages(resp)
+        assert "Cancelled and archived classes can only be edited by an admin." in _messages(resp)
 
     def it_still_opens_a_bounced_draft(instructor_fixture, client):
         offering = _bounced(instructor_fixture)

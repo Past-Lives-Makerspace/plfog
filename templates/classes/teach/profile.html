@@ -1,12 +1,16 @@
 {% extends "classes/teach/base.html" %}
 {% block tab_content %}
-<form method="post" enctype="multipart/form-data">
-    {% csrf_token %}
-    {% for field in form %}
-        {% include "components/form_field.html" with field=field %}
-    {% endfor %}
-    <div style="margin-top:1rem;">
-        <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Save Profile</button>
-    </div>
-</form>
+{# The public instructor page is minted by the first published class; the bio and photo live on the hub Profile settings. #}
+<section class="hub-card" style="margin:0 0 1rem;" data-card="instructor-page">
+    <h3 style="margin:0 0 0.5rem;">Your Public Instructor Page</h3>
+    {% if public_profile_url %}
+        <p style="margin:0;">Your public instructor page is live: <a href="{{ public_profile_url }}" target="_blank" rel="noopener">{{ public_profile_url }}</a></p>
+    {% else %}
+        <p style="margin:0;color:var(--hub-text-muted);">Your public instructor page goes live with your first published class.</p>
+    {% endif %}
+</section>
+<p style="margin:0;color:var(--hub-text-muted);">Your bio, photo, and which details show on that page are edited in your profile settings.</p>
+<div style="margin-top:1rem;">
+    <a class="hub-btn hub-btn--sm hub-btn--primary" href="{{ profile_settings_url }}">Edit profile</a>
+</div>
 {% endblock %}

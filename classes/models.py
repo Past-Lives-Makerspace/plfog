@@ -1138,6 +1138,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.published_at = timezone.now()
         self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
         activity.log(CmsActivity.Kind.CLASS_PUBLISHED, class_offering=self, actor=actor)
+        # The public instructor page goes live with the first published class, but only
+        # while the member still holds teaching access: a revoked instructor whose class
+        # an admin publishes never gets a page re-minted behind an admin's back.
+        if self.instructor is not None and self.instructor.can_create_classes:
+            self.instructor.ensure_instructor_slug()
         # The instructor's "Your class was approved" bell row + the rich "live!" email
         # both fan out from the ``instructor_class_approved`` event emitted by
         # ``classes.emails.send_class_review_decision`` (called by the view right after
@@ -1168,10 +1173,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         staff action through the per-registration refund panel.
 
         Raises:
-            ValueError: If the class is not PUBLISHED, or ``reason`` is blank.
+            ValueError: If the class is not PUBLISHED, has already finished, or ``reason``
+                is blank.
         """
         if self.status != self.Status.PUBLISHED:
             raise ValueError(f"Only published classes can be cancelled; got {self.status}.")
+        if self.lifecycle == self.Lifecycle.COMPLETED:
+            # Still PUBLISHED, but every session has ended: cancelling would email people
+            # about a class they already took. Guard here so the admin path is covered too.
+            raise ValueError("This class has already happened.")
         reason = reason.strip()
         if not reason:
             raise ValueError("A cancellation reason is required.")
@@ -1209,6 +1219,108 @@ class ClassOffering(HeroCropMixin, models.Model):
             email_to=self.registrant_notice_emails,
             suppress_email=True,
             period=f"offering:{self.pk}:cancelled",
+        )
+        self._notify_refund_authority_if_instructor_cancelled(actor)
+
+    def _notify_refund_authority_if_instructor_cancelled(self, actor: "User | None") -> None:
+        """When the instructor cancelled their own class and money was paid, tell the refunders.
+
+        Refunds stay a staff action through the per-registration refund panel; this is the
+        in-app + email notice naming the count, to fog admins OR REFUNDS holders. An admin's
+        own cancel raises nothing (they are already on the page), and a free class needs no
+        refund.
+        """
+        actor_member = getattr(actor, "member", None) if actor is not None else None
+        if actor_member is None or self.instructor_id is None or actor_member.pk != self.instructor_id:
+            return
+        paid = self.paid_registration_count
+        if not paid:
+            return
+        from django.urls import reverse
+
+        from classes.emails import _absolute_url
+        from core.events.emit import emit
+
+        registrations_path = reverse("classes:admin_class_registrations", kwargs={"pk": self.pk})
+        emit(
+            "class_cancelled_admin_notice",
+            actor=actor,
+            target=self,
+            context={
+                "instructor_name": actor_member.display_name,
+                "class_title": self.title,
+                "paid_count": str(paid),
+                "registrations_url": _absolute_url(registrations_path),
+            },
+            url=registrations_path,
+            period=f"offering:{self.pk}:cancelled:refunds",
+        )
+
+    def withdraw_submission(self, actor: "User | None" = None) -> None:
+        """Take back a PENDING submission: back to DRAFT, reviewers stop seeing it.
+
+        Every approval row is deleted, including an APPROVED guild-lead row, so the draft
+        reads plain Draft rather than masquerading as a bounce. Submitting again opens a
+        fresh first-stage gate as usual. ``actor`` is the instructor's user, threaded into
+        the activity row so the feed shows a name rather than "System".
+
+        Raises:
+            ValueError: If the class is not PENDING.
+        """
+        if self.status != self.Status.PENDING:
+            raise ValueError(f"Only classes in review can be withdrawn; got {self.status}.")
+        from classes import activity
+
+        self.approvals.all().delete()
+        self.status = self.Status.DRAFT
+        self.save(update_fields=["status", "updated_at"])
+        activity.log(CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=self, actor=actor)
+
+    def request_change(self, instructor: "Member", note: str) -> None:
+        """Ask an admin to change a live class's title, dates, price, or capacity.
+
+        Registrants booked on those facts, so they change through a human: this logs
+        ``CLASS_CHANGE_REQUESTED`` and emits ``class_change_requested`` to the CMS
+        Administrators with the note and a link to the admin edit page. Each request is
+        its own dedupe period.
+
+        Raises:
+            ValueError: If the class is not PUBLISHED, has already finished, or ``note``
+                is blank.
+        """
+        if self.status != self.Status.PUBLISHED:
+            raise ValueError(f"Only published classes can request a change; got {self.status}.")
+        if self.lifecycle == self.Lifecycle.COMPLETED:
+            raise ValueError("This class has already happened.")
+        note = " ".join(note.split())
+        if not note:
+            raise ValueError("Say what needs to change.")
+        from django.urls import reverse
+
+        from classes import activity
+        from classes.emails import _absolute_url
+        from core.events.emit import emit
+
+        actor = instructor.user
+        row = activity.log(
+            CmsActivity.Kind.CLASS_CHANGE_REQUESTED,
+            class_offering=self,
+            actor=actor,
+            payload={"note": note[:200]},
+        )
+        edit_path = reverse("classes:admin_class_edit", kwargs={"pk": self.pk})
+        emit(
+            "class_change_requested",
+            actor=actor,
+            target=self,
+            context={
+                "instructor_name": instructor.display_name,
+                "class_title": self.title,
+                "note": note,
+                "edit_url": _absolute_url(edit_path),
+            },
+            url=edit_path,
+            period=f"offering:{self.pk}:change_request:{row.pk}",
         )
 
     @property

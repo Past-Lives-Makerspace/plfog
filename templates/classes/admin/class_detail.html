@@ -78,6 +78,11 @@ the parent's x-init runs, so a synchronous dispatch would fire into the void.{% 
             <button class="hub-btn hub-btn--sm hub-btn--ghost" type="submit">Duplicate</button>
         </form>
         {% endif %}
+        {% if request.view_as.actual_is_admin %}{% if lifecycle == 'upcoming' or lifecycle == 'completed' or lifecycle == 'cancelled' %}
+            {% url 'classes:admin_class_duplicate_run' pk=offering.pk as run_again_url %}
+            <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'run-again')">Run it again</button>
+            {% include "components/confirm_modal.html" with confirm_id="run-again" confirm_title="Run this class again?" confirm_message="We make a draft copy with no dates. Add the new dates, then publish it when ready." confirm_action_url=run_again_url confirm_button_text="Make a Draft Copy" confirm_button_style="primary" %}
+        {% endif %}{% endif %}
         {% if request.view_as.actual_is_admin and offering.status == 'archived' %}
             {% url 'classes:admin_class_restore' pk=offering.pk as restore_url %}
             <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'restore-class')">Restore to draft</button>

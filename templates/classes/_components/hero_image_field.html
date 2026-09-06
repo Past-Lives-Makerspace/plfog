@@ -23,7 +23,7 @@ Params:
 
     {% if offering and offering.pk %}
     <div id="hero-upload-area"
-         data-upload-url="{% url 'classes:admin_class_hero_upload' pk=offering.pk %}"
+         data-upload-url="{% if hero_upload_url %}{{ hero_upload_url }}{% else %}{% url 'classes:admin_class_hero_upload' pk=offering.pk %}{% endif %}"
          data-csrf="{{ csrf_token }}">
         <div id="hero-preview" style="margin-bottom:0.5rem;">
             {% if current_image %}

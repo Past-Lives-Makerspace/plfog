@@ -105,6 +105,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.EVENTS_APPROVERS,
         Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         Recipients.BILLING_APPROVERS,
+        Recipients.REFUND_AUTHORITY,
         Recipients.EQUIPMENT_MANAGERS,
     }
 )
@@ -245,6 +246,9 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.EVENTS_APPROVERS: cap.EVENTS_APPROVER in caps,
         Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: lead or cap.EVENTS_APPROVER in caps,
         Recipients.BILLING_APPROVERS: cap.BILLING_APPROVER in caps,
+        # Everyone who may refund: the Admin role OR the REFUNDS capability (a union, unlike
+        # the other capability audiences), mirroring the refund_authority resolver.
+        Recipients.REFUND_AUTHORITY: profile.is_admin or cap.REFUNDS in caps,
         # The three equipment-manage tiers, mirroring the equipment_managers resolver:
         # per-equipment staff row, owning-guild leadership, or the EQUIPMENT capability.
         Recipients.EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
@@ -346,6 +350,7 @@ _CAPABILITY_BY_RECIPIENT: dict[Recipients, str] = {
     Recipients.EVENTS_APPROVERS: "events_approver",
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: "events_approver",
     Recipients.BILLING_APPROVERS: "billing_approver",
+    Recipients.REFUND_AUTHORITY: "refunds",
     Recipients.EQUIPMENT_MANAGERS: "equipment",
     Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: "equipment",
 }

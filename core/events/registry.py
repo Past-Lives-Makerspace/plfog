@@ -83,6 +83,9 @@ class Recipients(str, Enum):
     EVENTS_APPROVERS = "events_approvers"
     GUILD_LEADERSHIP_OR_EVENTS_APPROVERS = "guild_leadership_or_events_approvers"
     BILLING_APPROVERS = "billing_approvers"
+    # Composed union: fog admins OR REFUNDS capability holders — everyone who may issue
+    # a refund (exactly the set ``refund_authority_required`` admits).
+    REFUND_AUTHORITY = "refund_authority"
     GUILD_LEAD = "guild_lead"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
@@ -434,6 +437,9 @@ EVENT_GUILD_PUBLISHED = "event.guild_published"
 EVENT_COMMUNITY_PUBLISHED = "event.community_published"
 EVENT_LEAD_MEETING_PUBLISHED = "event.lead_meeting_published"
 GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
+# Instructor-raised staff notices on a live class (class-lifecycle spec PR 2).
+CLASS_CANCELLED_ADMIN_NOTICE = "class_cancelled_admin_notice"
+CLASS_CHANGE_REQUESTED = "class_change_requested"
 GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
 GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
 GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
@@ -1054,6 +1060,34 @@ _NEW_EVENTS: list[EventType] = [
         category="Spaces & Equipment",
         recipient=Recipients.EQUIPMENT_MANAGERS,
         channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # class_cancelled_admin_notice — an instructor cancelled their own live class and
+    # paid registrations need refunds. Money never moves on an instructor click, so the
+    # people who CAN refund (fog admins OR REFUNDS holders, the REFUND_AUTHORITY union)
+    # get an in-app row + email pointing at the class's Registrations tab. Never fires
+    # for a free class or an admin's own cancel. Per-recipient only, no broadcast.
+    # Grouped under Staff & leadership on the settings page via its recipient.
+    EventType(
+        key=CLASS_CANCELLED_ADMIN_NOTICE,
+        label="Instructor cancelled a paid class",
+        description="An instructor cancelled a live class that has paid registrations; refunds are needed.",
+        category="Classes",
+        recipient=Recipients.REFUND_AUTHORITY,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # class_change_requested — an instructor asked for a structural change (title, dates,
+    # price, capacity) to their live class, which only an admin may make. Routes to the
+    # CMS Administrators with the note and a CTA to the admin edit page. Per-recipient
+    # only, no broadcast; each request is its own dedupe period.
+    EventType(
+        key=CLASS_CHANGE_REQUESTED,
+        label="Instructor asked for a class change",
+        description="An instructor asked an admin to change a live class's title, dates, price, or capacity.",
+        category="Classes",
+        recipient=Recipients.CLASS_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
 ]

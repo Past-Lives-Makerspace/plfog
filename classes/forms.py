@@ -540,6 +540,51 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
+class TeachPublishedClassForm(forms.ModelForm):
+    """Light edits an instructor may make to a LIVE class without re-review.
+
+    Only fields that do not change what registrants booked on: description, prep notes,
+    materials, safety, guardian note, the flexible-scheduling note, and the video. Title,
+    guild type, price, sale, capacity, dates, and scheduling model stay admin-only after
+    publish (the instructor asks through :class:`ClassChangeRequestForm`). A crafted POST
+    carrying those fields is simply ignored: a ModelForm saves only its declared fields.
+    """
+
+    class Meta:
+        model = ClassOffering
+        fields = [
+            "description",
+            "prerequisites",
+            "materials_included",
+            "materials_to_bring",
+            "safety_requirements",
+            "age_guardian_note",
+            "flexible_note",
+            "video_url",
+        ]
+
+    def clean_video_url(self) -> str:
+        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
+
+
+class ClassChangeRequestForm(forms.Form):
+    """The Request a change modal on a live class: one note for the admins."""
+
+    note = forms.CharField(
+        max_length=1000,
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Move the price to $85 and add one more seat."}),
+        label="What needs to change?",
+        help_text="An admin makes the change and can reach you with questions.",
+    )
+
+    def clean_note(self) -> str:
+        note = " ".join((self.cleaned_data.get("note") or "").split())
+        if not note:
+            raise ValidationError("Say what needs to change.")
+        return note
+
+
 class ClassCancelForm(forms.Form):
     """The Cancel class modal: one required reason, emailed to everyone registered."""
 

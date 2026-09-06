@@ -67,6 +67,25 @@
     {% endif %}
 </div>
 
+{# --- Teaching (instructors only, omitted when there is nothing to show) --- #}
+{% if teaching %}
+<div class="hub-card pl-home-block" data-block="teaching">
+    <h2 class="pl-home-heading">Teaching</h2>
+    <ul class="pl-teaching">
+        {% for row in teaching %}
+        <li class="pl-teaching__row">
+            <span class="pl-teaching__body">
+                <span class="pl-teaching__title">{{ row.title }}</span>
+                {% if row.note %}<span class="pl-teaching__note hub-text-muted">{{ row.note }}</span>{% endif %}
+            </span>
+            <a href="{{ row.url }}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ row.cta }}</a>
+        </li>
+        {% endfor %}
+    </ul>
+    <a href="{% url 'classes:teach_overview' %}" class="pl-home-block__more">Open teaching →</a>
+</div>
+{% endif %}
+
 {# --- Your upcoming --- #}
 <div class="hub-card pl-home-block">
     <h2 class="pl-home-heading">Your Upcoming</h2>

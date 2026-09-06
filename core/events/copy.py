@@ -114,6 +114,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
         "The guild's lead and staff; for a site-wide or council proposal, the Calendar Administrators (holders only)."
     ),
     Recipients.BILLING_APPROVERS: "The Billing Administrators (holders only).",
+    Recipients.REFUND_AUTHORITY: "Everyone who can issue a refund: all FOG admins plus the Refunds holders.",
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
@@ -155,6 +156,82 @@ def audience_description(event: EventType) -> str:
 # this so unknown-variable markers never ship in the defaults).
 
 _CURATED: dict[str, EventCopy] = {
+    # Staff-side notices raised by an instructor's own actions on a live class. Both are
+    # per-recipient (no broadcast channel) and addressed to a role, so the copy names the
+    # instructor and the class rather than greeting a person.
+    "class_cancelled_admin_notice": EventCopy(
+        placeholders=("instructor_name", "class_title", "paid_count", "registrations_url"),
+        sample_context={
+            "instructor_name": "Robin Vale",
+            "class_title": "Intro to Lost-Wax Casting",
+            "paid_count": "3",
+            "registrations_url": "https://pastlives.example/classes/admin/42/registrations/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ instructor_name }} cancelled {{ class_title }}",
+                body_text="{{ paid_count }} paid registrations need refunds.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Refunds needed: {{ instructor_name }} cancelled {{ class_title }}",
+                body_text=(
+                    "{{ instructor_name }} cancelled {{ class_title }}. "
+                    "{{ paid_count }} paid registrations need refunds.\n\n"
+                    "Everyone registered has already been told. Issue the refunds from the class's "
+                    "Registrations tab: {{ registrations_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ instructor_name }}</strong> cancelled <strong>{{ class_title }}</strong>. "
+                    "{{ paid_count }} paid registrations need refunds.</p>"
+                    "<p>Everyone registered has already been told. Issue the refunds from the class's "
+                    "Registrations tab.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ registrations_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Open the Registrations tab</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "class_change_requested": EventCopy(
+        placeholders=("instructor_name", "class_title", "note", "edit_url"),
+        sample_context={
+            "instructor_name": "Robin Vale",
+            "class_title": "Intro to Lost-Wax Casting",
+            "note": "Please move the price to $85 and add one more seat.",
+            "edit_url": "https://pastlives.example/classes/admin/42/edit/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ instructor_name }} asked for a change to {{ class_title }}",
+                body_text="{{ note }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Change requested: {{ class_title }}",
+                body_text=(
+                    "{{ instructor_name }} asked for a change to {{ class_title }}:\n\n"
+                    "{{ note }}\n\n"
+                    "Instructors cannot change a live class's title, dates, price, or capacity themselves. "
+                    "Make the change on the admin edit page: {{ edit_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ instructor_name }}</strong> asked for a change to "
+                    "<strong>{{ class_title }}</strong>:</p>"
+                    "<p><em>{{ note }}</em></p>"
+                    "<p>Instructors cannot change a live class's title, dates, price, or capacity themselves. "
+                    "Make the change on the admin edit page.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ edit_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Edit the class</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "registration_confirmed": EventCopy(
         placeholders=("member_name", "class_title", "class_starts_at", "class_url"),
         sample_context={
