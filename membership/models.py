@@ -10750,6 +10750,33 @@ class Equipment(HeroCropMixin, models.Model):
                 seen.add(grant.member_id)
         return members
 
+    def orienter_members(self) -> list[Member]:
+        """The people who actually run orientations on this tool, de-duplicated.
+
+        The equipment twin of :meth:`Guild.leadership_members` — this tool's own staff rows
+        plus the owning guild's leadership. Deliberately NOT :meth:`manager_members`, which
+        also unions in every site-wide EQUIPMENT capability holder: that set is the right
+        audience for notifications and the right gate for permissions, but listing every
+        council member as an orienter on every machine made the Orientation Schedule read
+        as a roster of thirteen people on a tool nobody had been assigned to.
+
+        An admin who genuinely gives orientations on a tool joins it on the Staff tab, the
+        same way an admin joins a guild's leadership to publish hours there.
+        """
+        members: list[Member] = []
+        seen: set[int] = set()
+        # Staff rows are unique per (equipment, member), so no in-loop dedupe needed here.
+        for staff in self.staff_memberships.select_related("member"):
+            members.append(staff.member)
+            seen.add(staff.member_id)
+        guild = self.guild
+        if guild is not None:
+            for leader in guild.leadership_members():
+                if leader.pk not in seen:
+                    members.append(leader)
+                    seen.add(leader.pk)
+        return members
+
     def access_state(
         self,
         member: Member | None,

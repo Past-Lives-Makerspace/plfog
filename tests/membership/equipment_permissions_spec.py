@@ -159,6 +159,29 @@ def describe_can_edit_equipment_orienter_hours():
         EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
         return equipment, manager
 
+    def it_refuses_self_scope_to_someone_who_does_not_run_the_tool():
+        """An off-roster save would only make rules that never generate — fail loudly.
+
+        Mirrors the guild gate, which refuses self scope off a guild's leadership for the
+        same reason. The capability still grants edit-on-behalf (the orienter != self path).
+        """
+        equipment, _manager = _managed_tool()
+        holder = _member_user()
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        request = _request(holder.user, roles={ROLE_MEMBER})
+        assert can_edit_equipment_orienter_hours(request, equipment, holder) is False
+        EquipmentStaffMembershipFactory(equipment=equipment, member=holder)
+        assert can_edit_equipment_orienter_hours(request, equipment, holder) is True
+
+    def it_refuses_self_scope_to_a_full_admin_who_does_not_run_the_tool():
+        equipment, _manager = _managed_tool()
+        admin = _member_user()
+        request = _request(admin.user, roles={ROLE_ADMIN, ROLE_MEMBER})
+        assert can_edit_equipment_orienter_hours(request, equipment, admin) is False
+        # They keep every on-behalf power, including the shared rows.
+        assert can_edit_equipment_orienter_hours(request, equipment, _manager) is True
+        assert can_edit_equipment_orienter_hours(request, equipment, None) is True
+
     def it_lets_a_plain_manager_edit_their_own_hours_only():
         equipment, manager = _managed_tool()
         other = _member_user()
