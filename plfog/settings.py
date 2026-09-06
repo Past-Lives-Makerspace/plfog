@@ -6,7 +6,7 @@ from pathlib import Path
 
 import dj_database_url
 import sentry_sdk
-from sentry_sdk.scrubber import EventScrubber
+from sentry_sdk.scrubber import DEFAULT_DENYLIST, EventScrubber
 from django.templatetags.static import static
 from django.urls import reverse_lazy
 
@@ -14,6 +14,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Sentry
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+# Sentry's own denylist plus `selector`. A biometric token is "<selector>.<verifier>", and
+# the selector half is not a secret: it identifies a credential, it does not authenticate
+# one. So the naming rule in core/models.py, which insists every verifier-bearing local be
+# called `secret`, does not cover it. It still must not travel: a verifier that does not
+# match a KNOWN selector is treated as a replay and revokes that credential, so a selector
+# sitting in a Sentry event would let anyone reading it knock one member's phone back to
+# emailed codes. One denylist entry is cheaper than that exception.
+SENTRY_SCRUB_DENYLIST = [*DEFAULT_DENYLIST, "selector"]
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
@@ -25,7 +33,9 @@ if SENTRY_DSN:
         # and `data["secret"]` is a live bearer token at the moment a 500 is raised (the
         # rotation has not committed yet). Naming the flat locals `secret` is not enough on
         # its own: the nested copy rides along untouched unless the scrubber recurses.
-        event_scrubber=EventScrubber(recursive=True),
+        # .copy() because EventScrubber appends its PII denylist to whatever list it is
+        # handed, in place. Without it the setting itself would grow those entries.
+        event_scrubber=EventScrubber(denylist=SENTRY_SCRUB_DENYLIST.copy(), recursive=True),
     )
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")

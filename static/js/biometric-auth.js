@@ -1,10 +1,15 @@
 /*
  * Biometric sign in for the Capacitor (Android/iOS) app shell.
  *
- * The server mints a rotating secret; the phone keeps it in the Keychain/Keystore behind
- * Face ID or a fingerprint and trades it for a session on the next app open. The biometric
- * never authenticates to the server. It gates local access to the secret, and the server
- * trusts the secret and nothing else.
+ * The server mints a token; the phone keeps it in the Keychain/Keystore behind Face ID or a
+ * fingerprint and trades it for a session on the next app open. The biometric never
+ * authenticates to the server. It gates local access to the token, and the server trusts
+ * the token and nothing else.
+ *
+ * The token is "<selector>.<verifier>" and is OPAQUE to this file: it is stored, sent, and
+ * replaced whole, and nothing here ever splits it. The selector names the credential and
+ * never changes; the verifier rotates on every unlock. Splitting it here would be the start
+ * of logging one half, so do not.
  *
  * DEFENSIVE ON PURPOSE. This file is served by Django, so it reaches every already-installed
  * app the moment it merges, including the builds that do NOT carry the native plugin. Every
@@ -246,8 +251,16 @@
       }
       return postJSON(UNLOCK_URL, { secret: secret }).then(function (response) {
         if (response.status === 401) {
-          // Spent, revoked, or expired. Drop the stored secret so the member is not trapped
-          // pressing a dead button, and let the normal login-code form take over.
+          // Spent, revoked, expired, or a token from before selectors existed — the server
+          // answers all of them identically on purpose. Drop the stored token so the member
+          // is not trapped pressing a dead button, and let the login-code form below take
+          // over.
+          //
+          // This is also the path every EXISTING enrollment takes exactly once, because the
+          // migration that added the selector revoked every pre-selector row. forgetDevice
+          // clears the Keychain, so hasStoredSecret() is false from here on: the login page
+          // stops offering the button, and maybeOffer() puts the enrol prompt back up as
+          // soon as the member signs in with a code.
           return forgetDevice().then(function () {
             return false;
           });

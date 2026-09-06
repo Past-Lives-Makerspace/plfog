@@ -165,18 +165,23 @@ class InvalidBiometricCredential(Exception):
     """
 
 
-# 48 bytes of urlsafe entropy. The secret is a bearer token, not a password, so the only
-# defense that matters is that it cannot be guessed.
+# 48 bytes of urlsafe entropy, for BOTH halves of the token. The verifier is a bearer
+# secret, not a password, so the only defense that matters is that it cannot be guessed.
+# The selector gets the same size for a different reason — see BiometricCredential, where
+# the denial of service that a guessable selector opens up is spelled out.
 BIOMETRIC_SECRET_BYTES = 48
 # A phone that stops being used stops working rather than staying valid forever. Pushed
 # forward on every redeem, so an in-use device never hits it.
 BIOMETRIC_TTL_DAYS = 90
-# How long after a rotation the superseded secret is still accepted. See `redeem`.
+# How long after a rotation the superseded verifier is still accepted. See `redeem`.
 BIOMETRIC_ROTATION_GRACE_SECONDS = 60
+# The device stores and sends ONE string, "<selector>.<verifier>". A dot is unambiguous as
+# the join: secrets.token_urlsafe emits only A-Za-z0-9-_, so neither half can contain one.
+BIOMETRIC_TOKEN_SEPARATOR = "."
 
 # NAMING IS LOAD-BEARING BELOW. Every variable, parameter, and attribute holding a raw
-# biometric secret is called exactly `secret`, never `raw_secret` or `new_secret` or
-# anything else descriptive.
+# biometric verifier — or a whole token, which contains one — is called exactly `secret`,
+# never `raw_secret` or `new_secret` or `verifier` or anything else descriptive.
 #
 # Sentry runs with send_default_pii=True, so an unhandled 500 raised anywhere in this call
 # stack ships the frame locals. Its scrubber matches denylist entries against the WHOLE key
@@ -184,11 +189,17 @@ BIOMETRIC_ROTATION_GRACE_SECONDS = 60
 # default denylist contains "secret" — so a local named `secret` is redacted and a local
 # named `raw_secret` is transmitted in full. A rename here for readability would silently
 # start leaking live bearer tokens to a third party, with nothing failing to warn you.
-# tests/core/biometric_credential_spec.py pins this.
+#
+# The selector half is NOT secret material: it identifies a credential, it does not
+# authenticate one. It is still scrubbed, because a mismatched verifier against a known
+# selector revokes that credential, so a selector in a Sentry event would let anyone
+# reading it knock one member's phone back to emailed codes. That is why plfog/settings.py
+# adds "selector" to the scrubber's denylist rather than relying on the naming rule.
+# tests/core/biometric_credential_spec.py pins all of this.
 
 
 def hash_biometric_secret(secret: str) -> str:
-    """SHA-256 hex digest of a raw biometric secret.
+    """SHA-256 hex digest of a raw biometric verifier.
 
     A deliberately slow password hash (bcrypt/argon2) would buy nothing here: the input is
     :data:`BIOMETRIC_SECRET_BYTES` of ``secrets.token_urlsafe`` entropy, not a human-chosen
@@ -196,7 +207,7 @@ def hash_biometric_secret(secret: str) -> str:
     database leak yields no usable secrets.
 
     Args:
-        secret: The raw secret as handed to the device.
+        secret: The raw verifier as handed to the device.
 
     Returns:
         The 64-character lowercase hex digest stored on the row.
@@ -204,14 +215,36 @@ def hash_biometric_secret(secret: str) -> str:
     return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 
+def _split_biometric_secret(secret: str) -> tuple[str, str]:
+    """Split a device token into the selector that identifies it and the verifier that proves it.
+
+    Args:
+        secret: The whole ``"<selector>.<verifier>"`` string the device sent.
+
+    Returns:
+        The selector, and the raw verifier — which is the secret half, so it comes back
+        under a name Sentry redacts.
+
+    Raises:
+        InvalidBiometricCredential: If either half is missing. A token minted before
+            selectors existed has no separator and lands here, which is right: the
+            migration that introduced the selector revoked every one of those rows.
+    """
+    selector, separator, secret = secret.partition(BIOMETRIC_TOKEN_SEPARATOR)
+    if not separator or not selector or not secret:
+        raise InvalidBiometricCredential("Malformed biometric credential.")
+    return selector, secret
+
+
 class BiometricCredentialManager(models.Manager["BiometricCredential"]):
     """All of the biometric credential logic: issue, redeem, and revoke."""
 
     def issue(self, user: User, *, device_label: str, platform: str) -> tuple[BiometricCredential, str]:
-        """Mint a new credential for one device and hand back its raw secret.
+        """Mint a new credential for one device and hand back its raw token.
 
-        The raw secret is returned to exactly one caller, once. It is never stored and
-        never logged — only :func:`hash_biometric_secret` of it lands in the database.
+        The token is ``"<selector>.<verifier>"``. The selector is stored in the clear
+        because it identifies rather than authenticates; the verifier is returned to
+        exactly one caller, once, and only :func:`hash_biometric_secret` of it is stored.
 
         Args:
             user: The already-authenticated member enrolling this device.
@@ -219,83 +252,94 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
             platform: One of :class:`BiometricCredential.Platform` values.
 
         Returns:
-            The stored credential and the raw secret the device must keep.
+            The stored credential and the raw token the device must keep.
         """
         secret = secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES)
         now = timezone.now()
         credential = self.create(
             user=user,
-            secret_hash=hash_biometric_secret(secret),
+            selector=secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES),
+            verifier_hash=hash_biometric_secret(secret),
             device_label=device_label,
             platform=platform,
             expires_at=now + timedelta(days=BIOMETRIC_TTL_DAYS),
         )
-        return credential, secret
+        return credential, f"{credential.selector}{BIOMETRIC_TOKEN_SEPARATOR}{secret}"
 
     def redeem(self, secret: str) -> tuple[User, str]:
-        """Exchange a raw secret for its member and a freshly rotated secret.
+        """Exchange a device token for its member and a freshly rotated token.
+
+        Identification and authentication are deliberately separate jobs here. The
+        selector half says WHICH credential is being presented and never changes; the
+        verifier half proves the presenter holds the live secret, and rotates on every use.
+        Because the lookup key does not rotate, the credential is identified no matter how
+        stale the presented verifier is — which is the whole reason branch 5 can be exact.
 
         The state machine, in the order it is checked:
 
-        1. **Hit on ``secret_hash``** — the normal path. Rotate and return the new secret.
-        2. **Hit on ``previous_secret_hash``, within the grace window** — the app redeemed,
-           the server rotated, and the reply never arrived, so the app retried with the only
-           secret it has. That is a dropped response, not an attack: rotate again and keep
-           the credential alive. Without this branch a single lost reply on a phone network
-           permanently breaks that member's biometric login.
-        3. **Hit on ``previous_secret_hash``, after the grace window** — a spent secret is
-           being replayed, which is the signature of a copied credential. Revoke it, warn,
-           and raise. The member re-enrols with a login code; the copy is worthless.
-        4. **No hit** — raise.
+        1. **No row with that selector** — unknown. Raise, having touched nothing. No other
+           branch is reachable without already holding a real selector.
+        2. **Revoked, or past ``expires_at``** — raise. A dead credential is not re-killed.
+        3. **The verifier matches ``verifier_hash``** — the normal path. Rotate and return
+           the new token.
+        4. **The verifier matches ``previous_verifier_hash`` inside the grace window** — the
+           app redeemed, the server rotated, and the reply never arrived, so the app retried
+           with the only verifier it has. That is a dropped response, not an attack: rotate
+           again with ``keep_previous=True`` and keep the credential alive. Without this
+           branch a single lost reply on a phone network permanently breaks that member's
+           biometric login.
+        5. **Anything else** — a verifier that does not match a credential we positively
+           identified. That is a replay at ANY depth of staleness, including the two-or-more
+           generations that used to read as merely "unknown" and go unpunished. Revoke,
+           warn, and raise. The member re-enrols with a login code; the copy is worthless.
 
         Args:
-            secret: The secret the device read out of its Keychain/Keystore.
+            secret: The token the device read out of its Keychain/Keystore.
 
         Returns:
-            The member to log in, and the new raw secret the device must store.
+            The member to log in, and the new raw token the device must store.
 
         Raises:
             InvalidBiometricCredential: On every failure. Never returns ``None``.
         """
-        if not secret:
-            raise InvalidBiometricCredential("No biometric secret supplied.")
-
+        selector, secret = _split_biometric_secret(secret)
         digest = hash_biometric_secret(secret)
         now = timezone.now()
 
         # select_for_update pins the row for the read-modify-write below so two redeems
-        # landing together cannot both rotate off the same secret. It is a no-op on SQLite
+        # landing together cannot both rotate off the same verifier. It is a no-op on SQLite
         # (local dev and tests) and a real row lock on the Postgres that runs production.
         with transaction.atomic():
-            current = self.select_for_update().filter(secret_hash=digest).first()
-            if current is not None:
-                if current.revoked_at is not None:
-                    raise InvalidBiometricCredential("This biometric credential was revoked.")
-                if current.expires_at <= now:
-                    raise InvalidBiometricCredential("This biometric credential expired.")
-                return current.user, current.rotate(now)
-
-            superseded = self.select_for_update().filter(previous_secret_hash=digest).first()
-            if superseded is None:
+            credential = self.select_for_update().filter(selector=selector).first()
+            if credential is None:
                 raise InvalidBiometricCredential("Unknown biometric credential.")
-            if superseded.revoked_at is not None:
+            if credential.revoked_at is not None:
                 raise InvalidBiometricCredential("This biometric credential was revoked.")
-            if superseded.expires_at <= now:
+            if credential.expires_at <= now:
                 raise InvalidBiometricCredential("This biometric credential expired.")
 
-            rotated_at = superseded.rotated_at
+            # compare_digest rather than ==, because this is the one comparison a caller
+            # can feed. Both sides are digests of high-entropy input, so a timing leak buys
+            # nothing usable; it costs nothing to close anyway.
+            if secrets.compare_digest(credential.verifier_hash, digest):
+                return credential.user, credential.rotate(now)
+
+            rotated_at = credential.rotated_at
             within_grace = (
                 rotated_at is not None and (now - rotated_at).total_seconds() <= BIOMETRIC_ROTATION_GRACE_SECONDS
             )
-            if within_grace:
-                # keep_previous: the caller presented the SPENT secret, so that hash has to stay
-                # recognizable. Sliding the window here would let a thief erase replay detection
-                # by redeeming twice inside it. See BiometricCredential.rotate.
-                return superseded.user, superseded.rotate(now, keep_previous=True)
+            if within_grace and secrets.compare_digest(credential.previous_verifier_hash, digest):
+                # keep_previous: the caller presented the SPENT verifier, so that hash has to
+                # stay recognizable. Sliding the window here would let a thief erase the record
+                # that the spent verifier existed. See BiometricCredential.rotate.
+                return credential.user, credential.rotate(now, keep_previous=True)
 
-            replayed = superseded
+            replayed = credential
 
-        # Past the grace window this is a replay of a secret that was already spent.
+        # The credential is real and live, and the verifier presented against it is not.
+        # Nothing honest produces that: the device holds exactly one token and replaces it
+        # on every redeem, so a verifier that is neither the live one nor the just-spent one
+        # inside the window came from a copy.
         #
         # The revoke happens OUT HERE, after the atomic block has committed, on purpose. It
         # is followed by a raise, and a raise inside the block would roll the revoke back
@@ -303,10 +347,10 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
         # detecting a replay is for. Every other branch above either returns or raises
         # without having written anything, so a rollback there costs nothing.
         #
-        # The device label identifies which phone; the secret itself is never logged.
+        # The device label identifies which phone; the token itself is never logged.
         self.revoke(replayed)
         logger.warning(
-            "Biometric credential replay: spent secret reused for user pk=%s, device %r. Credential revoked.",
+            "Biometric credential replay: verifier did not match for user pk=%s, device %r. Credential revoked.",
             replayed.user_id,
             replayed.device_label,
         )
@@ -329,32 +373,35 @@ class BiometricCredentialManager(models.Manager["BiometricCredential"]):
 
 
 class BiometricCredential(models.Model):
-    """A device-bound bearer secret that exchanges a biometric verify for a session.
+    """A device-bound bearer token that exchanges a biometric verify for a session.
 
-    The phone holds the secret in the Keychain/Keystore behind Face ID or a fingerprint;
-    the server holds only its SHA-256. Redeeming it logs the member in and rotates the
-    secret, so any given secret is single use.
+    The phone holds one string in the Keychain/Keystore behind Face ID or a fingerprint,
+    and it is two halves joined by a dot, ``"<selector>.<verifier>"``. The split is the
+    security design, not a formatting choice:
 
-    The biometric never authenticates to the server. It gates local access to the secret,
-    and the server trusts the secret and nothing else.
+    * The **selector** identifies which credential is being presented. Random, stored in
+      the clear, and fixed for the life of the row.
+    * The **verifier** authenticates. Only its SHA-256 is stored, and it rotates on every
+      redeem, so any given verifier is single use.
 
-    KNOWN LIMIT ON REPLAY DETECTION, stated plainly because the obvious reading of the
-    rotation is more reassuring than the truth. ``previous_secret_hash`` is a SINGLE slot,
-    so the server remembers exactly one generation back. A copied secret is therefore only
-    recognized as a replay while it is at most one rotation stale. Someone holding a stolen
-    copy who simply redeems it twice pushes the original out of that slot, and the real
-    device's next attempt then looks merely *unknown* rather than replayed: nothing is
-    revoked, and the stolen credential stays live and renews its expiry on every use.
+    Splitting them is what makes replay detection exact. When the lookup key is itself the
+    rotating secret, a copy more than one generation stale matches no column at all and
+    reads as merely *unknown* — so a thief who redeems a stolen copy twice makes the real
+    device's return look like a stranger, and nothing gets revoked while the thief keeps
+    renewing the credential. A stable selector removes the dependence on staleness: the row
+    is found regardless of which generation arrives, so any verifier mismatch on a
+    positively identified credential is a replay, at any depth. See :meth:`redeem`.
 
-    What that costs is DETECTION, not containment. The victim's device is still kicked back
-    to an emailed code, the stolen credential still shows up as a row under Signed In
-    Devices where it can be revoked by hand, and getting the secret out of the Keychain or
-    Keystore in the first place needs a compromised device or an extracted backup.
+    THE SELECTOR MUST NOT BE THE PRIMARY KEY, or anything else sequential or guessable.
+    This is the non obvious part, and the obvious implementation is the dangerous one: a
+    mismatched verifier on an identified credential REVOKES it, so looking credentials up
+    by a walkable id hands anyone a denial of service — count up through the integers
+    sending one wrong verifier each, and every member's biometric sign in is dead. The
+    selector therefore carries the same entropy as the verifier, which is exactly what
+    keeps that revoking branch unreachable for anyone not already holding a real token.
 
-    Making detection exact needs a stable unguessable selector alongside the rotating
-    verifier, so a credential can be identified independently of which generation of secret
-    is presented, and any mismatch on a known credential is a replay. That is a design
-    change rather than a patch, so it is deliberately not bolted on here.
+    The biometric never authenticates to the server. It gates local access to the token,
+    and the server trusts the token and nothing else.
     """
 
     class Platform(models.TextChoices):
@@ -367,18 +414,25 @@ class BiometricCredential(models.Model):
         related_name="biometric_credentials",
         help_text="The member this credential signs in.",
     )
-    secret_hash = models.CharField(
-        max_length=64, unique=True, help_text="SHA-256 hex of the live secret. The raw secret is never stored."
+    selector = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Random, permanent id for this credential. Identifies it; never authenticates it.",
     )
-    previous_secret_hash = models.CharField(
+    verifier_hash = models.CharField(
+        max_length=64, unique=True, help_text="SHA-256 hex of the live verifier. The raw verifier is never stored."
+    )
+    # Deliberately NOT indexed. Nothing looks a credential up by this any more — the
+    # selector is the only lookup key — so an index here would be write cost buying
+    # nothing, and standing invitation to start querying by a rotating value again.
+    previous_verifier_hash = models.CharField(
         max_length=64,
         blank=True,
         default="",
-        db_index=True,
-        help_text="SHA-256 hex of the secret this one replaced. Used to tell a dropped reply from a replay.",
+        help_text="SHA-256 hex of the verifier this one replaced. Tells a dropped reply from a replay.",
     )
     rotated_at = models.DateTimeField(
-        null=True, blank=True, help_text="When the previous secret was superseded. Starts the 60 second grace window."
+        null=True, blank=True, help_text="When the previous verifier was superseded. Starts the 60 second grace window."
     )
     device_label = models.CharField(
         max_length=120, help_text="Member-visible name for the device, e.g. 'iPhone'. Client supplied, so untrusted."
@@ -413,43 +467,45 @@ class BiometricCredential(models.Model):
         return self.revoked_at is None and self.expires_at > timezone.now()
 
     def rotate(self, now: datetime, *, keep_previous: bool = False) -> str:
-        """Replace the live secret with a fresh one and return the raw replacement.
+        """Replace the live verifier with a fresh one and return the whole new token.
 
-        The outgoing hash normally moves to ``previous_secret_hash`` so a retry of the request
-        whose reply was lost is still recognized for
+        The selector is deliberately left alone. It is this credential's identity, and
+        rotating it would put the lookup key back on the rotating half and take exact replay
+        detection with it.
+
+        The outgoing hash normally moves to ``previous_verifier_hash`` so a retry of the
+        request whose reply was lost is still recognized for
         :data:`BIOMETRIC_ROTATION_GRACE_SECONDS`. The expiry is pushed out from here, so a
         phone in regular use never ages out.
 
         ``keep_previous`` is for the grace-window redeem, and it is a security control, not a
-        tidiness option. That branch is reached by presenting the ALREADY SPENT secret, so
+        tidiness option. That branch is reached by presenting the ALREADY SPENT verifier, so
         shifting the window would overwrite the spent hash with the live one and erase the only
-        record that the spent secret ever existed. Anyone holding a stolen copy could then wipe
-        replay detection by redeeming twice inside the window: the real device's next attempt
-        would look merely unknown instead of replayed, so nothing would be revoked and the
-        thief's credential would stay live and keep renewing its expiry.
+        record that the spent verifier ever existed — turning a later honest retry from the real
+        device into a revoke.
 
         Pinning the window to the original rotation also fixes the honest case it mirrors, two
         dropped replies in a row, which would otherwise fail for exactly the same reason.
 
         Args:
             now: The redeem timestamp, so one redeem stamps every field identically.
-            keep_previous: Leave ``previous_secret_hash`` and ``rotated_at`` untouched, so the
-                spent secret stays recognizable and the grace window does not slide forward.
+            keep_previous: Leave ``previous_verifier_hash`` and ``rotated_at`` untouched, so the
+                spent verifier stays recognizable and the grace window does not slide forward.
 
         Returns:
-            The new raw secret. It is returned once and stored nowhere.
+            The new token, ``"<selector>.<verifier>"``. Returned once and stored nowhere.
         """
         secret = secrets.token_urlsafe(BIOMETRIC_SECRET_BYTES)
-        updated = ["secret_hash", "last_used_at", "expires_at"]
+        updated = ["verifier_hash", "last_used_at", "expires_at"]
         if not keep_previous:
-            self.previous_secret_hash = self.secret_hash
+            self.previous_verifier_hash = self.verifier_hash
             self.rotated_at = now
-            updated += ["previous_secret_hash", "rotated_at"]
-        self.secret_hash = hash_biometric_secret(secret)
+            updated += ["previous_verifier_hash", "rotated_at"]
+        self.verifier_hash = hash_biometric_secret(secret)
         self.last_used_at = now
         self.expires_at = now + timedelta(days=BIOMETRIC_TTL_DAYS)
         self.save(update_fields=updated)
-        return secret
+        return f"{self.selector}{BIOMETRIC_TOKEN_SEPARATOR}{secret}"
 
 
 # The starting content of the #important-info "Important Links" embed — the pinned post's

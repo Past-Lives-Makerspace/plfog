@@ -11,7 +11,6 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -469,16 +468,17 @@ def _rate_limit_key(request: HttpRequest) -> str:
 @require_POST
 @login_required
 def biometric_enroll(request: HttpRequest) -> JsonResponse:
-    """Mint a biometric credential for the caller's device and return its raw secret.
+    """Mint a biometric credential for the caller's device and return its raw token.
 
-    Being logged in IS the security boundary here: the secret is handed only to a session
+    Being logged in IS the security boundary here: the token is handed only to a session
     that has already proved who it belongs to with an emailed login code.
 
     Expects JSON body with: device_label, and optional platform (defaults to android).
-    Returns ``{"secret": ..., "credential_id": ...}``. The secret is returned exactly once
-    and is never stored. The id is not a secret and buys nothing on its own — it exists so
-    the app can revoke THIS device on logout without reading the secret back out of the
-    Keychain, which would mean a Face ID prompt in the middle of signing out.
+    Returns ``{"secret": ..., "credential_id": ...}``, where ``secret`` is the whole
+    ``"<selector>.<verifier>"`` token the device stores. It is returned exactly once, and
+    only the verifier's hash is kept. The id is not a secret and buys nothing on its own —
+    it exists so the app can revoke THIS device on logout without reading the token back out
+    of the Keychain, which would mean a Face ID prompt in the middle of signing out.
     """
     from core.models import BiometricCredential
 
@@ -509,7 +509,7 @@ def biometric_enroll(request: HttpRequest) -> JsonResponse:
 @csrf_exempt
 @require_POST
 def biometric_unlock(request: HttpRequest) -> JsonResponse:
-    """Trade a biometric secret for a session, and hand back the rotated replacement.
+    """Trade a biometric token for a session, and hand back the rotated replacement.
 
     ``csrf_exempt`` is deliberate here, and it is the ONLY endpoint in this feature that
     gets it. The caller has no session yet — that is the whole point of unlocking — so it
@@ -603,19 +603,19 @@ def biometric_unlock(request: HttpRequest) -> JsonResponse:
 def biometric_disable(request: HttpRequest) -> JsonResponse:
     """Revoke the caller's biometric credentials — one device, or all of them.
 
-    Expects a JSON body with either ``secret`` or ``credential_id`` to revoke just that one
-    device. An empty body revokes every credential on the account.
+    Expects a JSON body with either ``secret`` (the whole device token) or ``credential_id``
+    to revoke just that one device. An empty body revokes every credential on the account.
 
-    ``credential_id`` is what app logout uses. Revoking by secret would mean reading the
-    secret back out of the Keychain, which raises a Face ID prompt in the middle of signing
+    ``credential_id`` is what app logout uses. Revoking by token would mean reading the
+    token back out of the Keychain, which raises a Face ID prompt in the middle of signing
     out; revoking everything would kill the member's other phone at the same time. The id
     is not a secret, and every lookup here is scoped to the caller, so it grants nothing.
 
     Silent success when nothing matches, matching :func:`fcm_unregister`: the caller's goal
     (that credential no longer works) is already true, and saying otherwise would confirm
-    which secrets and ids exist.
+    which tokens and ids exist.
     """
-    from core.models import BiometricCredential, hash_biometric_secret
+    from core.models import BIOMETRIC_TOKEN_SEPARATOR, BiometricCredential
 
     try:
         data = json.loads(request.body) if request.body else {}
@@ -623,15 +623,19 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
         credential_id = data.get("credential_id")
 
         user = cast(User, request.user)
-        # Scoped to the caller in every branch: neither a secret nor an id belonging to
+        # Scoped to the caller in every branch: neither a token nor an id belonging to
         # someone else may be revocable by whoever happens to be logged in.
         owned = BiometricCredential.objects.filter(user=user)
 
         if secret:
-            # Matched against the superseded hash too, so a logout still lands when the app
-            # is holding a secret whose rotation reply never arrived.
-            digest = hash_biometric_secret(secret)
-            credential = owned.filter(Q(secret_hash=digest) | Q(previous_secret_hash=digest)).first()
+            # Matched on the SELECTOR half alone, and the verifier is deliberately not
+            # checked. The selector is stable, so a logout still lands when the app holds a
+            # verifier whose rotation reply never arrived — and skipping the check gives
+            # nothing away, because this queryset is scoped to a caller who already proved
+            # who they are with a session. The worst it can revoke is their own device.
+            # A token with no separator yields the whole string, which matches nothing.
+            selector = secret.partition(BIOMETRIC_TOKEN_SEPARATOR)[0]
+            credential = owned.filter(selector=selector).first()
         elif credential_id is not None:
             credential = owned.filter(pk=credential_id).first()
         else:
