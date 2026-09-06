@@ -488,7 +488,11 @@ ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
 # login/test cycles trip allauth's "Too many failed login attempts" guard.
 # allauth treats RATE_LIMITS=False as "disable everything", so turn it off
 # entirely when DEBUG is on, and keep the real limits in production.
-ACCOUNT_RATE_LIMITS: dict[str, str] | bool = False if DEBUG else {"request_login_code": "5/m/ip,3/h/key"}
+# The per-key cap is 10/h, not 3/h: 3 was tight enough that a live demo or a
+# support session walking a member through login burned the hour's budget in
+# under a minute, and the resulting error is indistinguishable from the
+# honeypot's. The global circuit breaker below is the real quota backstop.
+ACCOUNT_RATE_LIMITS: dict[str, str] | bool = False if DEBUG else {"request_login_code": "5/m/ip,10/h/key"}
 
 # Global circuit breaker on outgoing login-code emails. Hard backstop in case
 # the per-IP/per-key limits are bypassed (e.g. distributed attack). Hourly cap
