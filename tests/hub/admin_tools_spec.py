@@ -176,8 +176,8 @@ def describe_admin_tools_card_order():
         # when every card happens to render.
         _login_guild_lead(client, "order_lead")
         titles = _card_titles(client)
-        assert titles == sorted(titles)
         assert titles, "a guild lead should still see at least one tool card"
+        assert titles == sorted(titles)
 
     def describe_the_quickstart_guide_cards():
         def it_does_not_show_them_to_a_fog_admin(client: Client):

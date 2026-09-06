@@ -111,11 +111,13 @@ backwards and hid a breaking test.
 - **Empty state:** unchanged and already correct. Every card is independently gated, and a
   member who reaches this page passes `_can_use_admin_tools`, so at least one card renders.
   Removing two cards cannot empty the grid for anyone: both gates that are leaving are
-  strictly weaker than gates that remain (`guide_guild_lead` is `can_orient`, which
-  `tool_orientations` also uses; `guide_instructor` includes `is_admin`, which nine other
-  cards use). The one population that could have seen ONLY a Quickstart tile is a
-  non-admin instructor with no orienting role, and that member is bounced home by
-  `_can_use_admin_tools` before the grid renders.
+  strictly weaker than gates that remain. `guide_guild_lead` is `can_orient`, which
+  `tool_orientations` also uses. `guide_instructor` is `is_admin` OR the teaching unlock,
+  and a non-admin instructor with no orienting role — the one population that could have
+  seen ONLY a Quickstart tile — still gets the Announcements card, because `_can_compose`
+  admits them on the same `is_instructor` arm that let them onto the page. Note that such
+  a member DOES reach `/manage/tools/`: `_can_use_admin_tools` has an `is_instructor` arm
+  (`hub/views.py:3380`), so do not gate anything on the belief that instructors cannot.
 - **No new controls**, no forms, no destructive actions, so no Save, Add, or Delete
   affordances are in play.
 - **Responsive/dark mode:** untouched. `.pl-tools-grid` and `.pl-tool-card` are unchanged

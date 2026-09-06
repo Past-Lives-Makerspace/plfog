@@ -560,10 +560,7 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="admin.tools-grid"]',
                 title="Your Admin Home",
-                body=(
-                    "Every tool you can reach lives on this page, in alphabetical order, and the page only "
-                    "shows the ones your roles unlock. That is the lap."
-                ),
+                body="Every staff tool lives on this page, in alphabetical order. That is the lap.",
                 navigate="hub_admin_tools",
             ),
         ),
