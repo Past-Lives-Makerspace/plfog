@@ -53,6 +53,22 @@ const config: CapacitorConfig = {
    * Any NEW Capacitor plugin must be added to the list for every platform that should get it,
    * or `npx cap sync` will silently leave it out of the native project.
    */
+  plugins: {
+    FirebaseMessaging: {
+      /*
+       * This block is global (it is copied into the Android config too), but only iOS has the
+       * FirebaseMessaging plugin, so only iOS reads it.
+       *
+       * The plugin defaults to ["badge", "sound", "alert"], which tells iOS to draw
+       * its own system banner for a push that arrives while the app is open. It ALSO fires
+       * notificationReceived, and static/js/native-push.js draws the in-app banner from that,
+       * so a foreground push would appear twice. Android's plugin does not present in the
+       * foreground at all, so the custom banner is the established behavior; an empty array
+       * (explicitly supported) matches iOS to it and leaves one banner.
+       */
+      presentationOptions: [],
+    },
+  },
   android: {
     includePlugins: ['@capacitor/push-notifications'],
   },

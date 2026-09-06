@@ -38,8 +38,8 @@ def _web_subscription(user: User, endpoint: str) -> PushSubscription:
     return PushSubscription.objects.create(user=user, endpoint=endpoint, p256dh="p256", auth="auth")
 
 
-def _signed_in_free(username: str) -> User:
-    """A user with no client session — for exercising the counter directly."""
+def _user_without_session(username: str) -> User:
+    """A user that is never logged in: for exercising the counter directly, with no client."""
     MembershipPlanFactory()
     return User.objects.create_user(username=username, email=f"{username}@example.com")
 
@@ -54,19 +54,19 @@ def describe_push_device_count():
     """The count the card reads is derived from the same rows PushAdapter delivers to."""
 
     def it_is_zero_with_no_devices():
-        user = _signed_in_free("counter_zero")
+        user = _user_without_session("counter_zero")
         assert push_device_count(user) == 0
 
     def it_counts_native_and_web_push_together():
-        user = _signed_in_free("counter_both")
+        user = _user_without_session("counter_both")
         _fcm_device(user, "tok-a")
         _fcm_device(user, "tok-b", platform=FcmDevice.Platform.IOS)
         _web_subscription(user, "https://push.example.com/a")
         assert push_device_count(user) == 3
 
     def it_ignores_another_members_devices():
-        user = _signed_in_free("counter_mine")
-        other = _signed_in_free("counter_theirs")
+        user = _user_without_session("counter_mine")
+        other = _user_without_session("counter_theirs")
         _fcm_device(user, "tok-mine")
         _fcm_device(other, "tok-theirs")
         _web_subscription(other, "https://push.example.com/theirs")

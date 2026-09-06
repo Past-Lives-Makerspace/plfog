@@ -54,19 +54,23 @@ one place. Context: push_device_count (omitted for token-scoped viewers, who get
 
       card.hidden = false;
 
+      // The two states a member cannot fix by pressing a button here.
+      var HELP_TEXT = {
+        blocked: "Open your device settings, find Past Lives, and turn notifications on. Then come back here.",
+        conflict: "This device is still signed up under another member's account. Let us know and we can clear it.",
+      };
+
       function paint(state, message) {
         statusEl.textContent = message;
-        enableBtn.hidden = state !== "off";
+        // "failed" keeps the button so the member can retry; "conflict" does not, because
+        // pressing it would hit the same 409 again.
+        enableBtn.hidden = !(state === "off" || state === "failed");
         disableBtn.hidden = state !== "on";
-        // Blocked has no button worth showing; drop the row so it leaves no empty gap.
+        // Leave no empty gap where a row of buttons would have been.
         actionsEl.hidden = enableBtn.hidden && disableBtn.hidden;
-        if (state === "blocked") {
-          helpEl.textContent =
-            "Open your device settings, find Past Lives, and turn notifications on. Then come back here.";
-          helpEl.hidden = false;
-        } else {
-          helpEl.hidden = true;
-        }
+        var help = HELP_TEXT[state];
+        helpEl.textContent = help || "";
+        helpEl.hidden = !help;
       }
 
       // The honest source of truth is the OS permission plus the member's own opt out.
@@ -76,10 +80,19 @@ one place. Context: push_device_count (omitted for token-scoped viewers, who get
         return api
           .checkPermissions()
           .then(function (status) {
+            // The OS can say granted while the server refused the token, so both are checked
+            // before this claims push is on.
+            var problem = api.registrationProblem();
             if (status.receive === "denied") {
               paint("blocked", "Notifications are blocked for Past Lives on this device.");
             } else if (status.receive === "granted" && !api.isOptedOut()) {
-              paint("on", "Push is on for this device.");
+              if (problem === "conflict") {
+                paint("conflict", "Push is not on for this device.");
+              } else if (problem === "failed") {
+                paint("failed", "Push could not be turned on. Try again in a moment.");
+              } else {
+                paint("on", "Push is on for this device.");
+              }
             } else {
               paint("off", "Push is off on this device.");
             }
@@ -116,6 +129,8 @@ one place. Context: push_device_count (omitted for token-scoped viewers, who get
           });
       });
 
+      // The register round trip usually lands after this first paint; repaint when it does.
+      api.onChange(repaint);
       repaint();
     });
   })();

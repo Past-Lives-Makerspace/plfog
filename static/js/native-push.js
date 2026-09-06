@@ -209,11 +209,50 @@
     }
   }
 
-  bridge.onToken(function (token) {
-    lastToken = token;
-    postJSON("/push/fcm/register/", { token: token, platform: platform }).catch(function (err) {
-      console.error("[native-push] token register failed", err);
+  // Why the server can refuse a token, so the settings card can say so instead of claiming
+  // push is on when nothing can reach the device: null (fine), "conflict" (HTTP 409, the token
+  // is still bound to whoever last used this device and never signed out), or "failed".
+  var registerProblem = null;
+  var changeHandlers = [];
+
+  function notifyChanged() {
+    changeHandlers.forEach(function (cb) {
+      cb();
     });
+  }
+
+  function registerDevice(token) {
+    return postJSON("/push/fcm/register/", { token: token, platform: platform })
+      .then(function (response) {
+        // fetch only rejects on a network failure, so a 409 or a 500 lands here looking like
+        // success. Reading response.ok is the difference between "push is on" and a lie.
+        if (response.ok) {
+          registerProblem = null;
+        } else {
+          registerProblem = response.status === 409 ? "conflict" : "failed";
+          console.error("[native-push] token register rejected", response.status);
+        }
+      })
+      .catch(function (err) {
+        console.error("[native-push] token register failed", err);
+        registerProblem = "failed";
+      })
+      .then(notifyChanged);
+  }
+
+  bridge.onToken(function (token) {
+    // Remember the token even while opted out: it describes the device, not the member's
+    // consent, and the card needs it to unregister exactly this device. The opt-out gates the
+    // side effect below, not this bookkeeping.
+    lastToken = token;
+    if (isOptedOut()) {
+      // iOS replays tokenReceived on every launch (the plugin emits it retainUntilConsumed) and
+      // Android re-fires it whenever the token rotates. Without this gate, a member who turned
+      // push off is silently re-registered the next time they open the app, and the card would
+      // still read "off" while the phone buzzes.
+      return;
+    }
+    registerDevice(token);
   });
 
   bridge.onTokenError(function (err) {
@@ -432,6 +471,18 @@
 
     isOptedOut: isOptedOut,
 
+    // null when the last registration succeeded (or none has run yet), else "conflict" or
+    // "failed". Pair it with checkPermissions: the OS can say granted while the server refused.
+    registrationProblem: function () {
+      return registerProblem;
+    },
+
+    // Registration finishes after the settings card first paints, so the card subscribes here
+    // and repaints when the answer lands.
+    onChange: function (cb) {
+      changeHandlers.push(cb);
+    },
+
     // Clears the opt-out, then runs the normal prompt-and-register path. Resolves to the
     // resulting PermissionStatus, so the caller can repaint from the real OS state.
     enable: function () {
@@ -453,6 +504,7 @@
         }
         setOptedOut(true);
         lastToken = null;
+        registerProblem = null; // whatever the server said about the old row no longer applies
         return true;
       });
     },

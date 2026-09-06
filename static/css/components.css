@@ -367,6 +367,15 @@
     display: none;
 }
 
+/* The `hidden` attribute is ONLY a UA-stylesheet `display: none`, so any author rule that sets
+   display outranks it and the element stays on screen no matter what the script sets. That is
+   real here: `.pl-btn` is `display: inline-flex`, so hiding a button by attribute alone did
+   nothing and both Turn On and Turn Off showed at once. One rule for every descendant the
+   script toggles, so elements added to this card later are covered too. */
+.pl-push-device [hidden] {
+    display: none;
+}
+
 .pl-push-device {
     margin-bottom: 1rem;
 }
@@ -391,16 +400,13 @@
     color: var(--hub-text-muted, #8b97a8);
 }
 
-/* display lives here, not inline, so toggling [hidden] cannot strand a display:flex on it. */
+/* display lives here, not inline, so toggling [hidden] cannot strand a display:flex on it.
+   The card-wide `.pl-push-device [hidden]` rule above is what actually hides it. */
 .pl-push-device__actions {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 1rem;
-}
-
-.pl-push-device__actions[hidden] {
-    display: none;
 }
 
 .pl-push-device__others {
