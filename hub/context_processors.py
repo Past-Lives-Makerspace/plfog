@@ -60,10 +60,12 @@ def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
     the same flag ``teaching_member_required`` reads — so the sidebar offers the entry
     exactly when it opens something. It used to show every active member a "Teach a Class"
     recruiting entry pointing at the orientation explainer, which put a teaching link in
-    front of the whole membership. Someone who wants to start still gets there: the Class
-    Catalog's Manage My Classes button and the guild pages' Teach a Class button both land
-    on the orientation through ``teaching_member_required``, and the Help Center links it
-    directly. It is just no longer permanent sidebar furniture.
+    front of the whole membership. Someone who wants to start still gets there: the Help
+    Center's Teaching guide links ``/classes/teach/orientation/`` directly, and the Class
+    Catalog's classes button and the guild pages' Teach a Class button both land on the
+    orientation through ``teaching_member_required``. (That catalog button reads "Manage My
+    Classes" for a member and "Manage classes" for an admin, so member-facing copy should
+    not name it.) It is just no longer permanent sidebar furniture.
 
     Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
     Instructor *role*, and someone can hold the portal unlock without a slug, which would
