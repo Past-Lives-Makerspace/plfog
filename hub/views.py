@@ -6358,6 +6358,7 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             "member": member,
             "form": form,
             "capabilities_form": cap_form,
+            "instructor_description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
             "notif_matrix": notif_matrix,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,

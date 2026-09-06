@@ -473,6 +473,17 @@ def describe_view_as_instructor_set_endpoint():
         )
 
         assert response.status_code == 403
+        # Distinguishes this gate from the admin-role gate above, which 403s with its own message.
+        assert response.json()["error"] == "No member on this account."
+
+
+def _toggle_input(body: str, handler: str) -> str:
+    """The rendered ``<input>`` tag whose @change calls ``handler`` (e.g. ``setInstructor``)."""
+    import re
+
+    match = re.search(rf"<input[^>]*{handler}\([^>]*>", body, re.S)
+    assert match is not None, f"no toggle input calling {handler}"
+    return match.group(0)
 
 
 @pytest.mark.django_db
@@ -485,10 +496,35 @@ def describe_instructor_toggle_in_hub_template():
 
         assert response.status_code == 200
         body = response.content.decode()
-        assert "Gives you a public instructor page" in body
+        assert Member.INSTRUCTOR_PERMISSION_DESCRIPTION in body
         instructor_header = '<div class="pl-view-as-popover__header">Instructor</div>'
         duties_header = '<div class="pl-view-as-popover__header">Your admin duties</div>'
         assert body.index(instructor_header) < body.index(duties_header)
+
+    def it_renders_the_toggles_unchecked_for_permissions_the_admin_does_not_hold(client):
+        user, _ = _make_user_member(Member.FogRole.ADMIN, username="tmpl_inst_unchecked")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        # `checked` also appears inside the @change expression, so match the attribute position.
+        assert 'type="checkbox" checked' not in _toggle_input(body, "setInstructor")
+        assert 'type="checkbox" checked' not in _toggle_input(body, "setCapability")
+
+    def it_renders_the_toggles_checked_for_permissions_the_admin_holds(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="tmpl_inst_checked")
+        member.grant_instructor(granted_by=member)
+        member.admin_capabilities.create(capability="class_approver")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert 'type="checkbox" checked' in _toggle_input(body, "setInstructor")
+        assert 'type="checkbox" checked' in _toggle_input(body, "setCapability")
 
     def it_omits_the_instructor_toggle_for_a_non_admin_who_still_sees_the_dropdown(client):
         user, _ = _make_user_member(Member.FogRole.GUILD_OFFICER, username="tmpl_inst_officer")
@@ -498,7 +534,7 @@ def describe_instructor_toggle_in_hub_template():
 
         assert response.status_code == 200
         assert b"pl-view-as-popover" in response.content
-        assert b"Gives you a public instructor page" not in response.content
+        assert Member.INSTRUCTOR_PERMISSION_DESCRIPTION not in response.content.decode()
 
     def it_renders_a_help_tooltip_for_every_permission(client):
         from django.utils.html import escape

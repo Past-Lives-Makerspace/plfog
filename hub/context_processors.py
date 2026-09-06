@@ -116,18 +116,13 @@ def _instructor_row(request: HttpRequest, member: Member | None) -> dict[str, An
     (a view-as preview can't unlock it), and flipping it is a REAL grant on their own member,
     not a preview. Mirrors the member edit Permissions tab, where Instructor is one unified
     permission sitting above the admin capabilities — so the dropdown puts it in the same
-    place, above the duty toggles.
+    place, above the duty toggles, and shows the same shared
+    ``Member.INSTRUCTOR_PERMISSION_DESCRIPTION`` copy that page does.
     """
     view_as = getattr(request, "view_as", None)
     if member is None or view_as is None or not view_as.actual_is_admin:
         return None
-    return {
-        "checked": member.is_instructor,
-        "description": (
-            "Gives you a public instructor page and lets you create your own classes. "
-            "Turning it off removes both (your existing classes are untouched)."
-        ),
-    }
+    return {"checked": member.is_instructor, "description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION}
 
 
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
