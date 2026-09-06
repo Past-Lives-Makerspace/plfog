@@ -471,13 +471,44 @@
                     {% endfor %}
                     <div class="pl-view-as-popover__hint">Preview the hub as a different role. Session-only.</div>
                     {% if request.view_as.actual_is_admin %}
-                    {# Real self-service capability grants (not a preview) — admin-only. #}
+                    {% comment %}
+                    Real self-service permission grants (not a preview) — admin-only. Instructor sits
+                    above the admin duties, the same order as the member edit Permissions tab.
+                    {% endcomment %}
+                    {% if view_as_instructor %}
+                    <div class="pl-view-as-popover__duties">
+                        <div class="pl-view-as-popover__header">Instructor</div>
+                        <div class="pl-toggle-row pl-view-as-popover__duty">
+                            <div class="pl-toggle-info">
+                                <div class="pl-toggle-label">
+                                    Instructor
+                                    <span class="pl-help">
+                                        <span class="pl-help__icon" tabindex="0" role="img" aria-label="Instructor: {{ view_as_instructor.description }}">?</span>
+                                        <span class="pl-help__bubble">{{ view_as_instructor.description }}</span>
+                                    </span>
+                                </div>
+                            </div>
+                            <label class="pl-toggle">
+                                <input type="checkbox" {% if view_as_instructor.checked %}checked{% endif %}
+                                       @change="setInstructor($event.target.checked, $event.target)"
+                                       aria-label="Instructor">
+                                <span class="pl-toggle__slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    {% endif %}
                     <div class="pl-view-as-popover__duties">
                         <div class="pl-view-as-popover__header">Your admin duties</div>
                         {% for cap in view_as_capabilities %}
                         <div class="pl-toggle-row pl-view-as-popover__duty">
                             <div class="pl-toggle-info">
-                                <div class="pl-toggle-label">{{ cap.label }}</div>
+                                <div class="pl-toggle-label">
+                                    {{ cap.label }}
+                                    <span class="pl-help">
+                                        <span class="pl-help__icon" tabindex="0" role="img" aria-label="{{ cap.label }}: {{ cap.description }}">?</span>
+                                        <span class="pl-help__bubble">{{ cap.description }}</span>
+                                    </span>
+                                </div>
                             </div>
                             <label class="pl-toggle">
                                 <input type="checkbox" {% if cap.checked %}checked{% endif %}
@@ -487,7 +518,7 @@
                             </label>
                         </div>
                         {% endfor %}
-                        <div class="pl-view-as-popover__hint">Grant or revoke your own admin duties (real changes, applied right away).</div>
+                        <div class="pl-view-as-popover__hint">Grant or revoke your own permissions (real changes, applied right away).</div>
                     </div>
                     {% endif %}
                 </div>
@@ -649,6 +680,25 @@
                     });
                     if (response.ok) {
                         // Reload so nav/sidebar a capability unlocks (e.g. the Payments dashboard) refreshes.
+                        window.location.reload();
+                    } else if (el) {
+                        // Revert the toggle so it never lies about the real grant state.
+                        el.checked = !enabled;
+                    }
+                },
+                async setInstructor(enabled, el) {
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+                        || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1];
+                    const response = await fetch("{% url 'hub_view_as_instructor_set' %}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": csrfToken || "",
+                        },
+                        body: JSON.stringify({ enabled }),
+                    });
+                    if (response.ok) {
+                        // Reload so the Teaching sidebar entry appears or disappears with the grant.
                         window.location.reload();
                     } else if (el) {
                         // Revert the toggle so it never lies about the real grant state.

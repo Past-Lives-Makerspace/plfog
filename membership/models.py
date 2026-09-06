@@ -2433,6 +2433,30 @@ class AdminCapability(models.Model):
         REFUNDS = "refunds", "Refunds"
         EQUIPMENT = "equipment", "Equipment Administrator"
 
+    #: What each duty actually does, in one plain sentence — the SINGLE source of the
+    #: human explanation. The member edit Permissions tab reads it for its toggle help
+    #: text (``hub.forms.MemberCapabilitiesForm``) and the "View As" dropdown reads it
+    #: for the "?" tooltip beside each of an admin's own duties, so the two can never
+    #: drift. Worded in the third person ("the holder") to read correctly whether the
+    #: reader is granting a duty to someone else or to themselves.
+    DESCRIPTIONS: dict[str, str] = {
+        Capability.CLASS_APPROVER: "Approves and publishes classes for every guild, and gets class-review emails.",
+        Capability.SPACE_APPROVER: "Reviews space and cubby requests, and gets those request emails.",
+        Capability.DISCOUNT_APPROVER: "Approves discount codes, and gets discount-request emails.",
+        Capability.EVENTS_APPROVER: "Reviews Calendar and meeting proposals, and gets those emails.",
+        Capability.BILLING_APPROVER: (
+            "Sees the admin Payments dashboard and gets an alert when a member's automatic payment fails."
+        ),
+        Capability.REFUNDS: (
+            "Sends Stripe refunds for class and orientation payments. Adds Refund buttons to payment pages "
+            "the holder can already reach. It does not open any new pages, so pair it with Billing "
+            "Administrator for the Payments panel."
+        ),
+        Capability.EQUIPMENT: (
+            "Adds new equipment and manages every tool site-wide, including its details, staff, orientations, and hours."
+        ),
+    }
+
     member = models.ForeignKey(
         Member,
         on_delete=models.CASCADE,

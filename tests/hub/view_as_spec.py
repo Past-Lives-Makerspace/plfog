@@ -360,3 +360,158 @@ def describe_dropdown_in_hub_template():
         assert response.status_code == 200
         assert b"pl-view-as-popover" in response.content
         assert b"Your admin duties" not in response.content
+
+
+@pytest.mark.django_db
+def describe_view_as_instructor_set_endpoint():
+    def it_lets_an_admin_grant_their_own_instructor_permission(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="inst_grant")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        member.refresh_from_db()
+        assert member.is_instructor is True
+        assert member.can_create_classes is True
+
+    def it_lets_an_admin_revoke_their_own_instructor_permission(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="inst_revoke")
+        member.grant_instructor(granted_by=member)
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"enabled": False}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        member.refresh_from_db()
+        assert member.is_instructor is False
+        assert member.can_create_classes is False
+
+    def it_rejects_a_non_admin_member_and_grants_nothing(client):
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="inst_attacker")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        member.refresh_from_db()
+        assert member.is_instructor is False
+
+    def it_does_not_let_a_view_as_admin_preview_escalate_a_non_admin(client):
+        # The gate reads the ACTUAL role, so a crafted session preview grants nothing.
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="inst_preview")
+        client.login(username=user.username, password="p")
+        session = client.session
+        session["view_as_role"] = "admin"
+        session.save()
+
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+        member.refresh_from_db()
+        assert member.is_instructor is False
+
+    def it_rejects_a_body_with_no_enabled_flag(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="inst_bad")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"nope": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        member.refresh_from_db()
+        assert member.is_instructor is False
+
+    def it_only_touches_the_callers_own_member(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="inst_self")
+        _, other_member = _make_user_member(Member.FogRole.ADMIN, username="inst_other")
+        client.login(username=user.username, password="p")
+
+        # A smuggled target member id must be ignored — only the caller's own member changes.
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"enabled": True, "member": other_member.pk}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        member.refresh_from_db()
+        other_member.refresh_from_db()
+        assert member.is_instructor is True
+        assert other_member.is_instructor is False
+
+    def it_403s_an_admin_user_with_no_linked_member(client):
+        user, member = _make_user_member(Member.FogRole.ADMIN, username="inst_nomember")
+        user.is_superuser = True  # keeps the admin role once the Member row is gone
+        user.save(update_fields=["is_superuser"])
+        member.delete()
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/instructor/set/",
+            data=json.dumps({"enabled": True}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def describe_instructor_toggle_in_hub_template():
+    def it_renders_the_instructor_toggle_above_the_admin_duties(client):
+        user, _ = _make_user_member(Member.FogRole.ADMIN, username="tmpl_inst_admin")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "Gives you a public instructor page" in body
+        instructor_header = '<div class="pl-view-as-popover__header">Instructor</div>'
+        duties_header = '<div class="pl-view-as-popover__header">Your admin duties</div>'
+        assert body.index(instructor_header) < body.index(duties_header)
+
+    def it_omits_the_instructor_toggle_for_a_non_admin_who_still_sees_the_dropdown(client):
+        user, _ = _make_user_member(Member.FogRole.GUILD_OFFICER, username="tmpl_inst_officer")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        assert b"pl-view-as-popover" in response.content
+        assert b"Gives you a public instructor page" not in response.content
+
+    def it_renders_a_help_tooltip_for_every_permission(client):
+        from django.utils.html import escape
+
+        from membership.models import AdminCapability
+
+        user, _ = _make_user_member(Member.FogRole.ADMIN, username="tmpl_cap_tips")
+        client.login(username=user.username, password="p")
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
+        body = response.content.decode()
+        for description in AdminCapability.DESCRIPTIONS.values():
+            bubble = f'<span class="pl-help__bubble">{escape(description)}</span>'
+            assert bubble in body, f"missing tooltip copy: {description}"
