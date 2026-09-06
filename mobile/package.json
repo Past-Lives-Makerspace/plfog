@@ -17,7 +17,8 @@
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",
     "@capacitor/ios": "^8.4.1",
-    "@capacitor/push-notifications": "^8.1.2"
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capgo/capacitor-native-biometric": "^8.6.7"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

@@ -17,7 +17,8 @@
     {% include "includes/google_analytics.html" %}
     {% block extra_head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
+{# Read by static/js/biometric-auth.js: the offer prompt is only for a signed-in member. #}
+<body class="{% block body_class %}{% endblock %}" data-pl-authenticated="{% if user.is_authenticated %}1{% else %}0{% endif %}">
     <a href="#main-content" class="skip-link">Skip to main content</a>
     <header class="site-header">
         <nav class="site-nav" aria-label="Main navigation">
@@ -60,6 +61,11 @@
       }
     </script>
     <script src="{% static 'js/native-push.js' %}" defer></script>
+    {% comment %}Biometric sign in for the native app. Loaded here for the login page (the
+    unlock button lives there) and again from hub/base.html, which is a separate document
+    rather than a child of this one. The file no-ops in a browser and in any app build that
+    does not carry the plugin, and guards against running twice.{% endcomment %}
+    <script src="{% static 'js/biometric-auth.js' %}" defer></script>
 
 </body>
 </html>

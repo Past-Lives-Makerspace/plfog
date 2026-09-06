@@ -1448,3 +1448,91 @@
     color: #96ACBB;
     padding: 2rem;
 }
+
+/* "Signed In Devices" card on the settings Account tab — the phones that can sign a member
+   in with a face or a fingerprint. The list itself is server rendered and shows on the web
+   too, so a member can kill a lost phone's access from a laptop. Only the app-only block
+   inside it is revealed by static/js/biometric-auth.js. */
+.pl-biometric-devices {
+    margin-bottom: 1.5rem;
+}
+
+/* The `hidden` attribute is only a UA-stylesheet `display:none`, so any author rule that
+   sets display outranks it and the element stays on screen whatever the script does. That
+   is real here: `.pl-btn` is `display:inline-flex`, so the "Turn on ..." button would show
+   on every device. One rule for every descendant the script toggles. */
+.pl-biometric-devices [hidden] {
+    display: none;
+}
+
+.pl-biometric-devices__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+}
+
+.pl-biometric-devices__intro {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+}
+
+.pl-biometric-devices__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.pl-biometric-devices__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--hub-surface, rgba(255, 255, 255, 0.04));
+}
+
+.pl-biometric-devices__row + .pl-biometric-devices__row {
+    margin-top: 0.5rem;
+}
+
+.pl-biometric-devices__device {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.pl-biometric-devices__name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--hub-text, #F4EFDD);
+    overflow-wrap: anywhere; /* device_label is member typed and can be one long word */
+}
+
+.pl-biometric-devices__meta {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted, #8b97a8);
+}
+
+.pl-biometric-devices__empty {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+/* display lives here, not inline, so toggling [hidden] cannot strand a display:flex on it.
+   The card-wide `.pl-biometric-devices [hidden]` rule above is what actually hides it. */
+.pl-biometric-devices__app {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.pl-biometric-devices__note {
+    margin: 0;
+    font-size: 0.85rem;
+}

@@ -31,7 +31,7 @@ from django.views.decorators.http import require_POST, require_http_methods
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.models import Category, ClassOffering
-from core.models import HeroCropMixin, SiteConfiguration
+from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     BetaFeedbackForm,
@@ -2728,6 +2728,7 @@ def user_settings(request: HttpRequest) -> HttpResponse:
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
             "push_device_count": push_device_count(user),
+            "biometric_credentials": list(BiometricCredential.objects.active_for(user)),
             "tours_form": tours_form,
             "my_guilds_rows": build_my_guilds_rows(member),
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
@@ -2972,6 +2973,27 @@ def guild_banner_delete(request: HttpRequest, pk: int) -> HttpResponse:
         guild.banner_image.delete(save=True)
         messages.success(request, "Banner removed.")
     return redirect("hub_guild_detail", slug=guild.slug)
+
+
+@login_required
+@require_POST
+def biometric_revoke(request: HttpRequest, pk: int) -> HttpResponse:
+    """Revoke one of the caller's biometric credentials from the settings card (HTMX).
+
+    Scoped to ``request.user``: the lookup itself is the authorization, so there is no way
+    to aim this at somebody else's phone. Returns the re-rendered card so the revoked row
+    disappears, plus a toast saying what that phone will do next.
+    """
+    user = cast(User, request.user)
+    credential = get_object_or_404(BiometricCredential, pk=pk, user=user)
+    BiometricCredential.objects.revoke(credential)
+    response = render(
+        request,
+        "hub/partials/_biometric_devices.html",
+        {"biometric_credentials": list(BiometricCredential.objects.active_for(user))},
+    )
+    trigger_toast(response, "That phone will ask for an emailed code next time.", "success")
+    return response
 
 
 @login_required

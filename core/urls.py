@@ -36,6 +36,11 @@ urlpatterns = [
     # Native (Capacitor/FCM) push endpoints
     path("push/fcm/register/", views.fcm_register, name="fcm_register"),
     path("push/fcm/unregister/", views.fcm_unregister, name="fcm_unregister"),
+    # Biometric login for the native app. `unlock` is the only csrf-exempt one of the
+    # three, and only because its caller has no session yet — see the view's comment.
+    path("accounts/biometric/enroll/", views.biometric_enroll, name="biometric_enroll"),
+    path("accounts/biometric/unlock/", views.biometric_unlock, name="biometric_unlock"),
+    path("accounts/biometric/disable/", views.biometric_disable, name="biometric_disable"),
     # Staff activity dashboard
     path("manage/activity/", views.site_activity, name="manage_activity"),
     # Member notifications page

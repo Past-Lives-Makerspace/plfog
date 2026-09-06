@@ -21,13 +21,15 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>4</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Past Lives uses the camera so you can take a profile photo.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Past Lives uses Face ID so you can sign in without waiting for an emailed code.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Past Lives lets you choose a profile photo from your library.</string>
 	<key>UIBackgroundModes</key>

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import dj_database_url
 import sentry_sdk
+from sentry_sdk.scrubber import EventScrubber
 from django.templatetags.static import static
 from django.urls import reverse_lazy
 
@@ -19,6 +20,12 @@ if SENTRY_DSN:
         environment="development" if os.environ.get("DJANGO_DEBUG", "True").lower() == "true" else "production",
         traces_sample_rate=0.1,
         send_default_pii=True,
+        # recursive=True because the default scrubber only walks the TOP level of a frame's
+        # locals. The biometric views keep the parsed request body in a local called `data`,
+        # and `data["secret"]` is a live bearer token at the moment a 500 is raised (the
+        # rotation has not committed yet). Naming the flat locals `secret` is not enough on
+        # its own: the nested copy rides along untouched unless the scrubber recurses.
+        event_scrubber=EventScrubber(recursive=True),
     )
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")

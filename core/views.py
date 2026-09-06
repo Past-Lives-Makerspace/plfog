@@ -3,12 +3,15 @@
 import json
 import logging
 from pathlib import Path
+from typing import cast
 
 from django.conf import settings
 from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -394,6 +397,256 @@ def fcm_unregister(request):
     except Exception:
         logger.exception("FCM device unregistration failed")
         return JsonResponse({"error": "Unregistration failed. Please try again."}, status=500)
+
+
+# ── Biometric login ───────────────────────────────────────────────────────────
+# The app stores a rotating secret in the Keychain/Keystore behind Face ID or a
+# fingerprint and trades it for a session. All of the logic is in
+# core.models.BiometricCredentialManager; these views parse, call it, and answer.
+
+_BIOMETRIC_UNLOCK_SCOPE = "biometric_unlock"
+# These caps are a COST bound, not a guessing defense. Guessing is already hopeless: the
+# secret is BIOMETRIC_SECRET_BYTES of urlsafe entropy, so no achievable number of tries
+# moves the needle. What the cap actually buys is a ceiling on how much work one address
+# can make the server do (see the limiter's real cost, below).
+#
+# So they are set where a shared connection cannot trip them. Every member on the shop
+# wifi leaves through ONE egress address, and an enrolled phone spends a slot each time the
+# app is opened signed out, so a cap tuned to one person's usage silently disables
+# biometric sign in for everyone behind that NAT for the rest of the day. These numbers are
+# far above a whole makerspace's daily app opens and far below anything that costs us.
+_BIOMETRIC_UNLOCK_HOURLY_LIMIT = 240
+_BIOMETRIC_UNLOCK_DAILY_LIMIT = 2000
+
+# One message for every unlock failure. Saying which secrets exist would help an attacker.
+# Platform neutral on purpose: an Android member unlocks with a fingerprint, not Face ID.
+_BIOMETRIC_UNLOCK_FAILED = "We could not sign you in. Use an emailed code instead."
+
+# A forwarded-for entry is an IP, so anything longer is junk; bound it before it becomes a
+# cache key.
+_RATE_LIMIT_KEY_MAX_CHARS = 64
+
+
+def _rate_limit_key(request: HttpRequest) -> str:
+    """The address to rate limit an unauthenticated caller by.
+
+    Deliberately NOT the leftmost ``X-Forwarded-For`` entry, which is what a "client IP"
+    helper normally reaches for (``classes.views._client_ip`` included). Proxies APPEND to
+    that header, so the leftmost value is whatever the client chose to send. On an
+    unauthenticated, csrf-exempt endpoint that makes the rate-limit key itself attacker
+    controlled: rotate one header value per request and every attempt lands in a fresh
+    bucket, so the cap never applies to the one caller it exists to bound.
+
+    ``CF-Connecting-IP`` is preferred because production is Cloudflare in front of Render
+    (a response carries both ``server: cloudflare`` and ``x-render-origin-server``). That is
+    TWO proxies, so the rightmost forwarded entry is Render's view of *Cloudflare*, not of
+    the member: keying on it would collapse every caller into one bucket, and a single
+    attacker could then spend the whole day's allowance and disable biometric unlock for
+    everybody. Cloudflare overwrites ``CF-Connecting-IP`` on every request it forwards, so a
+    client cannot dictate it.
+
+    The fallbacks are the rightmost forwarded entry (one proxy, appended by it) and then
+    ``REMOTE_ADDR`` (a direct connection: local dev and tests).
+
+    Known gap, accepted: someone who reaches the Render origin directly, bypassing
+    Cloudflare, can send any ``CF-Connecting-IP`` they like. That is no weaker than the
+    leftmost-entry behavior this replaced, it requires knowing the origin address, and the
+    cap is a cost ceiling rather than a defense against guessing the secret, which has 384
+    bits behind it.
+
+    This keys on one address, so everyone behind a single NAT shares a bucket, which is why
+    the caps above are sized for a whole makerspace on one connection.
+    """
+    connecting = request.META.get("HTTP_CF_CONNECTING_IP", "").strip()
+    if connecting:
+        return connecting[:_RATE_LIMIT_KEY_MAX_CHARS]
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        return forwarded.rsplit(",", 1)[-1].strip()[:_RATE_LIMIT_KEY_MAX_CHARS]
+    return request.META.get("REMOTE_ADDR", "")
+
+
+@require_POST
+@login_required
+def biometric_enroll(request: HttpRequest) -> JsonResponse:
+    """Mint a biometric credential for the caller's device and return its raw secret.
+
+    Being logged in IS the security boundary here: the secret is handed only to a session
+    that has already proved who it belongs to with an emailed login code.
+
+    Expects JSON body with: device_label, and optional platform (defaults to android).
+    Returns ``{"secret": ..., "credential_id": ...}``. The secret is returned exactly once
+    and is never stored. The id is not a secret and buys nothing on its own — it exists so
+    the app can revoke THIS device on logout without reading the secret back out of the
+    Keychain, which would mean a Face ID prompt in the middle of signing out.
+    """
+    from core.models import BiometricCredential
+
+    try:
+        data = json.loads(request.body)
+        device_label = str(data.get("device_label", "")).strip()
+        platform = data.get("platform", BiometricCredential.Platform.ANDROID)
+
+        if not device_label:
+            return JsonResponse({"error": "Missing device label"}, status=400)
+        if platform not in BiometricCredential.Platform.values:
+            return JsonResponse({"error": "Invalid platform"}, status=400)
+
+        # The label is client-supplied cosmetic text shown back to the member. Trim it to
+        # the column width rather than 500ing on an over-long one; it is escaped on render.
+        credential, secret = BiometricCredential.objects.issue(
+            cast(User, request.user), device_label=device_label[:120], platform=platform
+        )
+        return JsonResponse({"secret": secret, "credential_id": credential.pk})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("Biometric enrollment failed")
+        return JsonResponse({"error": "Enrollment failed. Please try again."}, status=500)
+
+
+@csrf_exempt
+@require_POST
+def biometric_unlock(request: HttpRequest) -> JsonResponse:
+    """Trade a biometric secret for a session, and hand back the rotated replacement.
+
+    ``csrf_exempt`` is deliberate here, and it is the ONLY endpoint in this feature that
+    gets it. The caller has no session yet — that is the whole point of unlocking — so it
+    may have no CSRF cookie to send. Enroll and disable both keep CSRF, because both ride
+    on an existing session cookie.
+
+    Dropping CSRF here gives up two different things, and only one of them is harmless:
+
+    * **Forging a request with the victim's authority** — not a risk. The request carries
+      no ambient credential; its authority is entirely the secret in the body, which a
+      cross-site attacker can neither read nor guess.
+    * **Login CSRF** — a real risk, and the reason for the content-type check below. An
+      attacker who posts THEIR OWN secret from a page the victim visits can silently sign
+      the victim's browser into the ATTACKER's account, and then watch whatever the victim
+      does there. A plain HTML form can only send urlencoded, multipart, or text/plain
+      bodies, and this view parses JSON from any of them, so ``enctype="text/plain"`` would
+      otherwise carry the attack with no script at all. Requiring ``application/json``
+      closes it: a form cannot produce that content type, and a cross-origin ``fetch`` that
+      sets it becomes preflighted — and nothing in this project answers a CORS preflight.
+
+    Expects a JSON body (``Content-Type: application/json``) with: secret.
+    Returns ``{"ok": true, "secret": <new secret>}``.
+    """
+    from core.abuse_limits import record_keyed_attempt
+    from core.models import BiometricCredential, InvalidBiometricCredential
+
+    # Login-CSRF guard, checked before the limiter so a cross-site form cannot even spend
+    # the victim's rate budget. See the content-type reasoning in the docstring.
+    if request.content_type != "application/json":
+        return JsonResponse({"error": "Expected a JSON body."}, status=415)
+
+    # Counted before the credential lookup, so a flood stops at a bounded cost instead of
+    # reaching the credential table.
+    #
+    # "Bounded", not "free": production CACHES.default is DatabaseCache, so this limiter is
+    # itself several database round trips, and a refused attempt still pays them. That is
+    # the honest cost, and it is why the key must not be attacker controlled — see
+    # _rate_limit_key. DatabaseCache also has no atomic incr (it inherits BaseCache's
+    # get-then-set), so simultaneous attempts can undercount and the cap can overshoot
+    # under concurrency. Acceptable here because the cap is a cost ceiling rather than a
+    # guessing defense, and overshooting a generous ceiling by a few requests changes
+    # nothing. It would NOT be acceptable for a limiter guarding something guessable.
+    rate_key = _rate_limit_key(request)
+    allowed, reason = record_keyed_attempt(
+        _BIOMETRIC_UNLOCK_SCOPE,
+        rate_key,
+        hourly_limit=_BIOMETRIC_UNLOCK_HOURLY_LIMIT,
+        daily_limit=_BIOMETRIC_UNLOCK_DAILY_LIMIT,
+    )
+    if not allowed:
+        logger.warning("Biometric unlock rate limited (%s) for ip=%s", reason, rate_key)
+        return JsonResponse({"error": "Too many tries. Sign in with an emailed code."}, status=429)
+
+    try:
+        data = json.loads(request.body)
+        secret = data.get("secret")
+
+        if not secret:
+            return JsonResponse({"error": "Missing secret"}, status=400)
+
+        try:
+            # Rebound onto `secret` on purpose, rather than a `new_secret` local. Sentry
+            # runs with send_default_pii=True and redacts frame locals by exact key match
+            # against a denylist that contains "secret" and nothing like "new_secret", so a
+            # more descriptive name here would ship a live bearer token with any 500 raised
+            # below (login() included). See the naming note in core/models.py.
+            user, secret = BiometricCredential.objects.redeem(secret)
+        except InvalidBiometricCredential:
+            return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
+
+        # login() does not check is_active — only authenticate() does, and this path skips
+        # it. A deleted account keeps its User row (deactivated), so without this a stale
+        # credential would sign a locked-out member back in.
+        if not user.is_active:
+            BiometricCredential.objects.revoke_all(user)
+            logger.warning("Biometric unlock refused for inactive user pk=%s; credentials revoked.", user.pk)
+            return JsonResponse({"error": _BIOMETRIC_UNLOCK_FAILED}, status=401)
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return JsonResponse({"ok": True, "secret": secret})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("Biometric unlock failed")
+        return JsonResponse({"error": "Sign in failed. Please try again."}, status=500)
+
+
+@require_POST
+@login_required
+def biometric_disable(request: HttpRequest) -> JsonResponse:
+    """Revoke the caller's biometric credentials — one device, or all of them.
+
+    Expects a JSON body with either ``secret`` or ``credential_id`` to revoke just that one
+    device. An empty body revokes every credential on the account.
+
+    ``credential_id`` is what app logout uses. Revoking by secret would mean reading the
+    secret back out of the Keychain, which raises a Face ID prompt in the middle of signing
+    out; revoking everything would kill the member's other phone at the same time. The id
+    is not a secret, and every lookup here is scoped to the caller, so it grants nothing.
+
+    Silent success when nothing matches, matching :func:`fcm_unregister`: the caller's goal
+    (that credential no longer works) is already true, and saying otherwise would confirm
+    which secrets and ids exist.
+    """
+    from core.models import BiometricCredential, hash_biometric_secret
+
+    try:
+        data = json.loads(request.body) if request.body else {}
+        secret = data.get("secret", "")
+        credential_id = data.get("credential_id")
+
+        user = cast(User, request.user)
+        # Scoped to the caller in every branch: neither a secret nor an id belonging to
+        # someone else may be revocable by whoever happens to be logged in.
+        owned = BiometricCredential.objects.filter(user=user)
+
+        if secret:
+            # Matched against the superseded hash too, so a logout still lands when the app
+            # is holding a secret whose rotation reply never arrived.
+            digest = hash_biometric_secret(secret)
+            credential = owned.filter(Q(secret_hash=digest) | Q(previous_secret_hash=digest)).first()
+        elif credential_id is not None:
+            credential = owned.filter(pk=credential_id).first()
+        else:
+            BiometricCredential.objects.revoke_all(user)
+            return JsonResponse({"success": True})
+
+        if credential is not None:
+            BiometricCredential.objects.revoke(credential)
+        return JsonResponse({"success": True})
+
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+    except Exception:
+        logger.exception("Biometric disable failed")
+        return JsonResponse({"error": "We could not turn that off. Please try again."}, status=500)
 
 
 @staff_member_required

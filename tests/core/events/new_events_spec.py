@@ -20,6 +20,7 @@ from core.events.emit import emit
 from core.events.registry import Channel, Recipients, get_event
 from core.models import EventDelivery, Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
 from membership.models import GuildAnnouncement
+from plfog.version import CHANGELOG
 from tests.membership.factories import (
     GuildFactory,
     GuildMembershipFactory,
@@ -243,15 +244,22 @@ def describe_voting_results_published():
 
 
 def describe_release_published():
+    # These test the announce FAN OUT, not how a version is resolved. Calling the command bare
+    # makes them depend on VERSION happening to have a CHANGELOG entry, and a release that
+    # carries nothing member-facing legitimately has none (see CLAUDE.md) - which turned this
+    # block red on main the moment a test-only PR bumped VERSION. Pinning to the newest entry
+    # keeps the subject under test the fan out, and never goes stale.
+    announced_version = str(CHANGELOG[0]["version"])
+
     def it_announces_to_everyone_with_a_login(linked_member):
         member = linked_member()
-        call_command("announce_release")
+        call_command("announce_release", release_version=announced_version)
         assert Notification.objects.filter(trigger="release.published", user=member.user).exists()
 
     def it_is_idempotent_per_version(linked_member):
         linked_member()
-        call_command("announce_release")
-        call_command("announce_release")  # second run for the same version must no-op
+        call_command("announce_release", release_version=announced_version)
+        call_command("announce_release", release_version=announced_version)  # same version must no-op
         assert EventDelivery.objects.filter(event_key="release.published", channel="in_app").count() == 1
 
     def it_honors_email_opt_out(linked_member):
@@ -260,7 +268,7 @@ def describe_release_published():
         NotificationPreference.objects.create(
             user=opted_out.user, event_key="release.published", channel="email", enabled=False
         )
-        call_command("announce_release")
+        call_command("announce_release", release_version=announced_version)
         emailed = set(TransactionalEmailLog.objects.values_list("to_email", flat=True))
         assert default_member.user.email in emailed
         assert opted_out.user.email not in emailed

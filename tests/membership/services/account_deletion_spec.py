@@ -20,6 +20,7 @@ from django.utils import timezone
 from PIL import Image
 
 from core.models import (
+    BiometricCredential,
     FcmDevice,
     Invite,
     Notification,
@@ -279,6 +280,29 @@ def describe_delete_own_account():
         assert not FcmDevice.objects.filter(user=user).exists()
         assert not Notification.objects.filter(user=user).exists()
         assert not NotificationPreference.objects.filter(user=user).exists()
+
+    def it_deletes_every_biometric_credential():
+        """A credential left behind is a live key to a deleted member's account."""
+        member = _linked_member()
+        user = member.user
+        BiometricCredential.objects.issue(user, device_label="iPhone", platform=BiometricCredential.Platform.IOS)
+        BiometricCredential.objects.issue(user, device_label="iPad", platform=BiometricCredential.Platform.IOS)
+
+        delete_own_account(member)
+
+        assert not BiometricCredential.objects.filter(user=user).exists()
+
+    def it_leaves_another_members_biometric_credential_alone():
+        member = _linked_member()
+        bystander = _linked_member()
+        BiometricCredential.objects.issue(member.user, device_label="iPhone", platform=BiometricCredential.Platform.IOS)
+        BiometricCredential.objects.issue(
+            bystander.user, device_label="Pixel", platform=BiometricCredential.Platform.ANDROID
+        )
+
+        delete_own_account(member)
+
+        assert BiometricCredential.objects.filter(user=bystander.user).count() == 1
 
     def describe_user_profile():
         def it_clears_the_user_profile_pii():
