@@ -95,13 +95,30 @@ def describe_manage_classes():
         assert f'href="{reverse("classes:admin_overview")}"' in html
 
     def it_is_absent_from_admin_tools_for_a_non_admin(plain_user, client):
-        # An instructor reaches Admin Tools for its own cards and must not see this one.
-        # Match the card's href, not the bare path: base.html carries "/classes/admin/"
-        # as a literal in the Class Catalog active-state check.
-        _unlock(plain_user)
+        """An instructor reaches Admin Tools for its own cards and must not see this one.
+
+        Assert we actually LANDED on Admin Tools: _can_use_admin_tools admits on
+        is_instructor, not on can_create_classes, so unlocking teaching alone is bounced
+        home and the absence assertion would pass against the wrong page.
+
+        Match the card's href, not the bare path: base.html carries "/classes/admin/" as a
+        literal in the Class Catalog active-state check.
+        """
+        member = _unlock(plain_user)
+        member.instructor_slug = "sidebar-instructor"
+        member.save(update_fields=["instructor_slug"])
         client.force_login(plain_user)
-        html = client.get(reverse("hub_admin_tools"), follow=True).content.decode()
+        response = client.get(reverse("hub_admin_tools"))
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "pl-tool-card" in html  # we are on Admin Tools, and it rendered cards
         assert f'href="{reverse("classes:admin_overview")}"' not in html
+
+    def it_bounces_a_member_with_no_elevated_access_off_admin_tools(plain_user, client):
+        client.force_login(plain_user)
+        response = client.get(reverse("hub_admin_tools"))
+        assert response.status_code == 302
+        assert response["Location"] == reverse("hub_home")
 
 
 def describe_active_states():
@@ -125,6 +142,34 @@ def describe_active_states():
         nav = html[start : html.index("</nav>", start)]
         catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
         assert "active" not in catalog
+
+    def it_lights_class_catalog_for_a_locked_member_on_the_orientation(plain_user, client):
+        # No Teaching entry to light, so the catalog reclaims the teaching portal rather
+        # than leaving the whole sidebar dark.
+        client.force_login(plain_user)
+        html = client.get(reverse("classes:teach_orientation")).content.decode()
+        start = html.index('aria-label="Hub navigation"')
+        nav = html[start : html.index("</nav>", start)]
+        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        assert "active" in catalog
+
+    def it_leaves_class_catalog_dark_for_an_instructor_on_the_portal(plain_user, client):
+        _unlock(plain_user)
+        client.force_login(plain_user)
+        html = client.get(reverse("classes:teach_overview")).content.decode()
+        start = html.index('aria-label="Hub navigation"')
+        nav = html[start : html.index("</nav>", start)]
+        catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
+        assert "active" not in catalog
+
+    def it_lights_admin_tools_on_the_class_admin(admin_user, client):
+        # Manage Classes is one of its cards now, so the class admin belongs to it.
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_overview")).content.decode()
+        start = html.index('aria-label="Hub navigation"')
+        nav = html[start : html.index("</nav>", start)]
+        tools = nav[nav.index(reverse("hub_admin_tools")) - 120 : nav.index("Admin Tools")]
+        assert "active" in tools
 
     def it_lights_class_catalog_on_the_catalog(plain_user, client):
         client.force_login(plain_user)

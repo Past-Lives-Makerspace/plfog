@@ -11,7 +11,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "A tidier sidebar",
         "changes": [
             "Teaching now appears in the sidebar only if you are set up to teach. "
-            "Want to start? The instructor orientation is linked from the Class Catalog and the Help Center.",
+            "Want to start? Open Manage My Classes from the Class Catalog and it walks you "
+            "through the instructor orientation.",
             "Manage Classes moved from the sidebar to Admin Tools, where the other staff tools live.",
         ],
     },
@@ -30,7 +31,6 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "date": "2026-09-05",
         "title": "Teaching is easier to find and run",
         "changes": [
-            "Teach now lives in the sidebar for every member.",
             "Instructors can update a live class's description and photos, ask an admin for "
             "bigger changes, cancel a class if plans fall through, take back a submission, and "
             "run a finished class again with one click.",
