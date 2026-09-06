@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load classes_tags %}<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -40,18 +40,14 @@
           {{ approval.get_role_display }} reviewed your class and asked for changes before approving.
           The class is back in Draft so you can edit and resubmit.
         </p>
-        {% if approval.notes %}
-        <div style="margin:12px 0;padding:14px 16px;background:rgba(238,180,75,0.06);border:1px solid rgba(238,180,75,0.25);border-radius:6px;color:#33424f;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ approval.notes }}</div>
-        {% endif %}
       {% else %}
         <p style="margin:0 0 10px;color:#33424f;font-size:15px;line-height:1.55;">
           {{ approval.get_role_display }} declined your class. The class is back in Draft.
           If you'd like to discuss, reach out to the studio at <a href="mailto:info@pastlives.space" style="color:#0d4876;">info@pastlives.space</a>.
         </p>
-        {% if approval.notes %}
-        <div style="margin:12px 0;padding:14px 16px;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.25);border-radius:6px;color:#33424f;font-size:14px;line-height:1.55;white-space:pre-wrap;">{{ approval.notes }}</div>
-        {% endif %}
       {% endif %}
+      {# The reviewer's note renders once, inside the pipeline block below. #}
+      {% review_pipeline offering %}
       {% if not fully_approved %}
       <p style="margin:18px 0;">
         <a href="{{ edit_url }}" style="display:inline-block;padding:12px 22px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">Open class</a>

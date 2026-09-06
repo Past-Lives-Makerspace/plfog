@@ -125,7 +125,9 @@ def describe_ClassOffering_photo_gate():
             assert offering.status == ClassOffering.Status.DRAFT
 
         def it_succeeds_with_own_hero_and_one_gallery(db):
-            offering = ClassOfferingFactory(image=_image_file("hero.png"), status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(
+                ready=True, image=_image_file("hero.png"), status=ClassOffering.Status.DRAFT
+            )
             _add_gallery(offering, 1)
             rows = offering.submit_for_review()
             offering.refresh_from_db()

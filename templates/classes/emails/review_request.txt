@@ -1,4 +1,4 @@
-{{ role_label|upper }} REVIEW REQUESTED
+{% load classes_tags %}{{ role_label|upper }} REVIEW REQUESTED
 
 {{ offering.title }}
 by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
@@ -8,6 +8,7 @@ Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 An instructor submitted this class for review, and you've been asked
 to approve the date. Open the review page to see details.
 
+{% review_pipeline_text offering %}
 Open the review page:
 {{ review_url }}
 

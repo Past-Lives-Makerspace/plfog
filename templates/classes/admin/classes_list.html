@@ -5,11 +5,11 @@
     {% include "components/table_search.html" with q=q placeholder="Search classes…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_create' %}">+ New Class</a>
 </div>
-<div class="admin-filters">
+<div class="admin-filters pl-facets">
     {% for url, label, count, is_selected in status_filters %}
         <a class="hub-btn hub-btn--sm {% if is_selected %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}"
-           href="?{{ url }}">
-            {{ label }} <span style="opacity:0.6; font-weight:400;">{{ count }}</span>
+           href="{{ url }}">
+            {{ label }} <span class="pl-facets__count">{{ count }}</span>
         </a>
     {% endfor %}
     <span class="pl-filter-divider"></span>
@@ -54,7 +54,7 @@
             {% sort_header "Instructor" "instructor__display_name" sort sort_dir base_params %}
             {% sort_header "Guild Type" "category__name" sort sort_dir base_params %}
             {% sort_header "Date(s)" "first_session" sort sort_dir base_params %}
-            {% sort_header "Status" "status" sort sort_dir base_params %}
+            {% sort_header "Status" "lifecycle_order" sort sort_dir base_params %}
             {% sort_header "Capacity" "registration_count" sort sort_dir base_params %}
         </tr>
     </thead>
@@ -71,13 +71,13 @@
               {% if c.first_session %}{{ c.first_session|date:"M j" }}{% if c.last_session != c.first_session %} – {{ c.last_session|date:"M j" }}{% endif %}, {{ c.last_session|date:"Y" }}{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}
               {% if c.group_size and c.group_size > 1 %}<span style="margin-left:0.4rem;font-size:0.75rem;font-weight:600;padding:0.1rem 0.45rem;border-radius:9999px;background:rgba(238,180,75,0.15);color:#EEB44B;">{{ c.group_size }} dates</span>{% endif %}
             </td>
-            <td>{{ c.get_status_display }}</td>
+            <td>{% include "classes/_components/lifecycle_badge.html" with offering=c show_note=True %}</td>
             <td>{{ c.registration_count }}/{{ c.capacity }}</td>
         </tr>
     {% empty %}
         <tr>
             <td colspan="6" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">
-                {% if mine_active %}No classes match. You are not listed as instructor or author on any classes that match the current filters. <a href="?{{ mine_clear_url }}">Show all classes</a>{% elif q %}No classes matching "{{ q }}".{% elif selected_status %}No {{ selected_status }} classes.{% else %}No classes yet.{% endif %}
+                {% if mine_active %}No classes match. You are not listed as instructor or author on any classes that match the current filters. <a href="?{{ mine_clear_url }}">Show all classes</a>{% elif q %}No classes matching "{{ q }}".{% elif selected_status %}No classes here yet. <a href="{% url 'classes:admin_classes' %}">Show all classes</a>{% else %}No classes yet.{% endif %}
             </td>
         </tr>
     {% endfor %}

@@ -1,6 +1,18 @@
 {% extends "classes/teach/class_detail_base.html" %}
 {% load classes_tags %}
 {% block detail_content %}
+{% if pipeline and not pipeline.is_live and not pipeline.muted %}
+<section class="hub-card pl-pipeline-card" style="margin:0 0 1rem;" data-help-key="teach.review-pipeline">
+    <h3 style="margin:0;">Where Your Class Is</h3>
+    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
+    {% if pipeline.is_bounced %}
+        <div class="pl-review-note">
+            <span class="pl-review-note__label">Reviewer's note</span>{% if pipeline.note %}{{ pipeline.note }}{% else %}The reviewer left no note.{% endif %}
+        </div>
+        <p style="margin:0.75rem 0 0;color:var(--hub-text-muted);">Fix the notes and submit again.</p>
+    {% endif %}
+</section>
+{% endif %}
 <div class="admin-table-wrap" data-help-key="teach.class-overview" style="margin-bottom:1rem;">
 <table>
     <tbody>
@@ -50,12 +62,14 @@
         {% if offering.status == 'draft' %}
             <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
                 {% csrf_token %}
-                <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Submit for review</button>
+                <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">{% if pipeline.is_bounced %}Fix and resubmit{% else %}Submit for review{% endif %}</button>
             </form>
         {% endif %}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
     </div>
-    {% if offering.status != 'draft' and offering.status != 'pending' %}
+    {% if offering.status == 'cancelled' %}
+        <span style="font-size:0.8rem; color:var(--hub-text-muted);">Cancelled{% if offering.cancellation_reason %}: {{ offering.cancellation_reason }}{% endif %}</span>
+    {% elif offering.status != 'draft' and offering.status != 'pending' %}
         <span style="font-size:0.8rem; color:var(--hub-text-muted);">Published and archived classes are edited by an admin.</span>
     {% endif %}
 </div>

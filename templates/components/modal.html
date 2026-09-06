@@ -14,7 +14,9 @@ Parameters (pass via {% include ... with %}):
 Open from anywhere:
   <button @click="$dispatch('open-modal', 'my-modal-id')">Open</button>
 
-Modal body is loaded via HTMX into #<modal_id>-body, or set via modal_body variable.
+Modal body is loaded via HTMX into #<modal_id>-body, or set via modal_body variable, or
+rendered inline from a template path via modal_body_include (with the including context),
+for a server-rendered form whose bound errors must re-render inside the modal.
 {% endcomment %}
 <div x-data="{ open: false }"
      x-show="open"
@@ -34,7 +36,7 @@ Modal body is loaded via HTMX into #<modal_id>-body, or set via modal_body varia
             <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body" id="{{ modal_id }}-body">
-            {{ modal_body }}
+            {% if modal_body_include %}{% include modal_body_include %}{% else %}{{ modal_body }}{% endif %}
         </div>
     </div>
 </div>

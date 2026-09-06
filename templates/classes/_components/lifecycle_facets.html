@@ -1,0 +1,10 @@
+{% comment %}
+Facet chips for a class list. ``facets`` is the list of FacetRow from classes.lifecycle.facet_rows.
+
+  {% include "classes/_components/lifecycle_facets.html" with facets=facets %}
+{% endcomment %}
+<div class="pl-facets" role="navigation" aria-label="Filter classes">
+  {% for facet in facets %}
+    <a class="hub-btn hub-btn--sm {% if facet.is_selected %}hub-btn--primary{% else %}hub-btn--ghost{% endif %}" href="{{ facet.url }}" data-facet="{{ facet.key }}">{{ facet.label }} <span class="pl-facets__count">{{ facet.count }}</span></a>
+  {% endfor %}
+</div>

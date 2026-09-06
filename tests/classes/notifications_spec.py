@@ -57,7 +57,7 @@ def describe_class_published_notification():
     def it_dispatches_to_active_members_when_published(db):
         recipient = _active_member_user()
         instructor = InstructorFactory(user=UserFactory())
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, instructor=instructor)
         Notification.objects.all().delete()
 
         _publish_offering(offering)
@@ -84,7 +84,7 @@ def describe_instructor_review_explainer():
         approver = _active_member_user()
         AdminCapability.objects.create(member=approver.member, capability=AdminCapability.Capability.CLASS_APPROVER)
         instructor = InstructorFactory(user=UserFactory())
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, instructor=instructor)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         Notification.objects.all().delete()
 
@@ -106,7 +106,7 @@ def describe_instructor_class_approved_notification():
 
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, instructor=instructor)
         admin_user = UserFactory()
         approval = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         approval.decide(ClassApproval.Decision.APPROVED, user=admin_user)
@@ -136,7 +136,7 @@ def describe_instructor_changes_requested_notification():
 
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, instructor=instructor)
         admin_user = UserFactory()
         approval = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         approval.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="please fix the desc")
@@ -328,12 +328,12 @@ def describe_waitlist_spot_available_notification():
 
 
 def describe_class_cancelled_notification():
-    def it_dispatches_to_active_members_when_class_is_archived(db):
+    def it_dispatches_to_active_members_when_class_is_cancelled(db):
         recipient = _active_member_user()
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         Notification.objects.all().delete()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         assert Notification.objects.filter(
             trigger="class_cancelled",

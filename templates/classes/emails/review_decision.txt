@@ -1,7 +1,8 @@
-{% if fully_approved %}PUBLISHED{% elif approval.decision == 'approved' %}{{ approval.get_role_display|upper }} APPROVED{% elif approval.decision == 'changes_requested' %}CHANGES REQUESTED{% else %}DECLINED{% endif %}
+{% load classes_tags %}{% if fully_approved %}PUBLISHED{% elif approval.decision == 'approved' %}{{ approval.get_role_display|upper }} APPROVED{% elif approval.decision == 'changes_requested' %}CHANGES REQUESTED{% else %}DECLINED{% endif %}
 
 {{ offering.title }}
 
+{% review_pipeline_text offering %}
 {% if fully_approved %}Your class is approved and is now live on the website's public Classes page.
 
 View public page:

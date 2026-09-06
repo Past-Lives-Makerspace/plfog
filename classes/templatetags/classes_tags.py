@@ -10,9 +10,25 @@ from django import template
 from django.http import QueryDict
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval, DiscountApprover, DiscountCode
+    from classes.models import ClassApproval, ClassOffering, DiscountApprover, DiscountCode
 
 register = template.Library()
+
+
+@register.inclusion_tag("classes/emails/_review_pipeline.html")
+def review_pipeline(offering: ClassOffering) -> dict:
+    """The email-safe review pipeline table (inline styles, no SVG) for ``offering``.
+
+    Renders from the same :meth:`ClassOffering.review_pipeline` the pages use, so an
+    email and the portal can never disagree on a step.
+    """
+    return {"pipeline": offering.review_pipeline()}
+
+
+@register.inclusion_tag("classes/emails/_review_pipeline.txt")
+def review_pipeline_text(offering: ClassOffering) -> dict:
+    """The one-line bracketed pipeline plus headline for text emails."""
+    return {"pipeline": offering.review_pipeline()}
 
 
 _YOUTUBE_PATTERNS = (

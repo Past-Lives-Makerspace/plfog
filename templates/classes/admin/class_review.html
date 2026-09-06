@@ -42,8 +42,18 @@
       </div>
     </div>
   {% else %}
+    {# Readiness: what the class still needs. A red item never disables the form; Approve carries a hint. #}
+    <section style="margin-bottom:1.25rem;">
+      <h2 style="font-size:1.1rem;margin:0 0 0.25rem;">Readiness</h2>
+      {% include "classes/_components/readiness_list.html" with readiness=readiness %}
+    </section>
     <form method="post" style="margin-bottom:1.5rem;">
       {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="pl-field-errors" style="margin-bottom:0.5rem;">
+          {% for error in form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+        </ul>
+      {% endif %}
       {% if form.decision.errors %}
         <ul class="pl-field-errors" style="margin-bottom:0.5rem;">
           {% for error in form.decision.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
@@ -56,6 +66,7 @@
             <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--hub-card-border);border-radius:8px;cursor:pointer;">
               {{ radio.tag }}
               <span style="font-size:15px;font-weight:600;">{{ radio.choice_label }}</span>
+              {% if radio.data.value == 'approved' and not is_ready %}<span class="pl-readiness-hint" style="font-size:0.8rem;color:var(--hub-text-muted);">This class is not ready to publish yet.</span>{% endif %}
             </label>
           {% endfor %}
         </div>
@@ -80,30 +91,11 @@
             style="display:block;width:100%;height:720px;border:0;"></iframe>
   </div>
 
-  {# Approval progress across all required roles #}
-  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Approval Progress</h2>
-  <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:6px;">
-    {% for required_role in offering.required_review_roles %}
-      {% with row=offering.approvals.all|first_with_role:required_role %}
-        <li style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--hub-bg);border:1px solid var(--hub-card-border);border-radius:6px;font-size:14px;">
-          <span>
-            {% if required_role == 'admin' %}Admin reviewer{% else %}Guild Lead ({{ offering.category.guild.name }}){% endif %}
-          </span>
-          <span style="font-weight:700;">
-            {% if row %}
-              {% if row.decision == 'approved' %}<span style="color:var(--color-success);">✓ Approved</span>
-              {% elif row.decision == 'changes_requested' %}<span style="color:var(--color-tuscan-yellow);">Changes requested</span>
-              {% elif row.decision == 'denied' %}<span style="color:var(--color-error);">Declined</span>
-              {% else %}<span style="color:var(--hub-text-muted);">Pending</span>
-              {% endif %}
-            {% else %}
-              <span style="color:var(--hub-text-muted);">Not yet requested</span>
-            {% endif %}
-          </span>
-        </li>
-      {% endwith %}
-    {% endfor %}
-  </ul>
+  {# The review pipeline across every required role #}
+  <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Review Pipeline</h2>
+  <div style="margin:0 0 1.5rem;">
+    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
+  </div>
 
   {# Class details for the reviewer to read #}
   <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>

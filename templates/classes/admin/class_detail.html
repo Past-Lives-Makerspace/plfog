@@ -1,6 +1,22 @@
 {% extends "classes/admin/class_detail_base.html" %}
 {% load classes_tags %}
 {% block detail_content %}
+{% comment %}The Cancel class modal is server-rendered inline. A POST that fails validation
+re-renders this page with the bound form, and the x-init below reopens the modal so the
+error shows inside it (components/modal.html only opens on the open-modal event). The
+dispatch waits a tick: the child modal's @open-modal.window listener is not bound yet when
+the parent's x-init runs, so a synchronous dispatch would fire into the void.{% endcomment %}
+<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% endif %}>
+{% if offering.status == 'pending' or pipeline.is_bounced %}
+  {# The review pipeline strip, no card chrome, while the class is in review or bounced. #}
+  <div style="margin-bottom:1rem;">
+    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
+    {% if pipeline.note %}<div class="pl-review-note"><span class="pl-review-note__label">Reviewer's note</span>{{ pipeline.note }}</div>{% endif %}
+  </div>
+{% endif %}
+{% if offering.status == 'cancelled' %}
+  <p style="margin:0 0 1rem;color:var(--hub-text-muted);">Cancelled {{ offering.cancelled_at|date:"M j, Y" }}{% if offering.cancelled_by %} by {{ offering.cancelled_by.display_name }}{% endif %}. Reason: {{ offering.cancellation_reason }}</p>
+{% endif %}
 <div class="admin-table-wrap" style="margin-bottom:1rem;">
 <table>
     <tbody>
@@ -42,39 +58,51 @@
 </table>
 </div>
 
+{% url 'classes:admin_class_approve' pk=offering.pk as approve_url %}
+{% concat "“" offering.title "” goes live in the catalog, every active member gets a new class notice, and it posts to Discord. Use Review with notes to ask for changes instead." as publish_message %}
 <div class="admin-toolbar">
     <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
-        {% if request.view_as.actual_is_admin %}
+        {% if request.view_as.actual_is_admin and offering.status != 'archived' and offering.status != 'cancelled' %}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_edit' pk=offering.pk %}">Edit</a>
         {% endif %}
         {% if offering.status == 'pending' %}
-            <form method="post" action="{% url 'classes:admin_class_approve' pk=offering.pk %}" style="display:inline;">
-                {% csrf_token %}
-                <button class="hub-btn hub-btn--sm hub-btn--success" type="submit">Approve</button>
-            </form>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', 'publish-class')">Approve</button>
+            {% include "components/confirm_modal.html" with confirm_id="publish-class" confirm_title="Publish this class?" confirm_message=publish_message confirm_action_url=approve_url confirm_button_text="Publish" confirm_button_style="primary" %}
             <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=offering.pk %}">
                 Review with notes…
             </a>
         {% endif %}
-        {% if request.view_as.actual_is_admin %}
+        {% if request.view_as.actual_is_admin and offering.status != 'archived' %}
         <form method="post" action="{% url 'classes:admin_class_duplicate' pk=offering.pk %}" style="display:inline;">
             {% csrf_token %}
             <button class="hub-btn hub-btn--sm hub-btn--ghost" type="submit">Duplicate</button>
         </form>
         {% endif %}
+        {% if request.view_as.actual_is_admin and offering.status == 'archived' %}
+            {% url 'classes:admin_class_restore' pk=offering.pk as restore_url %}
+            <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'restore-class')">Restore to draft</button>
+            {% include "components/confirm_modal.html" with confirm_id="restore-class" confirm_title="Restore to draft?" confirm_message="It will need review again before it goes live." confirm_action_url=restore_url confirm_button_text="Restore to Draft" confirm_button_style="primary" %}
+        {% endif %}
     </div>
-    {% comment %}Edit / Duplicate / Archive / Delete hit admin-only views — a
-    CMS Administrator (CLASS_APPROVER holder) keeps only Approve and Review with
-    notes here, so nothing on this page dead-ends in a 403 for them.{% endcomment %}
+    {% comment %}Edit / Duplicate / Cancel / Archive / Restore / Delete hit admin-only views. A
+    CMS Administrator (CLASS_APPROVER holder) keeps only Approve and Review with notes
+    here, so nothing on this page dead-ends in a 403 for them.{% endcomment %}
     {% if request.view_as.actual_is_admin %}
     <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
+        {% if lifecycle == 'upcoming' %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-modal', 'cancel-class')">Cancel class</button>
+        {% endif %}
         {% if offering.status != 'archived' %}
-            {% url 'classes:admin_class_archive' pk=offering.pk as archive_url %}
-            {% concat "archive-class-" offering.pk as archive_modal_id %}
-            <button type="button"
-                    class="hub-btn hub-btn--sm hub-btn--danger"
-                    @click="$dispatch('open-confirm', '{{ archive_modal_id }}')">Archive</button>
-            {% include "components/confirm_modal.html" with confirm_id=archive_modal_id confirm_title="Archive this class?" confirm_message="The class is hidden from the public portal and the instructor dashboard. Registrations are preserved. You can re-open it later via the Archived filter on the classes list." confirm_action_url=archive_url confirm_button_text="Archive Class" %}
+            {% if archive_blocker %}
+                <span style="font-size:0.8rem; color:var(--hub-text-muted);">{{ archive_blocker }}</span>
+            {% else %}
+                {% url 'classes:admin_class_archive' pk=offering.pk as archive_url %}
+                {% concat "archive-class-" offering.pk as archive_modal_id %}
+                <button type="button"
+                        class="hub-btn hub-btn--sm hub-btn--ghost"
+                        @click="$dispatch('open-confirm', '{{ archive_modal_id }}')">Archive</button>
+                {% include "components/confirm_modal.html" with confirm_id=archive_modal_id confirm_title="Archive this class?" confirm_message="It leaves every list and the catalog. Nobody is notified. Registrations stay on record. You can restore it to a draft later." confirm_action_url=archive_url confirm_button_text="Archive Class" %}
+            {% endif %}
         {% endif %}
         {% if not offering.registrations.exists %}
             {% url 'classes:admin_class_delete' pk=offering.pk as delete_url %}
@@ -88,5 +116,11 @@
         {% endif %}
     </div>
     {% endif %}
+</div>
+
+{% if request.view_as.actual_is_admin and lifecycle == 'upcoming' %}
+{# Cancel class: reason required, emailed to everyone registered. Server-rendered inline (see the x-init above). #}
+{% include "components/modal.html" with modal_id="cancel-class" modal_title="Cancel this class?" modal_size="sm" modal_body_include="classes/admin/partials/cancel_class_form.html" %}
+{% endif %}
 </div>
 {% endblock %}

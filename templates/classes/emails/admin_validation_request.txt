@@ -1,4 +1,4 @@
-EXECUTIVE VALIDATION REQUESTED
+{% load classes_tags %}EXECUTIVE VALIDATION REQUESTED
 
 {{ offering.title }}
 by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
@@ -9,6 +9,7 @@ Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 to publish this class. The Guild Lead has approved this class. Please
 review to approve.
 
+{% review_pipeline_text offering %}
 Open the review page:
 {{ review_url }}
 

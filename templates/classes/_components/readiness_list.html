@@ -1,0 +1,16 @@
+{% comment %}
+Readiness checklist: the five things a class needs before it can be submitted.
+
+  {% include "classes/_components/readiness_list.html" with readiness=offering.readiness link_hints=True %}
+
+link_hints=True links each failing hint to its field anchor on the edit page; leave it
+off on the review page, where the anchors do not exist.
+{% endcomment %}
+<ul class="pl-readiness">
+  {% for item in readiness %}
+    <li class="pl-readiness__item pl-readiness__item--{% if item.ok %}ok{% else %}todo{% endif %}">
+      <span class="pl-readiness__mark" aria-hidden="true">{% if item.ok %}&#10003;{% else %}&#9675;{% endif %}</span>
+      <span><span class="pl-readiness__label">{{ item.label }}</span>{% if not item.ok %} <span class="pl-readiness__hint">{% if link_hints %}<a href="#{{ item.anchor }}">{{ item.hint }}</a>{% else %}{{ item.hint }}{% endif %}</span>{% endif %}</span>
+    </li>
+  {% endfor %}
+</ul>

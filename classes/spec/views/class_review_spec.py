@@ -10,13 +10,13 @@ from classes.models import ClassApproval, ClassOffering
 
 def describe_class_review():
     def it_returns_200_with_valid_token(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         response = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
         assert response.status_code == 200
 
     def it_wraps_the_notes_field_in_a_themed_wrapper(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         response = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
         # The notes control is rendered through components/form_field.html, so it sits in the
@@ -29,14 +29,14 @@ def describe_class_review():
         assert response.status_code == 404
 
     def it_does_not_require_login(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         # Unauthenticated client should reach the page
         response = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
         assert response.status_code == 200
 
     def it_records_approved_decision_on_post(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         response = client.post(
             reverse("classes:class_review", kwargs={"token": row.token}),
@@ -49,7 +49,7 @@ def describe_class_review():
         assert offering.status == ClassOffering.Status.PUBLISHED
 
     def it_records_denial_on_post(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         response = client.post(
             reverse("classes:class_review", kwargs={"token": row.token}),
@@ -62,7 +62,7 @@ def describe_class_review():
         assert offering.status == ClassOffering.Status.DRAFT
 
     def it_shows_the_notes_error_once_when_declining_without_notes(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         response = client.post(
             reverse("classes:class_review", kwargs={"token": row.token}),
@@ -76,7 +76,7 @@ def describe_class_review():
         assert row.decision == ""
 
     def it_ignores_post_when_decision_already_recorded(client, db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         (row,) = offering.submit_for_review()
         # Record first decision
         client.post(
@@ -95,7 +95,7 @@ def describe_class_review():
 
 def describe_class_review_preview():
     def it_renders_the_student_preview_for_a_valid_token(client, db):
-        offering = ClassOfferingFactory(slug="prev-ok", status=ClassOffering.Status.PENDING)
+        offering = ClassOfferingFactory(ready=True, slug="prev-ok", status=ClassOffering.Status.PENDING)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         response = client.get(reverse("classes:class_review_preview", kwargs={"token": row.token}))
         assert response.status_code == 200
@@ -103,7 +103,7 @@ def describe_class_review_preview():
         assert offering.title.encode() in response.content
 
     def it_does_not_require_login(client, db):
-        offering = ClassOfferingFactory(slug="prev-anon", status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, slug="prev-anon", status=ClassOffering.Status.DRAFT)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         # Anonymous client (no force_login) still reaches the preview.
         response = client.get(reverse("classes:class_review_preview", kwargs={"token": row.token}))
@@ -114,7 +114,7 @@ def describe_class_review_preview():
         assert response.status_code == 404
 
     def it_is_framable_same_origin(client, db):
-        offering = ClassOfferingFactory(slug="prev-frame", status=ClassOffering.Status.PENDING)
+        offering = ClassOfferingFactory(ready=True, slug="prev-frame", status=ClassOffering.Status.PENDING)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         response = client.get(reverse("classes:class_review_preview", kwargs={"token": row.token}))
         assert response.headers["X-Frame-Options"] == "SAMEORIGIN"

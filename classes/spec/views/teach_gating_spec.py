@@ -94,7 +94,7 @@ def describe_teaching_member_required():
         def it_serves_the_tokenized_review_page_to_a_locked_reviewer(db, client):
             # The guild-lead review path never crosses the portal gate — a locked
             # (or revoked) reviewer still acts through the emailed token link.
-            offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
             (row,) = offering.submit_for_review()
             user, _ = _locked_member_user("locked-reviewer@example.com")
             client.force_login(user)

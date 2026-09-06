@@ -41,7 +41,7 @@ def describe_admin_overview():
             resp = client.get(reverse("classes:admin_overview"))
             # The approvals queue holds only pending classes. (A published class may
             # still legitimately appear in the Activity panel as a "Class created" event.)
-            assert live not in list(resp.context["pending_classes"])
+            assert live not in list(resp.context["waiting_on_you"])
 
     def describe_upcoming_classes():
         def it_lists_a_published_class_with_a_session_this_week(admin_user, client, db):

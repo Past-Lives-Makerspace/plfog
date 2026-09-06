@@ -35,7 +35,7 @@ def guilded_offering(db, guild_lead_user, settings):
     guild = GuildFactory(name="Forge Guild", guild_lead=lead)
     cat = CategoryFactory(guild=guild)
     instructor = InstructorFactory(full_legal_name="Iris Smith", instructor_slug="iris")
-    return ClassOfferingFactory(category=cat, instructor=instructor, status=ClassOffering.Status.DRAFT)
+    return ClassOfferingFactory(ready=True, category=cat, instructor=instructor, status=ClassOffering.Status.DRAFT)
 
 
 def describe_submit_for_review():
@@ -52,7 +52,9 @@ def describe_submit_for_review():
     def describe_without_a_guild_lead():
         def it_opens_only_the_admin_gate(db, settings):
             settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
-            offering = ClassOfferingFactory(category=CategoryFactory(guild=None), status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(
+                ready=True, category=CategoryFactory(guild=None), status=ClassOffering.Status.DRAFT
+            )
             rows = offering.submit_for_review()
             assert len(rows) == 1
             assert offering.approvals.count() == 1
@@ -87,7 +89,9 @@ def describe_on_review_decision_recorded():
     def describe_no_guild_lead_admin_approves():
         def it_publishes_directly(db, admin_user, settings):
             settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
-            offering = ClassOfferingFactory(category=CategoryFactory(guild=None), status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(
+                ready=True, category=CategoryFactory(guild=None), status=ClassOffering.Status.DRAFT
+            )
             (admin_row,) = offering.submit_for_review()
             admin_row.class_offering = offering
             admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
@@ -160,7 +164,7 @@ def describe_decide_status_guard():
     """decide() refuses to act unless the offering is PENDING — the single choke point for every path."""
 
     def it_refuses_a_decision_when_the_offering_is_not_pending(db):
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         with pytest.raises(ValueError, match="Only pending"):
             row.decide(ClassApproval.Decision.APPROVED)
@@ -233,7 +237,9 @@ def describe_instructor_approved_notification():
         lead = Member.objects.get(user=guild_lead_user)
         guild = GuildFactory(name="Forge Guild", guild_lead=lead)
         cat = CategoryFactory(guild=guild)
-        offering = ClassOfferingFactory(category=cat, instructor=instructor, status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            ready=True, category=cat, instructor=instructor, status=ClassOffering.Status.DRAFT
+        )
         return offering, instr_user
 
     def it_does_not_notify_the_instructor_at_stage_one(offering_with_instructor_user, guild_lead_user):

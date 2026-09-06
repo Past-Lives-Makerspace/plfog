@@ -23,7 +23,7 @@ def describe_ClassOffering():
 
     def describe_state_transitions():
         def it_submits_draft_for_review(db):
-            c = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            c = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
             c.submit_for_review()
             c.refresh_from_db()
             assert c.status == ClassOffering.Status.PENDING
@@ -34,7 +34,7 @@ def describe_ClassOffering():
                 c.submit_for_review()
 
         def it_approves_pending_and_sets_published_at(db, admin_user):
-            c = ClassOfferingFactory(status=ClassOffering.Status.PENDING)
+            c = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING)
             c.approve(admin_user)
             c.refresh_from_db()
             assert c.status == ClassOffering.Status.PUBLISHED

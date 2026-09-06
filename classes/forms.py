@@ -540,6 +540,26 @@ class CategoryForm(forms.ModelForm):
         fields = ["name", "slug", "sort_order", "hero_image"]
 
 
+class ClassCancelForm(forms.Form):
+    """The Cancel class modal: one required reason, emailed to everyone registered."""
+
+    reason = forms.CharField(
+        max_length=300,
+        required=False,
+        widget=forms.Textarea(
+            attrs={"rows": 3, "placeholder": "The instructor is unwell and we could not find a date."}
+        ),
+        label="Reason",
+        help_text="Your reason is emailed to everyone registered.",
+    )
+
+    def clean_reason(self) -> str:
+        reason = (self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise ValidationError("Please tell people why.")
+        return reason
+
+
 class ClassReviewDecisionForm(forms.Form):
     """Reviewer's decision form on the tokenized review page.
 

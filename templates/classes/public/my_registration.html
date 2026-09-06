@@ -9,11 +9,15 @@
     <div class="detail-card">
       <div class="detail-head">
         <div>
-          <div class="dc-cat">{{ registration.get_status_display }}</div>
-          <div class="dc-title">{{ offering.title }}</div>
+          <div class="dc-cat">{% if class_cancelled %}Class cancelled{% else %}{{ registration.get_status_display }}{% endif %}</div>
+          <div class="dc-title">{% if class_cancelled %}<a href="{% url 'classes:public_list' %}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a>{% else %}{{ offering.title }}{% endif %}</div>
           <div class="dc-inst">with {{ offering.instructor.display_name }}</div>
         </div>
-        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class page →</a>
+        {% if class_cancelled %}
+          <a class="back-link" href="{% url 'classes:public_list' %}">All classes →</a>
+        {% else %}
+          <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class page →</a>
+        {% endif %}
       </div>
       <div class="detail-body">
         {% if messages %}
@@ -23,6 +27,12 @@
         {% endif %}
         {% if paid_banner %}
           <div style="padding:10px 12px;margin-bottom:10px;background:rgba(45,212,160,.08);border:1px solid rgba(45,212,160,.25);border-radius:6px;color:var(--green);font-size:12px">Thanks! Your payment is processing. You'll get a receipt by email.</div>
+        {% endif %}
+        {% if class_cancelled %}
+          <div class="pl-class-cancelled" data-state="class-cancelled">
+            This class was cancelled. {{ offering.cancellation_reason_sentence }} If you paid, a refund is on its way from our staff.
+            <a href="{% url 'classes:public_list' %}">Find another class</a>
+          </div>
         {% endif %}
 
         <div class="dc-igrid">

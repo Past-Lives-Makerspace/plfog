@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from classes.models import ClassApproval, ClassOffering, ClassSession, Registration
+    from core.events.emit import EmitResult
     from core.events.scheduler import ScheduledOccurrence
     from membership.models import Guild, Member
 
@@ -293,8 +294,12 @@ def _emit_review_request(
     role_label: str,
     guild: "Guild | None",
     instructor_name: str,
-) -> None:
+    period: str = "",
+) -> "EmitResult":
     """Emit the stage-one ``class_review_requested`` event: review email + in-app row.
+
+    ``period`` defaults to the one-shot request bucket; the Remind lead action passes a
+    dated bucket so a reminder delivers once per day and dedupes after that.
 
     The reviewer email is the preserved ``review_request.{txt,html}`` shell (tokenized
     ``/classes/review/<token>/`` link), addressed to the exact ``recipients`` list via
@@ -316,7 +321,7 @@ def _emit_review_request(
         "review_url": review_url,
         "role_label": role_label,
     }
-    emit_with_email_shell(
+    return emit_with_email_shell(
         "class_review_requested",
         target=offering,
         context={"guild": guild},
@@ -332,7 +337,34 @@ def _emit_review_request(
         ),
         url="/classes/teach/",
         email_to=recipients or None,
-        period=f"approval:{row.pk}:request",
+        period=period or f"approval:{row.pk}:request",
+    )
+
+
+def send_guild_lead_review_reminder(row: "ClassApproval") -> "EmitResult | None":
+    """Remind lead: re-send the guild-lead review request for an open gate, once per day.
+
+    The same ``class_review_requested`` email and bell row as the original request, on
+    the dated period ``approval:{pk}:reminder:{today}`` so a second click the same day
+    lands in ``EmitResult.skipped_duplicates`` and tomorrow's click delivers again. The
+    instructor explainer is deliberately NOT re-sent (the instructor already knows).
+    Returns ``None`` when the guild has no lead or staff left to remind.
+    """
+    offering = row.class_offering
+    guild = offering.category.guild if offering.category_id else None
+    recipients = _guild_leadership_recipients(guild)
+    if not recipients:
+        return None
+    instructor_name = offering.instructor.display_name if offering.instructor is not None else "An instructor"
+    today = timezone.localdate().isoformat()
+    return _emit_review_request(
+        offering,
+        row,
+        recipients=recipients,
+        role_label="Guild Lead",
+        guild=guild,
+        instructor_name=instructor_name,
+        period=f"approval:{row.pk}:reminder:{today}",
     )
 
 

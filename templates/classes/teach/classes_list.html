@@ -4,7 +4,11 @@
 <div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_class_create' %}" data-help-key="teach.create-class">+ New Class</a>
 </div>
+{% if has_any_classes %}
+{% include "classes/_components/lifecycle_facets.html" with facets=facets %}
+{% endif %}
 {% if classes %}
+<div class="admin-table-wrap">
 <table style="width:100%; border-collapse:collapse;">
     <thead>
         <tr style="border-bottom:2px solid var(--hub-border);">
@@ -20,11 +24,13 @@
         <tr style="border-bottom:1px solid var(--hub-border);{% if offering.status == 'archived' %} opacity:0.55;{% endif %}">
             <td style="padding:0.5rem 0.75rem;"><a href="{% url 'classes:teach_class_detail' pk=offering.pk %}">{{ offering.title }}</a></td>
             <td style="padding:0.5rem 0.75rem;">{{ offering.category.name }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ offering.get_status_display }}</td>
+            <td style="padding:0.5rem 0.75rem;">{% include "classes/_components/lifecycle_badge.html" with offering=offering show_note=True %}</td>
             <td style="padding:0.5rem 0.75rem;">{{ offering.registration_count }}/{{ offering.capacity }}</td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
                 {% if offering.status == 'draft' or offering.status == 'pending' %}
                     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=offering.pk %}">Edit</a>
+                {% else %}
+                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_detail' pk=offering.pk %}">Open</a>
                 {% endif %}
                 {% if offering.status == 'draft' %}
                     <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
@@ -37,6 +43,11 @@
     {% endfor %}
     </tbody>
 </table>
+</div>
+{% elif has_any_classes %}
+    <div style="padding:2rem 1rem; text-align:center; color:var(--hub-text-muted);">
+        No classes here yet. <a href="{% url 'classes:teach_dashboard' %}">Show all classes</a>.
+    </div>
 {% else %}
     <div style="padding:2rem 1rem; text-align:center; color:var(--hub-text-muted);">
         You haven't created any classes yet. <a href="{% url 'classes:teach_class_create' %}">Create your first class</a>.
