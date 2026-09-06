@@ -315,10 +315,28 @@ class BiometricCredential(models.Model):
 
     The phone holds the secret in the Keychain/Keystore behind Face ID or a fingerprint;
     the server holds only its SHA-256. Redeeming it logs the member in and rotates the
-    secret, so a copied secret dies the moment the real device uses its own.
+    secret, so any given secret is single use.
 
     The biometric never authenticates to the server. It gates local access to the secret,
     and the server trusts the secret and nothing else.
+
+    KNOWN LIMIT ON REPLAY DETECTION, stated plainly because the obvious reading of the
+    rotation is more reassuring than the truth. ``previous_secret_hash`` is a SINGLE slot,
+    so the server remembers exactly one generation back. A copied secret is therefore only
+    recognized as a replay while it is at most one rotation stale. Someone holding a stolen
+    copy who simply redeems it twice pushes the original out of that slot, and the real
+    device's next attempt then looks merely *unknown* rather than replayed: nothing is
+    revoked, and the stolen credential stays live and renews its expiry on every use.
+
+    What that costs is DETECTION, not containment. The victim's device is still kicked back
+    to an emailed code, the stolen credential still shows up as a row under Signed In
+    Devices where it can be revoked by hand, and getting the secret out of the Keychain or
+    Keystore in the first place needs a compromised device or an extracted backup.
+
+    Making detection exact needs a stable unguessable selector alongside the rotating
+    verifier, so a credential can be identified independently of which generation of secret
+    is presented, and any mismatch on a known credential is a replay. That is a design
+    change rather than a patch, so it is deliberately not bolted on here.
     """
 
     class Platform(models.TextChoices):

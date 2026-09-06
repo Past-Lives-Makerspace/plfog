@@ -437,14 +437,29 @@ def _rate_limit_key(request: HttpRequest) -> str:
     controlled: rotate one header value per request and every attempt lands in a fresh
     bucket, so the cap never applies to the one caller it exists to bound.
 
-    The RIGHTMOST entry is the one our own edge proxy appended, describing the address that
-    actually opened a connection to it. A client cannot forge that: anything it sends is
-    pushed left by the proxy's own append.
+    ``CF-Connecting-IP`` is preferred because production is Cloudflare in front of Render
+    (a response carries both ``server: cloudflare`` and ``x-render-origin-server``). That is
+    TWO proxies, so the rightmost forwarded entry is Render's view of *Cloudflare*, not of
+    the member: keying on it would collapse every caller into one bucket, and a single
+    attacker could then spend the whole day's allowance and disable biometric unlock for
+    everybody. Cloudflare overwrites ``CF-Connecting-IP`` on every request it forwards, so a
+    client cannot dictate it.
 
-    ``REMOTE_ADDR`` is the fallback for a direct connection with no proxy in front (local
-    dev, tests). Note this keys on our edge's view of the caller, so everyone behind one
-    NAT shares a bucket — which is why the caps above are sized for a whole makerspace.
+    The fallbacks are the rightmost forwarded entry (one proxy, appended by it) and then
+    ``REMOTE_ADDR`` (a direct connection: local dev and tests).
+
+    Known gap, accepted: someone who reaches the Render origin directly, bypassing
+    Cloudflare, can send any ``CF-Connecting-IP`` they like. That is no weaker than the
+    leftmost-entry behavior this replaced, it requires knowing the origin address, and the
+    cap is a cost ceiling rather than a defense against guessing the secret, which has 384
+    bits behind it.
+
+    This keys on one address, so everyone behind a single NAT shares a bucket, which is why
+    the caps above are sized for a whole makerspace on one connection.
     """
+    connecting = request.META.get("HTTP_CF_CONNECTING_IP", "").strip()
+    if connecting:
+        return connecting[:_RATE_LIMIT_KEY_MAX_CHARS]
     forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
     if forwarded:
         return forwarded.rsplit(",", 1)[-1].strip()[:_RATE_LIMIT_KEY_MAX_CHARS]

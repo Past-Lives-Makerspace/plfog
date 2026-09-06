@@ -37,7 +37,13 @@ The secret is a bearer token. Anything holding it can become the member. So:
   entropy, not a guessable password.
 - It **rotates on every use**, so a copy stolen from a backup is dead as soon as
   the real device uses its own.
-- A **spent secret coming back** is the signature of theft, and is caught (below).
+- A **spent secret coming back** is caught **only while it is one rotation stale**.
+  `previous_secret_hash` is a single slot, so a thief who redeems a stolen copy twice
+  pushes the original out of it and the real device's next attempt reads as merely
+  unknown rather than replayed: nothing is revoked and the stolen credential stays
+  live. What is lost is detection, not containment. Exact detection needs a stable
+  unguessable selector beside the rotating verifier, so a credential is identified
+  independently of which generation is presented. Tracked as follow up work.
 - Unlock attempts are **rate limited** per IP.
 - It **expires** at 90 days, refreshed on each use, so an abandoned phone stops
   working rather than staying valid forever.
