@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
-VERSION = "1.43.2"
+VERSION = "1.44.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.44.0",
+        "date": "2026-09-06",
+        "title": "Sign in with your face or fingerprint",
+        "changes": [
+            "Sign in to the app once with an emailed code, and it can offer to use Face ID or "
+            "your fingerprint after that. No more waiting for a code every time.",
+            "Your phone keeps the key, not us, and it stays locked behind your face or "
+            "fingerprint. It expires after ninety days if you stop using it.",
+            "Settings now lists the devices you are signed in on, so you can sign out a phone "
+            "you no longer have. It arrives with the next app update.",
+        ],
+    },
     {
         "version": "1.43.1",
         "date": "2026-09-06",
