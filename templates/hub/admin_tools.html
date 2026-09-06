@@ -32,6 +32,15 @@
     <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
   </a>
   {% endif %}
+  {% if tool_manage_classes %}
+  <a class="hub-card pl-tool-card" href="{% url 'classes:admin_overview' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Manage Classes</span>
+    <span class="pl-tool-card__desc">Review, approve, and schedule classes and workshops across the makerspace.</span>
+  </a>
+  {% endif %}
   {% if tool_payments %}
   <a class="hub-card pl-tool-card" href="{% url 'billing_admin_dashboard' %}">
     <span class="pl-tool-card__icon">

@@ -1004,8 +1004,11 @@ def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
 
     Non-members and inactive members keep the 403 (orientation can't fix an
     inactive account). An *active* member who hasn't unlocked teaching is 302'd
-    to the orientation page instead — entry links stay visible everywhere and a
-    locked click lands on the explainer, never a dead end (Spec D §5).
+    to the orientation page instead, so a locked click lands on the explainer and
+    never a dead end (Spec D §5). This redirect is now the main way in: the sidebar
+    stopped carrying a recruiting entry, so the remaining entry points (the Class
+    Catalog's Manage My Classes, the guild pages' Teach a Class) all arrive here
+    locked and rely on it.
     """
 
     @wraps(view_func)

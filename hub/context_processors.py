@@ -54,21 +54,33 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
 
 
 def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
-    """The sidebar's Teach entry for an active member, or ``None`` when there is nobody to teach.
+    """The sidebar's Teaching entry, or ``None`` for anyone who is not set up to teach.
 
-    A locked member gets "Teach a Class" pointing at the orientation (the explainer, never
-    a 403); once ``can_create_classes`` it reads "Teaching" and opens the portal. Active on
-    every ``/classes/teach/`` path, which the Class Catalog entry excludes.
+    Gated on ``can_create_classes`` — the single source of truth for the teaching portal,
+    the same flag ``teaching_member_required`` reads — so the sidebar offers the entry
+    exactly when it opens something. It used to show every active member a "Teach a Class"
+    recruiting entry pointing at the orientation explainer, which put a teaching link in
+    front of the whole membership. Someone who wants to start still gets there: the Help
+    Center's Teaching guide links ``/classes/teach/orientation/`` directly, and the Class
+    Catalog's classes button and the guild pages' Teach a Class button both land on the
+    orientation through ``teaching_member_required``. (That catalog button reads "Manage My
+    Classes" for a member and "Manage classes" for an admin, so member-facing copy should
+    not name it.) It is just no longer permanent sidebar furniture.
+
+    Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
+    Instructor *role*, and someone can hold the portal unlock without a slug, which would
+    leave them with access and no way in. Active on every ``/classes/teach/`` path, which
+    the Class Catalog entry excludes.
     """
     from django.urls import reverse
 
-    if member is None or member.status != Member.Status.ACTIVE:
+    if member is None or member.status != Member.Status.ACTIVE or not member.can_create_classes:
         return None
-    if member.can_create_classes:
-        label, url = "Teaching", reverse("classes:teach_overview")
-    else:
-        label, url = "Teach a Class", reverse("classes:teach_orientation")
-    return {"label": label, "url": url, "is_active": request.path.startswith("/classes/teach/")}
+    return {
+        "label": "Teaching",
+        "url": reverse("classes:teach_overview"),
+        "is_active": request.path.startswith("/classes/teach/"),
+    }
 
 
 def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:

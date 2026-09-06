@@ -3798,6 +3798,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_announcements": _can_compose(request, member),
             "tool_orientations": can_orient,
             "tool_manage_members": is_admin,
+            "tool_manage_classes": is_admin,
             "tool_payments": tool_payments,
             "tool_reports": tool_reports,
             "tool_activity": is_admin,

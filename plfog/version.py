@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
-VERSION = "1.40.0"
+VERSION = "1.41.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.41.0",
+        "date": "2026-09-05",
+        "title": "A tidier sidebar",
+        "changes": [
+            "Teaching now appears in the sidebar only if you are set up to teach. "
+            "Want to start? The Help Center's Teaching guide links the instructor orientation. "
+            "Read it, tick the box, and the portal opens.",
+            "Manage Classes moved from the sidebar to Admin Tools, where the other staff tools live.",
+        ],
+    },
     {
         "version": "1.40.0",
         "date": "2026-09-05",
@@ -20,7 +31,6 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "date": "2026-09-05",
         "title": "Teaching is easier to find and run",
         "changes": [
-            "Teach now lives in the sidebar for every member.",
             "Instructors can update a live class's description and photos, ask an admin for "
             "bigger changes, cancel a class if plans fall through, take back a submission, and "
             "run a finished class again with one click.",
