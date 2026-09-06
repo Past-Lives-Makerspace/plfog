@@ -179,6 +179,27 @@ def describe_the_framed_preview():
         assert "cp-topbar" not in html
         assert offering.title in html  # the class page itself is still all there
 
+    def it_drops_the_hub_chrome_for_a_logged_in_reviewer(client, db, admin_user):
+        """The authenticated path is the one the review page actually embeds.
+
+        The token preview is anonymous, so its "no hub-sidebar, no pl-topbar" assertions hold
+        with or without the flag and prove nothing about the gate. admin_class_review frames
+        classes:class_preview, which is @login_required, so the sidebar and topbar WOULD
+        render here — this is the case the suppression exists for.
+        """
+        offering = ClassOfferingFactory(ready=True, slug="framed-auth", status=ClassOffering.Status.PENDING)
+        client.force_login(admin_user)
+        url = reverse("classes:class_preview", kwargs={"pk": offering.pk})
+
+        plain = client.get(url).content.decode()
+        assert "hub-sidebar" in plain
+        assert "pl-topbar" in plain
+
+        framed = client.get(f"{url}?framed=1").content.decode()
+        assert "hub-sidebar" not in framed
+        assert "pl-topbar" not in framed
+        assert offering.title in framed
+
     def it_keeps_the_chrome_without_the_flag(client, db):
         offering = ClassOfferingFactory(ready=True, slug="framed-off", status=ClassOffering.Status.PENDING)
         html = _preview(client, offering, framed=False).content.decode()
