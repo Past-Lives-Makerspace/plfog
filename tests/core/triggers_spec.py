@@ -48,3 +48,41 @@ def describe_catalogue():
         grouped = triggers.by_category(is_instructor=True, is_staff=True)
         assert "Classes" in grouped
         assert any(t.key == "tab_charged" for t in grouped["Billing"])
+
+
+def describe_column_widths():
+    """Every stored key must fit the columns that store it.
+
+    Postgres rejects an over-long value and aborts the surrounding transaction; SQLite
+    silently truncates nothing and stores it whole. The suite runs on SQLite, so without
+    an explicit width check this class of bug reaches production invisibly — which is
+    exactly what happened to ``equipment.reservation_cancelled_by_manager`` (42 characters
+    into a 40-character column), taking the manager-cancel path down with it.
+    """
+
+    def _trigger_column_width() -> int:
+        from core.models import Notification
+
+        return Notification._meta.get_field("trigger").max_length
+
+    def it_fits_every_catalogue_key_in_the_notification_column():
+        width = _trigger_column_width()
+        too_long = {t.key: len(t.key) for t in triggers.TRIGGERS if len(t.key) > width}
+        assert too_long == {}, f"trigger keys longer than the {width}-char column: {too_long}"
+
+    def it_fits_every_registered_event_key_in_the_notification_column():
+        # The event registry writes the same column through emit(); its keys are longer
+        # than the catalogue's and are what actually overflowed.
+        from core.events.registry import all_events
+
+        width = _trigger_column_width()
+        too_long = {e.key: len(e.key) for e in all_events() if len(e.key) > width}
+        assert too_long == {}, f"event keys longer than the {width}-char column: {too_long}"
+
+    def it_fits_every_registered_event_key_in_the_email_log_column():
+        from core.models import TransactionalEmailLog
+        from core.events.registry import all_events
+
+        width = TransactionalEmailLog._meta.get_field("trigger_kind").max_length
+        too_long = {e.key: len(e.key) for e in all_events() if len(e.key) > width}
+        assert too_long == {}, f"event keys longer than the {width}-char column: {too_long}"

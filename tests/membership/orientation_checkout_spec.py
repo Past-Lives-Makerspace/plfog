@@ -242,6 +242,31 @@ def describe_expire_payment_holds():
 
 
 def describe_finalize_paid_booking():
+    def describe_the_row_lock():
+        """Regression: the lock must not spread to the joined guild row.
+
+        ``guild`` became nullable when equipment-owned orientations shipped, which turned
+        ``select_related("guild")`` into a LEFT OUTER JOIN. Postgres refuses FOR UPDATE on
+        the nullable side of an outer join, so every finalize path (return page, webhook,
+        Resume, sweep) raised ``NotSupportedError``. SQLite ignores FOR UPDATE entirely, so
+        these two specs only fail on Postgres — run them there before trusting them.
+        """
+
+        def it_locks_only_the_booking_row():
+            qs = OrientationBooking.objects.select_for_update(of=("self",)).select_related("slot", "guild", "member")
+            assert qs.query.select_for_update_of == ("self",)
+
+        def it_finalizes_a_guild_scoped_booking():
+            hold = OrientationBookingFactory(slot=_paid_slot(), status=OrientationBooking.Status.PENDING_PAYMENT)
+            assert hold.guild is not None
+            assert orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=1500) == "finalized"
+
+        def it_finalizes_an_equipment_owned_booking_whose_guild_is_null():
+            # The nullable case that made the join an outer join in the first place.
+            hold = OrientationBookingFactory(equipment_owned=True, status=OrientationBooking.Status.PENDING_PAYMENT)
+            assert hold.guild is None
+            assert orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=1500) == "finalized"
+
     def it_keeps_a_legacy_provisional_amount_when_the_session_has_none():
         slot = _paid_slot()
         hold = OrientationBookingFactory(

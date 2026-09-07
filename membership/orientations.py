@@ -600,7 +600,12 @@ def finalize_paid_booking(
 
     with transaction.atomic():
         locked = (
-            OrientationBooking.objects.select_for_update()
+            # ``of=("self",)`` locks the booking row and nothing else. Without it Postgres
+            # rejects the whole statement: ``guild`` is nullable, so ``select_related``
+            # reaches it through a LEFT OUTER JOIN, and Postgres refuses FOR UPDATE on the
+            # nullable side of an outer join. The booking row is the only thing that needs
+            # locking anyway — the joined rows are read for display, not written here.
+            OrientationBooking.objects.select_for_update(of=("self",))
             .select_related("slot", "guild", "member")
             .filter(pk=booking.pk)
             .first()
