@@ -30,7 +30,7 @@ from core.events import channels as channel_module
 from core.events import preferences, resolvers, templates
 from core.events.channels import Message
 from core.events.registry import Channel, get_event
-from core.models import EventDelivery, SiteActivity
+from core.models import EventDelivery, SiteActivity, TransactionalEmailLog
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -219,6 +219,7 @@ def emit(
 
     delivered: list[tuple[int, Channel]] = []
     skipped_duplicates: list[tuple[int, Channel]] = []
+    released: list[tuple[int, Channel]] = []
     suppress_user_email = bool(explicit_emails) or suppress_email
     for user, _reason in recipients:
         # Per-announcement EMAIL subset: drop ONLY this user's email when a selection is given
@@ -240,6 +241,7 @@ def emit(
             override_preferences=override_preferences,
             delivered=delivered,
             skipped_duplicates=skipped_duplicates,
+            released=released,
         )
 
     _explicit_email_fan_out(
@@ -250,6 +252,7 @@ def emit(
         period,
         delivered,
         skipped_duplicates,
+        released,
     )
 
     broadcast_channels = _broadcast_fan_out(
@@ -269,6 +272,7 @@ def emit(
         recipient_count=len(recipients),
         delivered=delivered,
         skipped_duplicates=skipped_duplicates,
+        released=released,
         broadcast_channels=broadcast_channels,
     )
 
@@ -393,6 +397,7 @@ def _per_recipient_fan_out(
     override_preferences: bool,
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
+    released: list[tuple[int, Channel]],
 ) -> None:
     """Fan one recipient out across their enabled, implemented, non-broadcast channels.
 
@@ -423,8 +428,28 @@ def _per_recipient_fan_out(
             # Broadcast channels (Discord) post once per event, handled separately.
             continue
         if _record_delivery(event_key, user, channel, period):
-            adapter.deliver(user, message_for(channel), attachments=channel_attachments.get(channel))
-            delivered.append((user.pk, channel))
+            # The slot is claimed BEFORE the send so two concurrent emits cannot both
+            # deliver. That ordering means a send which does not happen leaves a claim
+            # nobody used, and the recipient is then skipped by every later run — so
+            # anything short of a real delivery must hand the slot back.
+            try:
+                was_delivered = adapter.deliver(
+                    user, message_for(channel), attachments=channel_attachments.get(channel)
+                )
+            except BaseException:
+                # BaseException, not Exception: a worker being shut down raises SystemExit
+                # or KeyboardInterrupt, and that is precisely when a claimed-but-unsent slot
+                # would otherwise be stranded forever. Releasing risks re-sending to someone
+                # whose email had already left, which is a recoverable annoyance; keeping it
+                # silently drops them from the cycle, which is not. We re-raise either way.
+                _release_delivery(event_key, user, channel, period)
+                released.append((user.pk, channel))
+                raise
+            if was_delivered:
+                delivered.append((user.pk, channel))
+            else:
+                _release_delivery(event_key, user, channel, period)
+                released.append((user.pk, channel))
         else:
             skipped_duplicates.append((user.pk, channel))
 
@@ -437,6 +462,7 @@ def _explicit_email_fan_out(
     period: str,
     delivered: list[tuple[int, Channel]],
     skipped_duplicates: list[tuple[int, Channel]],
+    released: list[tuple[int, Channel]],
 ) -> None:
     """Send the EMAIL channel to explicit ``email_to`` addresses (Phase 4).
 
@@ -461,19 +487,40 @@ def _explicit_email_fan_out(
             continue
         seen.add(address.lower())
         if _record_explicit_email(event_key, address, period):
-            send_email(
-                to=address,
-                subject=message.title,
-                trigger_kind=message.trigger_kind or event_key,
-                text_body=message.body,
-                html_body=message.html_body,
-                best_effort=True,
-                attachments=attachments,
-                category=category,
-            )
-            delivered.append((0, Channel.EMAIL))
+            # Same claim-before-send ordering as the per-recipient fan-out, and the same
+            # obligation: a rejected send must give the address its slot back.
+            try:
+                log = send_email(
+                    to=address,
+                    subject=message.title,
+                    trigger_kind=message.trigger_kind or event_key,
+                    text_body=message.body,
+                    html_body=message.html_body,
+                    best_effort=True,
+                    attachments=attachments,
+                    category=category,
+                )
+            except BaseException:  # see _per_recipient_fan_out — shutdown must not strand a slot
+                _release_explicit_email(event_key, address, period)
+                released.append((0, Channel.EMAIL))
+                raise
+            if log.status == TransactionalEmailLog.Status.SENT:
+                delivered.append((0, Channel.EMAIL))
+            else:
+                _release_explicit_email(event_key, address, period)
+                released.append((0, Channel.EMAIL))
         else:
             skipped_duplicates.append((0, Channel.EMAIL))
+
+
+def _release_explicit_email(event_key: str, address: str, period: str) -> None:
+    """Hand back an explicit-address slot whose send did not land (see :func:`_release_delivery`)."""
+    EventDelivery.objects.filter(
+        event_key=event_key,
+        target_ref=f"email:{address.lower()}",
+        channel=Channel.EMAIL.value,
+        period=period,
+    ).delete()
 
 
 def _record_explicit_email(event_key: str, address: str, period: str) -> bool:
@@ -508,6 +555,24 @@ def _record_broadcast(event_key: str, channel: Channel, period: str, target_ref:
     except IntegrityError:
         return False
     return created
+
+
+def _release_delivery(event_key: str, user: User, channel: Channel, period: str) -> None:
+    """Hand back a delivery slot claimed by :func:`_record_delivery` that went unused.
+
+    Called when the adapter reports it sent nothing (no address, a rejected send, a
+    channel the recipient has not set up) or raised. Deleting the row — rather than
+    marking it — is deliberate: the ledger's unique key IS the "already delivered"
+    answer, so a row that never corresponded to a delivery must not exist. Re-running
+    the same emit then reaches exactly the recipients who were missed, and still skips
+    everyone who really was delivered.
+    """
+    EventDelivery.objects.filter(
+        event_key=event_key,
+        target_ref=f"user:{user.pk}",
+        channel=channel.value,
+        period=period,
+    ).delete()
 
 
 def _record_delivery(event_key: str, user: User, channel: Channel, period: str) -> bool:
@@ -547,6 +612,7 @@ class EmitResult:
         recipient_count: int,
         delivered: list[tuple[int, Channel]],
         skipped_duplicates: list[tuple[int, Channel]],
+        released: list[tuple[int, Channel]] | None = None,
         broadcast_channels: list[Channel] | None = None,
     ) -> None:
         self.event_key = event_key
@@ -554,11 +620,17 @@ class EmitResult:
         self.recipient_count = recipient_count
         self.delivered = delivered
         self.skipped_duplicates = skipped_duplicates
+        self.released = released if released is not None else []
         self.broadcast_channels = broadcast_channels or []
 
     @property
     def delivery_count(self) -> int:
         return len(self.delivered)
+
+    @property
+    def released_count(self) -> int:
+        """Slots claimed but handed back — recipients a re-run should try again."""
+        return len(self.released)
 
     def __repr__(self) -> str:
         return (

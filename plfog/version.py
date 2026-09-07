@@ -6,6 +6,21 @@ VERSION = "1.44.3"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
+        "version": "1.44.3",
+        "date": "2026-09-07",
+        "title": "Voting results that reach everyone",
+        "changes": [
+            "When we email out the guild funding results, a few people could be quietly "
+            "skipped, and there was no way to reach only them afterwards without emailing "
+            "everyone a second time. Anyone missed in September has since been sent their "
+            "results, and the site now goes back for the people it missed instead of "
+            "counting them as done.",
+            "Sending results no longer holds up the page while it works. Admins get a "
+            "confirmation straight away and the emails go out in the background, which is "
+            "what used to fail partway through on a big send.",
+        ],
+    },
+    {
         "version": "1.44.0",
         "date": "2026-09-06",
         "title": "Sign in with your face or fingerprint",

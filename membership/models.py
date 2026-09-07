@@ -7525,6 +7525,15 @@ class ResultsAlreadySentError(Exception):
     """Raised when a snapshot's member results email is sent twice without an explicit resend."""
 
 
+# How many times the scheduler retries one queued results send before giving up and
+# stamping it anyway. A transient failure (a provider hiccup, a worker restart, a single
+# rejected message) clears well inside this; a genuinely undeliverable address never
+# will, and must not keep the request queued forever. Retries cannot conjure send budget
+# either — if the provider is refusing on quota, the fix is the mail plan, not this
+# number. (The account is on Resend Pro as of September 2026: no daily cap, 50k/month.)
+MAX_RESULTS_SEND_ATTEMPTS = 3
+
+
 class FundingSnapshot(models.Model):
     """Immutable historical record of a funding calculation at a point in time."""
 
@@ -7585,6 +7594,22 @@ class FundingSnapshot(models.Model):
         default=0,
         help_text="How many times the results email has been sent (>=1 after the first send; supports resend).",
     )
+    results_send_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an admin asked for the results email. Set while the send is queued for the "
+            "background worker and cleared once it finishes. Null = nothing queued."
+        ),
+    )
+    results_send_resend = models.BooleanField(
+        default=False,
+        help_text="Whether the queued send is a deliberate resend to everyone (vs. a first send).",
+    )
+    results_send_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Attempts made on the currently queued send; reset to 0 once it finishes.",
+    )
 
     class Meta:
         ordering = ["-snapshot_at"]
@@ -7601,12 +7626,41 @@ class FundingSnapshot(models.Model):
 
     @property
     def results_pending(self) -> bool:
-        """Whether real per-guild results exist for this snapshot and haven't been emailed yet.
+        """Whether real per-guild results exist for this snapshot and still need the admin.
 
         A legacy or vote-less snapshot (no allocation) is never "pending" — there is
-        nothing meaningful to send.
+        nothing meaningful to send. Neither is one whose send is already queued: the
+        admin has acted and the scheduler owns it now, so the "review & send" banner
+        must move on to the next cycle instead of offering the same one again.
         """
-        return self.results_sent_at is None and bool(self.allocation_summary())
+        return self.results_sent_at is None and not self.results_send_queued and bool(self.allocation_summary())
+
+    @property
+    def results_send_queued(self) -> bool:
+        """Whether a results send is waiting for the background worker to pick it up."""
+        return self.results_send_requested_at is not None
+
+    def queue_results_send(self, *, resend: bool = False) -> None:
+        """Ask for this snapshot's results email without sending it on this thread.
+
+        Emailing the whole membership is a fan-out of roughly twenty queries per member
+        and takes over a minute at current size, which is longer than the web worker's
+        request timeout — the worker is killed mid-loop and the admin is told the send
+        failed when most of it already happened. So the admin's click only records the
+        request here; ``send_pending_funding_results`` performs it on the scheduler.
+
+        Args:
+            resend: True to re-email everyone with a fresh delivery generation.
+
+        Raises:
+            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
+        """
+        if self.results_sent_at is not None and not resend:
+            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
+        self.results_send_requested_at = timezone.now()
+        self.results_send_resend = resend
+        self.results_send_attempts = 0
+        self.save(update_fields=["results_send_requested_at", "results_send_resend", "results_send_attempts"])
 
     @classmethod
     def most_recent_pending(cls) -> FundingSnapshot | None:
@@ -7809,7 +7863,12 @@ class FundingSnapshot(models.Model):
         event to every active member with a linked user account who did NOT appear in the
         voter list — giving non-voters the allocation without a ballot recap. Finally, one
         ``voting.results_discord`` broadcast fires so #general-member-chat hears the outcome.
-        Stamps ``results_sent_at`` and bumps ``results_send_count`` for UI state + idempotency.
+
+        Bookkeeping lives in :meth:`_begin_results_send` (which generation to send under)
+        and :meth:`_finish_results_send` (stamp it, or leave it queued for a retry when
+        members were missed). This is safe to re-run: the ledger skips anyone already
+        emailed on the current generation, so a re-run reaches only the members a previous
+        attempt did not.
 
         Args:
             actor: The admin who triggered the send (unused in per-member emit, kept for
@@ -7829,13 +7888,11 @@ class FundingSnapshot(models.Model):
             ResultsAlreadySentError: If results were already sent and ``resend`` is False.
         """
         from core.events.emit import emit
+        from core.events.registry import Channel
         from membership.orientations import _absolute_url
 
-        if self.results_sent_at is not None and not resend:
-            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
-
-        self.results_send_count += 1
-        n = self.results_send_count
+        n = self._begin_results_send(resend=resend)
+        missed = 0
         sent = 0
         allocation = self.allocation_summary()
         allocation_chart = self.allocation_chart_html()
@@ -7882,6 +7939,7 @@ class FundingSnapshot(models.Model):
             )
             if result.delivery_count:
                 sent += 1
+            missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
         # --- 2. Non-voters: allocation only, no ballot recap ---
         non_voters = Member.objects.active().filter(user__isnull=False).exclude(pk__in=voter_ids).select_related("user")
@@ -7907,6 +7965,7 @@ class FundingSnapshot(models.Model):
             )
             if result.delivery_count:
                 sent += 1
+            missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
         # --- 3. Discord: one @everyone broadcast to #general-member-chat ---
         if discord:
@@ -7922,9 +7981,61 @@ class FundingSnapshot(models.Model):
                 period=f"snapshot_discord:{self.pk}:send:{n}",
             )
 
-        self.results_sent_at = timezone.now()
-        self.save(update_fields=["results_sent_at", "results_send_count"])
+        self._finish_results_send(missed=missed)
         return sent
+
+    def _begin_results_send(self, *, resend: bool) -> int:
+        """Claim one send attempt and return the delivery generation to send under.
+
+        The generation belongs to the admin's REQUEST, not to each attempt at fulfilling
+        it. The period embeds the generation, so a retry that bumped the number would get
+        fresh periods and re-email everyone instead of reaching only the members the
+        previous attempt missed. Any attempt after the first is therefore a retry —
+        queued or not, since the headless command can be re-run by hand after a worker
+        was killed. Both counters are persisted before any email goes out, so a run that
+        dies mid-fan-out still leaves the next one on the same generation.
+
+        Raises:
+            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
+        """
+        if self.results_sent_at is not None and not resend:
+            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
+        if self.results_send_attempts == 0:
+            self.results_send_count += 1
+        self.results_send_attempts += 1
+        self.save(update_fields=["results_send_count", "results_send_attempts"])
+        return self.results_send_count
+
+    def _finish_results_send(self, *, missed: int) -> bool:
+        """Stamp the send as done, or leave it queued for the scheduler to retry.
+
+        Members who were claimed but not reached (no address on file, a provider
+        rejection) had their ledger slots handed back. While the request is still queued
+        and the attempt budget is not spent, leave the snapshot unstamped so the next
+        scheduler tick retries on this same generation: the ledger skips everyone already
+        emailed and only the missed members are tried again. The budget is what stops a
+        permanently undeliverable address from queueing forever.
+
+        Returns:
+            True when the snapshot was stamped as sent, False when it stays queued.
+        """
+        still_queued = self.results_send_requested_at is not None
+        if missed and still_queued and self.results_send_attempts < MAX_RESULTS_SEND_ATTEMPTS:
+            return False
+        self.results_sent_at = timezone.now()
+        self.results_send_requested_at = None
+        self.results_send_resend = False
+        self.results_send_attempts = 0
+        self.save(
+            update_fields=[
+                "results_sent_at",
+                "results_send_count",
+                "results_send_requested_at",
+                "results_send_resend",
+                "results_send_attempts",
+            ]
+        )
+        return True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)

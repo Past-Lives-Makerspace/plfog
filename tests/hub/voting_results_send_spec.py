@@ -14,6 +14,8 @@ from django.urls import reverse
 from django.utils import timezone
 from factory.django import mute_signals
 
+from django.core.management import call_command
+
 from core.models import TransactionalEmailLog
 from membership.models import FundingSnapshot
 from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory, VotePreferenceFactory
@@ -55,6 +57,11 @@ def _pending_snapshot():
     return snap
 
 
+def _drain_send_queue():
+    """Run the scheduler job that performs whatever the admin's click queued."""
+    call_command("send_pending_funding_results")
+
+
 def describe_overview_banner():
     def it_shows_the_banner_when_a_snapshot_is_pending(admin_client):
         snap = _pending_snapshot()
@@ -75,20 +82,37 @@ def describe_send_results():
         snap = _pending_snapshot()
         assert member_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk])).status_code == 403
 
-    def it_sends_and_returns_the_sent_state_with_a_success_toast(admin_client):
+    def it_queues_the_send_and_returns_the_queued_state(admin_client):
         snap = _pending_snapshot()
         resp = admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
         assert resp.status_code == 200
-        assert b"Resend" in resp.content
+        assert b"Sending results now" in resp.content
         trigger = json.loads(resp["HX-Trigger"])
-        assert "Results sent to 1 member" in trigger["showToast"]["message"]
+        assert "on their way" in trigger["showToast"]["message"]
+        snap.refresh_from_db()
+        assert snap.results_send_requested_at is not None
+
+    def it_does_not_email_anyone_on_the_request_thread(admin_client):
+        """The whole point of queueing: the click must not run the fan-out itself."""
+        snap = _pending_snapshot()
+        admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
+        snap.refresh_from_db()
+        assert snap.results_sent_at is None
+        assert TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").count() == 0
+
+    def it_emails_once_the_scheduler_drains_the_queue(admin_client):
+        snap = _pending_snapshot()
+        admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
+        _drain_send_queue()
         snap.refresh_from_db()
         assert snap.results_sent_at is not None
+        assert snap.results_send_requested_at is None
         assert TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").count() == 1
 
     def it_returns_an_error_toast_and_does_not_resend_a_second_time(admin_client):
         snap = _pending_snapshot()
         admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
+        _drain_send_queue()
         resp = admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
         assert resp.status_code == 200
         trigger = json.loads(resp["HX-Trigger"])
@@ -99,10 +123,12 @@ def describe_send_results():
     def it_resends_when_resend_flag_is_set(admin_client):
         snap = _pending_snapshot()
         admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
+        _drain_send_queue()
         resp = admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]), {"resend": "1"})
         assert resp.status_code == 200
         trigger = json.loads(resp["HX-Trigger"])
         assert trigger["showToast"]["type"] == "success"
+        _drain_send_queue()
         snap.refresh_from_db()
         assert snap.results_send_count == 2
         assert TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").count() == 2
@@ -135,7 +161,7 @@ def describe_send_results_when_another_snapshot_is_still_pending():
         resp = admin_client.post(reverse("hub_admin_voting_send_results", args=[newer.pk]))
         assert resp.status_code == 200
         newer.refresh_from_db()
-        assert newer.results_sent_at is not None
+        assert newer.results_send_requested_at is not None
 
     def it_refreshes_the_banner_onto_the_snapshot_still_pending(admin_client):
         older, newer = _two_pending_snapshots()
@@ -152,16 +178,18 @@ def describe_send_results_when_another_snapshot_is_still_pending():
         body = admin_client.post(reverse("hub_admin_voting_send_results", args=[newer.pk])).content.decode()
         assert body.count('id="results-review-region"') == 1
         assert body.count("pl-results-banner__title") == 1
-        # Both confirm forms keep their CSRF token. This is what rejects the other
-        # obvious fix: `{% include ... only %}` also stops the recursion and also passes
-        # every other assertion here, but it cuts csrf_token out of the child context,
-        # so the banner's own Send button would 403. Without this line the suite cannot
-        # tell the two fixes apart.
-        assert body.count('name="csrfmiddlewaretoken"') == 2
+        # The banner's own Send button keeps its CSRF token. This is what rejects the
+        # other obvious fix: `{% include ... only %}` also stops the recursion and also
+        # passes every other assertion here, but it cuts csrf_token out of the child
+        # context, so the banner's Send button would 403. Without this line the suite
+        # cannot tell the two fixes apart. One token, not two: the posted-for snapshot
+        # now renders the queued status text, which carries no form.
+        assert body.count('name="csrfmiddlewaretoken"') == 1
 
     def it_still_reports_already_sent_without_blowing_the_stack(admin_client):
         older, newer = _two_pending_snapshots()
         admin_client.post(reverse("hub_admin_voting_send_results", args=[newer.pk]))
+        _drain_send_queue()
         resp = admin_client.post(reverse("hub_admin_voting_send_results", args=[newer.pk]))
         assert resp.status_code == 200
         assert json.loads(resp["HX-Trigger"])["showToast"]["type"] == "error"

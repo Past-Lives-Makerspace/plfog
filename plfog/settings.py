@@ -490,8 +490,17 @@ ACCOUNT_LOGIN_BY_CODE_MAX_ATTEMPTS = 5
 ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
 
 # Tighten allauth's built-in per-IP/per-key rate limits for login-code requests.
-# Defaults are 20/m/ip,3/m/key which is too generous given the 3,000/day Resend
-# free-tier ceiling. These keys merge into allauth.account.app_settings defaults.
+# Defaults are 20/m/ip,3/m/key which is too generous for a transactional mail budget.
+# History worth keeping: this comment used to claim a 3,000/day Resend ceiling, and on
+# 2026-09-03 a results send to the full membership was rejected with HTTP 429 "You have
+# reached your daily email sending quota" after roughly 224 messages — fewer than one
+# per active member. The account moved to Resend Pro in September 2026: no daily cap,
+# 50,000/month, which is ample headroom for an all-member send at current size. The rate
+# limits below are kept anyway, because they exist to stop login-code abuse rather than
+# to ration quota. If a send is ever rejected again, the recovery path is
+# core.events.emit._release_delivery, which hands the slot back so a retry reaches only
+# the members who were missed.
+# These keys merge into allauth.account.app_settings defaults.
 # Rate limiting only gets in the way during local development — repeated
 # login/test cycles trip allauth's "Too many failed login attempts" guard.
 # allauth treats RATE_LIMITS=False as "disable everything", so turn it off
