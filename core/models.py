@@ -630,8 +630,15 @@ class SiteConfiguration(models.Model):
     )
     wiki_link_enabled = models.BooleanField(
         default=True,
-        verbose_name="Show Wiki link in the sidebar",
-        help_text="When off, the Wiki link to the makerspace wiki is hidden from the sidebar.",
+        verbose_name="Show old wiki link",
+        help_text="Show a link to the old MediaWiki at the bottom of the Wiki home. Turn this off "
+        "once the old wiki is retired.",
+    )
+    wiki_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Member wiki",
+        help_text="Show the Wiki in the sidebar and let members read and write wiki pages. When off, "
+        "every /wiki/ page and the QR sticker links answer 404.",
     )
     equipment_page_enabled = models.BooleanField(
         default=True,
@@ -1400,6 +1407,16 @@ class SiteActivity(models.Model):
         ACCOUNT_DELETED = "account_deleted", "Deleted account"
         RECONCILIATION_SNAPSHOT_TAKEN = "reconciliation_snapshot_taken", "Reconciliation snapshot taken"
         RECONCILIATION_SNAPSHOT_DELETED = "reconciliation_snapshot_deleted", "Reconciliation snapshot deleted"
+        # Member Wiki (spec A ships all six together — brief §9.1 — so specs B and D,
+        # which build in parallel off this migration, never add an enum member in their
+        # own migration. A writes WIKI_PAGE_CREATED / WIKI_PAGE_EDITED; B writes
+        # WIKI_PAGE_VERIFIED; D writes the rest. An unwritten value costs one row here.
+        WIKI_PAGE_CREATED = "wiki_page_created", "Wiki page created"
+        WIKI_PAGE_EDITED = "wiki_page_edited", "Wiki page edited"
+        WIKI_PAGE_VERIFIED = "wiki_page_verified", "Wiki page verified"
+        WIKI_PAGE_REPORTED = "wiki_page_reported", "Wiki page reported"
+        WIKI_PAGE_ARCHIVED = "wiki_page_archived", "Wiki page archived"
+        WIKI_PAGE_REVERTED = "wiki_page_reverted", "Wiki page reverted"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,

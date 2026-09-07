@@ -5,7 +5,7 @@ from __future__ import annotations
 from django import template
 from django.utils.safestring import SafeString, mark_safe
 
-from membership.markdown import render_markdown, render_page_content
+from membership.markdown import render_markdown, render_page_content, render_wiki_content
 
 register = template.Library()
 
@@ -41,3 +41,15 @@ def page_content(value: str, profile: str = "help") -> SafeString:
     did. Safe ONLY because both paths sanitize — same mark_safe caveat as above.
     """
     return mark_safe(render_page_content(value or "", profile=profile))  # noqa: S308 — render_page_content sanitizes
+
+
+@register.filter(name="wiki_content")
+def wiki_content(value: str) -> SafeString:
+    """Render a :class:`~membership.models.WikiPage` body — Markdown or rich-editor HTML — safely.
+
+    The template side of :func:`membership.markdown.render_wiki_content`: images from the
+    wiki media prefix survive, headings carry render-time anchor ids for the TOC chip row,
+    and everything else is sanitized under the ``wiki`` profile. Safe ONLY because
+    ``render_wiki_content`` sanitizes — same mark_safe caveat as the filters above.
+    """
+    return mark_safe(render_wiki_content(value or ""))  # noqa: S308 — render_wiki_content sanitizes
