@@ -139,6 +139,65 @@ def describe_a_send_that_was_never_queued():
         assert sent == 1
 
 
+def describe_picking_up_a_headless_run_that_died():
+    """The admin clicks Send after a Render one-off run was killed partway.
+
+    This is the documented incident-response path, and it is the one that most easily
+    re-emails the whole membership: the click must continue the dead run's generation
+    rather than opening a new one, AND it must actually send. Both halves ride on
+    ``results_send_attempts``, which doubles as the retry signal and the attempt budget.
+    """
+
+    def _crash_a_headless_run(snap, victim="missed@x.com"):
+        from core.email import _deliver as real_send
+
+        def flaky(*args, **kwargs):
+            if victim in kwargs.get("recipients", []):
+                raise KeyboardInterrupt("worker killed")
+            return real_send(*args, **kwargs)
+
+        with patch("core.email._deliver", side_effect=flaky):
+            with pytest.raises(KeyboardInterrupt):
+                snap.send_results()
+        snap.refresh_from_db()
+
+    def it_continues_the_dead_generation_instead_of_re_emailing_everyone():
+        snap = _snapshot_with("reached@x.com", "missed@x.com")
+        _crash_a_headless_run(snap)
+        assert snap.results_send_count == 1
+
+        snap.queue_results_send()
+        call_command("send_pending_funding_results")
+
+        snap.refresh_from_db()
+        assert snap.results_send_count == 1, "the click must not open a new generation"
+        assert _sent_addresses() == {"reached@x.com", "missed@x.com"}
+        assert (
+            TransactionalEmailLog.objects.filter(
+                trigger_kind="voting.results_published", status="sent", to_email="reached@x.com"
+            ).count()
+            == 1
+        ), "nobody emailed twice"
+
+    def it_still_sends_after_the_budget_was_spent_by_crashed_runs():
+        """An inherited, already-spent budget must not turn the click into a no-op.
+
+        Enough crashed headless runs would otherwise leave attempts at the cap, so the
+        next tick abandoned before sending anything and stamped the cycle as sent.
+        """
+        snap = _snapshot_with("reached@x.com", "missed@x.com")
+        for _ in range(MAX_RESULTS_SEND_ATTEMPTS + 1):
+            _crash_a_headless_run(snap)
+        assert snap.results_send_attempts >= MAX_RESULTS_SEND_ATTEMPTS
+
+        snap.queue_results_send()
+        call_command("send_pending_funding_results")
+
+        snap.refresh_from_db()
+        assert _sent_addresses() == {"reached@x.com", "missed@x.com"}
+        assert snap.results_sent_at is not None
+
+
 def describe_send_pending_funding_results():
     def it_does_nothing_when_no_send_is_queued():
         _snapshot_with("a@x.com")

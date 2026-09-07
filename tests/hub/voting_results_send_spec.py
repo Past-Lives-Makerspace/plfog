@@ -154,6 +154,9 @@ def describe_the_queued_state_on_a_page_load():
         snap = _pending_snapshot()
         admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
         body = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
+        # Pinned together with the queued text: on its own, "no Send button" is also
+        # satisfied by the control going missing entirely, which is the bug above.
+        assert "Sending results in the background" in body
         assert "Send results" not in body
 
 

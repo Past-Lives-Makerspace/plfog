@@ -7666,6 +7666,12 @@ class FundingSnapshot(models.Model):
             # here would make the next attempt look like a first attempt, open a new
             # generation, and re-email everyone that dead run had already reached.
             self.results_send_attempts = 0
+        else:
+            # Carry the count over so the next attempt continues the unfinished
+            # generation, but never hand the scheduler a budget that is already spent.
+            # Enough crashed runs would otherwise make the admin's next click abandon
+            # before sending anything, and stamp the cycle as sent having emailed nobody.
+            self.results_send_attempts = min(self.results_send_attempts, MAX_RESULTS_SEND_ATTEMPTS - 1)
         self.save(update_fields=["results_send_requested_at", "results_send_resend", "results_send_attempts"])
 
     @classmethod

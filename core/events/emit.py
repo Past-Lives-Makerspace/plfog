@@ -560,12 +560,17 @@ def _record_broadcast(event_key: str, channel: Channel, period: str, target_ref:
 def _release_delivery(event_key: str, user: User, channel: Channel, period: str) -> None:
     """Hand back a delivery slot claimed by :func:`_record_delivery` that went unused.
 
-    Called when the adapter reports it sent nothing (no address, a rejected send, a
-    channel the recipient has not set up) or raised. Deleting the row — rather than
-    marking it — is deliberate: the ledger's unique key IS the "already delivered"
-    answer, so a row that never corresponded to a delivery must not exist. Re-running
-    the same emit then reaches exactly the recipients who were missed, and still skips
-    everyone who really was delivered.
+    Called when the adapter reports it sent nothing (no address, a rejected send) or
+    raised. Deleting the row — rather than marking it — is deliberate: the ledger's
+    unique key IS the "already delivered" answer, so a per-recipient row that never
+    corresponded to a delivery must not exist. Re-running the same emit then reaches
+    exactly the recipients who were missed, and still skips everyone who really was
+    delivered.
+
+    Scope: this covers the PER-RECIPIENT channels only. The broadcast path
+    (:func:`_broadcast_fan_out`, :func:`_guild_broadcast`) still discards its adapter's
+    result and keeps the slot even when the webhook post fails, so a blipped Discord
+    embed is not retried. Same bug, deliberately left for its own change.
     """
     EventDelivery.objects.filter(
         event_key=event_key,
