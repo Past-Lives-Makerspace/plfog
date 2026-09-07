@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
@@ -10,7 +11,7 @@ from datetime import time as time_type
 from datetime import timedelta
 from decimal import Decimal
 from html import unescape
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, Self, cast
 
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -29,12 +30,13 @@ from django.utils.safestring import SafeString
 from core.files import delete_orphan_on_replace
 from core.images import normalize_field_if_uploaded
 from core.models import HeroCropMixin
-from core.validators import validate_document, validate_image_size
+from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_document, validate_image_size, validate_wiki_upload
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
     from django import forms
     from django.contrib.auth.models import User
+    from django.http import HttpRequest
 
     from billing.models import PaymentRefund
     from classes.models import ClassOffering
@@ -11527,3 +11529,1017 @@ class EquipmentReservation(models.Model):
             from membership import equipment as equipment_service
 
             equipment_service.notify_manager_cancelled(self)
+
+
+# ---------------------------------------------------------------------------------------
+# Member Wiki — the member-written store behind /wiki/ (spec A).
+#
+# Deliberately NOT WikiArticle: `seed_help_center` runs in render.yaml's buildCommand on
+# every deploy and `update_or_create`s every help slug, so member-authored rows in that
+# table would be destroyed on a Tuesday. One page store, one URL space, one search index;
+# scope is a nullable `guild` FK, never a separate store or a folder tree.
+# ---------------------------------------------------------------------------------------
+
+
+class WikiError(Exception):
+    """A wiki rule the member broke, carrying copy the member should read.
+
+    The sibling of :class:`EquipmentError` / :class:`OrientationError`: raised by
+    :meth:`WikiPage.apply_edit` on an archived page and by
+    :meth:`WikiPageQuerySet.create_page` on a duplicate title in the same scope. Views map
+    it to a friendly toast; nothing else catches it.
+    """
+
+
+# Slugs a page may never claim: every fixed segment under /wiki/ plus the QR prefix.
+# The brief's list plus every fixed segment this spec adds. Follows the
+# RESERVED_HELP_SLUGS precedent in hub/forms.py — the model's dedupe loop treats a
+# reserved value as taken, so even a programmatic create cannot land on one.
+RESERVED_WIKI_SLUGS = frozenset(
+    {
+        "new",
+        "search",
+        "drafts",
+        "review",
+        "wanted",
+        "p",
+        "m",
+        "edit",
+        "history",
+        "stickers",
+        "verify",
+        "report",
+        "revert",
+        "autosave",
+        "confirm",
+        "photo",
+        "tip",
+        "image",
+        "qr",
+        "conflict",
+    }
+)
+
+# How long a green check stays green before it fades to grey and reads "Verified Mar 2026".
+# The page is never silently un-verified; only the chip's weight changes.
+VERIFIED_AGES_AFTER_MONTHS = 12
+
+# The /m/<code>/ sticker alphabet: Crockford-ish, with 0/O/1/I/L/U removed so a code read
+# off a dusty sticker in bad light cannot be mistyped into a different page.
+_QR_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ"
+_QR_CODE_LENGTH = 6
+# How many times save() retries a colliding random code before giving up. At 6 characters
+# there are ~7.3e8 codes, so a second collision is already a signal that something is wrong.
+_QR_MAX_ATTEMPTS = 10
+
+
+class WikiPageQuerySet(models.QuerySet["WikiPage"]):
+    """Listing, browse, and search filters for the member wiki.
+
+    Permissions are expressed here as *filters*, not checks: a view asks for
+    :meth:`visible_for` and renders what comes back, so a view that forgets to gate shows
+    too little, never too much.
+    """
+
+    def published(self) -> Self:
+        """Only pages that are live — excludes the ones spec D's safety gate held back."""
+        return self.filter(is_published=True)
+
+    def not_archived(self) -> Self:
+        """Exclude archived pages. Their URLs still resolve; they just leave the lists."""
+        return self.filter(archived_at__isnull=True)
+
+    def for_guild(self, guild: Guild) -> Self:
+        """Pages scoped to one guild. The guild Wiki tab is a filtered view of this store."""
+        return self.filter(guild=guild)
+
+    def space_wide(self) -> Self:
+        """Pages belonging to no guild — the space-wide half of the same store."""
+        return self.filter(guild__isnull=True)
+
+    def visible_for(self, request: HttpRequest) -> Self:
+        """The pages this request may see in a listing — a FILTER, not a check.
+
+        Effective staff get everything. Everyone else gets the live, unarchived pages,
+        plus their own held-back pages, plus held-back pages in the guilds they lead or
+        staff — the two legs of ``can_moderate_wiki_page`` expressed in bulk, so a guild
+        lead can find the page D's safety gate held back in their own guild.
+
+        The guild leg is deliberately lead/staff and **not** every guild the member has
+        joined: an unpublished page is one the safety gate is holding for a second read,
+        and every joined member seeing it would be that gate not existing. When spec D
+        lands ``moderatable_wiki_scopes(request)`` this method points at it instead, with
+        no behavior change.
+
+        Note the split with the reading view, which does **not** use this: an archived page
+        must still resolve at its own URL so it can explain itself to its author, which is
+        a different question from what belongs in a list. Do not "fix" that.
+        """
+        from membership.permissions import _editing_member, is_effective_staff
+
+        if is_effective_staff(request):
+            return self
+        member = _editing_member(request)
+        if member is None:
+            return self.published().not_archived()
+        moderated_guild_ids = Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).values(
+            "pk"
+        )
+        return self.filter(
+            Q(is_published=True, archived_at__isnull=True)
+            | Q(is_published=False, created_by=member)
+            | Q(is_published=False, guild__in=moderated_guild_ids)
+        ).distinct()
+
+    def filtered(
+        self,
+        *,
+        guild: Guild | None = None,
+        kind: str = "",
+        stale: bool = False,
+    ) -> Self:
+        """Apply the browse facets, each only when it is truthy.
+
+        This is what makes an empty search box a *browse* rather than a blank page: the
+        search view chains :meth:`search` on top only when ``q`` is non-empty, so the home
+        page, the search page, and spec B's "See all" links all share one filter.
+        """
+        qs = self
+        if guild is not None:
+            qs = qs.for_guild(guild)
+        if kind:
+            qs = qs.filter(kind=kind)
+        if stale:
+            qs = qs.needs_review()
+        return qs
+
+    def search(self, q: str) -> Self:
+        """Split ``q`` on whitespace and AND one ``icontains`` clause per term.
+
+        Matches the flattened ``search_text`` (which is why a bolded word does not match
+        the string "strong"), the title, the guild name, and the equipment name. Empty
+        ``q`` returns ``none()``, copying :meth:`WikiArticleQuerySet.search`'s shape
+        exactly — the *view* is what turns an empty query into a browse, so the two callers
+        that genuinely want "no query, no results" still get it.
+
+        Ordered by status rank (Official, then Guild verified, then Community) and then by
+        recency, so the authoritative answer leads.
+        """
+        terms = q.split()
+        if not terms:
+            return self.none()
+        qs = self
+        for term in terms:
+            qs = qs.filter(
+                Q(search_text__icontains=term)
+                | Q(title__icontains=term)
+                | Q(guild__name__icontains=term)
+                | Q(equipment__name__icontains=term)
+            )
+        return qs.annotate(
+            _status_rank=Case(
+                When(status=WikiPage.Status.OFFICIAL, then=Value(0)),
+                When(status=WikiPage.Status.GUILD_VERIFIED, then=Value(1)),
+                default=Value(2),
+                output_field=models.IntegerField(),
+            )
+        ).order_by("_status_rank", "-updated_at")
+
+    def needs_review(self) -> Self:
+        """Pages past their per-kind review interval, or carrying a filed report.
+
+        Built as an OR of per-kind cutoff ``Q()``s in SQL rather than in Python, so spec
+        B's overdue list and ``?stale=1`` both paginate. The freshness clock is
+        ``last_checked_at or verified_at or created_at`` — never ``updated_at``, because a
+        member fixing a typo does not make a stale machine page accurate.
+        """
+        from dateutil.relativedelta import relativedelta
+
+        now = timezone.now()
+        condition = Q(needs_review_since__isnull=False)
+        for kind, months in REVIEW_INTERVALS.items():
+            if months is None:
+                continue
+            condition |= Q(kind=kind, _freshness_at__lt=now - relativedelta(months=months))
+        return self.annotate(_freshness_at=Coalesce("last_checked_at", "verified_at", "created_at")).filter(condition)
+
+    def with_fact_prefetch(self) -> Self:
+        """The N+1 guard every list surface uses: facts, attachments, and the four FKs."""
+        return self.prefetch_related("facts", "attachments").select_related(
+            "guild", "equipment", "verified_by", "updated_by"
+        )
+
+    def create_page(
+        self,
+        *,
+        title: str,
+        kind: str,
+        author: Member | None,
+        guild: Guild | None = None,
+        equipment: Equipment | None = None,
+        body: str = "",
+        status: str = "",
+        facts: Iterable[tuple[str, str]] = (),
+        note: str = "Created",
+        is_published: bool = True,
+    ) -> WikiPage:
+        """Create a page with its starter facts, its first revision, and an activity row.
+
+        The single creation path, so every page in the store has a revision behind it from
+        the moment it exists and spec D's revert never meets a page with no history. A
+        duplicate title in the same scope raises :class:`WikiError` rather than quietly
+        making a second page members will have to reconcile later.
+
+        ``status`` is optional because spec D's Safety card creates an Official page
+        through this same method; blank means the ``COMMUNITY`` default.
+
+        Args:
+            title: The page title. Also the source of the slug, once.
+            kind: A :class:`WikiPage.Kind` value. Drives the starter and the review clock.
+            author: The member creating it, or None for the equipment seeder.
+            guild: The scope. None means space-wide.
+            equipment: The tool this page documents, when it documents one.
+            body: Starter body, usually headings from ``membership.wiki_starters``.
+            status: A :class:`WikiPage.Status` value; blank uses the model default.
+            facts: ``(label, value)`` pairs seeded as Quick Answers rows, in order.
+            note: The first revision's note.
+            is_published: False when spec D's safety gate holds the page for a read.
+
+        Returns:
+            The saved page, with its facts and first revision written.
+
+        Raises:
+            WikiError: If a live page with this title already exists in this scope.
+        """
+        clash = WikiPage.objects.filter(title__iexact=title.strip(), guild=guild).not_archived()
+        if clash.exists():
+            scope = f"in {guild.name}" if guild is not None else "space wide"
+            raise WikiError(f"A page called '{title.strip()}' already exists {scope}. Add to that one instead.")
+        page = WikiPage(
+            title=title.strip(),
+            kind=kind,
+            guild=guild,
+            equipment=equipment,
+            body=body,
+            created_by=author,
+            updated_by=author,
+            is_published=is_published,
+        )
+        if status:
+            page.status = status
+        page.save()
+        for index, (label, value) in enumerate(facts):
+            WikiPageFact.objects.create(page=page, label=label, value=value, sort_order=index)
+        if facts:
+            page.rebuild_search_text()
+            page.save(update_fields=["search_text"])
+        from core.models import SiteActivity
+
+        WikiRevision.objects.create(
+            page=page,
+            title=page.title,
+            body=page.body,
+            facts=page.fact_snapshot(),
+            status=page.status,
+            author=author,
+            note=note,
+        )
+        # SiteActivity.actor is a User FK, not a Member; an unlinked member logs an
+        # actorless row rather than blocking the create.
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_CREATED,
+            actor=author.user if author is not None else None,
+            target=page,
+        )
+        return page
+
+
+class WikiPage(models.Model):
+    """A member-written page about the space, the machines, the materials, or the craft.
+
+    Any active member may create one and edit any Community or Guild-verified one, live,
+    with no approval queue: a first contribution that sits invisible for four days is the
+    last contribution. Guild staff and admins get extra powers on top of that, never a gate
+    in front of it.
+
+    Filing is two fields, both pre-filled from context — :attr:`guild` (the scope, null for
+    space-wide) and :attr:`kind`. There is no hierarchy, no folder tree, and no tag
+    taxonomy: hierarchies need a librarian we do not have and end with a "Misc" node
+    holding most of the content.
+    """
+
+    class Kind(models.TextChoices):
+        MACHINE = "machine", "Machine or tool"
+        HOWTO = "howto", "How to do something"
+        MATERIAL = "material", "Material"
+        PROJECT = "project", "Project write-up"
+        GUILD_INFO = "guild_info", "How this guild works"
+        REFERENCE = "reference", "Reference table or chart"
+
+    class Status(models.TextChoices):
+        COMMUNITY = "community", "Community"
+        GUILD_VERIFIED = "guild_verified", "Guild verified"
+        OFFICIAL = "official", "Official"
+
+    title = models.CharField(max_length=200, help_text="What the page is called, e.g. 'SawStop Table Saw'.")
+    slug = models.SlugField(
+        max_length=220,
+        unique=True,
+        blank=True,
+        help_text="URL name under /wiki/p/. Filled from the title once and never changed, so a deep link "
+        "and a printed sticker never break.",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        help_text="What sort of page this is. Drives the starter template and how often it asks to be checked.",
+    )
+    guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_pages",
+        help_text="The guild this page belongs to. Leave blank for a page that belongs to the whole space.",
+    )
+    equipment = models.ForeignKey(
+        "membership.Equipment",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_pages",
+        help_text="The tool this page documents, when it documents one. Drives the locked Official block.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.COMMUNITY,
+        help_text="Community (the normal state), Guild verified, or Official.",
+    )
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="The page body. Rich text from the editor, or Markdown on older pages.",
+    )
+    created_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who created the page. Blank for pages the equipment seeder wrote.",
+    )
+    updated_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who saved it last.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the page was created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the page was last saved.")
+    body_edited_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When a person last edited the body. Blank means the body is still exactly what the "
+        "seeder wrote, which is how the seeder knows it may refresh the page.",
+    )
+    last_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When someone last confirmed the page is still accurate. The freshness clock.",
+    )
+    last_checked_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who last confirmed it. Named in the byline.",
+    )
+    verified_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who stood behind this page with a green check.",
+    )
+    verified_at = models.DateTimeField(null=True, blank=True, help_text="When it was verified.")
+    unverified_reason = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Why a green check was dropped, e.g. 'Edited since it was verified.' Shown beside the "
+        "status pill, because a reason recorded and never shown is a lie told to the next reader.",
+    )
+    is_published = models.BooleanField(
+        default=True,
+        help_text="Off means the page is held for a second read and only its author and the guild's leads can see it.",
+    )
+    needs_review_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set while a member's report about this page is open. Denormalized so the amber chip "
+        "can appear in search results without a join.",
+    )
+    needs_review_reason = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="A one-line summary of the open report, shown beside the status pill. Member-supplied, "
+        "so it is escaped on render.",
+    )
+    archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the page was archived. The URL keeps working and explains itself; members "
+        "cannot delete, and hard delete is not in the UI.",
+    )
+    archived_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who archived it. An archive that cannot say who cleared an item cannot be audited.",
+    )
+    archive_reason = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Why it was archived. Shown to the author by name on the archived page.",
+    )
+    search_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Flattened plain text of the title, body, Quick Answers, and attachment labels. "
+        "Rebuilt on save so search never matches HTML tag names.",
+    )
+    qr_code = models.CharField(
+        max_length=10,
+        unique=True,
+        blank=True,
+        default="",
+        help_text="The short code behind the /m/ sticker link. Filled once and never changed.",
+    )
+
+    objects = WikiPageQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["title"]
+        indexes = [
+            models.Index(fields=["guild", "kind"], name="idx_wikipage_guild_kind"),
+            models.Index(fields=["status", "kind"], name="idx_wikipage_status_kind"),
+            models.Index(fields=["-updated_at"], name="idx_wikipage_updated"),
+        ]
+        constraints = [
+            # One seeded machine page per tool — the seeder must never make a second.
+            models.UniqueConstraint(
+                fields=["equipment"],
+                condition=Q(kind="machine", equipment__isnull=False),
+                name="uq_wikipage_machine_equip",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.get_kind_display()})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Fill the slug and QR code once, refresh the search text, then persist.
+
+        The slug stays stable once set — a deep link and a printed sticker must never
+        break — so it is only filled when blank, and a slugified title that lands on a
+        reserved segment or an existing page is suffixed (-2, -3, …) rather than replacing
+        it. The QR code is filled the same way, from an alphabet with no ambiguous
+        characters, retrying on the unique constraint.
+        """
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base = slugify(self.title) or "page"
+            slug = base
+            n = 2
+            siblings = WikiPage.objects.exclude(pk=self.pk)
+            while slug in RESERVED_WIKI_SLUGS or siblings.filter(slug=slug).exists():
+                slug = f"{base}-{n}"
+                n += 1
+            self.slug = slug
+        if not self.qr_code:
+            self.qr_code = self._generate_qr_code()
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None:
+            self.rebuild_search_text()
+        super().save(*args, **kwargs)
+
+    def _generate_qr_code(self) -> str:
+        """A short, unambiguous, unused sticker code.
+
+        Uppercase and drawn from an alphabet with no 0/O/1/I/L/U, so a code read off a
+        dusty sticker in bad light cannot be mistyped into a different page.
+        """
+        for _ in range(_QR_MAX_ATTEMPTS):
+            code = "".join(secrets.choice(_QR_ALPHABET) for _ in range(_QR_CODE_LENGTH))
+            if not WikiPage.objects.filter(qr_code=code).exists():
+                return code
+        raise WikiError("Could not allocate a sticker code. Try saving again.")
+
+    # --- Freshness -----------------------------------------------------------------
+
+    @property
+    def freshness_at(self) -> datetime_type:
+        """When this page was last known to be accurate.
+
+        Deliberately NOT ``updated_at``: a member fixing a typo does not make a stale
+        machine page accurate, so the clock only moves on an explicit write to
+        ``last_checked_at`` (confirming, a staff edit, or verification).
+        """
+        return self.last_checked_at or self.verified_at or self.created_at
+
+    @property
+    def review_due_at(self) -> datetime_type | None:
+        """When this page starts showing the Out of date chip, or None if it never does."""
+        from dateutil.relativedelta import relativedelta
+
+        months = REVIEW_INTERVALS[self.kind]
+        if months is None:
+            return None
+        return self.freshness_at + relativedelta(months=months)
+
+    @property
+    def is_out_of_date(self) -> bool:
+        """True once the review interval for this kind has passed."""
+        due = self.review_due_at
+        return due is not None and due < timezone.now()
+
+    @property
+    def verification_is_aged(self) -> bool:
+        """True when the green check is over a year old, so it can fade to grey.
+
+        The page is never silently un-verified — only the chip's weight changes, because
+        letting a green check ride a three-year-old page and quietly dropping it are both
+        worse than saying "Verified Mar 2026".
+        """
+        from dateutil.relativedelta import relativedelta
+
+        if self.verified_at is None:
+            return False
+        return self.verified_at < timezone.now() - relativedelta(months=VERIFIED_AGES_AFTER_MONTHS)
+
+    def confirm_still_accurate(self, member: Member) -> None:
+        """Record that ``member`` read the page and says it is still right.
+
+        Any active member may do this. It never sets ``verified_by``, never changes
+        ``status``, and never writes a revision: confirming is not editing, which is the
+        whole point of it being one tap. Confirming must be cheaper than editing or
+        nothing gets confirmed.
+        """
+        self.last_checked_at = timezone.now()
+        self.last_checked_by = member
+        self.save(update_fields=["last_checked_at", "last_checked_by"])
+
+    # --- Editing -------------------------------------------------------------------
+
+    def fact_snapshot(self) -> list[dict[str, str]]:
+        """The Quick Answers rows as plain JSON, for a revision snapshot."""
+        return [{"label": fact.label, "value": fact.value} for fact in self.facts.all()]
+
+    def apply_edit(
+        self,
+        *,
+        editor: Member,
+        editor_may_verify: bool,
+        title: str,
+        body: str,
+        note: str = "",
+    ) -> WikiRevision:
+        """Save one edit, snapshot a revision, and settle the verification.
+
+        Writes the *pre-edit* state to a :class:`WikiRevision` first, so the revision table
+        always holds a restorable "before" for every change and ``revisions.first()`` is
+        exactly what a revert wants.
+
+        A staff edit (``editor_may_verify``) keeps ``GUILD_VERIFIED`` and stamps
+        ``last_checked_at`` — the locked "keeps the verification and resets the clock"
+        rule. A non-staff edit of a ``GUILD_VERIFIED`` page drops it to ``COMMUNITY``,
+        clears the verification, and records ``unverified_reason``: a green check must
+        never ride on unreviewed text.
+
+        An ``OFFICIAL`` page never reaches here from a member — ``can_edit_wiki_page``
+        refuses, and the reading page renders no edit affordance at all. This method never
+        writes ``is_published``, which is what stops a member opening Edit on a held-back
+        Safety page and publishing past the one gate the round has.
+
+        Args:
+            editor: The member saving the edit.
+            editor_may_verify: True when the editor could have verified this page.
+            title: The new title.
+            body: The new body, already sanitized by the view.
+            note: A short line for the history list, e.g. "Photo added".
+
+        Returns:
+            The revision holding the pre-edit snapshot.
+
+        Raises:
+            WikiError: If the page is archived.
+        """
+        if self.archived_at is not None:
+            raise WikiError("This page is archived. Ask an admin to restore it before editing.")
+        from core.models import SiteActivity
+
+        revision = WikiRevision.objects.create(
+            page=self,
+            title=self.title,
+            body=self.body,
+            facts=self.fact_snapshot(),
+            status=self.status,
+            author=editor,
+            note=note,
+        )
+        now = timezone.now()
+        self.title = title.strip()
+        self.body = body
+        self.updated_by = editor
+        self.body_edited_at = now
+        if editor_may_verify:
+            self.last_checked_at = now
+            self.last_checked_by = editor
+        elif self.status == self.Status.GUILD_VERIFIED:
+            self.status = self.Status.COMMUNITY
+            self.verified_by = None
+            self.verified_at = None
+            self.unverified_reason = "Edited since it was verified."
+        self.save()
+        SiteActivity.log(SiteActivity.Kind.WIKI_PAGE_EDITED, actor=editor.user, target=self)
+        return revision
+
+    @property
+    def revision_count(self) -> int:
+        """How many versions are saved, for the byline's "12 versions saved"."""
+        return self.revisions.count()
+
+    # --- Search and reading --------------------------------------------------------
+
+    def rebuild_search_text(self) -> None:
+        """Flatten the title, body, Quick Answers, and attachment labels into ``search_text``.
+
+        Sets the field in memory; the caller saves. A model method and not a signal,
+        per house style — there are exactly three call sites, and ``icontains`` over a
+        rich-text body would otherwise match "strong" on any bolded word and would never
+        reach the Quick Answers, which is where the useful nouns live.
+        """
+        parts = [self.title, _source_to_text(self.body)]
+        if self.pk:
+            parts.extend(f"{fact.label} {fact.value}" for fact in self.facts.all())
+            parts.extend(attachment.label for attachment in self.attachments.all())
+        self.search_text = re.sub(r"\s+", " ", " ".join(part for part in parts if part)).strip()
+
+    def lead_text(self, limit: int = 200) -> str:
+        """The opening plain-text run of the body, for a card with no search snippet."""
+        text = _source_to_text(self.body)
+        if len(text) <= limit:
+            return text
+        return text[:limit].rsplit(" ", 1)[0] + "…"
+
+    def search_snippet(self, q: str, radius: int = 90) -> str:
+        """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.
+
+        Reads the already-flattened ``search_text``, so no re-flattening happens per
+        result. Escaping happens *before* the ``<mark>`` insertion, which is the only
+        reason the template may pass this through ``|safe`` — do not reorder those two
+        steps. A title-only hit falls back to the lead text.
+        """
+        text = self.search_text
+        lowered = text.lower()
+        hit_start = -1
+        hit_len = 0
+        for term in q.split():
+            idx = lowered.find(term.lower())
+            if idx != -1 and (hit_start == -1 or idx < hit_start):
+                hit_start, hit_len = idx, len(term)
+        if hit_start == -1:
+            return escape(self.lead_text())
+        start = max(0, hit_start - radius)
+        end = min(len(text), hit_start + hit_len + radius)
+        prefix = "…" if start > 0 else ""
+        suffix = "…" if end < len(text) else ""
+        return (
+            prefix
+            + escape(text[start:hit_start])
+            + "<mark>"
+            + escape(text[hit_start : hit_start + hit_len])
+            + "</mark>"
+            + escape(text[hit_start + hit_len : end])
+            + suffix
+        )
+
+    def toc(self) -> list[tuple[int, str, str]]:
+        """``(level, anchor_id, text)`` for the h2/h3 headings in the rendered body.
+
+        Unlike :meth:`WikiArticle.toc`, this is non-empty for a rich-editor body too:
+        ``render_wiki_content`` injects a slugified id into every heading at render time,
+        so the TOC chip row works for what members actually write.
+        """
+        from membership.markdown import render_wiki_content
+
+        html = render_wiki_content(self.body)
+        return [
+            (int(level), anchor, unescape(strip_tags(inner)).strip())
+            for level, anchor, inner in _HELP_TOC_HEADING_RE.findall(html)
+        ]
+
+
+# How long each kind stays fresh before the Out of date chip appears, in months.
+# None means the kind never goes stale: a project write-up is a record of what someone did
+# once, and asking them to re-confirm it every year would be asking them to re-do it.
+REVIEW_INTERVALS: dict[str, int | None] = {
+    WikiPage.Kind.MACHINE: 12,
+    WikiPage.Kind.HOWTO: 24,
+    WikiPage.Kind.MATERIAL: 24,
+    WikiPage.Kind.GUILD_INFO: 12,
+    WikiPage.Kind.REFERENCE: 12,
+    WikiPage.Kind.PROJECT: None,
+}
+
+
+class WikiPageFact(models.Model):
+    """One Quick Answers row — the key/value facts people actually came to the page for.
+
+    The most useful component on a wiki page, which is why the starter template prompts for
+    these before it prompts for prose.
+    """
+
+    page = models.ForeignKey(
+        WikiPage,
+        on_delete=models.CASCADE,
+        related_name="facts",
+        help_text="The page this fact belongs to.",
+    )
+    label = models.CharField(
+        max_length=60,
+        help_text="The question, in two or three words. 'Blade' or 'Max width'.",
+    )
+    value = models.CharField(
+        max_length=200,
+        help_text="The answer. Short enough to read at a glance.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+
+    class Meta:
+        ordering = ["sort_order", "pk"]
+
+    def __str__(self) -> str:
+        return f"{self.label}: {self.value}"
+
+
+class WikiRevision(models.Model):
+    """One saved version of a page. Every save writes one; nothing here is ever deleted.
+
+    "Every version is saved. Nothing here can be lost." is printed in the editor footer,
+    where the fear is, and this table is what makes it true. Spec D builds the history list
+    and the revert on top; this spec owns the model and the write.
+    """
+
+    class Kind(models.TextChoices):
+        SAVE = "save", "Edit"
+        REVERT = "revert", "Reverted"
+        CONFLICT_DRAFT = "conflict_draft", "Unmerged draft"
+
+    page = models.ForeignKey(
+        WikiPage,
+        on_delete=models.CASCADE,
+        related_name="revisions",
+        help_text="The page this version belongs to.",
+    )
+    title = models.CharField(max_length=200, help_text="The title as it was at this version.")
+    body = models.TextField(blank=True, default="", help_text="The body as it was at this version.")
+    facts = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="The Quick Answers rows as they were, so a revert restores the whole page and not just the prose.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=WikiPage.Status.choices,
+        help_text="The status at save time, so a revert restores it rather than guessing.",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.SAVE,
+        help_text="What produced this version: a normal edit, a revert, or a draft that was never applied.",
+    )
+    author = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_revisions",
+        help_text="Who saved it. Blank for versions the equipment seeder wrote.",
+    )
+    note = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="A short line for the history list, e.g. 'Photo added'.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this version was saved.")
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [models.Index(fields=["page", "-created_at"], name="idx_wikirevision_page")]
+
+    def __str__(self) -> str:
+        return f"{self.page.title} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class WikiAttachment(models.Model):
+    """A file OR a link on a wiki page, with a label that is the whole point of it.
+
+    The :class:`MeetingAttachment` shape with two changes the brief requires: the label is
+    required (a library of files called scan_0034.pdf is a library nobody reads), and the
+    uploader is recorded so the attachment card can name them. Attachments belong to a
+    page; there is deliberately no standalone file browser.
+    """
+
+    page = models.ForeignKey(
+        WikiPage,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+        help_text="The page this attachment belongs to.",
+    )
+    label = models.CharField(
+        max_length=200,
+        help_text="What to call this, e.g. 'Blade change steps'. Required, because the label is what "
+        "makes the file worth opening.",
+    )
+    file = models.FileField(
+        upload_to="wiki/attachments/",
+        blank=True,
+        validators=[validate_wiki_upload],
+        help_text="Upload a document or a photo. Leave blank if you're adding a link instead.",
+    )
+    url = models.URLField(
+        blank=True,
+        default="",
+        help_text="Link to something elsewhere. Leave blank if you uploaded a file instead.",
+    )
+    sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    uploaded_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who added it. Shown on the attachment card.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it was added.")
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=((Q(file="") & ~Q(url="")) | (~Q(file="") & Q(url=""))),
+                name="ck_wikiattach_file_xor_url",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.display_name} on {self.page.title}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Clean up a replaced file, downscale a fresh photo, then persist.
+
+        The downscale is guarded on the extension because this one field carries both
+        documents and phone photos, and the normalizer would otherwise try to open a PDF
+        as an image.
+        """
+        delete_orphan_on_replace(self, "file")
+        if self.is_image:
+            normalize_field_if_uploaded(self, "file", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_file(self) -> bool:
+        return bool(self.file)
+
+    @property
+    def is_link(self) -> bool:
+        return bool(self.url)
+
+    @property
+    def is_image(self) -> bool:
+        """True for a photo, which the page shows in the grid instead of as a file card."""
+        name = (self.file.name or "").lower() if self.file else ""
+        return name.rsplit(".", 1)[-1] in ALLOWED_WIKI_IMAGE_EXTENSIONS if "." in name else False
+
+    @property
+    def display_name(self) -> str:
+        """Label if set, else the file's base name, else the URL."""
+        if self.label:
+            return self.label
+        if self.file and self.file.name:
+            return self.file.name.rsplit("/", 1)[-1]
+        return self.url
+
+    @property
+    def size_label(self) -> str:
+        """A human file size like "2.4 MB". Blank for a link, which has no size."""
+        if not self.file:
+            return ""
+        size = self.file.size
+        if size < 1024:
+            return f"{size} B"
+        if size < 1024 * 1024:
+            return f"{size / 1024:.0f} KB"
+        return f"{size / (1024 * 1024):.1f} MB"
+
+
+class WikiDraftManager(models.Manager["WikiDraft"]):
+    """The resume list behind the editor's "you were writing this" banner."""
+
+    def for_member(self, member: Member) -> models.QuerySet[WikiDraft]:
+        """This member's unfinished drafts, newest first."""
+        return self.filter(author=member).select_related("page", "guild").order_by("-updated_at")
+
+
+class WikiDraft(models.Model):
+    """A keystroke-debounced scratch buffer for one member editing one page.
+
+    Deleted on a successful save, and when its author chooses "Start from the saved page" —
+    it is a buffer, not a record. The :class:`WikiRevision` is the record. That is the one
+    place the wiki departs from the announcement drafts' mark-sent idiom, and it departs
+    because an announcement draft has no revision table behind it.
+    """
+
+    page = models.ForeignKey(
+        WikiPage,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="drafts",
+        help_text="The page being edited. Blank for a new page that does not exist yet.",
+    )
+    author = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="wiki_drafts",
+        help_text="Whose draft this is.",
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=WikiPage.Kind.choices,
+        help_text="The kind chosen for a new page; mirrors the page's kind otherwise.",
+    )
+    guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="The scope chosen for a new page.",
+    )
+    title = models.CharField(max_length=200, blank=True, default="", help_text="The title as typed so far.")
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="The body as typed so far. Sanitized on every autosave, so a draft is never a hole in the sanitizer.",
+    )
+    facts = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="The Quick Answers rows as typed so far. Held as JSON because a draft is a scratch "
+        "buffer, not a queryable store.",
+    )
+    base_revision = models.ForeignKey(
+        WikiRevision,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The page's newest version when this draft was started, so a conflict is measured "
+        "against what the member actually typed over.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the draft was last autosaved.")
+
+    objects = WikiDraftManager()
+
+    class Meta:
+        ordering = ["-updated_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["page", "author"],
+                condition=Q(page__isnull=False),
+                name="uq_wikidraft_page_author",
+            ),
+            models.UniqueConstraint(
+                fields=["author", "kind"],
+                condition=Q(page__isnull=True),
+                name="uq_wikidraft_new_author_kind",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        target = self.page.title if self.page is not None else (self.title or "New page")
+        return f"Draft of {target} by {self.author}"

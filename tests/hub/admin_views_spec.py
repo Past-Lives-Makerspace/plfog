@@ -912,11 +912,14 @@ def describe_admin_site_settings_features():
         assert b"Allow class registration" in response.content
 
     def it_renders_the_help_and_wiki_sidebar_toggles(client):
+        # Two separate wiki switches now: the member wiki itself, and the link out to
+        # the old MediaWiki that it replaces.
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         assert response.status_code == 200
         assert b"Show Help in the sidebar" in response.content
-        assert b"Show Wiki link in the sidebar" in response.content
+        assert b"Member wiki" in response.content
+        assert b"Show old wiki link" in response.content
 
     def it_renders_the_feature_fields_only_once(client):
         # Excluded from the General loop — each control renders only in the Features panel.
@@ -927,6 +930,7 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
         assert response.content.count(b'id="id_wiki_link_enabled"') == 1
+        assert response.content.count(b'id="id_wiki_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
 

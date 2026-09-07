@@ -232,7 +232,7 @@ def wiki_image_src_prefixes() -> tuple[str, ...]:
     works in tests and dev/prod differ correctly: the local media prefix always
     counts, and R2's public prefix joins it once R2 is configured.
     """
-    prefixes = (f"{settings.MEDIA_URL}wiki/",)
+    prefixes: tuple[str, ...] = (f"{settings.MEDIA_URL}wiki/",)
     r2_public_url = getattr(settings, "R2_PUBLIC_URL", "") or ""
     if r2_public_url:
         prefixes = (*prefixes, f"{r2_public_url}/wiki/")
@@ -426,7 +426,11 @@ def sanitize_wiki_html(raw: str) -> str:
     cleaned = bleach.clean(normalized, tags=_WIKI_TAGS_HTML, attributes=_WIKI_ATTRS_HTML, strip=True)
     cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
     hardened = bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
-    if not rich_html_to_text(hardened):
+    # An image counts as content here, unlike the help-page sanitizer this is modelled on
+    # (which strips img outright, so its text-only emptiness test can never be wrong). On a
+    # phone the primary contribution is a photo, not prose, so a body that is only a photo
+    # is a real contribution and must not be discarded as blank.
+    if not rich_html_to_text(hardened) and "<img" not in hardened:
         return ""
     return hardened
 
