@@ -19,7 +19,7 @@ Params:
 {% with pks=snapshot.pk|stringformat:"s" %}
 <div id="results-send-control-{{ snapshot.pk }}" class="pl-results-send" x-data>
   {% if snapshot.results_send_queued %}
-    <span class="pl-results-send__status">Sending results now. Members will get the email shortly.</span>
+    <span class="pl-results-send__status">Sending results in the background. This can take a few minutes.</span>
   {% elif snapshot.results_sent_at %}
     <span class="pl-results-send__status">Results sent {{ snapshot.results_sent_at|date:"M j, g:i a" }}</span>
     <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"

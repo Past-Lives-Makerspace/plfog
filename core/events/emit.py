@@ -612,7 +612,7 @@ class EmitResult:
         recipient_count: int,
         delivered: list[tuple[int, Channel]],
         skipped_duplicates: list[tuple[int, Channel]],
-        released: list[tuple[int, Channel]] | None = None,
+        released: list[tuple[int, Channel]],
         broadcast_channels: list[Channel] | None = None,
     ) -> None:
         self.event_key = event_key
@@ -620,17 +620,12 @@ class EmitResult:
         self.recipient_count = recipient_count
         self.delivered = delivered
         self.skipped_duplicates = skipped_duplicates
-        self.released = released if released is not None else []
+        self.released = released
         self.broadcast_channels = broadcast_channels or []
 
     @property
     def delivery_count(self) -> int:
         return len(self.delivered)
-
-    @property
-    def released_count(self) -> int:
-        """Slots claimed but handed back — recipients a re-run should try again."""
-        return len(self.released)
 
     def __repr__(self) -> str:
         return (

@@ -65,8 +65,20 @@ def describe_take_cycle_snapshot():
         snap = autos.first()
         assert snap.cycle_label == "June 2026"
         assert EventDelivery.objects.filter(event_key="voting.auto_snapshot", period="voting_close:2026-06").exists()
-        # Admins pinged AND results auto-sent to every linked member.
+        # Admins are pinged straight away.
         assert Notification.objects.filter(user=admin_user, trigger="voting.results_ready").exists()
+
+        # The results email is QUEUED, not sent inline. The auto path is the one that runs
+        # every month, so it is the one that most needs the scheduler's retry: sending here
+        # would stamp the snapshot even when members were missed, leaving a resend to the
+        # whole membership as the only way to reach them.
+        assert snap.results_send_queued is True
+        assert not Notification.objects.filter(trigger="voting.results_published").exists()
+
+        call_command("send_pending_funding_results")
+
+        snap.refresh_from_db()
+        assert snap.results_sent_at is not None
         assert Notification.objects.filter(user=voter.user, trigger="voting.results_published").exists()
         assert Notification.objects.filter(user=admin_user, trigger="voting.results_published").exists()
 

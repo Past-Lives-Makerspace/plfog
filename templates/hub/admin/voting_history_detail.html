@@ -24,7 +24,12 @@
       </p>
     </div>
     <div class="pl-vote-detail-actions">
-      {% if snapshot.results_pending or snapshot.results_sent_at %}
+      {% comment %}
+      results_send_queued is load bearing: a queued snapshot is neither pending nor sent,
+      so without it the control vanishes on the next page load and an in-flight send has
+      no visible state anywhere in the admin.
+      {% endcomment %}
+      {% if snapshot.results_pending or snapshot.results_send_queued or snapshot.results_sent_at %}
         {% include "hub/admin/_results_send_control.html" with snapshot=snapshot %}
       {% endif %}
       <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"

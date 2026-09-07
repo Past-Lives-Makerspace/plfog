@@ -8,13 +8,12 @@ from datetime import timedelta
 import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User as DjangoUser
+from django.core.management import call_command
 from django.db.models.signals import post_save
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 from factory.django import mute_signals
-
-from django.core.management import call_command
 
 from core.models import TransactionalEmailLog
 from membership.models import FundingSnapshot
@@ -86,7 +85,7 @@ def describe_send_results():
         snap = _pending_snapshot()
         resp = admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
         assert resp.status_code == 200
-        assert b"Sending results now" in resp.content
+        assert b"Sending results in the background" in resp.content
         trigger = json.loads(resp["HX-Trigger"])
         assert "on their way" in trigger["showToast"]["message"]
         snap.refresh_from_db()
@@ -132,6 +131,30 @@ def describe_send_results():
         snap.refresh_from_db()
         assert snap.results_send_count == 2
         assert TransactionalEmailLog.objects.filter(trigger_kind="voting.results_published").count() == 2
+
+
+def describe_the_queued_state_on_a_page_load():
+    """A queued send has to be visible on a normal page load, not just the HTMX reply.
+
+    ``results_pending`` deliberately excludes a queued snapshot so the Overview banner
+    moves on to the next cycle. That means the snapshot detail page is the ONLY place an
+    in-flight send is visible, and it renders the control only when the snapshot is
+    pending or sent. Without the queued branch there too, an admin clicks Send, refreshes,
+    and the cycle has disappeared from the admin UI with no indication anything is
+    happening.
+    """
+
+    def it_still_shows_the_send_state_after_a_refresh(admin_client):
+        snap = _pending_snapshot()
+        admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
+        body = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
+        assert "Sending results in the background" in body
+
+    def it_does_not_offer_a_second_send_while_one_is_in_flight(admin_client):
+        snap = _pending_snapshot()
+        admin_client.post(reverse("hub_admin_voting_send_results", args=[snap.pk]))
+        body = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
+        assert "Send results" not in body
 
 
 def describe_send_results_when_another_snapshot_is_still_pending():

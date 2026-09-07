@@ -97,6 +97,48 @@ def describe_queue_results_send():
             assert snap.results_send_resend is True
 
 
+def describe_a_send_that_was_never_queued():
+    """The headless and auto paths must always stamp, even when members were missed.
+
+    Nothing retries an unqueued send, so leaving it unstamped would hang the cycle in the
+    admin UI forever. This pins the ``still_queued`` term in ``_finish_results_send``:
+    without it, a direct send with one rejected address never stamps.
+    """
+
+    def it_stamps_even_though_a_member_was_missed():
+        from core.email import _deliver as real_send
+
+        snap = _snapshot_with("reached@x.com", "missed@x.com")
+
+        def flaky(*args, **kwargs):
+            if "missed@x.com" in kwargs.get("recipients", []):
+                raise RuntimeError("rejected")
+            return real_send(*args, **kwargs)
+
+        with patch("core.email._deliver", side_effect=flaky):
+            snap.send_results()
+
+        snap.refresh_from_db()
+        assert snap.results_sent_at is not None
+        assert snap.results_send_requested_at is None
+        assert _sent_addresses() == {"reached@x.com"}
+
+    def it_reports_only_the_members_actually_emailed():
+        """A written bell row is not a delivered results email."""
+        from core.email import _deliver as real_send
+
+        snap = _snapshot_with("reached@x.com", "missed@x.com")
+
+        def flaky(*args, **kwargs):
+            if "missed@x.com" in kwargs.get("recipients", []):
+                raise RuntimeError("rejected")
+            return real_send(*args, **kwargs)
+
+        with patch("core.email._deliver", side_effect=flaky):
+            sent = snap.send_results()
+        assert sent == 1
+
+
 def describe_send_pending_funding_results():
     def it_does_nothing_when_no_send_is_queued():
         _snapshot_with("a@x.com")
@@ -201,10 +243,32 @@ def describe_send_pending_funding_results():
             """An undeliverable address must not keep the request queued forever."""
             snap = _snapshot_with("a@x.com")
             snap.queue_results_send()
+            out = StringIO()
             with patch("core.email._deliver", side_effect=RuntimeError("permanently rejected")):
-                for _ in range(MAX_RESULTS_SEND_ATTEMPTS):
-                    call_command("send_pending_funding_results")
+                for _ in range(4):
+                    call_command("send_pending_funding_results", stdout=out)
             snap.refresh_from_db()
             assert snap.results_send_attempts == 0
             assert snap.results_sent_at is not None
             assert snap.results_send_requested_at is None
+            # Giving up must be loud. Stamping a snapshot "sent" while members were never
+            # emailed, and saying nothing, is the original bug wearing a different hat.
+            assert "Gave up" in out.getvalue()
+
+        def it_stops_a_run_that_crashes_every_tick():
+            """The budget has to bound a CRASHING send, not just a partly failing one.
+
+            A run that raises never reaches its own finaliser, so a budget checked only at
+            the end would let a deterministic crash retry every 15 minutes forever.
+            """
+            snap = _snapshot_with("a@x.com")
+            snap.queue_results_send()
+            with patch("core.events.channels.EmailAdapter.deliver", side_effect=RuntimeError("boom")):
+                for _ in range(MAX_RESULTS_SEND_ATTEMPTS):
+                    with pytest.raises(RuntimeError):
+                        call_command("send_pending_funding_results")
+                # Budget spent: this tick abandons instead of crashing again.
+                call_command("send_pending_funding_results")
+            snap.refresh_from_db()
+            assert snap.results_send_requested_at is None
+            assert snap.results_sent_at is not None

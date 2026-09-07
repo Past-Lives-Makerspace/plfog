@@ -292,7 +292,10 @@ def describe_send_results_audience_safety():
             Notification.objects.filter(trigger="voting.results_published").values_list("user_id", flat=True)
         )
         assert inapp_users == {active.user_id, opted_out.user_id}
-        assert n == 2  # active + opted-out each had at least one fresh delivery
+        # The count is EMAILS, not deliveries on any channel. The opted-out voter got a
+        # bell row but no results email, and reporting them as sent is exactly the
+        # silent-skip the send path is meant to surface.
+        assert n == 1
 
 
 def describe_allocation_chart_html():

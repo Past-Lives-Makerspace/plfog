@@ -6043,7 +6043,7 @@ def voting_send_results(request: HttpRequest, pk: int) -> HttpResponse:
         return response
 
     response = _render_results_send_control(request, snapshot)
-    trigger_toast(response, "Results are on their way — members will get the email shortly.", "success")
+    trigger_toast(response, "Results are on their way. Sending runs in the background.", "success")
     return response
 
 

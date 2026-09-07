@@ -33,6 +33,19 @@ class Command(BaseCommand):
             self.stdout.write("No queued results sends.")
             return
         for snapshot in queued:
+            if snapshot.results_send_budget_spent:
+                # Checked here rather than after the fan-out: a send that crashes partway
+                # never reaches its own finaliser, so a budget enforced only at the end
+                # would retry a deterministic crash every 15 minutes forever.
+                snapshot.abandon_queued_send()
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"Gave up on results for '{snapshot.cycle_label}' after "
+                        f"{MAX_RESULTS_SEND_ATTEMPTS} attempts. Some members were never emailed; "
+                        f"check the Email Log for who."
+                    )
+                )
+                continue
             sent = snapshot.send_results(resend=snapshot.results_send_resend)
             snapshot.refresh_from_db()
             label = f"Sent {sent} results email(s) for '{snapshot.cycle_label}'"

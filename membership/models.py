@@ -7659,7 +7659,13 @@ class FundingSnapshot(models.Model):
             raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
         self.results_send_requested_at = timezone.now()
         self.results_send_resend = resend
-        self.results_send_attempts = 0
+        if resend:
+            # A resend is a genuinely new request, so it starts a new generation and a
+            # fresh budget. A plain Send is NOT: it may be picking up an earlier send that
+            # died partway (headless run killed, worker restarted), and zeroing the budget
+            # here would make the next attempt look like a first attempt, open a new
+            # generation, and re-email everyone that dead run had already reached.
+            self.results_send_attempts = 0
         self.save(update_fields=["results_send_requested_at", "results_send_resend", "results_send_attempts"])
 
     @classmethod
@@ -7882,7 +7888,10 @@ class FundingSnapshot(models.Model):
                 when back-filling a cycle that predates Discord notifications.
 
         Returns:
-            The number of members who received a fresh delivery this send.
+            The number of members who were actually emailed this send. Counts the EMAIL
+            channel only: a member whose email was rejected but whose in-app bell was
+            written has not received their results, and reporting them as sent is the
+            silent-skip failure this path exists to prevent.
 
         Raises:
             ResultsAlreadySentError: If results were already sent and ``resend`` is False.
@@ -7937,7 +7946,7 @@ class FundingSnapshot(models.Model):
                 url=voting_url,
                 period=f"snapshot:{self.pk}:send:{n}",  # fresh per send → resend re-delivers
             )
-            if result.delivery_count:
+            if any(channel is Channel.EMAIL for _pk, channel in result.delivered):
                 sent += 1
             missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
@@ -7963,7 +7972,7 @@ class FundingSnapshot(models.Model):
                 url=voting_url,
                 period=f"snapshot:{self.pk}:nonvoter:{member.pk}:send:{n}",
             )
-            if result.delivery_count:
+            if any(channel is Channel.EMAIL for _pk, channel in result.delivered):
                 sent += 1
             missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
@@ -8006,21 +8015,45 @@ class FundingSnapshot(models.Model):
         self.save(update_fields=["results_send_count", "results_send_attempts"])
         return self.results_send_count
 
+    @property
+    def results_send_budget_spent(self) -> bool:
+        """Whether this queued send has used every attempt it is allowed.
+
+        Checked by the scheduler BEFORE it tries again, which is what bounds a send that
+        crashes mid-fan-out: such a run never reaches :meth:`_finish_results_send`, so a
+        budget consulted only at the end would never stop it retrying.
+        """
+        return self.results_send_attempts >= MAX_RESULTS_SEND_ATTEMPTS
+
+    def abandon_queued_send(self) -> None:
+        """Give up on a queued send that has spent its attempt budget.
+
+        Stamps the snapshot so it stops being retried and stops looking queued. Callers
+        must say out loud that members were missed — a silent give-up is the exact
+        failure this whole path exists to prevent.
+        """
+        self._finish_results_send(missed=0)
+
     def _finish_results_send(self, *, missed: int) -> bool:
         """Stamp the send as done, or leave it queued for the scheduler to retry.
 
         Members who were claimed but not reached (no address on file, a provider
-        rejection) had their ledger slots handed back. While the request is still queued
-        and the attempt budget is not spent, leave the snapshot unstamped so the next
-        scheduler tick retries on this same generation: the ledger skips everyone already
-        emailed and only the missed members are tried again. The budget is what stops a
-        permanently undeliverable address from queueing forever.
+        rejection) had their ledger slots handed back. While the request is still queued,
+        leave the snapshot unstamped so the next scheduler tick retries on this same
+        generation: the ledger skips everyone already emailed and only the missed members
+        are tried again. The attempt budget that stops this repeating forever is enforced
+        by the caller before it starts (:attr:`results_send_budget_spent`), because a run
+        that dies mid-fan-out never gets here at all.
+
+        A send that is NOT queued (the headless command, the auto cycle snapshot) always
+        stamps: nothing would ever pick it back up, so leaving it unstamped would hang the
+        cycle in the admin UI forever.
 
         Returns:
             True when the snapshot was stamped as sent, False when it stays queued.
         """
         still_queued = self.results_send_requested_at is not None
-        if missed and still_queued and self.results_send_attempts < MAX_RESULTS_SEND_ATTEMPTS:
+        if missed and still_queued:
             return False
         self.results_sent_at = timezone.now()
         self.results_send_requested_at = None
