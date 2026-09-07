@@ -595,6 +595,11 @@ urlpatterns = [
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
     path(
+        "manage/site-settings/brand/logo/delete/",
+        views.admin_brand_logo_delete,
+        name="hub_admin_brand_logo_delete",
+    ),
+    path(
         "manage/site-settings/slideshow/zones/save/",
         views.admin_slideshow_zones_save,
         name="hub_admin_slideshow_zones_save",

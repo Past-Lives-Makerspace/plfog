@@ -14,18 +14,19 @@ so a template can render on both this base and hub/base.html without collisions.
 {% block default_theme %}light{% endblock %}
 
 {% block public_topbar %}
+{% static 'img/favicon.png' as fallback_logo %}
 <header class="cp-topbar" role="banner" x-data="{ drawerOpen: false }" @click.outside="drawerOpen = false">
   <div class="cp-topbar__inner">
     <a href="{% url 'hub_guild_directory' %}" class="cp-topbar__brand">
-      <img src="{% static 'img/favicon.png' %}" alt="" class="cp-topbar__mark" width="22" height="22">
-      <span class="cp-topbar__wordmark">Past Lives</span>
+      <img src="{% firstof brand_logo_url fallback_logo %}" alt="" class="cp-topbar__mark" width="22" height="22">
+      <span class="cp-topbar__wordmark">{{ brand_short_name }}</span>
     </a>
     <nav class="cp-topbar__nav" aria-label="Public navigation">
-      <a href="https://pastlives.space" class="cp-topbar__link" hx-boost="false">Home</a>
+      <a href="{{ brand_website_url }}" class="cp-topbar__link" hx-boost="false">Home</a>
       <a href="{% url 'hub_guild_directory' %}" class="cp-topbar__link cp-topbar__link--current" aria-current="page">Guilds</a>
-      <a href="https://pastlives.space/membership" class="cp-topbar__link" hx-boost="false">Membership</a>
+      <a href="{{ brand_website_url }}/membership" class="cp-topbar__link" hx-boost="false">Membership</a>
       <a href="{{ BOOK_BASE_URL }}{% url 'classes:public_list' %}" class="cp-topbar__link" hx-boost="false">Classes</a>
-      <a href="https://pastlives.space/contact" class="cp-topbar__link" hx-boost="false">Contact</a>
+      <a href="{{ brand_website_url }}/contact" class="cp-topbar__link" hx-boost="false">Contact</a>
     </nav>
     <div class="cp-topbar__right">
       {% if user.is_authenticated %}
@@ -58,7 +59,7 @@ so a template can render on both this base and hub/base.html without collisions.
       {% else %}
         <a href="{% url 'account_login' %}" class="cp-topbar__ghost">Log in</a>
       {% endif %}
-      <a href="https://pastlives.space/membership" class="cp-topbar__cta" hx-boost="false">Become a member</a>
+      <a href="{{ brand_website_url }}/membership" class="cp-topbar__cta" hx-boost="false">Become a member</a>
       <button class="cp-topbar__theme-toggle"
               x-data="{ light: window.__plTheme === 'light' }"
               @click="light = !light; window.__plSetTheme(light)"
@@ -82,11 +83,11 @@ so a template can render on both this base and hub/base.html without collisions.
     </button>
   </div>
   <div class="cp-topbar__drawer" :class="{ 'cp-topbar__drawer--open': drawerOpen }">
-    <a href="https://pastlives.space" class="cp-topbar__drawer-link" hx-boost="false">Home</a>
+    <a href="{{ brand_website_url }}" class="cp-topbar__drawer-link" hx-boost="false">Home</a>
     <a href="{% url 'hub_guild_directory' %}" class="cp-topbar__drawer-link cp-topbar__drawer-link--current">Guilds</a>
-    <a href="https://pastlives.space/membership" class="cp-topbar__drawer-link" hx-boost="false">Membership</a>
+    <a href="{{ brand_website_url }}/membership" class="cp-topbar__drawer-link" hx-boost="false">Membership</a>
     <a href="{{ BOOK_BASE_URL }}{% url 'classes:public_list' %}" class="cp-topbar__drawer-link" hx-boost="false">Classes</a>
-    <a href="https://pastlives.space/contact" class="cp-topbar__drawer-link" hx-boost="false">Contact</a>
+    <a href="{{ brand_website_url }}/contact" class="cp-topbar__drawer-link" hx-boost="false">Contact</a>
     <div class="cp-topbar__drawer-divider"></div>
     {% if user.is_authenticated %}
       <a href="{% url 'account:overview' %}" class="cp-topbar__drawer-link">My account</a>
@@ -97,7 +98,7 @@ so a template can render on both this base and hub/base.html without collisions.
     {% else %}
       <a href="{% url 'account_login' %}" class="cp-topbar__drawer-link">Log in</a>
     {% endif %}
-    <a href="https://pastlives.space/membership" class="cp-topbar__drawer-link cp-topbar__drawer-link--cta" hx-boost="false">Become a member</a>
+    <a href="{{ brand_website_url }}/membership" class="cp-topbar__drawer-link cp-topbar__drawer-link--cta" hx-boost="false">Become a member</a>
   </div>
 </header>
 {% endblock public_topbar %}
@@ -105,7 +106,7 @@ so a template can render on both this base and hub/base.html without collisions.
 {% block body_class %}guilds-portal{% endblock %}
 
 {% block extra_head %}
-<meta name="description" content="{% block meta_description %}Browse every guild at Past Lives Makerspace in Portland, OR — what each guild is about, when it meets, its classes, and how to join.{% endblock %}">
+<meta name="description" content="{% block meta_description %}Browse every guild at {{ brand_name }} in Portland, OR — what each guild is about, when it meets, its classes, and how to join.{% endblock %}">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{% static 'css/cms-public.css' %}">
 <link rel="stylesheet" href="{% static 'css/cms-guilds.css' %}">

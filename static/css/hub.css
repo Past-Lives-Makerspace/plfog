@@ -5100,6 +5100,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
 }
 
+/* Brand admin tab (Site Settings). Layout lives in a class, never inline on an
+   x-show element (Rule 12). */
+.pl-brand-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
 /* ── Slideshow admin tab (Site Settings) ─────────────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
    components.css), NOT signage.css. Layout lives in classes, never inline on an

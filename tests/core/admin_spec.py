@@ -110,6 +110,10 @@ def describe_save_model():
         return admin_client.post(
             f"/admin/core/siteconfiguration/{config.pk}/change/",
             {
+                # The Brand fieldset (PLAT-1) is first in this ModelAdmin's fieldsets, so
+                # org_name — the one required brand field — is now part of the generated
+                # change form too.
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": "open",
                 "general_calendar_url": url,
                 "general_calendar_color": "#4B9FEE",

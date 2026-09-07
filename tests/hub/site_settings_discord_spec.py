@@ -27,6 +27,7 @@ def _superuser(client: Client) -> None:
 
 def _settings_post(**overrides: str) -> dict[str, str]:
     data = {
+        "org_name": "Past Lives Makerspace",
         "registration_mode": "invite_only",
         "discord_general_webhook_url": "",
         "discord_leadership_webhook_url": "",

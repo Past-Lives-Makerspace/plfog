@@ -7056,7 +7056,7 @@ def _save_site_settings(
     """
     emoji_queryset, role_queryset = _discord_editor_querysets()
     is_discord = request.POST.get("submitted_tab") == "discord"
-    form = SiteSettingsForm(request.POST, instance=config)
+    form = SiteSettingsForm(request.POST, request.FILES, instance=config)
     feed_formset = CalendarFeedFormSet(request.POST, queryset=feed_queryset, prefix="feeds")
     # The Automations toggle formset rides the shared form (its panel is always in the DOM). Bind
     # it when posted; it's saved independently below so a jobstate hiccup can never block another
@@ -7109,17 +7109,19 @@ def _save_site_settings(
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
 
-    Tabs: ``general``, ``calendar``, ``legacy-cms``, ``features`` (the My Tab/Payments
-    and class-registration kill switches), ``automations`` (the scheduled-job dashboard —
-    ON/OFF toggles + Run now, from the shared job registry), and ``announcements`` (a
-    sitewide announcement composer with a preview-then-send step). The Calendar tab owns a
-    ``CalendarFeedFormSet`` so admins can add/remove iCal feeds inline.
+    Tabs: ``brand`` (organization name, logo, and color), ``general``, ``calendar``,
+    ``legacy-cms``, ``features`` (the My Tab/Payments and class-registration kill switches),
+    ``automations`` (the scheduled-job dashboard — ON/OFF toggles + Run now, from the shared
+    job registry), and ``announcements`` (a sitewide announcement composer with a
+    preview-then-send step). The Calendar tab owns a ``CalendarFeedFormSet`` so admins can
+    add/remove iCal feeds inline.
     """
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
     active_tab = request.GET.get("tab", "general")
     allowed_tabs = {
+        "brand",
         "general",
         "calendar",
         "legacy-cms",
@@ -7229,8 +7231,22 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "release_preview": release_preview,
             "automation_rows": automation_rows,
             "jobstate_formset": jobstate_formset,
+            "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         },
     )
+
+
+@fog_admin_required
+@require_POST
+def admin_brand_logo_delete(request: HttpRequest) -> HttpResponse:
+    """Clear the uploaded brand logo; the built in mark takes over everywhere."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    if config.org_logo:
+        config.org_logo.delete(save=True)
+        messages.success(request, "Logo removed.")
+    return redirect(f"{reverse('hub_admin_site_settings')}?tab=brand")
 
 
 @fog_admin_required

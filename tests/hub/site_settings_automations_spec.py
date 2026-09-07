@@ -53,6 +53,7 @@ def _settings_post(**overrides: str) -> dict[str, str]:
     """A full Automations-tab save: the shared SiteSettingsForm fields + feeds management form +
     the jobstate formset."""
     data = {
+        "org_name": "Past Lives Makerspace",
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
         "signage_default_slide_seconds": "12",

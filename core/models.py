@@ -15,7 +15,9 @@ from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from core.files import delete_orphan_on_replace
 from core.scheduled_jobs import Trigger
+from core.validators import validate_hex_color, validate_image_size
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, User
@@ -814,6 +816,57 @@ class SiteConfiguration(models.Model):
         help_text="Add a QR code to the community calendar on auto event slides.",
     )
 
+    # Brand block (PLAT-1). One deployment is one organization; these are the strings and
+    # assets that identify it. Defaults are the Past Lives values so the migration is a
+    # no-op on the live instance.
+    org_name = models.CharField(
+        max_length=200,
+        default="Past Lives Makerspace",
+        verbose_name="Organization name",
+        help_text="Your organization's full name. Shown in page titles, the privacy policy, and public page descriptions.",
+    )
+    org_short_name = models.CharField(
+        max_length=60,
+        blank=True,
+        default="Past Lives",
+        verbose_name="Short name",
+        help_text="The compact wordmark used in the sidebar, the public topbar, and browser tab titles. Blank uses the full name.",
+    )
+    org_legal_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="Past Lives Makerspace LLC",
+        verbose_name="Legal name",
+        help_text="Your registered legal entity, for receipts and legal notices. Blank uses the organization name.",
+    )
+    org_logo = models.ImageField(
+        upload_to="brand/logo/",
+        blank=True,
+        validators=[validate_image_size],
+        verbose_name="Logo",
+        help_text="Square logo shown in the sidebar, the public topbar, and the browser tab. Blank uses the built in mark.",
+    )
+    org_primary_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default="#092E4C",
+        validators=[validate_hex_color],
+        verbose_name="Primary brand color",
+        help_text="Your main brand color as a hex code, e.g. #092E4C. Sets the browser and mobile app chrome color.",
+    )
+    org_support_email = models.EmailField(
+        blank=True,
+        default="info@pastlives.space",
+        verbose_name="Support email",
+        help_text="The address members are told to write to for help. Shown in the privacy policy.",
+    )
+    org_website_url = models.URLField(
+        blank=True,
+        default="https://pastlives.space",
+        verbose_name="Public website",
+        help_text="Your main marketing website, with no trailing slash. The public topbar's Home, Guilds, Membership, and Contact links and the sidebar globe icon are built from it.",
+    )
+
     class Meta:
         verbose_name = "Site Settings"
         verbose_name_plural = "Site Settings"
@@ -824,6 +877,7 @@ class SiteConfiguration(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Force singleton by always using pk=1."""
         self.pk = 1
+        delete_orphan_on_replace(self, "org_logo")
         super().save(*args, **kwargs)
 
     @classmethod
