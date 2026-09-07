@@ -242,6 +242,7 @@ TEMPLATES = [
                 "core.context_processors.makerspace_wiki",
                 "core.context_processors.theme",
                 "core.context_processors.feature_flags",
+                "core.context_processors.brand",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
                 "core.context_processors.persona",

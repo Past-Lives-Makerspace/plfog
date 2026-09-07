@@ -30,6 +30,7 @@ def _user(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
 def _settings_payload(**overrides: str) -> dict:
     """A complete, valid Site-Settings POST (all tabs share one form in the DOM)."""
     data = {
+        "org_name": "Past Lives Makerspace",
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
         # Signage global fields are required PositiveIntegerFields on the shared form.

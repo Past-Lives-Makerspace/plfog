@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static %}
 
-{% block title %}Privacy Policy — Past Lives Makerspace{% endblock %}
+{% block title %}Privacy Policy — {{ brand_name }}{% endblock %}
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/privacy.css' %}">
@@ -13,15 +13,15 @@
     <p class="pl-legal__updated">Last updated: July 27, 2026</p>
 
     <p>
-        This policy explains what information Past Lives Makerspace collects through its
+        This policy explains what information {{ brand_name }} collects through its
         member app and website, how we use it, and the choices you have. We keep it
         short and plain. If anything is unclear, email us at
-        <a href="mailto:info@pastlives.space">info@pastlives.space</a>.
+        <a href="mailto:{{ brand_support_email }}">{{ brand_support_email }}</a>.
     </p>
 
     <h2>Who This Covers</h2>
     <p>
-        This app is the member hub for Past Lives Makerspace, a community workshop in
+        This app is the member hub for {{ brand_name }}, a community workshop in
         Portland, Oregon. The mobile app shows the same website you use in a browser, so
         this policy applies whether you use the app or the site.
     </p>
@@ -65,7 +65,7 @@
         <li>Change what other members see anytime with the public or hidden toggles in your profile settings.</li>
         <li>Unsubscribe from the newsletter using the link in any newsletter email.</li>
         <li>Turn push notifications on or off in your settings.</li>
-        <li>Ask us to view, correct, or delete your information by emailing <a href="mailto:info@pastlives.space">info@pastlives.space</a>.</li>
+        <li>Ask us to view, correct, or delete your information by emailing <a href="mailto:{{ brand_support_email }}">{{ brand_support_email }}</a>.</li>
     </ul>
 
     <h2>How Long We Keep It</h2>
@@ -96,8 +96,8 @@
 
     <h2>Contact</h2>
     <p>
-        Past Lives Makerspace, Portland, Oregon<br>
-        <a href="mailto:info@pastlives.space">info@pastlives.space</a>
+        {{ brand_name }}, Portland, Oregon<br>
+        <a href="mailto:{{ brand_support_email }}">{{ brand_support_email }}</a>
     </p>
 </article>
 {% endblock %}

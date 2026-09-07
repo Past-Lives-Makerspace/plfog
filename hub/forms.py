@@ -899,6 +899,13 @@ class SiteSettingsForm(forms.ModelForm):
     class Meta:
         model = SiteConfiguration
         fields = [
+            "org_name",
+            "org_short_name",
+            "org_legal_name",
+            "org_logo",
+            "org_primary_color",
+            "org_support_email",
+            "org_website_url",
             "registration_mode",
             "sync_classes_enabled",
             "classes_calendar_color",
@@ -941,6 +948,7 @@ class SiteSettingsForm(forms.ModelForm):
             "signage_event_days_ahead",
         ]
         widgets = {
+            "org_primary_color": forms.TextInput(attrs={"type": "color"}),
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
             "member_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),

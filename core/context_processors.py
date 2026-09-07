@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.http import HttpRequest
@@ -58,6 +59,31 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
         "equipment_page_enabled": config.equipment_page_enabled,
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
+    }
+
+
+def brand(request: HttpRequest) -> dict[str, str]:
+    """Expose the Site Settings -> Brand block site-wide (member hub, public, guest surfaces).
+
+    Shaped like ``feature_flags``: one ``SiteConfiguration.load()`` per request, no caching,
+    because that is what every config-backed processor in this module already does.
+    ``brand_short_name`` / ``brand_legal_name`` fall back to the full name so a template never
+    has to write the fallback, and ``brand_logo_url`` is empty when nothing is uploaded so the
+    templates can pick the static mark with ``{% firstof %}``.
+    """
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    website = config.org_website_url.rstrip("/")
+    return {
+        "brand_name": config.org_name,
+        "brand_short_name": config.org_short_name or config.org_name,
+        "brand_legal_name": config.org_legal_name or config.org_name,
+        "brand_logo_url": config.org_logo.url if config.org_logo else "",
+        "brand_primary_color": config.org_primary_color,
+        "brand_support_email": config.org_support_email,
+        "brand_website_url": website,
+        "brand_website_display": urlsplit(website).netloc or website,
     }
 
 

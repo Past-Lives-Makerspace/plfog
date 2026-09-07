@@ -38,6 +38,7 @@ def describe_SiteSettingsForm_signage():
     def it_round_trips_a_save_onto_the_singleton():
         config = SiteConfiguration.load()
         data = {
+            "org_name": "Past Lives Makerspace",
             "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
             "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
             "signage_default_slide_seconds": "20",

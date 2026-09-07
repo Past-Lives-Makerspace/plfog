@@ -25,6 +25,7 @@ def _superuser(client: Client) -> None:
 
 def _settings_post(**overrides: str) -> dict[str, str]:
     data = {
+        "org_name": "Past Lives Makerspace",
         "registration_mode": "invite_only",
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
         "signage_default_slide_seconds": "12",

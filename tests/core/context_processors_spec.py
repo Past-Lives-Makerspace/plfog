@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from core.context_processors import (
     app_version,
+    brand,
     feature_flags,
     google_analytics,
     registration_mode,
@@ -105,6 +106,108 @@ def describe_feature_flags():
             "guild_welcome_email_enabled": False,
             "equipment_page_enabled": False,
         }
+
+
+def describe_brand():
+    def it_returns_the_past_lives_defaults():
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result == {
+            "brand_name": "Past Lives Makerspace",
+            "brand_short_name": "Past Lives",
+            "brand_legal_name": "Past Lives Makerspace LLC",
+            "brand_logo_url": "",
+            "brand_primary_color": "#092E4C",
+            "brand_support_email": "info@pastlives.space",
+            "brand_website_url": "https://pastlives.space",
+            "brand_website_display": "pastlives.space",
+        }
+
+    def it_reflects_an_edited_org_name():
+        config = SiteConfiguration.load()
+        config.org_name = "Fletcher Test Space"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_name"] == "Fletcher Test Space"
+
+    def it_falls_back_to_the_full_name_for_a_blank_short_name():
+        config = SiteConfiguration.load()
+        config.org_name = "Fletcher Test Space"
+        config.org_short_name = ""
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_short_name"] == "Fletcher Test Space"
+
+    def it_falls_back_to_the_full_name_for_a_blank_legal_name():
+        config = SiteConfiguration.load()
+        config.org_name = "Fletcher Test Space"
+        config.org_legal_name = ""
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_legal_name"] == "Fletcher Test Space"
+
+    def it_returns_an_empty_logo_url_when_nothing_is_uploaded():
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_logo_url"] == ""
+
+    def it_returns_the_stored_logo_url_when_one_is_uploaded():
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+            b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        config = SiteConfiguration.load()
+        config.org_logo = SimpleUploadedFile("logo.png", png, content_type="image/png")
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_logo_url"] == config.org_logo.url
+
+    def it_strips_a_trailing_slash_from_the_website_url():
+        config = SiteConfiguration.load()
+        config.org_website_url = "https://fletcher.test/"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_website_url"] == "https://fletcher.test"
+
+    def it_reduces_the_website_url_to_its_host_for_display():
+        config = SiteConfiguration.load()
+        config.org_website_url = "https://fletcher.test/some/path"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_website_display"] == "fletcher.test"
+
+    def it_falls_back_to_the_raw_value_when_the_website_has_no_host():
+        config = SiteConfiguration.load()
+        config.org_website_url = ""
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_website_display"] == ""
 
 
 def describe_google_analytics():

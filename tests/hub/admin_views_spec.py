@@ -691,6 +691,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -747,6 +748,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -775,6 +777,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -804,6 +807,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -931,6 +935,7 @@ def describe_admin_site_settings_features():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -961,6 +966,7 @@ def describe_admin_site_settings_features():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -987,6 +993,7 @@ def describe_admin_site_settings_features():
     def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):
         _create_superuser(client)
         base_data = {
+            "org_name": "Past Lives Makerspace",
             "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
             "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
             "sync_classes_enabled": "",
