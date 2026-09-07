@@ -6022,26 +6022,28 @@ def voting_settings(request: HttpRequest) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def voting_send_results(request: HttpRequest, pk: int) -> HttpResponse:
-    """Email this cycle's results to members who voted (HTMX → toast + re-rendered control).
+    """Queue this cycle's results email (HTMX → toast + re-rendered control).
 
-    The admin-confirmed send: ``snapshot.send_results`` loops the frozen votes and
-    emails each active voter their personalized allocation + recorded vote. Returns the
-    re-rendered Send/Resend control (its new "sent" state) plus an out-of-band swap of
-    the Overview "review & send" banner, and a toast — never a Django-messages redirect.
+    The click records the request rather than performing it: the fan-out emails every
+    active member and runs far longer than a request is allowed to, so doing it here
+    got the worker killed mid-loop and reported a failure for a send that had mostly
+    happened. ``send_pending_funding_results`` picks the request up on the scheduler.
+    Returns the re-rendered Send/Resend control (its new "queued" state) plus an
+    out-of-band swap of the Overview "review & send" banner, and a toast.
     """
     from membership.models import ResultsAlreadySentError
 
     snapshot = get_object_or_404(FundingSnapshot, pk=pk)
     resend = request.POST.get("resend") == "1"
     try:
-        sent = snapshot.send_results(actor=request.user, resend=resend)
+        snapshot.queue_results_send(resend=resend)
     except ResultsAlreadySentError:
         response = _render_results_send_control(request, snapshot)
         trigger_toast(response, "Those results were already sent.", "error")
         return response
 
     response = _render_results_send_control(request, snapshot)
-    trigger_toast(response, f"Results sent to {sent} member{'' if sent == 1 else 's'}.", "success")
+    trigger_toast(response, "Results are on their way. Sending runs in the background.", "success")
     return response
 
 

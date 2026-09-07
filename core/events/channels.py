@@ -48,7 +48,7 @@ from core.fcm import (
     PUSH_CHANNEL_URGENT,
     send_fcm,
 )
-from core.models import EventDelivery, FcmDevice, Notification, PushSubscription
+from core.models import EventDelivery, FcmDevice, Notification, PushSubscription, TransactionalEmailLog
 from core.push import send_web_push
 
 if TYPE_CHECKING:
@@ -104,12 +104,24 @@ class ChannelAdapter(Protocol):
     with the message (an orientation ``.ics``); channels that cannot carry files
     (in-app, push) ignore it. It defaults to ``None`` so every existing caller and
     adapter is unaffected.
+
+    ``deliver`` returns whether the spine should keep the idempotency slot it claimed
+    for this recipient. Return ``False`` only when nothing was sent AND sending it later
+    is the right remedy — no address on file, a provider rejection — which releases the
+    slot so a re-run reaches exactly the recipients who were missed (see
+    :func:`core.events.emit._release_delivery`). Returning ``True`` when nothing was sent
+    locks the recipient out of that event permanently.
+
+    A channel the recipient simply has not set up returns ``True``, not ``False``: push
+    with no registered device, a DM with no linked Discord account. Nothing was sent, but
+    a retry would deliver a stale tray notification rather than repair anything, so the
+    slot is spent deliberately.
     """
 
     channel: Channel
     is_broadcast: bool
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None: ...
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool: ...
 
 
 def _fit(value: str, limit: int) -> str:
@@ -132,7 +144,7 @@ class InAppAdapter:
     channel = Channel.IN_APP
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         # In-app rows carry no file attachments — the bell shows title/body/url.
         Notification.objects.create(
             user=user,
@@ -141,6 +153,8 @@ class InAppAdapter:
             body=_fit(message.body, 500),
             url=message.url,
         )
+        # The row is written or the create raised — reaching here means delivered.
+        return True
 
 
 def notification_email_for(user: User) -> str:
@@ -243,11 +257,13 @@ class EmailAdapter:
     channel = Channel.EMAIL
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         address = notification_email_for(user)
         if not address.strip():
-            return
-        send_email(
+            # No usable address — nothing was sent, so the spine must not keep the slot.
+            # A member whose address is added later is otherwise locked out forever.
+            return False
+        log = send_email(
             to=address,
             subject=message.title,
             trigger_kind=message.trigger_kind or "notification",
@@ -257,6 +273,9 @@ class EmailAdapter:
             attachments=attachments,
             category=email_category_for(message.trigger_kind),
         )
+        # best_effort swallows the exception but still logs the outcome, and that log row
+        # is the only signal a provider rejection (e.g. a 429 daily-quota reply) produces.
+        return log.status == TransactionalEmailLog.Status.SENT
 
 
 # A push shows a short bold title over a one-line body in the notification tray. Cap
@@ -287,7 +306,7 @@ class PushAdapter:
     channel = Channel.PUSH
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         # A push renders as one tray line: no HTML, no multi-paragraph body. Flatten
         # any rich/multi-line copy (an announcement body is sanitized HTML) to a single
         # clean line and cap both fields so the OS shows a tidy ellipsis instead of a
@@ -298,6 +317,10 @@ class PushAdapter:
             send_web_push(sub, title=title, body=body, url=message.url)
         for device in FcmDevice.objects.filter(user=user):
             send_fcm(device, title=title, body=body, url=message.url, channel_id=channel_id)
+        # Always spend the slot. A member with no registered device received nothing, but
+        # re-pushing on some later run would drop a stale line in their tray instead of
+        # fixing anything — unlike email, the miss is not worth repairing late.
+        return True
 
 
 def push_device_count(user: User) -> int:
@@ -321,7 +344,7 @@ class _ShellAdapter:
     channel: Channel
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         raise ChannelNotImplemented(f"The {self.channel.value!r} channel is registered but not implemented.")
 
 
@@ -344,11 +367,13 @@ class ScheduledEmailAdapter:
     channel = Channel.SCHEDULED_EMAIL
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         address = notification_email_for(user)
         if not address.strip():
-            return
-        send_email(
+            # No usable address — nothing was sent, so the spine must not keep the slot.
+            # A member whose address is added later is otherwise locked out forever.
+            return False
+        log = send_email(
             to=address,
             subject=message.title,
             trigger_kind=message.trigger_kind or "notification",
@@ -358,6 +383,9 @@ class ScheduledEmailAdapter:
             attachments=attachments,
             category=email_category_for(message.trigger_kind),
         )
+        # best_effort swallows the exception but still logs the outcome, and that log row
+        # is the only signal a provider rejection (e.g. a 429 daily-quota reply) produces.
+        return log.status == TransactionalEmailLog.Status.SENT
 
     @staticmethod
     def is_due(anchor: datetime, offset: timedelta, *, now: datetime | None = None) -> bool:
@@ -389,7 +417,7 @@ class DigestAdapter:
     channel = Channel.DIGEST
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         # Buffered digest rows carry no attachments — the later batch is plain text.
         EventDelivery.objects.update_or_create(
             event_key=message.trigger_kind or "",
@@ -403,6 +431,8 @@ class DigestAdapter:
                 "url": message.url,
             },
         )
+        # The buffer row IS the delivery for this channel; the flush sends it later.
+        return True
 
     @staticmethod
     def pending_for(user: User) -> list[EventDelivery]:
@@ -466,10 +496,10 @@ class DiscordAdapter:
         webhook = discord_module.webhook_for_event(message.trigger_kind or "")
         return discord_module.post_embed(webhook, message)
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         # Broadcast channel: the recipient is irrelevant. Defer to broadcast so a
         # stray per-recipient call still posts the single event-level embed.
-        self.broadcast(message)
+        return self.broadcast(message)
 
 
 class DiscordDMAdapter:
@@ -491,14 +521,17 @@ class DiscordDMAdapter:
     channel = Channel.DISCORD_DM
     is_broadcast = False
 
-    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> None:
+    def deliver(self, user: User, message: Message, *, attachments: list[Attachment] | None = None) -> bool:
         # Discord DMs carry no file attachments — the message is title/body/url text.
+        # A disabled channel or an unlinked account spends the slot for the same reason
+        # push does: a DM delivered on a later retry is stale, not helpful.
         if not discord_dm_module.bot_token():
-            return
+            return True
         discord_user_id = discord_dm_module.discord_user_id_for(user)
         if not discord_user_id:
-            return
+            return True
         discord_dm_module.post_dm(discord_user_id, message)
+        return True
 
 
 # --- Registry ----------------------------------------------------------------

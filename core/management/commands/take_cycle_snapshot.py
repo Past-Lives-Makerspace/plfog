@@ -64,5 +64,9 @@ class Command(BaseCommand):
             self.stdout.write("No votes — nothing to snapshot.")
         else:
             self.stdout.write(self.style.SUCCESS(f"Auto-took snapshot '{label}'."))
-            sent = snapshot.send_results()
-            self.stdout.write(self.style.SUCCESS(f"Auto-sent results to {sent} member(s)."))
+            # Queue rather than send inline. This is the path that actually runs every
+            # month, so it is the one that most needs the retry: sending here would stamp
+            # the snapshot even when members were missed, and the only way to reach them
+            # afterwards would be a resend to the entire membership.
+            snapshot.queue_results_send()
+            self.stdout.write(self.style.SUCCESS(f"Queued the results email for '{label}'."))

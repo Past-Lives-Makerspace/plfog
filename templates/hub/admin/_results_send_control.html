@@ -6,6 +6,10 @@ HTMX: the confirm modal POSTs to hub_admin_voting_send_results, which returns th
 partial re-rendered (its "sent" state) + a toast, plus (when `oob` is set) an
 out-of-band refresh of the Overview banner so the next pending snapshot surfaces.
 
+States: queued (an admin asked for the send and the scheduler has not finished it),
+sent (results_sent_at stamped), or unsent (the Send button). Queued wins over sent so a
+resend in flight reads as in progress rather than as already finished.
+
 Params:
   snapshot — required, the FundingSnapshot this control acts on.
   oob      — optional, True only on the HTMX response render (adds the banner OOB swap).
@@ -14,7 +18,9 @@ Params:
 {% url 'hub_admin_voting_send_results' snapshot.pk as send_url %}
 {% with pks=snapshot.pk|stringformat:"s" %}
 <div id="results-send-control-{{ snapshot.pk }}" class="pl-results-send" x-data>
-  {% if snapshot.results_sent_at %}
+  {% if snapshot.results_send_queued %}
+    <span class="pl-results-send__status">Sending results in the background. This can take a few minutes.</span>
+  {% elif snapshot.results_sent_at %}
     <span class="pl-results-send__status">Results sent {{ snapshot.results_sent_at|date:"M j, g:i a" }}</span>
     <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
             @click="$dispatch('open-confirm', 'resend-results-{{ snapshot.pk }}')">Resend</button>

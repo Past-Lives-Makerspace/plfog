@@ -74,6 +74,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="send_pending_funding_results",
+        name="Guild funding results emails",
+        description="Sends the results email for any funding snapshot an admin has queued.",
+        command="send_pending_funding_results",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+        # Not toggleable. The dispatcher skips a disabled job before it records a run, so
+        # pausing this one would leave an admin's queued results email never sent, with no
+        # run record and nothing in the voting UI to show it had stalled.
+        toggleable=False,
+    ),
+    ScheduledJob(
         key="take_reconciliation_snapshot",
         name="Reconciliation month-end snapshots",
         description="Freezes the prior month's per-recipient payout allocation once, at month end.",
