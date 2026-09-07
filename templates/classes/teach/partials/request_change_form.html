@@ -1,0 +1,12 @@
+{% comment %}Body of the Request a change modal (workspace Overview and the published edit page). Rendered inline through components/modal.html's modal_body_include so a bound, invalid form re-renders its error inside the modal.{% endcomment %}
+<form method="post" action="{% url 'classes:teach_class_request_change' pk=offering.pk %}" class="pl-request-change-form" hx-boost="false">
+  {% csrf_token %}
+  <p style="margin:0 0 0.75rem;color:var(--hub-text-muted);">Title, dates, price, and capacity change through an admin because people booked on them.</p>
+  <div class="hub-form-group">
+    {% include "components/form_field.html" with field=change_form.note %}
+  </div>
+  <div class="pl-modal__actions">
+    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Send</button>
+    <button type="button" class="pl-btn pl-btn--secondary" style="flex:1;" @click="$dispatch('close-modal', 'request-change')">Cancel</button>
+  </div>
+</form>

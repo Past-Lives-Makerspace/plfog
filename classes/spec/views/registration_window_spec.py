@@ -27,7 +27,10 @@ def _series(slug, title, *offsets_days, status=ClassOffering.Status.PUBLISHED):
     offering = ClassOfferingFactory(
         title=title,
         slug=slug,
-        category=CategoryFactory(name=title, slug=f"{slug}-cat"),
+        # Category name must differ from the class title: the catalog lists every guild
+        # type (category) even when it has no bookable class, so a title-named category
+        # would render the title into the page and trip the "title not in body" checks below.
+        category=CategoryFactory(name=f"{slug} type", slug=f"{slug}-cat"),
         instructor=InstructorFactory(),
         status=status,
         scheduling_type=ClassOffering.SchedulingType.SERIES_PACKAGE,

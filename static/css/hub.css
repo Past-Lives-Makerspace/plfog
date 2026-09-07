@@ -107,6 +107,14 @@ img {
     --color-success: #7bc88f;
     --color-success-bg: rgba(123, 200, 143, 0.12);
 
+    /* Class lifecycle badge / review pipeline / readiness marks (class-lifecycle spec
+       PR 1). Text-on-surface tones: bright on Obsidian here, darkened to readable
+       amber / green / red on Slate (overridden below). */
+    --pl-lifecycle-review: var(--color-tuscan-yellow);
+    --pl-lifecycle-live: var(--color-success);
+    --pl-lifecycle-cancelled: var(--color-error);
+    --pl-lifecycle-live-contrast: var(--color-navy);
+
     /* Google Calendar sync-state badge (Screen C) — theme tokens so the badge
        stays legible on both Obsidian (here) and Slate (overridden below). */
     --pl-sync-synced: #6ee7b7;
@@ -156,6 +164,10 @@ img {
 
     --hub-blue: #2f6fb0;
     --hub-blue-soft: rgba(9, 46, 75, 0.08);
+    --pl-lifecycle-review: #9a6a00;
+    --pl-lifecycle-live: #1f7a52;
+    --pl-lifecycle-cancelled: #b03030;
+    --pl-lifecycle-live-contrast: #ffffff;
     --hub-hero-from: #f8fafc;
     --hub-hero-mid: #f1f5f9;
     --hub-hero-to: #e2e8f0;
@@ -2536,7 +2548,9 @@ a:hover { color: var(--hub-link-hover); }
 .pl-view-as-popover__menu {
     position: absolute;
     top: calc(100% + 6px);
-    right: 0;
+    /* The trigger sits on the left side of the topbar — grow rightward.
+       (right: 0 pushed the menu off the left screen edge.) */
+    left: 0;
     min-width: 200px;
     background: var(--hub-dropdown-bg);
     border: 1px solid var(--hub-dropdown-border);
@@ -2544,6 +2558,23 @@ a:hover { color: var(--hub-link-hover); }
     padding: 8px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     z-index: 50;
+}
+
+@media (max-width: 768px) {
+    /* The trigger sits near the left edge of the topbar, so an absolute
+       right-0 menu extends off-screen left on phones. Pin to the viewport
+       just below the topbar instead. */
+    .pl-view-as-popover__menu {
+        position: fixed;
+        top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px) + 6px);
+        left: 8px;
+        right: 8px;
+        min-width: 0;
+        /* 5rem bottom clearance keeps the feedback FAB (fixed, z-95, outside
+           the topbar stacking context) from covering the last duty toggle. */
+        max-height: calc(100dvh - var(--topbar-height) - env(safe-area-inset-top, 0px) - 5rem);
+        overflow-y: auto;
+    }
 }
 
 .pl-view-as-popover__header {
@@ -2591,6 +2622,45 @@ a:hover { color: var(--hub-link-hover); }
     padding: 8px;
     border-top: 1px solid var(--hub-dropdown-border);
     margin-top: 4px;
+}
+
+.pl-view-as-popover__duties {
+    /* Wide enough that the longest duty name plus its "?" bubble stays on one line. */
+    min-width: 284px;
+    margin-top: 4px;
+    border-top: 1px solid var(--hub-dropdown-border);
+}
+
+/* Doubled-up class so this beats components.css's own .pl-toggle-row padding — that
+   sheet loads after this one, and its 1rem rows made the popover tall enough to run
+   off the bottom of a short laptop screen. */
+.pl-view-as-popover__duty.pl-toggle-row {
+    padding: 6px 8px;
+    gap: 12px;
+    border-bottom: none;
+}
+
+.pl-view-as-popover__duty .pl-toggle-label {
+    font-size: 13px;
+    font-weight: 400;
+}
+
+/* The "?" help bubble trails the duty name in normal text flow (not a flex item), so on a
+   two-line name it sits right after the last word instead of floating beside the block. */
+.pl-view-as-popover__duty .pl-help {
+    margin-left: 5px;
+    vertical-align: -0.15em;
+}
+
+/* Scaled to the popover's 13px rows — the page-level 1.125rem icon dwarfs them. */
+.pl-view-as-popover__duty .pl-help__icon {
+    width: 0.9375rem;
+    height: 0.9375rem;
+    font-size: 0.625rem;
+}
+
+.pl-view-as-popover__duties .pl-view-as-popover__hint {
+    border-top: 1px solid var(--hub-dropdown-border);
 }
 
 .hub-sidebar__icons {
@@ -3133,6 +3203,21 @@ a:hover { color: var(--hub-link-hover); }
     margin-bottom: 0.75rem;
 }
 
+/* Thin vertical rule separating the exclusive status pills from the orthogonal
+   "My Classes" toggle. Hidden on phones (below) where the flex-wrap already
+   provides visual separation and the divider can orphan at a line edge. */
+.pl-filter-divider {
+    width: 1px;
+    height: 1.25rem;
+    background: var(--hub-border);
+}
+
+@media (max-width: 640px) {
+    .pl-filter-divider {
+        display: none;
+    }
+}
+
 .admin-table-wrap {
     border: 1px solid var(--hub-border);
     border-radius: 8px;
@@ -3626,6 +3711,62 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-orient-slots__action { flex: 0 0 7rem; text-align: right; }
 .pl-orient-slots__action .hub-btn { width: 100%; }
 .pl-orient-slots__pager { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+.pl-orient-slots__with { flex: 1; display: flex; align-items: center; gap: 0.4rem; min-width: 0; font-size: 0.9rem; }
+@media (max-width: 640px) {
+    .pl-orient-slots__row { flex-wrap: wrap; }
+    .pl-orient-slots__with { flex-basis: 100%; }
+}
+
+/* Small orienter avatar chip ("with Bob") — theme tokens, initials fallback */
+.pl-orient-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+.pl-orient-avatar--initials {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+/* Orientations tab — hours rows, the All Orientation Hours overview, Upcoming Slots card */
+.pl-hours-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+.pl-orient-overview__group { padding: 0.75rem 0; border-top: 1px solid var(--hub-border); }
+.pl-orient-overview__person { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.pl-orient-overview__rules {
+    list-style: none;
+    padding: 0.4rem 0 0;
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text);
+}
+.pl-slot-admin__row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-slot-admin__when { font-weight: 500; }
+.pl-slot-admin__with { display: flex; align-items: center; gap: 0.4rem; flex: 1; min-width: 140px; }
+.pl-slot-admin__seats { color: var(--hub-text-muted); font-size: 0.85rem; }
+.pl-slot-admin__source { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* Add A Slot date input — Rule 14 dark-mode picker icon */
+.pl-slot-date::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+[data-theme="light"] .pl-slot-date::-webkit-calendar-picker-indicator { filter: none; }
+
+/* "Post your hours" nudge banner on the orientations dashboard */
+.pl-hours-nudge { padding: 0.9rem 1.5rem; margin-bottom: 1.5rem; border-left: 3px solid var(--color-tuscan-yellow); }
+.pl-hours-nudge a { color: var(--color-tuscan-yellow); }
 
 /* ============================================================
    Skills directory — filter bar, chips, commission badge, editor
@@ -4208,6 +4349,46 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-top: 1.75rem;
 }
 
+/* Who's coming — read-only attendee roster + the RSVP toggle. Layout only; every color
+   comes from theme tokens, so it reads on both Obsidian (dark) and Slate (light). */
+.pl-event-detail__attendees {
+    margin-top: 1.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-event-detail__attendees-heading {
+    margin: 0 0 0.75rem;
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+
+.pl-event-detail__attendee-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+    padding: 0;
+    list-style: none;
+}
+
+.pl-event-detail__attendee {
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font-size: 0.8125rem;
+}
+
+.pl-event-detail__attendees-empty {
+    margin: 0 0 1rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-event-detail__rsvp-form {
+    margin: 0;
+}
+
 /* ========================================
    My Guilds settings tab — per-guild join/leave toggle list.
    Layout only; every color comes from theme tokens (hub-card wrapper, --hub-text,
@@ -4260,6 +4441,44 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ── First-login guild updates prompt (/welcome/guild-updates/) ────────────
+   Layout only (max-width, spacing) — the card, rows, toggles, and buttons are
+   all existing themed components, so no colors belong here. */
+.pl-guild-prompt {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.pl-guild-prompt__title {
+    font-size: 1.4rem;
+}
+
+.pl-guild-prompt__intro {
+    margin-bottom: 1.25rem;
+}
+
+.pl-guild-prompt__error {
+    margin-bottom: 0.75rem;
+}
+
+/* Button row clears the last guild row (Rule 18); Save sits last/rightmost. */
+.pl-guild-prompt__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 480px) {
+    .pl-guild-prompt__actions {
+        flex-direction: column-reverse;
+    }
+
+    .pl-guild-prompt__actions .pl-btn {
+        width: 100%;
+    }
 }
 
 /* ── Guild-announcement Discord channel picker ─────────────────────────────
@@ -4327,6 +4546,47 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0.5rem 0 0;
     font-size: 0.8125rem;
     color: var(--hub-text-muted);
+}
+
+/* Generic stacked radio option cards (profile marketing opt-in). */
+.pl-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.pl-radio-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+}
+
+.pl-radio-option input[type="radio"] {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0.2rem 0 0;
+    padding: 0;
+    background: none;
+    border: none;
+    accent-color: var(--color-tuscan-yellow);
+    cursor: pointer;
+}
+
+.pl-radio-option__label {
+    flex: 1 1 auto;
+}
+
+/* :checked lives on the input; style the enclosing label via :has (option card). */
+.pl-radio-option:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--hub-elevated);
 }
 
 /* ============================================================================
@@ -4840,6 +5100,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
 }
 
+/* Brand admin tab (Site Settings). Layout lives in a class, never inline on an
+   x-show element (Rule 12). */
+.pl-brand-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
 /* ── Slideshow admin tab (Site Settings) ─────────────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
    components.css), NOT signage.css. Layout lives in classes, never inline on an
@@ -5303,7 +5571,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
      rather than filling the page — the crop is what gives drag and two-finger
      swipe somewhere to go before any zoom. Centring the stage keeps the crop
      symmetric, matching the JS clamp's centre-origin maths. */
-  max-height: min(60vh, 480px);
+  max-height: min(85vh, 900px);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -5346,8 +5614,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    it at MOBILE_BASE_SCALE. Keep this breakpoint in sync with space_map.js. */
 @media (max-width: 768px) {
   .pl-map-viewport {
-    height: min(60vh, 480px);
+    height: min(70vh, 560px);
   }
+}
+/* Caption clarifying the S1-x markers are cubby shelves. */
+.pl-map-cubby-note {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.8125rem;
 }
 /* Legend — the colour key, with live counts */
 .pl-map-legend {
@@ -5641,6 +5914,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
   margin-bottom: 0.75rem;
 }
 .pl-map-detail__title { margin: 0; font-size: 1.125rem; }
+.pl-map-detail__edit { margin-left: auto; }
+.pl-map-detail__edit svg { margin-right: 0.3rem; }
 .pl-map-detail__photo {
   display: block;
   width: 100%;
@@ -5660,6 +5935,54 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-map-detail__facts dt { color: var(--hub-text-muted); }
 .pl-map-detail__facts dd { margin: 0; }
 .pl-map-detail__blurb { margin: 0 0 1rem; font-size: 0.875rem; }
+
+/* Occupant cards — opted-in members only, shown to logged-in members only */
+.pl-map-occupants { margin: 0 0 1rem; }
+.pl-map-occupants__heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--hub-text-muted);
+  text-transform: capitalize;
+}
+.pl-map-occupant {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--hub-border);
+  border-radius: 8px;
+  background: var(--hub-surface);
+}
+.pl-map-occupant + .pl-map-occupant { margin-top: 0.5rem; }
+.pl-map-occupant__avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  background: var(--hub-elevated);
+  color: var(--hub-text-muted);
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+.pl-map-occupant__avatar--photo { object-fit: cover; }
+.pl-map-occupant__body { min-width: 0; }
+.pl-map-occupant__name { font-weight: 600; font-size: 0.9375rem; }
+.pl-map-occupant__pronouns {
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--hub-text-muted);
+}
+.pl-map-occupant__skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
 .pl-map-detail__cta { margin-top: 1rem; }
 .pl-map-detail__note { margin: 0.5rem 0; font-size: 0.8125rem; }
 .pl-map-request-form { margin-top: 0.75rem; }
@@ -5867,6 +6190,132 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         flex: 1;
         min-height: 44px;
     }
+}
+
+/* ── Guided-tour "advancing" affordance: a brief scrim + spinner during a hop,
+      so a boosted swap or tab flip never flashes the destination bare. ── */
+.pl-tour-advancing {
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    background: color-mix(in srgb, var(--hub-bg) 72%, transparent);
+    backdrop-filter: blur(2px);
+    color: var(--hub-text);
+    font-size: 0.9rem;
+}
+.pl-tour-advancing[hidden] { display: none; }
+
+.pl-tour-advancing__spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid var(--hub-border);
+    border-top-color: var(--color-tuscan-yellow);
+    border-radius: 50%;
+    animation: pl-spin 0.7s linear infinite;
+}
+
+.pl-tour-advancing__label {
+    color: var(--hub-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pl-tour-advancing__spinner {
+        animation: none;
+        border-color: var(--color-tuscan-yellow);
+    }
+}
+
+/* ── Paused-tour pill (§6.2) — a persistent Resume affordance that survives
+   navigation while a tour is paused, so the presenter can roam and come back ── */
+.pl-tour-resume {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.875rem;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    border: 1px solid var(--hub-border);
+    border-left: 3px solid var(--color-tuscan-yellow);
+    border-radius: 999px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+    max-width: calc(100vw - 2rem);
+}
+.pl-tour-resume[hidden] { display: none; }
+
+.pl-tour-resume__label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pl-tour-resume__end {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.pl-tour-resume__end:hover,
+.pl-tour-resume__end:focus {
+    background: var(--hub-border);
+    color: var(--hub-text);
+}
+
+@media (max-width: 480px) {
+    .pl-tour-resume {
+        left: 1rem;
+        right: 1rem;
+        justify-content: space-between;
+    }
+}
+
+/* Driver's footer packs its three children (pause, "N of M", nav buttons) with no
+   gap, so the pause control ends up jammed against the step counter. Give the row a
+   gap so nothing touches. */
+.pl-tour .driver-popover-footer {
+    gap: 0.5rem;
+}
+
+/* The Pause control inside the Driver.js popover footer (a subtle ghost pill sitting
+   left of the "N of M" counter and Back/Next). Styled as a real button so it reads as
+   a control and never visually merges with the counter text. */
+.pl-tour .pl-tour-pause-btn {
+    padding: 0.25rem 0.6rem;
+    background: transparent;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    color: var(--hub-text-muted);
+    font: inherit;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    text-decoration: none;
+    text-shadow: none; /* driver's default footer-button white text-shadow must be reset */
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.pl-tour .pl-tour-pause-btn:hover,
+.pl-tour .pl-tour-pause-btn:focus {
+    background: transparent; /* override driver's default #f7f7f7 hover fill */
+    color: var(--color-tuscan-yellow);
+    border-color: var(--color-tuscan-yellow);
 }
 
 /* ── "Show me around" entry link under a page header (§6.3) ── */
@@ -6166,17 +6615,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     50% { opacity: 0.45; }
 }
 
-/* --- Published badge (header — between draft and approval) --- */
-.pl-meeting-published-badge {
-    padding: 0.25rem 0.75rem;
-    border-radius: 999px;
-    border: 1px solid var(--color-success, #38a169);
-    background: transparent;
-    font-size: 0.8125rem;
-    color: var(--color-success, #38a169);
-    white-space: nowrap;
-}
-
 /* --- Workspace-level delete confirm dialog --- */
 .pl-confirm-overlay {
     position: fixed;
@@ -6348,6 +6786,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
     background: var(--hub-surface);
     border: 1px solid var(--hub-border-strong);
+}
+/* The single Published treatment site-wide — Draft (muted) / Published (blue) /
+   Approved (green) read as a progression in both themes. */
+.pl-meeting-badge--published {
+    color: var(--hub-blue);
+    background: transparent;
+    border: 1px solid var(--hub-blue);
 }
 .pl-meeting-badge--approved {
     color: var(--color-success);
@@ -6855,4 +7300,1127 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
     .pl-meeting-title, .pl-meeting-fact, .pl-meeting-item__name, .pl-meeting-prose { color: #000 !important; }
     .pl-meeting-savestate { display: none !important; }
+}
+
+/* --- Form footer action row (Save / Cancel left, Delete pushed right) ------- */
+.pl-form-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    row-gap: 0.75rem;
+}
+.pl-form-actions__danger {
+    margin-left: auto;
+}
+
+/* --- Paid orientations ------------------------------------------------------ */
+/* Price chip shown beside orientation headings, on paid dashboard rows, and on
+   the respond screen's Paid indicator. Tokens only — themes for free. */
+.pl-price-chip {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    background: var(--hub-surface);
+    color: var(--color-tuscan-yellow);
+    border: 1px solid var(--hub-border);
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.pl-price-chip--ok {
+    color: #7bdcb5;
+}
+.pl-price-chip--danger {
+    color: #e05d5d;
+}
+/* The refund-consequence one-liner above Decline/Cancel controls. */
+.pl-refund-note {
+    margin: 0 0 0.5rem;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted);
+}
+/* Full-width failed-refund alert card on the respond screen. */
+.pl-refund-failed-banner {
+    border: 1px solid rgba(224, 93, 93, 0.55);
+    background: rgba(224, 93, 93, 0.12);
+    border-radius: 8px;
+    padding: 0.9rem 1.25rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.95rem;
+}
+/* Checkout return page: one centered card. */
+.pl-checkout-return {
+    display: flex;
+    justify-content: center;
+    padding: 2rem 0;
+}
+.pl-checkout-return__card {
+    max-width: 560px;
+    width: 100%;
+    padding: 1.5rem;
+}
+/* Guild-page heading row wraps the chip under the title on phones. */
+.pl-orient-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.5rem;
+}
+
+/* Floating back-to-top button on the User Settings page (hub-tokenized; deliberately
+   NOT the public-CMS #scroll-top-btn styles). z-index sits above page content and the
+   sticky topbar but below the modal backdrop (500), so the discard confirm covers it. */
+.pl-scroll-top {
+    position: fixed;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    z-index: 90;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--hub-border);
+    cursor: pointer;
+    background: var(--hub-elevated);
+    color: var(--color-tuscan-yellow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+.pl-scroll-top:hover {
+    transform: translateY(-2px);
+}
+
+/* ── Guild Join / Member hero CTA ────────────────────────────────────────── */
+.pl-guild-cta {
+    display: inline-flex;
+}
+.pl-guild-cta__member {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.pl-guild-cta__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+}
+.pl-guild-cta__caret {
+    margin-left: 0.1rem;
+    transition: transform 0.15s ease;
+}
+.pl-guild-cta__caret--open {
+    transform: rotate(180deg);
+}
+.pl-guild-cta__menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 40;
+    min-width: 160px;
+    padding: 0.35rem;
+    border-radius: 8px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-elevated);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.pl-guild-cta__menu-item {
+    display: block;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--hub-text);
+    text-align: left;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.pl-guild-cta__menu-item:hover {
+    background: var(--hub-surface);
+}
+
+/* ── Guild stat-chips row: chips on the left, Join/Member CTA on the right ──
+   Wraps on narrow viewports so the CTA drops under the chips instead of overflowing. */
+.pl-guild-statbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1rem;
+}
+.pl-guild-statbar__chips {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* ── Sticky mini Join CTA (clones .pl-scroll-top placement) ──────────────── */
+.pl-guild-join-fab {
+    position: fixed;
+    bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
+    right: 1.25rem;
+    z-index: 90;
+}
+.pl-guild-join-fab__pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.7rem 1.15rem;
+    border-radius: 999px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    cursor: pointer;
+}
+.pl-guild-join-fab__pill--join {
+    border: 1px solid var(--color-tuscan-yellow);
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-guild-join-fab__pill--join:hover {
+    transform: translateY(-2px);
+}
+.pl-guild-join-fab__pill--member {
+    border: 1px solid var(--hub-border);
+    background: var(--hub-elevated);
+    color: var(--hub-text-muted);
+    cursor: default;
+}
+
+/* ── Join-modal benefit rows ─────────────────────────────────────────────── */
+.pl-benefit-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-benefit-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-size: 0.92rem;
+    color: var(--hub-text);
+    line-height: 1.4;
+}
+.pl-benefit-row svg {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 0.1rem;
+    color: var(--color-tuscan-yellow);
+}
+.pl-benefit-row a {
+    color: var(--color-tuscan-yellow);
+}
+
+/* ── "You get this guild's updates" note — top+bottom breathing room (8px grid) so it
+   doesn't butt against the confirmation icon above or the "Manage in Settings" button below. */
+.pl-guild-updates-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+}
+
+/* ── Member Directory guild badges ───────────────────────────────────────── */
+.pl-directory-guilds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+}
+.pl-directory-guild {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    text-decoration: none;
+}
+.pl-directory-guild img {
+    display: block;
+    width: 14px;
+    height: 14px;
+}
+
+/* Phone clearance: the fixed back-to-top FAB floats over a padded strip, never over the
+   page's last row of controls (Guilds toggles, danger-zone footer, Tours Save). */
+@media (max-width: 768px) {
+    #pl-settings-root {
+        padding-bottom: 4.5rem;
+    }
+}
+
+/* ── Equipment directory (equipment-reservations spec PR 1) ─────────────── */
+.pl-equip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 1rem;
+}
+.pl-equip-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+}
+.pl-equip-card__photo,
+.pl-equip-card__placeholder {
+    width: 100%;
+    height: 140px;
+    display: block;
+    object-fit: cover;
+}
+.pl-equip-card__placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+}
+.pl-equip-card__body {
+    padding: 0.9rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+/* The name link stretches over the whole card (the tap target); the guild chip
+   sits above it with its own link. */
+.pl-equip-card__name {
+    font-weight: 700;
+    color: var(--hub-text);
+    text-decoration: none;
+}
+.pl-equip-card__name::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+}
+.pl-equip-card__meta {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+}
+.pl-equip-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+}
+.pl-equip-badge--ok {
+    color: #7bdcb5;
+    background: rgba(123, 220, 181, 0.12);
+}
+[data-theme="light"] .pl-equip-badge--ok {
+    color: #1e7a4f;
+    background: rgba(30, 122, 79, 0.1);
+}
+.pl-equip-badge--warn {
+    color: var(--color-tuscan-yellow);
+    background: rgba(238, 180, 75, 0.14);
+}
+[data-theme="light"] .pl-equip-badge--warn {
+    color: #8a5a00;
+    background: rgba(238, 180, 75, 0.18);
+}
+.pl-equip-badge--muted {
+    color: var(--hub-text-muted);
+    background: var(--hub-surface);
+}
+
+/* Filter row — chips scroll horizontally in their own contained region on phones. */
+.pl-equip-filters {
+    display: flex;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-chips {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 0.25rem;
+}
+.pl-equip-chip {
+    white-space: nowrap;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text-muted);
+    background: var(--hub-card-bg);
+    text-decoration: none;
+    font-size: 0.85rem;
+}
+.pl-equip-chip--active {
+    border-color: var(--color-tuscan-yellow);
+    color: var(--hub-text);
+}
+.pl-equip-search input[type="search"] {
+    min-width: 200px;
+}
+
+/* Detail page hero + requirements banner. */
+.pl-equip-hero {
+    padding: 0;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-hero__photo {
+    width: 100%;
+    height: 220px;
+    object-fit: cover;
+    display: block;
+}
+.pl-equip-hero__body {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.5rem 1.25rem;
+}
+.pl-equip-hero__titles {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-equip-banner {
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.25rem;
+    border-left: 4px solid var(--hub-border);
+}
+.pl-equip-banner--ok {
+    border-left-color: #7bdcb5;
+}
+.pl-equip-banner--warn {
+    border-left-color: var(--color-tuscan-yellow);
+}
+.pl-equip-banner__ok-text {
+    color: #7bdcb5;
+}
+[data-theme="light"] .pl-equip-banner__ok-text {
+    color: #1e7a4f;
+}
+[data-theme="light"] .pl-equip-banner--ok {
+    border-left-color: #1e7a4f;
+}
+
+/* Manage panel — form card, save row, staff rows; reflows to a column on phones. */
+.pl-equip-form-card {
+    padding: 1.5rem;
+    max-width: 640px;
+}
+.pl-equip-save-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+}
+.pl-equip-guild-toggle {
+    display: block;
+}
+.pl-equip-staff-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-staff-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+.pl-equip-staff-row__who {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+.pl-equip-staff-add {
+    border-top: 1px solid var(--hub-border);
+    padding-top: 1.25rem;
+}
+.pl-equip-staff-add__form {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+.pl-equip-staff-add__field {
+    flex: 2;
+    min-width: 220px;
+}
+
+/* Orientation deep-link highlight (?type=<pk> from an equipment requirements banner). */
+.pl-orient-type--highlight {
+    outline: 2px solid var(--color-tuscan-yellow);
+    outline-offset: 6px;
+    border-radius: 8px;
+}
+
+@media (max-width: 768px) {
+    .pl-equip-grid {
+        grid-template-columns: 1fr;
+    }
+    .pl-equip-hero__body {
+        flex-direction: column;
+    }
+    .pl-equip-save-row {
+        justify-content: stretch;
+    }
+    .pl-equip-search input[type="search"] {
+        width: 100%;
+    }
+}
+
+/* ── Equipment reservations (PR 2): schedule strip, timeline, booking, hours ── */
+.pl-equip-schedule {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+.pl-equip-schedule.htmx-request {
+    opacity: 0.55;
+}
+.pl-equip-strip__head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.pl-equip-strip__nav {
+    margin-left: auto;
+    display: flex;
+    gap: 0.4rem;
+}
+.pl-equip-strip__spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--hub-text-muted);
+    border-top-color: transparent;
+    animation: pl-equip-spin 0.8s linear infinite;
+}
+.htmx-indicator.pl-equip-strip__spinner {
+    opacity: 0;
+}
+.htmx-request .pl-equip-strip__spinner,
+.htmx-request.pl-equip-strip__spinner {
+    opacity: 1;
+}
+@keyframes pl-equip-spin {
+    to { transform: rotate(360deg); }
+}
+/* The day strip scrolls horizontally in its own contained region on phones. */
+.pl-equip-strip {
+    display: flex;
+    gap: 0.4rem;
+    overflow-x: auto;
+    max-width: 100%;
+    padding-bottom: 0.25rem;
+}
+.pl-equip-day {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1rem;
+    min-width: 3.2rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid var(--hub-border);
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    cursor: pointer;
+}
+.pl-equip-day--selected {
+    border-color: var(--color-tuscan-yellow);
+}
+.pl-equip-day--muted {
+    color: var(--hub-text-muted);
+    background: var(--hub-surface);
+    cursor: default;
+}
+.pl-equip-day__name {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.pl-equip-day__num {
+    font-weight: 700;
+}
+/* Day timeline — a vertical list, never a table (mobile rule). */
+.pl-equip-timeline {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.pl-equip-slot {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: baseline;
+    padding: 0.45rem 0.75rem;
+    border-radius: 6px;
+    border-left: 3px solid var(--hub-border);
+    background: var(--hub-surface);
+}
+.pl-equip-slot--free {
+    border-left-color: #7bdcb5;
+}
+[data-theme="light"] .pl-equip-slot--free {
+    border-left-color: #1e7a4f;
+}
+.pl-equip-slot--busy {
+    border-left-color: var(--color-tuscan-yellow);
+}
+.pl-equip-slot__when {
+    font-weight: 600;
+    white-space: nowrap;
+}
+.pl-equip-slot__label {
+    color: var(--hub-text-muted);
+}
+/* Book a Time — selects stack full width on phones. */
+.pl-equip-book-row {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+.pl-equip-book-field {
+    flex: 1;
+    min-width: 130px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.pl-equip-book-field--wide {
+    flex: 2;
+    min-width: 200px;
+}
+/* Reservation lists (detail page + manage panel) — rows wrap into cards on phones. */
+.pl-equip-res-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-equip-res-row {
+    display: flex;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+/* Index card availability line. */
+.pl-equip-avail {
+    font-size: 0.8125rem;
+}
+.pl-equip-avail--free {
+    color: #7bdcb5;
+}
+[data-theme="light"] .pl-equip-avail--free {
+    color: #1e7a4f;
+}
+.pl-equip-avail--busy {
+    color: var(--color-tuscan-yellow);
+}
+[data-theme="light"] .pl-equip-avail--busy {
+    color: #8a5a00;
+}
+.pl-equip-avail--closed {
+    color: #e06c5c;
+}
+.pl-equip-avail--muted {
+    color: var(--hub-text-muted);
+}
+/* Manage panel hours rows. */
+.pl-equip-hours-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+.pl-equip-hours-row {
+    padding: 1rem;
+    background: var(--hub-surface);
+}
+.pl-equip-hours-row__fields {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-equip-hours-row__field {
+    flex: 1;
+    min-width: 110px;
+}
+
+/* ── Equipment hours window editor: compact day-pill checkboxes ── */
+.pl-equip-days ul {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0;
+    margin: 0.25rem 0 0;
+}
+.pl-equip-days li label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    /* min-height keeps the pill a real mobile tap target (44px guideline). */
+    min-height: 2.75rem;
+    padding: 0.25rem 0.85rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 999px;
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.pl-equip-days li label:has(input:checked) {
+    border-color: var(--color-tuscan-yellow);
+}
+.pl-equip-days input[type="checkbox"] {
+    accent-color: var(--color-tuscan-yellow);
+    margin: 0;
+}
+
+/* ── Equipment-owned orientations ── */
+.pl-equip-orientation {
+    margin-bottom: 1.25rem;
+    scroll-margin-top: 1rem;
+}
+.pl-orient-confirmed {
+    color: #7bdcb5;
+}
+[data-theme="light"] .pl-orient-confirmed {
+    color: #1e7a4f;
+}
+.pl-equip-slot-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+/* Attendee sub-rows under an Upcoming Slots row — indented, whole row links to respond. */
+.pl-equip-attendee-row {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-left: 1.25rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-border);
+    color: var(--hub-text);
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+/* ── Orientations on the reservation schedule (equipment-orientation-hours PR 2) ── */
+.pl-equip-slot--orientation {
+    border-left-color: var(--hub-blue);
+}
+.pl-equip-slot--orientation .pl-equip-slot__label {
+    color: var(--hub-blue);
+}
+.pl-equip-timeline__note {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+}
+/* An Upcoming Slots row sitting under a confirmed reservation: muted, never offered to members. */
+.pl-equip-res-row--blocked {
+    opacity: 0.65;
+}
+.pl-equip-res-row__blocked {
+    display: block;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+/* ========================================
+   Class lifecycle (class-lifecycle spec PR 1)
+   One badge for every class state, the review pipeline strip, the reviewer
+   note block, the readiness checklist, and the list facet chips. Theme tokens
+   only: the --pl-lifecycle-* tones are defined on :root and [data-theme="light"]
+   at the top of this file.
+   ======================================== */
+.pl-lifecycle-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.18rem 0.6rem;
+    border-radius: 999px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: rgba(139, 151, 168, 0.18);
+    color: var(--hub-text-muted);
+}
+.pl-lifecycle-badge--awaiting_guild_lead,
+.pl-lifecycle-badge--awaiting_admin {
+    background: rgba(238, 180, 75, 0.16);
+    color: var(--pl-lifecycle-review);
+}
+.pl-lifecycle-badge--changes_requested {
+    background: var(--hub-blue-soft);
+    color: var(--hub-blue);
+}
+.pl-lifecycle-badge--upcoming {
+    background: var(--color-success-bg);
+    color: var(--pl-lifecycle-live);
+}
+.pl-lifecycle-badge--completed {
+    background: rgba(123, 200, 143, 0.08);
+    color: var(--hub-text-muted);
+}
+.pl-lifecycle-badge--cancelled {
+    background: var(--color-error-bg);
+    color: var(--pl-lifecycle-cancelled);
+}
+.pl-lifecycle-badge .pl-help {
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 400;
+}
+
+/* Review pipeline strip: circles joined by a track that fills to the current step. */
+.pl-pipeline {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0.5rem;
+    padding: 0;
+    list-style: none;
+}
+.pl-pipeline__track {
+    position: absolute;
+    top: 0.9rem;
+    left: 0.9rem;
+    right: 0.9rem;
+    height: 3px;
+    background: var(--hub-border);
+    border-radius: 2px;
+}
+.pl-pipeline__fill {
+    height: 100%;
+    background: var(--pl-lifecycle-live);
+    border-radius: 2px;
+}
+.pl-pipeline--bounced .pl-pipeline__fill {
+    background: var(--hub-blue);
+}
+.pl-pipeline__step {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    text-align: center;
+}
+.pl-pipeline__dot {
+    box-sizing: border-box;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    background: var(--hub-card-bg);
+    border: 2px solid var(--hub-border);
+    color: var(--hub-text-muted);
+}
+.pl-pipeline__step--done .pl-pipeline__dot {
+    background: var(--pl-lifecycle-live);
+    border-color: var(--pl-lifecycle-live);
+    color: var(--pl-lifecycle-live-contrast);
+}
+.pl-pipeline__step--current .pl-pipeline__dot {
+    border-color: var(--color-tuscan-yellow);
+    color: var(--pl-lifecycle-review);
+    box-shadow: 0 0 0 4px rgba(238, 180, 75, 0.22);
+}
+.pl-pipeline__step--changes_requested .pl-pipeline__dot {
+    background: var(--hub-blue);
+    border-color: var(--hub-blue);
+    color: #fff;
+}
+.pl-pipeline__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--hub-text-muted);
+    line-height: 1.2;
+}
+.pl-pipeline__step--done .pl-pipeline__label,
+.pl-pipeline__step--current .pl-pipeline__label {
+    color: var(--hub-text);
+}
+.pl-pipeline__step--changes_requested .pl-pipeline__label {
+    color: var(--hub-blue);
+}
+.pl-pipeline__detail {
+    font-size: 0.7rem;
+    color: var(--hub-text-muted);
+}
+.pl-pipeline--muted {
+    opacity: 0.55;
+}
+.pl-pipeline__headline {
+    margin: 0;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-pipeline__headline--muted {
+    color: var(--hub-text-muted);
+}
+@media (max-width: 480px) {
+    .pl-pipeline {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.9rem;
+        padding-left: 0;
+    }
+    .pl-pipeline__track {
+        top: 0.9rem;
+        bottom: 0.9rem;
+        left: 0.8rem;
+        right: auto;
+        width: 3px;
+        height: auto;
+    }
+    .pl-pipeline__fill {
+        width: 100%;
+        height: var(--pl-pipeline-fill, 0%);
+    }
+    .pl-pipeline__step {
+        flex-direction: row;
+        align-items: center;
+        text-align: left;
+        gap: 0.75rem;
+    }
+}
+
+/* Reviewer's note on a bounced class, on the edit page and workspace overview. */
+.pl-review-note {
+    margin: 0.75rem 0 0;
+    padding: 0.75rem 1rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+    background: rgba(238, 180, 75, 0.08);
+    border-radius: 0 6px 6px 0;
+    white-space: pre-wrap;
+    color: var(--hub-text);
+}
+.pl-review-note__label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+
+/* Readiness checklist: the five things a class needs before it can be submitted. */
+.pl-readiness {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.pl-readiness__item {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    font-size: 0.9rem;
+}
+.pl-readiness__mark {
+    flex: 0 0 1.25rem;
+    font-weight: 700;
+    text-align: center;
+    color: var(--hub-text-muted);
+}
+.pl-readiness__item--ok .pl-readiness__mark {
+    color: var(--pl-lifecycle-live);
+}
+.pl-readiness__item--todo .pl-readiness__mark {
+    color: var(--pl-lifecycle-cancelled);
+}
+.pl-readiness__hint {
+    color: var(--hub-text-muted);
+}
+.pl-readiness__item--ok .pl-readiness__hint {
+    display: none;
+}
+/* Grid variant (opt in with grid=True) for full width cards like the class review page,
+   where five short items stacked in one column wasted most of the row. */
+.pl-readiness--grid .pl-readiness__item {
+    align-items: flex-start;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--hub-card-border);
+    border-radius: 8px;
+    background: var(--hub-bg);
+}
+.pl-readiness--grid .pl-readiness__item--todo {
+    border-color: var(--pl-lifecycle-cancelled);
+}
+.pl-readiness--grid .pl-readiness__label {
+    font-weight: 600;
+}
+.pl-readiness--grid .pl-readiness__hint {
+    display: block;
+    font-size: 0.8125rem;
+    margin-top: 0.15rem;
+}
+@media (min-width: 720px) {
+    .pl-readiness--grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        gap: 0.5rem;
+    }
+}
+
+/* Class review "Class Details" list. Was an inline 140px grid that forced a narrow
+   label column on phones; the labels now stack above their values below 640px. */
+.pl-review-details {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 10px 18px;
+    font-size: 14px;
+    margin: 0 0 1.5rem;
+}
+.pl-review-details dt {
+    color: var(--hub-text-muted);
+}
+.pl-review-details dd {
+    margin: 0;
+}
+@media (max-width: 640px) {
+    .pl-review-details {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+    .pl-review-details dd {
+        margin-bottom: 0.6rem;
+    }
+}
+
+/* "3 of 5 ready" beside the Readiness heading. */
+.pl-readiness-count {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--hub-text-muted);
+    white-space: nowrap;
+}
+.pl-readiness-count--ready {
+    color: var(--pl-lifecycle-live);
+}
+
+/* Facet chips scroll inside their own region on phones (never the page). */
+.pl-facets {
+    display: flex;
+    gap: 0.375rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+@media (max-width: 640px) {
+    .pl-facets {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+    }
+    .pl-facets .hub-btn {
+        flex: 0 0 auto;
+    }
+}
+.pl-facets__count {
+    opacity: 0.6;
+    font-weight: 400;
+}
+
+/* Registrant self-serve page after a class cancel. */
+.pl-class-cancelled {
+    padding: 0.9rem 1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--pl-lifecycle-cancelled);
+    background: var(--color-error-bg);
+    border-radius: 8px;
+    color: var(--hub-text);
+}
+
+/* Leadless guild note on the admin queue. */
+.pl-queue-note {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
+}
+
+/* Home page Teaching card (class-lifecycle spec PR 2): single-line rows that wrap on phones. */
+.pl-teaching {
+    list-style: none;
+    margin: 0 0 0.75rem;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.pl-teaching__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--hub-border);
+}
+.pl-teaching__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+.pl-teaching__title {
+    font-weight: 600;
+    color: var(--hub-text);
+}
+.pl-teaching__note {
+    font-size: 0.85rem;
 }

@@ -61,7 +61,10 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
         try:
             member = Member.objects.get(_pre_signup_email__iexact=email, user__isnull=True)
             member.user = instance
-            member.full_legal_name = instance.get_full_name() or member.full_legal_name or instance.username
+            # A collected real name (signup form / registration) wins; otherwise keep
+            # whatever the placeholder already had. Never the username — that's just
+            # the lowercased email local part (issue #274).
+            member.full_legal_name = instance.get_full_name() or member.full_legal_name
             member.status = Member.Status.ACTIVE
             member.save(update_fields=["user", "full_legal_name", "status"])
             logger.info("Linked existing Member (primary email) to user %s.", instance.username)
@@ -76,7 +79,7 @@ def ensure_user_has_member(sender: type, instance: Any, created: bool, **kwargs:
             alias = MemberEmail.objects.select_related("member").get(email__iexact=email, member__user__isnull=True)
             member = alias.member
             member.user = instance
-            member.full_legal_name = instance.get_full_name() or member.full_legal_name or instance.username
+            member.full_legal_name = instance.get_full_name() or member.full_legal_name
             member.status = Member.Status.ACTIVE
             member.save(update_fields=["user", "full_legal_name", "status"])
             logger.info("Linked existing Member (alias email %s) to user %s.", email, instance.username)
@@ -109,7 +112,11 @@ def _auto_create_member_for_user(instance: Any) -> None:
         )
         return
 
-    name = instance.get_full_name() or instance.username
+    # Blank is deliberate when the user carries no name (issue #274): the old
+    # ``or instance.username`` fallback seeded the lowercased email local part
+    # as a legal name, which rendered as garbage in rosters. An empty
+    # full_legal_name renders empty everywhere and surfaces in Manage Members.
+    name = instance.get_full_name()
     member_email = instance.email or ""
     if not member_email:
         logger.warning(

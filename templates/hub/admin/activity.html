@@ -3,7 +3,7 @@
 
 {% block content %}
 <div x-data="{ tab: '{{ active_tab|default:"feed" }}' }">
-  <h1 class="hub-page-title">Site Activity</h1>
+  <h1 class="hub-page-title" data-help-key="admin.activity">Site Activity</h1>
 
   <div style="display:flex;border-bottom:1px solid var(--hub-border);gap:0;margin-bottom:1.25rem;flex-wrap:wrap;">
     <button type="button" @click="tab = 'feed'"

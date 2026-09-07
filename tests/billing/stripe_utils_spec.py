@@ -257,3 +257,68 @@ def describe_verify_platform_credentials():
         assert result["display_name"] == "acct_no_name"
         assert result["charges_enabled"] is False
         assert result["country"] == ""
+
+
+def describe_create_refund():
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_refunds_the_full_payment_when_amount_is_none(mock_get_client):
+        client = _mock_client()
+        client.v1.refunds.create.return_value = MagicMock(id="re_full_1", status="succeeded", amount=6500)
+        mock_get_client.return_value = client
+
+        result = stripe_utils.create_refund(payment_intent_id="pi_refund_1", idempotency_key="pay-refund-1-a1")
+
+        assert result == {"id": "re_full_1", "status": "succeeded", "amount": 6500}
+        call_kwargs = client.v1.refunds.create.call_args
+        assert call_kwargs.kwargs["params"] == {"payment_intent": "pi_refund_1"}
+        assert call_kwargs.kwargs["options"]["idempotency_key"] == "pay-refund-1-a1"
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_passes_the_amount_for_a_partial_refund(mock_get_client):
+        client = _mock_client()
+        client.v1.refunds.create.return_value = MagicMock(id="re_part_1", status="pending", amount=2000)
+        mock_get_client.return_value = client
+
+        result = stripe_utils.create_refund(
+            payment_intent_id="pi_refund_2", amount_cents=2000, idempotency_key="pay-refund-2-a1"
+        )
+
+        assert result == {"id": "re_part_1", "status": "pending", "amount": 2000}
+        call_kwargs = client.v1.refunds.create.call_args
+        assert call_kwargs.kwargs["params"] == {"payment_intent": "pi_refund_2", "amount": 2000}
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_propagates_stripe_errors(mock_get_client):
+        client = _mock_client()
+        client.v1.refunds.create.side_effect = stripe.StripeError("Charge has already been refunded.")
+        mock_get_client.return_value = client
+
+        with pytest.raises(stripe.StripeError, match="already been refunded"):
+            stripe_utils.create_refund(payment_intent_id="pi_refund_3", idempotency_key="pay-refund-3-a1")
+
+
+def describe_list_refunds_for_payment_intent():
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_returns_the_reconciler_shape(mock_get_client):
+        client = _mock_client()
+        refund_a = MagicMock(id="re_list_1", status="succeeded", amount=5000)
+        refund_b = MagicMock(id="re_list_2", status="pending", amount=1000)
+        client.v1.refunds.list.return_value = MagicMock(data=[refund_a, refund_b])
+        mock_get_client.return_value = client
+
+        result = stripe_utils.list_refunds_for_payment_intent(payment_intent_id="pi_list_1")
+
+        assert result == [
+            {"id": "re_list_1", "status": "succeeded", "amount": 5000},
+            {"id": "re_list_2", "status": "pending", "amount": 1000},
+        ]
+        call_kwargs = client.v1.refunds.list.call_args
+        assert call_kwargs.kwargs["params"] == {"payment_intent": "pi_list_1"}
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_returns_empty_when_stripe_has_no_refunds(mock_get_client):
+        client = _mock_client()
+        client.v1.refunds.list.return_value = MagicMock(data=[])
+        mock_get_client.return_value = client
+
+        assert stripe_utils.list_refunds_for_payment_intent(payment_intent_id="pi_list_2") == []

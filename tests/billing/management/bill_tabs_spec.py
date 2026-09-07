@@ -42,8 +42,8 @@ def describe_bill_tabs():
         def it_exits_when_tab_payments_disabled():
             BillingSettingsFactory()
             config = SiteConfiguration.load()
-            config.tab_payments_enabled = False
-            config.save(update_fields=["tab_payments_enabled"])
+            config.my_tab_enabled = False
+            config.save(update_fields=["my_tab_enabled"])
             output = _call_bill_tabs(force=True)
             assert "disabled" in output
 

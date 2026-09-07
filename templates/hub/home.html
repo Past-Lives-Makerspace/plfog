@@ -20,7 +20,7 @@
         <span class="pl-quicklink__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         </span>
-        <span class="pl-quicklink__label">Community Calendar</span>
+        <span class="pl-quicklink__label">Calendar</span>
     </a>
     <a href="{% url 'classes:public_list' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
@@ -36,7 +36,7 @@
         <span class="pl-quicklink__label">Guild Voting</span>
     </a>
     {% endif %}
-    {% if request.view_as.is_member and tab_payments_enabled %}
+    {% if request.view_as.is_member and my_tab_enabled %}
     <a href="{% url 'hub_tab_detail' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
@@ -66,6 +66,25 @@
     </a>
     {% endif %}
 </div>
+
+{# --- Teaching (instructors only, omitted when there is nothing to show) --- #}
+{% if teaching %}
+<div class="hub-card pl-home-block" data-block="teaching">
+    <h2 class="pl-home-heading">Teaching</h2>
+    <ul class="pl-teaching">
+        {% for row in teaching %}
+        <li class="pl-teaching__row">
+            <span class="pl-teaching__body">
+                <span class="pl-teaching__title">{{ row.title }}</span>
+                {% if row.note %}<span class="pl-teaching__note hub-text-muted">{{ row.note }}</span>{% endif %}
+            </span>
+            <a href="{{ row.url }}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ row.cta }}</a>
+        </li>
+        {% endfor %}
+    </ul>
+    <a href="{% url 'classes:teach_overview' %}" class="pl-home-block__more">Open teaching →</a>
+</div>
+{% endif %}
 
 {# --- Your upcoming --- #}
 <div class="hub-card pl-home-block">
@@ -98,7 +117,7 @@
     </ul>
     {% else %}
     <p class="pl-home-empty">
-        Nothing on your calendar yet — <a href="{% url 'hub_community_calendar' %}">browse the Community Calendar</a>.
+        Nothing on your calendar yet — <a href="{% url 'hub_community_calendar' %}">browse the Calendar</a>.
     </p>
     {% endif %}
 </div>
@@ -121,8 +140,8 @@
     </ul>
     {% else %}
     <p class="pl-home-empty">
-        No announcements from your guilds right now. Join a guild to hear from its lead —
-        <a href="{% url 'hub_member_directory' %}">explore members and guilds</a>.
+        No announcements from your guilds right now. Follow a guild to hear from its lead:
+        <a href="{% url 'hub_user_settings' %}?tab=guilds">choose your guild updates</a>.
     </p>
     {% endif %}
 </div>
@@ -146,8 +165,8 @@
     </div>
     {% else %}
     <p class="pl-home-empty">
-        You haven't joined any guilds yet — <a href="{% url 'hub_community_calendar' %}">see what's happening</a>
-        or find a guild that fits and join from its page.
+        You aren't following any guilds yet. <a href="{% url 'hub_user_settings' %}?tab=guilds">Choose your guild updates</a>
+        in Settings, or <a href="{% url 'hub_community_calendar' %}">see what's happening</a> first.
     </p>
     {% endif %}
 </div>
@@ -161,11 +180,9 @@
         upcoming events, guilds, and profile here. In the meantime, take a look around:
     </p>
     <div class="pl-nudge__actions">
-        <a href="{% url 'hub_community_calendar' %}" class="hub-btn hub-btn--primary hub-btn--sm">Community Calendar</a>
+        <a href="{% url 'hub_community_calendar' %}" class="hub-btn hub-btn--primary hub-btn--sm">Calendar</a>
         <a href="{% url 'classes:public_list' %}" class="hub-btn hub-btn--ghost hub-btn--sm">Class Catalog</a>
     </div>
 </div>
 {% endif %}
 {% endblock %}
-
-{% block extra_js %}{% include "hub/partials/_tour.html" %}{% endblock %}

@@ -49,6 +49,15 @@ _BRAND_NEW_KEYS = {
     "discount_code.requested",
     "billing.charge_failed_admin",
     "class_announcement",
+    "waitlist_promoted",
+    "waitlist_promoted_pay",
+    "registration_removed",
+    "guild_welcome",
+    "equipment.reservation_confirmed",
+    "equipment.reservation_cancelled_by_manager",
+    "equipment.reservation_made",
+    "class_cancelled_admin_notice",
+    "class_change_requested",
 }
 
 
@@ -86,6 +95,7 @@ def describe_event_registry():
                 "member.invited",
                 "member.login_invite",
                 "discord_guilds_imported",
+                "guild_welcome",
                 "voting.discord_reminder",
                 "voting.results_discord",
             }
@@ -120,6 +130,23 @@ def describe_event_registry():
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
 
+        def it_declares_no_email_channel_when_a_trigger_sets_no_email():
+            # The no_email flag suppresses the EMAIL channel entirely — the trigger seeds
+            # in-app + push + Discord DM only. (Both branches of the email guard are exercised:
+            # this one skips EMAIL; the force/default tests above append it.)
+            silent = triggers.Trigger(
+                key="silent_probe", label="Probe", description="d", category="Guilds", no_email=True
+            )
+            channels = registry._channels_from_trigger(silent)
+            assert all(spec.channel is not Channel.EMAIL for spec in channels)
+            assert any(spec.channel is Channel.IN_APP for spec in channels)
+
+        def it_gives_guild_joined_no_email_channel():
+            # guild_joined is the first spine event to declare no_email — its welcome email
+            # was removed, so the in-app notice + push + Discord DM are its only channels.
+            assert get_event("guild_joined").channel(Channel.EMAIL) is None
+            assert get_event("guild_joined").has_channel(Channel.IN_APP)
+
         def it_offers_push_on_every_in_app_event():
             # Every event that writes an in-app bell row also OFFERS Push (a toggle);
             # events with no bell (forced-email / broadcast-only) declare no Push channel.
@@ -147,8 +174,21 @@ def describe_event_registry():
                 assert spec.default is ChannelDefault.OFF
 
         def it_broadcasts_announcements_and_releases_on_discord():
-            for key in ("class_published", "guild_announcement", "site_announcement", "release.published"):
+            for key in (
+                "class_published",
+                "guild_announcement",
+                "site_announcement",
+                "release.published",
+                # New bookings post to the #reservations channel (site-config pinned).
+                "equipment.reservation_made",
+            ):
                 assert get_event(key).has_channel(Channel.DISCORD)
+
+        def it_never_puts_minutes_approvals_on_discord():
+            # Owner decision (2026-09-03, v1.30.1): a minutes approval is routine
+            # housekeeping, not channel news.
+            for key in ("meeting.minutes_approved", "meeting.council_minutes_approved"):
+                assert not get_event(key).has_channel(Channel.DISCORD)
 
     def describe_resolvers():
         def it_assigns_a_resolver_reference_to_every_event():
@@ -161,8 +201,10 @@ def describe_event_registry():
         def it_routes_class_validation_to_class_approvers():
             assert get_event("class_validation_requested").recipient is Recipients.CLASS_APPROVERS
 
-        def it_routes_orientation_requested_to_orienters():
-            assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS
+        def it_routes_orientation_requested_to_orienters_or_equipment_managers():
+            # Composed for equipment-owned orientations: equipment in context routes
+            # to the equipment's managers; a guild context keeps the orienter fan-out.
+            assert get_event("orientation_requested").recipient is Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS
 
         def it_routes_login_invite_to_single_user():
             assert get_event("member.login_invite").recipient is Recipients.SINGLE_USER

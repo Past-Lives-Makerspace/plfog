@@ -31,6 +31,15 @@ def describe_generate_orientation_slots_command():
         assert "Created" in out.getvalue()
         assert OrientationSlot.objects.filter(guild=guild).exists()
 
+    def it_covers_both_owners():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        OrientationAvailabilityFactory(guild=guild)
+        tool_rule = OrientationAvailabilityFactory(equipment_owned=True)
+        call_command("generate_orientation_slots", stdout=StringIO())
+        assert OrientationSlot.objects.filter(guild=guild).exists()
+        assert tool_rule.slots.filter(guild__isnull=True).exists()
+
 
 def describe_auto_complete_orientations_command():
     def it_completes_past_confirmed_bookings():

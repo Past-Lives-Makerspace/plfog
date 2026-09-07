@@ -20,7 +20,9 @@ _SITE_KIND_MAP: dict[str, str] = {
     "class_published": "class_published",
     "class_submitted": "class_submitted",
     "class_approved": "class_approved",
-    "class_archived": "class_cancelled",
+    # A cancel is the member-facing event; an archive is quiet housekeeping and is
+    # deliberately NOT mirrored into the site feed.
+    "class_cancelled": "class_cancelled",
     "registration_created": "class_registered",
     "registration_cancelled": "class_registration_cancelled",
     "registration_refunded": "refund_issued",

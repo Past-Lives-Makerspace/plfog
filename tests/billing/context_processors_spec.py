@@ -53,7 +53,7 @@ def describe_tab_context():
 
     def it_returns_empty_dict_when_tab_payments_disabled(rf: RequestFactory):
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
+        config.my_tab_enabled = False
         config.save()
         user = User.objects.create_user(username="payments_off", password="pass")
         TabFactory(member=user.member)

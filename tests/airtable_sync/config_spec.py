@@ -355,6 +355,23 @@ def describe_vote_preference_to_airtable():
         assert fields["Guild 2nd"] == "Tech Guild"
         assert fields["Guild 3rd"] == "Art Guild"
 
+    def it_blanks_missing_optional_choices():
+        # 2nd/3rd are optional now; a partial ballot must sync as "" rather than raise
+        # AttributeError (which the broad sync except would swallow, dropping the row).
+        vote = MagicMock()
+        vote.member.display_name = "Ada"
+        vote.member.airtable_record_id = "recABC"
+        vote.guild_1st.name = "Fiber"
+        vote.guild_2nd = None
+        vote.guild_3rd = None
+        vote.updated_at = None
+
+        fields = vote_preference_to_airtable(vote)
+
+        assert fields["Guild 1st"] == "Fiber"
+        assert fields["Guild 2nd"] == ""
+        assert fields["Guild 3rd"] == ""
+
 
 def describe_funding_snapshot_to_airtable():
     def it_converts_snapshot():

@@ -48,7 +48,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.create-class": {
         "title": "Create a class",
         "short_text": (
-            "Draft a class and submit it — the portal opens after the one-time instructor orientation. "
+            "Draft a class and submit it — the portal opens after the one-time portal orientation for instructors. "
             "A guild lead or admin reviews every class before it goes live."
         ),
         "article_slug": "become-an-instructor",
@@ -57,8 +57,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.become-instructor": {
         "title": "Become an instructor",
         "short_text": (
-            "Complete the short instructor orientation once and the teaching portal unlocks — "
-            "no waiting on an admin. Every class is still reviewed before it publishes."
+            "Complete the short portal orientation for instructors once and the teaching portal "
+            "unlocks. Every class is still reviewed before it publishes."
         ),
         "article_slug": "become-an-instructor",
         "anchor": "teach-become-instructor",
@@ -75,8 +75,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "calendar.subscribe": {
         "title": "Subscribe to the calendar",
         "short_text": (
-            "Add the community calendar to your own calendar app with the .ics link. "
-            "New events show up there automatically."
+            "Subscribe to the Member or Public calendar and it stays in sync in your own "
+            "calendar app, or download a one-time .ics."
         ),
         "article_slug": "community-calendar",
         "anchor": "calendar-subscribe",
@@ -99,10 +99,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": "home-dashboard",
     },
     "guild.join-leave": {
-        "title": "Join or leave a guild",
+        "title": "Follow a guild",
         "short_text": (
-            "Join free from any guild page — you're on the roster and its announcement emails. "
-            "Leave any time from the Guilds tab in Settings."
+            "Following a guild gets you its announcements, puts you on its roster, and gives you "
+            "its Discord role. Choose your guilds from the Guilds tab in Settings."
         ),
         "article_slug": "guilds-and-guild-pages",
         "anchor": "guild-join-leave",
@@ -124,6 +124,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         ),
         "article_slug": "getting-oriented",
         "anchor": "orientation-cancel-booking",
+    },
+    "orientation.pick-a-time": {
+        "title": "Pick a time",
+        "short_text": (
+            "Open windows of orienter time. Choose a window and pick the start that suits you; "
+            "the guild still confirms it like any other booking."
+        ),
+        "article_slug": "getting-oriented",
+        "anchor": "orientation-pick-a-time",
     },
     "voting.monthly-cycle": {
         "title": "The monthly voting cycle",
@@ -181,8 +190,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "event.propose": {
         "title": "Propose an event",
         "short_text": (
-            "Any member can propose an event for the Community Calendar. "
-            "A guild lead or admin reviews it before it publishes."
+            "Any member can propose an event for the Calendar. A guild lead or admin reviews it before it publishes."
         ),
         "article_slug": "propose-an-event",
         "anchor": "event-propose",
@@ -226,8 +234,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.duplicate-run": {
         "title": "Offer a class on new dates",
         "short_text": (
-            "One click clones your class as a dateless draft that stays grouped with the original. "
-            "Add the new dates, then submit it for review."
+            "One click copies your class as a new draft with no dates. Add the new dates, then submit it for review."
         ),
         "article_slug": "run-your-class",
         "anchor": "teach-duplicate-run",
@@ -330,6 +337,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         ),
         "article_slug": "running-orientations",
         "anchor": "orientation-recurring-hours",
+    },
+    "orientation.availability-blocks": {
+        "title": "Availability blocks",
+        "short_text": (
+            "Post a window of time you're available. Members choose one of the guild's orientations "
+            "and a start time inside it. Blocks can't be edited; cancel one and post again instead."
+        ),
+        "article_slug": "running-orientations",
+        "anchor": "orientation-availability-blocks",
     },
     "orientation.respond-requests": {
         "title": "Respond to a request",
@@ -519,8 +535,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "anchor": None,
     },
     "settings.your-guilds": {
-        "title": "Your guilds",
-        "short_text": ("The guilds you belong to. Join or leave here — leaving keeps your orientation history."),
+        "title": "Your guild updates",
+        "short_text": (
+            "Choose which guilds you get updates from. Flip one off to stop — your orientation history stays."
+        ),
         "article_slug": None,
         "anchor": None,
     },
@@ -557,8 +575,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "nav.guilds": {
         "title": "Guilds in the sidebar",
         "short_text": (
-            "Every guild has its own page. Open one to see meetings, orientations, and how to join — "
-            "this section collapses if you want it out of the way."
+            "Every guild has its own page. Open one to see meetings, orientations, and how to follow "
+            "its updates — this section collapses if you want it out of the way."
         ),
         "article_slug": None,
         "anchor": None,
@@ -616,9 +634,136 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "teach.roster": {
         "title": "Your classes and rosters",
+        "short_text": ("Click any class to see who signed up, manage the waitlist, and email your registrants."),
+        "article_slug": None,
+        "anchor": None,
+    },
+    # ── Annotation-only keys (auto-navigating guided tours) ─────────────────
+    # Tour step targets on the demo path; article_slug=None until a section
+    # exists, so url_for degrades to /help/.
+    "catalog.filter": {
+        "title": "Filter the catalog",
         "short_text": (
-            "Click any class to see who signed up, manage the waitlist, email your registrants, "
-            "or export the roster as a CSV."
+            "Every class and workshop lives here. Filter by guild or date, then open one to see the details."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "catalog.class-card": {
+        "title": "A class card",
+        "short_text": "Each card is a class. Click it to read what you will make and to sign up.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "spaces.map": {
+        "title": "The spaces map",
+        "short_text": (
+            "Studios, storage, parking, and desks live on this map. Click any open space to ask about renting it."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-basics": {
+        "title": "Title and description",
+        "short_text": "Give your class a clear title and describe what members will make and learn.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-gallery": {
+        "title": "Class photos",
+        "short_text": "Add photos of the finished project and the space. Good images fill seats.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster-table": {
+        "title": "Your class roster",
+        "short_text": "Everyone who signed up. Open a person's menu to remove them and a seat frees up.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.roster-waitlist": {
+        "title": "The waitlist",
+        "short_text": "Promote someone from the waitlist and they take the open seat and get a confirmation.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.welcome-email": {
+        "title": "The welcome email",
+        "short_text": (
+            "The welcome email new members get when they join your guild. Leave the subject and body blank to send the standard welcome."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.wishlist": {
+        "title": "Your guild wishlist",
+        "short_text": (
+            "List the tools and supplies your guild wants. Add a donate link and members get a Donate button too."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.refunds": {
+        "title": "Payments and refunds",
+        "short_text": "Every charge is here. Open one to issue a refund; the member gets it back and a receipt.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.discount-codes": {
+        "title": "Discount codes",
+        "short_text": "Create discount codes for a class or a promotion, with usage limits and an expiry date.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.reconciliation": {
+        "title": "Reconciliation",
+        "short_text": "Breaks down what each guild, instructor, and orientator is owed so you can reconcile payouts.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-overview": {
+        "title": "Your class home base",
+        "short_text": (
+            "Everything about one class in one place: who is instructing, the price, seats filled, and every session date."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
+    "teach.class-qr": {
+        "title": "Flyer and QR code",
+        "short_text": "Open a printable one page flyer or download a QR code that links straight to your class sign up page.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.thankyou-email": {
+        "title": "Orientation thank you email",
+        "short_text": "The note that goes out after someone finishes their orientation. Turn it on and make it your own.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.qr-codes": {
+        "title": "Guild flyer and QR",
+        "short_text": "Print a flyer or download a QR code that points people at your guild page. Great for the studio wall.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.event-review": {
+        "title": "Event approvals",
+        "short_text": "Member proposed events wait here. Review the details, then approve to publish or send it back with a note.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.activity": {
+        "title": "Site activity",
+        "short_text": "A running feed of what is happening across the site: sign ups, bookings, approvals, and more.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "admin.tools-grid": {
+        "title": "Your admin tools",
+        "short_text": (
+            "Every staff and leadership tool you can reach, in alphabetical order. Cards you do not "
+            "have access to are hidden rather than greyed out."
         ),
         "article_slug": None,
         "anchor": None,

@@ -6,6 +6,7 @@ never leak into other specs. All Discord REST (the deferred flow) is mocked with
 
 from __future__ import annotations
 
+import json
 import httpx
 import pytest
 import respx
@@ -14,6 +15,7 @@ from core.events import discord_commands
 from core.events.discord_commands import (
     GUIDE,
     ComponentHandler,
+    ModalHandler,
     SlashCommand,
     _fog_ping,
     _guide,
@@ -21,9 +23,11 @@ from core.events.discord_commands import (
     autodiscover,
     dispatch,
     dispatch_component,
+    dispatch_modal,
     guild_disambiguation_reply,
     register,
     register_component,
+    register_modal,
     resolve_guild,
     resolve_member,
 )
@@ -39,11 +43,14 @@ def _restore_registry():
     """Snapshot and restore both global registries so per-test commands don't leak."""
     snapshot = dict(discord_commands._REGISTRY)
     component_snapshot = dict(discord_commands._COMPONENT_REGISTRY)
+    modal_snapshot = dict(discord_commands._MODAL_REGISTRY)
     yield
     discord_commands._REGISTRY.clear()
     discord_commands._REGISTRY.update(snapshot)
     discord_commands._COMPONENT_REGISTRY.clear()
     discord_commands._COMPONENT_REGISTRY.update(component_snapshot)
+    discord_commands._MODAL_REGISTRY.clear()
+    discord_commands._MODAL_REGISTRY.update(modal_snapshot)
 
 
 def _cmd(name: str, **kw) -> SlashCommand:
@@ -146,6 +153,8 @@ def describe_guild_disambiguation_reply():
         GuildMembership.objects.record_app_join(GuildFactory(name="Beta"), member)
         result = guild_disambiguation_reply(member)
         assert result["data"]["flags"] == 64
+        assert "You follow: " in result["data"]["content"]
+        assert "You're in" not in result["data"]["content"]
         assert "Alpha" in result["data"]["content"]
         assert "Beta" in result["data"]["content"]
 
@@ -290,6 +299,81 @@ def describe_dispatch_component():
         assert dispatch_component(interaction, rf.post("/")) == error_reply()
 
 
+def _modal(prefix: str, **kw) -> ModalHandler:
+    kw.setdefault("handler", lambda interaction, member: {"type": 4, "data": {"content": "submitted"}})
+    return ModalHandler(prefix=prefix, **kw)
+
+
+def describe_register_modal():
+    def it_adds_a_handler_to_the_modal_registry(rf, linked_member):
+        linked_member(discord_user_id="555")
+        register_modal(_modal("temp-modal"))
+        interaction = {
+            "type": 5,
+            "data": {"custom_id": "temp-modal", "components": []},
+            "member": {"user": {"id": "555"}},
+        }
+        assert dispatch_modal(interaction, rf.post("/"))["type"] == 4
+
+    def it_raises_on_a_duplicate_prefix():
+        register_modal(_modal("dup-modal"))
+        with pytest.raises(ValueError, match="Duplicate modal prefix"):
+            register_modal(_modal("dup-modal"))
+
+
+def describe_dispatch_modal():
+    def it_returns_error_reply_for_an_unknown_prefix(rf):
+        interaction = {"type": 5, "data": {"custom_id": "ghostform", "components": []}, "user": {"id": "1"}}
+        assert dispatch_modal(interaction, rf.post("/")) == error_reply()
+
+    def it_returns_unlinked_reply_when_a_link_is_required_and_no_member(rf):
+        register_modal(_modal("linked-form"))
+        interaction = {
+            "type": 5,
+            "data": {"custom_id": "linked-form", "components": []},
+            "member": {"user": {"id": "0"}},
+        }
+        result = dispatch_modal(interaction, rf.post("/"))
+        assert result["type"] == 4
+        assert result["data"]["components"][0]["components"][0]["url"].endswith("/discord/link/")
+
+    def it_calls_the_handler_for_a_linked_member(rf, linked_member):
+        member = linked_member(discord_user_id="555")
+        seen = {}
+
+        def _handler(interaction, handler_member):
+            seen["member"] = handler_member
+            return {"type": 4, "data": {"content": "ok"}}
+
+        register_modal(_modal("seen-form", handler=_handler))
+        interaction = {
+            "type": 5,
+            "data": {"custom_id": "seen-form", "components": []},
+            "member": {"user": {"id": "555"}},
+        }
+        assert dispatch_modal(interaction, rf.post("/")) == {"type": 4, "data": {"content": "ok"}}
+        assert seen["member"] == member
+
+    def it_runs_a_link_free_handler_with_member_none(rf):
+        register_modal(_modal("open-form", requires_link=False))
+        interaction = {"type": 5, "data": {"custom_id": "open-form", "components": []}, "user": {"id": "0"}}
+        assert dispatch_modal(interaction, rf.post("/"))["type"] == 4
+
+    def it_converts_a_handler_exception_into_error_reply(rf, linked_member):
+        linked_member(discord_user_id="555")
+
+        def _boom(interaction, member):
+            raise RuntimeError("kaboom")
+
+        register_modal(_modal("boom-form", handler=_boom))
+        interaction = {
+            "type": 5,
+            "data": {"custom_id": "boom-form", "components": []},
+            "member": {"user": {"id": "555"}},
+        }
+        assert dispatch_modal(interaction, rf.post("/")) == error_reply()
+
+
 _CALLBACK_URL = "https://discord.com/api/v10/interactions/intA/tokB/callback"
 _FOLLOWUP_URL = "https://discord.com/api/v10/webhooks/appX/tokB/messages/@original"
 
@@ -369,3 +453,44 @@ def describe_deferred_dispatch():
 
         assert dispatch(interaction, rf.post("/")) == {}  # no raise; already acked
         assert "went wrong" in json.loads(followup.calls.last.request.content)["content"]
+
+
+def describe_modal_response_routing():
+    _CB = "https://discord.com/api/v10/interactions/intM/tokM/callback"
+
+    @pytest.fixture
+    def modal_command(monkeypatch):
+        from core.events import discord_commands as dc
+
+        cmd = dc.SlashCommand(
+            name="modaltest",
+            description="x",
+            handler=lambda interaction, member: {"type": 9, "data": {"custom_id": "t", "title": "T", "components": []}},
+            requires_link=False,
+            defer=False,
+        )
+        monkeypatch.setitem(dc._REGISTRY, "modaltest", cmd)
+        return cmd
+
+    @respx.mock
+    def it_routes_a_modal_through_the_callback_and_returns_empty(settings, rf, modal_command):
+        settings.DISCORD_BOT_TOKEN = "bot"
+        route = respx.post(_CB).mock(return_value=httpx.Response(204))
+        interaction = {"type": 2, "data": {"name": "modaltest", "options": []}, "id": "intM", "token": "tokM"}
+        result = dispatch(interaction, rf.post("/"))
+        assert result == {}
+        assert json.loads(route.calls.last.request.content)["type"] == 9
+
+    @respx.mock
+    def it_surfaces_a_callback_rejection_as_an_ephemeral_reply(settings, rf, modal_command):
+        settings.DISCORD_BOT_TOKEN = "bot"
+        respx.post(_CB).mock(return_value=httpx.Response(400, text='{"message": "Invalid Form Body"}'))
+        interaction = {"type": 2, "data": {"name": "modaltest", "options": []}, "id": "intM", "token": "tokM"}
+        result = dispatch(interaction, rf.post("/"))
+        assert result["type"] == 4
+        assert "would not open the form" in result["data"]["content"]
+        assert "Invalid Form Body" in result["data"]["content"]
+
+    def it_passes_non_modal_replies_through_untouched(rf):
+        interaction = {"type": 2, "data": {"name": "guide", "options": []}, "id": "i", "token": "t"}
+        assert dispatch(interaction, rf.post("/"))["type"] == 4

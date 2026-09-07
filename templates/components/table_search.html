@@ -1,6 +1,6 @@
-<form method="get"{% if action %} action="{{ action }}"{% endif %} style="display:flex; gap:0.5rem; align-items:center; flex:1; max-width:340px;">
+<form method="get"{% if action %} action="{{ action }}"{% endif %} style="display:flex; gap:0.5rem; align-items:center; flex:1; max-width:340px;">{% if preserved_fields %}{% for name, value in preserved_fields %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}{% endif %}
     <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder|default:'Search…' }}"
            style="flex:1; padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; background:rgba(0,0,0,0.1); color:inherit; font-size:0.875rem;">
     <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Search</button>
-    {% if q %}<a href="?" class="hub-btn hub-btn--sm hub-btn--ghost" title="Clear search">&#10005;</a>{% endif %}
+    {% if q %}<a href="?{% if clear_url %}{{ clear_url }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost" title="Clear search">&#10005;</a>{% endif %}
 </form>

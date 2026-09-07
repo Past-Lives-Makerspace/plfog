@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>You're in!</title>
+</head>
+<body style="margin:0;padding:24px;background:#eef0f3;font-family:Helvetica,Arial,sans-serif;color:#33424F;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#eef0f3;border-radius:10px;overflow:hidden;">
+    <tr><td style="padding:24px 28px 8px;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#0d4876;">Added from the waitlist</div>
+      <h1 style="font-family:'Lato',sans-serif;font-size:26px;font-weight:800;margin:8px 0 4px;color:#092E4C;">You're in!</h1>
+      <div style="color:#55697a;font-size:14px;"><a href="{{ class_url }}" style="color:#0d4876;text-decoration:none;">{{ offering.title }}</a></div>
+    </td></tr>
+    <tr><td style="padding:14px 28px;">
+      <p style="margin:0 0 14px;color:#33424f;font-size:16px;line-height:1.55;">
+        Hi {{ registration.first_name }}, a spot opened up and you've been added to the class. Your seat is confirmed.
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+        <tr><td style="padding:12px 0;border-top:1px solid rgba(13,72,118,0.12);">
+          <span style="font-size:12px;color:#55697a;text-transform:uppercase;letter-spacing:0.08em;">Schedule</span><br>
+          {% if upcoming_sessions %}{% for session in upcoming_sessions %}<span style="font-size:14px;color:#33424f;">{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}{% else %}<span style="font-size:14px;color:#33424f;">TBA. {{ offering.instructor.display_name }} will be in touch with dates.</span>{% endif %}
+        </td></tr>
+        <tr><td style="padding:12px 0;border-top:1px solid rgba(13,72,118,0.12);">
+          <span style="font-size:12px;color:#55697a;text-transform:uppercase;letter-spacing:0.08em;">Location</span><br>
+          <span style="font-size:14px;color:#33424f;">Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202</span>
+        </td></tr>
+      </table>
+      {% if offering.welcome_email_ready %}
+      <div style="margin:8px 0 14px;padding:14px 16px;background:rgba(13,72,118,0.06);border-radius:8px;">
+        <div style="font-size:12px;color:#55697a;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">A note from {{ offering.instructor.display_name }}</div>
+        <div style="font-size:14px;color:#33424f;line-height:1.55;">{{ offering.welcome_email_body|linebreaksbr }}</div>
+      </div>
+      {% endif %}
+      <p style="margin:18px 0;">
+        <a href="{{ class_url }}"
+           style="display:inline-block;padding:14px 28px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:14px;text-transform:uppercase;">View Class Details</a>
+      </p>
+      <p style="margin:14px 0 0;font-size:12px;color:#55697a;line-height:1.55;">
+        <a href="{{ self_serve_url }}" style="color:#0d4876;text-decoration:none;">Manage your registration</a>
+      </p>
+    </td></tr>
+  </table>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;">
+    {% include "membership/emails/_footer.html" %}
+  </table>
+</body>
+</html>

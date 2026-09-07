@@ -48,21 +48,3 @@ def describe_orientation_thankyou_email():
         )
         assert "<h2" not in txt
         assert "- Pencil" in txt
-
-
-def describe_guild_welcome_email():
-    def it_styles_the_rich_body_for_the_dark_card():
-        html = render_to_string(
-            "membership/emails/guild_welcome.html",
-            {"body": _RICH, "greeting_name": "Sam", "guild": {"name": "Forge"}, "guild_url": "https://x/g"},
-        )
-        assert "margin:24px" in html
-        assert "Pencil" in html
-
-    def it_flattens_the_body_in_the_text_part():
-        txt = render_to_string(
-            "membership/emails/guild_welcome.txt",
-            {"body": _RICH, "greeting_name": "Sam", "guild": {"name": "Forge"}, "guild_url": "https://x/g"},
-        )
-        assert "<h2" not in txt
-        assert "- Pencil" in txt

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 
 import pytest
 from django.contrib.auth.models import User
@@ -187,6 +188,16 @@ def describe_org_info_read_page():
     def it_shows_faq_items(client: Client):
         OrgFAQItemFactory(question="Who runs billing?")
         assert b"Who runs billing?" in client.get(reverse("hub_help")).content
+
+    def it_sets_a_referrerpolicy_on_a_faq_video(client: Client):
+        # Same failure as the guild page: the site-wide same-origin Referrer-Policy
+        # sends the player no Referer, so it cannot identify the embedding origin and
+        # refuses to play with "Video player configuration error / Error 153".
+        OrgFAQItemFactory(question="How do I book?", video_url="https://www.youtube.com/watch?v=YE7VzlLtp-4")
+        body = client.get(reverse("hub_help")).content.decode()
+        match = re.search(r"<iframe[^>]*youtube-nocookie\.com/embed/YE7VzlLtp-4[^>]*>", body)
+        assert match, "the help FAQ video iframe did not render"
+        assert 'referrerpolicy="strict-origin-when-cross-origin"' in match.group(0)
 
     def it_hides_the_faq_section_when_empty(client: Client):
         assert b"pl-guild-faq__q" not in client.get(reverse("hub_help")).content

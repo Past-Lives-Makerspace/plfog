@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 
+import httpx
 import pytest
+import respx
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -242,6 +244,21 @@ def describe_Meeting():
             assert _deliveries("meeting.minutes_approved") == 1
             assert _deliveries("meeting.council_minutes_approved") == 0
 
+        @respx.mock
+        def it_never_posts_to_the_guilds_discord_channel():
+            # Owner decision (2026-09-03): a minutes approval is routine housekeeping,
+            # not channel news — the event has no Discord channel at all. (It once
+            # leaked a "Hi [missing: member_name]" email greeting into the channel.)
+            webhook = "https://discord.com/api/webhooks/300/minutes"
+            route = respx.post(webhook).mock(return_value=httpx.Response(204))
+            member_user = _user("guilddisc")
+            guild = GuildFactory(discord_webhook_url=webhook, discord_post_enabled=True)
+            GuildMembershipFactory(guild=guild, member=member_user.member)
+            meeting = MeetingFactory(guild=guild)
+            meeting.approve(by=_user("a6"))
+            assert not route.called
+            assert _deliveries("meeting.minutes_approved") == 1  # the in-app fan-out stays
+
         def it_emits_council_minutes_approved_for_the_council_scope():
             lead = _user("counc-lead")
             GuildFactory(guild_lead=lead.member)
@@ -350,6 +367,43 @@ def describe_Meeting():
             meeting = MeetingFactory(approved=True)
             with pytest.raises(MeetingLockedError):
                 meeting.publish()
+
+    def describe_unpublish():
+        def it_returns_published_to_draft():
+            meeting = MeetingFactory(published=True)
+            meeting.unpublish(by=_user("unpub1"))
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.DRAFT
+
+        def it_logs_the_unpublished_activity():
+            actor = _user("unpub2")
+            meeting = MeetingFactory(published=True)
+            meeting.unpublish(by=actor)
+            row = SiteActivity.objects.get(kind=SiteActivity.Kind.MEETING_UNPUBLISHED)
+            assert row.actor == actor
+            assert row.target == meeting
+
+        def it_does_not_broadcast():
+            meeting = MeetingFactory(published=True)
+            before = EventDelivery.objects.count()
+            meeting.unpublish(by=_user("unpub3"))
+            assert EventDelivery.objects.count() == before
+
+        def it_raises_locked_on_approved_minutes():
+            meeting = MeetingFactory(approved=True)
+            with pytest.raises(MeetingLockedError, match="an admin can unlock them"):
+                meeting.unpublish(by=_user("unpub4"))
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.APPROVED
+
+        def it_raises_value_error_on_a_draft():
+            meeting = MeetingFactory()
+            meeting.refresh_from_db()  # DB-loaded status is the plain string, as in the view path
+            with pytest.raises(ValueError, match="'draft'"):
+                meeting.unpublish(by=_user("unpub5"))
+            meeting.refresh_from_db()
+            assert meeting.status == Meeting.Status.DRAFT
+            assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.MEETING_UNPUBLISHED).exists()
 
     def describe_unlock():
         def it_reopens_the_draft_and_keeps_the_stamps_as_history():
@@ -474,6 +528,20 @@ def describe_Meeting():
             with patch.object(CommunityEvent, "schedule_or_go_live"):
                 event = meeting.create_calendar_event(by=_user("c2"))
             assert event.location == "https://meet.example/x"
+
+        def it_targets_the_public_calendar_for_a_guild_meeting():
+            meeting = MeetingFactory(guild=GuildFactory(), scheduled_time=time(18, 0))
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                event = meeting.create_calendar_event(by=_user("cpub"))
+            assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
+        def it_targets_the_members_only_calendar_for_a_council_meeting():
+            # Internal leadership meeting — its location can carry the leads' video link,
+            # so it must never ride the public default.
+            meeting = MeetingFactory(guild=None, scheduled_time=time(19, 0))
+            with patch.object(CommunityEvent, "schedule_or_go_live"):
+                event = meeting.create_calendar_event(by=_user("cmem"))
+            assert event.google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
 
         def it_builds_a_lead_meeting_for_the_council_without_touching_a_guild():
             meeting = MeetingFactory(guild=None, scheduled_time=time(19, 0))

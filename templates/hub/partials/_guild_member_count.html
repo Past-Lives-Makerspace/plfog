@@ -1,0 +1,3 @@
+{# The "{n} members" hero stat chip. Always renders its wrapper span so the OOB swap #}
+{# after a join/leave always has a target, even when the guild had zero members. #}
+<span id="guild-member-count"{% if oob %} hx-swap-oob="true"{% endif %}>{% if member_count %}<span class="hub-badge">{{ member_count }} member{{ member_count|pluralize }}</span>{% endif %}</span>

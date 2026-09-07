@@ -41,7 +41,7 @@ def _publish(offering: ClassOffering) -> None:
 def describe_class_published_discord_broadcast():
     def it_posts_one_central_embed_with_an_absolute_book_url():
         _active_member_user()
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, title="Forge Night")
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, title="Forge Night")
         with patch("core.events.discord.post_embed", return_value=True) as mock_post:
             _publish(offering)
         assert mock_post.call_count == 1
@@ -53,14 +53,14 @@ def describe_class_published_discord_broadcast():
         # class_published is site-wide — its emit carries no ``guild`` context, so the
         # dual-route guild branch never fires. Exactly one central post, never a second.
         _active_member_user()
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, title="Glass Day")
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, title="Glass Day")
         with patch("core.events.discord.post_embed", return_value=True) as mock_post:
             _publish(offering)
         assert mock_post.call_count == 1
 
     def it_renders_the_in_app_row_from_the_curated_copy():
         recipient = _active_member_user()
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, title="Casting 101")
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, title="Casting 101")
         Notification.objects.all().delete()
         _publish(offering)
         note = Notification.objects.get(trigger="class_published", user=recipient)
@@ -68,6 +68,6 @@ def describe_class_published_discord_broadcast():
 
     def it_does_not_email_because_class_published_email_defaults_off():
         _active_member_user()
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, title="No Email Class")
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, title="No Email Class")
         _publish(offering)
         assert not TransactionalEmailLog.objects.filter(trigger_kind="class_published").exists()

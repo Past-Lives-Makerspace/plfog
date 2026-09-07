@@ -112,3 +112,20 @@ def describe_has_active_guild():
         result = template.render(context)
 
         assert result == "False"
+
+
+def describe_by_kind():
+    def it_returns_only_contacts_of_the_given_kind():
+        from hub.templatetags.hub_tags import by_kind
+        from membership.models import MemberContact
+
+        website = MemberContact(label="Site", value="https://s.example", kind=MemberContact.Kind.WEBSITE)
+        social = MemberContact(label="Instagram", value="@s", kind=MemberContact.Kind.SOCIAL)
+
+        assert by_kind([website, social], "website") == [website]
+
+    def it_returns_an_empty_list_for_empty_or_missing_contacts():
+        from hub.templatetags.hub_tags import by_kind
+
+        assert by_kind([], "website") == []
+        assert by_kind(None, "social") == []

@@ -98,3 +98,45 @@ def describe_bump_race_condition_fallback():
         assert len(recorded) == 2
 
         monkeypatch.setattr(cache, "add", original_add)
+
+
+def describe_record_keyed_attempt():
+    def it_allows_attempts_under_both_caps():
+        allowed, reason = abuse_limits.record_keyed_attempt("spec_a", "1", hourly_limit=2, daily_limit=5)
+        assert (allowed, reason) == (True, None)
+
+    def it_isolates_counters_per_key():
+        for _ in range(2):
+            abuse_limits.record_keyed_attempt("spec_b", "1", hourly_limit=2, daily_limit=5)
+        # Member 1 is at the cap; member 2 is untouched.
+        allowed, reason = abuse_limits.record_keyed_attempt("spec_b", "1", hourly_limit=2, daily_limit=5)
+        assert (allowed, reason) == (False, "hourly")
+        allowed, reason = abuse_limits.record_keyed_attempt("spec_b", "2", hourly_limit=2, daily_limit=5)
+        assert (allowed, reason) == (True, None)
+
+    def it_names_the_daily_cap_when_the_hourly_one_is_loose():
+        for _ in range(3):
+            abuse_limits.record_keyed_attempt("spec_c", "1", hourly_limit=100, daily_limit=3)
+        allowed, reason = abuse_limits.record_keyed_attempt("spec_c", "1", hourly_limit=100, daily_limit=3)
+        assert (allowed, reason) == (False, "daily")
+
+
+def describe_keyed_within_limits():
+    def it_is_true_before_any_attempt():
+        assert abuse_limits.keyed_within_limits("spec_d", "1", hourly_limit=1, daily_limit=1) is True
+
+    def it_does_not_record_an_attempt():
+        for _ in range(5):
+            abuse_limits.keyed_within_limits("spec_e", "1", hourly_limit=2, daily_limit=2)
+        allowed, _reason = abuse_limits.record_keyed_attempt("spec_e", "1", hourly_limit=2, daily_limit=2)
+        assert allowed is True  # the peeks above consumed nothing
+
+    def it_is_false_once_the_hourly_cap_is_reached():
+        for _ in range(2):
+            abuse_limits.record_keyed_attempt("spec_f", "1", hourly_limit=2, daily_limit=5)
+        assert abuse_limits.keyed_within_limits("spec_f", "1", hourly_limit=2, daily_limit=5) is False
+
+    def it_is_false_once_the_daily_cap_is_reached():
+        for _ in range(2):
+            abuse_limits.record_keyed_attempt("spec_g", "1", hourly_limit=100, daily_limit=2)
+        assert abuse_limits.keyed_within_limits("spec_g", "1", hourly_limit=100, daily_limit=2) is False

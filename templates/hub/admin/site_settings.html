@@ -94,6 +94,12 @@
 
   <div style="display: flex; border-bottom: 1px solid var(--hub-border); gap: 0; margin-bottom: 1.25rem; flex-wrap: wrap;">
     <button type="button"
+            @click="tab = 'brand'"
+            :class="{ 'vote-tab--active': tab === 'brand' }"
+            class="vote-tab">
+      Brand
+    </button>
+    <button type="button"
             @click="tab = 'general'"
             :class="{ 'vote-tab--active': tab === 'general' }"
             class="vote-tab">
@@ -109,7 +115,7 @@
             @click="tab = 'legacy-cms'"
             :class="{ 'vote-tab--active': tab === 'legacy-cms' }"
             class="vote-tab">
-      Legacy CMS
+      CMS
     </button>
     <button type="button"
             @click="tab = 'features'"
@@ -149,14 +155,33 @@
     </button>
   </div>
 
-  <form method="post" id="site-settings-form" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
+  <form method="post" id="site-settings-form" enctype="multipart/form-data" class="site-settings-form" style="display:flex;flex-direction:column;gap:1.25rem;max-width:760px;">
     {% csrf_token %}
     <input type="hidden" name="submitted_tab" :value="tab">
+
+    {# -------- Brand tab -------- #}
+    <div x-show="tab === 'brand'" x-cloak class="pl-brand-tab">
+      <div>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Brand</h2>
+        <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+          Your organization's name, logo, and color. These appear across the member hub, the public
+          class and guild pages, and the privacy policy.
+        </p>
+      </div>
+
+      {% include "components/form_field.html" with field=form.org_name %}
+      {% include "components/form_field.html" with field=form.org_short_name %}
+      {% include "components/form_field.html" with field=form.org_legal_name %}
+      {% include "components/image_field.html" with field=form.org_logo current_image=config.org_logo modal_id="delete-org-logo" label="Logo" shape="rect" thumbnail_width="120px" thumbnail_height="120px" max_bytes=max_upload_image_bytes tooltip_html="Square, about 512x512. PNG (transparency is kept) or JPG." hint_html="Optional. Shown in the sidebar, the public topbar, and the browser tab. Leave blank to use the built in mark." %}
+      {% include "components/form_field.html" with field=form.org_primary_color %}
+      {% include "components/form_field.html" with field=form.org_support_email %}
+      {% include "components/form_field.html" with field=form.org_website_url %}
+    </div>
 
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'tab_payments_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'wiki_link_enabled' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'wiki_link_enabled' and field.name != 'equipment_page_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'signage_default_slide_seconds' and field.name != 'signage_show_events' and field.name != 'signage_event_days_ahead' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -180,7 +205,7 @@
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Calendar Feeds</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
-          Each feed shows up as its own colored entry on the Community Calendar legend. Add as many as you like — workshops, official members calendar, open studio, etc.
+          Each feed shows up as its own colored entry on the Calendar legend. Add as many as you like — workshops, official members calendar, open studio, etc.
         </p>
 
         {{ feed_formset.management_form }}
@@ -277,7 +302,7 @@
       </div>
 
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Classes on the Community Calendar</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Classes on the Calendar</h2>
         <div class="field-row field-checkbox" style="margin-top:0.75rem;">
           {{ sync_classes_field }}
           <label for="{{ sync_classes_field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">{{ sync_classes_field.label }}</label>
@@ -297,7 +322,7 @@
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Member Events &amp; Google Sync</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
-          Control who can add Community Calendar events, and the two Google calendars the Member Portal pushes events out to —
+          Control who can add Calendar events, and the two Google calendars the Member Portal pushes events out to —
           a members-only one and a public one. Each event picks which calendar it belongs to.
         </p>
         {% include "components/form_field.html" with field=form.member_event_policy field_hint="Leads, staff, and admins always post directly. This controls what ordinary members can do." %}
@@ -308,12 +333,12 @@
       </div>
 
       <div style="border-top:1px solid var(--hub-border);padding-top:1.25rem;">
-        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#public-calendar Discord Posts</h2>
+        <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">#calendar Discord Posts</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           A weekly what's-coming-up digest (Monday mornings) plus a short post whenever a new event or
-          class lands on the Community Calendar, sent to the #public-calendar channel by the Fog Bot.
+          class lands on the Calendar, sent to the #calendar channel by the Fog Bot.
         </p>
-        {% include "components/form_field.html" with field=form.discord_calendar_channel_id field_hint="The channel id of #public-calendar (Discord → right-click the channel → Copy Channel ID). Blank disables both posts." %}
+        {% include "components/form_field.html" with field=form.discord_calendar_channel_id field_hint="The channel id of #calendar (Discord → right-click the channel → Copy Channel ID). Blank disables both posts." %}
         {% include "components/form_field.html" with field=form.discord_calendar_posts_enabled field_hint="Requires the channel id above and the bot's Send Messages + Embed Links permission in that channel." %}
       </div>
 
@@ -328,7 +353,7 @@
       </div>
     </div>
 
-    {# -------- Legacy CMS tab -------- #}
+    {# -------- CMS tab -------- #}
     <div x-show="tab === 'legacy-cms'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
 
       <p class="pl-automation-callout">
@@ -338,7 +363,7 @@
 
       {# Toggle #}
       <div>
-        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Legacy CMS Sync</h2>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">CMS Sync</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
           When enabled, classes from <code>classes.pastlives.space</code> sync into plfog automatically each morning.
           Use <strong>Sync Now</strong> for an immediate pull. Disable after the DNS flip to manage classes exclusively in plfog.
@@ -376,6 +401,12 @@
         {% if config.legacy_cms_last_sync_duration %}
           <small style="color:var(--hub-text-muted);">Typically takes about {{ config.legacy_cms_last_sync_duration|floatformat:0 }}s.</small>
         {% endif %}
+      </div>
+
+      {# Instructor discount codes flag #}
+      <div>
+        <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">Instructor Discount Codes</h2>
+        {% include "components/form_field.html" with field=form.instructor_discount_codes_enabled %}
       </div>
 
       {# Instructor match table #}
@@ -424,11 +455,15 @@
         </p>
       </div>
 
-      {% include "components/form_field.html" with field=form.tab_payments_enabled %}
+      {% include "components/form_field.html" with field=form.my_tab_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
       {% include "components/form_field.html" with field=form.help_page_enabled %}
       {% include "components/form_field.html" with field=form.wiki_link_enabled %}
+      {% include "components/form_field.html" with field=form.equipment_page_enabled %}
+      {% include "components/form_field.html" with field=form.guild_welcome_email_enabled %}
+      {% include "components/form_field.html" with field=form.display_demo_classes %}
+      {% include "components/form_field.html" with field=form.display_demo_guild %}
       {% include "components/form_field.html" with field=form.member_directory_public %}
     </div>
 
@@ -558,6 +593,7 @@
         {% include "components/form_field.html" with field=form.discord_general_webhook_url %}
         {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
         {% include "components/form_field.html" with field=form.discord_officers_webhook_url %}
+        {% include "components/form_field.html" with field=form.discord_reservations_webhook_url %}
       </div>
 
       {# ---- D1: Connection ids (guild-role sync) ---- #}
@@ -710,6 +746,17 @@
       <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
     </div>
   </form>
+
+  {% comment %}
+    Logo delete confirm modal. A SIBLING of #site-settings-form (never nested): image_field.html
+    is passed modal_id but not delete_url, so it renders the Delete button without its own
+    teleported modal, and this include supplies that modal outside the form, mirroring the
+    run-bill_tabs idiom above.
+  {% endcomment %}
+  {% if config.org_logo %}
+  {% url 'hub_admin_brand_logo_delete' as brand_logo_delete_url %}
+  {% include "components/confirm_modal.html" with confirm_id="delete-org-logo" confirm_title="Delete logo?" confirm_message="Your logo will be removed from our storage and the built in mark will show instead. This can't be undone." confirm_action_url=brand_logo_delete_url confirm_button_text="Delete logo" %}
+  {% endif %}
 
   {# -------- Emails tab (read-and-route: list every email, link out to edit/adjust) -------- #}
   <div x-show="tab === 'emails'" x-cloak>

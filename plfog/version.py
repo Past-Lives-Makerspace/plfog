@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-VERSION = "1.3.1"
+VERSION = "1.44.5"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.3.1",
-        "date": "2026-08-19",
+        "version": "1.44.5",
+        "date": "2026-09-07",
         "title": "Admins: auto-welcome new members from Airtable",
         "changes": [
             "New people added to the membership Airtable can now be emailed their sign-in link "
@@ -16,6 +16,810 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "access, and never the same person twice.",
             "It's a new switch on Site Settings, under the Automations tab, and it stays off until "
             "an admin turns it on.",
+        ],
+    },
+    {
+        "version": "1.44.4",
+        "date": "2026-09-07",
+        "title": "Voting results that reach everyone",
+        "changes": [
+            "When we email out the guild funding results, a few people could be quietly "
+            "skipped, and there was no way to reach only them afterwards without emailing "
+            "everyone a second time. Anyone missed in September has since been sent their "
+            "results, and the site now goes back for the people it missed instead of "
+            "counting them as done.",
+            "Sending results no longer holds up the page while it works. Admins get a "
+            "confirmation straight away and the emails go out in the background, which is "
+            "what used to fail partway through on a big send.",
+        ],
+    },
+    {
+        "version": "1.44.0",
+        "date": "2026-09-06",
+        "title": "Sign in with your face or fingerprint",
+        "changes": [
+            "Sign in to the app once with an emailed code, and it can offer to use Face ID or "
+            "your fingerprint after that. No more waiting for a code every time.",
+            "Your phone keeps the key, not us, and it stays locked behind your face or "
+            "fingerprint. It expires after ninety days if you stop using it.",
+            "Settings now lists the devices you are signed in on, so you can sign out a phone "
+            "you no longer have. It arrives with the next app update.",
+        ],
+    },
+    {
+        "version": "1.43.1",
+        "date": "2026-09-06",
+        "title": "More sign-in codes before we make you wait",
+        "changes": [
+            "If you asked for a sign-in code a few times in a row, we used to stop you "
+            "after three in an hour and show a message about too many attempts. That was "
+            "easy to hit by accident, and it locked you out of your own account for a "
+            "full hour. The limit is now ten an hour.",
+        ],
+    },
+    {
+        "version": "1.43.0",
+        "date": "2026-09-06",
+        "title": "Push notifications on iPhone",
+        "changes": [
+            "Push notifications now work on iPhone and iPad, the same ones Android has had. "
+            "They start arriving with the next app update.",
+            "Settings now has a Push On This Device card. It tells you whether push is working "
+            "on the phone in your hand, turns it on or off, and says what to do if notifications "
+            "are switched off for Past Lives in your phone's own settings.",
+        ],
+    },
+    {
+        "version": "1.42.1",
+        "date": "2026-09-06",
+        "title": "Plain-language permissions for admins",
+        "changes": [
+            "Every permission in the Viewing as menu now has a question mark you can hover to read what it does.",
+            "Admins can switch their own Instructor access on or off there, without opening their member page.",
+        ],
+    },
+    {
+        "version": "1.42.0",
+        "date": "2026-09-05",
+        "title": "An easier class review page",
+        "changes": [
+            "Reviewing a class now starts with where it stands and what it says, then the "
+            "decision, with the student preview at the bottom.",
+            "The preview shows the class page on its own, with no menus around it, so you see what a student sees.",
+            "The readiness checklist spreads across the page on a big screen and tells you how many items are done.",
+        ],
+    },
+    {
+        "version": "1.41.0",
+        "date": "2026-09-05",
+        "title": "A tidier sidebar",
+        "changes": [
+            "Teaching now appears in the sidebar only if you are set up to teach. "
+            "Want to start? The Help Center's Teaching guide links the instructor orientation. "
+            "Read it, tick the box, and the portal opens.",
+            "Manage Classes moved from the sidebar to Admin Tools, where the other staff tools live.",
+        ],
+    },
+    {
+        "version": "1.40.0",
+        "date": "2026-09-05",
+        "title": "Equipment orientations list the right people",
+        "changes": [
+            "A tool's Orientation Schedule now lists only the people who actually run that tool, "
+            "its managers and the owning guild's leadership, instead of every council member.",
+            "To give orientations on a tool, you are added as a manager on its Staff tab first.",
+        ],
+    },
+    {
+        "version": "1.39.0",
+        "date": "2026-09-05",
+        "title": "Teaching is easier to find and run",
+        "changes": [
+            "Instructors can update a live class's description and photos, ask an admin for "
+            "bigger changes, cancel a class if plans fall through, take back a submission, and "
+            "run a finished class again with one click.",
+            "Your public instructor page goes live with your first published class.",
+        ],
+    },
+    {
+        "version": "1.38.0",
+        "date": "2026-09-05",
+        "title": "Clearer class status",
+        "changes": [
+            "Every class now shows exactly where it is on a simple review pipeline, Submitted, "
+            "Guild lead, Admin, Live, with a check for each step that is done. You see it on your "
+            "class page and in every review email.",
+            "If a reviewer asks for changes, their notes show right on your class with a Fix and resubmit button.",
+            "A class needs photos, a description, and dates before it can be submitted.",
+            "Admins now cancel a live class with a reason and everyone registered is told, while "
+            "archiving is quiet housekeeping that can be undone.",
+        ],
+    },
+    {
+        "version": "1.37.0",
+        "date": "2026-09-05",
+        "title": "Equipment orientations work like guild orientations",
+        "changes": [
+            "Each tool's managers now post their own weekly orientation hours, the same way guild "
+            "staff do, and when you book a time you see who you're meeting.",
+            "Tool pages list orientation times the same way guild pages do.",
+        ],
+    },
+    {
+        "version": "1.36.0",
+        "date": "2026-09-05",
+        "title": "Orientations and reservations stay out of each other's way",
+        "changes": [
+            "A booked orientation now shows on the tool's schedule and blocks reservations for that time.",
+            "A reserved time can't be double booked by an orientation.",
+        ],
+    },
+    {
+        "version": "1.35.0",
+        "date": "2026-09-05",
+        "title": "Book equipment orientations by the hour",
+        "changes": [
+            "Equipment managers can now post weekly orientation hours for a tool, like "
+            "Saturdays 10 to 6, and the app turns them into bookable time slots automatically.",
+            "Pick a day, pick a time, and request it right on the tool's page.",
+        ],
+    },
+    {
+        "version": "1.34.2",
+        "date": "2026-09-04",
+        "title": "One calendar, simpler",
+        "changes": [
+            "The Community Calendar is now just the Calendar.",
+            "New events go on the public Google calendar by default, so anyone can "
+            "see what is happening at the makerspace. You can still mark an event "
+            "members only when you create it.",
+            "The calendar filter chips are simpler: everything public lives under Public Calendar.",
+        ],
+    },
+    {
+        "version": "1.33.0",
+        "date": "2026-09-04",
+        "title": "Attach photos to feedback",
+        "changes": [
+            "The Send Feedback page now takes photos. Attach up to 5 screenshots "
+            "or pictures (10 MB each) so we can see exactly what you saw.",
+        ],
+    },
+    {
+        "version": "1.32.1",
+        "date": "2026-09-04",
+        "title": "Role preview menu fits on phones",
+        "changes": [
+            "The role preview menu (the eye icon at the top, for admins) now opens "
+            "fully on phone screens instead of hanging off the edge.",
+        ],
+    },
+    {
+        "version": "1.32.0",
+        "date": "2026-09-03",
+        "title": "Tool orientations on the tool's page",
+        "changes": [
+            "Some equipment needs an orientation before you can reserve it. You can "
+            "now book that orientation right on the tool's own page. Pick a time, "
+            "request it, and pay there if it has a fee. Equipment managers post the "
+            "times and confirm requests from the tool's manage panel.",
+        ],
+    },
+    {
+        "version": "1.31.4",
+        "date": "2026-09-03",
+        "title": "Reservations post to Discord",
+        "changes": [
+            "New equipment bookings now appear in the #reservations Discord channel "
+            "automatically, so everyone can see when a tool or room gets claimed.",
+        ],
+    },
+    {
+        "version": "1.31.3",
+        "date": "2026-09-03",
+        "title": "Equipment hours get flexible",
+        "changes": [
+            "Equipment hours can now run late into the evening, up to 11:30 at night.",
+            "Managers set opening hours once and pick the days those hours apply to, "
+            "instead of adding a separate row for every day.",
+            "The equipment form now says plainly when a tool is Standalone and run by the makerspace.",
+        ],
+    },
+    {
+        "version": "1.31.2",
+        "date": "2026-09-03",
+        "title": "Instructors can move a student to another of their classes",
+        "changes": [
+            "From your class roster, pick Move Student to shift someone into another "
+            "class you teach. Their registration and payment go with them. The class "
+            "picker for instructors and admins now lists only classes that have not "
+            "started yet.",
+        ],
+    },
+    {
+        "version": "1.31.1",
+        "date": "2026-09-03",
+        "title": "Instructors can email their class",
+        "changes": [
+            "The Send Email button on your class page now goes straight to a composer "
+            "addressed to your registrants. It works even if you do not have a public "
+            "instructor profile page, and for classes that are not published yet.",
+        ],
+    },
+    {
+        "version": "1.31.0",
+        "date": "2026-09-03",
+        "title": "Class approvals are simpler",
+        "changes": [
+            "When an admin approves a class it now goes live right away, even if a "
+            "guild lead has not reviewed it yet. CMS Administrators can open the "
+            "class review pages their notifications point to. Guild leads can also "
+            "see classes they approved that are still waiting on admin sign off.",
+        ],
+    },
+    {
+        "version": "1.30.2",
+        "date": "2026-09-03",
+        "title": "Broken greetings gone from Discord DMs and phone alerts",
+        "changes": [
+            "Some Discord direct messages and phone notifications opened with a "
+            "broken greeting and a missing name. They now use the same clean short "
+            "text as your in app notifications. Admins also no longer get a stray "
+            "message meant for an instructor when a class enters review.",
+        ],
+    },
+    {
+        "version": "1.30.1",
+        "date": "2026-09-03",
+        "title": "Quieter guild Discord channels",
+        "changes": [
+            "Approving meeting minutes no longer posts anything to Discord. You still "
+            "get your in app notification, and an email if you have that turned on.",
+        ],
+    },
+    {
+        "version": "1.30.0",
+        "date": "2026-09-03",
+        "title": "Reserve time on equipment",
+        "changes": [
+            "Pick a free time on a tool's schedule and it is yours right away. "
+            "See the week at a glance, book in a couple of taps, get a calendar "
+            "invite, and cancel if plans change. Tool managers set the hours and "
+            "the rules.",
+        ],
+    },
+    {
+        "version": "1.29.0",
+        "date": "2026-09-03",
+        "title": "Equipment directory",
+        "changes": [
+            "Meet the new Equipment page in the sidebar. Browse the makerspace's "
+            "shared tools and rooms, see what each one needs before you can use it, "
+            "and book the orientation for a tool right from its page.",
+        ],
+    },
+    {
+        "version": "1.28.3",
+        "date": "2026-09-03",
+        "title": "Cleaner Discord posts for approved meeting minutes",
+        "changes": [
+            "When a guild approves its meeting minutes, the post in the guild's "
+            "Discord channel is now a short announcement with a link to the "
+            "minutes, instead of a broken personal looking message.",
+        ],
+    },
+    {
+        "version": "1.28.2",
+        "date": "2026-09-03",
+        "title": "Paid orientation bookings confirm right away",
+        "changes": [
+            "After paying for an orientation, the page now confirms your booking "
+            "right away instead of leaving you on a spinner while we wait to hear "
+            "back from the payment processor.",
+        ],
+    },
+    {
+        "version": "1.28.1",
+        "date": "2026-09-03",
+        "title": "Clearer guild class counts",
+        "changes": [
+            "The class counter on each guild page now tells you how many classes are open "
+            "for sign up and how many already ran, instead of one combined number.",
+            "The orientation booking section gained a small question mark that explains "
+            "which email address your booking updates arrive at.",
+        ],
+    },
+    {
+        "version": "1.28.0",
+        "date": "2026-09-03",
+        "title": "Choose where your notifications land",
+        "changes": [
+            "If you have more than one verified email on your account, you can now pick "
+            "which one receives your notification emails. The picker lives in Settings on "
+            "the Account tab, inside the email card. Leave it on the default and "
+            "notifications keep going to your primary email. If you later remove or "
+            "unverify the chosen address, notifications quietly return to your primary "
+            "email on their own.",
+        ],
+    },
+    {
+        "version": "1.27.2",
+        "date": "2026-09-03",
+        "title": "Orientation guides updated",
+        "changes": [
+            "The Getting Oriented and Running Orientations help articles now cover the new "
+            "open time windows: picking a start time as a member, and posting availability "
+            "blocks as an orienter. The in app help hints on those sections link straight "
+            "to the new guidance.",
+        ],
+    },
+    {
+        "version": "1.27.1",
+        "date": "2026-09-03",
+        "title": "Safer announcement defaults",
+        "changes": [
+            "Announcements from a guild without its own Discord channel used to preselect "
+            "the makerspace wide channel with a ping to everyone. The default is now no "
+            "ping and no shared channel; both remain available as deliberate choices.",
+        ],
+    },
+    {
+        "version": "1.27.0",
+        "date": "2026-09-03",
+        "title": "Pick your own orientation time",
+        "changes": [
+            "Orienters can now post open blocks of time, and you book the start that "
+            "suits you inside the block. The app only offers times that actually fit "
+            "the orientation's length and are not already taken. Orienters post and "
+            "manage their blocks from the orientations dashboard.",
+        ],
+    },
+    {
+        "version": "1.26.0",
+        "date": "2026-09-03",
+        "title": "Guilds can offer more than one orientation",
+        "changes": [
+            "A guild can now run several kinds of orientations, each with its own name, "
+            "length, price, and seat count. Think Shop Basics, Lathe, and CNC in Wood. "
+            "Guild pages group upcoming times by kind, you can be oriented in one kind "
+            "while signing up for another, and guild leads manage the list from the "
+            "editor's Orientations tab.",
+        ],
+    },
+    {
+        "version": "1.25.0",
+        "date": "2026-09-03",
+        "title": "Meet your studio neighbors",
+        "changes": [
+            "Clicking an occupied studio on the Spaces map can now introduce you to who "
+            "works there, with their photo, pronouns, and skills. Sharing is opt in and "
+            "off by default: flip Show me on the Spaces map in Settings if you want "
+            "members to find you. Names on the map are also members only now; visitors "
+            "who are not signed in just see that a space is taken.",
+        ],
+    },
+    {
+        "version": "1.24.0",
+        "date": "2026-09-02",
+        "title": "Write your own pronouns",
+        "changes": [
+            "Pronouns are a free text field now, so combinations like she/him fit. If you "
+            "had picked prefer not to share before, the field is simply blank now, and the "
+            "visibility toggle next to it still controls who sees it.",
+        ],
+    },
+    {
+        "version": "1.23.2",
+        "date": "2026-09-02",
+        "title": "Space agreements, not leases",
+        "changes": [
+            "The app no longer talks about leasing. Studio requests, reminder emails, and "
+            "review screens all say space agreement now, which is what we actually have.",
+        ],
+    },
+    {
+        "version": "1.23.1",
+        "date": "2026-09-02",
+        "title": "Guild voting asks for all three picks",
+        "changes": [
+            "Casting a guild vote now requires all three choices, worth 5, 3, and 2 "
+            "points. This matches the voting policy; before this, a ballot could carry "
+            "just a 1st choice.",
+        ],
+    },
+    {
+        "version": "1.23.0",
+        "date": "2026-09-02",
+        "title": "Assign guild leads from the app",
+        "changes": [
+            "Admins can now set or replace a guild's lead right on the guild editor Staff "
+            "tab. Adding a Co-Lead now takes an admin as well, and the Orientator role is "
+            "spelled Orienter everywhere.",
+        ],
+    },
+    {
+        "version": "1.22.6",
+        "date": "2026-09-02",
+        "title": "Sign up with your name",
+        "changes": [
+            "Signing up now asks for your name, and optionally the name you go by. Before "
+            "this, brand new accounts showed up in rosters and the directory as a lowercase "
+            "piece of their email address until someone fixed it by hand.",
+        ],
+    },
+    {
+        "version": "1.22.5",
+        "date": "2026-09-02",
+        "title": "Featured class picker shows dates",
+        "changes": [
+            "Guild leads picking a featured class could grab last year's run by accident, "
+            "because old runs kept showing up with identical names. The picker now lists "
+            "only classes people can still sign up for, each with its next session date, "
+            "and the featured card on the guild page shows the date too.",
+        ],
+    },
+    {
+        "version": "1.22.4",
+        "date": "2026-09-02",
+        "title": "Class page heading tidy up",
+        "changes": [
+            "The heading at the bottom of a class page could repeat the word class twice "
+            "in a row. It now reads More classes like this instead.",
+        ],
+    },
+    {
+        "version": "1.22.3",
+        "date": "2026-09-02",
+        "title": "The API pages fit your phone",
+        "changes": [
+            "The Member Portal API pages rendered oversized on phones with no way to zoom "
+            "out. They now fit the screen like every other page.",
+        ],
+    },
+    {
+        "version": "1.22.2",
+        "date": "2026-09-02",
+        "title": "Connect your Discord works from the checklist",
+        "changes": [
+            "Clicking Connect your Discord on the home page Get Started list did nothing. "
+            "It now takes you to Discord to link your account, like it always should have.",
+        ],
+    },
+    {
+        "version": "1.22.1",
+        "date": "2026-09-02",
+        "title": "Welcome email preview works again",
+        "changes": [
+            "The welcome email preview in the guild editor was showing a blank white box "
+            "instead of the email. It shows the real email again, on every device.",
+        ],
+    },
+    {
+        "version": "1.22.0",
+        "date": "2026-09-02",
+        "title": "Welcome Email, plus a new admin switch",
+        "changes": [
+            "The guild Welcome Packet is now called the Welcome Email everywhere, which is what "
+            "it always was: one friendly email when you join a guild.",
+            "Admins got a new switch in Site Settings that can pause guild welcome emails for "
+            "the whole site. It stays on unless an admin flips it.",
+        ],
+    },
+    {
+        "version": "1.21.2",
+        "date": "2026-09-01",
+        "title": "Videos play again",
+        "changes": [
+            "Videos on guild pages, in FAQ answers, and on the Help page were showing a player "
+            "error instead of playing. They work now.",
+        ],
+    },
+    {
+        "version": "1.21.1",
+        "date": "2026-08-30",
+        "title": "Bigger photo uploads",
+        "changes": [
+            "You can now upload photos up to 10 MB, so pictures straight from your phone go "
+            "through without shrinking them first. This applies to your profile photo, guild "
+            "gallery photos, and class images.",
+        ],
+    },
+    {
+        "version": "1.21.0",
+        "date": "2026-08-28",
+        "title": "Take a guided tour",
+        "changes": [
+            "New guided tours walk you through the member portal and drive the navigation for "
+            "you, hopping from page to page while they explain each part. There is a tour for "
+            "members, one for instructors, one for guild leads, and one for admins. Click Show "
+            "me around on your home page, or start one any time from the Help page, and you can "
+            "turn tours on or off in Settings.",
+        ],
+    },
+    {
+        "version": "1.20.0",
+        "date": "2026-08-27",
+        "title": "Join your favorite guilds",
+        "changes": [
+            "Every guild page now has a Join This Guild button. Joining adds you to the guild's "
+            "roster, puts a badge on your member directory card, keeps you in the loop on that "
+            "guild's announcements, and lets you sign up for its orientations. When you join you "
+            "can choose to get a welcome guide by email, and guild leads can write their own "
+            "welcome note. You can leave a guild any time.",
+        ],
+    },
+    {
+        "version": "1.19.1",
+        "date": "2026-08-27",
+        "title": "Smoother orientation checkout",
+        "changes": [
+            "If your guild charges for orientations, tapping Continue to Payment now opens our "
+            "secure checkout right away. We also tidied up how guild calendars respond when you "
+            "hover over an event.",
+        ],
+    },
+    {
+        "version": "1.19.0",
+        "date": "2026-08-27",
+        "title": "Orientations get their own tab on guild pages",
+        "changes": [
+            "Finding and booking an orientation is easier now: every guild page has its own "
+            "Orientations tab instead of tucking it under the calendar. For guild leads, editing "
+            "your orientation hours opens in a quick popup instead of reloading the whole page, and "
+            "you can turn off member announcement suggestions if you prefer.",
+        ],
+    },
+    {
+        "version": "1.18.0",
+        "date": "2026-08-27",
+        "title": "A friendlier Settings page",
+        "changes": [
+            "Settings is easier to get around now. Guilds is the first tab, and the notifications "
+            "list is reordered with orientations, guilds, and events up top plus quick links to "
+            "jump between sections and a back to top button. Your email addresses now live with "
+            "your account details, and if you change a bunch of notification toggles we ask before "
+            "you leave so you do not lose them.",
+        ],
+    },
+    {
+        "version": "1.17.0",
+        "date": "2026-08-27",
+        "title": "Cleaner admin Payments area",
+        "changes": [
+            "For admins and billing helpers, the Payments dashboard now hides the member Tab "
+            "sections when My Tab is switched off, so the page shows only what applies. Payments "
+            "and Reports also moved into Admin Tools instead of the sidebar.",
+        ],
+    },
+    {
+        "version": "1.16.0",
+        "date": "2026-08-27",
+        "title": "See just the classes you teach or run",
+        "changes": [
+            "The admin class list and the registrations list now have a My Classes filter, so if "
+            "you teach or run classes you can jump straight to only yours instead of scrolling the "
+            "whole makerspace. It stays put as you search, sort, and page through the results.",
+        ],
+    },
+    {
+        "version": "1.15.0",
+        "date": "2026-08-27",
+        "title": "Managing a class roster is tidier",
+        "changes": [
+            "If you teach or help run a class, every action on your roster now lives in one neat "
+            "menu on each row instead of a row full of buttons. The menu still does everything it "
+            "did (refunds, payment links, marking someone paid, removing a student) and adds two "
+            "handy shortcuts: jump to a person's full details, or email them in one click.",
+        ],
+    },
+    {
+        "version": "1.14.0",
+        "date": "2026-08-27",
+        "title": "Guilds can charge for orientations",
+        "changes": [
+            "Some orientations now have a price. You pay when you book, right on the booking "
+            "page, and your spot is held while you check out. If the orienter cannot make it "
+            "work or you cancel, your money comes back automatically. Free orientations work "
+            "exactly like before.",
+        ],
+    },
+    {
+        "version": "1.13.0",
+        "date": "2026-08-27",
+        "title": "Orientation slots now show who runs them",
+        "changes": [
+            "Guild staff can each post their own orientation hours, so booking a slot now tells "
+            "you exactly who you will meet. Your request goes straight to that person, and your "
+            "confirmation email says who is expecting you. Staff who have not posted hours yet "
+            "get a nudge on the orientations dashboard.",
+        ],
+    },
+    {
+        "version": "1.12.0",
+        "date": "2026-08-27",
+        "title": "Follow guilds instead of joining them",
+        "changes": [
+            "Guilds are now something you follow for updates, not something you sign up for. "
+            "The first time you log in we ask which guilds you want to hear from, and you can "
+            "change your picks anytime in Settings under Guild Updates. The member directory "
+            "also no longer lists guilds next to names.",
+        ],
+    },
+    {
+        "version": "1.11.0",
+        "date": "2026-08-26",
+        "title": "Instructors can manage their class rosters",
+        "changes": [
+            "Teachers and class admins can now move someone from the waitlist straight into a "
+            "class, email them a payment link if the class costs money, record cash payments, "
+            "and remove a registration when plans change. If you are on a waitlist, you will get "
+            "a clear email the moment a teacher adds you, with a simple way to pay.",
+        ],
+    },
+    {
+        "version": "1.10.0",
+        "date": "2026-08-26",
+        "title": "Refunds without leaving the app",
+        "changes": [
+            "If a class does not work out, staff can now send your money back in a couple of "
+            "clicks, and a receipt lands in your inbox right away. No more waiting while someone "
+            "digs through a separate payments site. Behind the scenes, admins also got one "
+            "Payments page that shows every charge in one place.",
+        ],
+    },
+    {
+        "version": "1.9.6",
+        "date": "2026-08-26",
+        "title": "Delete an event right from its edit page",
+        "changes": [
+            "Editing an event now has a Delete button, so admins and guild leads can remove one "
+            "without going back to the calendar list. A confirmation explains exactly what happens "
+            "before anything is deleted.",
+        ],
+    },
+    {
+        "version": "1.9.5",
+        "date": "2026-08-26",
+        "title": "Interested on a Discord event now counts as an RSVP",
+        "changes": [
+            "Hit Interested on any Past Lives event in Discord's Events tab and you will show "
+            "up on that event's attendee list, right beside everyone who used the RSVP button "
+            "or the event page. Clear your Interested mark and the sync takes you back off. "
+            "One list, three ways onto it.",
+        ],
+    },
+    {
+        "version": "1.9.4",
+        "date": "2026-08-26",
+        "title": "RSVP to events, plus friendlier /create and /poll forms",
+        "changes": [
+            "Creating events and polls in Discord is simpler now. Both /create and /poll open a "
+            "short fill in form, so you just type the details and submit. Event announcements got "
+            "a glow up too: each one shows the time, how long it runs, where it is, and who is "
+            "coming, with an RSVP button that updates the list live. Click RSVP again to take it "
+            "back. Organizers and guild leads get a Manage button for quick edits and "
+            "cancellations, whoever starts a poll can end it early with the little gear, and the "
+            "event page on the hub shows who is coming as well.",
+        ],
+    },
+    {
+        "version": "1.9.1",
+        "date": "2026-08-26",
+        "title": "Rebrand cleanup",
+        "changes": [
+            "We retired the old Do It Together tagline from the member portal and our emails. "
+            "We are Past Lives Makerspace everywhere now.",
+        ],
+    },
+    {
+        "version": "1.9.0",
+        "date": "2026-08-26",
+        "title": "Post polls with /poll",
+        "changes": [
+            "Ask the room anything with /poll in Discord. Type your question and answers, pick "
+            "how long voting stays open, and the bot posts a native Discord poll right in the "
+            "channel. This replaces the old sesh bot's /poll.",
+        ],
+    },
+    {
+        "version": "1.8.0",
+        "date": "2026-08-25",
+        "title": "Create community events right from Discord with /create",
+        "changes": [
+            "Type /create in Discord, describe when in plain words like next friday 6pm, "
+            "check the preview, and confirm. Leads publish instantly and everyone else's "
+            "idea goes to the review queue, with the decision sent back to you as a "
+            "Discord DM. Use /cancel to withdraw or cancel one of your events. Our old "
+            "event bot sesh has retired.",
+        ],
+    },
+    {
+        "version": "1.7.0",
+        "date": "2026-08-24",
+        "title": "Meeting Agendas Get More Flexible",
+        "changes": [
+            "Council meeting agendas are now open to ideas from every active member, and "
+            "meeting editors can send in ideas the same way. Everything goes to leadership "
+            "for review.",
+            "Meetings now show a clear status everywhere: Draft, Published, or Approved.",
+            "A published agenda can go back to draft for more edits, right from the meeting page.",
+            "Guild pages now list recent meetings that are still waiting on their minutes.",
+        ],
+    },
+    {
+        "version": "1.6.1",
+        "date": "2026-08-24",
+        "title": "Class links in Discord go to the right place",
+        "changes": [
+            "Links in the #classes Discord channel (new class announcements and the weekly "
+            "digest) now take you straight to classes.pastlives.space, where class sign-ups "
+            "currently live.",
+        ],
+    },
+    {
+        "version": "1.6.0",
+        "date": "2026-08-24",
+        "title": "Delete your account, right from the app",
+        "changes": [
+            "You can now delete your account from Settings, under a new Account tab. "
+            "It removes your personal info from Past Lives for good and signs you out "
+            "everywhere. If you ever want to come back, ask a guild lead or admin to "
+            "send you a new invite.",
+        ],
+    },
+    {
+        "version": "1.5.0",
+        "date": "2026-08-23",
+        "title": "Want Your Work Featured? Tell Us on Your Profile",
+        "changes": [
+            "Profile Settings has a new Marketing Opportunities question. Say yes and the Past "
+            "Lives team may reach out about highlighting your art or business on our Instagram, "
+            "website, or email newsletter. It starts as a no, and your answer is private — it "
+            "never appears on your directory card.",
+        ],
+    },
+    {
+        "version": "1.5.0",
+        "date": "2026-08-23",
+        "title": "Class Pages Now Cover Your Arrival",
+        "changes": [
+            "Every class page answers a new question: what do I do once I arrive? Our doors are "
+            "locked, so your instructor meets you at the front door 10 minutes before class — "
+            "and if you don't see anyone, knock!",
+            "Your instructor's introduction now sits right below the class schedule, so you meet "
+            "your teacher before the fine print.",
+        ],
+    },
+    {
+        "version": "1.5.0",
+        "date": "2026-08-23",
+        "title": "For Instructors: Photos, Rosters, and Discount Codes",
+        "changes": [
+            "A class now needs two photos before it can go to review: its own hero image plus at "
+            "least one gallery photo. Real photos of the work get real sign-ups.",
+            "Your class rosters are view-only in the portal now — the download button is gone, "
+            "so student details stay inside the Member Portal.",
+            "Need a discount code for your class? Ask an admin — they create and approve all codes now.",
+        ],
+    },
+    {
+        "version": "1.4.0",
+        "date": "2026-08-21",
+        "title": "Add Your Website and Social Links to Your Profile",
+        "changes": [
+            "Your profile settings now have a Website section and a Social section (Instagram, "
+            "YouTube, Facebook, TikTok, LinkedIn and more). Add as many links as you like, and "
+            "choose where each one shows: on your directory card, on your instructor page, both, "
+            "or neither.",
+        ],
+    },
+    {
+        "version": "1.4.0",
+        "date": "2026-08-21",
+        "title": "Discount Codes Are Now Created by Admins",
+        "changes": [
+            "Instructors no longer create their own discount codes. An admin creates and "
+            "approves them now. Need one for your class? Ask an admin.",
         ],
     },
     {
@@ -1749,7 +2553,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Visual session calendar, AJAX images, admin polish",
         "changes": [
             "Instructors now schedule class sessions on a visual month-view calendar — click a day, pick a time and duration, done. No more fiddling with raw datetime fields. Sessions show as gold dots on the calendar and are listed below with times.",
-            "Gallery images upload instantly without hitting Save. Drag and drop to reorder, inline alt text, one-click delete. Max 10 images, 3 MB each, auto-compressed.",
+            "Gallery images upload instantly without hitting Save. Drag and drop to reorder, inline alt text, one-click delete. Max 10 images, 10 MB each, auto-compressed.",
             "Hero image also uploads instantly via drag-and-drop — no more needing to save the whole form.",
             "Instructors get an email notification when someone registers for their class. Admins can subscribe to registration notifications via CLASS_ADMIN_NOTIFY_EMAILS.",
             "The registration detail page got a full redesign — all info at a glance in clean card sections.",

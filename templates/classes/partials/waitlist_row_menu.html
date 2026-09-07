@@ -1,0 +1,20 @@
+{% comment %}
+Menu items for a Waitlist tab row — rendered inside components/row_actions.html,
+inheriting reg and can_manage from the table context. Add to Class stays first:
+it is the tab's primary action and receives focus on open, so the keyboard flow
+is trigger, Enter, Enter. See
+docs/superpowers/plans/2026-08-27-roster-actions-menu.md.
+{% endcomment %}
+{% if can_manage %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'promote-reg-{{ reg.pk }}')">Add to Class</button>
+{% endif %}
+<a href="{% url 'classes:admin_registration_detail' pk=reg.pk %}" class="pl-row-menu__item" role="menuitem"
+   @click="closeAndRefocus()">View Details</a>
+<a href="mailto:{{ reg.email }}" class="pl-row-menu__item" role="menuitem"
+   @click="closeAndRefocus()">Email Student</a>
+{% if can_manage %}
+<div class="pl-row-menu__divider" role="separator"></div>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'remove-reg-{{ reg.pk }}')">Remove from Waitlist</button>
+{% endif %}

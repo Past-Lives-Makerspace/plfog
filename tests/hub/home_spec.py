@@ -255,14 +255,14 @@ def describe_hub_home_view():
             response = client.get(reverse("hub_home"))
 
             assert response.context["my_guilds"] == []
-            assert b"haven't joined any guilds yet" in response.content
+            assert b"aren't following any guilds yet" in response.content
 
     def describe_onboarding_card():
         def _onboard(member: Member) -> None:
             """Bring a member to onboarded: profile essentials filled + one joined guild."""
             member.profile_photo = "members/profile/a.png"
             member.about_me = "Maker."
-            member.pronouns = Member.Pronouns.THEY_THEM
+            member.pronouns = "they/them"
             member.discord_user_id = "123456789012345678"
             member.save()
             GuildMembershipFactory(guild=GuildFactory(name="Ceramics"), member=member)
@@ -275,6 +275,16 @@ def describe_hub_home_view():
 
             assert response.context["show_onboarding"] is True
             assert b"Get Started at Past Lives" in response.content
+
+        def it_opts_step_links_out_of_hx_boost(client: Client):
+            # Regression: the Discord step 302s to discord.com; a boosted XHR follows the
+            # cross origin redirect, hits CORS, and the click silently does nothing.
+            _member_user("boostoff")
+            client.login(username="boostoff", password="pass")
+
+            content = client.get(reverse("hub_home")).content
+
+            assert content.count(b'hx-boost="false" class="pl-onboarding-step') == 4
 
         def it_replaces_the_old_profile_nudge(client: Client):
             _member_user("nonudge")
@@ -381,7 +391,7 @@ def describe_build_home_context():
         member = MemberFactory(
             profile_photo="members/profile/a.png",
             about_me="Maker.",
-            pronouns=Member.Pronouns.THEY_THEM,
+            pronouns="they/them",
             discord_user_id="123456789012345678",
         )
         GuildMembershipFactory(guild=GuildFactory(name="Metals"), member=member)
@@ -479,3 +489,50 @@ def describe_build_home_context():
         monthly = [item for item in ctx["upcoming"] if item.title == "Monthly Meet"]
         assert monthly
         assert monthly[0].start >= timezone.now()
+
+
+def describe_equipment_owned_upcoming_cards():
+    """The BLOCK regression: a live equipment orientation booking must never 500 the home page."""
+
+    def _equipment_booking(member: Member, name: str = "CNC Router") -> object:
+        from tests.membership.factories import EquipmentFactory, OrientationTypeFactory
+
+        equipment = EquipmentFactory(name=name)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        start = timezone.now() + timedelta(days=3)
+        slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+        )
+        return OrientationBookingFactory(slot=slot, member=member)
+
+    def it_renders_with_a_live_equipment_booking_and_keeps_the_guild_card(client: Client):
+        user = _member_user("home_equip")
+        booking = _equipment_booking(user.member, name="Big Laser")
+        guild = GuildFactory(name="Woodshop")
+        OrientationBookingFactory(slot=_future_slot(guild), member=user.member)
+        client.login(username="home_equip", password="pass")
+        response = client.get(reverse("hub_home"))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Big Laser orientation" in content
+        assert f"/equipment/{booking.orientation_type.equipment.slug}/" in content
+        assert "Woodshop orientation" in content
+        assert f"/guilds/{guild.slug}/" in content
+
+    def it_resolves_owner_names_without_per_row_queries(django_assert_num_queries):
+        user = _member_user("home_equip_nplus1")
+        member = user.member
+        for i in range(3):
+            _equipment_booking(member, name=f"Tool {i}")
+        guild = GuildFactory()
+        OrientationBookingFactory(slot=_future_slot(guild), member=member)
+        bookings = member.orientation_bookings.upcoming().select_related(
+            "slot", "orientation_type__guild", "orientation_type__equipment"
+        )
+        with django_assert_num_queries(1):
+            for booking in bookings:
+                booking.orientation_type.owner_name
+                booking.orientation_type.owner_page_path()

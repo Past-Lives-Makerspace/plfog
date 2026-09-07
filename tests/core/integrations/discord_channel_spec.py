@@ -31,6 +31,40 @@ def describe_post_channel_message():
         assert b'"embeds"' in request.content
 
     @respx.mock
+    def it_returns_the_created_message_json(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={"id": "m1", "channel_id": CHANNEL_ID}))
+        assert dc.post_channel_message(CHANNEL_ID, [{"title": "Hi"}])["id"] == "m1"
+
+    @respx.mock
+    def it_omits_the_optional_keys_by_default(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={"id": "m1"}))
+        dc.post_channel_message(CHANNEL_ID, [{"title": "Hi"}])
+        import json
+
+        body = json.loads(route.calls[0].request.content)
+        assert set(body) == {"embeds"}  # no content / components / allowed_mentions when unset
+
+    @respx.mock
+    def it_includes_content_components_and_allowed_mentions_when_provided(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={"id": "m1"}))
+        dc.post_channel_message(
+            CHANNEL_ID,
+            [{"title": "Hi"}],
+            content="hello",
+            components=[{"type": 1, "components": []}],
+            allowed_mentions={"parse": []},
+        )
+        import json
+
+        body = json.loads(route.calls[0].request.content)
+        assert body["content"] == "hello"
+        assert body["components"] == [{"type": 1, "components": []}]
+        assert body["allowed_mentions"] == {"parse": []}
+
+    @respx.mock
     def it_raises_on_a_non_2xx(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(403, text="missing access"))

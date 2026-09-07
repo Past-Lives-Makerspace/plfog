@@ -1,7 +1,7 @@
 {% extends "classes/admin/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
-<div class="admin-toolbar">
+<div class="admin-toolbar" data-help-key="admin.discount-codes">
     {% include "components/table_search.html" with q=q placeholder="Search codes…" %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}">+ New Code</a>
 </div>

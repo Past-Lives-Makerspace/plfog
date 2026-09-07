@@ -6,6 +6,7 @@ from pathlib import Path
 
 import dj_database_url
 import sentry_sdk
+from sentry_sdk.scrubber import EventScrubber
 from django.templatetags.static import static
 from django.urls import reverse_lazy
 
@@ -19,6 +20,12 @@ if SENTRY_DSN:
         environment="development" if os.environ.get("DJANGO_DEBUG", "True").lower() == "true" else "production",
         traces_sample_rate=0.1,
         send_default_pii=True,
+        # recursive=True because the default scrubber only walks the TOP level of a frame's
+        # locals. The biometric views keep the parsed request body in a local called `data`,
+        # and `data["secret"]` is a live bearer token at the moment a 500 is raised (the
+        # rotation has not committed yet). Naming the flat locals `secret` is not enough on
+        # its own: the nested copy rides along untouched unless the scrubber recurses.
+        event_scrubber=EventScrubber(recursive=True),
     )
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-change-in-production")
@@ -132,8 +139,6 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "hub_guild_detail_by_id",
         "hub_spaces",
         "hub_help",
-        "hub_guild_join",
-        "hub_guild_leave",
         "hub_orientation_book",
         "hub_guild_orientation_request_custom",
         "hub_orientation_cancel_mine",
@@ -237,12 +242,14 @@ TEMPLATES = [
                 "core.context_processors.makerspace_wiki",
                 "core.context_processors.theme",
                 "core.context_processors.feature_flags",
+                "core.context_processors.brand",
                 "core.context_processors.google_analytics",
                 "core.context_processors.surface",
                 "core.context_processors.persona",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
                 "core.context_processors.notification_badge",
+                "core.context_processors.tour_runtime",
             ],
         },
     },
@@ -324,7 +331,7 @@ R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
 _R2_READY = all([R2_ACCOUNT_ID, R2_BUCKET_NAME, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_PUBLIC_URL])
 
 # Maximum upload size for ImageField uploads (members, guilds, classes).
-MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(3 * 1024 * 1024)))  # 3 MB
+MAX_UPLOAD_IMAGE_BYTES = int(os.environ.get("MAX_UPLOAD_IMAGE_BYTES", str(10 * 1024 * 1024)))  # 10 MB
 
 # Maximum upload size for document FileField uploads (guild meeting-note attachments).
 MAX_UPLOAD_DOCUMENT_BYTES = int(os.environ.get("MAX_UPLOAD_DOCUMENT_BYTES", str(25 * 1024 * 1024)))  # 25 MB
@@ -483,13 +490,26 @@ ACCOUNT_LOGIN_BY_CODE_MAX_ATTEMPTS = 5
 ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
 
 # Tighten allauth's built-in per-IP/per-key rate limits for login-code requests.
-# Defaults are 20/m/ip,3/m/key which is too generous given the 3,000/day Resend
-# free-tier ceiling. These keys merge into allauth.account.app_settings defaults.
+# Defaults are 20/m/ip,3/m/key which is too generous for a transactional mail budget.
+# History worth keeping: this comment used to claim a 3,000/day Resend ceiling, and on
+# 2026-09-03 a results send to the full membership was rejected with HTTP 429 "You have
+# reached your daily email sending quota" after roughly 224 messages — fewer than one
+# per active member. The account moved to Resend Pro in September 2026: no daily cap,
+# 50,000/month, which is ample headroom for an all-member send at current size. The rate
+# limits below are kept anyway, because they exist to stop login-code abuse rather than
+# to ration quota. If a send is ever rejected again, the recovery path is
+# core.events.emit._release_delivery, which hands the slot back so a retry reaches only
+# the members who were missed.
+# These keys merge into allauth.account.app_settings defaults.
 # Rate limiting only gets in the way during local development — repeated
 # login/test cycles trip allauth's "Too many failed login attempts" guard.
 # allauth treats RATE_LIMITS=False as "disable everything", so turn it off
 # entirely when DEBUG is on, and keep the real limits in production.
-ACCOUNT_RATE_LIMITS: dict[str, str] | bool = False if DEBUG else {"request_login_code": "5/m/ip,3/h/key"}
+# The per-key cap is 10/h, not 3/h: 3 was tight enough that a live demo or a
+# support session walking a member through login burned the hour's budget in
+# under a minute, and the resulting error is indistinguishable from the
+# honeypot's. The global circuit breaker below is the real quota backstop.
+ACCOUNT_RATE_LIMITS: dict[str, str] | bool = False if DEBUG else {"request_login_code": "5/m/ip,10/h/key"}
 
 # Global circuit breaker on outgoing login-code emails. Hard backstop in case
 # the per-IP/per-key limits are bypassed (e.g. distributed attack). Hourly cap

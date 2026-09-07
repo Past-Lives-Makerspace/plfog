@@ -14,7 +14,7 @@ import pytest
 from django.urls import reverse
 
 from core.events import discord_commands
-from core.events.discord_commands import ComponentHandler, register_component
+from core.events.discord_commands import ComponentHandler, ModalHandler, register_component, register_modal
 
 pytestmark = pytest.mark.django_db
 
@@ -24,9 +24,12 @@ _URL = reverse("discord_interactions")
 @pytest.fixture(autouse=True)
 def _restore_component_registry():
     snapshot = dict(discord_commands._COMPONENT_REGISTRY)
+    modal_snapshot = dict(discord_commands._MODAL_REGISTRY)
     yield
     discord_commands._COMPONENT_REGISTRY.clear()
     discord_commands._COMPONENT_REGISTRY.update(snapshot)
+    discord_commands._MODAL_REGISTRY.clear()
+    discord_commands._MODAL_REGISTRY.update(modal_snapshot)
 
 
 @pytest.fixture
@@ -59,7 +62,8 @@ def describe_discord_interactions_component_routing():
         assert "went wrong" in response.json()["data"]["content"]
 
     def it_still_acks_an_unrouted_type_with_an_empty_200(client, verified):
-        response = _post(client, {"type": 5, "data": {}})
+        # Type 4 (autocomplete) is unrouted — PING/command/component/modal are 1/2/3/5.
+        response = _post(client, {"type": 4, "data": {}})
         assert response.status_code == 200
         assert response.content == b""
 
@@ -67,3 +71,23 @@ def describe_discord_interactions_component_routing():
         monkeypatch.setattr("core.events.discord_interactions.verify_signature", lambda *args: False)
         response = _post(client, {"type": 3, "data": {"custom_id": "routed:1"}})
         assert response.status_code == 401
+
+
+def describe_discord_interactions_modal_routing():
+    def it_routes_a_type_5_interaction_to_the_modal_dispatcher(client, verified):
+        register_modal(
+            ModalHandler(
+                prefix="mform",
+                handler=lambda interaction, member: {"type": 4, "data": {"content": "submitted"}},
+                requires_link=False,
+            )
+        )
+        payload = {"type": 5, "data": {"custom_id": "mform", "components": []}, "user": {"id": "1"}}
+        response = _post(client, payload)
+        assert response.status_code == 200
+        assert response.json() == {"type": 4, "data": {"content": "submitted"}}
+
+    def it_returns_the_error_reply_json_for_an_unknown_modal_prefix(client, verified):
+        response = _post(client, {"type": 5, "data": {"custom_id": "ghostform", "components": []}, "user": {"id": "1"}})
+        assert response.status_code == 200
+        assert "went wrong" in response.json()["data"]["content"]

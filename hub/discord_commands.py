@@ -1,4 +1,4 @@
-"""The hub app's member slash commands — ``/link`` (connect), ``/join-guild`` (join), and ``/vote`` (ballot).
+"""The hub app's member slash commands — ``/link`` (connect), ``/join-guild`` (follow a guild), and ``/vote`` (ballot).
 
 ``/link`` is the highest-leverage command: it's how a member in Discord connects their
 account to Past Lives, which gates *every* other part of the integration (guild sync, DMs,
@@ -14,9 +14,9 @@ configured, already linked, and not-yet-linked (the connect link). Any unexpecte
 is turned into the friendly error reply by :func:`core.events.discord_commands.dispatch`'s
 per-command guard, so Discord never sees a 500.
 
-``/join-guild`` mirrors the in-app :func:`hub.views.guild_join` sequence over Discord: it
-records the app-side membership, self-heals the Discord role on every path, and — only for a
-brand-new join — posts a public welcome to the guild's channel and fires the join fan-out
+``/join-guild`` mirrors the in-app subscribe path (:meth:`membership.models.Member.subscribe_to_guild`)
+over Discord: it records the app-side subscription row, self-heals the Discord role on every path, and — only
+for a brand-new subscription — posts a public welcome to the guild's channel and fires the fan-out
 (activity + lead notice + optional welcome email). It is ``defer=True`` because that fan-out
 can send email; all Discord side-effects are best-effort, so the ``GuildMembership`` row is
 the source of truth. It complements (never replaces) the emoji reaction-role flow.
@@ -137,7 +137,7 @@ def _guild_choices() -> list[dict]:
             [g.name for g in guilds[_MAX_CHOICES:]],
         )
         guilds = guilds[:_MAX_CHOICES]
-    option: dict = {"name": "guild", "description": "Which guild to join.", "type": 3, "required": True}
+    option: dict = {"name": "guild", "description": "Which guild to follow.", "type": 3, "required": True}
     if guilds:
         option["choices"] = [{"name": g.name, "value": g.slug} for g in guilds]
     return [option]
@@ -149,11 +149,13 @@ def _welcome_body(guild: Guild) -> str:
 
 
 def _join_guild(interaction: Interaction, member: Member | None) -> dict:
-    """Join the caller to their chosen guild and welcome them (spec §5).
+    """Subscribe the caller to their chosen guild's updates and welcome them (spec §5).
 
-    Mirrors :func:`hub.views.guild_join`: ``record_app_join`` → ensure the Discord role on
-    **every** path (idempotent self-heal) → and, **only for a brand-new join**, post the
-    public channel welcome and fire the join fan-out. An ``upgraded`` reaction-join (already
+    Mirrors the in-app subscribe path (:meth:`membership.models.Member.subscribe_to_guild`), but keeps
+    its own inline sequence because the public channel welcome interleaves with ``created``:
+    ``record_app_join`` → ensure the Discord role on **every** path (idempotent self-heal) → and,
+    **only for a brand-new subscription**, post the public channel welcome and fire the fan-out.
+    An ``upgraded`` reaction-join (already
     in the guild/channel) gets neither the public post nor the fan-out — no surprise
     re-welcome. Every Discord side-effect is best-effort; the ``GuildMembership`` row is the
     source of truth, so the ephemeral confirmation always returns.
@@ -189,21 +191,24 @@ def _join_guild(interaction: Interaction, member: Member | None) -> dict:
                 hook,
                 Message(title=f"Welcome {member.display_name} to {guild.name}!", body=_welcome_body(guild)),
             )
-        # Welcome fan-out (activity + lead notification + optional welcome email), wrapped so
-        # an email hiccup can never swallow the member's confirmation.
+        # Welcome fan-out (activity + lead "New follower" notice), wrapped so an email hiccup
+        # can never swallow the member's confirmation. /join-guild is a deliberate join, so the
+        # member-facing welcome email fires too (there is no opt-out checkbox in Discord — a
+        # member who typed the command wants in). Both are wrapped best-effort.
         try:
             orientations.member_joined_guild(guild, member)
+            member.send_guild_welcome(guild)
         except Exception:
             logger.exception("join-guild: welcome fan-out failed for guild=%s member=%s", guild.pk, member.pk)
 
     if created or upgraded:
-        return reply(f"You're in **{guild.name}**! 🎉\n\n{_welcome_body(guild)}", ephemeral=True)
-    return reply(f"You're already in **{guild.name}** — nothing to do.", ephemeral=True)
+        return reply(f"You now follow **{guild.name}**! 🎉\n\n{_welcome_body(guild)}", ephemeral=True)
+    return reply(f"You already follow **{guild.name}**. Nothing to do.", ephemeral=True)
 
 
 JOIN_GUILD = SlashCommand(
     name="join-guild",
-    description="Join a Past Lives guild.",
+    description="Follow a Past Lives guild to get its updates.",
     handler=_join_guild,
     options_builder=_guild_choices,
     requires_link=True,
@@ -218,29 +223,33 @@ register(JOIN_GUILD)
 # --- /vote --------------------------------------------------------------------
 
 _RANKED_OPTIONS = (
-    ("first", "Your 1st choice (5 pts)."),
-    ("second", "Your 2nd choice (3 pts)."),
-    ("third", "Your 3rd choice (2 pts)."),
+    ("first", "Your 1st choice (5 pts).", True),
+    ("second", "Your 2nd choice (3 pts).", True),
+    ("third", "Your 3rd choice (2 pts).", True),
 )
 
 
 def _ballot_options() -> list[dict]:
-    """The three required ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
+    """The ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
 
+    All three choices are required, mirroring the voting page.
     Built from :func:`_guild_choices` so the slug values, the 25-choice Discord cap (beyond 25
     active guilds the overflow is logged and dropped from the picker — the same constraint
     ``/join-guild`` already lives with; those guilds stay votable on the hub page), and the
     empty-choices guard are shared rather than re-implemented. One DB query serves all three.
     """
     base = _guild_choices()[0]
-    return [{**base, "name": name, "description": description} for name, description in _RANKED_OPTIONS]
+    return [
+        {**base, "name": name, "description": description, "required": required}
+        for name, description, required in _RANKED_OPTIONS
+    ]
 
 
 def _vote(interaction: Interaction, member: Member | None) -> dict:
     """Cast or change the member's ranked ballot — the hub page's exact validate + save path.
 
     Validation is the very same ``VotePreferenceForm`` the voting page POSTs through
-    (active-guild querysets + the three-distinct rule) and the save is the same
+    (active-guild querysets, all three required, distinct choices) and the save is the same
     ``VotePreference.objects.cast_ballot`` call, so ``updated_at``, the Airtable push in
     ``VotePreference.save()``, and the vote-activity post-save signal fire exactly as a page
     submission would — no invented sync behavior. Validation failures name the problem in a
@@ -258,9 +267,10 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
     member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
     voting_url = hub_url("hub_guild_voting")
 
-    slugs = [option_value(interaction, name) or "" for name, _ in _RANKED_OPTIONS]
-    guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=slugs)}
-    unknown = sorted({slug for slug in slugs if slug not in guilds_by_slug})
+    slugs = [option_value(interaction, name) or "" for name, *_ in _RANKED_OPTIONS]
+    provided = [slug for slug in slugs if slug]
+    guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=provided)}
+    unknown = sorted({slug for slug in provided if slug not in guilds_by_slug})
     if unknown:
         named = ", ".join(f"`{slug}`" for slug in unknown)
         return reply(
@@ -271,14 +281,15 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
 
     form = VotePreferenceForm(
         data={
-            "guild_1st": guilds_by_slug[slugs[0]].pk,
-            "guild_2nd": guilds_by_slug[slugs[1]].pk,
-            "guild_3rd": guilds_by_slug[slugs[2]].pk,
+            "guild_1st": guilds_by_slug[slugs[0]].pk if slugs[0] else "",
+            "guild_2nd": guilds_by_slug[slugs[1]].pk if slugs[1] else "",
+            "guild_3rd": guilds_by_slug[slugs[2]].pk if slugs[2] else "",
         }
     )
     if not form.is_valid():
-        # With three resolved active guilds the only reachable failure is the distinct-three
-        # rule — surface the form's own message so Discord and the page speak identically.
+        # Guilds resolved, so the reachable failures are the shared form rules: choices must be
+        # distinct and you can't skip a rank — surface the form's own message so Discord and the
+        # page speak identically.
         message = " ".join(str(error) for errors in form.errors.values() for error in errors)
         return reply(f"{message} Nothing was changed — adjust your picks and try again.", ephemeral=True)
 
@@ -291,14 +302,21 @@ def _vote(interaction: Interaction, member: Member | None) -> dict:
 
     cycle = get_cycle_context()
     verb = "in" if created else "updated"
+    ranked = [
+        (f"{label} — {guild.name} · {WEIGHTS[label]} pts")
+        for label, guild in (
+            ("1st", preference.guild_1st),
+            ("2nd", preference.guild_2nd),
+            ("3rd", preference.guild_3rd),
+        )
+        if guild
+    ]
     embed = {
         "title": f"Your ballot is {verb} — {cycle['current_cycle_label']} ✅",
         "description": (
             f"This cycle closes **{cycle['cycle_closes_on']}**.\n\n"
-            f"1st — {preference.guild_1st.name} · {WEIGHTS['1st']} pts\n"
-            f"2nd — {preference.guild_2nd.name} · {WEIGHTS['2nd']} pts\n"
-            f"3rd — {preference.guild_3rd.name} · {WEIGHTS['3rd']} pts\n\n"
-            "See the live standings anytime with `/voting`."
+            + "\n".join(ranked)
+            + "\n\nSee the live standings anytime with `/voting`."
         ),
     }
     button_row = {

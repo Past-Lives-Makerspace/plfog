@@ -13,8 +13,9 @@ from django.utils import timezone
 
 from core.models import EventDelivery, Notification, SiteActivity
 from membership import orientations
-from membership.models import GuildStaffMembership, OrientationBooking, OrientationSlot
+from membership.models import GuildStaffMembership, OrientationBooking, OrientationError, OrientationSlot
 from tests.membership.factories import (
+    EquipmentReservationFactory,
     GuildFactory,
     GuildMembershipFactory,
     GuildOrientationSettingsFactory,
@@ -24,6 +25,7 @@ from tests.membership.factories import (
     OrientationAvailabilityFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 _GUILD_HOOK = "https://discord.com/api/webhooks/900/orientation-guild"
@@ -237,9 +239,10 @@ def describe_action_tokens():
     def it_round_trips_a_token():
         booking = OrientationBookingFactory()
         token = orientations.make_action_token(booking, "confirm")
-        decoded_booking, action = orientations.read_action_token(token)
+        decoded_booking, action, recipient = orientations.read_action_token(token)
         assert decoded_booking.pk == booking.pk
         assert action == "confirm"
+        assert recipient is None  # payload without a recipient reads back as None
 
     def it_rejects_a_tampered_token():
         with pytest.raises(signing.BadSignature):
@@ -511,34 +514,21 @@ def describe_auto_complete():
 
 
 def describe_member_joined_guild():
-    def it_emails_the_member_and_notifies_the_lead():
+    def it_notifies_the_lead_and_logs_activity_without_emailing():
         lead = _member_with_user("join_lead")
         guild = GuildFactory(guild_lead=lead)
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome!",
-            join_email_body="Glad you joined.",
-        )
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
         member = _member_with_user("join_member")
 
         orientations.member_joined_guild(guild, member)
 
-        assert mail.outbox[0].to == [member.primary_email]
-        assert mail.outbox[0].subject == "Welcome!"
-        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
-        assert Notification.objects.filter(user=lead.user, trigger="guild_joined").exists()
-
-    def it_skips_the_email_when_not_configured():
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        member = _member_with_user("join_noemail")
-
-        orientations.member_joined_guild(guild, member)
-
+        # The welcome email was removed with its dead trigger; only the lead-only "New
+        # follower" notice and the GUILD_JOINED activity remain — no email is sent.
         assert mail.outbox == []
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.GUILD_JOINED).exists()
+        notice = Notification.objects.get(user=lead.user, trigger="guild_joined")
+        assert notice.title == "New follower"
+        assert notice.body == f"{member.display_name} now follows {guild.name}."
 
 
 def describe_generate_slots():
@@ -551,6 +541,28 @@ def describe_generate_slots():
 
         assert created >= 1
         assert OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).exists()
+
+    def it_carries_the_rules_orientation_type_onto_every_generated_slot():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        lathe = OrientationTypeFactory(guild=guild, name="Lathe", default_location="Lathe Corner")
+        rule = OrientationAvailabilityFactory(guild=guild, orientation_type=lathe, location="")
+
+        assert orientations.generate_slots() >= 1
+        generated = OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED)
+        assert generated.exists()
+        assert all(slot.orientation_type == lathe for slot in generated)
+        # A rule with no location falls back to the TYPE's default location.
+        assert all(slot.location == "Lathe Corner" for slot in generated)
+        assert rule.orientation_type == lathe
+
+    def it_stops_generating_for_a_retired_type():
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        retired = OrientationTypeFactory(guild=guild, name="Retired", is_active=False)
+        OrientationAvailabilityFactory(guild=guild, orientation_type=retired)
+
+        assert orientations.generate_slots() == 0
 
     def it_is_idempotent():
         guild = GuildFactory()
@@ -588,3 +600,148 @@ def describe_generate_slots():
         assert created >= 1
         assert OrientationSlot.objects.filter(guild=target).exists()
         assert not OrientationSlot.objects.filter(guild=other).exists()
+
+
+def describe_equipment_owned_orientations_service():
+    """The full pipeline re-plumbed for an equipment owner — request through unlock."""
+
+    def _equipment_slot(name: str = "CNC Router", **kwargs):
+        from tests.membership.factories import EquipmentFactory
+
+        equipment = EquipmentFactory(name=name)
+        orientation_type = OrientationTypeFactory(
+            equipment_owned=True, equipment=equipment, name="Operator Basics", **kwargs
+        )
+        return OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+
+    def it_runs_the_full_free_unlock_loop():
+        from membership.models import EquipmentStaffMembership
+
+        slot = _equipment_slot()
+        equipment = slot.orientation_type.equipment
+        equipment.required_orientation = slot.orientation_type
+        equipment.save(update_fields=["required_orientation"])
+        manager = _member_with_user("eq_mgr_loop")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        member = _member_with_user("eq_loop")
+        assert equipment.booking_blockers(member)  # gated before
+
+        booking = orientations.request_orientation(slot, member)
+        assert booking.guild is None
+        orientations.confirm_orientation(booking, oriented_by=manager)
+        orientations.complete_orientation(booking)
+        assert member.is_oriented_for_type(slot.orientation_type) is True
+        assert equipment.booking_blockers(member) == []  # the unlock
+
+    def it_routes_a_personal_slot_to_its_manager_the_capability_holders_and_the_guild_lead():
+        from membership.models import AdminCapability, EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory
+
+        lead = _member_with_user("eq_p_lead")
+        equipment = EquipmentFactory(name="CNC Router", guild=GuildFactory(guild_lead=lead))
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        dana = _member_with_user("eq_p_dana")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
+        other_manager = _member_with_user("eq_p_other")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=other_manager)
+        holder = _member_with_user("eq_p_holder")
+        holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=dana)
+        requester = _member_with_user("eq_p_member")
+        mail.outbox.clear()
+        with patch.object(orientations, "_action_url", wraps=orientations._action_url) as spy:
+            orientations.request_orientation(slot, requester)
+        # One message per recipient: union the whole request fan-out.
+        addressed = {addr for m in mail.outbox if "New orientation request" in m.subject for addr in m.to}
+        assert addressed == {dana.primary_email, holder.primary_email, lead.primary_email}
+        assert other_manager.primary_email not in addressed
+        # The confirm and decline links credit the manager the member booked.
+        confirm_call = next(call for call in spy.call_args_list if call.args[1] == "confirm")
+        assert confirm_call.kwargs["recipient"] == dana
+        assert Notification.objects.filter(user=dana.user, trigger="orientation_requested").exists()
+        assert not Notification.objects.filter(user=other_manager.user, trigger="orientation_requested").exists()
+
+    def it_dedupes_a_manager_who_is_also_a_holder_and_lead_and_copes_with_a_standalone_tool():
+        from membership.models import AdminCapability, EquipmentStaffMembership
+        from tests.membership.factories import EquipmentFactory
+
+        dana = _member_with_user("eq_d_dana")
+        dana.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
+        owned = EquipmentFactory(guild=GuildFactory(guild_lead=dana))
+        EquipmentStaffMembership.objects.create(equipment=owned, member=dana)
+        assert orientations.equipment_personal_audience(owned, dana) == [dana]
+        standalone = EquipmentFactory(guild=None)
+        EquipmentStaffMembership.objects.create(equipment=standalone, member=dana)
+        assert orientations.equipment_personal_audience(standalone, dana) == [dana]
+
+    def it_routes_the_request_to_the_equipment_managers_only():
+        from membership.models import EquipmentStaffMembership
+
+        slot = _equipment_slot()
+        equipment = slot.orientation_type.equipment
+        manager = _member_with_user("eq_aud_mgr")
+        EquipmentStaffMembership.objects.create(equipment=equipment, member=manager)
+        bystander_lead = _member_with_user("eq_aud_lead")
+        GuildFactory(guild_lead=bystander_lead)
+        member = _member_with_user("eq_aud_member")
+        mail.outbox.clear()
+        orientations.request_orientation(slot, member)
+        lead_request = next(m for m in mail.outbox if "New orientation request" in m.subject)
+        assert lead_request.to == [manager.primary_email]
+        assert equipment.name in lead_request.subject
+        # The in-app row lands for the manager via the composed resolver.
+        assert Notification.objects.filter(user=manager.user, trigger="orientation_requested").exists()
+        assert not Notification.objects.filter(user=bystander_lead.user, trigger="orientation_requested").exists()
+
+    def it_builds_the_ics_and_emails_around_the_equipment_name():
+        slot = _equipment_slot(name="Big Laser")
+        member = _member_with_user("eq_ics")
+        mail.outbox.clear()
+        booking = orientations.request_orientation(slot, member)
+        payload = orientations.build_ics(booking, method="REQUEST", status="TENTATIVE").decode()
+        assert "Big Laser" in payload
+        member_email = next(m for m in mail.outbox if "request received" in m.subject)
+        assert "Big Laser" in member_email.subject
+        assert "[missing:" not in member_email.body
+        assert "{{" not in member_email.body
+        assert f"/equipment/{slot.orientation_type.equipment.slug}/" in member_email.body
+
+    def it_cancels_an_equipment_slot_with_the_full_fan_out():
+        slot = _equipment_slot()
+        member = _member_with_user("eq_slotcancel")
+        booking = orientations.request_orientation(slot, member)
+        mail.outbox.clear()
+        orientations.cancel_slot(slot, reason="Machine down.")
+        booking.refresh_from_db()
+        assert booking.status == OrientationBooking.Status.CANCELLED
+        cancelled_email = next(m for m in mail.outbox if "cancelled" in m.subject)
+        assert slot.orientation_type.owner_name in cancelled_email.subject
+
+    def it_sends_the_standard_thankyou_with_the_equipment_name():
+        slot = _equipment_slot(name="Kiln Room")
+        member = _member_with_user("eq_thanks")
+        booking = orientations.request_orientation(slot, member)
+        orientations.confirm_orientation(booking)
+        mail.outbox.clear()
+        orientations.complete_orientation(booking)
+        thankyou = next(m for m in mail.outbox if "Kiln Room" in m.subject)
+        assert "[missing:" not in thankyou.body
+
+
+def describe_equipment_request_lock():
+    """An equipment-owned request books under the Equipment row lock ``reserve()`` takes (PR 2)."""
+
+    def it_refuses_a_request_under_a_confirmed_reservation():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        EquipmentReservationFactory(
+            equipment=slot.orientation_type.equipment, starts_at=slot.starts_at, ends_at=slot.ends_at
+        )
+        with pytest.raises(OrientationError, match="not available to book"):
+            orientations.request_orientation(slot, _member_with_user("lock_refused"))
+        assert not slot.bookings.exists()
+
+    def it_books_under_the_lock_otherwise():
+        slot = OrientationSlotFactory(equipment_owned=True)
+        booking = orientations.request_orientation(slot, _member_with_user("lock_booked"))
+        assert booking.status == OrientationBooking.Status.REQUESTED
+        assert slot.bookings.count() == 1

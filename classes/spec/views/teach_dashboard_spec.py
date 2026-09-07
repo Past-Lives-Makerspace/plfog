@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
+    READY_DESCRIPTION,
     CategoryFactory,
     ClassOfferingFactory,
     InstructorFactory,
@@ -23,6 +24,15 @@ from membership.models import Member
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+def _real_image_file(name: str = "hero.png") -> SimpleUploadedFile:
+    """A genuine PNG — the hero ``image`` form field runs Pillow validation, unlike gallery files."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -134,7 +144,7 @@ def describe_instructor_create_class():
             {
                 "title": "Submit-Me",
                 "category": cat.pk,
-                "description": "d",
+                "description": READY_DESCRIPTION,
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -146,7 +156,7 @@ def describe_instructor_create_class():
                 "scheduling_model": "flexible",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "flexible_note": "",
+                "flexible_note": "We will find a time together.",
                 "recurring_pattern": "",
                 "sessions-TOTAL_FORMS": "0",
                 "sessions-INITIAL_FORMS": "0",
@@ -160,7 +170,8 @@ def describe_instructor_create_class():
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
-                # A class needs a photo of its own to pass the submit gate.
+                # A class needs its own hero plus a gallery photo to pass the submit gate.
+                "image": _real_image_file(),
                 "gallery_images": [_image_file("x.png")],
                 "action": "submit",
             },
@@ -263,15 +274,14 @@ def describe_instructor_edit_class():
         response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": theirs.pk}))
         assert response.status_code == 404
 
-    def it_redirects_for_published_classes(instructor_fixture, client):
+    def it_opens_the_light_edit_page_for_published_classes(instructor_fixture, client):
         mine = ClassOfferingFactory(
-            instructor=instructor_fixture,
-            slug="mine-published",
-            status=ClassOffering.Status.PUBLISHED,
+            instructor=instructor_fixture, slug="pub-light", status=ClassOffering.Status.PUBLISHED
         )
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}))
-        assert response.status_code == 302
+        assert response.status_code == 200
+        assert b"This class is live." in response.content
 
     def it_renders_the_edit_form_for_drafts(instructor_fixture, client):
         mine = ClassOfferingFactory(
@@ -287,6 +297,7 @@ def describe_instructor_edit_class():
 def describe_instructor_submit():
     def it_flips_draft_to_pending(instructor_fixture, client):
         mine = ClassOfferingFactory(
+            ready=True,
             instructor=instructor_fixture,
             slug="to-submit",
             status=ClassOffering.Status.DRAFT,
@@ -312,11 +323,21 @@ def describe_instructor_registrations():
 
 
 def describe_instructor_profile():
-    def it_redirects_to_hub_settings(instructor_fixture, client):
+    def it_states_the_live_public_page_and_links_to_profile_settings(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_profile"))
-        assert response.status_code == 302
-        assert response["Location"].endswith("/settings/?tab=profile")
+        assert response.status_code == 200
+        html = response.content.decode()
+        card = html[
+            html.index('data-card="instructor-page"') : html.index(
+                "</section>", html.index('data-card="instructor-page"')
+            )
+        ]
+        assert "Your public instructor page is live:" in card
+        assert reverse("classes:public_instructor", kwargs={"slug": instructor_fixture.instructor_slug}).encode() in (
+            response.content
+        )
+        assert b"/settings/?tab=profile" in response.content
 
 
 def describe_instructor_class_create_invalid():
@@ -417,7 +438,7 @@ def describe_instructor_class_edit_post():
             {
                 "title": mine.title,
                 "category": cat.pk,
-                "description": "d",
+                "description": READY_DESCRIPTION,
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",

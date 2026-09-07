@@ -32,7 +32,7 @@ def describe_registration_detail_scope():
         reg = RegistrationFactory(class_offering=offering)
         client.force_login(user)
         response = client.get(reverse("classes:admin_registration_detail", kwargs={"pk": reg.pk}))
-        assert b"Mark Refunded" not in response.content
+        assert b"Admin Actions" not in response.content
 
     def it_404s_for_a_registration_outside_an_instructors_classes(client):
         user, _ = _instructor_with_class(username="t-404@example.com", slug="t-404")
@@ -45,7 +45,11 @@ def describe_registration_detail_scope():
         reg = RegistrationFactory(status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
         response = client.get(reverse("classes:admin_registration_detail", kwargs={"pk": reg.pk}))
-        assert b"Mark Refunded" in response.content
+        assert b"Admin Actions" in response.content
+        assert b"Cancel Registration" in response.content
+        # The record-only refund path died with the real-refund feature.
+        assert b"Mark Refunded" not in response.content
+        assert b"dashboard.stripe.com" not in response.content
 
 
 def describe_admin_registration_move():
@@ -78,11 +82,22 @@ def describe_admin_registration_move():
 
 
 def describe_admin_registration_refund():
-    def it_marks_a_registration_refunded(admin_user, client):
-        reg = RegistrationFactory(status=Registration.Status.CONFIRMED)
+    def it_issues_a_real_stripe_refund_and_marks_the_registration_refunded(admin_user, client):
+        from unittest.mock import patch
+
+        reg = RegistrationFactory(
+            status=Registration.Status.CONFIRMED, amount_paid_cents=5000, stripe_payment_id="pi_test_actions"
+        )
         client.force_login(admin_user)
-        response = client.post(reverse("classes:admin_registration_refund", kwargs={"pk": reg.pk}), {"reason": "dup"})
-        assert response.status_code == 302
+        with patch(
+            "billing.stripe_utils.create_refund",
+            return_value={"id": "re_actions_1", "status": "succeeded", "amount": 5000},
+        ):
+            response = client.post(
+                reverse("classes:admin_registration_refund", kwargs={"pk": reg.pk}),
+                {"amount": "50.00", "reason": "dup"},
+            )
+        assert response.status_code == 204
         reg.refresh_from_db()
         assert reg.status == Registration.Status.REFUNDED
 

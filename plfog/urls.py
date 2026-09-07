@@ -54,15 +54,17 @@ class HubEmailView(EmailView):
 
     POSTs (add, make primary, re-send, remove) still run through allauth's
     EmailView logic; only the success_url and GET rendering change so the user
-    always lands on /settings/?tab=emails instead of the legacy themed page.
+    always lands on /settings/?tab=account (the Manage Email Addresses card's home
+    after the Emails tab folded into Account) instead of the legacy themed page.
     """
 
-    # Always land back on the Emails tab after add/primary/resend/remove so the
-    # user's context is preserved instead of bouncing them to Profile.
-    success_url = "/settings/?tab=emails"
+    # Always land back on the Account tab (beside the email card) after
+    # add/primary/resend/remove so the user's context is preserved instead of
+    # bouncing them to Profile.
+    success_url = "/settings/?tab=account"
 
     def get(self, request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
-        return redirect("/settings/?tab=emails")
+        return redirect("/settings/?tab=account")
 
 
 class SeededRequestLoginCodeView(RequestLoginCodeView):

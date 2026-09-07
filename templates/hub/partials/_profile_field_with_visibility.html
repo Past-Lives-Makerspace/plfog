@@ -3,6 +3,7 @@
         <label for="{{ field.id_for_label }}" class="pl-profile-row__label">{{ label }}</label>
         <button type="button"
                 class="pl-vis-toggle"
+                data-arm-dirty
                 :class="{ 'pl-vis-toggle--on': vis.{{ key }}, 'pl-vis-toggle--off': !vis.{{ key }}, 'pl-vis-toggle--disabled': !listed }"
                 :disabled="!listed"
                 @click="vis.{{ key }} = !vis.{{ key }}"

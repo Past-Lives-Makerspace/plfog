@@ -794,6 +794,34 @@ def describe_public_instructor():
         assert 'href="https://wes.example"' in content
         assert "PrivateNote" not in content
 
+    def it_renders_a_social_contact_with_its_platform_icon(db, client):
+        instructor = InstructorFactory(full_legal_name="Ida", instructor_slug="ida")
+        MemberContactFactory(
+            member=instructor,
+            label="Instagram",
+            value="https://instagram.example/ida",
+            kind="social",
+            show_on_instructor_page=True,
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert "pl-social-icon" in content
+        assert 'href="https://instagram.example/ida"' in content
+
+    def it_keeps_the_plain_label_style_for_a_non_social_contact(db, client):
+        instructor = InstructorFactory(full_legal_name="Ola", instructor_slug="ola")
+        MemberContactFactory(
+            member=instructor,
+            label="Booking",
+            value="book@ola.example",
+            kind="other",
+            show_on_instructor_page=True,
+        )
+        response = client.get(reverse("classes:public_instructor", kwargs={"slug": instructor.instructor_slug}))
+        content = response.content.decode()
+        assert "Booking:" in content
+        assert "pl-social-icon" not in content
+
 
 def describe_google_analytics_gate():
     def it_omits_ga_tag_when_id_not_set(published_class, client):
@@ -918,3 +946,66 @@ def describe_detail_hero_fallback():
         assert resp.status_code == 200
         assert "cp-detail__hero-logo" in resp.content.decode()
         assert "img/favicon.png" in resp.content.decode()
+
+
+def describe_all_guild_types_show():
+    """Every guild type (Category) appears in the catalog, even with zero bookable classes."""
+
+    def it_lists_a_guild_type_with_no_bookable_classes(db, client):
+        stocked = CategoryFactory(name="Ceramics", slug="ceramics")
+        empty = CategoryFactory(name="Leatherwork", slug="leatherwork")
+        offering = ClassOfferingFactory(
+            title="Wheel Throwing",
+            slug="wheel-throwing",
+            category=stocked,
+            status=ClassOffering.Status.PUBLISHED,
+        )
+        start = timezone.now() + timedelta(days=7)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+
+        response = client.get(reverse("classes:public_list"))
+
+        cats = {c.slug: c for c in response.context["categories"]}
+        assert {"ceramics", "leatherwork"} <= set(cats)
+        assert cats["ceramics"].class_count == 1
+        assert cats["leatherwork"].class_count == 0
+        assert response.context["total_categories"] == 2  # exactly the two we created
+        assert empty.slug in cats
+
+    def it_counts_every_guild_type_in_the_hero_stat(db, client):
+        for i in range(3):
+            CategoryFactory(name=f"Guild {i}", slug=f"guild-{i}")
+
+        response = client.get(reverse("classes:public_list"))
+
+        assert response.context["total_categories"] == 3
+
+    def it_hides_demo_guild_types_when_demo_is_off(db, client):
+        # Listing all categories must not undo the demo gate: [DEMO] guild types stay
+        # hidden on prod when display_demo_classes is off.
+        from core.models import SiteConfiguration
+
+        CategoryFactory(name="[DEMO] Lamp Working", slug="demo-lamp-working")
+        CategoryFactory(name="Ceramics", slug="ceramics")
+        config = SiteConfiguration.load()
+        config.display_demo_classes = False
+        config.save()
+
+        response = client.get(reverse("classes:public_list"))
+
+        slugs = {c.slug for c in response.context["categories"]}
+        assert "ceramics" in slugs
+        assert "demo-lamp-working" not in slugs
+
+    def it_shows_demo_guild_types_when_demo_is_on(db, client):
+        from core.models import SiteConfiguration
+
+        CategoryFactory(name="[DEMO] Lamp Working", slug="demo-lamp-working")
+        config = SiteConfiguration.load()
+        config.display_demo_classes = True
+        config.save()
+
+        response = client.get(reverse("classes:public_list"))
+
+        slugs = {c.slug for c in response.context["categories"]}
+        assert "demo-lamp-working" in slugs

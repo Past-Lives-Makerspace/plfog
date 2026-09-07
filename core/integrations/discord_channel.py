@@ -30,25 +30,66 @@ class DiscordChannelError(Exception):
     """A Discord channel-message API call failed (transport error or non-2xx response)."""
 
 
-def post_channel_message(channel_id: str, embeds: list[dict[str, Any]]) -> None:
-    """POST one message carrying ``embeds`` to the channel. Raises :class:`DiscordChannelError`
-    on any failure — these run inside scheduled jobs, which must fail loudly, not silently
-    drop a post.
+def post_channel_message(
+    channel_id: str,
+    embeds: list[dict[str, Any]],
+    *,
+    content: str = "",
+    components: list[dict[str, Any]] | None = None,
+    allowed_mentions: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """POST one message carrying ``embeds`` to the channel; return the created message JSON.
 
-    A 429 is retried once after Discord's advertised ``Retry-After`` (bounded); a second
-    429, or an unusable/too-long ``Retry-After``, raises.
+    Raises :class:`DiscordChannelError` on any failure — these run inside scheduled jobs,
+    which must fail loudly, not silently drop a post. ``content`` / ``components`` /
+    ``allowed_mentions`` are included only when provided, so existing callers (the digest
+    and class announcer) send exactly the ``{"embeds": …}`` body they always did.
+
+    The returned message JSON carries the ``id`` the RSVP announcer stores so the hub can
+    later refresh the embed and a cancel can strip the buttons. A 429 is retried once after
+    Discord's advertised ``Retry-After`` (bounded); a second 429, or an unusable/too-long
+    ``Retry-After``, raises.
     """
-    _send_embeds("POST", f"{API_BASE}/channels/{channel_id}/messages", embeds)
+    payload = _message_payload(embeds, content=content, components=components, allowed_mentions=allowed_mentions)
+    return _send_payload("POST", f"{API_BASE}/channels/{channel_id}/messages", payload, len(embeds))
 
 
-def edit_channel_message(channel_id: str, message_id: str, embeds: list[dict[str, Any]]) -> None:
+def edit_channel_message(
+    channel_id: str,
+    message_id: str,
+    embeds: list[dict[str, Any]],
+    *,
+    components: list[dict[str, Any]] | None = None,
+) -> None:
     """PATCH an existing bot message's embeds in place — the message id (and its pin) survive.
 
-    Used for the FOG-managed #important-info pinned post. Same fail-loudly contract and
-    bounded single 429 retry as :func:`post_channel_message`; raises
-    :class:`DiscordChannelError` on any failure so the caller can surface it to the admin.
+    Used for the FOG-managed #important-info pinned post and the RSVP announcement refresh.
+    ``components`` is included only when provided: omit it to leave Discord's existing buttons
+    untouched (the RSVP refresh), or pass ``[]`` to strip them (a cancelled event). Same
+    fail-loudly contract and bounded single 429 retry as :func:`post_channel_message`.
     """
-    _send_embeds("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", embeds)
+    payload: dict[str, Any] = {"embeds": embeds}
+    if components is not None:
+        payload["components"] = components
+    _send_payload("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", payload, len(embeds))
+
+
+def _message_payload(
+    embeds: list[dict[str, Any]],
+    *,
+    content: str,
+    components: list[dict[str, Any]] | None,
+    allowed_mentions: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The POST body: ``embeds`` always, the rest only when non-empty / provided."""
+    payload: dict[str, Any] = {"embeds": embeds}
+    if content:
+        payload["content"] = content
+    if components is not None:
+        payload["components"] = components
+    if allowed_mentions is not None:
+        payload["allowed_mentions"] = allowed_mentions
+    return payload
 
 
 def fetch_channel_name_from_webhook(webhook_url: str) -> str:
@@ -77,27 +118,32 @@ def fetch_channel_name_from_webhook(webhook_url: str) -> str:
     return f"#{name}" if name else ""
 
 
-def _send_embeds(method: str, url: str, embeds: list[dict[str, Any]]) -> None:
-    """Deliver ``embeds`` via one bot REST call, with the shared cap check + single 429 retry."""
-    if len(embeds) > MAX_EMBEDS_PER_MESSAGE:
-        raise DiscordChannelError(f"Discord allows {MAX_EMBEDS_PER_MESSAGE} embeds per message, got {len(embeds)}.")
-    response = _send(method, url, embeds)
+def _send_payload(method: str, url: str, payload: dict[str, Any], embed_count: int) -> dict[str, Any]:
+    """Deliver ``payload`` via one bot REST call (shared cap check + single 429 retry).
+
+    Returns the parsed response JSON (an empty dict when the response has no body), so a
+    POST caller can read the created message's ``id``.
+    """
+    if embed_count > MAX_EMBEDS_PER_MESSAGE:
+        raise DiscordChannelError(f"Discord allows {MAX_EMBEDS_PER_MESSAGE} embeds per message, got {embed_count}.")
+    response = _send(method, url, payload)
     if response.status_code == 429:
         retry_after = _retry_after_seconds(response)
         if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
             time.sleep(retry_after)
-            response = _send(method, url, embeds)
+            response = _send(method, url, payload)
     if not response.is_success:
         raise DiscordChannelError(f"Discord API {response.status_code}: {response.text[:300]}")
+    return response.json() if response.content else {}
 
 
-def _send(method: str, url: str, embeds: list[dict[str, Any]]) -> httpx.Response:
+def _send(method: str, url: str, payload: dict[str, Any]) -> httpx.Response:
     """One raw REST call; only transport failures raise (as :class:`DiscordChannelError`)."""
     try:
         return httpx.request(
             method,
             url,
-            json={"embeds": embeds},
+            json=payload,
             headers=_auth_headers(),
             timeout=_TIMEOUT_SECONDS,
         )

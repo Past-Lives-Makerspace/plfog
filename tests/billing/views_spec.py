@@ -86,7 +86,7 @@ def describe_setup_payment_method():
         from core.models import SiteConfiguration
 
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
+        config.my_tab_enabled = False
         config.save()
         User.objects.create_user(username="pm_off", password="pass")
         client.login(username="pm_off", password="pass")

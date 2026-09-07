@@ -14,6 +14,11 @@ from factory.django import mute_signals
 from membership.models import (
     CommunityEvent,
     DiscordGuildEmoji,
+    Equipment,
+    EquipmentHours,
+    EquipmentReservation,
+    EquipmentStaffMembership,
+    EventRSVP,
     Floorplan,
     FundingSnapshot,
     Guild,
@@ -43,8 +48,10 @@ from membership.models import (
     OrgInfoPage,
     OrgLink,
     OrientationAvailability,
+    OrientationAvailabilityBlock,
     OrientationBooking,
     OrientationSlot,
+    OrientationType,
     Skill,
     SkillCategory,
     SlideshowSlide,
@@ -96,6 +103,7 @@ class MemberContactFactory(factory.django.DjangoModelFactory):
     member = factory.SubFactory(MemberFactory)
     label = factory.Sequence(lambda n: f"Contact {n}")
     value = "https://example.com"
+    kind = MemberContact.Kind.OTHER
 
 
 class SpaceFactory(factory.django.DjangoModelFactory):
@@ -298,6 +306,16 @@ class CommunityEventFactory(factory.django.DjangoModelFactory):
         )
 
 
+class EventRSVPFactory(factory.django.DjangoModelFactory):
+    """One member's RSVP to a community event."""
+
+    class Meta:
+        model = EventRSVP
+
+    event = factory.SubFactory(CommunityEventFactory)
+    member = factory.SubFactory(MemberFactory)
+
+
 class MeetingFactory(factory.django.DjangoModelFactory):
     """A draft guild Monthly meeting a week out. Pass ``guild=None`` for the council
     scope, ``scheduled_date=None`` for an undated draft; the ``approved`` trait locks it."""
@@ -438,23 +456,116 @@ class GuildOrientationSettingsFactory(factory.django.DjangoModelFactory):
     is_enabled = True
 
 
+class OrientationTypeFactory(factory.django.DjangoModelFactory):
+    """One orientation type per (owner, name) — reused, so an owner's slots share a type by default.
+
+    ``equipment_owned=True`` flips the owner: ``guild=None`` plus a fresh Equipment
+    (the exactly-one-owner constraint). ``equipment`` rides the get-or-create key so
+    ``guild=None`` types don't collapse onto one row within a test.
+    """
+
+    class Meta:
+        model = OrientationType
+        django_get_or_create = ("guild", "equipment", "name")
+
+    class Params:
+        equipment_owned = factory.Trait(
+            guild=None, equipment=factory.SubFactory("tests.membership.factories.EquipmentFactory")
+        )
+
+    guild = factory.SubFactory(GuildFactory)
+    equipment = None
+    name = "Orientation"
+    duration_minutes = 60
+    price_cents = 0
+    default_seats = 4
+
+
 class OrientationAvailabilityFactory(factory.django.DjangoModelFactory):
+    """A guild-owned Tuesday 6 to 7 PM rule by default; ``equipment_owned=True`` for a carved equipment one.
+
+    The equipment trait sets ``guild=None``, an equipment-owned type, and a 60 minute
+    slot length (the equipment editor always sets one). The guild direction stays as
+    it was: the type's guild derives from the rule's guild, so a guild row never
+    silently gets ``None``.
+    """
+
     class Meta:
         model = OrientationAvailability
 
+    class Params:
+        equipment_owned = factory.Trait(
+            guild=None,
+            orientation_type=factory.SubFactory(OrientationTypeFactory, equipment_owned=True),
+            slot_minutes=60,
+        )
+
     guild = factory.SubFactory(GuildFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
     weekday = OrientationAvailability.Weekday.TUESDAY
     start_time = factory.LazyFunction(lambda: time(18, 0))
     end_time = factory.LazyFunction(lambda: time(19, 0))
     seats = 4
 
 
+class OrientationAvailabilityBlockFactory(factory.django.DjangoModelFactory):
+    """A 3-hour availability window two days out, with enabled orientation settings by default."""
+
+    class Meta:
+        model = OrientationAvailabilityBlock
+        skip_postgeneration_save = True
+
+    guild = factory.SubFactory(GuildFactory)
+    orienter = factory.SubFactory(MemberFactory)
+    # Minute-aligned like real blocks (the dashboard form posts half-hour times); the
+    # picker's option values carry minute precision, so sub-minute starts can't round-trip.
+    starts_at = factory.LazyFunction(lambda: (timezone.now() + timedelta(days=2)).replace(second=0, microsecond=0))
+    # Derived from starts_at (not its own now()) so the span is exactly 3 hours.
+    ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=3))
+
+    @factory.post_generation
+    def enabled_settings(obj, create, extracted, **kwargs):  # noqa: N805
+        """Give the block's guild enabled orientation settings so bookings work by default.
+
+        Pass ``enabled_settings=False`` to skip (e.g. to exercise the disabled paths).
+        """
+        if not create or extracted is False:
+            return
+        GuildOrientationSettings.objects.get_or_create(guild=obj.guild, defaults={"is_enabled": True})
+
+    @factory.post_generation
+    def orienter_on_staff(obj, create, extracted, **kwargs):  # noqa: N805
+        """Put the orienter on the guild's staff — carved-out slots are only bookable for leadership.
+
+        Pass ``orienter_on_staff=False`` to skip (e.g. to exercise the departed-staffer path).
+        """
+        if not create or extracted is False:
+            return
+        if obj.guild.guild_lead_id != obj.orienter_id and not obj.guild.is_staffed_by(obj.orienter):
+            GuildStaffMembership.objects.create(
+                guild=obj.guild, member=obj.orienter, role=GuildStaffMembership.Role.ORIENTER
+            )
+
+
 class OrientationSlotFactory(factory.django.DjangoModelFactory):
+    """A guild-owned bookable slot by default; ``equipment_owned=True`` for an equipment one.
+
+    The equipment trait sets ``guild=None`` and an equipment-owned type (no
+    settings row is created — equipment has no settings gate).
+    """
+
     class Meta:
         model = OrientationSlot
         skip_postgeneration_save = True
 
+    class Params:
+        equipment_owned = factory.Trait(
+            guild=None,
+            orientation_type=factory.SubFactory(OrientationTypeFactory, equipment_owned=True),
+        )
+
     guild = factory.SubFactory(GuildFactory)
+    orientation_type = factory.SubFactory(OrientationTypeFactory, guild=factory.SelfAttribute("..guild"))
     starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
     ends_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2, hours=1))
     seats = 4
@@ -464,9 +575,10 @@ class OrientationSlotFactory(factory.django.DjangoModelFactory):
         """Give the slot's guild enabled orientation settings so it's bookable by default.
 
         Pass ``enabled_settings=False`` to skip (e.g. to exercise the
-        not-configured / disabled paths).
+        not-configured / disabled paths). No-op for equipment-owned slots
+        (``guild`` is None — there is no settings row to create).
         """
-        if not create or extracted is False:
+        if not create or extracted is False or obj.guild is None:
             return
         GuildOrientationSettings.objects.get_or_create(guild=obj.guild, defaults={"is_enabled": True})
 
@@ -475,9 +587,12 @@ class OrientationBookingFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = OrientationBooking
 
+    class Params:
+        equipment_owned = factory.Trait(slot=factory.SubFactory(OrientationSlotFactory, equipment_owned=True))
+
     slot = factory.SubFactory(OrientationSlotFactory)
     member = factory.SubFactory(MemberFactory)
-    # guild is denormalized from the slot in OrientationBooking.save().
+    # guild is denormalized from the slot in OrientationBooking.save() (None for equipment-owned).
 
 
 class SkillCategoryFactory(factory.django.DjangoModelFactory):
@@ -599,3 +714,50 @@ class SpaceRequestFactory(factory.django.DjangoModelFactory):
     space = factory.SubFactory(SpaceFactory)
     kind = SpaceRequest.RequestKind.LEASE
     state = SpaceRequest.ModerationState.PENDING
+
+
+class EquipmentFactory(factory.django.DjangoModelFactory):
+    """A standalone active tool by default. Pass ``guild=`` / ``required_orientation=`` to gate it."""
+
+    class Meta:
+        model = Equipment
+
+    name = factory.Sequence(lambda n: f"Equipment {n}")
+    kind = Equipment.Kind.TOOL
+    guild = None
+    is_active = True
+
+
+class EquipmentStaffMembershipFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = EquipmentStaffMembership
+
+    equipment = factory.SubFactory(EquipmentFactory)
+    member = factory.SubFactory(MemberFactory)
+    role = EquipmentStaffMembership.Role.MANAGER
+
+
+class EquipmentHoursFactory(factory.django.DjangoModelFactory):
+    """A Tuesday 9 to 5 window by default."""
+
+    class Meta:
+        model = EquipmentHours
+
+    equipment = factory.SubFactory(EquipmentFactory)
+    weekday = EquipmentHours.Weekday.TUESDAY
+    start_time = factory.LazyFunction(lambda: time(9, 0))
+    end_time = factory.LazyFunction(lambda: time(17, 0))
+    is_active = True
+
+
+class EquipmentReservationFactory(factory.django.DjangoModelFactory):
+    """A confirmed one-hour reservation two days out by default."""
+
+    class Meta:
+        model = EquipmentReservation
+
+    equipment = factory.SubFactory(EquipmentFactory)
+    member = factory.SubFactory(MemberFactory)
+    starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
+    ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=1))
+    status = EquipmentReservation.Status.CONFIRMED

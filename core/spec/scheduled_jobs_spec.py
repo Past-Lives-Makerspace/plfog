@@ -33,8 +33,17 @@ _DISPATCHER_ALWAYS = {
     "sync_discord_guild_roles",
     "announce_calendar_events",
     "announce_new_classes",
+    "sync_interested_rsvps",
+    "expire_orientation_payment_holds",
+    "take_reconciliation_snapshot",
+    "send_pending_funding_results",
 }
-_DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots", "welcome_new_members"}
+_DISPATCHER_DAILY = {
+    "sync_all_sources",
+    "generate_orientation_slots",
+    "sweep_stale_refunds",
+    "welcome_new_members",
+}
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
 
@@ -73,10 +82,12 @@ def describe_registry():
         # from BillingSettings), so it renders an "Always on" chip, not a toggle.
         assert JOBS_BY_KEY["bill_tabs"].toggleable is False
 
-    def it_leaves_every_other_job_toggleable():
-        for job in SCHEDULED_JOBS:
-            if job.key != "bill_tabs":
-                assert job.toggleable is True
+    def it_pins_only_the_jobs_that_must_never_be_paused():
+        # send_pending_funding_results: the dispatcher skips a disabled job BEFORE it
+        # records a run, so pausing this one would leave an admin's queued results email
+        # unsent, with no run record and nothing in the voting UI to show it had stalled.
+        pinned = {job.key for job in SCHEDULED_JOBS if not job.toggleable}
+        assert pinned == {"bill_tabs", "send_pending_funding_results"}
 
     def it_marks_welcome_new_members_default_off():
         # The new-member welcome automation must ship OFF and be turned on deliberately.

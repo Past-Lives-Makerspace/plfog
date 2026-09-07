@@ -31,9 +31,10 @@ from django.utils.safestring import mark_safe
 
 from core.events.registry import Channel, EventType, Recipients, all_events, get_event
 
-# Channels that carry authored copy. Discord reuses the in-app/email copy (it is a
-# broadcast embed built from title+body); scheduled-email reuses the email copy.
-# Authored rows are seeded for these three; the adapters fall back across them.
+# Channels that carry authored copy; rows are seeded for these three. Discord copy is
+# authored greeting-free (a broadcast embed has no recipient) — curated entries and the
+# generated fallback each carry their own; a curated event without one still falls back
+# to its email copy. Scheduled-email reuses the email copy.
 COPY_CHANNELS: tuple[Channel, ...] = (Channel.IN_APP, Channel.EMAIL, Channel.DISCORD)
 
 
@@ -65,14 +66,24 @@ class EventCopy:
     def copy_for(self, channel: Channel) -> ChannelCopy:
         """Default copy for ``channel``, falling back across related channels.
 
-        Discord and scheduled-email reuse email copy; email falls back to in-app
-        copy; in-app falls back to a minimal title-only block. This keeps every
-        declared channel seedable without authoring three near-identical bodies.
+        Discord and scheduled-email reuse email copy. Push and Discord DMs are
+        one-line surfaces rendered from a context that carries no per-recipient
+        placeholders, so they prefer the in-app copy (short, greeting-free) —
+        the email fallback once put "Hi [missing: member_name]" in a Discord DM.
+        Email falls back to in-app copy; in-app falls back to a minimal
+        title-only block. This keeps every declared channel seedable without
+        authoring near-identical bodies.
+
+        Note: this consults the SEEDED defaults only — an admin-edited in-app
+        ``NotificationTemplate`` DB row does not flow through to push/DM, which
+        keep rendering the seeded default (same behavior the email fallback had).
         """
         if channel in self.channels:
             return self.channels[channel]
         if channel in (Channel.DISCORD, Channel.SCHEDULED_EMAIL) and Channel.EMAIL in self.channels:
             return self.channels[Channel.EMAIL]
+        if channel in (Channel.PUSH, Channel.DISCORD_DM) and Channel.IN_APP in self.channels:
+            return self.channels[Channel.IN_APP]
         if Channel.EMAIL in self.channels:
             return self.channels[Channel.EMAIL]
         if Channel.IN_APP in self.channels:
@@ -88,20 +99,28 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.GUILD_LEADERSHIP_OR_ADMINS: (
         "The guild's lead and staff, plus all admins (admins only for site-wide events)."
     ),
-    Recipients.CLASS_APPROVERS: "The Class Administrators (holders only).",
+    Recipients.CLASS_APPROVERS: "The CMS Administrators (holders only).",
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (
-        "The guild's lead and staff; for a lead-less category, the Class Administrators (holders only)."
+        "The guild's lead and staff; for a lead-less category, the CMS Administrators (holders only)."
     ),
     Recipients.SPACE_APPROVERS: "The Space & Cubby Administrators (holders only).",
+    Recipients.EQUIPMENT_MANAGERS: (
+        "Everyone who manages the equipment: its own managers, the owning guild's leadership, "
+        "and the Equipment Administrators."
+    ),
     Recipients.DISCOUNT_APPROVERS: "The Discount Code Administrators (holders only).",
     Recipients.EVENTS_APPROVERS: "The Calendar Administrators (holders only).",
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: (
         "The guild's lead and staff; for a site-wide or council proposal, the Calendar Administrators (holders only)."
     ),
     Recipients.BILLING_APPROVERS: "The Billing Administrators (holders only).",
+    Recipients.REFUND_AUTHORITY: "Everyone who can issue a refund: all FOG admins plus the Refunds holders.",
     Recipients.GUILD_LEAD: "The guild's lead only.",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orienter role.",
+    Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
+        "The guild's lead and orienters; for an equipment-owned orientation, everyone who manages the equipment."
+    ),
     Recipients.ORIENTATION_RUNNER: "The staffer who claimed/ran the orientation.",
     Recipients.REGISTRANT: "The member the event is about (the registrant).",
     Recipients.INSTRUCTOR: "The class's instructor.",
@@ -110,7 +129,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.TAB_MEMBER: "The member whose billing tab this concerns.",
     Recipients.INVITER: "The person who sent the invitation.",
     Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
-    Recipients.LEASE_TENANT: "The member tenant of the lease.",
+    Recipients.LEASE_TENANT: "The member holding the space agreement.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
     Recipients.ALL_GUILD_LEADS: "Every guild lead, officer, and staffer (cross-guild).",
     Recipients.EVENT_AUDIENCE: (
@@ -137,6 +156,82 @@ def audience_description(event: EventType) -> str:
 # this so unknown-variable markers never ship in the defaults).
 
 _CURATED: dict[str, EventCopy] = {
+    # Staff-side notices raised by an instructor's own actions on a live class. Both are
+    # per-recipient (no broadcast channel) and addressed to a role, so the copy names the
+    # instructor and the class rather than greeting a person.
+    "class_cancelled_admin_notice": EventCopy(
+        placeholders=("instructor_name", "class_title", "paid_count", "registrations_url"),
+        sample_context={
+            "instructor_name": "Robin Vale",
+            "class_title": "Intro to Lost-Wax Casting",
+            "paid_count": "3",
+            "registrations_url": "https://pastlives.example/classes/admin/42/registrations/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ instructor_name }} cancelled {{ class_title }}",
+                body_text="{{ paid_count }} paid registrations need refunds.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Refunds needed: {{ instructor_name }} cancelled {{ class_title }}",
+                body_text=(
+                    "{{ instructor_name }} cancelled {{ class_title }}. "
+                    "{{ paid_count }} paid registrations need refunds.\n\n"
+                    "Everyone registered has already been told. Issue the refunds from the class's "
+                    "Registrations tab: {{ registrations_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ instructor_name }}</strong> cancelled <strong>{{ class_title }}</strong>. "
+                    "{{ paid_count }} paid registrations need refunds.</p>"
+                    "<p>Everyone registered has already been told. Issue the refunds from the class's "
+                    "Registrations tab.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ registrations_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Open the Registrations tab</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "class_change_requested": EventCopy(
+        placeholders=("instructor_name", "class_title", "note", "edit_url"),
+        sample_context={
+            "instructor_name": "Robin Vale",
+            "class_title": "Intro to Lost-Wax Casting",
+            "note": "Please move the price to $85 and add one more seat.",
+            "edit_url": "https://pastlives.example/classes/admin/42/edit/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ instructor_name }} asked for a change to {{ class_title }}",
+                body_text="{{ note }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Change requested: {{ class_title }}",
+                body_text=(
+                    "{{ instructor_name }} asked for a change to {{ class_title }}:\n\n"
+                    "{{ note }}\n\n"
+                    "Instructors cannot change a live class's title, dates, price, or capacity themselves. "
+                    "Make the change on the admin edit page: {{ edit_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ instructor_name }}</strong> asked for a change to "
+                    "<strong>{{ class_title }}</strong>:</p>"
+                    "<p><em>{{ note }}</em></p>"
+                    "<p>Instructors cannot change a live class's title, dates, price, or capacity themselves. "
+                    "Make the change on the admin edit page.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ edit_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Edit the class</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "registration_confirmed": EventCopy(
         placeholders=("member_name", "class_title", "class_starts_at", "class_url"),
         sample_context={
@@ -199,14 +294,17 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     "class_cancelled": EventCopy(
-        placeholders=("member_name", "class_title", "class_starts_at", "classes_url"),
+        placeholders=("member_name", "class_title", "class_starts_at", "classes_url", "reason"),
         sample_context={
             "member_name": "Robin Vale",
             "class_title": "Intro to Lost-Wax Casting",
             "class_starts_at": "Saturday, July 12",
             "classes_url": "https://pastlives.example/classes/",
+            "reason": "The instructor is unwell and we could not find another date.",
         },
         channels={
+            # The in-app broadcast reaches every active member, so it carries no reason:
+            # a reason written for registrants is not for every member's bell.
             Channel.IN_APP: ChannelCopy(
                 subject="{{ class_title }} was cancelled",
                 body_text="{{ class_title }} on {{ class_starts_at }} has been cancelled.",
@@ -218,6 +316,7 @@ _CURATED: dict[str, EventCopy] = {
                     "Life happens... and due to rare and unfortunate circumstances, {{ class_title }} "
                     "on {{ class_starts_at }} has been cancelled. Any payment will be refunded in full, "
                     "and we're really sorry for any inconvenience.\n\n"
+                    "Reason: {{ reason }}\n\n"
                     "We'd still love to see you in our space. Find another class: {{ classes_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
@@ -226,6 +325,7 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Life happens... and due to rare and unfortunate circumstances, "
                     "<strong>{{ class_title }}</strong> on {{ class_starts_at }} has been cancelled. "
                     "Any payment will be refunded in full, and we're really sorry for any inconvenience.</p>"
+                    "<p><strong>Reason:</strong> {{ reason }}</p>"
                     "<p>We'd still love to see you in our space. Click below to find another class.</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ classes_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
@@ -386,33 +486,81 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # Generalized to every refundable payment (class registrations now, orientation
+    # bookings via the paid-orientations spec): ``item_title`` is a class title or
+    # "Makerspace orientation", and ``registration_url`` carries the source's manage URL.
     "refund_issued": EventCopy(
-        placeholders=("member_name", "class_title", "amount", "registration_url"),
+        placeholders=("member_name", "item_title", "amount", "registration_url"),
         sample_context={
             "member_name": "Robin",
-            "class_title": "Intro to Lost-Wax Casting",
+            "item_title": "Intro to Lost-Wax Casting",
             "amount": "$65.00",
             "registration_url": "https://pastlives.example/classes/my/abc123/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
                 subject="Refund issued",
-                body_text="Your {{ amount }} for {{ class_title }} has been refunded.",
+                body_text="Your {{ amount }} for {{ item_title }} has been refunded.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Refund issued for {{ class_title }}",
+                subject="Refund issued for {{ item_title }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "We've refunded {{ amount }} for {{ class_title }}. Refunds typically process "
+                    "We've refunded {{ amount }} for {{ item_title }}. Refunds typically process "
                     "within 5–10 business days.\n\n"
                     "View your booking: {{ registration_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ class_title }}. Refunds "
+                    "<p>We've refunded <strong>{{ amount }}</strong> for {{ item_title }}. Refunds "
                     "typically process within 5–10 business days.</p>"
                     '<p><a href="{{ registration_url }}">View your booking</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # Admin alert for an async refund failure. The payer may already hold a receipt
+    # (receipts fire on the succeeded transition, and a late failure can follow it),
+    # so the copy says to contact them after retrying.
+    "refund_failed": EventCopy(
+        placeholders=("payer_name", "item_title", "amount", "failure_reason", "admin_url"),
+        sample_context={
+            "payer_name": "Robin Vale",
+            "item_title": "Intro to Lost-Wax Casting",
+            "amount": "$65.00",
+            "failure_reason": "The customer's bank could not process this refund.",
+            "admin_url": "https://pastlives.example/classes/admin/registrations/42/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="A refund failed",
+                body_text=(
+                    "A {{ amount }} refund to {{ payer_name }} for {{ item_title }} failed. "
+                    "Review and retry from the registration page."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="A refund failed",
+                body_text=(
+                    "A refund did not go through and needs a retry.\n\n"
+                    "Payer: {{ payer_name }}\n"
+                    "Item: {{ item_title }}\n"
+                    "Amount: {{ amount }}\n"
+                    "Stripe's reason: {{ failure_reason }}\n\n"
+                    "They've already received a refund receipt. Contact them after retrying.\n\n"
+                    "Review and retry: {{ admin_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    '<p>A <a href="{{ admin_url }}">refund</a> did not go through and needs a retry.</p>'
+                    "<p>Payer: {{ payer_name }}<br>"
+                    "Item: {{ item_title }}<br>"
+                    "Amount: <strong>{{ amount }}</strong><br>"
+                    "Stripe's reason: {{ failure_reason }}</p>"
+                    "<p>They've already received a refund receipt. Contact them after retrying.</p>"
+                    '<p><a href="{{ admin_url }}">Review and retry</a></p>'
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -427,20 +575,20 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="Your lease is expiring",
-                body_text="Your lease for {{ space_name }} ends on {{ end_date }}.",
+                subject="Your space agreement is ending",
+                body_text="Your space agreement for {{ space_name }} ends on {{ end_date }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Your {{ space_name }} lease ends {{ end_date }}",
+                subject="Your {{ space_name }} agreement ends {{ end_date }}",
                 body_text=(
                     "Hi {{ member_name }},\n\n"
-                    "Your lease for {{ space_name }} ends on {{ end_date }} — about a month from now.\n\n"
+                    "Your space agreement for {{ space_name }} ends on {{ end_date }}, about a month from now.\n\n"
                     "If you'd like to renew, reply to this email.\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     "<p>Hi {{ member_name }},</p>"
-                    "<p>Your lease for <strong>{{ space_name }}</strong> ends on {{ end_date }} — "
+                    "<p>Your space agreement for <strong>{{ space_name }}</strong> ends on {{ end_date }}, "
                     "about a month from now.</p>"
                     "<p>If you'd like to renew, reply to this email.</p>"
                     "<p>Past Lives Makerspace</p>"
@@ -973,6 +1121,15 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
+            # Discord is a channel broadcast — no recipient to greet, so it gets its
+            # own copy instead of inheriting the email greeting via the fallback.
+            Channel.DISCORD: ChannelCopy(
+                subject="What's new at Past Lives: {{ release_title }}",
+                body_text=(
+                    "We just released a new version of the Past Lives app (v{{ version }}): "
+                    "{{ release_title }}.\n\n{{ release_notes }}\n\n{{ site_url }}"
+                ),
+            ),
         },
     ),
     "event.guild_published": EventCopy(
@@ -1108,12 +1265,12 @@ _CURATED: dict[str, EventCopy] = {
             Channel.EMAIL: ChannelCopy(
                 subject="New event proposal: {{ event_title }}",
                 body_text=(
-                    "{{ proposer_name }} proposed a Community Calendar event that needs a quick review.\n\n"
+                    "{{ proposer_name }} proposed a Calendar event that needs a quick review.\n\n"
                     "{{ event_title }}\n{{ guild_name }} · {{ when }}\n\n"
                     "Review it: {{ review_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>{{ proposer_name }} proposed a Community Calendar event that needs a quick review.</p>"
+                    "<p>{{ proposer_name }} proposed a Calendar event that needs a quick review.</p>"
                     '<p><strong><a href="{{ review_url }}">{{ event_title }}</a></strong><br>'
                     "{{ guild_name }} · {{ when }}</p>"
                     '<p><a href="{{ review_url }}">Review it in the queue</a></p>'
@@ -1151,15 +1308,15 @@ _CURATED: dict[str, EventCopy] = {
     ),
     # ``outcome`` is composed in Python (CommunityEvent._emit_decision) because the safe
     # renderer only substitutes {{ placeholders }} — it cannot branch. It reads "It's now
-    # on the Community Calendar." for an immediate publish, or "It'll be announced and added
-    # to the Community Calendar on <date>." when the approval was scheduled for later.
+    # on the Calendar." for an immediate publish, or "It'll be announced and added
+    # to the Calendar on <date>." when the approval was scheduled for later.
     "event.approved": EventCopy(
         placeholders=("event_title", "when", "event_url", "outcome"),
         sample_context={
             "event_title": "Forge Night",
             "when": "Sat, Jul 12 · 6:00 PM – 8:00 PM",
             "event_url": "https://pastlives.example/events/5/",
-            "outcome": "It's now on the Community Calendar.",
+            "outcome": "It's now on the Calendar.",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -1418,25 +1575,25 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="{{ member_name }} wants to lease {{ space_code }}",
-                body_text="{{ member_name }} asked to lease {{ space_code }} ({{ price_display }}).",
+                subject="{{ member_name }} wants space {{ space_code }}",
+                body_text="{{ member_name }} asked for space {{ space_code }} ({{ price_display }}).",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="{{ member_name }} wants to lease {{ space_code }}",
+                subject="{{ member_name }} wants space {{ space_code }}",
                 body_text=(
-                    "{{ member_name }} asked to lease a studio from the space map.\n\n"
+                    "{{ member_name }} asked for a studio space from the space map.\n\n"
                     "{{ space_code }} · {{ price_display }}\n\n"
                     'They wrote: "{{ requester_message }}"\n\n'
                     "Review the request: {{ review_url }}\n\n"
-                    "Approving notifies the member — you still finalize the lease in Airtable.\n\n"
+                    "Approving notifies the member. You still finalize the agreement in Airtable.\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>{{ member_name }} asked to lease a studio from the space map.</p>"
+                    "<p>{{ member_name }} asked for a studio space from the space map.</p>"
                     '<p><strong><a href="{{ review_url }}">{{ space_code }}</a></strong> · {{ price_display }}</p>'
                     "<p>They wrote: &ldquo;{{ requester_message }}&rdquo;</p>"
                     '<p><a href="{{ review_url }}">Review the request</a></p>'
-                    "<p>Approving notifies the member — you still finalize the lease in Airtable.</p>"
+                    "<p>Approving notifies the member. You still finalize the agreement in Airtable.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),
@@ -1546,6 +1703,194 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # meeting.minutes_approved — a broadcast to the guild's members, so NO channel may
+    # address a single recipient. Before this curated copy existed, the generic fallback's
+    # email greeting leaked "Hi [missing: member_name]" into guild Discord channels; the
+    # event's Discord channel was then removed outright (owner decision 2026-09-03) — the
+    # authored Discord copy stays as a safe default should it ever return.
+    "meeting.minutes_approved": EventCopy(
+        # meeting_title is Meeting.display_title, which already embeds the guild name
+        # ("Metal Guild — Monthly Meeting") — so the bodies never repeat guild_name.
+        placeholders=("guild_name", "meeting_title", "meeting_url"),
+        sample_context={
+            "guild_name": "Metal Guild",
+            "meeting_title": "Metal Guild — Monthly Meeting",
+            "meeting_url": "https://pastlives.example/guilds/3/meetings/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Meeting minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ guild_name }} meeting minutes approved",
+                body_text=(
+                    "The minutes for {{ meeting_title }} are approved and locked.\n\n"
+                    "Read them: {{ meeting_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>The minutes for <strong>{{ meeting_title }}</strong> are approved and locked.</p>"
+                    '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+            Channel.DISCORD: ChannelCopy(
+                subject="Meeting minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
+            ),
+        },
+    ),
+    # meeting.council_minutes_approved — same broadcast posture for the cross-guild council
+    # meeting (recipients are all guild leads/staff/officers; Discord likewise removed).
+    "meeting.council_minutes_approved": EventCopy(
+        placeholders=("meeting_title", "meeting_url"),
+        sample_context={
+            "meeting_title": "Council — Monthly Meeting",
+            "meeting_url": "https://pastlives.example/meetings/15/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Council minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Council minutes approved",
+                body_text=(
+                    "The minutes for {{ meeting_title }} are approved and locked.\n\n"
+                    "Read them: {{ meeting_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>The minutes for <strong>{{ meeting_title }}</strong> are approved and locked.</p>"
+                    '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+            Channel.DISCORD: ChannelCopy(
+                subject="Council minutes approved",
+                body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
+            ),
+        },
+    ),
+    # equipment.reservation_confirmed — the member's booking receipt (forced email with the
+    # calendar invite attached by the emit call). One primary CTA to the equipment page.
+    "equipment.reservation_confirmed": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Reservation confirmed",
+                body_text="{{ equipment_name }}: {{ reservation_when }}. See you there.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Reserved: {{ equipment_name }}, {{ reservation_when }}",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Your reservation is set.\n\n"
+                    "{{ equipment_name }}\n{{ reservation_when }}\n\n"
+                    "A calendar invite is attached. If your plans change, you can cancel "
+                    "from the equipment page and the time opens up for someone else.\n\n"
+                    "See your reservation: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Your reservation is set.</p>"
+                    '<p><strong><a href="{{ equipment_url }}">{{ equipment_name }}</a></strong><br>'
+                    "{{ reservation_when }}</p>"
+                    "<p>A calendar invite is attached. If your plans change, you can cancel from the "
+                    "equipment page and the time opens up for someone else.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See Your Reservation</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_cancelled_by_manager — carries the manager's required reason and
+    # sends the member straight back to pick a new time.
+    "equipment.reservation_cancelled_by_manager": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "cancel_reason", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "cancel_reason": "The router is down for repair. Back Tuesday.",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Your {{ equipment_name }} reservation was cancelled",
+                body_text="A manager cancelled your {{ reservation_when }} reservation: {{ cancel_reason }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your {{ equipment_name }} reservation was cancelled",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "A manager cancelled your {{ equipment_name }} reservation for "
+                    "{{ reservation_when }}.\n\n"
+                    "Their note: {{ cancel_reason }}\n\n"
+                    "Pick a new time: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    '<p>A manager cancelled your <strong><a href="{{ equipment_url }}">{{ equipment_name }}'
+                    "</a></strong> reservation for {{ reservation_when }}.</p>"
+                    "<p>Their note: {{ cancel_reason }}</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ equipment_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Pick a New Time</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # equipment.reservation_made — the managers' awareness ping. member_name here is the
+    # RESERVER, not the recipient, so no channel greets with it (a "Hi {{ member_name }}"
+    # would greet the wrong person).
+    "equipment.reservation_made": EventCopy(
+        placeholders=("member_name", "equipment_name", "reservation_when", "equipment_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "equipment_name": "CNC Router",
+            "reservation_when": "Saturday, September 12, 2:00 PM to 4:00 PM",
+            "equipment_url": "https://pastlives.example/equipment/cnc-router/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="New reservation on {{ equipment_name }}",
+                body_text="{{ member_name }} reserved {{ equipment_name }} for {{ reservation_when }}.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New reservation on {{ equipment_name }}",
+                body_text=(
+                    "{{ member_name }} reserved {{ equipment_name }} for {{ reservation_when }}.\n\n"
+                    "See the schedule: {{ equipment_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    '<p>{{ member_name }} reserved <strong><a href="{{ equipment_url }}">{{ equipment_name }}'
+                    "</a></strong> for {{ reservation_when }}.</p>"
+                    '<p><a href="{{ equipment_url }}">See the schedule</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+            # The #reservations channel broadcast — greeting-free (a channel has no
+            # recipient); member_name is the RESERVER from the emit context, which is
+            # legitimate shared information (locked privacy decision #5).
+            Channel.DISCORD: ChannelCopy(
+                subject="New reservation",
+                body_text="{{ member_name }} reserved {{ equipment_name }}: {{ reservation_when }}.\n\n{{ equipment_url }}",
+            ),
+        },
+    ),
 }
 
 
@@ -1559,6 +1904,11 @@ def _generic_copy(event: EventType) -> EventCopy:
     with a single documented ``{{ member_name }}`` greeting placeholder so the
     catalogue is exhaustive and previewable without bespoke authoring for the
     long tail of operational events.
+
+    Discord gets its OWN greeting-free copy (label + description). Discord is a
+    broadcast channel — there is no recipient to greet — so it must never
+    inherit the email greeting via the ``copy_for`` fallback (that once posted
+    "Hi [missing: member_name]" into a guild's channel).
     """
     placeholders = ("member_name",)
     sample = {"member_name": "Robin Vale"}
@@ -1568,10 +1918,11 @@ def _generic_copy(event: EventType) -> EventCopy:
         body_text=f"Hi {{{{ member_name }}}},\n\n{event.description}\n\nPast Lives Makerspace",
         body_html=f"<p>Hi {{{{ member_name }}}},</p><p>{event.description}</p><p>Past Lives Makerspace</p>",
     )
+    discord = ChannelCopy(subject=event.label, body_text=event.description)
     return EventCopy(
         placeholders=placeholders,
         sample_context=sample,
-        channels={Channel.IN_APP: in_app, Channel.EMAIL: email},
+        channels={Channel.IN_APP: in_app, Channel.EMAIL: email, Channel.DISCORD: discord},
     )
 
 

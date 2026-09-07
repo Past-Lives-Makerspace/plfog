@@ -199,6 +199,13 @@ def describe_cms_screenshots():
 
         data = _seed()
         zone = _seed_signage()
+        # The "Teach — ... discount code(s)" pages below are gated behind the
+        # instructor discount-codes flag (default off) — flip it on so they capture.
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.instructor_discount_codes_enabled = True
+        config.save(update_fields=["instructor_discount_codes_enabled"])
         login_via_code(ADMIN_EMAIL)
 
         host = urlparse(live_server.url).hostname

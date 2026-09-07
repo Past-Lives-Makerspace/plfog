@@ -4,7 +4,9 @@ A permanent, fictional guild that exercises every guild-page feature so the
 "Running a Guild" help guides have a living page to point at. It is unlisted by
 design: ``is_active=False`` keeps it out of the sidebar, the guild directory,
 voting, and the My Guilds grid — only its direct URL (``/guilds/cartographers-guild/``,
-linked from the guides) reaches it.
+linked from the guides) reaches it. An admin can reveal it on the directory and
+sidebar for a live demo via the ``display_demo_guild`` site setting (see
+``GuildManager.visible``); even then it never enters voting or funding.
 
 Safety contract (why the fictional members look the way they do):
 
@@ -37,7 +39,10 @@ from django.core.files import File
 if TYPE_CHECKING:
     from membership.models import Guild, Member
 
-EXAMPLE_GUILD_SLUG = "cartographers-guild"
+# Single source of truth lives on the model side (the Guild manager's ``visible()``
+# gate needs it); re-exported here so existing callers keep importing it from this module.
+from membership.models import EXAMPLE_GUILD_SLUG  # noqa: E402
+
 EXAMPLE_GUILD_NAME = "Cartographers Guild"
 
 # Committed repo assets reused for the example page's banner and gallery — the
@@ -162,7 +167,7 @@ ANNOUNCEMENTS: list[dict[str, str]] = [
         "body": (
             "If you're reading this, you found the Cartographers Guild — the Help Center's "
             "permanent example page. Announcements like this one are what guild leads publish "
-            "from the Announcements/Emails tab in Guild Settings."
+            "from the Announcements tab in Guild Settings."
         ),
     },
 ]
@@ -203,20 +208,11 @@ ORIENTATION = {
     "is_closed": True,
     "closed_message": "This is an example guild — orientations here aren't real. Book one with a real guild!",
     "info": "Orientations cover the Map Room, the plotter, and which drawers bite.",
-    "default_seats": 4,
-    "default_location": "The Map Room (2nd floor, fictional wing)",
-    "default_duration_minutes": 45,
     "thankyou_email_enabled": False,
     "thankyou_email_subject": "Welcome aboard, cartographer",
     "thankyou_email_body": (
         "Thanks for getting oriented with the Cartographers Guild! (This example text shows where "
         "a guild's post-orientation thank-you email is written.)"
-    ),
-    "join_email_enabled": False,
-    "join_email_subject": "You joined the Cartographers Guild",
-    "join_email_body": (
-        "Welcome! Atlas Night is the first Tuesday of every month. (Example text — this is the "
-        "welcome email a guild can send when a member joins.)"
     ),
 }
 
@@ -283,31 +279,38 @@ def seed_example_guild() -> "Guild":
         GuildMeetingNoteAttachment,
         GuildOrientationSettings,
         GuildStaffMembership,
+        OrientationType,
     )
 
     lead = _example_member(LEAD_NAME)
 
+    # Every seeded field stays authoritative on re-seed via ``defaults`` — EXCEPT
+    # ``is_active``, which belongs only in ``create_defaults`` (Django 5+) so it is
+    # set on first creation and never again. That way an admin who flips the guild
+    # visible for a demo keeps it visible across the next deploy's re-seed, instead
+    # of every deploy silently forcing it back to inactive.
+    guild_defaults = {
+        "name": EXAMPLE_GUILD_NAME,
+        "is_featured": False,
+        "guild_lead": lead,
+        "about": ABOUT,
+        "wishlist": WISHLIST,
+        "essential_rules": ESSENTIAL_RULES,
+        "faq_label": FAQ_LABEL,
+        "website_url": "https://members.pastlives.space/help/",
+        "youtube_url": "https://www.youtube.com/watch?v=YE7VzlLtp-4",
+        "show_members": True,
+        "meeting_schedule": MEETING_SCHEDULE,
+        "meeting_cadence": Guild.MeetingCadence.MONTHLY,
+        "meeting_weekday": 1,  # Tuesday
+        "meeting_week_of_month": 1,
+        "meeting_time": time(19, 0),
+        "meeting_location": "The Map Room (2nd floor)",
+    }
     guild, _ = Guild.objects.update_or_create(
         slug=EXAMPLE_GUILD_SLUG,
-        defaults={
-            "name": EXAMPLE_GUILD_NAME,
-            "is_active": False,
-            "is_featured": False,
-            "guild_lead": lead,
-            "about": ABOUT,
-            "wishlist": WISHLIST,
-            "essential_rules": ESSENTIAL_RULES,
-            "faq_label": FAQ_LABEL,
-            "website_url": "https://members.pastlives.space/help/",
-            "youtube_url": "https://www.youtube.com/watch?v=YE7VzlLtp-4",
-            "show_members": True,
-            "meeting_schedule": MEETING_SCHEDULE,
-            "meeting_cadence": Guild.MeetingCadence.MONTHLY,
-            "meeting_weekday": 1,  # Tuesday
-            "meeting_week_of_month": 1,
-            "meeting_time": time(19, 0),
-            "meeting_location": "The Map Room (2nd floor)",
-        },
+        defaults=guild_defaults,
+        create_defaults={**guild_defaults, "is_active": False},
     )
 
     _seed_media(guild)
@@ -363,6 +366,17 @@ def seed_example_guild() -> "Guild":
     # Orientation settings: enabled so the machinery shows, but CLOSED with an
     # explanatory message — no real member can ever book the fictional guild.
     GuildOrientationSettings.objects.update_or_create(guild=guild, defaults=dict(ORIENTATION))
+    OrientationType.objects.update_or_create(
+        guild=guild,
+        name="Orientation",
+        defaults={
+            "duration_minutes": 45,
+            "default_seats": 4,
+            "default_location": "The Map Room (2nd floor, fictional wing)",
+            "sort_order": 0,
+            "is_active": True,
+        },
+    )
 
     # NOTE deliberately absent: CommunityEvent rows (guild meetings / studio
     # hours). Published events surface on the public Community Calendar and the

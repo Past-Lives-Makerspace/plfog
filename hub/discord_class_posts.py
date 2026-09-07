@@ -11,7 +11,9 @@ Source of truth is :class:`classes.models.ClassOffering`, not the calendar cache
 — published, non-private, flexible or first session still upcoming) and not yet stamped
 ``channel_announced_at``. The stamp is set when announced (or silently, past the per-run
 cap) and never cleared, so a draft→published→unpublished→republished class can never
-announce twice. All links are absolute onto the public class site (``BOOK_BASE_URL``).
+announce twice. For now all links point at the legacy Drupal site (still the public
+sign-up surface) via :func:`_showcase_url`; locally-authored classes with no Drupal page
+fall back to the new class site (``BOOK_BASE_URL``).
 """
 
 from __future__ import annotations
@@ -38,12 +40,19 @@ _FLEXIBLE_WHEN = "Flexible scheduling — arrange with the instructor"
 _FOOTER_LABEL = "Browse all classes"
 
 
-def _class_absolute(path: str) -> str:
-    """Absolutize a path onto the public class site (classes live on the book host,
-    not the members hub) — Discord renders URLs as-is, so a bare path is a dead link."""
-    from classes.emails import _absolute_url
+def _showcase_url(offering: ClassOffering) -> str:
+    """Where a #classes link sends members: the class's legacy Drupal page while that site
+    is still the public sign-up surface, falling back to our own public page for
+    locally-authored classes that never existed on Drupal. When the new class site takes
+    over, this collapses back to ``offering.public_url``."""
+    return offering.legacy_public_url or offering.public_url
 
-    return _absolute_url(path)
+
+def _legacy_site_root() -> str:
+    """The legacy Drupal class site's root — the "Browse all classes" target for now."""
+    from classes.import_service import LEGACY_CMS_BASE
+
+    return LEGACY_CMS_BASE
 
 
 def _posting_channel_id() -> str:
@@ -58,7 +67,7 @@ def _posting_channel_id() -> str:
 
 def _class_line(offering: ClassOffering, *, time_prefix: str = "") -> str:
     """One digest bullet: optional time, linked title, and the instructor's name."""
-    title_part = f"[{offering.title}]({offering.public_url})"
+    title_part = f"[{offering.title}]({_showcase_url(offering)})"
     line = f"• {time_prefix}{title_part}"
     if offering.instructor is not None:
         line += f" · with {offering.instructor.display_name}"
@@ -108,7 +117,7 @@ def build_weekly_classes_digest_embeds(now: datetime) -> list[dict[str, Any]]:
     blocks = _digest_blocks(now)
     if not blocks:
         return []
-    blocks.append(f"[{_FOOTER_LABEL} →]({_class_absolute('/')})")
+    blocks.append(f"[{_FOOTER_LABEL} →]({_legacy_site_root()})")
     chunks = _chunk_blocks(blocks)
     local_start = timezone.localtime(now)
     local_end = timezone.localtime(now + timedelta(days=DIGEST_WINDOW_DAYS - 1))
@@ -118,7 +127,7 @@ def build_weekly_classes_digest_embeds(now: datetime) -> list[dict[str, Any]]:
             "title": title if i == 0 else f"{_DIGEST_TITLE} (continued)",
             "description": chunk,
             "color": _EMBED_COLOR,
-            "url": _class_absolute("/"),
+            "url": _legacy_site_root(),
         }
         for i, chunk in enumerate(chunks)
     ]
@@ -163,17 +172,18 @@ def _class_announcement_embed(offering: ClassOffering) -> dict[str, Any]:
     """One compact new-class embed: category, next date (or flexible), price, sign-up link."""
     from classes.templatetags.classes_tags import cents_as_price
 
+    link = _showcase_url(offering)
     lines = [
         f"*New class in {offering.category.name}*",
         f"**When:** {_class_when(offering)}",
         f"**Price:** {cents_as_price(offering.price_cents)}",
-        f"[Sign up →]({offering.public_url})",
+        f"[Sign up →]({link})",
     ]
     return {
         "title": offering.title,
         "description": "\n".join(lines),
         "color": _EMBED_COLOR,
-        "url": offering.public_url,
+        "url": link,
     }
 
 

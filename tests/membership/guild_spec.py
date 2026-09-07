@@ -19,6 +19,7 @@ from tests.membership.factories import (
     GuildMembershipFactory,
     LeaseFactory,
     MemberFactory,
+    MembershipPlanFactory,
     SpaceFactory,
 )
 
@@ -62,6 +63,47 @@ def describe_Guild():
         Guild.objects.create(name="Duplicate Guild")
         with pytest.raises(IntegrityError):
             Guild.objects.create(name="Duplicate Guild")
+
+
+def describe_Guild_assign_lead():
+    def it_sets_the_lead_replacing_the_current_one():
+        old = MemberFactory()
+        new = MemberFactory()
+        guild = GuildFactory(guild_lead=old)
+        guild.assign_lead(new)
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == new.pk
+
+    def it_returns_no_warnings_for_an_active_linked_member():
+        MembershipPlanFactory()
+        user = User.objects.create_user(username="linked_lead", password="pass")
+        member = user.member
+        member.status = Member.Status.ACTIVE
+        member.save(update_fields=["status"])
+        guild = GuildFactory()
+        assert guild.assign_lead(member) == []
+
+    def it_warns_when_the_member_has_no_linked_user():
+        guild = GuildFactory()
+        member = MemberFactory()  # user=None, status ACTIVE
+        warnings = guild.assign_lead(member)
+        assert guild.guild_lead_id == member.pk
+        assert len(warnings) == 1
+        assert "no linked user account" in warnings[0]
+
+    def it_warns_when_the_member_is_not_active():
+        guild = GuildFactory()
+        member = MemberFactory(status=Member.Status.FORMER)
+        warnings = guild.assign_lead(member)
+        assert any("not Active" in warning for warning in warnings)
+
+    def it_raises_without_assigning_when_no_member_is_given():
+        current = MemberFactory()
+        guild = GuildFactory(guild_lead=current)
+        with pytest.raises(ValueError):
+            guild.assign_lead(None)  # type: ignore[arg-type]
+        guild.refresh_from_db()
+        assert guild.guild_lead_id == current.pk
 
 
 def describe_Guild_active_leases():

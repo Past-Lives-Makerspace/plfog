@@ -54,6 +54,17 @@ def describe_default_copy_for():
         assert discord.subject == email.subject
         assert discord.body_text == email.body_text
 
+    def it_prefers_in_app_copy_for_push_and_discord_dm():
+        # Push trays and Discord DMs are one-line surfaces rendered with no
+        # per-recipient context — the email fallback once put
+        # "Hi [missing: member_name]" in a Discord DM.
+        in_app = default_copy_for("waitlist_confirmed", Channel.IN_APP)
+        for channel in (Channel.PUSH, Channel.DISCORD_DM):
+            copy = default_copy_for("waitlist_confirmed", channel)
+            assert copy.subject == in_app.subject
+            assert copy.body_text == in_app.body_text
+            assert "Hi {{" not in copy.body_text
+
 
 def describe_audience_description():
     def it_describes_a_guild_scoped_audience():
@@ -85,3 +96,25 @@ def describe_generic_fallback():
 
     def it_exposes_member_name_as_the_only_placeholder():
         assert placeholders_for("waitlist_confirmed") == ("member_name",)
+
+    def it_gives_discord_its_own_greeting_free_copy():
+        # The generic email copy greets the recipient; the Discord broadcast has no
+        # recipient, so it must get label + description only — never the greeting.
+        event = get_event("waitlist_confirmed")
+        discord = default_copy_for("waitlist_confirmed", Channel.DISCORD)
+        assert discord.subject == event.label
+        assert discord.body_text == event.description
+
+
+def describe_discord_copy_is_broadcast_safe():
+    @pytest.mark.parametrize("event", [e for e in all_events() if e.has_channel(Channel.DISCORD)], ids=lambda e: e.key)
+    def it_never_greets_a_single_recipient(event):
+        # A Discord post is a channel broadcast with no recipient in context; a
+        # per-recipient greeting renders as "Hi [missing: member_name]" in a guild's
+        # channel (the meeting.minutes_approved incident). Curated or generated,
+        # every Discord-enabled event's Discord copy must be greeting-free.
+        copy = default_copy_for(event.key, Channel.DISCORD)
+        for fragment in (copy.subject, copy.body_text, copy.body_html):
+            # "Hi {{ ..." catches a greeting built on ANY per-recipient placeholder,
+            # not just member_name.
+            assert "Hi {{" not in fragment, f"{event.key} greets a recipient in its Discord copy"

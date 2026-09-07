@@ -23,18 +23,15 @@ from tests.membership.factories import GuildFactory, MemberFactory, VotePreferen
 pytestmark = pytest.mark.django_db
 
 
-def _interaction(first: str, second: str, third: str) -> dict:
-    """A ``/vote`` interaction carrying the three ranked guild slugs."""
-    return {
-        "data": {
-            "name": "vote",
-            "options": [
-                {"name": "first", "value": first},
-                {"name": "second", "value": second},
-                {"name": "third", "value": third},
-            ],
-        }
-    }
+def _interaction(first: str, second: str | None = None, third: str | None = None) -> dict:
+    """A ``/vote`` interaction. 2nd/3rd are optional and omitted when not supplied,
+    exactly as Discord omits unfilled options."""
+    options = [{"name": "first", "value": first}]
+    if second is not None:
+        options.append({"name": "second", "value": second})
+    if third is not None:
+        options.append({"name": "third", "value": third})
+    return {"data": {"name": "vote", "options": options}}
 
 
 def describe_vote_command_definition():
@@ -43,13 +40,14 @@ def describe_vote_command_definition():
         assert VOTE.name == "vote"
         assert (VOTE.requires_link, VOTE.ephemeral, VOTE.defer, VOTE.scope) == (True, True, True, "guild")
 
-    def it_builds_three_required_guild_pickers_with_slug_values():
+    def it_builds_guild_pickers_with_all_three_choices_required():
         guild = GuildFactory(name="Alpha Fiber")
 
         options = _ballot_options()
 
         assert [option["name"] for option in options] == ["first", "second", "third"]
-        assert all(option["required"] for option in options)
+        # All three choices required (mirrors the voting page policy: 5, 3, 2 points).
+        assert [option["required"] for option in options] == [True, True, True]
         for option in options:
             assert {"name": "Alpha Fiber", "value": guild.slug} in option["choices"]
 
@@ -81,6 +79,18 @@ def describe_vote():
         assert button["label"] == "Open the voting page"
         assert button["url"] == "https://members.example/guilds/voting/"
         assert result["data"]["flags"] == 64  # ephemeral
+
+    def it_rejects_a_partial_ballot_and_changes_nothing(settings):
+        # Discord marks all three options required, but the server still guards a
+        # hand crafted partial interaction: shared form rules reject it.
+        settings.MEMBER_BASE_URL = "https://members.example"
+        member = MemberFactory()
+        g1 = GuildFactory(name="Solo Fiber")
+
+        result = _vote(_interaction(g1.slug), member)
+
+        assert not VotePreference.objects.filter(member=member).exists()
+        assert "Nothing was changed" in result["data"]["content"]
 
     def it_overwrites_an_existing_ballot_in_place(settings):
         settings.MEMBER_BASE_URL = "https://members.example"
@@ -128,7 +138,7 @@ def describe_vote():
 
             result = _vote(_interaction(g1.slug, g1.slug, g2.slug), member)
 
-            assert "Please select three different guilds." in result["data"]["content"]
+            assert "Each choice must be a different guild." in result["data"]["content"]
             assert "Nothing was changed" in result["data"]["content"]
             assert not VotePreference.objects.filter(member=member).exists()
 

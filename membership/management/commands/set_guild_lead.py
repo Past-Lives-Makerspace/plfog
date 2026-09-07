@@ -1,7 +1,8 @@
 """Safely assign or clear a guild's lead, with validation warnings.
 
-Guild was removed from the Django admin (v1.6.0), so this command is the
-supported way to set ``Guild.guild_lead``. Assigning the FK is all that's needed
+Guild was removed from the Django admin (v1.6.0); this command and the
+admin-only Guild Lead control on the guild editor's Staff tab are the supported
+ways to set ``Guild.guild_lead``. Assigning the FK is all that's needed
 — guild-lead perks flow from it, no FOG role required. The command warns when
 the chosen member has no linked User (they can't log in to use the perks until
 they sign up with a matching email) or is not Active.
@@ -37,25 +38,14 @@ class Command(BaseCommand):
             return
 
         member = self._resolve_member(options["member"])
-        guild.guild_lead = member
-        guild.save(update_fields=["guild_lead"])
+        warnings = guild.assign_lead(member)
         self.stdout.write(
             self.style.SUCCESS(
                 f"Set lead of '{guild.name}' to {member.display_name} <{member.primary_email or 'no email'}>."
             )
         )
-
-        if member.user_id is None:
-            self.stdout.write(
-                self.style.WARNING(
-                    "  Warning: this member has no linked user account. They can't log in to use guild-lead "
-                    "tools until they sign up with a matching email. (No FOG role is required — only the FK.)"
-                )
-            )
-        if member.status != Member.Status.ACTIVE:
-            self.stdout.write(
-                self.style.WARNING(f"  Warning: this member's status is {member.get_status_display()}, not Active.")
-            )
+        for warning in warnings:
+            self.stdout.write(self.style.WARNING(f"  Warning: {warning}"))
 
     def _resolve_guild(self, ref: str) -> Guild:
         if ref.isdigit():

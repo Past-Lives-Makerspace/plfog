@@ -91,17 +91,30 @@ def reply(
     ephemeral: bool = True,
     embeds: list[dict] | None = None,
     components: list[dict] | None = None,
+    poll: dict | None = None,
 ) -> dict:
     """A type-4 (CHANNEL_MESSAGE_WITH_SOURCE) reply the view returns as its HTTP body.
 
     Ephemeral by default (only the invoking member sees it) — commands surface personal
-    data. ``embeds`` / ``components`` are included only when provided.
+    data. ``embeds`` / ``components`` / ``poll`` are included only when provided.
+
+    ``poll`` (a native Discord poll object) is valid **only on this non-deferred path**:
+    :func:`send_followup` (the deferred PATCH) cannot carry a poll, so a deferred command
+    that returned one would silently drop it. A ``/poll`` handler must therefore stay
+    ``defer=False`` and post its poll straight from the interaction response. A poll reply
+    is public and credits a member-controlled display name in its content, so this path
+    also pins ``allowed_mentions`` to ``{"parse": []}`` — a name like ``@everyone`` can
+    never ping the channel. Plain (non-poll) replies are untouched, so no other command's
+    mention behavior changes.
     """
     data: dict = {"content": content, "flags": _flags(ephemeral)}
     if embeds is not None:
         data["embeds"] = embeds
     if components is not None:
         data["components"] = components
+    if poll is not None:
+        data["poll"] = poll
+        data["allowed_mentions"] = {"parse": []}
     return {"type": 4, "data": data}
 
 
@@ -110,21 +123,147 @@ def update_message(
     *,
     embeds: list[dict] | None = None,
     components: list[dict] | None = None,
+    allowed_mentions: dict | None = None,
 ) -> dict:
     """A type-7 (UPDATE_MESSAGE) response — edits the message the clicked component sits on.
 
     The component-click counterpart of :func:`reply`: instead of posting a fresh message it
     replaces the content/embeds/components of the message the button lives on, in place.
     Deliberately carries no ``flags`` — a message's ephemeral state is immutable, so an
-    ephemeral browse stays ephemeral across updates. ``embeds`` / ``components`` are included
-    only when provided (an omitted key leaves Discord's existing value untouched).
+    ephemeral browse stays ephemeral across updates. ``embeds`` / ``components`` /
+    ``allowed_mentions`` are included only when provided (an omitted key leaves Discord's
+    existing value untouched); pass ``allowed_mentions={"parse": []}`` when member-controlled
+    names enter the content so a name like ``@everyone`` can never ping the channel.
     """
     data: dict = {"content": content}
     if embeds is not None:
         data["embeds"] = embeds
     if components is not None:
         data["components"] = components
+    if allowed_mentions is not None:
+        data["allowed_mentions"] = allowed_mentions
     return {"type": 7, "data": data}
+
+
+# --- Modal builders (Components v2: Label-wrapped inputs + Text Display) -------
+#
+# A MODAL (type 9) response is valid for an APPLICATION_COMMAND or a MESSAGE_COMPONENT
+# interaction, but NEVER for a MODAL_SUBMIT (no chaining). A MODAL_SUBMIT is answered with
+# a plain type-4 message (:func:`reply`), public or ephemeral. Top-level modal components are
+# Label (type 18, wrapping ONE input) and Text Display (type 10); inputs are Text Input
+# (type 4), String Select (type 3), and Checkbox (type 23). Max 5 top-level components; the
+# title is capped at 45 characters by Discord.
+
+_LABEL = 18
+_TEXT_DISPLAY = 10
+_TEXT_INPUT = 4
+_STRING_SELECT = 3
+_CHECKBOX = 23
+
+
+def modal(custom_id: str, title: str, components: list[dict]) -> dict:
+    """A type-9 (MODAL) response — pops a form. Its submit routes by ``custom_id`` prefix.
+
+    ``components`` are up to five top-level Label / Text Display components (built with the
+    helpers below). Valid only as the response to a slash command or a component click.
+    """
+    return {"type": 9, "data": {"custom_id": custom_id, "title": title, "components": components}}
+
+
+def modal_label(label: str, child: dict, *, description: str = "") -> dict:
+    """A top-level Label (type 18) wrapping ONE input child, with an optional description.
+
+    ``label`` and ``description`` are both capped at **100** characters — verified against a
+    live Discord rejection (BASE_TYPE_BAD_LENGTH on a 131-char description took the whole
+    /poll modal down in v1.9.2; the docs' claimed 200-char description cap is wrong). The
+    guard raises at build time so an overlong string fails in tests, never in production.
+    The wrapped ``child`` is a Text Input, String Select, or Checkbox. On submit the row
+    echoes back as ``{"type": 18, "component": {…}}``.
+    """
+    if len(label) > 100:
+        raise ValueError(f"Modal label exceeds Discord's 100-char cap ({len(label)}): {label[:60]!r}")
+    if len(description) > 100:
+        raise ValueError(
+            f"Modal label description exceeds Discord's 100-char cap ({len(description)}): {description[:60]!r}"
+        )
+    row: dict = {"type": _LABEL, "label": label, "component": child}
+    if description:
+        row["description"] = description
+    return row
+
+
+def text_display(content: str) -> dict:
+    """A Text Display (type 10) block — static guidance inside a modal (no input, no value)."""
+    return {"type": _TEXT_DISPLAY, "content": content}
+
+
+def text_input(
+    custom_id: str,
+    *,
+    style: int = 1,
+    placeholder: str = "",
+    value: str = "",
+    required: bool = True,
+    min_length: int | None = None,
+    max_length: int | None = None,
+) -> dict:
+    """A Text Input (type 4). ``style`` 1 = short, 2 = paragraph. ``value`` prefills it.
+
+    Optional keys (``placeholder`` ≤100, ``value``, ``min_length``/``max_length``) are
+    included only when provided so a blank field ships a minimal component.
+    """
+    comp: dict = {"type": _TEXT_INPUT, "custom_id": custom_id, "style": style, "required": required}
+    if placeholder:
+        comp["placeholder"] = placeholder
+    if value:
+        comp["value"] = value
+    if min_length is not None:
+        comp["min_length"] = min_length
+    if max_length is not None:
+        comp["max_length"] = max_length
+    return comp
+
+
+def string_select(custom_id: str, options: list[dict], *, required: bool = True) -> dict:
+    """A String Select (type 3) for a modal — ≤25 options, each ``{"label","value","default"?}``.
+
+    An option's ``"default": true`` preselects it (valid in modals). Wrap in :func:`modal_label`.
+    """
+    return {"type": _STRING_SELECT, "custom_id": custom_id, "options": options, "required": required}
+
+
+def checkbox(custom_id: str, *, default: bool = False, required: bool = False) -> dict:
+    """A single Checkbox (type 23). ``default`` sets its initial checked state.
+
+    On submit a checked box echoes a truthy ``values`` list; an unchecked one an empty/absent
+    one — read via :func:`parse_modal_values` and coerce with ``bool``.
+    """
+    comp: dict = {"type": _CHECKBOX, "custom_id": custom_id, "required": required}
+    if default:
+        comp["value"] = True
+    return comp
+
+
+def parse_modal_values(interaction: dict) -> dict[str, object]:
+    """Flatten a MODAL_SUBMIT payload to ``{custom_id: value | values}``.
+
+    Tolerant to both submit shapes: the Components-v2 Label row
+    (``{"type": 18, "component": {…}}``, one child) and the legacy action row
+    (``{"type": 1, "components": [...]}``). A Text Input yields its ``"value"`` string; a
+    String Select or Checkbox yields its ``"values"`` list.
+    """
+    result: dict[str, object] = {}
+    for row in interaction.get("data", {}).get("components", []):
+        children = [row["component"]] if row.get("type") == _LABEL else row.get("components", [])
+        for child in children:
+            custom_id = child.get("custom_id")
+            if custom_id is None:
+                continue
+            if "value" in child:
+                result[custom_id] = child["value"]
+            elif "values" in child:
+                result[custom_id] = child["values"]
+    return result
 
 
 def deferred_ack(*, ephemeral: bool = True) -> dict:
@@ -134,6 +273,17 @@ def deferred_ack(*, ephemeral: bool = True) -> dict:
     HTTP body. The ephemeral flag here must match the eventual followup's visibility.
     """
     return {"type": 5, "data": {"flags": _flags(ephemeral)}}
+
+
+def deferred_update_ack() -> dict:
+    """A type-6 (DEFERRED_UPDATE_MESSAGE) ack — for a component click whose work is slow.
+
+    The component-click counterpart of :func:`deferred_ack`: Discord stops the 3-second
+    clock without posting anything, and the handler later PATCHes the ``@original``
+    message (the one the clicked button sits on) via :func:`send_followup`. Sent via
+    :func:`ack_component_deferred`, not returned as the HTTP body.
+    """
+    return {"type": 6}
 
 
 def unlinked_reply(link_url: str) -> dict:
@@ -165,6 +315,34 @@ def error_reply() -> dict:
 # --- Deferred-response REST helpers (best-effort — log + falsy, never raise) ---
 
 
+def send_modal_via_callback(interaction_id: str, token: str, modal_response: dict) -> str | None:
+    """POST a type-9 modal response to the interaction callback endpoint.
+
+    Inline type-9 bodies from an HTTP interactions endpoint are silently discarded by
+    Discord in some paths (the member just sees "didn't respond in time"), while the
+    REST callback both opens the modal reliably and returns an explicit validation
+    error when the payload is malformed — so every modal goes out this way, mirroring
+    :func:`ack_deferred`'s shape. Returns ``None`` on success; on failure returns a
+    short human-readable detail (logged too) that the caller can surface ephemerally
+    instead of letting the interaction die as a timeout.
+    """
+    try:
+        response = httpx.post(
+            f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
+            json=modal_response,
+            headers=_auth_headers(),
+            timeout=_DEFAULT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Discord modal callback failed (network error): %s", exc)
+        return "network error talking to Discord"
+    if response.is_success:
+        return None
+    detail = response.text[:300]
+    logger.warning("Discord modal callback rejected: %s %s", response.status_code, detail)
+    return f"{response.status_code} {detail}"
+
+
 def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> bool:
     """POST a type-5 deferred ack so Discord's 3-second clock is satisfied (§5.4).
 
@@ -188,18 +366,48 @@ def ack_deferred(interaction_id: str, token: str, *, ephemeral: bool = True) -> 
     return False
 
 
+def ack_component_deferred(interaction_id: str, token: str) -> bool:
+    """POST a type-6 deferred-update ack for a slow component click (§5.4's sibling).
+
+    Same callback endpoint as :func:`ack_deferred`, but the type-6 body tells Discord
+    "I'll edit the clicked message shortly" instead of "I'll post a reply" — the
+    follow-up PATCH of ``@original`` then replaces the message the button lives on.
+    Best-effort: returns ``True`` on a 2xx, ``False`` otherwise (logged, never raised).
+    """
+    try:
+        response = httpx.post(
+            f"{API_BASE}/interactions/{interaction_id}/{token}/callback",
+            json=deferred_update_ack(),
+            headers=_auth_headers(),
+            timeout=_DEFAULT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Discord deferred component ack failed (network error): %s", exc)
+        return False
+    if response.is_success:
+        return True
+    logger.warning("Discord deferred component ack failed: %s %s", response.status_code, response.text[:300])
+    return False
+
+
 def send_followup(
-    token: str, *, content: str, embeds: list[dict] | None = None, components: list[dict] | None = None
+    token: str,
+    *,
+    content: str,
+    embeds: list[dict] | None = None,
+    components: list[dict] | None = None,
+    allowed_mentions: dict | None = None,
 ) -> bool:
     """PATCH the deferred interaction's ``@original`` message with the real reply (§5.4).
 
     Hits ``PATCH /webhooks/{DISCORD_CLIENT_ID}/{token}/messages/@original``, well inside
     Discord's 15-minute followup window. The message inherits the ephemeral state of the
-    :func:`ack_deferred` that preceded it. ``embeds`` / ``components`` are included only when
-    provided (mirroring :func:`reply`), so a deferred command's link buttons survive the
-    followup path. Best-effort: returns ``True`` on a 2xx, ``False`` on a network error or
-    any non-2xx (logged, never raised) — a failed followup leaves Discord's own
-    "interaction failed" rather than a misleading success.
+    :func:`ack_deferred` that preceded it. ``embeds`` / ``components`` / ``allowed_mentions``
+    are included only when provided (mirroring :func:`reply`), so a deferred command's link
+    buttons survive the followup path and a member-name-bearing followup can pin
+    ``allowed_mentions={"parse": []}``. Best-effort: returns ``True`` on a 2xx, ``False`` on a
+    network error or any non-2xx (logged, never raised) — a failed followup leaves Discord's
+    own "interaction failed" rather than a misleading success.
     """
     from core.events.discord_oauth import client_id
 
@@ -208,6 +416,8 @@ def send_followup(
         payload["embeds"] = embeds
     if components is not None:
         payload["components"] = components
+    if allowed_mentions is not None:
+        payload["allowed_mentions"] = allowed_mentions
     try:
         response = httpx.patch(
             f"{API_BASE}/webhooks/{client_id()}/{token}/messages/@original",
@@ -224,15 +434,50 @@ def send_followup(
     return False
 
 
+def expire_poll(channel_id: str, message_id: str) -> bool:
+    """End (expire) a bot-authored native poll early (§5.6). Best-effort: ``True`` on a 2xx.
+
+    Hits ``POST /channels/{channel_id}/polls/{message_id}/expire`` with the bot auth headers.
+    Legal because the poll message is authored by our application — Discord only lets you end
+    your own polls. A poll already expired, deleted, or otherwise un-endable returns a
+    non-2xx, which the caller surfaces as the friendly "already ended" reply. Never raises —
+    logs and returns ``False`` on a network error or any non-2xx.
+    """
+    try:
+        response = httpx.post(
+            f"{API_BASE}/channels/{channel_id}/polls/{message_id}/expire",
+            headers=_auth_headers(),
+            timeout=_DEFAULT_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError as exc:
+        logger.warning("Discord poll expire failed (network error): %s", exc)
+        return False
+    if response.is_success:
+        return True
+    logger.warning("Discord poll expire failed: %s %s", response.status_code, response.text[:300])
+    return False
+
+
 __all__ = [
+    "ack_component_deferred",
     "ack_deferred",
     "bot_token",
+    "checkbox",
     "deferred_ack",
+    "deferred_update_ack",
     "error_reply",
+    "expire_poll",
     "is_configured",
+    "modal",
+    "modal_label",
+    "parse_modal_values",
     "pong",
     "reply",
     "send_followup",
+    "send_modal_via_callback",
+    "string_select",
+    "text_display",
+    "text_input",
     "unlinked_reply",
     "update_message",
     "verify_signature",

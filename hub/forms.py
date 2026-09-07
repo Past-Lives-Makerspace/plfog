@@ -8,16 +8,19 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.conf import settings
+from django.db.models import Case, Q, Value, When
 from django.utils import timezone
 from django.utils.text import slugify
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+    from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
     from classes.models import ClassOffering
 
 from core.html_sanitize import sanitize_rich_html
+from core.validators import validate_image_size
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission
@@ -25,6 +28,8 @@ from membership.models import (
     AdminCapability,
     CommunityEvent,
     DiscordGuildEmoji,
+    Equipment,
+    EquipmentHours,
     Floorplan,
     Guild,
     GuildAnnouncement,
@@ -45,7 +50,9 @@ from membership.models import (
     OrgInfoPage,
     OrgLink,
     OrientationAvailability,
+    OrientationAvailabilityBlock,
     OrientationSlot,
+    OrientationType,
     Skill,
     SkillCategory,
     Space,
@@ -102,6 +109,20 @@ def _seed_time_choice(form: forms.BaseForm, name: str, value: time) -> None:
 
 # Preset meeting times on the half hour, 6:00 AM through 9:30 PM — one easy dropdown.
 _MEETING_TIME_CHOICES: list[tuple[str, str]] = half_hour_time_choices(required=False)
+
+
+class _FeaturedClassChoiceField(forms.ModelChoiceField):
+    """Featured class picker options labeled with the next session date.
+
+    Past runs keep PUBLISHED forever and duplicate_as_new_run reuses the title
+    verbatim, so two runs of the same class are indistinguishable without a date.
+    """
+
+    def label_from_instance(self, obj: Any) -> str:
+        upcoming = obj.first_upcoming_session_at
+        if upcoming is None:
+            return str(obj.title)
+        return f"{obj.title} ({timezone.localtime(upcoming).strftime('%b %-d, %Y')})"
 
 
 class GuildEditForm(forms.ModelForm):
@@ -216,15 +237,15 @@ class GuildEditForm(forms.ModelForm):
                 "In Google Calendar → Settings → your calendar → 'Secret address in iCal format'. "
                 "Leave blank if you don't use Google Calendar."
             ),
-            "calendar_color": "Color used for your guild's events on the Community Calendar.",
+            "calendar_color": "Color used for your guild's events on the Calendar.",
             "discord_url": "The public invite/link to your channel, shown as a button on your guild page.",
             "discord_webhook_url": (
                 "A private Discord webhook for your channel. Don't paste your public invite link here. "
                 "Blank = nothing posts to your channel."
             ),
             "discord_welcome_message": (
-                "Posted to your guild's Discord channel and sent to the member when someone joins "
-                "via /join-guild. Blank = a generic welcome."
+                "Posted to your guild's Discord channel and sent to the member when someone starts "
+                "following your guild via /join-guild. Blank = a generic welcome."
             ),
         }
 
@@ -271,11 +292,19 @@ class GuildEditForm(forms.ModelForm):
 
         featured = cast(forms.ModelChoiceField, self.fields["featured_class"])
         if self.instance and self.instance.pk:
-            featured.queryset = ClassOffering.objects.filter(
-                category__guild=self.instance, status=ClassOffering.Status.PUBLISHED
+            # Only runs a member could still sign up for; a saved pick stays valid so
+            # the rest of the form never blocks on a stale spotlight.
+            pks = set(
+                ClassOffering.objects.bookable().filter(category__guild=self.instance).values_list("pk", flat=True)
             )
+            if self.instance.featured_class_id:
+                pks.add(self.instance.featured_class_id)
+            queryset = ClassOffering.objects.filter(pk__in=pks).order_by("title")
         else:
-            featured.queryset = ClassOffering.objects.none()
+            queryset = ClassOffering.objects.none()
+        self.fields["featured_class"] = _FeaturedClassChoiceField(
+            queryset=queryset, required=False, label=featured.label, help_text=featured.help_text
+        )
 
         # Seed the time dropdown from the stored 24h meeting_time, preserving an
         # off-grid value (not on the half hour, or outside 6 AM–9:30 PM) as its own option.
@@ -306,6 +335,26 @@ class ProfileSettingsForm(forms.ModelForm):
     """Form for editing member profile fields plus per-field directory visibility."""
 
     VISIBILITY_PREFIX = "show_"
+
+    # Yes/No radio over the boolean model field. Not required and coerced with
+    # ``empty_value=False`` so a POST without the field (older clients, tests) means "No".
+    marketing_opt_in = forms.TypedChoiceField(
+        required=False,
+        coerce=lambda value: value == "True",
+        # django-stubs types empty_value as str | None, but TypedChoiceField accepts any
+        # sentinel at runtime — False keeps cleaned_data a plain bool.
+        empty_value=False,  # type: ignore[arg-type]
+        choices=(
+            (
+                True,
+                "Yes, please contact me about Past Lives Makerspace marketing opportunities to "
+                "highlight my art/business (Instagram, website, email newsletter, etc.).",
+            ),
+            (False, "No thanks."),
+        ),
+        widget=forms.RadioSelect,
+        label="Marketing opportunities",
+    )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -382,12 +431,15 @@ class ProfileSettingsForm(forms.ModelForm):
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "show_on_space_map",
             "open_for_commissions",
             "commission_note",
+            "marketing_opt_in",
             "instructor_bio",
         ]
         widgets = {
             "preferred_name": forms.TextInput(attrs={"placeholder": "What should we call you?"}),
+            "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
             "phone": forms.TextInput(attrs={"placeholder": "(optional)"}),
             "discord_handle": forms.TextInput(attrs={"placeholder": "@username"}),
             "about_me": forms.Textarea(attrs={"rows": 3, "placeholder": "Tell other members a bit about yourself..."}),
@@ -403,6 +455,7 @@ class ProfileSettingsForm(forms.ModelForm):
         }
         labels = {
             "show_in_directory": "Show me in the member directory",
+            "show_on_space_map": "Show me on the Spaces map",
             "discord_handle": "Discord",
             "about_me": "About me",
             "profile_photo": "Profile photo",
@@ -421,16 +474,26 @@ class MemberContactForm(forms.ModelForm):
 
     class Meta:
         model = MemberContact
-        fields = ["label", "value", "show_in_directory", "show_on_instructor_page", "sort_order"]
+        fields = ["label", "value", "show_in_directory", "show_on_instructor_page", "sort_order", "kind"]
         widgets = {
             "label": forms.TextInput(attrs={"placeholder": "e.g. Website, Instagram, Booking email"}),
             "value": forms.TextInput(attrs={"placeholder": "https://…, @handle, or you@example.com"}),
             "sort_order": forms.HiddenInput(),
+            "kind": forms.HiddenInput(),
         }
         labels = {
             "show_in_directory": "Show in member directory",
             "show_on_instructor_page": "Show on instructor page",
         }
+
+    def has_changed(self) -> bool:
+        """Ignore a kind-only change so an untouched "+ Add" row never blocks the save.
+
+        Each section's add-button stamps the cloned row's hidden ``kind`` the moment the
+        row is created, which would otherwise make an abandoned blank row count as
+        "changed" and fail required-field validation on save.
+        """
+        return bool(set(self.changed_data) - {"kind"})
 
 
 MemberContactFormSet = forms.inlineformset_factory(
@@ -496,6 +559,120 @@ class SkillSuggestionForm(forms.Form):
         return MemberSkill.objects.create(member=self.member, skill=skill)
 
 
+class DeleteAccountConfirmForm(forms.Form):
+    """Requires typing DELETE exactly to confirm irreversible self-service deletion."""
+
+    CONFIRM_TEXT = "DELETE"
+
+    confirm_text = forms.CharField(
+        label="Type DELETE to confirm",
+        widget=forms.TextInput(attrs={"autocomplete": "off"}),
+    )
+
+    def clean_confirm_text(self) -> str:
+        value = self.cleaned_data["confirm_text"].strip()
+        if value != self.CONFIRM_TEXT:
+            raise forms.ValidationError("Type DELETE (all capitals) to confirm.")
+        return value
+
+
+class NotificationEmailForm(forms.Form):
+    """Pick which verified address event-driven notification emails go to.
+
+    Choices are built per-user in ``__init__`` from the user's VERIFIED allauth
+    ``EmailAddress`` rows plus a blank "Primary email (default)" option, so an
+    unverified or foreign address can never validate. This form is the only write
+    path for ``Member.notification_email`` — the model field itself stays a plain
+    ``EmailField`` (validation lives here, per the house rule).
+    """
+
+    notification_email = forms.ChoiceField(
+        required=False,
+        label="Send notifications to",
+    )
+
+    def __init__(self, user: User, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.user = user
+        from allauth.account.models import EmailAddress
+
+        verified = EmailAddress.objects.filter(user=user, verified=True).order_by("email")
+        cast(forms.ChoiceField, self.fields["notification_email"]).choices = [("", "Primary email (default)")] + [
+            (ea.email, ea.email) for ea in verified
+        ]
+
+    def save(self) -> None:
+        """Write the chosen address onto the user's member ("" = follow the primary)."""
+        member = self.user.member
+        member.notification_email = self.cleaned_data["notification_email"]
+        member.save(update_fields=["notification_email"])
+
+
+class GuildUpdatesPromptForm(forms.Form):
+    """Validates the first-login guild updates picks (active guild pks only).
+
+    Validation only — the template renders the toggle rows itself (service-built grid,
+    same as the notifications matrix and the settings Guilds tab), so the field's
+    widget is a hidden multi-select rather than a rendered control. An inactive or
+    bogus pk fails with a single plain message; real members can't reach that state
+    from the UI.
+    """
+
+    guilds = forms.ModelMultipleChoiceField(
+        queryset=Guild.objects.filter(is_active=True),
+        required=False,
+        widget=forms.MultipleHiddenInput,
+        error_messages={
+            "invalid_choice": "Pick guilds from the list.",
+            "invalid_pk_value": "Pick guilds from the list.",
+            "invalid_list": "Pick guilds from the list.",
+        },
+    )
+
+
+# Feedback photo limits. Per-photo size reuses settings.MAX_UPLOAD_IMAGE_BYTES via
+# core.validators.validate_image_size; these two are deliberately module constants
+# (not settings) — they exist for email deliverability, not deployment tuning.
+MAX_FEEDBACK_PHOTOS = 5
+MAX_FEEDBACK_PHOTO_TOTAL_BYTES = 15 * 1024 * 1024
+
+
+class MultiplePhotoInput(forms.ClearableFileInput):
+    """File input that accepts several files at once (Django's documented multi-file pattern)."""
+
+    allow_multiple_selected = True
+
+
+class MultiplePhotoField(forms.FileField):
+    """Optional multi-image upload — every file must be a real image under the per-image cap.
+
+    Django's ``FileField.clean`` handles one file; this maps it over the list the
+    multi-select widget produces. Each file is delegated to ``forms.ImageField`` so
+    it gets the same Pillow verification a normal image field would (a renamed
+    ``.txt`` fails loudly), plus ``validate_image_size`` for the per-file byte cap.
+    """
+
+    widget = MultiplePhotoInput
+
+    def clean(self, data: Any, initial: Any = None) -> list[UploadedFile]:
+        files = list(data) if isinstance(data, (list, tuple)) else ([data] if data else [])
+        if not files and self.required:
+            raise forms.ValidationError(self.error_messages["required"], code="required")
+        single = forms.ImageField(validators=[validate_image_size])
+        cleaned: list[UploadedFile] = []
+        errors: list[forms.ValidationError] = []
+        for item in files:
+            try:
+                cleaned.append(single.clean(item, initial))
+            except forms.ValidationError as exc:
+                # Name the offender and keep going, so one round trip surfaces every problem.
+                name = getattr(item, "name", None) or "file"
+                errors.extend(forms.ValidationError(f"{name}: {message}") for message in exc.messages)
+        if errors:
+            raise forms.ValidationError(errors)
+        return cleaned
+
+
 class BetaFeedbackForm(forms.Form):
     """Form for submitting feedback (bug reports, feature requests, general feedback)."""
 
@@ -510,6 +687,36 @@ class BetaFeedbackForm(forms.Form):
     message = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 6, "placeholder": "Describe your issue or idea..."}), label="Message"
     )
+    photos = MultiplePhotoField(
+        required=False,
+        label="Photos (optional)",
+        widget=MultiplePhotoInput(attrs={"accept": "image/*"}),
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Derive the numbers from the real caps so the copy can never lie
+        # (the per photo cap is env tunable via MAX_UPLOAD_IMAGE_BYTES).
+        per_photo_mb = settings.MAX_UPLOAD_IMAGE_BYTES // (1024 * 1024)
+        total_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
+        self.fields["photos"].help_text = (
+            f"Attach up to {MAX_FEEDBACK_PHOTOS} photos or screenshots. {per_photo_mb} MB each, {total_mb} MB total. "
+            "If the form shows an error, please pick your photos again before resending."
+        )
+
+    def clean_photos(self) -> list[UploadedFile]:
+        """Enforce the photo count and combined-size caps with plain messages."""
+        photos: list[UploadedFile] = self.cleaned_data["photos"]
+        if len(photos) > MAX_FEEDBACK_PHOTOS:
+            raise forms.ValidationError(
+                f"You can attach up to {MAX_FEEDBACK_PHOTOS} photos. Please remove some and try again."
+            )
+        # A cleaned upload always has a size; the stubs type it int | None for unsaved files.
+        total_bytes = sum(cast(int, photo.size) for photo in photos)
+        if total_bytes > MAX_FEEDBACK_PHOTO_TOTAL_BYTES:
+            limit_mb = MAX_FEEDBACK_PHOTO_TOTAL_BYTES // (1024 * 1024)
+            raise forms.ValidationError(f"Your photos add up to too much. Please keep the total under {limit_mb} MB.")
+        return photos
 
     def send(self, *, user: User) -> None:
         """Send the feedback email to the configured recipients.
@@ -519,21 +726,33 @@ class BetaFeedbackForm(forms.Form):
         Django's ``send_mail``. Best-effort: a failed feedback email is logged but
         must not 500 the feedback page.
         """
+        from core.email import Attachment
         from core.email import send as send_email
 
         category_label = dict(self.CATEGORY_CHOICES)[self.cleaned_data["category"]]
         subject = f"[{category_label}] {self.cleaned_data['subject']}"
+        photos: list[UploadedFile] = self.cleaned_data["photos"]
+        # The count line makes a stripped-attachment situation visible to the reader.
+        photos_line = f"Photos attached: {len(photos)}\n" if photos else ""
         body = (
             f"From: {user.get_full_name() or user.email} ({user.email})\n"
-            f"Category: {category_label}\n\n"
+            f"Category: {category_label}\n"
+            f"{photos_line}\n"
             f"{self.cleaned_data['message']}"
         )
+        attachments: list[Attachment] = []
+        for photo in photos:
+            photo.seek(0)  # ImageField's Pillow verification may leave the pointer mid-file.
+            # ImageField.to_python rewrote content_type from the verified image format;
+            # octet-stream is only the fallback for a format Pillow knows but MIME doesn't.
+            attachments.append((photo.name or "photo", photo.read(), photo.content_type or "application/octet-stream"))
         send_email(
             to=list(settings.BETA_FEEDBACK_EMAILS),
             subject=subject,
             trigger_kind="hub.beta_feedback",
             text_body=body,
             best_effort=True,
+            attachments=attachments or None,
         )
 
 
@@ -575,6 +794,9 @@ class MemberAdminEditForm(forms.ModelForm):
             "show_in_directory",
             "can_self_approve_discounts",
         ]
+        widgets = {
+            "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
+        }
         labels = {
             "can_self_approve_discounts": "Can approve their own discount codes",
         }
@@ -597,10 +819,16 @@ class MemberCapabilitiesForm(forms.Form):
     """A member's scoped, site-wide admin duties, one BooleanField per capability.
 
     Each field renders as a labeled toggle (``components/toggle.html``) on the member
-    edit Permissions tab. A capability is the master switch: holding it both routes the
-    matching approval/alert emails to this member AND lets them act on that object type,
-    without granting full admin. These are SITE-WIDE — per-guild lead/staff authority is
-    managed on the guild's own Staff tab, not here.
+    edit Permissions tab. A capability is the master switch: holding it usually both
+    routes the matching approval/alert emails to this member AND lets them act on that
+    object type, without granting full admin. Two exceptions: Refunds is action-only
+    (routes nothing), and Billing Administrator additionally gates the admin Payments
+    dashboard. These are SITE-WIDE — per-guild lead/staff authority is managed on the
+    guild's own Staff tab, not here.
+
+    Labels and help text come from :class:`membership.models.AdminCapability` (its
+    ``Capability`` labels and ``DESCRIPTIONS`` map) so this page and the "View As"
+    dropdown's self-service duty toggles always describe a duty the same way.
 
     Build for GET with ``MemberCapabilitiesForm(initial=MemberCapabilitiesForm.initial_for(member))``;
     on POST, ``form.selected()`` returns the checked capability values for
@@ -609,28 +837,33 @@ class MemberCapabilitiesForm(forms.Form):
 
     cap_class_approver = forms.BooleanField(
         required=False,
-        label="Class Administrator",
-        help_text="Approves and publishes classes for every guild, and gets class-review emails.",
+        label=AdminCapability.Capability.CLASS_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.CLASS_APPROVER],
     )
     cap_space_approver = forms.BooleanField(
         required=False,
-        label="Space & Cubby Administrator",
-        help_text="Reviews space and cubby requests, and gets those request emails.",
+        label=AdminCapability.Capability.SPACE_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.SPACE_APPROVER],
     )
     cap_discount_approver = forms.BooleanField(
         required=False,
-        label="Discount Code Administrator",
-        help_text="Approves discount codes, and gets discount-request emails.",
+        label=AdminCapability.Capability.DISCOUNT_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.DISCOUNT_APPROVER],
     )
     cap_events_approver = forms.BooleanField(
         required=False,
-        label="Calendar Administrator",
-        help_text="Reviews Community Calendar and meeting proposals, and gets those emails.",
+        label=AdminCapability.Capability.EVENTS_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENTS_APPROVER],
     )
     cap_billing_approver = forms.BooleanField(
         required=False,
-        label="Billing Administrator",
-        help_text="Gets an alert when a member's automatic payment fails.",
+        label=AdminCapability.Capability.BILLING_APPROVER.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.BILLING_APPROVER],
+    )
+    cap_refunds = forms.BooleanField(
+        required=False,
+        label=AdminCapability.Capability.REFUNDS.label,
+        help_text=AdminCapability.DESCRIPTIONS[AdminCapability.Capability.REFUNDS],
     )
 
     # Field name → the capability it grants. The single source of truth both
@@ -641,6 +874,7 @@ class MemberCapabilitiesForm(forms.Form):
         "cap_discount_approver": AdminCapability.Capability.DISCOUNT_APPROVER,
         "cap_events_approver": AdminCapability.Capability.EVENTS_APPROVER,
         "cap_billing_approver": AdminCapability.Capability.BILLING_APPROVER,
+        "cap_refunds": AdminCapability.Capability.REFUNDS,
     }
 
     @classmethod
@@ -665,24 +899,37 @@ class SiteSettingsForm(forms.ModelForm):
     class Meta:
         model = SiteConfiguration
         fields = [
+            "org_name",
+            "org_short_name",
+            "org_legal_name",
+            "org_logo",
+            "org_primary_color",
+            "org_support_email",
+            "org_website_url",
             "registration_mode",
             "sync_classes_enabled",
             "classes_calendar_color",
             "legacy_cms_sync_enabled",
+            "instructor_discount_codes_enabled",
             "mailchimp_api_key",
             "mailchimp_list_id",
             "google_analytics_measurement_id",
             "discord_general_webhook_url",
             "discord_leadership_webhook_url",
             "discord_officers_webhook_url",
+            "discord_reservations_webhook_url",
             "discord_server_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
-            "tab_payments_enabled",
+            "my_tab_enabled",
             "class_registration_enabled",
             "class_registration_disabled_note",
             "help_page_enabled",
             "wiki_link_enabled",
+            "equipment_page_enabled",
+            "guild_welcome_email_enabled",
+            "display_demo_classes",
+            "display_demo_guild",
             "member_directory_public",
             "member_event_policy",
             "member_google_calendar_id",
@@ -701,6 +948,7 @@ class SiteSettingsForm(forms.ModelForm):
             "signage_event_days_ahead",
         ]
         widgets = {
+            "org_primary_color": forms.TextInput(attrs={"type": "color"}),
             "classes_calendar_color": forms.TextInput(attrs={"type": "color"}),
             "class_registration_disabled_note": forms.Textarea(attrs={"rows": 3}),
             "member_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
@@ -979,16 +1227,19 @@ class VotePreferenceForm(forms.Form):
     )
 
     def clean(self) -> dict:
-        """Validate that all three guild choices are distinct."""
+        """Validate the ranked ballot.
+
+        All three choices are required (policy: every ballot assigns 5, 3, and 2
+        points), and they must be distinct guilds.
+        """
         cleaned: dict = super().clean() or {}
         g1 = cleaned.get("guild_1st")
         g2 = cleaned.get("guild_2nd")
         g3 = cleaned.get("guild_3rd")
 
-        if g1 and g2 and g3:
-            choices = [g1, g2, g3]
-            if len(set(g.pk for g in choices)) != 3:
-                raise forms.ValidationError("Please select three different guilds.")
+        chosen = [g for g in (g1, g2, g3) if g]
+        if len({g.pk for g in chosen}) != len(chosen):
+            raise forms.ValidationError("Each choice must be a different guild.")
 
         return cleaned
 
@@ -1361,6 +1612,7 @@ class MeetingItemProposalForm(forms.Form):
     why = forms.CharField(
         label="Why / what needs deciding",
         required=False,
+        help_text="Helps leadership slot it into the meeting.",
         widget=forms.Textarea(attrs={"rows": 3}),
     )
 
@@ -1428,10 +1680,11 @@ class MeetingAttachmentForm(forms.ModelForm):
 
 
 class GuildOrientationSettingsForm(forms.ModelForm):
-    """Edit a guild's orientation booking configuration.
+    """Edit a guild's guild-wide orientation switches.
 
-    The two lead-authored follow-up emails (thank-you + welcome) live on their own
-    :class:`GuildEmailsForm` (Announcements/Emails tab); only the booking config is here.
+    The lead-authored thank-you email lives on its own :class:`GuildThankyouEmailForm`
+    (also on the Orientations tab). Per-orientation config — duration, price, seats,
+    location — is edited per type on :class:`OrientationTypeFormSet`, not here.
     """
 
     class Meta:
@@ -1440,9 +1693,6 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "is_enabled",
             "allow_custom_requests",
             "info",
-            "default_seats",
-            "default_location",
-            "default_duration_minutes",
             "is_closed",
             "closed_message",
         ]
@@ -1454,21 +1704,145 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "is_enabled": "Offer orientation booking on this guild's page",
             "allow_custom_requests": "Let members propose their own orientation time",
             "info": "Orientation info",
-            "default_seats": "Default seats per slot",
-            "default_location": "Default location",
-            "default_duration_minutes": "Default length (minutes)",
             "is_closed": "Temporarily closed for orientations",
             "closed_message": "Closed message",
         }
 
 
-class GuildEmailsForm(forms.ModelForm):
-    """Edit a guild's two lead-authored follow-up emails (thank-you + welcome).
+class OrientationTypeForm(forms.ModelForm):
+    """One row of the guild editor's Orientation Types list.
 
-    These live on the Announcements/Emails tab of the guild editor. The email *data*
-    stays on :class:`~membership.models.GuildOrientationSettings`; only the editing UI
-    moved here. Enabling either email requires a subject and a body, mirroring the
-    instructor welcome-email form. Saving stamps each email's ``*_updated_at``.
+    ``price`` is entered in dollars ("15" or "15.50", never cents) and mapped to
+    ``price_cents`` on save. Blank normalizes to 0 (free), and a free type renders
+    the field empty, not "0". Price changes affect future checkouts only — live
+    holds and paid bookings keep the amount they paid.
+    """
+
+    price = forms.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        required=False,
+        label="Price",
+        widget=forms.NumberInput(attrs={"placeholder": "Free", "min": "0", "step": "0.01"}),
+    )
+
+    class Meta:
+        model = OrientationType
+        fields = [
+            "name",
+            "description",
+            "duration_minutes",
+            "default_seats",
+            "default_location",
+            "sort_order",
+            "is_active",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
+            "description": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "name": "Name",
+            "description": "Description (shown to members)",
+            "duration_minutes": "Length (minutes)",
+            "default_seats": "Seats per slot",
+            "default_location": "Location",
+            "sort_order": "Sort order",
+            "is_active": "Active",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.price_cents:
+            self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
+
+    def clean_price(self) -> int:
+        """Normalize the dollar input to cents — blank means free."""
+        price = self.cleaned_data["price"]
+        if price in (None, ""):
+            return 0
+        if not Decimal("0") <= price <= Decimal("500"):
+            raise forms.ValidationError("Enter a price between $0 and $500.")
+        return int(price * 100)
+
+    def save(self, commit: bool = True) -> OrientationType:
+        instance = cast(OrientationType, super().save(commit=False))
+        instance.price_cents = self.cleaned_data["price"]
+        if commit:
+            instance.save()
+        return instance
+
+
+class BaseOrientationTypeFormSet(forms.BaseInlineFormSet):
+    """Guards type deletion at the FORMSET level — deleted forms skip per-form validation.
+
+    Deleting a type would cascade-delete its slots AND its booking history, so a
+    type with any booking can only be retired (the Active toggle), never deleted.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        for form in self.deleted_forms:
+            if not form.instance.pk:
+                continue
+            if form.instance.bookings.exists():
+                raise forms.ValidationError(
+                    "This orientation has booking history and can't be deleted. Turn off Active to retire it instead."
+                )
+            # A type some equipment requires would 500 on the FK's PROTECT — guard it
+            # here for both the guild editor and the equipment tab (shared base).
+            gated = list(form.instance.gated_equipment.values_list("name", flat=True))
+            if gated:
+                names = ", ".join(gated)
+                raise forms.ValidationError(
+                    f"This orientation is required by {names}. Clear that requirement first, "
+                    "or turn off Active to retire it instead."
+                )
+        if any(self.errors):
+            return
+        # In-memory duplicate-name guard: uq_orienttype_equip_name is CONDITIONAL, so
+        # Django's cross-form unique check skips it — two new same-named rows on the
+        # equipment editor would IntegrityError. (The guild editor's plain constraint
+        # is caught by Django first, so this only fires where that check can't.)
+        seen_names: set[str] = set()
+        for form in self.forms:
+            data = getattr(form, "cleaned_data", None)
+            if not data or data.get("DELETE"):
+                continue
+            name = (data.get("name") or "").strip().casefold()
+            if not name:
+                continue
+            if name in seen_names:
+                raise forms.ValidationError(
+                    f'Two orientation types can\'t share the name "{data["name"]}". Give each one its own name.'
+                )
+            seen_names.add(name)
+
+
+OrientationTypeFormSet = forms.inlineformset_factory(
+    Guild, OrientationType, form=OrientationTypeForm, formset=BaseOrientationTypeFormSet, extra=0, can_delete=True
+)
+
+EquipmentOrientationTypeFormSet = forms.inlineformset_factory(
+    Equipment,
+    OrientationType,
+    form=OrientationTypeForm,
+    formset=BaseOrientationTypeFormSet,
+    fk_name="equipment",
+    extra=0,
+    can_delete=True,
+)
+
+
+class GuildThankyouEmailForm(forms.ModelForm):
+    """Edit a guild's lead-authored thank-you email.
+
+    Lives on the Orientations tab of the guild editor — it is the orientation-lifecycle
+    email, sent once an orientation is marked complete. The email *data* stays on
+    :class:`~membership.models.GuildOrientationSettings`; only the editing UI lives here.
+    The thank-you email is on by default and falls back to the standard copy, so enabling
+    it needs no subject or body. Saving stamps ``thankyou_email_updated_at`` when a
+    thank-you field changed.
     """
 
     class Meta:
@@ -1477,77 +1851,195 @@ class GuildEmailsForm(forms.ModelForm):
             "thankyou_email_enabled",
             "thankyou_email_subject",
             "thankyou_email_body",
-            "join_email_enabled",
-            "join_email_subject",
-            "join_email_body",
         ]
         widgets = {
             "thankyou_email_body": RichTextEditorWidget(attrs={"rows": 6}),
-            "join_email_body": RichTextEditorWidget(attrs={"rows": 6}),
         }
         labels = {
             "thankyou_email_enabled": "Send a thank-you / next-steps email after orientation",
             "thankyou_email_subject": "Thank-you subject",
             "thankyou_email_body": "Thank-you message",
-            "join_email_enabled": "Send a welcome email when a member joins this guild",
-            "join_email_subject": "Welcome subject",
-            "join_email_body": "Welcome message",
         }
 
     def clean_thankyou_email_body(self) -> str:
         return sanitize_rich_html(self.cleaned_data.get("thankyou_email_body") or "")
 
-    def clean_join_email_body(self) -> str:
-        return sanitize_rich_html(self.cleaned_data.get("join_email_body") or "")
-
-    def _require_subject_and_body(self, cleaned: dict[str, Any], prefix: str, label: str) -> None:
-        if cleaned.get(f"{prefix}_enabled"):
-            if not (cleaned.get(f"{prefix}_subject") or "").strip():
-                self.add_error(f"{prefix}_subject", f"Add a subject before turning the {label} email on.")
-            if not (cleaned.get(f"{prefix}_body") or "").strip():
-                self.add_error(f"{prefix}_body", f"Add a message before turning the {label} email on.")
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        # The thank-you email is on by default and falls back to the standard copy, so enabling
-        # it needs no subject/body. The join/welcome email has no standard fallback, so it still
-        # requires both before it can be turned on.
-        self._require_subject_and_body(cleaned, "join_email", "welcome")
-        return cleaned
-
     _THANKYOU_EMAIL_FIELDS = ("thankyou_email_enabled", "thankyou_email_subject", "thankyou_email_body")
-    _JOIN_EMAIL_FIELDS = ("join_email_enabled", "join_email_subject", "join_email_body")
 
     def save(self, commit: bool = True) -> GuildOrientationSettings:
-        now = timezone.now()
-        changed = set(self.changed_data)
-        if changed.intersection(self._THANKYOU_EMAIL_FIELDS):
-            self.instance.thankyou_email_updated_at = now
-        if changed.intersection(self._JOIN_EMAIL_FIELDS):
-            self.instance.join_email_updated_at = now
+        if set(self.changed_data).intersection(self._THANKYOU_EMAIL_FIELDS):
+            self.instance.thankyou_email_updated_at = timezone.now()
         return cast(GuildOrientationSettings, super().save(commit=commit))
 
 
+class GuildWelcomeEmailForm(forms.ModelForm):
+    """Edit a guild's lead-authored welcome email.
+
+    Lives on the Welcome Email tab of the guild editor — it is the join-lifecycle email,
+    sent once a member deliberately joins (the "Join This Guild" button with the welcome
+    box checked, or the Discord ``/join-guild`` command). The email *data* stays on
+    :class:`~membership.models.GuildOrientationSettings`; only the editing UI lives here.
+    The welcome email is on by default and falls back to the standard copy, so enabling it
+    needs no subject or body. Saving stamps ``welcome_email_updated_at`` when a welcome
+    field changed.
+    """
+
+    class Meta:
+        model = GuildOrientationSettings
+        fields = [
+            "welcome_email_enabled",
+            "welcome_email_subject",
+            "welcome_email_body",
+        ]
+        widgets = {
+            "welcome_email_body": RichTextEditorWidget(attrs={"rows": 6}),
+        }
+        labels = {
+            "welcome_email_enabled": "Send a welcome email when a member joins this guild",
+            "welcome_email_subject": "Welcome subject",
+            "welcome_email_body": "Welcome message",
+        }
+
+    def clean_welcome_email_body(self) -> str:
+        return sanitize_rich_html(self.cleaned_data.get("welcome_email_body") or "")
+
+    _WELCOME_EMAIL_FIELDS = ("welcome_email_enabled", "welcome_email_subject", "welcome_email_body")
+
+    def save(self, commit: bool = True) -> GuildOrientationSettings:
+        if set(self.changed_data).intersection(self._WELCOME_EMAIL_FIELDS):
+            self.instance.welcome_email_updated_at = timezone.now()
+        return cast(GuildOrientationSettings, super().save(commit=commit))
+
+
+class GuildJoinForm(forms.Form):
+    """The join-modal opt-ins: the welcome email plus an optional Discord announcement.
+
+    Not persisted — it only carries the member's choices with the join POST. ``send_welcome``
+    is checked by default (opt-out within the deliberate join, honoring "ask first").
+    ``announce_discord`` is OFF by default (opt-in): it only posts a short celebratory message
+    to the guild's own Discord channel when the member deliberately ticks it, and the toggle is
+    only rendered for guilds that actually post to a channel. The view reads both off the POST.
+    """
+
+    send_welcome = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Email me the guild's welcome email",
+    )
+    announce_discord = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Announce on the guild's Discord channel",
+    )
+
+
+# The shared slot length and break choices: the guild and equipment rule forms and the one
+# time slot forms all read from these lists (Rule 20: no invented durations).
+_SLOT_DURATION_CHOICES: list[tuple[str, str]] = [
+    ("30", "30 minutes"),
+    ("45", "45 minutes"),
+    ("60", "1 hour"),
+    ("90", "1.5 hours"),
+    ("120", "2 hours"),
+    ("180", "3 hours"),
+]
+
+_ORIENTATION_BUFFER_CHOICES: list[tuple[str, str]] = [
+    ("0", "None"),
+    ("15", "15 minutes"),
+    ("30", "30 minutes"),
+    ("60", "1 hour"),
+]
+
+
+def _duration_choice_label(minutes: int) -> str:
+    """The label for a slot length that is not one of the shared duration choices (a 75 minute type)."""
+    return f"{minutes} minutes"
+
+
+def _append_duration_choice(field: forms.Field, minutes: int) -> None:
+    """Append ``minutes`` to a duration ``<select>`` when it is off the shared list (the off-grid idiom)."""
+    choice_field = cast(forms.ChoiceField, field)
+    choices = cast("list[tuple[str, str]]", choice_field.choices)
+    key = str(minutes)
+    if key not in {choice_value for choice_value, _ in choices}:
+        choice_field.choices = [*choices, (key, _duration_choice_label(minutes))]
+
+
 class OrientationAvailabilityForm(forms.ModelForm):
-    """A single recurring orientation-availability row.
+    """A single recurring orientation-availability row, for a guild or an equipment owner.
 
     Times are half-hour ``<select>`` dropdowns (Rule 19), not per-minute pickers; the
     "HH:MM" choice is parsed back to a ``datetime.time`` on clean, and an existing off-grid
-    value is preserved via :func:`_seed_time_choice`.
+    value is preserved via :func:`_seed_time_choice`. ``orientation_type`` is scoped to the
+    owner's active types (plus the row's own type, so an existing row under a retired type
+    still validates); it defaults to the owner's first active type. Slot length and break
+    are optional: blank keeps one slot for the whole window (the row stays NULL); a length
+    carves the window, and a saved off-list length round-trips as its own choice.
     """
 
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
     end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="End time")
+    slot_minutes = forms.TypedChoiceField(
+        coerce=int,
+        empty_value=None,
+        required=False,
+        choices=[("", "Whole window"), *_SLOT_DURATION_CHOICES],
+        label="Slot length",
+    )
+    # Optional so a row posted without it keeps the model default of no break
+    # (clean_buffer_minutes turns the blank into 0).
+    buffer_minutes = forms.TypedChoiceField(
+        coerce=int,
+        empty_value=None,
+        required=False,
+        choices=_ORIENTATION_BUFFER_CHOICES,
+        label="Break between slots",
+    )
 
     class Meta:
         model = OrientationAvailability
-        fields = ["weekday", "start_time", "end_time", "seats", "is_active"]
+        fields = [
+            "orientation_type",
+            "weekday",
+            "start_time",
+            "end_time",
+            "seats",
+            "slot_minutes",
+            "buffer_minutes",
+            "is_active",
+        ]
+        labels = {"orientation_type": "Orientation"}
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, guild: Guild | None = None, equipment: Equipment | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
+        if guild is None and equipment is None and self.instance is not None and self.instance.guild_id is not None:
+            guild = self.instance.guild
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        allowed: Any = None
+        if equipment is not None:
+            allowed = equipment.owned_orientation_types.active()
+            type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
+        elif guild is not None:
+            allowed = OrientationType.objects.filter(guild=guild).active()
+            type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+        else:
+            type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+        if allowed is not None:
+            if self.instance is not None and self.instance.pk and self.instance.orientation_type_id is not None:
+                allowed = allowed | OrientationType.objects.filter(pk=self.instance.orientation_type_id)
+            type_field.queryset = allowed.distinct()
+            first_type = allowed.first()
+            if first_type is not None:
+                type_field.initial = first_type.pk
+        type_field.empty_label = None
         if self.instance and self.instance.pk:
             _seed_time_choice(self, "start_time", self.instance.start_time)
             _seed_time_choice(self, "end_time", self.instance.end_time)
+            if self.instance.slot_minutes is not None:
+                _append_duration_choice(self.fields["slot_minutes"], self.instance.slot_minutes)
 
     def clean_start_time(self) -> time:
         return _parse_time_choice(self.cleaned_data["start_time"])
@@ -1555,12 +2047,21 @@ class OrientationAvailabilityForm(forms.ModelForm):
     def clean_end_time(self) -> time:
         return _parse_time_choice(self.cleaned_data["end_time"])
 
+    def clean_buffer_minutes(self) -> int:
+        return cast("int | None", self.cleaned_data.get("buffer_minutes")) or 0
+
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
         start = cleaned.get("start_time")
         end = cleaned.get("end_time")
         if start and end and end <= start:
             self.add_error("end_time", "End time must be after the start time.")
+            return cleaned
+        slot_minutes = cleaned.get("slot_minutes")
+        if start and end and slot_minutes:
+            window_minutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+            if window_minutes < slot_minutes:
+                self.add_error("slot_minutes", "This window is shorter than one slot.")
         return cleaned
 
 
@@ -1568,36 +2069,105 @@ OrientationAvailabilityFormSet = forms.inlineformset_factory(
     Guild, OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
 )
 
+# The equipment twin: no parent FK to inline on (an equipment rule has guild=None and is
+# owned through its type), so a plain model formset scoped by the view's queryset.
+EquipmentOrientationAvailabilityFormSet = forms.modelformset_factory(
+    OrientationAvailability, form=OrientationAvailabilityForm, extra=0, can_delete=True
+)
+
 
 class OrientationSlotForm(forms.ModelForm):
-    """Add a one-off orientation slot from the config editor."""
+    """Add a one-off orientation slot from the Upcoming Slots card.
+
+    First surfaced with per-orienter availability: date + half-hour start + duration
+    dropdowns (Rule 20 — no per-minute pickers), plus an Orienter select whose choices
+    are the guild's leadership and an "Any orienter (guild slot)" empty choice. A plain
+    staff member gets the field locked to themselves (a crafted POST cannot override it).
+    """
+
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker, and .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    duration_minutes = forms.TypedChoiceField(
+        coerce=int, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
+    )
+    orientation_type = forms.ModelChoiceField(
+        queryset=OrientationType.objects.none(),
+        label="Orientation",
+        empty_label=None,
+    )
+    orienter = forms.ModelChoiceField(
+        queryset=Member.objects.none(),
+        required=False,
+        label="Orienter",
+        empty_label="Any orienter (guild slot)",
+    )
 
     class Meta:
         model = OrientationSlot
-        fields = ["starts_at", "ends_at", "seats", "location"]
-        widgets = {
-            "starts_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
-            ),
-            "ends_at": forms.DateTimeInput(
-                attrs={"type": "datetime-local", "onclick": "this.showPicker?.()"}, format="%Y-%m-%dT%H:%M"
-            ),
-        }
+        fields = ["seats", "location"]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        guild: Guild,
+        acting_member: Member | None = None,
+        lock_to_acting: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
-        for name in ("starts_at", "ends_at"):
-            cast(forms.DateTimeField, self.fields[name]).input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self._acting_member = acting_member
+        self._lock_to_acting = lock_to_acting
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        type_field.queryset = OrientationType.objects.filter(guild=guild).active()
+        type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+        first_type = guild.first_active_orientation_type()
+        if first_type is not None:
+            type_field.initial = first_type.pk
+        leadership_ids = {member.pk for member in guild.leadership_members()}
+        orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])
+        orienter_field.queryset = Member.objects.filter(pk__in=leadership_ids).order_by("full_legal_name")
+        orienter_field.error_messages["invalid_choice"] = "Pick someone on this guild's staff."
+        if acting_member is not None and acting_member.pk in leadership_ids:
+            orienter_field.initial = acting_member.pk
+        if lock_to_acting:
+            orienter_field.widget = forms.HiddenInput()
+
+    def clean_orienter(self) -> Member | None:
+        if self._lock_to_acting:
+            # Plain staff add slots for themselves only — whatever the POST carried.
+            return self._acting_member
+        return cast("Member | None", self.cleaned_data.get("orienter"))
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
-        starts = cleaned.get("starts_at")
-        ends = cleaned.get("ends_at")
-        if starts and ends and ends <= starts:
-            self.add_error("ends_at", "End must be after the start.")
-        if starts and starts <= timezone.now():
-            self.add_error("starts_at", "Pick a time in the future.")
+        day = cleaned.get("date")
+        start_raw = cleaned.get("start_time")
+        duration = cleaned.get("duration_minutes")
+        if day and start_raw and duration:
+            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_raw)))
+            if starts_at <= timezone.now():
+                self.add_error("date", "Pick a time in the future.")
+            else:
+                cleaned["starts_at"] = starts_at
+                cleaned["ends_at"] = starts_at + timedelta(minutes=duration)
         return cleaned
+
+    def save(self, commit: bool = True) -> OrientationSlot:
+        slot = cast(OrientationSlot, super().save(commit=False))
+        slot.starts_at = self.cleaned_data["starts_at"]
+        slot.ends_at = self.cleaned_data["ends_at"]
+        slot.orientation_type = self.cleaned_data["orientation_type"]
+        slot.orienter = self.cleaned_data["orienter"]
+        if commit:
+            slot.save()
+        return slot
 
 
 class CommunityEventForm(forms.ModelForm):
@@ -1657,7 +2227,7 @@ class CommunityEventForm(forms.ModelForm):
         self.fields["publish_at"].label = "Announce at"
         self.fields["video_url"].label = "Video link"
         # The picker is a <select> that always submits a value in the UI; keep it forgiving so a
-        # value-less POST falls back to the model default (MEMBER) rather than erroring.
+        # value-less POST falls back to the model default (PUBLIC) rather than erroring.
         self.fields["google_calendar_target"].required = False
         self._as_admin = as_admin
         self._as_member = as_member
@@ -1672,15 +2242,10 @@ class CommunityEventForm(forms.ModelForm):
         else:
             del self.fields["event_type"]
             del self.fields["guild"]
-            # A lead authoring a NEW guild meeting defaults to the Public calendar — Google is now
-            # a public mirror. The lead can still switch to the members-only calendar per event, and
-            # editing an existing event keeps its saved target (only the create default changes).
-            if not self.instance.pk:
-                self.fields["google_calendar_target"].initial = CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def clean_google_calendar_target(self) -> str:
-        """Coerce a blank/omitted picker value to the default MEMBER calendar."""
-        return self.cleaned_data.get("google_calendar_target") or CommunityEvent.GoogleCalendarTarget.MEMBER
+        """Coerce a blank/omitted picker value to the default PUBLIC calendar."""
+        return self.cleaned_data.get("google_calendar_target") or CommunityEvent.GoogleCalendarTarget.PUBLIC
 
     def clean_publish_at(self) -> Any:
         """Blank ⇒ announce now (valid). A set time must be in the future and strictly
@@ -1828,8 +2393,17 @@ class EventDecisionForm(forms.Form):
 
 
 class OrientationCustomRequestForm(forms.Form):
-    """A member proposing their own orientation time when no posted slot works."""
+    """A member proposing their own orientation time when no posted slot works.
 
+    ``orientation_type`` picks which of the guild's orientations they want — its
+    duration and price size the one-off slot and the checkout (issue #282).
+    """
+
+    orientation_type = forms.ModelChoiceField(
+        queryset=OrientationType.objects.none(),
+        label="Which orientation?",
+        empty_label=None,
+    )
     starts_at = forms.DateTimeField(
         label="Preferred time",
         input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
@@ -1839,11 +2413,39 @@ class OrientationCustomRequestForm(forms.Form):
     )
     note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
 
+    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if guild is not None:
+            type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+            type_field.queryset = OrientationType.objects.filter(guild=guild).active()
+            type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+            first_type = guild.first_active_orientation_type()
+            if first_type is not None:
+                type_field.initial = first_type.pk
+
     def clean_starts_at(self) -> Any:
         starts = self.cleaned_data["starts_at"]
         if starts <= timezone.now():
             raise forms.ValidationError("Pick a time in the future.")
         return starts
+
+
+class OrientationSlotChoiceField(forms.ModelChoiceField):
+    """Slot dropdown whose labels surface seats held by checkouts in progress.
+
+    Without this a lead sees a slot mysteriously full: holds consume seats but
+    never appear in ``active()`` queries. Prefers the ``hold_count`` annotation
+    (``with_pending_hold_count``); falls back to the per-row property.
+    """
+
+    def label_from_instance(self, obj: Any) -> str:
+        holds = getattr(obj, "hold_count", None)
+        if holds is None:
+            holds = obj.pending_hold_count
+        if not holds:
+            return str(obj)
+        noun = "seat" if holds == 1 else "seats"
+        return f"{obj} — {holds} {noun} held by a checkout in progress"
 
 
 class OrientationAddMemberForm(forms.Form):
@@ -1853,12 +2455,109 @@ class OrientationAddMemberForm(forms.Form):
         queryset=Member.objects.filter(status=Member.Status.ACTIVE).order_by("full_legal_name"),
         label="Member",
     )
-    slot = forms.ModelChoiceField(queryset=OrientationSlot.objects.none(), label="Slot")
+    slot = OrientationSlotChoiceField(queryset=OrientationSlot.objects.none(), label="Slot")
 
     def __init__(self, *args: Any, slot_queryset: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if slot_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["slot"]).queryset = slot_queryset
+
+
+class OrientationBlockForm(forms.Form):
+    """An orienter posts a one-off block of available time from the orientations dashboard.
+
+    Type-agnostic on purpose (issue #283): a block belongs to a guild + orienter, and
+    any of the guild's active orientation types may book into it. The orienter is
+    always the acting member — you post your own time.
+    """
+
+    guild = forms.ModelChoiceField(queryset=Guild.objects.none(), label="Guild", empty_label=None)
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker; .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Until")
+    location = forms.CharField(max_length=200, required=False, label="Location (optional)")
+
+    def __init__(self, *args: Any, guild_queryset: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if guild_queryset is not None:
+            cast(forms.ModelChoiceField, self.fields["guild"]).queryset = guild_queryset
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        day = cleaned.get("date")
+        start_choice = cleaned.get("start_time")
+        end_choice = cleaned.get("end_time")
+        if day and start_choice and end_choice:
+            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_choice)))
+            ends_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(end_choice)))
+            if ends_at <= starts_at:
+                raise forms.ValidationError("The block has to end after it starts.")
+            if starts_at <= timezone.now():
+                raise forms.ValidationError("Pick a time in the future.")
+            cleaned["starts_at"] = starts_at
+            cleaned["ends_at"] = ends_at
+        return cleaned
+
+
+class OrientationBlockBookingForm(forms.Form):
+    """A member books a start time inside an availability block (issue #283).
+
+    The select's choices are the block's live valid starts for the picked type; the
+    submitted value is re-validated as a datetime here and then rechecked under the
+    block-row lock by the booking service, so a just-taken time fails with friendly copy.
+    """
+
+    orientation_type = forms.ModelChoiceField(queryset=OrientationType.objects.none(), widget=forms.HiddenInput())
+    starts_at = forms.DateTimeField(
+        label="Start time",
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
+        widget=forms.Select(),
+    )
+    note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(
+        self,
+        *args: Any,
+        block: OrientationAvailabilityBlock,
+        orientation_type: OrientationType | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        type_field.queryset = OrientationType.objects.filter(guild_id=block.guild_id).active()
+        if orientation_type is not None:
+            self.fields["orientation_type"].initial = orientation_type.pk
+            start_field = self.fields["starts_at"]
+            cast(forms.Select, start_field.widget).choices = [
+                (
+                    timezone.localtime(start).strftime("%Y-%m-%dT%H:%M"),
+                    _meeting_time_label(timezone.localtime(start).hour, timezone.localtime(start).minute),
+                )
+                for start in block.valid_starts_for(orientation_type)
+            ]
+
+
+class GuildLeadForm(forms.Form):
+    """Admin-only picker on the Staff tab — sets or replaces ``Guild.guild_lead``.
+
+    Mirrors the ``set_guild_lead`` management command: any member may be chosen, and advisory
+    conditions (not Active, no linked user) are surfaced as warnings by ``Guild.assign_lead``,
+    never refusals.
+    """
+
+    member = forms.ModelChoiceField(queryset=Member.objects.none(), label="New guild lead")
+
+    def __init__(self, *args: Any, member_queryset: Any = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if member_queryset is not None:
+            cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
 
 
 class GuildStaffAddForm(forms.Form):
@@ -1877,15 +2576,23 @@ class GuildStaffAddForm(forms.Form):
         widget=forms.TextInput(attrs={"maxlength": 60, "placeholder": "e.g. Studio Technician"}),
     )
 
-    def __init__(self, *args: Any, member_queryset: Any = None, guild: Any = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, member_queryset: Any = None, guild: Any = None, allow_co_lead: bool = False, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         from membership.models import GuildStaffMembership
 
         self._guild = guild
-        cast(forms.ChoiceField, self.fields["role"]).choices = [
-            ("", "Choose a role…"),
-            *GuildStaffMembership.Role.choices,
+        self._allow_co_lead = allow_co_lead
+        # Only admins may mint Co-Leads (they carry lead-equivalent authority). Restricting the
+        # field's choices both hides the option in the dropdown AND rejects a forged POST —
+        # the gate lives here at the form level, not just in the template.
+        role_choices = [
+            (value, label)
+            for value, label in GuildStaffMembership.Role.choices
+            if allow_co_lead or value != GuildStaffMembership.Role.CO_LEAD
         ]
+        cast(forms.ChoiceField, self.fields["role"]).choices = [("", "Choose a role…"), *role_choices]
         if member_queryset is not None:
             cast(forms.ModelChoiceField, self.fields["member"]).queryset = member_queryset
 
@@ -1893,6 +2600,10 @@ class GuildStaffAddForm(forms.Form):
         from membership.models import GuildStaffMembership
 
         cleaned: dict[str, Any] = super().clean() or {}
+        if not self._allow_co_lead and (self.data.get("role") or "") == GuildStaffMembership.Role.CO_LEAD:
+            # The submitted value already failed the restricted ChoiceField; replace the generic
+            # "not one of the available choices" noise with the actual policy.
+            raise forms.ValidationError("Only an admin can add a Co-Lead.")
         role = cleaned.get("role") or ""
         custom_title = (cleaned.get("custom_title") or "").strip()
         cleaned["custom_title"] = custom_title
@@ -1980,15 +2691,15 @@ def _configured_discord_channels(guild: Guild | None, config: SiteConfiguration 
 
 
 def _default_discord_channel(configured: set[str]) -> str:
-    """The pre-selected channel: the first *configured* channel, stepping down to "Don't post".
+    """The pre-selected channel: the guild's OWN channel when configured, else "Don't post".
 
-    Guild Channel → #general-chat → #leadership → #guild-officers → Don't post (§5.3), so the
-    picker never opens pre-selected on a disabled option.
+    A guild context never silently pre-selects a shared makerspace channel: a webhook
+    less guild once stepped down to #general-chat and a test announcement reached the
+    whole server (issue #271). Shared channels stay selectable, just never the default.
     """
     channels = GuildAnnouncement.DiscordChannel
-    for channel in (channels.GUILD, channels.GENERAL, channels.LEADERSHIP, channels.OFFICERS):
-        if channel.value in configured:
-            return channel.value
+    if channels.GUILD.value in configured:
+        return channels.GUILD.value
     return channels.NONE.value
 
 
@@ -2068,10 +2779,58 @@ class GuildAnnouncementProposalForm(forms.ModelForm):
     def __init__(self, *args: Any, fixed_guild: Guild | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
-        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+        # New proposals may only target guilds that are taking member suggestions. An
+        # existing proposal keeps its own guild selectable even if that guild has since
+        # turned suggestions off, so a CHANGES_REQUESTED proposal can be revised and
+        # resubmitted without being repointed at a different guild.
+        active = Guild.objects.filter(is_active=True)
+        if self.instance.pk:
+            guild_field.queryset = active.filter(
+                Q(allow_member_announcement_suggestions=True) | Q(pk=self.instance.guild_id)
+            ).order_by("name")
+        else:
+            guild_field.queryset = active.filter(allow_member_announcement_suggestions=True).order_by("name")
         guild_field.required = True
+        guild_field.error_messages["invalid_choice"] = "This guild isn't taking member suggestions right now."
         if fixed_guild is not None and not self.is_bound:
             guild_field.initial = fixed_guild.pk
+
+
+class GuildAnnouncementSettingsForm(forms.ModelForm):
+    """Guild-lead toggle for whether members may suggest announcements for this guild.
+
+    A single boolean on :class:`~membership.models.Guild`, rendered as a toggle on the
+    Announcements tab of the guild editor. Turning it off hides the member suggestion
+    button and excludes the guild from the proposal form's guild picker for new proposals.
+    """
+
+    class Meta:
+        model = Guild
+        fields = ["allow_member_announcement_suggestions"]
+        labels = {"allow_member_announcement_suggestions": "Let members suggest announcements"}
+
+
+class GuildVisibilityForm(forms.ModelForm):
+    """Admin-only show/hide toggle for a guild (Basic tab of the guild editor).
+
+    A single boolean on :class:`~membership.models.Guild`, rendered as a toggle. Turning
+    it off sets ``is_active=False``, which removes the guild from the sidebar, the guild
+    directory, the community calendar, and voting — but the guild page and this settings
+    page stay reachable by direct link, so an admin can turn it back on. Save is gated to
+    an actual admin in the view; a guild lead never sees or reaches this control.
+    """
+
+    class Meta:
+        model = Guild
+        fields = ["is_active"]
+        labels = {"is_active": "Visible to members"}
+        help_texts = {
+            "is_active": (
+                "When off, this guild is hidden from the sidebar, the guild directory, the "
+                "community calendar, and voting. Its guild page and this settings page stay "
+                "reachable by direct link, so an admin can turn it back on."
+            )
+        }
 
 
 class GuildAnnouncementDecisionForm(forms.Form):
@@ -2389,13 +3148,15 @@ class AnnouncementComposeForm(forms.Form):
 
         # @mention picker. A guild whose Discord roles are configured can ping its own role(s)
         # — labeled "@<Guild>", the recommended default — alongside @here / @everyone / no ping.
-        # Site announcements and role-less guilds keep the @everyone default. (Glass pings both
-        # of its roles, since discord_role_ids holds every configured role for the guild.)
+        # Site announcements and role-less guilds default to NO ping: @everyone stays available
+        # but must be an explicit choice (a webhook-less guild once defaulted to @everyone in
+        # #general-chat and pinged the whole makerspace, issue #271). (Glass pings both of its
+        # roles, since discord_role_ids holds every configured role for the guild.)
         mention_choices = [
             (AnnouncementDraft.Mention.EVERYONE.value, "@everyone"),
             (AnnouncementDraft.Mention.HERE.value, AnnouncementDraft.Mention.HERE.label),
         ]
-        default_mention = AnnouncementDraft.Mention.EVERYONE.value
+        default_mention = AnnouncementDraft.Mention.NONE.value
         if self.current_guild is not None and self.current_guild.discord_role_ids:
             mention_choices.append((AnnouncementDraft.Mention.ROLE.value, f"@{self.current_guild.name}"))
             default_mention = AnnouncementDraft.Mention.ROLE.value
@@ -2469,11 +3230,22 @@ class AnnouncementComposeForm(forms.Form):
         return result
 
     def _default_dropdown_channel(self) -> str:
-        """Preselect the first real configured channel, else "Don't post"."""
+        """Preselect the guild's OWN channel when configured, else "Don't post".
+
+        A guild audience never silently preselects a shared site wide channel: a
+        webhook less guild once defaulted to #general-chat and a test announcement
+        reached the whole makerspace (issue #271). Site announcements keep the first
+        configured shared channel, since posting site wide is their whole point.
+        """
+        channels = GuildAnnouncement.DiscordChannel
+        if self.current_guild is not None:
+            if channels.GUILD.value in self._configured_channels:
+                return channels.GUILD.value
+            return channels.NONE.value
         for value, _label in self._discord_channel_dropdown_choices():
-            if value != GuildAnnouncement.DiscordChannel.NONE.value:
+            if value != channels.NONE.value:
                 return value
-        return GuildAnnouncement.DiscordChannel.NONE.value
+        return channels.NONE.value
 
     def clean_body(self) -> str:
         # Blank allowed while drafting; required (and always sanitized) when sending.
@@ -2779,6 +3551,54 @@ class MapHotspotEditForm(MapHotspotForm):
             self.fields["status"].initial = self.instance.space.status
 
 
+class SpaceDetailEditForm(forms.ModelForm):
+    """The in-modal, trimmed editor for one marker, opened from the public Spaces map popup.
+
+    The routine-edit path (item 9): an admin edits exactly the four things members read on the
+    space-detail card — ``status``, the ``guild`` link, the ``label`` and the ``description`` —
+    straight from the popup, without opening the full "Edit This Map" placement editor. It is a
+    strict subset of :class:`MapHotspotEditForm`: ``kind``/``shape``/``space`` stay structural
+    (full editor only) and price/size stay read-only (Airtable owns them), so none of them are
+    fields here. Like the placement editor, ``status`` is not a marker field — it lives on the
+    linked :class:`Space` (Airtable's system of record), so the *view* applies it after ``save()``
+    via ``_apply_marker_status`` and the field is ignored for a marker with no space.
+    """
+
+    status = forms.ChoiceField(
+        required=False,
+        choices=Space.Status.choices,
+        label="Status",
+        help_text="Only a marker linked to a space carries a status.",
+    )
+
+    class Meta:
+        model = MapHotspot
+        fields = ["label", "description", "guild"]
+        widgets = {"description": forms.Textarea(attrs={"rows": 3})}
+        labels = {"label": "Marker label", "guild": "Links to guild"}
+        help_texts = {
+            "guild": "Optional — link this marker straight to a guild's page.",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.filter(is_active=True).order_by("name")
+        if self.instance.pk and self.instance.space_id:
+            self.fields["status"].initial = self.instance.space.status
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        label = (cleaned.get("label") or "").strip()
+        # A space-bound marker shows its space's code, so its label is free to be blank; a
+        # facility/info marker shows its label, so that label can't be blanked away here.
+        # Walls are decorative and never edited from the popup, but stay exempt for safety.
+        needs_label = self.instance.space_id is None and self.instance.kind not in MapHotspot.DECORATIVE_KINDS
+        if needs_label and not label:
+            self.add_error("label", "Give this marker a label so members know what it is.")
+        return cleaned
+
+
 class MapHotspotPositionForm(forms.Form):
     """The visual editor's drag/resize payload for ONE marker, in image percentages.
 
@@ -2922,3 +3742,422 @@ class TourSettingsForm(forms.ModelForm):
     class Meta:
         model = Member
         fields = ["guided_tours_enabled"]
+
+
+class EquipmentForm(forms.ModelForm):
+    """Create/edit form for a piece of equipment (the Equipment directory, PR 1).
+
+    Used by both the admin-gated add page and the manage panel's Details tab. The
+    ``required_orientation`` choices narrow to the owning guild's active types when the
+    equipment already belongs to a guild; otherwise every guild's active types are
+    offered (grouped by guild via the type's ``__str__``) — the house Makerspace guild
+    is an operating convention, not a code concept.
+    """
+
+    class Meta:
+        model = Equipment
+        fields = [
+            "name",
+            "kind",
+            "guild",
+            "space",
+            "photo",
+            "description",
+            "location_note",
+            "required_orientation",
+            "requires_guild_membership",
+            "is_active",
+        ]
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. CNC Router"}),
+            "description": forms.Textarea(
+                attrs={"rows": 5, "placeholder": "What is it, what can members make with it, any house rules."}
+            ),
+            "location_note": forms.TextInput(attrs={"placeholder": "e.g. Back corner of the wood shop"}),
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
+        guild_field.queryset = Guild.objects.order_by("name")
+        guild_field.empty_label = "Standalone (run by the makerspace)"
+        guild_field.required = False
+        space_field = cast(forms.ModelChoiceField, self.fields["space"])
+        space_field.queryset = Space.objects.order_by("space_id")
+        space_field.empty_label = "No linked space"
+        space_field.required = False
+        orientation_field = cast(forms.ModelChoiceField, self.fields["required_orientation"])
+        # The saved selection stays choosable even when since deactivated — otherwise
+        # every later Details save fails validation (the inactive-selected bug, both
+        # owner kinds). Inactive alternatives stay hidden. This equipment's own types
+        # sort first, labelled by the owner-aware __str__ ("CNC Router — Operator Basics").
+        types = (
+            OrientationType.objects.filter(Q(is_active=True) | Q(pk=self.instance.required_orientation_id))
+            .select_related("guild", "equipment")
+            .annotate(
+                own_rank=Case(When(equipment_id=self.instance.pk, then=Value(0)), default=Value(1))
+                if self.instance.pk is not None
+                else Value(1)
+            )
+            .order_by("own_rank", "guild__name", "sort_order", "name")
+        )
+        # Narrow the *display* to the owning guild's types plus this equipment's own; a
+        # bound form keeps the full set so changing guild and orientation in one POST
+        # validates against the POSTED guild (clean() enforces the match).
+        if not self.is_bound and self.instance.pk is not None and self.instance.guild_id is not None:
+            types = types.filter(
+                Q(guild_id=self.instance.guild_id)
+                | Q(equipment_id=self.instance.pk)
+                | Q(pk=self.instance.required_orientation_id)
+            )
+        orientation_field.queryset = types
+        orientation_field.empty_label = "No orientation needed"
+        orientation_field.required = False
+        # Member-facing hints — the model help_text is written for admins/migrations and
+        # would leak jargon (PROTECT, sync notes) into the form via form_field.html.
+        self.fields["name"].help_text = ""
+        self.fields["kind"].help_text = ""
+        self.fields["guild"].help_text = "Pick the guild that runs this equipment, or leave it Standalone."
+        self.fields["space"].help_text = "Optional. Link the physical room from the space map. We only read from it."
+        self.fields["description"].help_text = ""
+        self.fields["location_note"].help_text = "A short note that helps members find it."
+        self.fields["required_orientation"].help_text = "Members must complete this orientation before they can book."
+        self.fields["requires_guild_membership"].help_text = "Only members of the chosen guild can book."
+        self.fields["is_active"].help_text = "Members can see and book this equipment. Turn off to retire it."
+        self.fields["is_active"].label = "Active"
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        guild = cleaned.get("guild")
+        if cleaned.get("requires_guild_membership") and guild is None:
+            self.add_error(None, "Pick a guild first, or turn this off.")
+        orientation = cleaned.get("required_orientation")
+        if guild is not None and orientation is not None and orientation.guild_id != guild.pk:
+            # An equipment's OWN type is always a legal requirement, whatever the guild.
+            is_own_type = self.instance.pk is not None and orientation.equipment_id == self.instance.pk
+            if not is_own_type:
+                self.add_error(
+                    "required_orientation",
+                    "Pick an orientation offered by the chosen guild, or one of this equipment's own orientations.",
+                )
+        return cleaned
+
+
+def equipment_hour_choices() -> list[tuple[str, str]]:
+    """Full-day half-hour slots, 00:00 through 23:30, as ("HH:MM", "12:00 AM") pairs.
+
+    Equipment hours run on the shop's clock, not the meeting-time window — late
+    night sessions are normal shop life — so this list is deliberately wider than
+    :func:`half_hour_time_choices` (which stays the 6 AM to 9:30 PM meeting
+    picker). The latest possible window END is 23:30; a window never crosses
+    midnight (the model's end-after-start constraint stands).
+    """
+    return [(f"{hour:02d}:{minute:02d}", _meeting_time_label(hour, minute)) for hour in range(24) for minute in (0, 30)]
+
+
+_EQUIPMENT_DAY_CHOICES: list[tuple[str, str]] = [(str(value), label) for value, label in EquipmentHours.Weekday.choices]
+
+
+class EquipmentHoursWindowForm(forms.Form):
+    """One equipment-hours WINDOW — a start/end pair plus the days it applies to.
+
+    The owner-requested shape: put the hours, then set the days those hours cover.
+    Each window expands to the existing per-day :class:`EquipmentHours` rows on
+    save (:meth:`Equipment.apply_hours_windows`); existing rows regroup by
+    identical (start, end, active) window for display. Times are full-day
+    half-hour ``<select>`` dropdowns (Rule 20); a legacy off-grid value
+    round-trips via its own appended choice.
+    """
+
+    start_time = forms.ChoiceField(choices=equipment_hour_choices(), label="Opens")
+    end_time = forms.ChoiceField(choices=equipment_hour_choices(), label="Closes")
+    days = forms.TypedMultipleChoiceField(
+        coerce=int,
+        choices=_EQUIPMENT_DAY_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        label="Days",
+        error_messages={"required": "Pick at least one day."},
+    )
+    is_active = forms.BooleanField(
+        required=False, initial=True, label="Active", help_text="Pause a window without deleting it."
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for name in ("start_time", "end_time"):
+            value = (self.initial or {}).get(name)
+            if not value:
+                continue
+            field = cast(forms.ChoiceField, self.fields[name])
+            choices = cast("list[tuple[str, str]]", field.choices)
+            if value not in {choice_value for choice_value, _ in choices}:
+                hour, minute = (int(part) for part in value.split(":"))
+                field.choices = [*choices, (value, _meeting_time_label(hour, minute))]
+
+    def has_changed(self) -> bool:
+        """A removed clone row (no posted keys) must stay a skippable blank extra.
+
+        The Active toggle's ``initial=True`` would otherwise read "changed to off"
+        for a row the user removed from the DOM, dragging its empty time/day fields
+        into required-field validation and blocking the save.
+        """
+        changed = super().has_changed()
+        if changed and self.empty_permitted:
+            return any(name != "is_active" for name in self.changed_data)
+        return changed
+
+    def clean_start_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_time_choice(self.cleaned_data["end_time"])
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        start = cleaned.get("start_time")
+        end = cleaned.get("end_time")
+        if start and end and end <= start:
+            self.add_error("end_time", "The end time must be after the start time.")
+        return cleaned
+
+
+class _BaseEquipmentHoursWindowFormSet(forms.BaseFormSet):
+    """Cross-window guard: two windows may not cover the same day with overlapping times."""
+
+    def clean(self) -> None:
+        super().clean()
+        if any(self.errors):
+            return
+        spans_by_day: dict[int, list[tuple[time, time]]] = {}
+        for form in self.forms:
+            data = form.cleaned_data
+            if not data or data.get("DELETE"):
+                continue
+            for day in data["days"]:
+                spans_by_day.setdefault(day, []).append((data["start_time"], data["end_time"]))
+        labels = dict(EquipmentHours.Weekday.choices)
+        for day, spans in spans_by_day.items():
+            spans.sort()
+            for (_start1, end1), (start2, _end2) in zip(spans, spans[1:], strict=False):
+                # Strict inequality: a window ending 5:00 may meet one starting 5:00.
+                if start2 < end1:
+                    raise forms.ValidationError(f"Those hours overlap on {labels[day]}.")
+
+
+EquipmentHoursWindowFormSet = forms.formset_factory(
+    EquipmentHoursWindowForm, formset=_BaseEquipmentHoursWindowFormSet, extra=0, can_delete=True
+)
+
+
+class EquipmentSettingsForm(forms.ModelForm):
+    """The Hours & Limits tab's closure + booking-limit fields (spec §7.4)."""
+
+    class Meta:
+        model = Equipment
+        fields = [
+            "is_closed",
+            "closed_message",
+            "min_duration_minutes",
+            "max_duration_minutes",
+            "max_advance_days",
+            "max_active_reservations_per_member",
+        ]
+        labels = {
+            "is_closed": "Closed for new reservations",
+            "closed_message": "Closed message",
+            "min_duration_minutes": "Shortest reservation (minutes)",
+            "max_duration_minutes": "Longest reservation (minutes)",
+            "max_advance_days": "Booking horizon (days)",
+            "max_active_reservations_per_member": "Upcoming reservations per member",
+        }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["is_closed"].help_text = ""
+        self.fields[
+            "closed_message"
+        ].help_text = "Members will see this message. Existing reservations stay until you cancel them."
+        self.fields["min_duration_minutes"].help_text = "Half hour steps."
+        self.fields["max_duration_minutes"].help_text = "Half hour steps."
+        self.fields["max_advance_days"].help_text = "How far ahead members can book, in days."
+        self.fields["max_active_reservations_per_member"].help_text = "How many upcoming times one member can hold."
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        minimum = cleaned.get("min_duration_minutes")
+        maximum = cleaned.get("max_duration_minutes")
+        if minimum is not None and (minimum < 30 or minimum % 30 != 0):
+            self.add_error("min_duration_minutes", "Use half hour steps, starting at 30.")
+        if maximum is not None and maximum % 30 != 0:
+            self.add_error("max_duration_minutes", "Use half hour steps.")
+        if minimum is not None and maximum is not None and maximum < minimum:
+            self.add_error("max_duration_minutes", "The longest reservation cannot be shorter than the shortest.")
+        horizon = cleaned.get("max_advance_days")
+        if horizon is not None and horizon < 1:
+            self.add_error("max_advance_days", "Use at least 1 day.")
+        cap = cleaned.get("max_active_reservations_per_member")
+        if cap is not None and cap < 1:
+            self.add_error("max_active_reservations_per_member", "Use at least 1.")
+        return cleaned
+
+
+class EquipmentReservationForm(forms.Form):
+    """The Book a Time POST — an ISO start from the computed select, a duration, a purpose.
+
+    Format validation only; every domain check (grid, hours, limits, overlap, blockers)
+    lives in ``Equipment.ensure_reservable`` under the reserve() lock, so the form can
+    never drift from the engine.
+    """
+
+    starts_at = forms.CharField()
+    duration_minutes = forms.IntegerField(min_value=1)
+    purpose = forms.CharField(max_length=140, required=False)
+
+    def clean_starts_at(self) -> Any:
+        from django.utils.dateparse import parse_datetime
+
+        parsed = parse_datetime(self.cleaned_data["starts_at"])
+        if parsed is None or timezone.is_naive(parsed):
+            raise forms.ValidationError("Please pick one of the listed times.")
+        return parsed
+
+
+class EquipmentManagerCancelForm(forms.Form):
+    """The manage panel's reason-required cancel (spec §7.4)."""
+
+    # CharField strips by default, so a whitespace-only reason already fails required —
+    # no extra clean needed; the model's ValueError guard stays the loud backstop.
+    reason = forms.CharField(
+        max_length=300,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Why is this being cancelled?"}),
+        label="Reason",
+        error_messages={"required": "Please tell the member why."},
+    )
+
+
+class EquipmentOrientationSlotForm(forms.ModelForm):
+    """Add a one-off orientation time from the equipment manage panel's Orientation tab.
+
+    Mirrors :class:`OrientationSlotForm` minus the orienter picker — equipment slots
+    are always "any manager" (the no-per-orienter-machinery decision). The view
+    stamps ``guild=None`` (implicit) and ``source=MANUAL``.
+    """
+
+    date = forms.DateField(
+        label="Date",
+        widget=forms.DateInput(
+            # Rule 14: the whole field opens the picker, and .pl-slot-date inverts the
+            # black picker icon on the dark theme (reset under the light theme).
+            attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+        ),
+    )
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
+    duration_minutes = forms.TypedChoiceField(
+        coerce=int, choices=_SLOT_DURATION_CHOICES, initial="60", label="Duration"
+    )
+    orientation_type = forms.ModelChoiceField(
+        queryset=OrientationType.objects.none(),
+        label="Orientation",
+        empty_label=None,
+    )
+    orienter = forms.ModelChoiceField(
+        queryset=Member.objects.none(),
+        required=False,
+        label="Runs with",
+        empty_label="Any manager",
+    )
+
+    class Meta:
+        model = OrientationSlot
+        fields = ["seats", "location"]
+
+    def __init__(
+        self,
+        *args: Any,
+        equipment: Equipment,
+        acting_member: Member | None = None,
+        lock_to_acting: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._equipment = equipment
+        self._acting_member = acting_member
+        self._lock_to_acting = lock_to_acting
+        type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
+        type_field.queryset = equipment.owned_orientation_types.active()
+        type_field.error_messages["invalid_choice"] = "Pick one of this equipment's orientations."
+        first_type = equipment.owned_orientation_types.active().first()
+        if first_type is not None:
+            type_field.initial = first_type.pk
+            self.fields["seats"].initial = first_type.default_seats
+            if first_type.default_location:
+                self.fields["location"].initial = first_type.default_location
+        # Runs with: this tool's orienters plus "Any manager"; a plain manager is fixed to
+        # themselves. Mirrors the guild slot form, which offers ``leadership_members()``.
+        manager_ids = {member.pk for member in equipment.orienter_members()}
+        orienter_field = cast(forms.ModelChoiceField, self.fields["orienter"])
+        orienter_field.queryset = Member.objects.filter(pk__in=manager_ids).order_by("full_legal_name")
+        orienter_field.error_messages["invalid_choice"] = "Pick someone who manages this equipment."
+        if acting_member is not None and acting_member.pk in manager_ids:
+            orienter_field.initial = acting_member.pk
+        if lock_to_acting:
+            orienter_field.widget = forms.HiddenInput()
+
+    def clean_orienter(self) -> Member | None:
+        if self._lock_to_acting:
+            # Plain managers add slots for themselves only, whatever the POST carried.
+            return self._acting_member
+        return cast("Member | None", self.cleaned_data.get("orienter"))
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        day = cleaned.get("date")
+        start_raw = cleaned.get("start_time")
+        duration = cleaned.get("duration_minutes")
+        if day and start_raw and duration:
+            starts_at = timezone.make_aware(datetime.combine(day, _parse_time_choice(start_raw)))
+            ends_at = starts_at + timedelta(minutes=duration)
+            if starts_at <= timezone.now():
+                self.add_error("date", "Pick a time in the future.")
+            elif OrientationSlot.objects.filter(
+                orientation_type__equipment=self._equipment,
+                is_cancelled=False,
+                starts_at__lt=ends_at,
+                ends_at__gt=starts_at,
+            ).exists():
+                # The machine is the scarce resource: no two orientation times on one
+                # tool may overlap, whatever their type (equipment-orientation-hours decision 8).
+                self.add_error("start_time", "That time overlaps another orientation time on this tool.")
+            else:
+                cleaned["starts_at"] = starts_at
+                cleaned["ends_at"] = ends_at
+        return cleaned
+
+    def save(self, commit: bool = True) -> OrientationSlot:
+        slot = cast(OrientationSlot, super().save(commit=False))
+        slot.starts_at = self.cleaned_data["starts_at"]
+        slot.ends_at = self.cleaned_data["ends_at"]
+        slot.orientation_type = self.cleaned_data["orientation_type"]
+        slot.orienter = self.cleaned_data["orienter"]
+        if commit:
+            slot.save()
+        return slot
+
+
+class EquipmentStaffAddForm(forms.Form):
+    """The manage panel's "+ Add Manager" form — grants one member a manager role."""
+
+    member = forms.ModelChoiceField(queryset=Member.objects.none(), label="Member")
+
+    def __init__(self, *args: Any, equipment: Equipment | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._equipment: Equipment | None = equipment
+        cast(forms.ModelChoiceField, self.fields["member"]).queryset = Member.objects.active().order_by(
+            "full_legal_name"
+        )
+
+    def clean_member(self) -> Member:
+        member = cast(Member, self.cleaned_data["member"])
+        if self._equipment is not None and self._equipment.staff_memberships.filter(member=member).exists():
+            raise forms.ValidationError("They already manage this equipment.")
+        return member

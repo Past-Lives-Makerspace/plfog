@@ -13,7 +13,7 @@
     <div class="bk-auth-card">
       <div class="bk-auth-eyebrow">Create an account</div>
       <h1 class="bk-auth-title">Join the Makerspace.</h1>
-      <p class="bk-auth-sub">Just an email — you'll set everything else up after your first class.</p>
+      <p class="bk-auth-sub">Just your name and email. You'll set everything else up after your first class.</p>
       <form method="POST">{% csrf_token %}
         {% if form.non_field_errors %}
         <div class="bk-field-hint" style="color:#f87171">
@@ -21,8 +21,24 @@
         </div>
         {% endif %}
         <div class="bk-field">
+          <label>Full name</label>
+          <input type="text" name="full_name" required autofocus maxlength="150" autocomplete="name"
+                 placeholder="Your full name" value="{{ form.full_name.value|default:'' }}">
+          {% if form.full_name.errors %}
+          <div class="bk-field-hint" style="color:#f87171">{{ form.full_name.errors.0 }}</div>
+          {% endif %}
+        </div>
+        <div class="bk-field">
+          <label>Name you go by (optional)</label>
+          <input type="text" name="preferred_name" maxlength="255" autocomplete="nickname"
+                 placeholder="What should we call you?" value="{{ form.preferred_name.value|default:'' }}">
+          {% if form.preferred_name.errors %}
+          <div class="bk-field-hint" style="color:#f87171">{{ form.preferred_name.errors.0 }}</div>
+          {% endif %}
+        </div>
+        <div class="bk-field">
           <label>Email address</label>
-          <input type="email" name="email" required autofocus placeholder="you@example.com"
+          <input type="email" name="email" required placeholder="you@example.com"
                  value="{{ form.email.value|default:'' }}">
           {% if form.email.errors %}
           <div class="bk-field-hint" style="color:#f87171">{{ form.email.errors.0 }}</div>
@@ -65,8 +81,29 @@
         {% endif %}
         <form method="POST">
             {% csrf_token %}
+            <label for="id_full_name">Full name</label>
+            <input type="text" name="full_name" id="id_full_name" required autofocus maxlength="150"
+                   autocomplete="name" placeholder="Your full name" value="{{ form.full_name.value|default:'' }}">
+            {% if form.full_name.errors %}
+            <ul class="errorlist">
+                {% for error in form.full_name.errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <label for="id_preferred_name">Name you go by (optional)</label>
+            <input type="text" name="preferred_name" id="id_preferred_name" maxlength="255"
+                   autocomplete="nickname" placeholder="What should we call you?"
+                   value="{{ form.preferred_name.value|default:'' }}">
+            {% if form.preferred_name.errors %}
+            <ul class="errorlist">
+                {% for error in form.preferred_name.errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
             <label for="id_email">Email address</label>
-            <input type="email" name="email" id="id_email" required autofocus placeholder="you@example.com"
+            <input type="email" name="email" id="id_email" required placeholder="you@example.com"
                    value="{{ form.email.value|default:'' }}">
             {% if form.email.errors %}
             <ul class="errorlist">

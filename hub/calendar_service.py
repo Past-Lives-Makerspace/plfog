@@ -214,7 +214,7 @@ def _prune_stale_occurrences(
     Each occurrence of a recurring series is its own row keyed by ``recurrence_id`` — the
     occurrence's DTSTART (see :func:`_event_dict`). Move or single-instance-override an
     occurrence and its DTSTART changes, so the next fetch writes a NEW row and the old one is
-    orphaned: it never updates again, and the calendar, the #public-calendar announcer, and the
+    orphaned: it never updates again, and the calendar, the #calendar announcer, and the
     Discord Scheduled Events mirror all double-list it. Mirroring :func:`sync_local_class_events`,
     drop the rows this fetch did not just write.
 

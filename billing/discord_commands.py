@@ -30,7 +30,7 @@ def _balance(interaction: Interaction, member: Member | None) -> dict:
     from billing.models import Tab
     from core.models import SiteConfiguration
 
-    if not SiteConfiguration.load().tab_payments_enabled:
+    if not SiteConfiguration.load().my_tab_enabled:
         return reply("Tab payments aren't enabled right now.", ephemeral=True)
 
     member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs

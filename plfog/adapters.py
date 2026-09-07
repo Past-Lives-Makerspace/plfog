@@ -69,14 +69,19 @@ def _extract_bodies(msg: object) -> tuple[str, str | None]:
 
 
 class AdminRedirectAccountAdapter(DefaultAccountAdapter):
-    """Grant admin privileges on login and redirect staff users to /admin/.
+    """Grant admin privileges on login and route each surface to its landing page.
 
     On every login, if the user's email domain matches any domain in the
     ADMIN_DOMAINS setting (case-insensitive), the user gets is_staff=True
-    and is_superuser=True.
+    and is_superuser=True. Plus-addressed emails are exempt from that grant
+    (see ``_sync_permissions``) so demo/training aliases keep their assigned
+    fog_role.
 
-    After login, staff users are redirected to the admin panel; everyone
-    else goes to the member hub.
+    After login (no ``?next=``), the public/book surface lands on the /account/
+    overview; the members surface lands on the member Home — except a member who
+    has never chosen their guild updates, who gets the one-time
+    /welcome/guild-updates/ prompt; any other surface (e.g. the guilds guest
+    host) lands on the member Home. See ``get_login_redirect_url``.
 
     Signup gating: when registration_mode is invite_only, only emails with
     a pending Invite record can sign up.
@@ -156,11 +161,25 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         """Land on the right place based on surface.
 
         - Public/book surface → /account/ overview (no onboarding step).
-        - Members surface (anywhere else) → the member Home / Dashboard.
+        - Members surface: a member who has never chosen their guild updates (no
+          answered-stamp, no subscriptions) → the one-time guild updates prompt;
+          everyone else → the member Home / Dashboard. Known, accepted gap: allauth
+          only consults this when no ``?next=`` is present, so a deep-linked login
+          skips the prompt that session (the onboarding checklist is the backstop).
+        - Any other surface (e.g. the guilds guest host) → the member Home /
+          Dashboard, never the prompt: the interstitial renders members-hub chrome
+          and its URL is not in the guilds-host allowlist, so routing there from
+          the guest surface would 404.
         """
         surface = getattr(request, "surface", "members")
         if surface == "public":
             return reverse("account:overview")
+        if surface == "members":
+            # Same resolution pattern as hub.views._get_member: the reverse one-to-one
+            # accessor, AttributeError-safe (RelatedObjectDoesNotExist subclasses it).
+            member = getattr(request.user, "member", None)
+            if member is not None and member.needs_guild_updates_prompt:
+                return reverse("hub_guild_updates_prompt")
         return reverse("hub_home")
 
     def send_mail(self, template_prefix: str, email: str, context: dict) -> None:
@@ -252,6 +271,10 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
         Priority order:
         1. ADMIN_DOMAINS override — matching email domain always gets full admin.
+           Plus-addressed emails (a ``+`` in the local part) are exempt: staff
+           primary addresses never carry a subaddress, and the aliases are used
+           for role-accurate demo/training accounts that must keep exactly the
+           fog_role they were assigned.
         2. fog_role mapping — admin → full access, guild_officer → staff only.
         3. Everyone else — no staff access (member hub only).
         """
@@ -261,8 +284,9 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
         admin_domains: list[str] = getattr(settings, "ADMIN_DOMAINS", [])
         email: str = getattr(user, "email", "") or ""
         if admin_domains and email and "@" in email:
-            domain = email.rsplit("@", 1)[1].lower()
-            if domain in admin_domains:
+            local_part, domain = email.rsplit("@", 1)
+            domain = domain.lower()
+            if domain in admin_domains and "+" not in local_part:
                 if not (user.is_staff and user.is_superuser):  # type: ignore[attr-defined]
                     user.is_staff = True  # type: ignore[attr-defined]
                     user.is_superuser = True  # type: ignore[attr-defined]
@@ -278,26 +302,66 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
 
 
 class MarketingOptInSignupForm(SignupForm):
-    """Add an opt-in marketing checkbox to the account signup form.
+    """Collect the signer-up's name and an opt-in marketing checkbox at signup.
 
-    The class-registration form has carried a newsletter opt-in for a while
-    (``classes.forms.RegistrationForm.wants_newsletter``); account signup had no
-    equivalent, so anyone who created an account without booking a class could
-    never opt in. This closes that gap using the same audience and the same
-    "unchecked means nothing happens" default.
+    Name collection (issue #274): allauth's bare email signup used to leave
+    ``User.first_name``/``last_name`` empty, so the Member post-save signal fell
+    back to the auto-generated username — the lowercased email local part — as
+    ``Member.full_legal_name``, and that garbage rendered in rosters. The form
+    now requires a full name (and optionally the name the person goes by, which
+    becomes ``Member.preferred_name``). ``clean`` splits the full name into
+    ``first_name``/``last_name`` in ``cleaned_data`` so allauth's
+    ``DefaultAccountAdapter.save_user`` stamps them on the User *before* the
+    post-save signal creates or links the Member; ``save`` then re-stamps the
+    Member with the exact typed string (the split-and-rejoin would collapse
+    interior whitespace) and the preferred name.
 
-    The push is deliberately best-effort and runs *after* the user is committed:
-    Mailchimp being down must never cost someone their account.
+    The newsletter opt-in mirrors the class-registration form
+    (``classes.forms.RegistrationForm.wants_newsletter``) with the same
+    "unchecked means nothing happens" default. The push is deliberately
+    best-effort and runs *after* the user is committed: Mailchimp being down
+    must never cost someone their account.
     """
 
+    # Capped at 150 so each split half always fits User.first_name/last_name
+    # (both varchar(150) — a longer value would raise DataError on Postgres).
+    full_name = forms.CharField(
+        max_length=150,
+        label="Full name",
+        widget=forms.TextInput(attrs={"autocomplete": "name"}),
+    )
+    preferred_name = forms.CharField(
+        max_length=255,
+        required=False,
+        label="Name you go by",
+        widget=forms.TextInput(attrs={"autocomplete": "nickname"}),
+    )
     wants_newsletter = forms.BooleanField(
         required=False,
         initial=False,
         label="Email me about new classes, workshops, and events at Past Lives.",
     )
 
+    def clean(self) -> dict[str, Any]:
+        """Split the collected full name into first/last for allauth's ``save_user``.
+
+        ``DefaultAccountAdapter.save_user`` reads ``cleaned_data["first_name"]`` and
+        ``["last_name"]``, so populating them here gets the name onto the User before
+        it is first saved — which is what the Member-creating post-save signal reads
+        via ``get_full_name()``. A mononym lands entirely in ``first_name``.
+        """
+        cleaned: dict[str, Any] = super().clean()
+        full_name = (cleaned.get("full_name") or "").strip()
+        if full_name:
+            cleaned["full_name"] = full_name
+            first, _, last = full_name.partition(" ")
+            cleaned["first_name"] = first
+            cleaned["last_name"] = last.strip()
+        return cleaned
+
     def save(self, request: HttpRequest) -> Any:
         user = super().save(request)
+        self._stamp_member_names(user)
         # A required=False BooleanField always lands in cleaned_data on a valid
         # form, so index rather than .get() — a missing key is a bug, not a default.
         if self.cleaned_data["wants_newsletter"]:
@@ -308,6 +372,29 @@ class MarketingOptInSignupForm(SignupForm):
             except Exception:  # noqa: BLE001 - a newsletter opt-in must never cost someone their account
                 logger.exception("Mailchimp signup opt-in failed for %s; account stands.", user.email)
         return user
+
+    def _stamp_member_names(self, user: Any) -> None:
+        """Write the collected names onto the Member the post-save signal created or linked.
+
+        The first/last split (see ``clean``) already seeded ``full_legal_name`` via
+        the signal; re-stamping with the raw form value preserves the exact string
+        the person typed, wins over an invite placeholder's email-as-name, and
+        carries the optional preferred name (which the User model has no home for).
+        A typed preferred name wins; a blank one leaves any existing value alone.
+        """
+        # Same AttributeError-safe reverse one-to-one access as get_login_redirect_url.
+        member = getattr(user, "member", None)
+        if member is None:
+            # The signal couldn't create a Member (no MembershipPlan seeded) — it
+            # already logged; the account itself stands.
+            return
+        update_fields = ["full_legal_name"]
+        member.full_legal_name = self.cleaned_data["full_name"]
+        preferred = self.cleaned_data["preferred_name"].strip()
+        if preferred:
+            member.preferred_name = preferred
+            update_fields.append("preferred_name")
+        member.save(update_fields=update_fields)
 
 
 class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
@@ -433,7 +520,11 @@ class GoldenTicketConfirmLoginCodeForm(ConfirmLoginCodeForm):
             # email -> fake process with no user) from reaching a login with nobody to
             # log in as, which would otherwise assert deep inside allauth.
             user = self._pending_login_user()
-            if user is not None:
+            if user is not None and user.is_active:
+                # Defense in depth: never hand the master key to a deactivated account
+                # (e.g. one that self-service-deleted). ``pre_login`` already blocks
+                # inactive users, but the guard keeps the golden path from ever
+                # authenticating one.
                 # A master key that leaves no trace is not auditable. Name the account
                 # every time it is used, at WARNING so it survives prod log levels.
                 logger.warning(

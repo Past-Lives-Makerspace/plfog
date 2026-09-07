@@ -14,7 +14,19 @@ if TYPE_CHECKING:
 
     from membership.models import OrientationBooking
 
-ORIENTATIONS_CSV_HEADERS = ["Member", "Guild", "When", "Status", "Completed", "Oriented by", "Requested at"]
+ORIENTATIONS_CSV_HEADERS = [
+    "Member",
+    "Guild",
+    "Type",
+    "Orienter",
+    "When",
+    "Status",
+    "Completed",
+    "Oriented by",
+    "Requested at",
+    "Paid",
+    "Refund status",
+]
 
 
 class _Echo:
@@ -28,7 +40,19 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
     """Stream an (already filtered) orientation-booking queryset as a CSV download."""
     pseudo = _Echo()
     writer = csv.writer(pseudo)
-    bookings = bookings.select_related("slot", "guild", "member", "oriented_by").order_by("-slot__starts_at")
+    bookings = (
+        bookings.select_related(
+            "slot",
+            "slot__orienter",
+            "guild",
+            "member",
+            "oriented_by",
+            "orientation_type__guild",
+            "orientation_type__equipment",
+        )
+        .prefetch_related("refunds")
+        .order_by("-slot__starts_at")
+    )
 
     def iter_rows() -> Iterator[str]:
         yield writer.writerow(ORIENTATIONS_CSV_HEADERS)
@@ -36,12 +60,16 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
             yield writer.writerow(
                 [
                     booking.member.display_name,
-                    booking.guild.name,
+                    booking.orientation_type.owner_name,
+                    booking.orientation_type.name,
+                    booking.slot.orienter.display_name if booking.slot.orienter is not None else "",
                     booking.slot.starts_at.strftime("%Y-%m-%d %H:%M"),
                     booking.get_status_display(),
                     "yes" if booking.is_completed else "no",
                     booking.oriented_by.display_name if booking.oriented_by is not None else "",
                     booking.requested_at.strftime("%Y-%m-%d %H:%M"),
+                    f"{booking.amount_paid_cents / 100:.2f}" if booking.amount_paid_cents else "",
+                    booking.refund_state if booking.amount_paid_cents else "",
                 ]
             )
 

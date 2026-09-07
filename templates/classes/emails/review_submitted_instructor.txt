@@ -1,9 +1,10 @@
-IN REVIEW
+{% load classes_tags %}IN REVIEW
 
 {{ offering.title }}
 
 Your class submission is being reviewed. View status below.
 
+{% review_pipeline_text offering %}
 View status:
 {{ instructor_url }}
 {% include "membership/emails/_footer.txt" %}

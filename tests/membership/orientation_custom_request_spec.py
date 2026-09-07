@@ -16,6 +16,7 @@ from tests.membership.factories import (
     MembershipPlanFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
+    OrientationTypeFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -31,34 +32,56 @@ def _future() -> datetime:
 
 
 def describe_request_custom_orientation():
-    def it_creates_a_manual_single_seat_slot_and_requests_it():
+    def it_creates_a_manual_single_seat_slot_sized_by_the_type_and_requests_it():
         guild = GuildFactory()
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            allow_custom_requests=True,
-            default_duration_minutes=90,
-            default_location="Front desk",
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+        orientation_type = OrientationTypeFactory(
+            guild=guild, name="Lathe Basics", duration_minutes=90, default_location="Front desk"
         )
         member = _member()
         starts = _future()
 
-        booking = orientations.request_custom_orientation(guild, member, starts, note="please")
+        booking = orientations.request_custom_orientation(
+            guild, member, starts, orientation_type=orientation_type, note="please"
+        )
 
         assert booking.status == OrientationBooking.Status.REQUESTED
+        assert booking.orientation_type == orientation_type
         slot = booking.slot
+        assert slot.orientation_type == orientation_type
         assert slot.source == OrientationSlot.Source.MANUAL
         assert slot.seats == 1
         assert slot.location == "Front desk"
         assert slot.ends_at == starts + timedelta(minutes=90)
         assert booking.member_note == "please"
 
+    def describe_when_the_type_belongs_to_another_guild():
+        def it_raises_and_creates_no_slot():
+            guild = GuildFactory()
+            GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+            foreign_type = OrientationTypeFactory(guild=GuildFactory(), name="Elsewhere")
+            member = _member()
+            with pytest.raises(OrientationError, match="isn't offered right now"):
+                orientations.request_custom_orientation(guild, member, _future(), orientation_type=foreign_type)
+            assert not OrientationSlot.objects.filter(guild=guild).exists()
+
+    def describe_when_the_type_is_inactive():
+        def it_raises_and_creates_no_slot():
+            guild = GuildFactory()
+            GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=True)
+            retired = OrientationTypeFactory(guild=guild, name="Retired", is_active=False)
+            member = _member()
+            with pytest.raises(OrientationError, match="isn't offered right now"):
+                orientations.request_custom_orientation(guild, member, _future(), orientation_type=retired)
+            assert not OrientationSlot.objects.filter(guild=guild).exists()
+
     def describe_when_the_guild_has_no_orientation_settings():
         def it_raises_and_creates_no_slot():
             guild = GuildFactory()
             member = _member()
+            orientation_type = OrientationTypeFactory(guild=guild)
             with pytest.raises(OrientationError, match="isn't taking custom orientation"):
-                orientations.request_custom_orientation(guild, member, _future())
+                orientations.request_custom_orientation(guild, member, _future(), orientation_type=orientation_type)
             assert not OrientationSlot.objects.filter(guild=guild).exists()
 
     def describe_when_the_guild_is_not_accepting():
@@ -66,8 +89,9 @@ def describe_request_custom_orientation():
             guild = GuildFactory()
             GuildOrientationSettingsFactory(guild=guild, is_enabled=True, is_closed=True)
             member = _member()
+            orientation_type = OrientationTypeFactory(guild=guild)
             with pytest.raises(OrientationError, match="isn't taking custom orientation"):
-                orientations.request_custom_orientation(guild, member, _future())
+                orientations.request_custom_orientation(guild, member, _future(), orientation_type=orientation_type)
             assert not OrientationSlot.objects.filter(guild=guild).exists()
 
     def describe_when_custom_requests_are_disallowed():
@@ -75,8 +99,9 @@ def describe_request_custom_orientation():
             guild = GuildFactory()
             GuildOrientationSettingsFactory(guild=guild, is_enabled=True, allow_custom_requests=False)
             member = _member()
+            orientation_type = OrientationTypeFactory(guild=guild)
             with pytest.raises(OrientationError, match="isn't taking custom orientation"):
-                orientations.request_custom_orientation(guild, member, _future())
+                orientations.request_custom_orientation(guild, member, _future(), orientation_type=orientation_type)
             assert not OrientationSlot.objects.filter(guild=guild).exists()
 
     def describe_when_the_member_already_has_an_open_request():
@@ -90,7 +115,9 @@ def describe_request_custom_orientation():
             before = OrientationSlot.objects.filter(guild=guild).count()
 
             with pytest.raises(OrientationError):
-                orientations.request_custom_orientation(guild, member, _future())
+                orientations.request_custom_orientation(
+                    guild, member, _future(), orientation_type=existing_slot.orientation_type
+                )
 
             # The one-off MANUAL slot we tried to create was cleaned up (no net-new slot).
             assert OrientationSlot.objects.filter(guild=guild).count() == before
@@ -107,7 +134,9 @@ def describe_request_custom_orientation():
             before = OrientationSlot.objects.filter(guild=guild).count()
 
             with pytest.raises(OrientationError):
-                orientations.request_custom_orientation(guild, member, _future())
+                orientations.request_custom_orientation(
+                    guild, member, _future(), orientation_type=done_slot.orientation_type
+                )
 
             assert OrientationSlot.objects.filter(guild=guild).count() == before
 

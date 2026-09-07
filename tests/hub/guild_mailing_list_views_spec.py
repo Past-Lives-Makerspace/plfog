@@ -1,6 +1,6 @@
 """Guild "Your Mailing List" editor + import views, and the guild-edit rename.
 
-Covers the two new endpoints on the Announcements/Emails tab — ``guild_mailing_list_save``
+Covers the two new endpoints on the Announcements tab — ``guild_mailing_list_save``
 (inline-formset editor with inline-error re-render) and ``guild_mailing_list_import`` (lenient
 CSV/text import) — the permission gate, and the "Guild Settings" rename + section render.
 """

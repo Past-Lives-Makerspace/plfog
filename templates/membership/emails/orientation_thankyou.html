@@ -2,6 +2,6 @@
 {% load rich_text %}
 {% block content %}
 <p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
-<p style="margin: 0 0 16px; font-size: 12px; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">Thanks for orienting with <a href="{{ guild_url }}" style="color: #0d4876;">{{ guild.name }}</a></p>
+<p style="margin: 0 0 16px; font-size: 12px; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">Thanks for orienting with <a href="{{ owner_url }}" style="color: #0d4876;">{{ owner_name }}</a></p>
 <div style="font-size: 14px; color: #33424f; line-height: 1.7;">{{ body|rich_email_body }}</div>
 {% endblock %}

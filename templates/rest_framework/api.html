@@ -1,0 +1,12 @@
+{% extends "rest_framework/base.html" %}
+{% comment %}
+Project override of DRF's browsable API shell. DRF 3.18 ships no viewport meta,
+so phones lay the page out at a legacy ~980px virtual viewport and render it
+oversized with zoom locked. Every project-owned base template sets this tag;
+this brings the browsable API in line. (Project DIRS precede app templates.)
+{% endcomment %}
+
+{% block meta %}
+  {{ block.super }}
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% endblock %}

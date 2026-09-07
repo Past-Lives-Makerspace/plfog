@@ -14,12 +14,121 @@
     return; // running in a normal browser, not the native app
   }
 
-  var PushNotifications = Cap.Plugins && Cap.Plugins.PushNotifications;
-  if (!PushNotifications) {
-    return; // push plugin not present in this build
+  var platform = typeof Cap.getPlatform === "function" ? Cap.getPlatform() : "android";
+
+  // iOS uses @capacitor-firebase/messaging because @capacitor/push-notifications hands iOS
+  // the raw APNs device token, which FCM's message.token field rejects. Android keeps
+  // @capacitor/push-notifications - it ships, it works, and this file reaches every installed
+  // Android app the moment it merges, so its behavior here must not change.
+  //
+  // The two plugins differ in three ways that matter: what the listeners are called, whether a
+  // notification arrives bare or wrapped in a { notification } envelope, and how a token is
+  // asked for. This adapter normalizes all three so the rest of the file stays platform blind.
+  // Returns null when the platform's plugin is missing from the build - notably the CURRENT iOS
+  // app, which has no FirebaseMessaging - so the caller bails exactly as it always has.
+  function pushBridge(platform, Plugins) {
+    if (platform === "ios") {
+      var FirebaseMessaging = Plugins && Plugins.FirebaseMessaging;
+      if (!FirebaseMessaging) {
+        return null;
+      }
+      var tokenHandler = null;
+      var tokenErrorHandler = null;
+      return {
+        onToken: function (cb) {
+          tokenHandler = cb; // ensurePermissionAndRegister resolves the FIRST token through getToken()
+          FirebaseMessaging.addListener("tokenReceived", function (event) {
+            cb(event && event.token); // TokenReceivedEvent is { token }, not { value }
+          });
+        },
+        onTokenError: function (cb) {
+          tokenErrorHandler = cb; // FirebaseMessaging has no registrationError event; getToken() rejects instead
+        },
+        onReceived: function (cb) {
+          FirebaseMessaging.addListener("notificationReceived", function (event) {
+            cb(event && event.notification); // unwrap the envelope so the banner still reads notification.data.url
+          });
+        },
+        onActionPerformed: function (cb) {
+          FirebaseMessaging.addListener("notificationActionPerformed", cb); // already carries .notification
+        },
+        checkPermissions: function () {
+          return FirebaseMessaging.checkPermissions();
+        },
+        ensurePermissionAndRegister: function () {
+          return FirebaseMessaging.checkPermissions()
+            .then(function (status) {
+              if (status.receive === "prompt" || status.receive === "prompt-with-rationale") {
+                return FirebaseMessaging.requestPermissions();
+              }
+              return status;
+            })
+            .then(function (status) {
+              if (status.receive !== "granted") {
+                return status;
+              }
+              return FirebaseMessaging.getToken().then(
+                function (result) {
+                  if (tokenHandler && result && result.token) {
+                    tokenHandler(result.token);
+                  }
+                  return status;
+                },
+                function (err) {
+                  if (tokenErrorHandler) {
+                    tokenErrorHandler(err);
+                  }
+                  return status;
+                }
+              );
+            });
+        },
+      };
+    }
+    var PushNotifications = Plugins && Plugins.PushNotifications;
+    if (!PushNotifications) {
+      return null;
+    }
+    return {
+      onToken: function (cb) {
+        PushNotifications.addListener("registration", function (token) {
+          cb(token.value);
+        });
+      },
+      onTokenError: function (cb) {
+        PushNotifications.addListener("registrationError", cb);
+      },
+      onReceived: function (cb) {
+        PushNotifications.addListener("pushNotificationReceived", cb); // hands the notification itself, no envelope
+      },
+      onActionPerformed: function (cb) {
+        PushNotifications.addListener("pushNotificationActionPerformed", cb);
+      },
+      checkPermissions: function () {
+        return PushNotifications.checkPermissions();
+      },
+      ensurePermissionAndRegister: function () {
+        return PushNotifications.checkPermissions()
+          .then(function (status) {
+            if (status.receive === "prompt" || status.receive === "prompt-with-rationale") {
+              return PushNotifications.requestPermissions();
+            }
+            return status;
+          })
+          .then(function (status) {
+            if (status.receive === "granted") {
+              PushNotifications.register();
+            }
+            return status;
+          });
+      },
+    };
   }
 
-  var platform = typeof Cap.getPlatform === "function" ? Cap.getPlatform() : "android";
+  var bridge = pushBridge(platform, Cap.Plugins);
+  if (!bridge) {
+    return; // push plugin not present in this build
+  }
 
   // Android notification channels — the "categories" a member sees (and tunes) under the
   // app's system notification settings. The server tags every push with one of these ids
@@ -41,7 +150,10 @@
   ];
 
   function createChannels() {
-    if (platform !== "android" || typeof PushNotifications.createChannel !== "function") {
+    // Deliberately reaches past the bridge: channels are an Android-only concept and the
+    // Android transport is, and stays, @capacitor/push-notifications.
+    var PushNotifications = Cap.Plugins && Cap.Plugins.PushNotifications;
+    if (platform !== "android" || !PushNotifications || typeof PushNotifications.createChannel !== "function") {
       return; // iOS has no channels; guard older plugins without the method
     }
     CHANNELS.forEach(function (channel) {
@@ -67,13 +179,83 @@
     });
   }
 
-  PushNotifications.addListener("registration", function (token) {
-    postJSON("/push/fcm/register/", { token: token.value, platform: platform }).catch(function (err) {
-      console.error("[native-push] token register failed", err);
+  // The most recent token this device produced, so the settings card can unregister
+  // exactly this device without asking the plugin for the token a second time.
+  var lastToken = null;
+
+  // A member who turns push off on this device would otherwise be re-registered by the very
+  // next page load, because the OS permission is still granted. This flag is that member's
+  // "no" and it is checked before registering. The key is new, so it is always absent on
+  // every shipped app: the Android path below behaves exactly as it does today.
+  var OPT_OUT_KEY = "native-push:opted-out";
+
+  function isOptedOut() {
+    try {
+      return window.localStorage.getItem(OPT_OUT_KEY) === "1";
+    } catch (err) {
+      return false; // storage blocked -> treat as opted in, same as before this flag existed
+    }
+  }
+
+  function setOptedOut(value) {
+    try {
+      if (value) {
+        window.localStorage.setItem(OPT_OUT_KEY, "1");
+      } else {
+        window.localStorage.removeItem(OPT_OUT_KEY);
+      }
+    } catch (err) {
+      /* storage blocked -> the choice just doesn't survive this session */
+    }
+  }
+
+  // Why the server can refuse a token, so the settings card can say so instead of claiming
+  // push is on when nothing can reach the device: null (fine), "conflict" (HTTP 409, the token
+  // is still bound to whoever last used this device and never signed out), or "failed".
+  var registerProblem = null;
+  var changeHandlers = [];
+
+  function notifyChanged() {
+    changeHandlers.forEach(function (cb) {
+      cb();
     });
+  }
+
+  function registerDevice(token) {
+    return postJSON("/push/fcm/register/", { token: token, platform: platform })
+      .then(function (response) {
+        // fetch only rejects on a network failure, so a 409 or a 500 lands here looking like
+        // success. Reading response.ok is the difference between "push is on" and a lie.
+        if (response.ok) {
+          registerProblem = null;
+        } else {
+          registerProblem = response.status === 409 ? "conflict" : "failed";
+          console.error("[native-push] token register rejected", response.status);
+        }
+      })
+      .catch(function (err) {
+        console.error("[native-push] token register failed", err);
+        registerProblem = "failed";
+      })
+      .then(notifyChanged);
+  }
+
+  bridge.onToken(function (token) {
+    // Remember the token even while opted out: it describes the device, not the member's
+    // consent, and the card needs it to unregister exactly this device. The opt-out gates the
+    // side effect below, not this bookkeeping.
+    lastToken = token;
+    if (isOptedOut()) {
+      // iOS replays tokenReceived on every launch (the plugin emits it retainUntilConsumed) and
+      // Android re-fires it whenever the token rotates. Without this gate, a member who turned
+      // push off is silently re-registered the next time they open the app, and the card would
+      // still read "off" while the phone buzzes.
+      return;
+    }
+    registerDevice(token);
   });
 
-  PushNotifications.addListener("registrationError", function (err) {
+  bridge.onTokenError(function (err) {
     console.error("[native-push] registration error", err);
   });
 
@@ -145,7 +327,7 @@
   }
 
   // Tapping a notification opens its target url inside the app.
-  PushNotifications.addListener("pushNotificationActionPerformed", function (action) {
+  bridge.onActionPerformed(function (action) {
     var data = action && action.notification && action.notification.data;
     var target = safeNavUrl(data && data.url);
     if (!target) {
@@ -264,23 +446,67 @@
     timer = setTimeout(dismiss, 6000);
   }
 
-  PushNotifications.addListener("pushNotificationReceived", function (notification) {
+  bridge.onReceived(function (notification) {
     showInAppBanner(notification);
   });
 
-  PushNotifications.checkPermissions()
-    .then(function (status) {
-      if (status.receive === "prompt" || status.receive === "prompt-with-rationale") {
-        return PushNotifications.requestPermissions();
-      }
-      return status;
-    })
-    .then(function (status) {
-      if (status.receive === "granted") {
-        PushNotifications.register();
-      }
-    })
-    .catch(function (err) {
+  if (!isOptedOut()) {
+    bridge.ensurePermissionAndRegister().catch(function (err) {
       console.error("[native-push] permission/register failed", err);
     });
+  }
+
+  // Exposed for the "Push On This Device" card in notification settings
+  // (templates/hub/partials/_push_this_device.html) so the card drives this same permission,
+  // register, and unregister path instead of re-deriving it, plugin branch and all.
+  window.PLNativePush = {
+    // Resolves to the plugin's PermissionStatus: { receive: "granted" | "denied" | "prompt" |
+    // "prompt-with-rationale" }. Asks nothing of the member; safe to call on page load.
+    // This plus isOptedOut is the honest device status. Deliberately NOT a "has a token yet"
+    // check: the token lands a moment after page load, so reading it would report "off" on a
+    // device where push is working.
+    checkPermissions: function () {
+      return bridge.checkPermissions();
+    },
+
+    isOptedOut: isOptedOut,
+
+    // null when the last registration succeeded (or none has run yet), else "conflict" or
+    // "failed". Pair it with checkPermissions: the OS can say granted while the server refused.
+    registrationProblem: function () {
+      return registerProblem;
+    },
+
+    // Registration finishes after the settings card first paints, so the card subscribes here
+    // and repaints when the answer lands.
+    onChange: function (cb) {
+      changeHandlers.push(cb);
+    },
+
+    // Clears the opt-out, then runs the normal prompt-and-register path. Resolves to the
+    // resulting PermissionStatus, so the caller can repaint from the real OS state.
+    enable: function () {
+      setOptedOut(false);
+      return bridge.ensurePermissionAndRegister();
+    },
+
+    // Drops this device's token server side and remembers the "no" so the next page load
+    // does not silently re-register it. Rejects if no token has arrived yet, rather than
+    // claiming push is off when it is not.
+    disable: function () {
+      if (lastToken === null) {
+        return Promise.reject(new Error("no token for this device yet"));
+      }
+      var token = lastToken;
+      return postJSON("/push/fcm/unregister/", { token: token }).then(function (response) {
+        if (!response.ok) {
+          throw new Error("unregister failed: " + response.status);
+        }
+        setOptedOut(true);
+        lastToken = null;
+        registerProblem = null; // whatever the server said about the old row no longer applies
+        return true;
+      });
+    },
+  };
 })();

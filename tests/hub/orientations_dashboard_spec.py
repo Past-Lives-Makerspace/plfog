@@ -192,3 +192,63 @@ def describe_orientation_toggle_completed():
         booking = OrientationBookingFactory()
         client.login(username="tc_get", password="pass")
         assert client.get(reverse("hub_orientation_toggle_completed", args=[booking.pk])).status_code == 405
+
+
+def describe_equipment_owned_rows():
+    """Equipment-owned bookings (guild None) on the dashboard — the minimal v1 fix."""
+
+    def _equipment_booking(name: str = "CNC Router") -> object:
+        from tests.membership.factories import EquipmentFactory, OrientationTypeFactory
+
+        equipment = EquipmentFactory(name=name)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Operator Basics")
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        return OrientationBookingFactory(slot=slot)
+
+    def it_renders_the_owner_name_for_an_admin_without_crashing(client: Client):
+        _user_with_role("eqdash_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="eqdash_admin", password="pass")
+        booking = _equipment_booking(name="Big Laser")
+        response = client.get(reverse("hub_orientations_dashboard"))
+        assert response.status_code == 200
+        assert b"Big Laser" in response.content
+        assert booking.member.display_name.encode() in response.content
+
+    def it_excludes_equipment_rows_from_a_leads_mine_scope(client: Client):
+        # Past-dated, so the (deliberately unscoped, future-only) Upcoming list can't
+        # show it — the filterable table is the only surface, and Mine excludes it.
+        from tests.membership.factories import EquipmentFactory, OrientationTypeFactory
+
+        lead_user = _user_with_role("eqdash_lead")
+        guild = GuildFactory(guild_lead=lead_user.member)
+        OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+        equipment = EquipmentFactory(name="Scoped Laser")
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        past_slot = OrientationSlotFactory(
+            equipment_owned=True,
+            orientation_type=orientation_type,
+            starts_at=timezone.now() - timedelta(days=2),
+            ends_at=timezone.now() - timedelta(days=2) + timedelta(hours=1),
+        )
+        equipment_booking = OrientationBookingFactory(slot=past_slot)
+        client.login(username="eqdash_lead", password="pass")
+        response = client.get(reverse("hub_orientations_dashboard"), {"scope": "mine"})
+        assert response.status_code == 200
+        # The owner name never renders — the table's Mine scope excluded the row.
+        # (The member NAME can't be asserted absent: the add-member picker lists everyone.)
+        assert b"Scoped Laser" not in response.content
+        assert equipment_booking is not None
+
+    def it_lets_an_admin_add_a_member_to_an_equipment_slot(client: Client):
+        from tests.membership.factories import EquipmentFactory, OrientationTypeFactory
+
+        _user_with_role("eqdash_add", fog_role=Member.FogRole.ADMIN)
+        client.login(username="eqdash_add", password="pass")
+        equipment = EquipmentFactory()
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        member = MemberFactory()
+        response = client.post(reverse("hub_orientation_add_member"), {"member": member.pk, "slot": slot.pk})
+        assert response.status_code == 302
+        booking = OrientationBooking.objects.get(member=member)
+        assert booking.guild is None

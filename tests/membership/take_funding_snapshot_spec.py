@@ -39,6 +39,21 @@ def describe_take_funding_snapshot_command():
         assert "results" in snap.results
         assert "Snapshot created" in out.getvalue()
 
+    def it_handles_a_first_choice_only_ballot():
+        """A ballot with no 2nd/3rd choice snapshots without crashing (optional tiers)."""
+        g1 = GuildFactory(name="Solo Guild")
+        member = MemberFactory(member_type=Member.MemberType.STANDARD)
+        VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=None, guild_3rd=None)
+
+        call_command("take_funding_snapshot", "--minimum-pool", "0", stdout=StringIO())
+
+        snap = FundingSnapshot.objects.first()
+        assert snap is not None
+        solo = next(r for r in snap.results["results"] if r["guild_name"] == "Solo Guild")
+        assert solo["votes_1st"] == 1
+        assert solo["votes_2nd"] == 0
+        assert solo["total_points"] == 5
+
     def it_handles_no_votes_gracefully():
         out = StringIO()
         call_command("take_funding_snapshot", stdout=out)

@@ -9,7 +9,7 @@
     <h1 class="hub-page-title">Space Requests Awaiting Review</h1>
     <p class="hub-text-muted pl-map-review__lede">
         Members asking for a studio or a cubby. Approving one tells them yes and notes that you'll
-        finalize the lease yourself — it does not create a lease.
+        finalize the agreement yourself. It does not create one automatically.
     </p>
 
     <div class="hub-card pl-map-review">
@@ -36,7 +36,7 @@
                 </div>
 
                 {% url 'hub_space_request_review_decision' r.pk as decision_url %}
-                {% include "components/confirm_modal.html" with confirm_id="approve-req-"|add:pk_str confirm_title="Approve this request?" confirm_message="The member is notified. You'll still finalize the lease in Airtable — this does not create one automatically." confirm_action_url=decision_url|add:"?decision=approve" confirm_button_text="Approve request" confirm_button_style="success" %}
+                {% include "components/confirm_modal.html" with confirm_id="approve-req-"|add:pk_str confirm_title="Approve this request?" confirm_message="The member is notified. You'll still finalize the agreement in Airtable. This does not create one automatically." confirm_action_url=decision_url|add:"?decision=approve" confirm_button_text="Approve request" confirm_button_style="success" %}
                 {% include "hub/partials/_space_request_decision_modal.html" with space_request=r modal_id="decline-modal-"|add:pk_str %}
             </div>
             {% endwith %}

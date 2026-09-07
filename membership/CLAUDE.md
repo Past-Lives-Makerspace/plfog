@@ -64,7 +64,7 @@ A guild's lead is **only** the `Guild.guild_lead` FK (→ Member). That FK alone
 
 Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`role` ∈ co_lead / secretary / treasurer / orienter), managed by leads/staff on the **Staff tab** of the guild edit page. **Every staff role grants the same authority as the lead** — `can_edit_guild`/`can_edit_class`/`can_manage_orientations` all treat staff like the lead, and `editable_by`/`awaiting_guild_lead` include staffed guilds. Lead-facing emails and notifications (class-review requests, orientation requests) fan out to `Guild.leadership_members()` (lead + all staff, deduped). The former orientation-only `Guild.orienters` M2M was folded into the `orienter` staff role (migration `0049`); orienters now get full lead permissions. Use `Member.is_guild_staff` / `Member.staffed_guilds` and `Guild.is_staffed_by` / `staff_by_role` / `leadership_members`.
 
-**Vocabulary (keep it straight in copy and code):** *lead* = the single `Guild.guild_lead` holder; *staff* = a `GuildStaffMembership` role holder; *guild leadership* = lead + staff together (the term the resolvers use). These are **per-guild**. Never call any of them a "Guild Administrator" — "Administrator" is reserved for the five **site-wide** Admin Capabilities (Class / Space & Cubby / Discount Code / Calendar / Billing Administrator). A surface whose audience is lead + staff should say "lead or staff," not "lead" (that undersold who can act and hid a real authorization bug on the orientations dashboard).
+**Vocabulary (keep it straight in copy and code):** *lead* = the single `Guild.guild_lead` holder; *staff* = a `GuildStaffMembership` role holder; *guild leadership* = lead + staff together (the term the resolvers use). These are **per-guild**. Never call any of them a "Guild Administrator" — "Administrator" is reserved for the site-wide Admin Capabilities (CMS / Space & Cubby / Discount Code / Calendar / Billing Administrator, plus the action-only Refunds grant). A surface whose audience is lead + staff should say "lead or staff," not "lead" (that undersold who can act and hid a real authorization bug on the orientations dashboard).
 
 ## Admin Capabilities
 
@@ -72,11 +72,12 @@ Beyond the single `guild_lead` FK, a guild has `GuildStaffMembership` rows (`rol
 
 | Capability (`AdminCapability.Capability`) | Routes these notifications | Grants this action |
 |---|---|---|
-| `CLASS_APPROVER` (Class Administrator) | `class_review_requested` (lead-less categories), `class_validation_requested` | approve/validate classes |
+| `CLASS_APPROVER` (CMS Administrator) | `class_review_requested` (lead-less categories), `class_validation_requested` | approve/validate classes |
 | `SPACE_APPROVER` (Space & Cubby Administrator) | `space.lease_requested`, `space.cubby_requested` | review space requests (`hub._map_reviewer_scope` grants admin-level review) |
 | `DISCOUNT_APPROVER` (Discount Code Administrator) | `discount_code.requested` | approve any discount code (`DiscountCode.approver_for` → `approves_any`) |
 | `EVENTS_APPROVER` (Calendar Administrator) | `event.submitted`, `meeting.item_proposed` (site-wide/council) | review calendar proposals (`hub._reviewer_guild_scope` grants admin-level review) |
-| `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin` | (alert-only — no approve action; the billing dashboard stays `fog_admin`-gated) |
+| `BILLING_APPROVER` (Billing Administrator) | `billing.charge_failed_admin`, `refund_failed` | sees the admin Payments dashboard (`billing_admin_access_required`) |
+| `REFUNDS` (Refunds) | (action-only — routes nothing) | issue/retry Stripe refunds (`refund_authority_required`); opens no new pages on its own |
 
 Helpers on `Member`: `has_admin_capability(cap)` (the authorization gate) and `sync_admin_capabilities([...], granted_by=…)` (reconcile-to-set, used by the admin member-edit form). Assign/revoke on the **Details tab** of the hub Member edit page (`MemberAdminEditForm.capabilities`, admin-only, same surface as `can_self_approve_discounts`).
 

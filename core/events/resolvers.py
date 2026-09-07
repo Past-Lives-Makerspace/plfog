@@ -167,14 +167,14 @@ def _capability_recipients(capability: str) -> list[Recipient]:
 
 
 def class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """Class Administrators — holders only; a plain admin gets nothing until granted."""
+    """CMS Administrators — holders only; a plain admin gets nothing until granted."""
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.CLASS_APPROVER)
 
 
 def guild_leadership_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
-    """COMPOSITION — a guild's leadership when present, else the Class Administrators.
+    """COMPOSITION — a guild's leadership when present, else the CMS Administrators.
 
     A guild-led class routes to that guild's lead + staff ONLY (via
     :func:`guild_leadership`); a lead-less category (``context["guild"]`` is ``None``)
@@ -193,6 +193,36 @@ def space_approvers(context: dict[str, Any]) -> list[Recipient]:
     from membership.models import AdminCapability
 
     return _capability_recipients(AdminCapability.Capability.SPACE_APPROVER)
+
+
+def equipment_managers(context: dict[str, Any]) -> list[Recipient]:
+    """UNION — everyone who manages the in-context equipment, across all three tiers.
+
+    Per-equipment staff rows (tagged ``equipment_staff``) ∪ the owning guild's
+    leadership (``guild_leadership``) ∪ EQUIPMENT capability holders
+    (``capability:equipment``), deduped keeping the first reason. Mirrors
+    ``Equipment.manager_members()`` and ``can_manage_equipment`` so the awareness
+    ping reaches exactly who could act. A missing ``equipment`` key fails loudly.
+    """
+    from membership.models import AdminCapability
+
+    equipment = _require(context, "equipment")
+    slot = context.get("slot")
+    if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
+        # Personal-slot scoping (mirrors guild_orienters): the manager the member booked,
+        # the EQUIPMENT capability holders, and the owning guild's lead, deduped.
+        scoped = _members_to_recipients([slot.orienter], "equipment_staff")
+        lead: list[Recipient] = []
+        if equipment.guild is not None and equipment.guild.guild_lead is not None:
+            lead = _members_to_recipients([equipment.guild.guild_lead], "guild_leadership")
+        return _dedupe([*scoped, *lead, *_capability_recipients(AdminCapability.Capability.EQUIPMENT)])  # type: ignore[list-item]
+    staff_members = [staff.member for staff in equipment.staff_memberships.select_related("member__user")]
+    staff = _members_to_recipients(staff_members, "equipment_staff")
+    leadership: list[Recipient] = []
+    if equipment.guild is not None:
+        leadership = _members_to_recipients(equipment.guild.leadership_members(), "guild_leadership")
+    holders = _capability_recipients(AdminCapability.Capability.EQUIPMENT)
+    return _dedupe([*staff, *leadership, *holders])  # type: ignore[list-item]
 
 
 def discount_approvers(context: dict[str, Any]) -> list[Recipient]:
@@ -230,6 +260,24 @@ def billing_approvers(context: dict[str, Any]) -> list[Recipient]:
     return _capability_recipients(AdminCapability.Capability.BILLING_APPROVER)
 
 
+def refund_authority(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — everyone who may issue a refund: fog admins OR ``REFUNDS`` holders.
+
+    Exactly the set ``hub.view_as.refund_authority_required`` admits, so the
+    "paid registrations need refunds" notice reaches the people who can act on it.
+    Unlike the other capability audiences this is a union with the Admin role: the
+    capability was backfilled only for the admins of that day, so "admins hold every
+    capability" is not reliable. Deduped on the User.
+    """
+    from membership.models import AdminCapability, Member
+
+    admins = list(Member.objects.filter(fog_role=Member.FogRole.ADMIN).select_related("user"))
+    return _dedupe(
+        [_member_user(m, "fog_admin") for m in admins]
+        + list(_capability_recipients(AdminCapability.Capability.REFUNDS))
+    )
+
+
 def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead only (staff excluded), for lead-only events."""
     guild: Guild = _require(context, "guild")
@@ -263,16 +311,42 @@ def guild_members(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients(members, "guild_member")
 
 
+def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — the equipment's managers when ``equipment`` is in context, else the guild's orienters.
+
+    The ``orientation_requested`` audience for both owner types (the
+    ``guild_leadership_or_class_approvers`` precedent — composition, never a
+    union): an equipment-owned request routes to :func:`equipment_managers`
+    (the three tiers, tagged and deduped); a guild-owned request keeps the
+    orienter fan-out with its personal-slot narrowing byte-identical. A context
+    carrying neither key fails loudly in the delegated resolver.
+    """
+    if context.get("equipment") is not None:
+        return equipment_managers(context)
+    return guild_orienters(context)
+
+
 def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead plus members holding the ORIENTER staff role.
 
     Used for "an orientation needs a runner" fan-out (Decision 7): every orienter
     is pinged, not just the lead. The lead is always included (the lead can run
     orientations and carries full authority).
+
+    Personal-slot scoping: when the context carries a ``slot`` with an ``orienter``,
+    the audience narrows to that orienter + the guild lead (deduped) — the request
+    belongs to the person the member booked, with the lead kept in the loop.
     """
     from membership.models import GuildStaffMembership
 
     guild: Guild = _require(context, "guild")
+    slot = context.get("slot")
+    if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
+        scoped: list[Member] = [slot.orienter]
+        lead = guild.guild_lead
+        if guild.guild_lead_id is not None and lead is not None and guild.guild_lead_id != slot.orienter_id:
+            scoped.append(lead)
+        return _members_to_recipients(scoped, "guild_orienter")
     members: list[Member] = []
     seen: set[int] = set()
     if guild.guild_lead_id is not None and guild.guild_lead is not None:
@@ -579,13 +653,16 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.CLASS_APPROVERS: class_approvers,
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: guild_leadership_or_class_approvers,
     Recipients.SPACE_APPROVERS: space_approvers,
+    Recipients.EQUIPMENT_MANAGERS: equipment_managers,
     Recipients.DISCOUNT_APPROVERS: discount_approvers,
     Recipients.EVENTS_APPROVERS: events_approvers,
     Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS: guild_leadership_or_events_approvers,
     Recipients.BILLING_APPROVERS: billing_approvers,
+    Recipients.REFUND_AUTHORITY: refund_authority,
     Recipients.GUILD_LEAD: guild_lead,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
+    Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: guild_orienters_or_equipment_managers,
     Recipients.ORIENTATION_RUNNER: orientation_runner,
     Recipients.REGISTRANT: registrant,
     Recipients.INSTRUCTOR: instructor,

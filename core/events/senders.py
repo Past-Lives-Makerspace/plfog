@@ -89,6 +89,7 @@ def emit_with_email_shell(
     email_to: str | list[str] | None = None,
     email_trigger_kind: str | None = None,
     period: str = "",
+    recipient_user_ids: set[int] | None = None,
 ) -> EmitResult:
     """Emit an event whose EMAIL channel uses a rich structural shell template.
 
@@ -119,6 +120,10 @@ def emit_with_email_shell(
             ``TransactionalEmailLog`` row (defaults to ``event_key``). Preserves the
             pre-migration audit label while the in-app row keeps the event key.
         period: Idempotency bucket.
+        recipient_user_ids: Passed through to :func:`~core.events.emit.emit` — REPLACES
+            the resolver's per-recipient fan-out. Pass an empty set for an email-only
+            send (``email_to`` still delivers) whose resolver would otherwise fan bell
+            rows, pushes, and Discord DMs to an unintended audience.
 
     Returns:
         The :class:`~core.events.emit.EmitResult`.
@@ -146,4 +151,5 @@ def emit_with_email_shell(
         attachments=channel_attachments,
         email_to=email_to,
         period=period,
+        recipient_user_ids=recipient_user_ids,
     )

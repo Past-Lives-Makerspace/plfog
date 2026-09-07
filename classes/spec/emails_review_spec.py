@@ -104,7 +104,9 @@ def describe_send_guild_lead_review_request():
         GuildStaffMembershipFactory(guild=cat.guild, member=staff_member, role=GuildStaffMembership.Role.CO_LEAD)
         inst_user = UserFactory(username="inststaff@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="InstS", instructor_slug="insts")
-        offering = ClassOfferingFactory(instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            ready=True, instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT
+        )
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
 
         send_guild_lead_review_request(offering, row)
@@ -148,7 +150,9 @@ def describe_guild_lead_review_request_no_double_send():
             user=lead_user, event_key="class_review_requested", channel="email", enabled=True
         )
         instructor = InstructorFactory(user=UserFactory(email="i@example.com"), instructor_slug="i-rev")
-        offering = ClassOfferingFactory(instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            ready=True, instructor=instructor, category=cat, status=ClassOffering.Status.DRAFT
+        )
         SiteActivity.objects.all().delete()
 
         offering.submit_for_review()
@@ -164,7 +168,7 @@ def describe_guild_lead_review_request_no_double_send():
 
 def describe_send_admin_review_request():
     def it_emails_the_class_administrators_and_the_instructor(db, settings):
-        """Stage one for lead-less categories: the Class Administrators get the request."""
+        """Stage one for lead-less categories: the CMS Administrators get the request."""
         _class_admin("classadmin@example.com")
         inst_user = UserFactory(username="inst3@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="Inst3", instructor_slug="inst3")
@@ -184,7 +188,7 @@ def describe_send_admin_review_request():
 
 def describe_send_admin_validation_request():
     def it_emails_class_administrators_with_executive_validation_wording(db, settings):
-        """Stage two: the Class Administrators get the executive-validation request after a lead approves."""
+        """Stage two: the CMS Administrators get the executive-validation request after a lead approves."""
         _class_admin("classadmin@example.com")
         cat = _make_guilded_category()
         offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.PENDING)

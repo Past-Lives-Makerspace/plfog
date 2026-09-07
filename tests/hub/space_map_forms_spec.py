@@ -11,6 +11,7 @@ from hub.forms import (
     MapHotspotEditForm,
     MapHotspotForm,
     MapHotspotPositionForm,
+    SpaceDetailEditForm,
     SpaceRequestDecisionForm,
     SpaceRequestForm,
 )
@@ -262,4 +263,80 @@ def describe_MapHotspotEditForm():
     def it_accepts_a_blank_status():
         hotspot = MapHotspotFactory()
         form = MapHotspotEditForm(_edit_data(space=str(hotspot.space_id), status=""), instance=hotspot)
+        assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+def describe_SpaceDetailEditForm():
+    """The trimmed in-modal editor: exactly status + guild + label + description, prefilling
+    status from the linked space, ignoring it for a marker with no space, and never exposing
+    the structural (kind/shape/space) or Airtable-owned (price/size) fields."""
+
+    def _detail_data(**overrides):
+        data = {"label": "", "description": "", "guild": "", "status": ""}
+        data.update(overrides)
+        return data
+
+    def it_exposes_only_status_guild_label_description():
+        form = SpaceDetailEditForm(instance=MapHotspotFactory())
+        assert set(form.fields) == {"status", "guild", "label", "description"}
+
+    def it_prefills_status_from_the_linked_space():
+        hotspot = MapHotspotFactory(space=SpaceFactory(status=Space.Status.MAINTENANCE))
+        form = SpaceDetailEditForm(instance=hotspot)
+        assert form.fields["status"].initial == Space.Status.MAINTENANCE
+
+    def it_has_no_status_for_a_marker_with_no_space():
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        form = SpaceDetailEditForm(instance=hotspot)
+        assert form.fields["status"].initial is None
+
+    def it_saves_the_info_fields():
+        guild = GuildFactory()
+        hotspot = MapHotspotFactory()
+        form = SpaceDetailEditForm(
+            _detail_data(description="Now with a kiln.", guild=str(guild.pk)),
+            instance=hotspot,
+        )
+        assert form.is_valid(), form.errors
+        saved = form.save()
+        assert saved.description == "Now with a kiln."
+        assert saved.guild_id == guild.pk
+
+    def it_allows_a_blank_guild_link():
+        hotspot = MapHotspotFactory(guild=GuildFactory())
+        form = SpaceDetailEditForm(_detail_data(guild=""), instance=hotspot)
+        assert form.is_valid(), form.errors
+        assert form.save().guild_id is None
+
+    def it_accepts_a_blank_status():
+        hotspot = MapHotspotFactory()
+        form = SpaceDetailEditForm(_detail_data(status=""), instance=hotspot)
+        assert form.is_valid(), form.errors
+
+    def it_rejects_an_unknown_status():
+        hotspot = MapHotspotFactory()
+        form = SpaceDetailEditForm(_detail_data(status="nonsense"), instance=hotspot)
+        assert not form.is_valid()
+        assert "status" in form.errors
+
+    def it_offers_only_active_guilds():
+        active = GuildFactory(name="Active Guild", is_active=True)
+        GuildFactory(name="Retired Guild", is_active=False)
+        form = SpaceDetailEditForm(instance=MapHotspotFactory())
+        names = {g.name for g in form.fields["guild"].queryset}
+        assert "Active Guild" in names
+        assert "Retired Guild" not in names
+        assert active  # bind the created guild
+
+    def it_requires_a_label_for_a_facility_marker_with_no_space():
+        hotspot = MapHotspotFactory(kind=MapHotspot.Kind.FACILITY, space=None, label="Wood Shop")
+        form = SpaceDetailEditForm(_detail_data(label=""), instance=hotspot)
+        assert not form.is_valid()
+        assert "Give this marker a label so members know what it is." in form.errors["label"]
+
+    def it_allows_a_blank_label_for_a_space_bound_marker():
+        # A studio shows its space code, so a blank label is fine — it's never displayed.
+        hotspot = MapHotspotFactory()
+        form = SpaceDetailEditForm(_detail_data(label=""), instance=hotspot)
         assert form.is_valid(), form.errors

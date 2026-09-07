@@ -246,8 +246,6 @@ def describe_guilds_surface():
             "/guilds/",
             "/guilds/woodworking/",
             "/guilds/1/",
-            "/guilds/1/join/",
-            "/guilds/1/leave/",
             "/orientation/slots/1/book/",
             "/guilds/1/orientation/request-custom/",
             "/orientation/bookings/1/cancel/",

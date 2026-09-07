@@ -1,4 +1,4 @@
-"""Join/leave a guild + gallery image delete."""
+"""Subscribe/unsubscribe to a guild's updates + gallery image delete."""
 
 from __future__ import annotations
 
@@ -30,17 +30,22 @@ def _member_user(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> Use
 
 
 @pytest.mark.django_db
-def describe_join_leave():
-    def it_lets_a_member_join_and_leave(client: Client):
+def describe_subscribe_unsubscribe():
+    def it_lets_a_member_subscribe_and_unsubscribe(client: Client):
         user = _member_user("m")
         client.login(username="m", password="pw")
         guild = GuildFactory()
 
-        client.post(reverse("hub_guild_join", args=[guild.pk]))
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]), {"joined": "on"})
         assert GuildMembership.objects.filter(guild=guild, member__user=user).exists()
 
-        client.post(reverse("hub_guild_leave", args=[guild.pk]))
+        client.post(reverse("hub_guild_membership_set", args=[guild.pk]))
         assert not GuildMembership.objects.filter(guild=guild, member__user=user).exists()
+
+    def it_routes_the_revived_join_and_leave_urls():
+        # Revived with the "Join This Guild" front door (they were briefly removed).
+        for name in ("hub_guild_join", "hub_guild_leave"):
+            assert reverse(name, args=[1]) != ""
 
 
 @pytest.mark.django_db
@@ -55,18 +60,18 @@ def describe_image_delete():
 
 
 @pytest.mark.django_db
-def describe_join_leave_without_member():
+def describe_subscribe_without_member():
     def it_is_a_noop_when_the_user_has_no_member(client: Client):
         user = User.objects.create_user(username="nomem", password="pw")
         Member.objects.filter(user=user).delete()
         client.login(username="nomem", password="pw")
         guild = GuildFactory()
-        resp_join = client.post(reverse("hub_guild_join", args=[guild.pk]))
-        assert resp_join.status_code == 302
+        resp_on = client.post(reverse("hub_guild_membership_set", args=[guild.pk]), {"joined": "on"})
+        assert resp_on.status_code == 204
         assert not GuildMembership.objects.filter(guild=guild).exists()
-        # leave is likewise a no-op (and must not error)
-        resp_leave = client.post(reverse("hub_guild_leave", args=[guild.pk]))
-        assert resp_leave.status_code == 302
+        # unsubscribe is likewise a no-op (and must not error)
+        resp_off = client.post(reverse("hub_guild_membership_set", args=[guild.pk]))
+        assert resp_off.status_code == 204
 
 
 @pytest.mark.django_db

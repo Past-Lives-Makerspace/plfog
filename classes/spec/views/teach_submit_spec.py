@@ -18,6 +18,7 @@ def instructor_fixture(db):
 def describe_instructor_class_submit():
     def it_submits_a_draft_for_review_on_post(instructor_fixture, client):
         draft = ClassOfferingFactory(
+            ready=True,
             instructor=instructor_fixture,
             status=ClassOffering.Status.DRAFT,
         )

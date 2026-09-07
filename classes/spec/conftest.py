@@ -6,6 +6,19 @@ import pytest
 from django.contrib.auth import get_user_model
 
 
+@pytest.fixture(autouse=True)
+def _instructor_discount_codes_on(db):
+    """Every existing spec under classes/spec/ was written when instructors could always
+    manage their own discount codes. Keep that the default test posture now that it's a
+    flag (default OFF in production) — the OFF/gated behavior gets its own explicit specs
+    in instructor_discount_codes_flag_spec.py."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    config.instructor_discount_codes_enabled = True
+    config.save(update_fields=["instructor_discount_codes_enabled"])
+
+
 @pytest.fixture
 def admin_user(db):
     from membership.models import Member, MembershipPlan

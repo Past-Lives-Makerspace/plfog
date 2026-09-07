@@ -75,9 +75,29 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="send_pending_funding_results",
+        name="Guild funding results emails",
+        description="Sends the results email for any funding snapshot an admin has queued.",
+        command="send_pending_funding_results",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+        # Not toggleable. The dispatcher skips a disabled job before it records a run, so
+        # pausing this one would leave an admin's queued results email never sent, with no
+        # run record and nothing in the voting UI to show it had stalled.
+        toggleable=False,
+    ),
+    ScheduledJob(
+        key="take_reconciliation_snapshot",
+        name="Reconciliation month-end snapshots",
+        description="Freezes the prior month's per-recipient payout allocation once, at month end.",
+        command="take_reconciliation_snapshot",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_lease_expiry_reminders",
-        name="Lease-expiry reminders",
-        description="Warns members whose studio lease is about to end.",
+        name="Space agreement expiry reminders",
+        description="Warns members whose space agreement is about to end.",
         command="send_lease_expiry_reminders",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
@@ -151,7 +171,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="announce_calendar_events",
         name="New-event Discord posts",
-        description="Posts newly added calendar events and classes to the #public-calendar Discord channel.",
+        description="Posts newly added calendar events and classes to the #calendar Discord channel.",
         command="announce_calendar_events",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
@@ -159,7 +179,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="post_weekly_calendar_digest",
         name="Weekly calendar digest",
-        description="Posts the coming week's calendar lineup to the #public-calendar Discord channel.",
+        description="Posts the coming week's calendar lineup to the #calendar Discord channel.",
         command="post_weekly_calendar_digest",
         schedule_label="Mon ~6 AM",
         cadence=Cadence.WEEKLY,
@@ -209,12 +229,36 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         default_enabled=False,
     ),
     ScheduledJob(
+        key="expire_orientation_payment_holds",
+        name="Release abandoned orientation checkouts",
+        description="Releases orientation seats held by checkouts that were never completed.",
+        command="expire_orientation_payment_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="airtable_pull",
         name="Airtable member pull",
         description="Imports member and space updates from Airtable.",
         command="airtable_pull",
         schedule_label="Nightly ~3 AM",
         cadence=Cadence.EXTERNAL,
+    ),
+    ScheduledJob(
+        key="sync_interested_rsvps",
+        name="Discord Interested sync",
+        description="Folds Interested marks on Discord server events into the event RSVP lists.",
+        command="sync_interested_rsvps",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
+        key="sweep_stale_refunds",
+        name="Sweep stale refunds",
+        description="Marks refunds that never reached Stripe as failed so they can be retried.",
+        command="sweep_stale_refunds",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
     ),
 ]
 

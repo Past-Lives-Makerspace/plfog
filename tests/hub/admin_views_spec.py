@@ -591,6 +591,17 @@ def describe_admin_member_edit():
         target.member.refresh_from_db()
         assert target.member.full_legal_name == "Updated Name"
 
+    def it_describes_the_instructor_permission_under_its_toggle(client):
+        # The description is a context key, not a template literal, so that this page and the
+        # View As dropdown always say the same thing. Dropping the key would silently render
+        # an empty .pl-toggle-desc here, which line coverage alone would not catch.
+        _create_superuser(client)
+        target = _create_member_user(username="instdesc")
+        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
+        assert response.status_code == 200
+        expected = f'<div class="pl-toggle-desc">{Member.INSTRUCTOR_PERMISSION_DESCRIPTION}</div>'
+        assert expected in response.content.decode()
+
     def it_shows_the_self_approve_discounts_toggle(client):
         _create_superuser(client)
         target = _create_member_user(username="dctoggle")
@@ -680,6 +691,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -736,6 +748,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -764,6 +777,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -793,6 +807,7 @@ def describe_admin_site_settings():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -836,8 +851,20 @@ def describe_admin_site_settings_legacy_cms():
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
         assert response.status_code == 200
-        assert b"Legacy CMS" in response.content
+        # The tab is renamed to "CMS" / "CMS Sync". The historical changelog modal at the
+        # bottom of every hub page still legitimately mentions "Legacy CMS", so the
+        # absence check is scoped to the page body above it.
+        page_body = response.content.split(b'id="changelog-modal"')[0]
+        assert b"CMS Sync" in page_body
+        assert b"Legacy CMS" not in page_body
         assert response.context["active_tab"] == "legacy-cms"
+
+    def it_renders_the_instructor_discount_codes_flag_on_the_cms_tab(client):
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=legacy-cms")
+        assert response.status_code == 200
+        assert b"Instructor Discount Codes" in response.content
+        assert b'id="id_instructor_discount_codes_enabled"' in response.content
 
     def it_syncs_now_on_post_with_sync_now_action(client):
         from unittest.mock import patch
@@ -881,7 +908,7 @@ def describe_admin_site_settings_features():
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         assert response.status_code == 200
         assert response.context["active_tab"] == "features"
-        assert b"Enable My Tab &amp; Payments" in response.content
+        assert b"Enable My Tab" in response.content
         assert b"Allow class registration" in response.content
 
     def it_renders_the_help_and_wiki_sidebar_toggles(client):
@@ -895,17 +922,20 @@ def describe_admin_site_settings_features():
         # Excluded from the General loop — each control renders only in the Features panel.
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings"))
-        assert response.content.count(b'id="id_tab_payments_enabled"') == 1
+        assert response.content.count(b'id="id_my_tab_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
         assert response.content.count(b'id="id_wiki_link_enabled"') == 1
+        assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
+        assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
         _create_superuser(client)
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -927,7 +957,7 @@ def describe_admin_site_settings_features():
         assert response.status_code == 302
         assert "tab=features" in response["Location"]
         config = SiteConfiguration.load()
-        assert config.tab_payments_enabled is False
+        assert config.my_tab_enabled is False
         assert config.class_registration_enabled is False
         assert config.class_registration_disabled_note == "We'll be back soon."
 
@@ -936,6 +966,7 @@ def describe_admin_site_settings_features():
         response = client.post(
             reverse("hub_admin_site_settings"),
             data={
+                "org_name": "Past Lives Makerspace",
                 "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
                 "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
                 "sync_classes_enabled": "",
@@ -945,7 +976,7 @@ def describe_admin_site_settings_features():
                 "google_analytics_measurement_id": "",
                 "signage_default_slide_seconds": "12",
                 "signage_event_days_ahead": "30",
-                "tab_payments_enabled": "on",
+                "my_tab_enabled": "on",
                 "class_registration_enabled": "on",
                 "class_registration_disabled_note": "",
                 "feeds-TOTAL_FORMS": "0",
@@ -956,8 +987,42 @@ def describe_admin_site_settings_features():
         )
         assert response.status_code == 302
         config = SiteConfiguration.load()
-        assert config.tab_payments_enabled is True
+        assert config.my_tab_enabled is True
         assert config.class_registration_enabled is True
+
+    def it_saves_the_guild_welcome_email_switch_off_and_back_on(client):
+        _create_superuser(client)
+        base_data = {
+            "org_name": "Past Lives Makerspace",
+            "registration_mode": SiteConfiguration.RegistrationMode.OPEN,
+            "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
+            "sync_classes_enabled": "",
+            "classes_calendar_color": "#abcdef",
+            "mailchimp_api_key": "",
+            "mailchimp_list_id": "",
+            "google_analytics_measurement_id": "",
+            "signage_default_slide_seconds": "12",
+            "signage_event_days_ahead": "30",
+            "class_registration_disabled_note": "",
+            "submitted_tab": "features",
+            "feeds-TOTAL_FORMS": "0",
+            "feeds-INITIAL_FORMS": "0",
+            "feeds-MIN_NUM_FORMS": "0",
+            "feeds-MAX_NUM_FORMS": "1000",
+        }
+        # Switch omitted → unchecked → False.
+        response = client.post(reverse("hub_admin_site_settings"), data=base_data)
+        assert response.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.guild_welcome_email_enabled is False
+        # Checked again → back on.
+        response = client.post(
+            reverse("hub_admin_site_settings"),
+            data={**base_data, "guild_welcome_email_enabled": "on"},
+        )
+        assert response.status_code == 302
+        config = SiteConfiguration.load()
+        assert config.guild_welcome_email_enabled is True
 
 
 def describe_admin_site_settings_announcements():

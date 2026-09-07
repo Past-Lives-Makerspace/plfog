@@ -29,6 +29,19 @@ if TYPE_CHECKING:
 UPCOMING_HORIZON_DAYS = 90
 UPCOMING_CAP = 5
 ANNOUNCEMENTS_CAP = 4
+# The Teaching card shows at most this many rows (bounced first, then drafts, in review, this week).
+TEACHING_CAP = 3
+TEACHING_WEEK_DAYS = 7
+
+
+@dataclass(frozen=True)
+class TeachingRow:
+    """One row of the home page's Teaching card: a class, its state, and the one next step."""
+
+    title: str
+    note: str
+    cta: str
+    url: str
 
 
 @dataclass(frozen=True)
@@ -73,7 +86,60 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "my_guilds": _my_guilds(member),
         "onboarding": member.onboarding,
         "show_onboarding": member.show_onboarding,
+        "teaching": _teaching(member),
     }
+
+
+def _teaching(member: Member) -> list[TeachingRow]:
+    """Rows for the Teaching card: what needs the instructor, in priority order, capped.
+
+    Empty (so the card is omitted) for a member without teaching access or with nothing
+    to show. Order: changes requested ("Fix and resubmit"), drafts ("Finish"), in review
+    (the stage), then this week's sessions (the session time). Lists are annotated and
+    prefetched so no row costs a query of its own.
+    """
+    if not member.can_create_classes:
+        return []
+    from classes.models import ClassOffering
+
+    mine = (
+        ClassOffering.objects.for_instructor(member)
+        .with_lifecycle_inputs()
+        .select_related("category__guild")
+        .prefetch_related("approvals")
+    )
+    rows: list[TeachingRow] = []
+    drafts = mine.filter(status=ClassOffering.Status.DRAFT)
+    bounced = drafts.filter(bounced=True).order_by("-updated_at")  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+    plain = drafts.filter(bounced=False).order_by("-updated_at")  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+    for offering in bounced[:TEACHING_CAP]:
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        rows.append(TeachingRow(offering.title, offering.lifecycle_note, "Fix and resubmit", url))
+    for offering in plain[:TEACHING_CAP]:
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        rows.append(TeachingRow(offering.title, "Draft", "Finish", url))
+    for offering in mine.filter(status=ClassOffering.Status.PENDING).order_by("created_at")[:TEACHING_CAP]:
+        url = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        rows.append(TeachingRow(offering.title, offering.lifecycle_label, "Open", url))
+    now = timezone.now()
+    week_end = now + timedelta(days=TEACHING_WEEK_DAYS)
+    from classes.models import ClassSession
+
+    this_week = (
+        ClassSession.objects.filter(
+            class_offering__instructor=member,
+            class_offering__status=ClassOffering.Status.PUBLISHED,
+            starts_at__gte=now,
+            starts_at__lt=week_end,
+        )
+        .select_related("class_offering")
+        .order_by("starts_at")[:TEACHING_CAP]
+    )
+    for session in this_week:
+        url = reverse("classes:teach_class_registrations", kwargs={"pk": session.class_offering_id})
+        when = timezone.localtime(session.starts_at).strftime("%a %b %-d, %-I:%M %p")
+        rows.append(TeachingRow(session.class_offering.title, when, "Roster", url))
+    return rows[:TEACHING_CAP]
 
 
 def _upcoming_items(member: Member) -> list[UpcomingItem]:
@@ -90,17 +156,22 @@ def _upcoming_items(member: Member) -> list[UpcomingItem]:
 
     items: list[UpcomingItem] = []
 
-    # 1. The member's own orientation bookings — clearly personal.
-    for booking in member.orientation_bookings.upcoming().select_related("slot", "guild"):
+    # 1. The member's own orientation bookings — clearly personal. Owner-aware:
+    # an equipment-owned booking has guild=None; the type resolves either owner.
+    upcoming_bookings = member.orientation_bookings.upcoming().select_related(
+        "slot", "orientation_type__guild", "orientation_type__equipment"
+    )
+    for booking in upcoming_bookings:
+        owner_name = booking.orientation_type.owner_name
         items.append(
             UpcomingItem(
-                title=f"{booking.guild.name} orientation",
+                title=f"{owner_name} orientation",
                 start=booking.slot.starts_at,
                 end=booking.slot.ends_at,
                 kind="Orientation",
-                url=reverse("hub_guild_detail", args=[booking.guild.slug]),
+                url=booking.orientation_type.owner_page_path(),
                 location=booking.slot.location,
-                guild_name=booking.guild.name,
+                guild_name=owner_name,
             )
         )
 

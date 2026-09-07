@@ -1,4 +1,13 @@
 {% load hub_tags %}
+{% comment %}
+The push card sits ABOVE the matrix as its own card, not nested inside it: the matrix says
+which notices go to push, this says whether push reaches the device you are holding. It is
+skipped for the token-scoped email-preferences page, which has no signed-in user to own a
+device and no Capacitor bridge to ask.
+{% endcomment %}
+{% if user.is_authenticated and not prefs_token %}
+  {% include "hub/partials/_push_this_device.html" %}
+{% endif %}
 <div class="hub-card">
   <h2 class="pl-notif-title">Notifications</h2>
   <p class="hub-text-muted pl-notif-intro">
@@ -6,6 +15,13 @@
     operational notices (receipts, security, booking and orientation updates) are always on and
     can't be turned off.
   </p>
+  {% if not prefs_token %}
+  <nav class="pl-notif-jump" aria-label="Jump to a notification section">
+    {% for category, rows in notif_matrix %}
+      <a class="pl-notif-jump__chip" href="#notif-{{ category|slugify }}">{{ category }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
   {% if member %}
     {% comment %}
       Shared Discord CTA. It (and the confirm modal) sit OUTSIDE the notifications
@@ -14,7 +30,7 @@
     {% include "hub/partials/_discord_connect_cta.html" with member=member id_suffix="notifications" %}
     {% if member.discord_is_linked %}
       {% url 'hub_discord_disconnect' as discord_disconnect_url %}
-      {% include "components/confirm_modal.html" with confirm_id="disconnect-discord-notifications" confirm_title="Disconnect Discord?" confirm_message="You'll stop getting DMs and your guild membership will no longer sync with Discord." confirm_action_url=discord_disconnect_url confirm_button_text="Disconnect" %}
+      {% include "components/confirm_modal.html" with confirm_id="disconnect-discord-notifications" confirm_title="Disconnect Discord?" confirm_message="You'll stop getting DMs and your guilds will no longer sync with Discord." confirm_action_url=discord_disconnect_url confirm_button_text="Disconnect" %}
     {% endif %}
   {% endif %}
   {% include "hub/partials/_notification_matrix.html" with matrix_self=True %}

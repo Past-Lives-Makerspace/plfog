@@ -1,0 +1,27 @@
+{% load classes_tags %}
+{% comment %}
+Rich body for the per-row remove confirm modal (rendered via confirm_body_include).
+The claim-link sentence renders from REAL waitlist state (claim_email_will_fire,
+computed once per page in the roster view) — never a hypothetical.
+
+Context: reg, claim_email_will_fire, viewer_has_refund_authority.
+{% endcomment %}
+{% if reg.status == 'waitlisted' %}
+<p style="margin:0 0 1rem;">{{ reg.first_name }} is removed from the waitlist and emailed. No seats change.</p>
+{% else %}
+<p style="margin:0 0 1rem;">
+    {{ reg.first_name }}'s seat is freed and they'll be emailed that their registration was cancelled.
+    {% if claim_email_will_fire %}
+        <strong>The next person on the waitlist is automatically emailed a claim link for the open seat.</strong>
+    {% else %}
+        No waitlist claim email will go out right now (no one is waiting who hasn't already been notified, or the class is still full).
+    {% endif %}
+</p>
+{% if reg.amount_paid_cents > 0 %}
+<p style="margin:0 0 1rem;">
+    {{ reg.first_name }} paid {{ reg.amount_paid_cents|cents_as_dollars }}. Removing does <strong>not</strong> refund them.
+    Refunds are handled separately{% if viewer_has_refund_authority %} from the
+    <a href="{% url 'classes:admin_registration_detail' pk=reg.pk %}">registration's refund action</a>{% endif %}.
+</p>
+{% endif %}
+{% endif %}

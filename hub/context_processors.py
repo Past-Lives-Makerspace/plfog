@@ -6,7 +6,7 @@ from typing import Any
 
 from django.http import HttpRequest
 
-from membership.models import Guild, Member
+from membership.models import AdminCapability, Guild, Member
 
 
 def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
@@ -24,7 +24,13 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
     """
     user = getattr(request, "user", None)
     if not getattr(user, "is_authenticated", False):
-        return {"guilds": Guild.objects.none(), "user_initials": "", "user_profile_photo_url": ""}
+        return {
+            "guilds": Guild.objects.none(),
+            "user_initials": "",
+            "user_profile_photo_url": "",
+            "can_create_classes": False,
+            "teach_nav": None,
+        }
 
     initials = ""
     photo_url = ""
@@ -41,7 +47,82 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
         "can_use_admin_tools": _can_use_admin_tools(request, member),
+        "view_as_capabilities": _admin_capability_rows(request, member),
+        "view_as_instructor": _instructor_row(request, member),
+        "can_create_classes": member is not None and member.can_create_classes,
+        "teach_nav": _teach_nav(request, member),
     }
+
+
+def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
+    """The sidebar's Teaching entry, or ``None`` for anyone who is not set up to teach.
+
+    Gated on ``can_create_classes`` — the single source of truth for the teaching portal,
+    the same flag ``teaching_member_required`` reads — so the sidebar offers the entry
+    exactly when it opens something. It used to show every active member a "Teach a Class"
+    recruiting entry pointing at the orientation explainer, which put a teaching link in
+    front of the whole membership. Someone who wants to start still gets there: the Help
+    Center's Teaching guide links ``/classes/teach/orientation/`` directly, and the Class
+    Catalog's classes button and the guild pages' Teach a Class button both land on the
+    orientation through ``teaching_member_required``. (That catalog button reads "Manage My
+    Classes" for a member and "Manage classes" for an admin, so member-facing copy should
+    not name it.) It is just no longer permanent sidebar furniture.
+
+    Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
+    Instructor *role*, and someone can hold the portal unlock without a slug, which would
+    leave them with access and no way in. Active on every ``/classes/teach/`` path, which
+    the Class Catalog entry excludes.
+    """
+    from django.urls import reverse
+
+    if member is None or member.status != Member.Status.ACTIVE or not member.can_create_classes:
+        return None
+    return {
+        "label": "Teaching",
+        "url": reverse("classes:teach_overview"),
+        "is_active": request.path.startswith("/classes/teach/"),
+    }
+
+
+def _admin_capability_rows(request: HttpRequest, member: Member | None) -> list[dict[str, Any]]:
+    """Rows for the "View As" dropdown's self-service admin-duty toggles.
+
+    Returns one ``{value, label, checked, description}`` dict per :class:`AdminCapability` for an
+    ACTUAL admin (``request.view_as.actual_is_admin`` — a view-as preview can't unlock
+    it), and an empty list otherwise. ``checked`` reflects the current member's own held
+    capabilities so the toggles start in the right state. ``description`` is the shared
+    ``AdminCapability.DESCRIPTIONS`` line the member edit page also shows, rendered here as
+    the "?" tooltip beside each duty.
+    """
+    view_as = getattr(request, "view_as", None)
+    if member is None or view_as is None or not view_as.actual_is_admin:
+        return []
+    held = set(member.admin_capabilities.values_list("capability", flat=True))
+    return [
+        {
+            "value": value,
+            "label": label,
+            "checked": value in held,
+            "description": AdminCapability.DESCRIPTIONS[value],
+        }
+        for value, label in AdminCapability.Capability.choices
+    ]
+
+
+def _instructor_row(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
+    """The "View As" dropdown's self-service Instructor toggle, or ``None`` when it has no place.
+
+    Same audience and same realness as :func:`_admin_capability_rows`: an ACTUAL admin only
+    (a view-as preview can't unlock it), and flipping it is a REAL grant on their own member,
+    not a preview. Mirrors the member edit Permissions tab, where Instructor is one unified
+    permission sitting above the admin capabilities — so the dropdown puts it in the same
+    place, above the duty toggles, and shows the same shared
+    ``Member.INSTRUCTOR_PERMISSION_DESCRIPTION`` copy that page does.
+    """
+    view_as = getattr(request, "view_as", None)
+    if member is None or view_as is None or not view_as.actual_is_admin:
+        return None
+    return {"checked": member.is_instructor, "description": Member.INSTRUCTOR_PERMISSION_DESCRIPTION}
 
 
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:

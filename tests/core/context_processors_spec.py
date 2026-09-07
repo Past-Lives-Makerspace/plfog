@@ -1,10 +1,23 @@
 """BDD-style tests for core.context_processors."""
 
 import pytest
+from django.contrib.auth.models import AnonymousUser, User
 from django.test import RequestFactory
+from django.urls import resolve, reverse
+from django.utils import timezone
 
-from core.context_processors import app_version, feature_flags, google_analytics, registration_mode, surface, theme
-from core.models import SiteConfiguration
+from core.context_processors import (
+    app_version,
+    brand,
+    feature_flags,
+    google_analytics,
+    registration_mode,
+    surface,
+    theme,
+    tour_runtime,
+)
+from core.models import SiteConfiguration, TourState
+from membership.models import Member
 from plfog.version import CHANGELOG, VERSION
 
 pytestmark = pytest.mark.django_db
@@ -59,8 +72,10 @@ def describe_feature_flags():
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
-        assert result["tab_payments_enabled"] is True
+        assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
+        assert result["guild_welcome_email_enabled"] is True
+        assert result["equipment_page_enabled"] is True
         assert (
             result["class_registration_disabled_note"]
             == SiteConfiguration._meta.get_field("class_registration_disabled_note").default
@@ -68,23 +83,131 @@ def describe_feature_flags():
 
     def it_reflects_toggled_values():
         config = SiteConfiguration.load()
-        config.tab_payments_enabled = False
+        config.my_tab_enabled = False
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
         config.wiki_link_enabled = False
+        config.instructor_discount_codes_enabled = True
+        config.guild_welcome_email_enabled = False
+        config.equipment_page_enabled = False
         config.save()
 
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
         assert result == {
-            "tab_payments_enabled": False,
+            "my_tab_enabled": False,
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
             "wiki_link_enabled": False,
+            "instructor_discount_codes_enabled": True,
+            "guild_welcome_email_enabled": False,
+            "equipment_page_enabled": False,
         }
+
+
+def describe_brand():
+    def it_returns_the_past_lives_defaults():
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result == {
+            "brand_name": "Past Lives Makerspace",
+            "brand_short_name": "Past Lives",
+            "brand_legal_name": "Past Lives Makerspace LLC",
+            "brand_logo_url": "",
+            "brand_primary_color": "#092E4C",
+            "brand_support_email": "info@pastlives.space",
+            "brand_website_url": "https://pastlives.space",
+            "brand_website_display": "pastlives.space",
+        }
+
+    def it_reflects_an_edited_org_name():
+        config = SiteConfiguration.load()
+        config.org_name = "Fletcher Test Space"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_name"] == "Fletcher Test Space"
+
+    def it_falls_back_to_the_full_name_for_a_blank_short_name():
+        config = SiteConfiguration.load()
+        config.org_name = "Fletcher Test Space"
+        config.org_short_name = ""
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_short_name"] == "Fletcher Test Space"
+
+    def it_falls_back_to_the_full_name_for_a_blank_legal_name():
+        config = SiteConfiguration.load()
+        config.org_name = "Fletcher Test Space"
+        config.org_legal_name = ""
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_legal_name"] == "Fletcher Test Space"
+
+    def it_returns_an_empty_logo_url_when_nothing_is_uploaded():
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_logo_url"] == ""
+
+    def it_returns_the_stored_logo_url_when_one_is_uploaded():
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        png = (
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+            b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+        )
+        config = SiteConfiguration.load()
+        config.org_logo = SimpleUploadedFile("logo.png", png, content_type="image/png")
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_logo_url"] == config.org_logo.url
+
+    def it_strips_a_trailing_slash_from_the_website_url():
+        config = SiteConfiguration.load()
+        config.org_website_url = "https://fletcher.test/"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_website_url"] == "https://fletcher.test"
+
+    def it_reduces_the_website_url_to_its_host_for_display():
+        config = SiteConfiguration.load()
+        config.org_website_url = "https://fletcher.test/some/path"
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_website_display"] == "fletcher.test"
+
+    def it_falls_back_to_the_raw_value_when_the_website_has_no_host():
+        config = SiteConfiguration.load()
+        config.org_website_url = ""
+        config.save()
+
+        rf = RequestFactory()
+        request = rf.get("/")
+        result = brand(request)
+        assert result["brand_website_display"] == ""
 
 
 def describe_google_analytics():
@@ -265,3 +388,78 @@ def describe_notification_badge():
         request = RequestFactory().get("/")
         request.user = AnonymousUser()
         assert notification_badge(request)["unread_notification_count"] == 0
+
+
+def _tour_member(name, **fields):
+    user = User.objects.create_user(username=name, email=f"{name}@example.com")
+    member = Member.objects.get(user=user)  # auto-provisioned by ensure_user_has_member
+    fields.setdefault("welcome_dismissed_at", timezone.now())
+    for key, value in fields.items():
+        setattr(member, key, value)
+    member.save()
+    return member
+
+
+def _tour_request(path, user, *, method="GET", with_resolver=True):
+    factory = RequestFactory()
+    request = factory.get(path) if method == "GET" else factory.post(path)
+    request.user = user
+    if with_resolver:
+        request.resolver_match = resolve(path.split("?")[0])
+    return request
+
+
+def describe_tour_runtime():
+    def it_returns_empty_for_an_anonymous_visitor():
+        request = _tour_request(reverse("hub_home"), AnonymousUser())
+        ctx = tour_runtime(request)
+        assert ctx["tour_json"] is None
+        assert ctx["show_tour_offer"] is False
+
+    def it_returns_empty_for_a_user_without_a_member():
+        user = User.objects.create_user(username="tr-nomember", email="tr-nomember@example.com")
+        Member.objects.filter(user=user).delete()
+        assert tour_runtime(_tour_request(reverse("hub_home"), user))["tour_json"] is None
+
+    def it_offers_on_an_entry_page_and_writes_the_offered_row():
+        member = _tour_member("tr-entry")
+        ctx = tour_runtime(_tour_request(reverse("hub_home"), member.user))
+        assert ctx["show_tour_offer"] is True
+        assert ctx["tour_json"]["key"] == "member-welcome"
+        assert TourState.objects.status_for(member.user, "member-welcome") == TourState.Status.OFFERED
+
+    def it_returns_empty_on_a_non_entry_page_without_a_tour_param():
+        member = _tour_member("tr-nonentry")
+        assert tour_runtime(_tour_request(reverse("hub_help"), member.user))["tour_json"] is None
+
+    def it_autostarts_and_clamps_the_resume_step_on_any_page_without_writing_a_row():
+        member = _tour_member("tr-resume")
+        request = _tour_request(f"{reverse('hub_help')}?tour=member-welcome&step=99", member.user)
+        ctx = tour_runtime(request)
+        assert ctx["tour_autostart"] is True
+        assert ctx["tour_json"]["resume_step"] == len(ctx["tour_json"]["steps"]) - 1
+        assert TourState.objects.count() == 0
+
+    def it_defaults_the_resume_step_to_zero_for_a_non_integer():
+        member = _tour_member("tr-badstep")
+        request = _tour_request(f"{reverse('hub_home')}?tour=member-welcome&step=abc", member.user)
+        assert tour_runtime(request)["tour_json"]["resume_step"] == 0
+
+    def it_ignores_a_foreign_tour_param_but_still_offers_the_entry_tour():
+        member = _tour_member("tr-foreign")  # not a guild lead
+        request = _tour_request(f"{reverse('hub_home')}?tour=guild-lead", member.user)
+        ctx = tour_runtime(request)
+        assert ctx["tour_autostart"] is False
+        assert ctx["tour_json"]["key"] == "member-welcome"
+        assert ctx["show_tour_offer"] is True
+
+    def it_returns_empty_on_a_non_get_request():
+        member = _tour_member("tr-post")
+        request = _tour_request(reverse("hub_home"), member.user, method="POST")
+        assert tour_runtime(request)["tour_json"] is None
+        assert TourState.objects.count() == 0
+
+    def it_handles_a_request_without_a_resolver_match():
+        member = _tour_member("tr-noresolve")
+        request = _tour_request("/anything/", member.user, with_resolver=False)
+        assert tour_runtime(request)["tour_json"] is None

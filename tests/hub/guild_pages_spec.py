@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -90,14 +92,33 @@ def describe_guild_detail():
             assert response.status_code == 200
             assert response.context["tab"] is None
 
-    def describe_join_button():
-        def it_shows_a_join_button_to_a_linked_member_not_in_the_guild(client: Client):
+    def describe_get_involved_subscription_states():
+        def it_shows_the_join_button_to_a_non_member(client: Client):
             guild = GuildFactory()
             _linked_user(client)
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"Join This Guild" in response.content
 
-        def it_hides_the_join_button_from_unlinked_accounts(client: Client):
+        def it_drops_the_old_settings_pointer_copy_for_a_non_member(client: Client):
+            # The hero Join now owns "how do I get updates," so the Get Involved panel no
+            # longer nags a non-member with the "Want announcements ... Settings" paragraph.
+            guild = GuildFactory()
+            _linked_user(client)
+            response = client.get(f"/guilds/{guild.slug}/")
+            assert b"Want announcements from this guild?" not in response.content
+
+        def it_shows_the_updates_line_and_manage_link_to_a_subscriber(client: Client):
+            from membership.models import GuildMembership
+
+            guild = GuildFactory()
+            user, _ = _linked_user(client)
+            GuildMembership.objects.create(guild=guild, member=user.member)
+            response = client.get(f"/guilds/{guild.slug}/")
+            assert b"You get this guild's updates" in response.content
+            assert b"Manage in Settings" in response.content
+            assert b"Want announcements from this guild?" not in response.content
+
+        def it_shows_no_subscription_line_to_unlinked_accounts(client: Client):
             guild = GuildFactory()
             user = User.objects.create_user(username="unlinked_join", password="pass")
             from membership.models import Member
@@ -105,7 +126,10 @@ def describe_guild_detail():
             Member.objects.filter(user=user).delete()
             client.login(username="unlinked_join", password="pass")
             response = client.get(f"/guilds/{guild.slug}/")
-            assert b"Join This Guild" not in response.content
+            # Assert absence by the button class, not the bare label (the changelog text
+            # "Join This Guild" renders into every page's context).
+            assert b"pl-guild-cta__join" not in response.content
+            assert b"Want announcements from this guild?" not in response.content
 
     def describe_stat_chips():
         def it_hides_member_and_class_chips_when_zero(client: Client):
@@ -124,6 +148,41 @@ def describe_guild_detail():
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"1 member" in response.content
 
+        def it_renders_the_member_count_as_a_plain_badge_not_a_directory_link(client: Client):
+            from membership.models import GuildMembership
+
+            guild = GuildFactory()
+            user, _ = _linked_user(client)
+            GuildMembership.objects.create(guild=guild, member=user.member)
+            response = client.get(f"/guilds/{guild.slug}/")
+            html = response.content.decode()
+            assert '<span class="hub-badge">1 member</span>' in html
+            # The count chip is plain text, not a link (the directory ?guild= link that now
+            # appears elsewhere on the page is the join modal's "your profile" benefit row).
+            assert "1 member</a>" not in html
+
+    def describe_watch_section():
+        _WATCH_URL = "https://www.youtube.com/watch?v=YE7VzlLtp-4"
+
+        def _watch_iframe(client: Client) -> str:
+            """Render a guild with a video and return its Watch ``<iframe>`` tag."""
+            guild = GuildFactory(youtube_url=_WATCH_URL)
+            _linked_user(client)
+            body = client.get(f"/guilds/{guild.slug}/").content.decode()
+            match = re.search(r"<iframe[^>]*youtube-nocookie\.com/embed/YE7VzlLtp-4[^>]*>", body)
+            assert match, "the guild Watch iframe did not render"
+            return match.group(0)
+
+        def it_embeds_the_video_on_the_privacy_mode_host(client: Client):
+            assert "youtube-nocookie.com/embed/YE7VzlLtp-4" in _watch_iframe(client)
+
+        def it_sets_a_referrerpolicy_so_the_player_can_identify_the_site(client: Client):
+            # Django's default Referrer-Policy is same-origin, so YouTube receives no
+            # Referer for the embed and cannot tell who is framing it — the player then
+            # refuses to play with "Video player configuration error / Error 153".
+            # This attribute overrides the document policy for the iframe alone.
+            assert 'referrerpolicy="strict-origin-when-cross-origin"' in _watch_iframe(client)
+
     def describe_faq_tab():
         def it_shows_a_faq_tab_when_the_guild_has_faqs(client: Client):
             from membership.models import GuildFAQItem
@@ -134,6 +193,23 @@ def describe_guild_detail():
             response = client.get(f"/guilds/{guild.slug}/")
             assert b"section = 'faq'" in response.content
             assert b"Why?" in response.content
+
+        def it_sets_a_referrerpolicy_on_a_faq_answer_video(client: Client):
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(
+                guild=guild,
+                question="How do I start?",
+                answer="Watch this.",
+                video_url="https://www.youtube.com/watch?v=YE7VzlLtp-4",
+                sort_order=0,
+            )
+            body = client.get(f"/guilds/{guild.slug}/").content.decode()
+            match = re.search(r"<iframe[^>]*youtube-nocookie\.com/embed/YE7VzlLtp-4[^>]*>", body)
+            assert match, "the FAQ answer video iframe did not render"
+            assert 'referrerpolicy="strict-origin-when-cross-origin"' in match.group(0)
 
         def it_hides_the_faq_tab_when_the_guild_has_no_faqs(client: Client):
             guild = GuildFactory()

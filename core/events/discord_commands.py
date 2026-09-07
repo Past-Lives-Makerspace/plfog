@@ -20,7 +20,14 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from typing import TYPE_CHECKING, Literal
 
-from core.events.discord_interactions import ack_deferred, error_reply, reply, send_followup, unlinked_reply
+from core.events.discord_interactions import (
+    ack_deferred,
+    error_reply,
+    reply,
+    send_followup,
+    send_modal_via_callback,
+    unlinked_reply,
+)
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -121,6 +128,38 @@ def register_component(handler: ComponentHandler) -> None:
     _COMPONENT_REGISTRY[handler.prefix] = handler
 
 
+@dataclass(frozen=True)
+class ModalHandler:
+    """One MODAL_SUBMIT ``custom_id`` namespace — everything before the first ``:`` routes here.
+
+    The modal-submit counterpart of :class:`ComponentHandler`. A command whose slash handler
+    (or a component click) returns a modal encodes its submit route as the modal's
+    ``custom_id`` prefix; :func:`dispatch_modal` routes the submit back by that prefix.
+    Registered from the same autodiscovered ``<app>/discord_commands.py`` modules.
+
+    Args:
+        prefix: The modal ``custom_id`` namespace (no colon), e.g. ``"pollform"``.
+        handler: ``(interaction, member) -> reply dict`` — a MODAL_SUBMIT is answered with a
+            plain type-4 message (:func:`~core.events.discord_interactions.reply`), never
+            another modal.
+        requires_link: Unlinked submitter → the connect prompt; the handler never runs.
+    """
+
+    prefix: str
+    handler: Handler
+    requires_link: bool = True
+
+
+_MODAL_REGISTRY: dict[str, ModalHandler] = {}
+
+
+def register_modal(handler: ModalHandler) -> None:
+    """Add ``handler`` to the modal registry, failing loudly on a duplicate prefix."""
+    if handler.prefix in _MODAL_REGISTRY:
+        raise ValueError(f"Duplicate modal prefix: {handler.prefix!r}")
+    _MODAL_REGISTRY[handler.prefix] = handler
+
+
 def all_commands() -> list[SlashCommand]:
     """Every registered command, in registration order."""
     return list(_REGISTRY.values())
@@ -199,7 +238,7 @@ def guild_disambiguation_reply(member: Member | None) -> dict:
         "I couldn't tell which guild you mean. Run this in your guild's Discord channel, or add the `guild` option."
     )
     if guilds:
-        content += "\n\nYou're in: " + ", ".join(g.name for g in guilds) + "."
+        content += "\n\nYou follow: " + ", ".join(g.name for g in guilds) + "."
     return reply(content, ephemeral=True)
 
 
@@ -235,6 +274,23 @@ def _dispatch_deferred(cmd: SlashCommand, interaction: Interaction, member: Memb
     return {}
 
 
+def _route_modal(response: dict, interaction: Interaction) -> dict:
+    """Deliver a type-9 modal via the REST callback; anything else passes through.
+
+    Inline type-9 bodies are unreliable from an HTTP interactions endpoint (Discord
+    drops them and the member sees a timeout), so a modal response goes out over the
+    callback REST call — the same shape as the deferred path, which returns ``{}``
+    inline once the REST side has answered. A callback rejection surfaces as an
+    ephemeral reply carrying Discord's own error detail, never a silent timeout.
+    """
+    if response.get("type") != 9:
+        return response
+    detail = send_modal_via_callback(interaction["id"], interaction["token"], response)
+    if detail is None:
+        return {}
+    return reply(f"Discord would not open the form. It said: {detail}", ephemeral=True)
+
+
 def dispatch(interaction: Interaction, request: HttpRequest) -> dict:
     """Route an APPLICATION_COMMAND interaction to its handler and return a reply dict.
 
@@ -261,7 +317,7 @@ def dispatch(interaction: Interaction, request: HttpRequest) -> dict:
         return _dispatch_deferred(cmd, interaction, member)
 
     try:
-        return cmd.handler(interaction, member)
+        return _route_modal(cmd.handler(interaction, member), interaction)
     except Exception:
         logger.exception("Discord command %r handler failed", name)
         return error_reply()
@@ -294,9 +350,35 @@ def dispatch_component(interaction: Interaction, request: HttpRequest) -> dict:
         return unlinked_reply(_link_url(request))
 
     try:
-        return handler.handler(interaction, member)
+        return _route_modal(handler.handler(interaction, member), interaction)
     except Exception:
         logger.exception("Discord component %r handler failed", prefix)
+        return error_reply()
+
+
+def dispatch_modal(interaction: Interaction, request: HttpRequest) -> dict:
+    """Route a MODAL_SUBMIT interaction to its handler by ``custom_id`` prefix.
+
+    Mirrors :func:`dispatch_component` step for step: unknown prefix → :func:`error_reply`;
+    ``requires_link`` and no linked member → :func:`unlinked_reply`; else the handler, wrapped
+    so any exception becomes :func:`error_reply` (never a 5xx back to Discord). A MODAL_SUBMIT
+    is answered with a type-4 message, so those replies are all valid responses.
+    """
+    custom_id = interaction["data"]["custom_id"]
+    prefix = custom_id.split(":", 1)[0]
+    handler = _MODAL_REGISTRY.get(prefix)
+    if handler is None:
+        logger.warning("Discord modal submit for unknown prefix %r", prefix)
+        return error_reply()
+
+    member = resolve_member(interaction)
+    if handler.requires_link and member is None:
+        return unlinked_reply(_link_url(request))
+
+    try:
+        return handler.handler(interaction, member)
+    except Exception:
+        logger.exception("Discord modal %r handler failed", prefix)
         return error_reply()
 
 

@@ -19,6 +19,12 @@
 
   {% include "hub/partials/_my_proposed_announcements.html" %}
 
+  {% if no_guilds_available %}
+  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+    <p style="margin:0 0 1rem;">No guilds are taking member suggestions right now.</p>
+    <a href="{{ back_url }}" class="pl-btn pl-btn--secondary">Back</a>
+  </div>
+  {% else %}
   <form method="post" class="hub-form">
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
@@ -40,5 +46,6 @@
       <a href="{{ back_url }}" class="pl-btn pl-btn--secondary">Cancel</a>
     </div>
   </form>
+  {% endif %}
 </div>
 {% endblock %}

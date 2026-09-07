@@ -94,6 +94,10 @@ def _resolve_or_create_user(registration: Registration, email: str):  # noqa: AN
       2. Any user whose email matches across the three email stores.
       3. A new passwordless ``User`` (the post-save signal links/creates the
          ``Member`` and promotes the email to a verified primary EmailAddress).
+
+    A newly created user carries the registration's first/last name so the
+    signal seeds ``Member.full_legal_name`` with the real name the guest gave
+    when booking — never the email-derived username (issue #274).
     """
     from django.contrib.auth import get_user_model
 
@@ -113,7 +117,12 @@ def _resolve_or_create_user(registration: Registration, email: str):  # noqa: AN
         # Wrap in a savepoint so a username clash (double submit / webhook race)
         # doesn't poison the surrounding transaction for the re-resolve below.
         with transaction.atomic():
-            return user_model.objects.create_user(username=email, email=email)
+            return user_model.objects.create_user(
+                username=email,
+                email=email,
+                first_name=registration.first_name,
+                last_name=registration.last_name,
+            )
     except IntegrityError:
         logger.info("Guest account already exists for %s; re-using it.", email)
         return _find_user_for_email(email)

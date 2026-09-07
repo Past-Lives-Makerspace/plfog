@@ -56,10 +56,12 @@ def describe_default_discord_channel():
     def it_prefers_the_guild_channel():
         assert _default_discord_channel({_Channel.GUILD.value, _Channel.GENERAL.value}) == _Channel.GUILD.value
 
-    def it_steps_down_to_general_then_leadership_then_officers():
-        assert _default_discord_channel({_Channel.GENERAL.value}) == _Channel.GENERAL.value
-        assert _default_discord_channel({_Channel.LEADERSHIP.value}) == _Channel.LEADERSHIP.value
-        assert _default_discord_channel({_Channel.OFFICERS.value}) == _Channel.OFFICERS.value
+    def it_never_defaults_to_a_shared_channel():
+        # Regression for issue #271: a webhook less guild used to step down to
+        # #general-chat and a test announcement reached the whole server.
+        assert _default_discord_channel({_Channel.GENERAL.value}) == _Channel.NONE.value
+        assert _default_discord_channel({_Channel.LEADERSHIP.value}) == _Channel.NONE.value
+        assert _default_discord_channel({_Channel.OFFICERS.value}) == _Channel.NONE.value
 
     def it_falls_back_to_none_when_nothing_is_configured():
         assert _default_discord_channel(set()) == _Channel.NONE.value

@@ -1,0 +1,85 @@
+{% load classes_tags static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reconciliation {{ reconciliation.window.start|date:"M j" }} – {{ reconciliation.window.end|date:"M j, Y" }} · Past Lives</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Lato', system-ui, sans-serif; color: #111; background: #f4f4f4; margin: 0; padding: 1.5rem; }
+  .no-print { margin-bottom: 1.5rem; }
+  .print-btn { padding: 0.6rem 1.4rem; font-size: 1rem; font-weight: 700; border: none; border-radius: 6px; background: #092E4C; color: #fff; cursor: pointer; }
+  .hint { color: #555; font-size: 0.875rem; margin-top: 0.5rem; }
+  .sheet { max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 2rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+  .meta { color: #555; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  .banner { background: #fff6e5; border: 1px solid #f0c46b; color: #7a5300; padding: 0.6rem 0.9rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: 0.875rem; }
+  .group { margin-bottom: 1.5rem; }
+  .group h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: #666; border-bottom: 1px solid #ddd; padding-bottom: 0.35rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; text-align: left; }
+  th.r, td.r { text-align: right; }
+  tfoot td { font-weight: 700; border-top: 2px solid #333; border-bottom: none; }
+  .muted { color: #777; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .no-print { display: none !important; }
+    .sheet { border: none; border-radius: 0; padding: 0; max-width: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button type="button" class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <p class="hint">Use your browser's Print dialog and choose "Save as PDF."</p>
+</div>
+
+<div class="sheet">
+  <h1>Reconciliation</h1>
+  <p class="meta">{{ reconciliation.window.start|date:"F j" }} – {{ reconciliation.window.end|date:"F j, Y" }} · Generated {{ generated_at|date:"M j, Y g:i A" }}</p>
+
+  {% if reconciliation.unassigned_note_count %}
+  <div class="banner">{{ reconciliation.unassigned_note_count }} payment(s) had no instructor or guild set, so that share went to Past Lives.</div>
+  {% endif %}
+
+  {% for kind, heading, rows in reconciliation.ordered_groups %}
+  <div class="group">
+    <h2>{{ heading }}</h2>
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>Recipient</th><th class="r">Transactions</th><th class="r">Amount</th>
+          {% if kind.value == "guild" %}<th class="r">Voting</th><th class="r">Total</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for alloc in rows %}
+        <tr>
+          <td>{{ alloc.label }}</td>
+          <td class="r">{{ alloc.transaction_count }}</td>
+          <td class="r">{{ alloc.total_cents|cents_as_dollars }}</td>
+          {% if kind.value == "guild" %}
+          <td class="r">{{ alloc.voting_cents|cents_as_dollars }}</td>
+          <td class="r">{{ alloc.combined_cents|cents_as_dollars }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No {{ heading }} in this window.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <table>
+    <tfoot>
+      <tr><td>Grand Total (Net Collected)</td><td class="r">{{ reconciliation.grand_total_cents|cents_as_dollars }}</td></tr>
+    </tfoot>
+  </table>
+</div>
+
+</body>
+</html>

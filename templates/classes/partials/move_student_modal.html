@@ -1,0 +1,58 @@
+{% load classes_tags %}
+{% comment %}
+Move-student modal for one roster row (teach + admin class Registrations tabs).
+Plain POST to classes:registration_move — after a move the row belongs to a
+different class's roster, so a full-page bounce beats an in-place row swap.
+move_form is the audience-scoped RegistrationMoveForm built by
+_registration_move_form (admins: any upcoming class; instructors: other
+bookable classes they instruct), constructed with auto_id off so the same
+select can render once per row without duplicate DOM ids. The price note is
+instructor-only and renders when any listed class's price differs from what
+this student paid (move_price_note_needed).
+
+Context: reg, move_form. Opened via $dispatch('open-confirm', 'move-reg-<pk>').
+{% endcomment %}
+<template x-teleport="body">
+<div x-data="{ open: false, opener: null }"
+     x-show="open"
+     x-init="$watch('open', (value) => { if (value) { opener = document.activeElement; $nextTick(() => $el.querySelector('.pl-btn--secondary')?.focus()); } else if (opener) { opener.focus(); opener = null; } })"
+     x-transition:enter="modal-enter"
+     x-transition:leave="modal-leave"
+     @open-confirm.window="if ($event.detail === 'move-reg-{{ reg.pk }}') open = true"
+     @keydown.escape.window="open = false"
+     class="pl-modal-backdrop"
+     style="display: none;"
+     role="dialog"
+     aria-modal="true">
+    <div class="pl-modal pl-modal--sm" @click.outside="open = false">
+        <div class="pl-modal__header">
+            <h2 class="pl-modal__title">Move {{ reg.first_name }} {{ reg.last_name }} to Another Class</h2>
+            <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="pl-modal__body">
+            {% if move_form.has_targets %}
+            <p style="margin:0 0 1rem;">Their registration and payment move with them. Only upcoming classes are listed.</p>
+            {% if move_form|move_price_note_needed:reg %}
+            <p class="pl-confirm-warn">Heads up: some of these classes cost a different amount than what this student paid. The student's payment moves with them and any difference is not charged or refunded automatically.</p>
+            {% endif %}
+            <form method="post" action="{% url 'classes:registration_move' reg.pk %}">
+                {% csrf_token %}
+                <label class="pl-form-label" style="display:flex; flex-direction:column; gap:0.35rem; margin:0 0 1.5rem;">
+                    {{ move_form.target.label }}
+                    {{ move_form.target }}
+                </label>
+                <div class="pl-modal__actions">
+                    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Move Student</button>
+                    <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+                </div>
+            </form>
+            {% else %}
+            <p style="margin:0 0 1.5rem;">There are no other upcoming classes to move this student into.</p>
+            <div class="pl-modal__actions">
+                <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Close</button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+</template>

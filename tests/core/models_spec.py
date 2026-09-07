@@ -47,9 +47,9 @@ def describe_SiteConfiguration():
         assert str(config) == "Site Settings"
 
     def describe_feature_switches():
-        def it_defaults_tab_payments_enabled_to_true():
+        def it_defaults_my_tab_enabled_to_true():
             config = SiteConfiguration.load()
-            assert config.tab_payments_enabled is True
+            assert config.my_tab_enabled is True
 
         def it_defaults_class_registration_enabled_to_true():
             config = SiteConfiguration.load()
@@ -68,6 +68,10 @@ def describe_SiteConfiguration():
         def it_defaults_wiki_link_enabled_to_true():
             config = SiteConfiguration.load()
             assert config.wiki_link_enabled is True
+
+        def it_defaults_guild_welcome_email_enabled_to_true():
+            config = SiteConfiguration.load()
+            assert config.guild_welcome_email_enabled is True
 
 
 def describe_Invite():

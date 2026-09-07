@@ -60,6 +60,11 @@ jobs:
         if: steps.version_changed.outputs.should_post == 'true'
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Manual runs keep the escape hatch of re-sending the newest entry when the
+          # current VERSION has none of its own. Automatic pushes must not: a VERSION with
+          # no entry shipped nothing member-facing, and re-posting would duplicate a
+          # release members already saw.
+          FORCE_ANNOUNCE: ${{ github.event_name == 'workflow_dispatch' }}
         # Posts only the current VERSION's changelog entry (what just shipped),
         # chunked under Discord's 4096-char embed limit, failing loudly on rejection.
         run: python .github/scripts/discord_release_notify.py

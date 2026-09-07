@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -31,12 +33,26 @@ from core.validators import validate_document, validate_image_size
 from membership.managers import MemberEmailManager
 
 if TYPE_CHECKING:
+    from django import forms
     from django.contrib.auth.models import User
 
+    from billing.models import PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_PRICE_PER_SQFT = Decimal("3.75")
+
+# The community-calendar blue for the rich Discord announcement embed (matches the
+# calendar legend and the announcer's compact embed at hub/discord_calendar_posts.py).
+_DISCORD_ANNOUNCE_COLOR = 0x3D8BD4
+# How many attendee names the announcement embed lists before "and N more".
+_DISCORD_ATTENDEE_CAP = 15
+# Discord's hard cap on one embed field's value.
+_DISCORD_FIELD_VALUE_MAX = 1024
+# How far the rich embed's description text is trimmed before a "more on the page" tail.
+_DISCORD_DESCRIPTION_MAX = 600
 
 
 def _active_lease_q(prefix: str = "", today: date_type | None = None) -> Q:
@@ -354,17 +370,6 @@ class Member(models.Model):
         GUILD_OFFICER = "guild_officer", "Guild Officer"
         ADMIN = "admin", "Admin"
 
-    class Pronouns(models.TextChoices):
-        HE_HIM = "he/him", "he/him"
-        SHE_HER = "she/her", "she/her"
-        THEY_THEM = "they/them", "they/them"
-        HE_THEY = "he/they", "he/they"
-        SHE_THEY = "she/they", "she/they"
-        ALL_THREE = "he/she/they", "he/she/they"
-        ZE_HIR = "ze/hir", "ze/hir"
-        XE_XEM = "xe/xem", "xe/xem"
-        PREFER_NOT = "prefer not to share", "Prefer not to share"
-
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
 
@@ -402,6 +407,17 @@ class Member(models.Model):
             "docs/superpowers/specs/2026-04-07-user-email-aliases-design.md for the full architecture."
         ),
     )
+    notification_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text=(
+            "Verified address email notifications are sent to. Blank means the primary email. "
+            "If this address is later removed or unverified, notifications fall back to the primary. "
+            "Read via core.events.channels.notification_email_for; see the three-store note on "
+            "Member.primary_email for how emails are stored (this field routes notifications only "
+            "and never changes primary_email semantics)."
+        ),
+    )
     phone = models.CharField(max_length=20, blank=True)
     discord_handle = models.CharField(
         max_length=100, blank=True, help_text="Discord username (e.g. user#1234 or @user)."
@@ -422,11 +438,10 @@ class Member(models.Model):
         help_text="When the member linked their Discord account for DM notifications (null = not linked).",
     )
     pronouns = models.CharField(
-        max_length=30,
-        choices=Pronouns.choices,
+        max_length=50,
         blank=True,
         default="",
-        help_text="Pronouns shown in the member directory.",
+        help_text="Free text pronouns shown in the member directory (e.g. she/her, they/them).",
     )
     about_me = models.TextField(blank=True, help_text="Short bio shown in the member directory.")
     profile_photo = models.ImageField(
@@ -487,6 +502,14 @@ class Member(models.Model):
             "Missing key means public (default-on)."
         ),
     )
+    show_on_space_map = models.BooleanField(
+        default=False,
+        help_text=(
+            "Member opted in to being named as an occupant on the public Spaces map. Off by default: "
+            "an opted out member's space still shows as occupied, just with no name attached. Even "
+            "when on, names and occupant cards appear only for logged in members, never guests."
+        ),
+    )
     open_for_commissions = models.BooleanField(
         default=False,
         help_text="When on, the member shows an 'Open for commissions!' badge and appears in that filter.",
@@ -495,6 +518,14 @@ class Member(models.Model):
         max_length=280,
         blank=True,
         help_text="Short note on the kind of paid or commissioned work the member welcomes.",
+    )
+    marketing_opt_in = models.BooleanField(
+        default=False,
+        help_text=(
+            "Member said yes to being contacted about Past Lives marketing opportunities that highlight "
+            "their art/business (Instagram, website, email newsletter, etc.). Private — never shown on "
+            "the directory card."
+        ),
     )
     instructor_slug = models.SlugField(
         max_length=255,
@@ -514,6 +545,15 @@ class Member(models.Model):
     )
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Set when the member self-service-deletes their account (anonymize + lock, "
+            "never a hard delete). Distinct from status=FORMER, which an admin can set for "
+            "many other reasons. Not filtered by the default manager (see PR rationale)."
+        ),
+    )
     welcome_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -528,6 +568,14 @@ class Member(models.Model):
         help_text=(
             "When the member dismissed the home 'Get started' checklist card; null = never "
             "dismissed. Does NOT affect is_onboarded — only hides the card."
+        ),
+    )
+    guild_updates_prompt_answered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member answered or skipped the first-login guild updates prompt. "
+            "Null means they have never been asked."
         ),
     )
     guided_tours_enabled = models.BooleanField(
@@ -666,9 +714,102 @@ class Member(models.Model):
         return self.profile_completeness.essentials_complete
 
     @cached_property
-    def _has_joined_guild(self) -> bool:
-        """Whether the member has officially joined at least one guild. Cached (one query)."""
-        return self.joined_guilds.exists()
+    def _has_chosen_guild_updates(self) -> bool:
+        """Whether the member has chosen their guild updates. Cached (at most one query).
+
+        True once they've answered (or skipped) the first-login guild updates prompt —
+        subscribing to *nothing* is a legitimate, deliberate answer — or hold at least
+        one subscription (a :class:`GuildMembership` row, however it was created).
+        """
+        return self.guild_updates_prompt_answered_at is not None or self.joined_guilds.exists()
+
+    @property
+    def needs_guild_updates_prompt(self) -> bool:
+        """Whether the first-login guild updates prompt should be shown on next login.
+
+        True only for a member who has never answered/skipped the prompt AND holds no
+        subscription at all. A member with any :class:`GuildMembership` row (legacy
+        join, Discord reaction) has effectively answered and is never prompted.
+        """
+        return self.guild_updates_prompt_answered_at is None and not self.guild_memberships.exists()
+
+    def mark_guild_updates_answered(self) -> None:
+        """Stamp :attr:`guild_updates_prompt_answered_at` once; no-op if already stamped.
+
+        The shared "this member has made a choice" recorder. Called from every
+        settings-toggle subscribe or unsubscribe, a settings GET landing on the Guilds
+        tab via ``?tab=guilds``, and the prompt view's zero-active-guilds redirect —
+        any of those means the member has seen the control and chosen, so the one-time
+        prompt must never resurrect (including for a legacy member who unsubscribes
+        from their last guild). A real prompt answer goes through
+        :meth:`answer_guild_updates_prompt` instead, which stamps unconditionally
+        (a re-answer refreshes the timestamp).
+        """
+        if self.guild_updates_prompt_answered_at is None:
+            self.guild_updates_prompt_answered_at = timezone.now()
+            self.save(update_fields=["guild_updates_prompt_answered_at"])
+
+    def subscribe_to_guild(self, guild: Guild) -> bool:
+        """Subscribe this member to ``guild``'s updates (idempotent).
+
+        The one subscribe path: records the app-sourced :class:`GuildMembership` row,
+        fires the ``guild_joined`` fan-out (lead "New follower" notice + activity row, no
+        email) only when the row is new or upgraded from a Discord reaction, and always
+        self-heals the Discord role (idempotent, best-effort). The member-facing welcome
+        email is a *separate*, deliberate-join-only send (:meth:`send_guild_welcome`) — it
+        is intentionally not fired here, so the first-login picker and Settings toggle stay
+        silent.
+
+        Returns:
+            Whether this was a new or upgraded subscription (the fan-out fired).
+        """
+        from core.events import discord_roles
+        from membership import orientations
+
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, self)
+        if created or upgraded:
+            orientations.member_joined_guild(guild, self)
+        discord_roles.on_membership_changed(guild, self, joined=True)
+        return created or upgraded
+
+    def send_guild_welcome(self, guild: Guild) -> None:
+        """Send this member the guild's welcome email once (idempotent per (member, guild)).
+
+        The deliberate-join welcome. Called by the hero Join view (only when the member
+        left the modal's welcome box checked) and the Discord ``/join-guild`` command —
+        never by :meth:`subscribe_to_guild`, so the first-login picker and Settings toggle
+        never trigger it. Gated on the site-wide ``SiteConfiguration.guild_welcome_email_enabled``
+        switch and the guild's ``welcome_email_enabled``; deduped forever per (member, guild).
+        """
+        from membership import orientations
+
+        orientations.send_guild_welcome(guild, self)
+
+    def unsubscribe_from_guild(self, guild: Guild) -> None:
+        """Remove this member's subscription to ``guild`` (idempotent) and drop the Discord role."""
+        from core.events import discord_roles
+
+        GuildMembership.objects.filter(guild=guild, member=self).delete()
+        discord_roles.on_membership_changed(guild, self, joined=False)
+
+    def answer_guild_updates_prompt(self, guilds: Iterable[Guild]) -> int:
+        """Record the member's first-login guild updates answer (idempotent to re-call).
+
+        Subscribes to each picked guild (an empty pick IS the Skip case) and stamps
+        :attr:`guild_updates_prompt_answered_at` directly — unconditionally, so a
+        re-answer refreshes the timestamp (unlike the one-way
+        :meth:`mark_guild_updates_answered`) — so the prompt never shows again.
+
+        Args:
+            guilds: The guilds the member picked; may be empty.
+
+        Returns:
+            How many picks were new or upgraded subscriptions.
+        """
+        subscribed = sum(1 for guild in guilds if self.subscribe_to_guild(guild))
+        self.guild_updates_prompt_answered_at = timezone.now()
+        self.save(update_fields=["guild_updates_prompt_answered_at"])
+        return subscribed
 
     @property
     def _has_voting_preference(self) -> bool:
@@ -679,12 +820,14 @@ class Member(models.Model):
     def is_onboarded(self) -> bool:
         """Whether the member has finished the required first-week setup.
 
-        True once their profile **content essentials** are filled AND they've joined at
-        least one guild. Voting is a recommended, **optional** step and does NOT affect
-        this. Uses ``_profile_essentials_done`` (not ``profile_completeness.complete``) so
-        the directory-listing opt-out can never make a member permanently un-onboardable.
+        True once their profile **content essentials** are filled AND they've chosen
+        their guild updates (answered the prompt, even with zero picks, or hold at
+        least one subscription). Voting is a recommended, **optional** step and does NOT
+        affect this. Uses ``_profile_essentials_done`` (not
+        ``profile_completeness.complete``) so the directory-listing opt-out can never
+        make a member permanently un-onboardable.
         """
-        return self._profile_essentials_done and self._has_joined_guild
+        return self._profile_essentials_done and self._has_chosen_guild_updates
 
     @property
     def onboarding(self) -> OnboardingChecklist:
@@ -710,8 +853,8 @@ class Member(models.Model):
             ),
             OnboardingStep(
                 key="guilds",
-                label="Join your guilds",
-                done=self._has_joined_guild,
+                label="Choose your guild updates",
+                done=self._has_chosen_guild_updates,
                 url=f"{reverse('hub_user_settings')}?tab=guilds",
                 optional=False,
                 hint="",
@@ -912,9 +1055,10 @@ class Member(models.Model):
         """True when this member holds the given :class:`AdminCapability` grant.
 
         A capability is a scoped admin authority (approve classes, spaces, discount
-        codes, calendar proposals, or billing alerts) that both routes the matching
-        notifications to the holder and lets them act on that object type — decoupling
-        those duties from the all-or-nothing ``fog_role == admin`` tier.
+        codes, calendar proposals, billing alerts, or issue refunds) that decouples
+        one duty from the all-or-nothing ``fog_role == admin`` tier. Most both route
+        the matching notifications to the holder and let them act on that object
+        type; see :class:`AdminCapability` for the exceptions.
         """
         return self.admin_capabilities.filter(capability=capability).exists()
 
@@ -932,6 +1076,34 @@ class Member(models.Model):
             self.admin_capabilities.filter(capability__in=to_remove).delete()
         for capability in desired - current:
             self.admin_capabilities.create(capability=capability, granted_by=granted_by)
+
+    def set_admin_capability(self, capability: str, enabled: bool, *, granted_by: "User | None" = None) -> None:
+        """Grant or revoke a single :class:`AdminCapability` on this member.
+
+        A capability is a scoped admin duty (approve classes, spaces, discount codes,
+        calendar proposals, billing alerts, or issue refunds) that decouples one duty
+        from the all-or-nothing ``fog_role == admin`` tier. Unlike
+        :meth:`sync_admin_capabilities`, which reconciles the whole set, this flips
+        exactly one capability and leaves every other grant untouched — it backs the
+        quick self-service toggles in the "View As" dropdown.
+
+        Args:
+            capability: One of :class:`AdminCapability.Capability` values.
+            enabled: ``True`` to grant (idempotent: a duplicate grant is a no-op, so
+                the existing ``granted_by`` is preserved), ``False`` to revoke
+                (idempotent: revoking an absent grant is a no-op).
+            granted_by: The user performing the grant, recorded for audit. Applied
+                only when a new grant row is created.
+
+        Raises:
+            ValueError: If ``capability`` is not a known ``AdminCapability.Capability``.
+        """
+        if capability not in AdminCapability.Capability.values:
+            raise ValueError(f"Unknown admin capability: {capability!r}")
+        if enabled:
+            self.admin_capabilities.get_or_create(capability=capability, defaults={"granted_by": granted_by})
+        else:
+            self.admin_capabilities.filter(capability=capability).delete()
 
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
@@ -966,6 +1138,31 @@ class Member(models.Model):
         if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
             return True
         return offering.instructor_id == self.pk
+
+    def can_manage_equipment(self, equipment: Equipment) -> bool:
+        """True when this member may manage the given equipment.
+
+        Three tiers (the locked equipment-permissions decision): site tier — full admin
+        or the EQUIPMENT capability; guild tier — the owning guild's lead or any staff
+        member; resource tier — an :class:`EquipmentStaffMembership` row. Role-based —
+        use ``membership.permissions.can_manage_equipment`` in views to honor
+        ``view_as`` preview mode.
+        """
+        if self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+            return True
+        guild = equipment.guild
+        if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
+            return True
+        return equipment.staff_memberships.filter(member=self).exists()
+
+    def can_create_equipment(self) -> bool:
+        """True when this member may create equipment — full admin or EQUIPMENT capability only.
+
+        Guild leads and per-equipment managers edit and run equipment they manage but do
+        not create it (locked decision #3). Role-based — use
+        ``membership.permissions.can_create_equipment`` in views to honor ``view_as``.
+        """
+        return self.is_fog_admin or self.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
 
     @property
     def is_guild_lead(self) -> bool:
@@ -1069,6 +1266,43 @@ class Member(models.Model):
             target=self,
         )
 
+    def ensure_instructor_slug(self) -> bool:
+        """Mint the public instructor page slug (``instructor_slug``) if this member has none.
+
+        The ONE slug-minting loop: the admin Instructor toggle (:meth:`grant_instructor`),
+        the older role dropdown (:meth:`apply_admin_role`), and a class's first publish
+        (``ClassOffering.publish``) all route here. Derives ``slugify(display name)`` and
+        suffixes ``-2``, ``-3``, … until unique. Idempotent: an existing slug is kept and
+        nothing is written. Never touches ``instructor_oriented_at`` (the teaching unlock
+        is a separate grant).
+
+        Returns:
+            True when a slug was minted and saved, False when one already existed.
+        """
+        from django.utils.text import slugify
+
+        if self.instructor_slug:
+            return False
+        base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
+        slug = base
+        n = 1
+        while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
+            n += 1
+            slug = f"{base}-{n}"
+        self.instructor_slug = slug
+        self.save(update_fields=["instructor_slug"])
+        return True
+
+    #: What the unified Instructor permission does, in one plain sentence — the SINGLE source of
+    #: that copy, the twin of :attr:`AdminCapability.DESCRIPTIONS`. The member edit Permissions tab
+    #: shows it under its Instructor toggle and the "View As" dropdown shows it as the "?" tooltip
+    #: beside its own, so the two surfaces can never drift. Written without a subject so it reads
+    #: correctly whether the reader is granting the permission to someone else or to themselves.
+    INSTRUCTOR_PERMISSION_DESCRIPTION = (
+        "Gives a public instructor page and the ability to create classes. "
+        "Turning it off removes both (existing classes are untouched)."
+    )
+
     def grant_instructor(self, *, granted_by: "Member | None") -> None:
         """Make this member a public instructor: a bio page (``instructor_slug``) + teaching access.
 
@@ -1079,21 +1313,10 @@ class Member(models.Model):
         is still audited: ``grant_teaching`` no-ops when teaching was already unlocked, so the
         slug mint logs its own ``SiteActivity`` here rather than going unrecorded.
         """
-        from django.utils.text import slugify
-
         from core.models import SiteActivity
 
         already_teaching = self.instructor_oriented_at is not None
-        minted = not self.instructor_slug
-        if minted:
-            base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
-            slug = base
-            n = 1
-            while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
-                n += 1
-                slug = f"{base}-{n}"
-            self.instructor_slug = slug
-            self.save(update_fields=["instructor_slug"])
+        minted = self.ensure_instructor_slug()
         self.grant_teaching(granted_by=granted_by)  # logs TEACHING_GRANTED unless already unlocked
         if minted and already_teaching:
             # The teaching half no-op'd, but the public page just went live — record it.
@@ -1127,14 +1350,45 @@ class Member(models.Model):
             )
 
     def is_oriented_for(self, guild: Guild) -> bool:
-        """True when the member has a completed orientation for this guild."""
+        """True when the member has a completed orientation of ANY type for this guild.
+
+        Deliberately guild-scoped (issue #282): guild join gating and every existing
+        call site keep their meaning — completing any one of a guild's orientation
+        types makes the member "oriented for the guild". Use
+        :meth:`is_oriented_for_type` for the per-type check.
+        """
         return self.orientation_bookings.filter(guild=guild, is_completed=True).exists()
 
+    def is_oriented_for_type(self, orientation_type: OrientationType) -> bool:
+        """True when the member has a completed orientation of this specific type."""
+        return self.orientation_bookings.filter(orientation_type=orientation_type, is_completed=True).exists()
+
     def active_orientation_for(self, guild: Guild) -> OrientationBooking | None:
-        """The member's live (requested or confirmed) orientation booking for this guild, if any."""
+        """The member's live (requested or confirmed) orientation booking for this guild, if any.
+
+        Guild-scoped and first-match — kept for coarse surfaces (the Discord command);
+        per-type flows use :meth:`active_orientation_for_type`.
+        """
         return self.orientation_bookings.filter(
             guild=guild,
             status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        ).first()
+
+    def active_orientation_for_type(self, orientation_type: OrientationType) -> OrientationBooking | None:
+        """The member's live (requested or confirmed) booking for this orientation type, if any."""
+        return self.orientation_bookings.filter(
+            orientation_type=orientation_type,
+            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED],
+        ).first()
+
+    def pending_payment_orientation_for(self, guild: Guild) -> OrientationBooking | None:
+        """The member's live checkout hold (``PENDING_PAYMENT``) for this guild, if any."""
+        return self.orientation_bookings.filter(guild=guild, status=OrientationBooking.Status.PENDING_PAYMENT).first()
+
+    def pending_payment_orientation_for_type(self, orientation_type: OrientationType) -> OrientationBooking | None:
+        """The member's live checkout hold (``PENDING_PAYMENT``) for this orientation type, if any."""
+        return self.orientation_bookings.filter(
+            orientation_type=orientation_type, status=OrientationBooking.Status.PENDING_PAYMENT
         ).first()
 
     @property
@@ -1161,8 +1415,6 @@ class Member(models.Model):
         `status`, and instructor_slug. Idempotent — re-promoting an existing
         instructor is a no-op if they already have a slug.
         """
-        from django.utils.text import slugify
-
         valid = {c.value for c in self.FogRole} | {self.ADMIN_ROLE_INSTRUCTOR, self.ADMIN_ROLE_GUEST}
         if picked_role not in valid:
             raise ValueError(f"Invalid admin role token: {picked_role!r}")
@@ -1171,14 +1423,9 @@ class Member(models.Model):
         if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
             self.fog_role = self.FogRole.MEMBER
             self.status = self.Status.ACTIVE
-            if not self.instructor_slug:
-                base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
-                slug = base
-                n = 1
-                while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
-                    n += 1
-                    slug = f"{base}-{n}"
-                self.instructor_slug = slug
+            # ``ensure_instructor_slug`` saves the slug column itself; the ``save()`` below
+            # then persists the role and status (and the unlock, when it applies).
+            if self.ensure_instructor_slug():
                 # First-time promotion implies the teaching unlock (Spec D §5) — an
                 # explicit "make them an Instructor" must not strand them at the
                 # orientation redirect. Scoped to this slug-minting branch ON
@@ -1329,8 +1576,14 @@ class MemberContact(models.Model):
     One list per member. Absorbs the former fixed ``other_contact_info`` /
     ``instructor_website`` / ``instructor_social_handle`` fields — a website is just a
     contact flagged "show on instructor page." ``phone`` and ``discord_handle`` stay
-    first-class on :class:`Member`; they are not contacts.
+    first-class on :class:`Member`; they are not contacts. ``kind`` classifies each
+    contact into the profile section it renders under (Website, Social, or Other).
     """
+
+    class Kind(models.TextChoices):
+        WEBSITE = "website", "Website"
+        SOCIAL = "social", "Social"
+        OTHER = "other", "Other"
 
     # Naive email detection: exactly one ``@`` between non-space runs, with a dotted domain.
     _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -1348,12 +1601,36 @@ class MemberContact(models.Model):
         default=False, help_text="Show this contact on the member's public instructor page."
     )
     sort_order = models.PositiveIntegerField(default=0, help_text="Ascending; lower shows first.")
+    kind = models.CharField(
+        max_length=20,
+        choices=Kind.choices,
+        default=Kind.OTHER,
+        help_text="Which profile section this shows under: Website, Social, or Other (booking email, phone number, etc.).",
+    )
 
     class Meta:
         ordering = ["sort_order", "id"]
 
     def __str__(self) -> str:
         return f"{self.label}: {self.value} ({self.member.display_name})"
+
+    _SOCIAL_ICON_KEYWORDS: tuple[tuple[str, str], ...] = (
+        ("instagram", "instagram"),
+        ("youtube", "youtube"),
+        ("facebook", "facebook"),
+        ("tiktok", "tiktok"),
+        ("linkedin", "linkedin"),
+        ("twitter", "x"),
+    )
+
+    @property
+    def social_icon(self) -> str:
+        """Best-guess platform icon key for a Social-kind contact, matched against its label."""
+        label_lower = self.label.strip().lower()
+        for keyword, icon in self._SOCIAL_ICON_KEYWORDS:
+            if keyword in label_lower:
+                return icon
+        return "link"
 
     @property
     def as_link(self) -> SafeString:
@@ -1436,19 +1713,42 @@ class VirtualLink:
     url: str
 
 
+# The fictional example/demo guild (Cartographers), seeded by
+# ``membership.example_guild.seed_example_guild`` with ``is_active=False`` so it stays out
+# of voting/funding. ``GuildManager.visible`` reveals it on the directory + sidebar only
+# when the ``display_demo_guild`` site setting is on.
+EXAMPLE_GUILD_SLUG = "cartographers-guild"
+
+
 class GuildManager(models.Manager["Guild"]):
     """Default manager that hides soft-deleted guilds from every query."""
 
     def get_queryset(self) -> models.QuerySet[Guild]:
         return super().get_queryset().filter(deleted_at__isnull=True)
 
-    def directory(self) -> models.QuerySet[Guild]:
-        """Active guilds for the directory: featured first, then alphabetical.
+    def visible(self) -> models.QuerySet[Guild]:
+        """Guilds shown on member-facing lists (the directory and the sidebar).
 
-        Every active guild is public and appears everywhere; soft-deleting or
-        deactivating a guild (``is_active=False``) is the only way to hide it.
+        Active guilds always. The example/demo guild is added only when the
+        ``display_demo_guild`` site setting is on, so it can sit seeded on production
+        hidden until an admin reveals it for a demo. Voting, the ballot, and every other
+        ``is_active`` filter deliberately do NOT route through here, so the example guild
+        never leaks into funding no matter this setting.
         """
-        return self.filter(is_active=True).order_by("-is_featured", "name")
+        from core.models import SiteConfiguration
+
+        if SiteConfiguration.load().display_demo_guild:
+            return self.filter(models.Q(is_active=True) | models.Q(slug=EXAMPLE_GUILD_SLUG))
+        return self.filter(is_active=True)
+
+    def directory(self) -> models.QuerySet[Guild]:
+        """Guilds for the directory: featured first, then alphabetical.
+
+        Routed through ``visible()`` so the example/demo guild appears here only when the
+        ``display_demo_guild`` site setting is on; otherwise only active guilds show, and
+        soft-deleting or deactivating a guild is still the way to hide a real one.
+        """
+        return self.visible().order_by("-is_featured", "name")
 
     def for_discord_channel(self, channel_id: str) -> Guild | None:
         """The active guild whose Discord channel is ``channel_id``, or ``None`` if unmapped.
@@ -1551,7 +1851,7 @@ class Guild(HeroCropMixin, models.Model):
         max_length=7,
         blank=True,
         default="#4B9FEE",
-        help_text="Hex color code for this guild's events on the Community Calendar (e.g. #4B9FEE).",
+        help_text="Hex color code for this guild's events on the Calendar (e.g. #4B9FEE).",
     )
     calendar_last_fetched_at = models.DateTimeField(
         null=True,
@@ -1641,7 +1941,7 @@ class Guild(HeroCropMixin, models.Model):
         help_text=(
             "Shown to the member in Discord (their private confirmation) and posted in your guild's "
             "Discord channel when someone joins via /join-guild. This is separate from your guild "
-            "Welcome email. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
+            "Welcome Email. Write it in your voice (a lead's welcome). Blank uses a generic welcome."
         ),
     )
     website_url = models.URLField(
@@ -1665,6 +1965,10 @@ class Guild(HeroCropMixin, models.Model):
         max_length=50,
         default="FAQ",
         help_text="Heading for this guild's FAQ / info section on the guild page — e.g. 'Ceramics Info'.",
+    )
+    allow_member_announcement_suggestions = models.BooleanField(
+        default=True,
+        help_text="Let members suggest announcements for this guild from its guild page.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     deleted_at = models.DateTimeField(
@@ -1947,6 +2251,33 @@ class Guild(HeroCropMixin, models.Model):
             grouped.append((members[member_id], rows))
         return grouped
 
+    def assign_lead(self, member: Member) -> list[str]:
+        """Set ``member`` as this guild's lead (``Guild.guild_lead``), replacing any current lead.
+
+        The single assignment path shared by the ``set_guild_lead`` management command and the
+        admin-only Staff-tab control. Assigning the FK is all that's needed — guild-lead perks
+        flow from it, no FOG role required. The assignment always succeeds; advisory conditions
+        (the member can't log in yet, or isn't Active) are returned as warning strings for the
+        caller to surface (CLI output, web messages).
+
+        Raises:
+            ValueError: If ``member`` is None — use the management command's ``--clear`` to
+                remove a lead; this method only assigns.
+        """
+        if member is None:
+            raise ValueError("A member is required to assign a guild lead.")
+        self.guild_lead = member
+        self.save(update_fields=["guild_lead"])
+        warnings: list[str] = []
+        if member.user_id is None:
+            warnings.append(
+                f"{member.display_name} has no linked user account. They cannot log in to use "
+                "guild lead tools until they sign up with a matching email."
+            )
+        if member.status != Member.Status.ACTIVE:
+            warnings.append(f"{member.display_name}'s status is {member.get_status_display()}, not Active.")
+        return warnings
+
     def leadership_members(self) -> list[Member]:
         """The guild lead plus every staff member, de-duplicated — all who hold lead authority.
 
@@ -1962,6 +2293,40 @@ class Guild(HeroCropMixin, models.Model):
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
+
+    def first_active_orientation_type(self) -> OrientationType | None:
+        """This guild's first active orientation type by sort order, or ``None``.
+
+        The default for surfaces with no type picker (the Discord custom-time flow).
+        """
+        return self.orientation_types.active().first()
+
+    def orienter_name_labels(self) -> dict[int, str]:
+        """Short display labels for the current leadership, keyed by member pk.
+
+        The label is the first name ("Bob"); when two current leadership members share a
+        first name it gains a last initial ("Bob P.") so slot lists stay unambiguous.
+        Computed guild-wide here because only a guild-wide view can see the collision;
+        ``OrientationSlot.with_label`` stays the cheap first-name form. A member with no
+        splittable name yields no entry (callers fall back to ``with_label``).
+        """
+        members = self.leadership_members()
+        tokens: dict[int, list[str]] = {}
+        counts: dict[str, int] = {}
+        for member in members:
+            parts = (member.display_name or "").strip().split()
+            if not parts:
+                continue
+            tokens[member.pk] = parts
+            counts[parts[0]] = counts.get(parts[0], 0) + 1
+        labels: dict[int, str] = {}
+        for member_pk, parts in tokens.items():
+            first = parts[0]
+            if counts[first] > 1 and len(parts) > 1:
+                labels[member_pk] = f"{first} {parts[-1][0].upper()}."
+            else:
+                labels[member_pk] = first
+        return labels
 
     def announcement_recipients(self) -> list[tuple["User", str]]:
         """The exact ``(User, reason)`` list a guild announcement email fans out to.
@@ -2030,7 +2395,7 @@ class GuildStaffMembership(models.Model):
         CO_LEAD = "co_lead", "Co-Lead"
         SECRETARY = "secretary", "Secretary"
         TREASURER = "treasurer", "Treasurer"
-        ORIENTER = "orienter", "Orientator"
+        ORIENTER = "orienter", "Orienter"
 
     guild = models.ForeignKey(
         Guild,
@@ -2095,23 +2460,56 @@ class GuildStaffMembership(models.Model):
 class AdminCapability(models.Model):
     """A scoped admin authority granted to a member, beyond the ``fog_role`` tier.
 
-    Each capability both *routes* the matching approval/alert notifications to the
+    Most capabilities both *route* the matching approval/alert notifications to the
     holder (so the right people hear about a class awaiting review, a space request, a
-    discount code, a calendar proposal, or a failed charge) and *grants the action* —
+    discount code, a calendar proposal, or a failed charge) and *grant the action* —
     a holder can approve or decline that object type. This lets the makerspace hand out
     a single duty (e.g. "you review classes") without promoting someone to full admin.
-    The capability is the master switch: ONLY holders receive the matching notifications
-    (and see them on the settings page). A plain Admin who does not hold it gets nothing
+    Two notes: ``REFUNDS`` routes exactly one notification, the
+    ``class_cancelled_admin_notice`` an instructor's cancel raises when paid
+    registrations need refunds (via the ``refund_authority`` resolver: fog admins OR
+    holders, the same set ``refund_authority_required`` admits); refund *failure* alerts
+    still go to the Billing Administrators. ``BILLING_APPROVER`` additionally gates the
+    admin Payments dashboard views.
+    For every capability but ``REFUNDS`` the capability is the master switch: ONLY holders
+    receive the matching notifications (and see them on the settings page); the refund
+    notice above is the one union with the Admin role. A plain Admin who does not hold it gets nothing
     until it is granted — they can self-grant on their own member page. See
     :func:`core.events.resolvers._capability_recipients`.
     """
 
     class Capability(models.TextChoices):
-        CLASS_APPROVER = "class_approver", "Class Administrator"
+        CLASS_APPROVER = "class_approver", "CMS Administrator"
         SPACE_APPROVER = "space_approver", "Space & Cubby Administrator"
         DISCOUNT_APPROVER = "discount_approver", "Discount Code Administrator"
         EVENTS_APPROVER = "events_approver", "Calendar Administrator"
         BILLING_APPROVER = "billing_approver", "Billing Administrator"
+        REFUNDS = "refunds", "Refunds"
+        EQUIPMENT = "equipment", "Equipment Administrator"
+
+    #: What each duty actually does, in one plain sentence — the SINGLE source of the
+    #: human explanation. The member edit Permissions tab reads it for its toggle help
+    #: text (``hub.forms.MemberCapabilitiesForm``) and the "View As" dropdown reads it
+    #: for the "?" tooltip beside each of an admin's own duties, so the two can never
+    #: drift. Written without a subject so each line reads correctly whether the reader is
+    #: granting a duty to someone else or to themselves.
+    DESCRIPTIONS: dict[str, str] = {
+        Capability.CLASS_APPROVER: "Approves and publishes classes for every guild, and gets class-review emails.",
+        Capability.SPACE_APPROVER: "Reviews space and cubby requests, and gets those request emails.",
+        Capability.DISCOUNT_APPROVER: "Approves discount codes, and gets discount-request emails.",
+        Capability.EVENTS_APPROVER: "Reviews Calendar and meeting proposals, and gets those emails.",
+        Capability.BILLING_APPROVER: (
+            "Sees the admin Payments dashboard and gets an alert when a member's automatic payment fails."
+        ),
+        Capability.REFUNDS: (
+            "Sends Stripe refunds for class and orientation payments. Adds Refund buttons to payment pages "
+            "that are already reachable, and opens no new pages, so pair it with Billing Administrator "
+            "for the Payments panel."
+        ),
+        Capability.EQUIPMENT: (
+            "Adds new equipment and manages every tool site-wide, including its details, staff, orientations, and hours."
+        ),
+    }
 
     member = models.ForeignKey(
         Member,
@@ -4485,7 +4883,7 @@ class InvalidEventTransition(ValueError):
 
 
 class CommunityEvent(models.Model):
-    """A FOG-native event on the Community Calendar (a guild meeting/event, a site-wide
+    """A FOG-native event on the Calendar (a guild meeting/event, a site-wide
     community event, or the cross-guild Guild Lead Meeting).
 
     Unlike :class:`CalendarEvent` (a read-only iCal cache), this is authored inside FOG
@@ -4647,9 +5045,12 @@ class CommunityEvent(models.Model):
     google_calendar_target = models.CharField(
         max_length=10,
         choices=GoogleCalendarTarget.choices,
-        default=GoogleCalendarTarget.MEMBER,
+        default=GoogleCalendarTarget.PUBLIC,
         verbose_name="Which calendar",
-        help_text="Which Google calendar this event syncs to when Google sync is on — the members-only or the public one.",
+        help_text=(
+            "Which Google calendar this event syncs to when Google sync is on. "
+            "Public is the norm; pick the members-only calendar for member-only events."
+        ),
     )
     google_event_id = models.CharField(
         max_length=1024,
@@ -4722,6 +5123,24 @@ class CommunityEvent(models.Model):
         help_text=(
             "When this event was announced (or silently marked announced) in the Discord calendar "
             "channel. NULL = not yet announced; the 15-minute announcer picks it up once published."
+        ),
+    )
+    discord_announce_channel_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The channel the #calendar announcement message was posted to. Blank until "
+            "announced (or for events announced before the RSVP embed shipped)."
+        ),
+    )
+    discord_announce_message_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "The announcement message id, so the hub can refresh its Attendees field and a cancel "
+            "can strip its buttons. Blank until announced."
         ),
     )
 
@@ -5417,9 +5836,9 @@ class CommunityEvent(models.Model):
         # schedule-aware line is composed here and dropped into event.approved's copy as
         # {{ outcome }} — an approved-but-SCHEDULED event must NOT read "now on the calendar".
         if scheduled:
-            outcome = f"It'll be announced and added to the Community Calendar on {self.publish_at_display}."
+            outcome = f"It'll be announced and added to the Calendar on {self.publish_at_display}."
         else:
-            outcome = "It's now on the Community Calendar."
+            outcome = "It's now on the Calendar."
         emit(
             event_key,
             actor=self.reviewed_by,
@@ -5439,6 +5858,364 @@ class CommunityEvent(models.Model):
             url=url,
             period=period,
         )
+
+    # --- Discord announcement: rich embed, RSVP toggle, manage authority ------
+
+    def next_occurrence_start(self) -> datetime_type:
+        """The next occurrence starting at/after now, falling back to the anchor ``starts_at``.
+
+        A recurring series' anchor may already be in the past; the announcement embed and the
+        manage card show a date members can actually attend. A one-off returns its own
+        ``starts_at``. Promoted onto the model (from the announcer's old ``_next_community_start``)
+        so the embed builder has no ``hub`` import.
+        """
+        now = timezone.now()
+        today = timezone.localdate(now)
+        horizon = today + timedelta(days=366)
+        duration = self.ends_at - self.starts_at
+        for occ in self.occurrences_in(today, horizon):
+            if occ + duration >= now:
+                return occ
+        return self.starts_at
+
+    @property
+    def rsvps_closed(self) -> bool:
+        """Whether RSVPs are closed: a non-recurring event whose end has passed.
+
+        A recurring series keeps accepting RSVPs (the row represents the ongoing series),
+        mirroring the public page's ``show_past_note`` rule (``hub.views.event_detail``).
+        """
+        return self.recurrence == self.Recurrence.NONE and self.ends_at < timezone.now()
+
+    def _discord_time_value(self, start: datetime_type, end: datetime_type) -> str:
+        """The **Time** field value, e.g. ``'Fri, Aug 29 · 6:00 PM to 8:00 PM'`` (local, no dash)."""
+        local_start = timezone.localtime(start)
+        local_end = timezone.localtime(end)
+        return (
+            f"{local_start.strftime('%a, %b %-d')} · "
+            f"{local_start.strftime('%-I:%M %p')} to {local_end.strftime('%-I:%M %p')}"
+        )
+
+    def _discord_duration_value(self) -> str:
+        """The **Duration** field value humanized from ``ends_at - starts_at`` (e.g. '1 hour 30 minutes')."""
+        total_minutes = int((self.ends_at - self.starts_at).total_seconds() // 60)
+        hours, minutes = divmod(total_minutes, 60)
+        parts = []
+        if hours:
+            parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes or not hours:
+            parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        return " ".join(parts)
+
+    def _discord_creator_name(self) -> str:
+        """The creator's display name for the embed footer, or ``'Past Lives'`` for imported rows."""
+        user = self.created_by or self.submitted_by
+        if user is None:
+            return "Past Lives"
+        member = Member.objects.filter(user=user).first()
+        return member.display_name if member is not None else "Past Lives"
+
+    def attendees_field(self) -> dict[str, str]:
+        """The **Attendees (N)** embed field: the first names in RSVP order, then 'and N more'.
+
+        Empty state names nobody and invites the first RSVP. Names are capped at
+        :data:`_DISCORD_ATTENDEE_CAP` and the whole value is defensively trimmed under Discord's
+        1024-char field cap. One query with ``select_related('member')``.
+        """
+        rsvps = list(self.rsvps.select_related("member"))
+        count = len(rsvps)
+        name = f"Attendees ({count})"
+        if not rsvps:
+            return {"name": name, "value": "No RSVPs yet. Click RSVP below to be the first."}
+        names = [rsvp.member.display_name for rsvp in rsvps[:_DISCORD_ATTENDEE_CAP]]
+        value = ", ".join(names)
+        if count > _DISCORD_ATTENDEE_CAP:
+            value += f", and {count - _DISCORD_ATTENDEE_CAP} more"
+        if len(value) > _DISCORD_FIELD_VALUE_MAX:
+            value = value[: _DISCORD_FIELD_VALUE_MAX - 1].rstrip() + "…"
+        return {"name": name, "value": value}
+
+    def discord_announcement_embed(self) -> dict[str, Any]:
+        """The rich #calendar embed — one truth for the announcer, the RSVP click, and
+        the hub refresh. Field names render bold, which IS the bold-headline structure."""
+        start = self.next_occurrence_start()
+        end = start + (self.ends_at - self.starts_at)
+        fields: list[dict[str, Any]] = [
+            {"name": "Time", "value": self._discord_time_value(start, end)},
+            {"name": "Duration", "value": self._discord_duration_value()},
+        ]
+        if self.location:
+            fields.append({"name": "Location", "value": self.location})
+        if self.recurrence != self.Recurrence.NONE:
+            fields.append({"name": "Repeats", "value": self.get_recurrence_display()})
+        fields.append(self.attendees_field())
+        embed: dict[str, Any] = {
+            "title": self.title,
+            "url": self.public_url,
+            "color": _DISCORD_ANNOUNCE_COLOR,
+            "fields": fields,
+            "footer": {"text": f"RSVP below · Created by {self._discord_creator_name()}"},
+        }
+        if self.description:
+            description = self.description.strip()
+            if len(description) > _DISCORD_DESCRIPTION_MAX:
+                description = description[:_DISCORD_DESCRIPTION_MAX].rstrip() + "… more on the event page"
+            embed["description"] = description
+        return embed
+
+    def discord_announcement_components(self) -> list[dict[str, Any]]:
+        """The RSVP toggle + Manage button row carried on the announcement message."""
+        return [
+            {
+                "type": 1,
+                "components": [
+                    {"type": 2, "style": 3, "label": "✅ RSVP", "custom_id": f"event:rsvp:{self.pk}"},
+                    {"type": 2, "style": 2, "label": "⚙ Manage", "custom_id": f"event:manage:{self.pk}"},
+                ],
+            }
+        ]
+
+    def toggle_rsvp(self, member: "Member", *, source: str = "") -> bool:
+        """Add this member's RSVP if absent, remove it if present. Pure DB, no HTTP.
+
+        Returns ``True`` when the member is now going (a row was created), ``False`` when the
+        RSVP was taken back (the row was deleted). A concurrent duplicate insert loses to the
+        unique constraint's ``IntegrityError``, which is caught and treated as "already existed"
+        so a lost race never 500s — the caller re-renders from the true DB state either way.
+        ``source`` stamps which door a NEW row came through (defaults to the Discord button);
+        toggling off deletes the row regardless of its source. The removal is durable for
+        button and hub rows; an ``interested``-sourced row returns on the next sweep if the
+        member's Discord Interested mark is still set (no API lets the bot clear it) — the
+        Events-tab bell is the place to take that one back.
+        """
+        from django.db import IntegrityError, transaction
+
+        try:
+            with transaction.atomic():
+                _rsvp, created = EventRSVP.objects.get_or_create(
+                    event=self, member=member, defaults={"source": source or EventRSVP.Source.BUTTON}
+                )
+        except IntegrityError:
+            created = False
+        if created:
+            return True
+        EventRSVP.objects.filter(event=self, member=member).delete()
+        return False
+
+    def reconcile_interested(self, interested_discord_ids: "set[str]") -> bool:
+        """Reconcile Discord's Interested list into this event's RSVPs. Pure DB, no HTTP.
+
+        Adds an ``interested``-sourced RSVP for every linked member on the list who has no
+        RSVP yet, and removes ``interested``-sourced rows whose member is no longer on the
+        list. Button and hub rows are never removed here — clearing an Interested mark can
+        only take back what the sync itself granted. Returns ``True`` when anything changed
+        (the caller then refreshes the announcement embed).
+        """
+        from django.db import IntegrityError, transaction
+
+        members = Member.objects.filter(discord_user_id__in=interested_discord_ids)
+        already = set(self.rsvps.values_list("member_id", flat=True))
+        changed = False
+        for member in members:
+            if member.pk in already:
+                continue
+            try:
+                with transaction.atomic():
+                    EventRSVP.objects.create(event=self, member=member, source=EventRSVP.Source.INTERESTED)
+                changed = True
+            except IntegrityError:  # concurrent button/hub RSVP won the race — that row stands
+                continue
+        removed, _ = (
+            self.rsvps.filter(source=EventRSVP.Source.INTERESTED)
+            .exclude(member__discord_user_id__in=interested_discord_ids)
+            .delete()
+        )
+        return changed or bool(removed)
+
+    def can_manage_from_discord(self, member: "Member") -> bool:
+        """Who may open the ⚙ Manage card: the ``/cancel`` delete authority, plus the creator.
+
+        The first clause is byte-for-byte ``_cancel_authority``'s delete authority (admins,
+        the event's guild leads/staff); the creator clause widens *who sees the card only* —
+        what the card lets them do is still governed by the per-action authorities (``/cancel``
+        re-checks ``_cancel_authority``), so no new edit/delete power is minted.
+        """
+        if member.is_fog_admin or (self.guild is not None and member.can_edit_guild(self.guild)):
+            return True
+        user_pk = getattr(member.user, "pk", None)
+        return user_pk is not None and user_pk in (self.created_by_id, self.submitted_by_id)
+
+    def refresh_discord_announcement(self) -> None:
+        """Best-effort: rebuild the announcement embed's Attendees field in place (buttons kept).
+
+        No-ops silently when the message ids are unset (pre-RSVP-embed or unannounced events).
+        A Discord hiccup is logged and swallowed — a hub RSVP must never 500 on it (PATCHing
+        only ``embeds`` leaves the existing buttons untouched)."""
+        if not (self.discord_announce_channel_id and self.discord_announce_message_id):
+            return
+        from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
+
+        try:
+            edit_channel_message(
+                self.discord_announce_channel_id,
+                self.discord_announce_message_id,
+                [self.discord_announcement_embed()],
+            )
+        except DiscordChannelError:
+            logger.warning("refresh_discord_announcement failed for event %s", self.pk, exc_info=True)
+
+    def strip_discord_announcement_buttons(self) -> None:
+        """Best-effort: drop the RSVP/Manage buttons off a cancelled event's announcement message.
+
+        Called from the ``/cancel`` delete fan-out so a removed event stops inviting clicks;
+        no-ops when the message ids are unset, and a Discord failure is logged, never raised
+        (stale clicks on a not-yet-stripped message degrade gracefully at the handler)."""
+        if not (self.discord_announce_channel_id and self.discord_announce_message_id):
+            return
+        from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
+
+        try:
+            edit_channel_message(
+                self.discord_announce_channel_id,
+                self.discord_announce_message_id,
+                [self.discord_announcement_embed()],
+                components=[],
+            )
+        except DiscordChannelError:
+            logger.warning("strip_discord_announcement_buttons failed for event %s", self.pk, exc_info=True)
+
+
+class EventRSVP(models.Model):
+    """One member's RSVP to a published :class:`CommunityEvent`.
+
+    Created/deleted by :meth:`CommunityEvent.toggle_rsvp` (the ✅ Discord button and the hub
+    page button) or by the Interested sync (:mod:`membership.interested_sync`, which mirrors
+    Discord's native Scheduled-Event "Interested" list). Rendered live in the announcement
+    embed's Attendees field and on the public event page. The unique constraint makes the
+    toggle race-safe (a concurrent duplicate insert loses to it). ``source`` records which
+    door the RSVP came through — the sync may only remove rows it created, so a button or
+    hub RSVP can never be taken away by someone clearing their Interested mark."""
+
+    class Source(models.TextChoices):
+        BUTTON = "button", "Discord RSVP button"
+        HUB = "hub", "Hub event page"
+        INTERESTED = "interested", "Discord Interested sync"
+
+    event = models.ForeignKey(
+        "CommunityEvent",
+        on_delete=models.CASCADE,
+        related_name="rsvps",
+        help_text="The published event this RSVP is for.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="event_rsvps",
+        help_text="Who is coming.",
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.BUTTON,
+        help_text="Which door the RSVP came through; the Interested sync may only remove its own rows.",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the RSVP was made (drives the display order).",
+    )
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["event", "member"], name="uq_eventrsvp_event_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name} → {self.event.title}"
+
+
+class CommunityEventDraftManager(models.Manager["CommunityEventDraft"]):
+    """Queries for the Discord ``/create`` preview drafts."""
+
+    def claimable_for(self, user: "User") -> "models.QuerySet[CommunityEventDraft]":
+        """This user's unconfirmed drafts — the only rows a Confirm click may claim."""
+        return self.filter(author=user, confirmed_at__isnull=True).select_related("guild")
+
+
+class CommunityEventDraft(models.Model):
+    """A pending Discord ``/create`` preview — the payload between preview and Confirm.
+
+    One row per outstanding preview message. It is a scratch payload, never a calendar
+    row: nothing joins to it, and it becomes a :class:`CommunityEvent` only when the
+    member clicks Confirm (the atomic ``confirmed_at IS NULL`` claim mirrors
+    :class:`AnnouncementDraft`'s, so a double-click can't create two events). Running
+    ``/create`` again deletes the author's older unconfirmed drafts, and a Confirm on a
+    draft older than the command's confirm window gets a friendly "expired" reply — so
+    abandoned rows stay bounded without a cleanup cron.
+    """
+
+    class EmailChoice(models.TextChoices):
+        NONE = "none", "Don't email"
+        GUILD_MEMBERS = "guild_members", "This guild's members"
+        ALL_ACTIVE = "all_active", "The whole membership"
+
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="community_event_drafts",
+        help_text="Whose preview this is — the claim filter and the create actor.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="community_event_drafts",
+        help_text="The resolved target guild — NULL means a site-wide community event.",
+    )
+    title = models.CharField(max_length=200, help_text="The event name, mirroring CommunityEvent.title.")
+    starts_at = models.DateTimeField(help_text="Form-cleaned aware start (validated before the draft is written).")
+    ends_at = models.DateTimeField(help_text="Form-cleaned aware end (validated before the draft is written).")
+    location = models.CharField(max_length=200, blank=True, default="", help_text="Where it happens, if given.")
+    video_url = models.URLField(max_length=500, blank=True, default="", help_text="Online join link, if given.")
+    description = models.TextField(blank=True, default="", help_text="The details option's free text.")
+    recurrence = models.CharField(
+        max_length=20,
+        choices=CommunityEvent.Recurrence.choices,
+        default=CommunityEvent.Recurrence.NONE,
+        help_text="Repeat cadence — the command exposes a subset, the column accepts all values.",
+    )
+    google_calendar_target = models.CharField(
+        max_length=10,
+        choices=CommunityEvent.GoogleCalendarTarget.choices,
+        default=CommunityEvent.GoogleCalendarTarget.PUBLIC,
+        help_text="Which Google calendar the published event posts to. Public is the norm; members-only is the exception.",
+    )
+    email_choice = models.CharField(
+        max_length=20,
+        choices=EmailChoice.choices,
+        default=EmailChoice.NONE,
+        help_text="Whether publishing also emails an audience, and which one.",
+    )
+    when_had_end = models.BooleanField(
+        default=True,
+        help_text=(
+            "Whether the typed When carried an explicit end time. False means the end was "
+            "derived from a duration, so the preview card offers a Duration picker."
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="Drives the confirm-window expiry.")
+    confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The atomic claim stamp — set exactly once by the winning Confirm click.",
+    )
+
+    objects = CommunityEventDraftManager()
+
+    def __str__(self) -> str:
+        state = "confirmed" if self.confirmed_at else "unconfirmed"
+        return f"{self.title} by {self.author} ({state})"
 
 
 class MeetingLockedError(Exception):
@@ -5534,6 +6311,9 @@ class Meeting(models.Model):
     pending_count: int
     viewer_can_edit: bool
     viewer_can_propose: bool
+    # The per-card propose form (unique auto_id per meeting), attached by the
+    # Meetings home view for proposable cards only.
+    propose_form: forms.Form
 
     guild = models.ForeignKey(
         Guild,
@@ -5761,6 +6541,26 @@ class Meeting(models.Model):
         self.status = self.Status.PUBLISHED
         self.save(update_fields=["status"])
 
+    def unpublish(self, *, by: User) -> None:
+        """Return a published agenda to draft — symmetric with :meth:`publish`.
+
+        Silent by design: ``publish()`` emits nothing, so unpublish emits nothing
+        either — an activity row only, the :meth:`unlock` idiom.
+
+        Raises:
+            MeetingLockedError: If the minutes are approved (unlock is the admin path).
+            ValueError: If the meeting is not currently published.
+        """
+        if self.status == self.Status.APPROVED:
+            raise MeetingLockedError("Approved minutes are locked — an admin can unlock them.")
+        if self.status != self.Status.PUBLISHED:
+            raise ValueError(f"Cannot unpublish a meeting with status {self.status!r}.")
+        self.status = self.Status.DRAFT
+        self.save(update_fields=["status"])
+        from core.models import SiteActivity
+
+        SiteActivity.log(SiteActivity.Kind.MEETING_UNPUBLISHED, actor=by, target=self)
+
     def attach_carried_over_proposals(self) -> list[MeetingItemProposal]:
         """Materialize proposals carried forward while this scope had no next meeting yet
         (the deferred half of :meth:`MeetingItemProposal.carry_over`). No-op on a locked
@@ -5872,6 +6672,14 @@ class Meeting(models.Model):
             ends_at=ends,
             location=self._event_location(),
             recurrence=CommunityEvent.Recurrence.NONE,
+            # Explicit, not the model default: a council/lead meeting is internal (its
+            # location often carries the leads' video link), so it stays on the
+            # members-only calendar; a guild meeting follows the public-by-default norm.
+            google_calendar_target=(
+                CommunityEvent.GoogleCalendarTarget.PUBLIC
+                if self.guild_id is not None
+                else CommunityEvent.GoogleCalendarTarget.MEMBER
+            ),
             created_by=by,
         )
         event.save()
@@ -6665,7 +7473,7 @@ class VotePreferenceQuerySet(models.QuerySet):
         )
 
     def cast_ballot(
-        self, member: Member, *, guild_1st: Guild, guild_2nd: Guild, guild_3rd: Guild
+        self, member: Member, *, guild_1st: Guild, guild_2nd: Guild | None = None, guild_3rd: Guild | None = None
     ) -> tuple[VotePreference, bool]:
         """Create or update ``member``'s persistent ballot — the one shared save path.
 
@@ -6715,14 +7523,18 @@ class VotePreference(models.Model):
     guild_2nd = models.ForeignKey(
         Guild,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="second_choice_votes",
-        help_text="Second-choice guild (3 points).",
+        help_text="Second-choice guild (3 points). Optional; must differ from the other choices.",
     )
     guild_3rd = models.ForeignKey(
         Guild,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="third_choice_votes",
-        help_text="Third-choice guild (2 points).",
+        help_text="Third-choice guild (2 points). Optional; must differ from the other choices.",
     )
     updated_at = models.DateTimeField(auto_now=True, help_text="When this vote was last changed.")
 
@@ -6733,7 +7545,8 @@ class VotePreference(models.Model):
         verbose_name_plural = "Vote Preferences"
 
     def __str__(self) -> str:
-        return f"{self.member.display_name}: {self.guild_1st} / {self.guild_2nd} / {self.guild_3rd}"
+        chosen = " / ".join(str(g) for g in (self.guild_1st, self.guild_2nd, self.guild_3rd) if g)
+        return f"{self.member.display_name}: {chosen}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
@@ -6754,6 +7567,15 @@ class VotePreference(models.Model):
 
 class ResultsAlreadySentError(Exception):
     """Raised when a snapshot's member results email is sent twice without an explicit resend."""
+
+
+# How many times the scheduler retries one queued results send before giving up and
+# stamping it anyway. A transient failure (a provider hiccup, a worker restart, a single
+# rejected message) clears well inside this; a genuinely undeliverable address never
+# will, and must not keep the request queued forever. Retries cannot conjure send budget
+# either — if the provider is refusing on quota, the fix is the mail plan, not this
+# number. (The account is on Resend Pro as of September 2026: no daily cap, 50k/month.)
+MAX_RESULTS_SEND_ATTEMPTS = 3
 
 
 class FundingSnapshot(models.Model):
@@ -6816,6 +7638,22 @@ class FundingSnapshot(models.Model):
         default=0,
         help_text="How many times the results email has been sent (>=1 after the first send; supports resend).",
     )
+    results_send_requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an admin asked for the results email. Set while the send is queued for the "
+            "background worker and cleared once it finishes. Null = nothing queued."
+        ),
+    )
+    results_send_resend = models.BooleanField(
+        default=False,
+        help_text="Whether the queued send is a deliberate resend to everyone (vs. a first send).",
+    )
+    results_send_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text="Attempts made on the currently queued send; reset to 0 once it finishes.",
+    )
 
     class Meta:
         ordering = ["-snapshot_at"]
@@ -6832,12 +7670,53 @@ class FundingSnapshot(models.Model):
 
     @property
     def results_pending(self) -> bool:
-        """Whether real per-guild results exist for this snapshot and haven't been emailed yet.
+        """Whether real per-guild results exist for this snapshot and still need the admin.
 
         A legacy or vote-less snapshot (no allocation) is never "pending" — there is
-        nothing meaningful to send.
+        nothing meaningful to send. Neither is one whose send is already queued: the
+        admin has acted and the scheduler owns it now, so the "review & send" banner
+        must move on to the next cycle instead of offering the same one again.
         """
-        return self.results_sent_at is None and bool(self.allocation_summary())
+        return self.results_sent_at is None and not self.results_send_queued and bool(self.allocation_summary())
+
+    @property
+    def results_send_queued(self) -> bool:
+        """Whether a results send is waiting for the background worker to pick it up."""
+        return self.results_send_requested_at is not None
+
+    def queue_results_send(self, *, resend: bool = False) -> None:
+        """Ask for this snapshot's results email without sending it on this thread.
+
+        Emailing the whole membership is a fan-out of roughly twenty queries per member
+        and takes over a minute at current size, which is longer than the web worker's
+        request timeout — the worker is killed mid-loop and the admin is told the send
+        failed when most of it already happened. So the admin's click only records the
+        request here; ``send_pending_funding_results`` performs it on the scheduler.
+
+        Args:
+            resend: True to re-email everyone with a fresh delivery generation.
+
+        Raises:
+            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
+        """
+        if self.results_sent_at is not None and not resend:
+            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
+        self.results_send_requested_at = timezone.now()
+        self.results_send_resend = resend
+        if resend:
+            # A resend is a genuinely new request, so it starts a new generation and a
+            # fresh budget. A plain Send is NOT: it may be picking up an earlier send that
+            # died partway (headless run killed, worker restarted), and zeroing the budget
+            # here would make the next attempt look like a first attempt, open a new
+            # generation, and re-email everyone that dead run had already reached.
+            self.results_send_attempts = 0
+        else:
+            # Carry the count over so the next attempt continues the unfinished
+            # generation, but never hand the scheduler a budget that is already spent.
+            # Enough crashed runs would otherwise make the admin's next click abandon
+            # before sending anything, and stamp the cycle as sent having emailed nobody.
+            self.results_send_attempts = min(self.results_send_attempts, MAX_RESULTS_SEND_ATTEMPTS - 1)
+        self.save(update_fields=["results_send_requested_at", "results_send_resend", "results_send_attempts"])
 
     @classmethod
     def most_recent_pending(cls) -> FundingSnapshot | None:
@@ -6909,9 +7788,9 @@ class FundingSnapshot(models.Model):
                 "guild_1st_id": pref.guild_1st_id,
                 "guild_1st_name": pref.guild_1st.name,
                 "guild_2nd_id": pref.guild_2nd_id,
-                "guild_2nd_name": pref.guild_2nd.name,
+                "guild_2nd_name": pref.guild_2nd.name if pref.guild_2nd else None,
                 "guild_3rd_id": pref.guild_3rd_id,
-                "guild_3rd_name": pref.guild_3rd.name,
+                "guild_3rd_name": pref.guild_3rd.name if pref.guild_3rd else None,
             }
             for pref in preferences
         ]
@@ -7040,7 +7919,12 @@ class FundingSnapshot(models.Model):
         event to every active member with a linked user account who did NOT appear in the
         voter list — giving non-voters the allocation without a ballot recap. Finally, one
         ``voting.results_discord`` broadcast fires so #general-member-chat hears the outcome.
-        Stamps ``results_sent_at`` and bumps ``results_send_count`` for UI state + idempotency.
+
+        Bookkeeping lives in :meth:`_begin_results_send` (which generation to send under)
+        and :meth:`_finish_results_send` (stamp it, or leave it queued for a retry when
+        members were missed). This is safe to re-run: the ledger skips anyone already
+        emailed on the current generation, so a re-run reaches only the members a previous
+        attempt did not.
 
         Args:
             actor: The admin who triggered the send (unused in per-member emit, kept for
@@ -7054,19 +7938,20 @@ class FundingSnapshot(models.Model):
                 when back-filling a cycle that predates Discord notifications.
 
         Returns:
-            The number of members who received a fresh delivery this send.
+            The number of members who were actually emailed this send. Counts the EMAIL
+            channel only: a member whose email was rejected but whose in-app bell was
+            written has not received their results, and reporting them as sent is the
+            silent-skip failure this path exists to prevent.
 
         Raises:
             ResultsAlreadySentError: If results were already sent and ``resend`` is False.
         """
         from core.events.emit import emit
+        from core.events.registry import Channel
         from membership.orientations import _absolute_url
 
-        if self.results_sent_at is not None and not resend:
-            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
-
-        self.results_send_count += 1
-        n = self.results_send_count
+        n = self._begin_results_send(resend=resend)
+        missed = 0
         sent = 0
         allocation = self.allocation_summary()
         allocation_chart = self.allocation_chart_html()
@@ -7086,11 +7971,12 @@ class FundingSnapshot(models.Model):
             if member is None:
                 continue  # voter no longer active → skip (audience safety)
             voter_ids.add(vote["member_id"])
-            ballot_recap = (
-                f"You voted — 1st: {vote['guild_1st_name']}, "
-                f"2nd: {vote['guild_2nd_name']}, "
-                f"3rd: {vote['guild_3rd_name']}."
-            )
+            ranks = [f"1st: {vote['guild_1st_name']}"]
+            if vote["guild_2nd_name"]:
+                ranks.append(f"2nd: {vote['guild_2nd_name']}")
+            if vote["guild_3rd_name"]:
+                ranks.append(f"3rd: {vote['guild_3rd_name']}")
+            ballot_recap = "You voted — " + ", ".join(ranks) + "."
             result = emit(
                 "voting.results_published",
                 target=self,
@@ -7110,8 +7996,9 @@ class FundingSnapshot(models.Model):
                 url=voting_url,
                 period=f"snapshot:{self.pk}:send:{n}",  # fresh per send → resend re-delivers
             )
-            if result.delivery_count:
+            if any(channel is Channel.EMAIL for _pk, channel in result.delivered):
                 sent += 1
+            missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
         # --- 2. Non-voters: allocation only, no ballot recap ---
         non_voters = Member.objects.active().filter(user__isnull=False).exclude(pk__in=voter_ids).select_related("user")
@@ -7135,8 +8022,9 @@ class FundingSnapshot(models.Model):
                 url=voting_url,
                 period=f"snapshot:{self.pk}:nonvoter:{member.pk}:send:{n}",
             )
-            if result.delivery_count:
+            if any(channel is Channel.EMAIL for _pk, channel in result.delivered):
                 sent += 1
+            missed += sum(1 for _pk, channel in result.released if channel is Channel.EMAIL)
 
         # --- 3. Discord: one @everyone broadcast to #general-member-chat ---
         if discord:
@@ -7152,9 +8040,85 @@ class FundingSnapshot(models.Model):
                 period=f"snapshot_discord:{self.pk}:send:{n}",
             )
 
-        self.results_sent_at = timezone.now()
-        self.save(update_fields=["results_sent_at", "results_send_count"])
+        self._finish_results_send(missed=missed)
         return sent
+
+    def _begin_results_send(self, *, resend: bool) -> int:
+        """Claim one send attempt and return the delivery generation to send under.
+
+        The generation belongs to the admin's REQUEST, not to each attempt at fulfilling
+        it. The period embeds the generation, so a retry that bumped the number would get
+        fresh periods and re-email everyone instead of reaching only the members the
+        previous attempt missed. Any attempt after the first is therefore a retry —
+        queued or not, since the headless command can be re-run by hand after a worker
+        was killed. Both counters are persisted before any email goes out, so a run that
+        dies mid-fan-out still leaves the next one on the same generation.
+
+        Raises:
+            ResultsAlreadySentError: If results were already sent and ``resend`` is False.
+        """
+        if self.results_sent_at is not None and not resend:
+            raise ResultsAlreadySentError(f"Results for '{self.cycle_label}' were already sent.")
+        if self.results_send_attempts == 0:
+            self.results_send_count += 1
+        self.results_send_attempts += 1
+        self.save(update_fields=["results_send_count", "results_send_attempts"])
+        return self.results_send_count
+
+    @property
+    def results_send_budget_spent(self) -> bool:
+        """Whether this queued send has used every attempt it is allowed.
+
+        Checked by the scheduler BEFORE it tries again, which is what bounds a send that
+        crashes mid-fan-out: such a run never reaches :meth:`_finish_results_send`, so a
+        budget consulted only at the end would never stop it retrying.
+        """
+        return self.results_send_attempts >= MAX_RESULTS_SEND_ATTEMPTS
+
+    def abandon_queued_send(self) -> None:
+        """Give up on a queued send that has spent its attempt budget.
+
+        Stamps the snapshot so it stops being retried and stops looking queued. Callers
+        must say out loud that members were missed — a silent give-up is the exact
+        failure this whole path exists to prevent.
+        """
+        self._finish_results_send(missed=0)
+
+    def _finish_results_send(self, *, missed: int) -> bool:
+        """Stamp the send as done, or leave it queued for the scheduler to retry.
+
+        Members who were claimed but not reached (no address on file, a provider
+        rejection) had their ledger slots handed back. While the request is still queued,
+        leave the snapshot unstamped so the next scheduler tick retries on this same
+        generation: the ledger skips everyone already emailed and only the missed members
+        are tried again. The attempt budget that stops this repeating forever is enforced
+        by the caller before it starts (:attr:`results_send_budget_spent`), because a run
+        that dies mid-fan-out never gets here at all.
+
+        A send that is NOT queued (the headless command, the auto cycle snapshot) always
+        stamps: nothing would ever pick it back up, so leaving it unstamped would hang the
+        cycle in the admin UI forever.
+
+        Returns:
+            True when the snapshot was stamped as sent, False when it stays queued.
+        """
+        still_queued = self.results_send_requested_at is not None
+        if missed and still_queued:
+            return False
+        self.results_sent_at = timezone.now()
+        self.results_send_requested_at = None
+        self.results_send_resend = False
+        self.results_send_attempts = 0
+        self.save(
+            update_fields=[
+                "results_sent_at",
+                "results_send_count",
+                "results_send_requested_at",
+                "results_send_resend",
+                "results_send_attempts",
+            ]
+        )
+        return True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         super().save(*args, **kwargs)
@@ -7348,9 +8312,24 @@ class Space(models.Model):
 
     @property
     def current_occupants(self) -> list[Member | Guild]:
-        """Return all active tenants (Members and Guilds) for this space."""
+        """Return all active tenants (Members and Guilds) for this space.
+
+        Unfiltered — this is the staff/admin data path (lease management, occupancy
+        reports). Member-facing surfaces read :attr:`visible_occupants` instead.
+        """
         active = self.leases.filter(_active_lease_q()).select_related("content_type")
         return [t for lease in active if (t := lease.tenant) is not None]
+
+    @property
+    def visible_occupants(self) -> list[Member | Guild]:
+        """Tenants OK to display on member-facing surfaces (the public Spaces map).
+
+        Guild tenants always show (a guild's name is not personal information). Member
+        tenants show only when they opted in via :attr:`Member.show_on_space_map` —
+        an opted-out member is simply absent, so their space reads as occupied with no
+        name. Staff/admin surfaces read :attr:`current_occupants`, which stays unfiltered.
+        """
+        return [t for t in self.current_occupants if not isinstance(t, Member) or t.show_on_space_map]
 
     @property
     def vacancy_value(self) -> Decimal:
@@ -7587,11 +8566,15 @@ class OrientationError(Exception):
 
 
 class GuildOrientationSettings(models.Model):
-    """Per-guild orientation configuration plus two lead-editable follow-up emails.
+    """Per-guild orientation configuration plus the lead-editable thank-you email.
 
     A guild offers orientation booking only when ``is_enabled`` is on; a lead can
     temporarily stop taking bookings with ``is_closed`` + a ``closed_message``
     (e.g. "On vacation till Sept 8") without losing their configuration.
+
+    Only guild-wide switches live here (enabled/closed, custom requests, info, the
+    welcome and thank-you emails). Per-orientation config — duration, price, seats,
+    location — lives on each :class:`OrientationType` (issue #282).
     """
 
     guild = models.OneToOneField(
@@ -7606,13 +8589,6 @@ class GuildOrientationSettings(models.Model):
     )
     info = models.TextField(
         blank=True, default="", help_text="Orientation info shown to members before they book (plain text)."
-    )
-    default_seats = models.PositiveSmallIntegerField(default=4, help_text="Default capacity for new orientation slots.")
-    default_location = models.CharField(
-        max_length=200, blank=True, default="", help_text="Default place orientations happen, e.g. 'Front desk'."
-    )
-    default_duration_minutes = models.PositiveSmallIntegerField(
-        default=60, help_text="Length of a slot generated from a recurring rule, in minutes."
     )
     is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
     closed_message = models.CharField(
@@ -7634,16 +8610,20 @@ class GuildOrientationSettings(models.Model):
     thankyou_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the thank-you email was last edited."
     )
-    join_email_enabled = models.BooleanField(
-        default=False, help_text="Send a welcome email when a member joins this guild."
+    welcome_email_enabled = models.BooleanField(
+        default=True,
+        help_text=(
+            "Send a welcome email when a member joins this guild. On by default; "
+            "leave the subject and body blank to send the standard welcome, or write your own."
+        ),
     )
-    join_email_subject = models.CharField(
+    welcome_email_subject = models.CharField(
         max_length=200, blank=True, default="", help_text="Subject line of the welcome email."
     )
-    join_email_body = models.TextField(
-        blank=True, default="", help_text="Body of the welcome email (plain text, line breaks preserved)."
+    welcome_email_body = models.TextField(
+        blank=True, default="", help_text="Body of the welcome email (your personal note; line breaks preserved)."
     )
-    join_email_updated_at = models.DateTimeField(
+    welcome_email_updated_at = models.DateTimeField(
         null=True, blank=True, help_text="When the welcome email was last edited."
     )
     created_at = models.DateTimeField(auto_now_add=True)
@@ -7671,9 +8651,23 @@ class GuildOrientationSettings(models.Model):
         return self.thankyou_email_body or STANDARD_THANKYOU_BODY
 
     @property
-    def join_email_ready(self) -> bool:
-        """True when the welcome email is enabled and has both subject and body."""
-        return self.join_email_enabled and bool(self.join_email_subject) and bool(self.join_email_body)
+    def welcome_email_subject_resolved(self) -> str:
+        """The guild's custom welcome subject, or the standard one when they left it blank."""
+        from membership.guild_welcome_copy import standard_welcome_subject
+
+        return self.welcome_email_subject or standard_welcome_subject(self.guild.name)
+
+    @property
+    def welcome_email_body_resolved(self) -> str:
+        """The guild's custom welcome body, or the standard copy when they left it blank."""
+        from membership.guild_welcome_copy import STANDARD_WELCOME_BODY
+
+        return self.welcome_email_body or STANDARD_WELCOME_BODY
+
+    @property
+    def welcome_email_ready(self) -> bool:
+        """On + always has resolvable copy, so ``enabled`` alone is enough to send."""
+        return self.welcome_email_enabled
 
     @property
     def is_accepting(self) -> bool:
@@ -7681,11 +8675,195 @@ class GuildOrientationSettings(models.Model):
         return self.is_enabled and not self.is_closed
 
 
+class OrientationTypeQuerySet(models.QuerySet):
+    def active(self) -> OrientationTypeQuerySet:
+        """Types currently offered — shown to members and valid for new rules and slots."""
+        return self.filter(is_active=True)
+
+
+class OrientationType(models.Model):
+    """One kind of orientation a guild offers (e.g. Shop Basics, Lathe, CNC).
+
+    Policy decisions (issue #282), stated here so call sites stay honest:
+
+    - "Oriented for the guild" (guild join gating, :meth:`Member.is_oriented_for`)
+      means the member completed ANY type's orientation for that guild — existing
+      call sites keep their meaning. The per-type check is
+      :meth:`Member.is_oriented_for_type`.
+    - The thank-you email stays ONE per guild (a per-type thank-you is YAGNI); it
+      lives on :class:`GuildOrientationSettings` with the other guild-wide
+      switches (``is_enabled``, ``is_closed``, the welcome email, ``info``).
+    - Types have no prerequisites between each other (YAGNI).
+    """
+
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_types",
+        help_text="The guild that offers this orientation type. Empty for an equipment-owned type.",
+    )
+    equipment = models.ForeignKey(
+        "Equipment",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="owned_orientation_types",
+        help_text=(
+            "The equipment that owns this orientation type. Empty for a guild-owned type. "
+            "PROTECT: deleting equipment that owns orientation history must fail loudly."
+        ),
+    )
+    name = models.CharField(max_length=100, help_text="Member-facing name, e.g. 'Shop Basics' or 'Lathe'.")
+    description = models.TextField(
+        blank=True, default="", help_text="What this orientation covers, shown to members (plain text)."
+    )
+    duration_minutes = models.PositiveSmallIntegerField(
+        default=60, help_text="Length of this orientation in minutes. Custom time requests use it."
+    )
+    price_cents = models.PositiveIntegerField(
+        default=0, help_text="Price to book this orientation type, in cents. 0 = free (the default)."
+    )
+    default_seats = models.PositiveSmallIntegerField(
+        default=4, help_text="Default capacity for new slots of this type."
+    )
+    default_location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Where this orientation usually happens, e.g. 'Woodshop'."
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0, help_text="Lower numbers sort first on the guild page and in pickers."
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Offer this type to members. An inactive type keeps its history but takes no new bookings.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrientationTypeQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["guild", "name"], name="uq_orientationtype_guild_name"),
+            # Exactly one owner — a type belongs to a guild XOR a piece of equipment.
+            models.CheckConstraint(
+                condition=(
+                    Q(guild__isnull=False, equipment__isnull=True) | Q(guild__isnull=True, equipment__isnull=False)
+                ),
+                name="ck_orienttype_one_owner",
+            ),
+            # The guild uniqueness above stops covering rows with guild=NULL (SQL
+            # NULL-distinct semantics) — equipment-owned types need their own.
+            models.UniqueConstraint(
+                fields=["equipment", "name"],
+                condition=Q(equipment__isnull=False),
+                name="uq_orienttype_equip_name",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.owner_name} — {self.name}"
+
+    @property
+    def is_paid(self) -> bool:
+        """True when this orientation type charges to book (price set above zero)."""
+        return self.price_cents > 0
+
+    # --- Owner resolution (equipment-owned orientations) — the one source of truth.
+    # Every call site asks the type; nothing re-derives guild-vs-equipment inline.
+
+    @property
+    def is_equipment_owned(self) -> bool:
+        """True when this type belongs to a piece of equipment rather than a guild."""
+        return self.equipment_id is not None
+
+    @property
+    def owner(self) -> Guild | Equipment:
+        """The owning guild or equipment — the constraint guarantees exactly one is set."""
+        if self.is_equipment_owned:
+            return cast("Equipment", self.equipment)
+        return cast(Guild, self.guild)
+
+    @property
+    def owner_name(self) -> str:
+        """The owner's display name, whichever kind it is."""
+        return self.owner.name
+
+    def owner_page_path(self) -> str:
+        """The relative hub path of the owner's page — for redirects and in-app URLs."""
+        if self.is_equipment_owned:
+            return reverse("hub_equipment_detail", args=[cast("Equipment", self.equipment).slug])
+        return reverse("hub_guild_detail", args=[cast(Guild, self.guild).slug])
+
+    def owner_page_url(self) -> str:
+        """The absolute owner-page URL — for emails."""
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(self.owner_page_path())
+
+    def orientation_anchor_path(self) -> str:
+        """The deep link the blocker banner and emails use — owner page + orientation anchor."""
+        if self.is_equipment_owned:
+            return f"{self.owner_page_path()}?type={self.pk}#equipment-orientation"
+        return f"{self.owner_page_path()}?tab=orientations&type={self.pk}#guild-orientation"
+
+    @property
+    def is_accepting(self) -> bool:
+        """Owner-aware "taking new bookings" gate.
+
+        Both owners require the type itself active. A guild-owned type then rides
+        the guild's :class:`GuildOrientationSettings` gate; an equipment-owned type
+        rides only the equipment's ``is_active`` (no settings model in v1 — the
+        locked no-settings decision).
+        """
+        if not self.is_active:
+            return False
+        if self.is_equipment_owned:
+            equipment = cast("Equipment", self.equipment)
+            # A closed tool (maintenance) pauses NEW orientation bookings too; existing
+            # bookings stand until a manager cancels them, the same rule as reservations.
+            return equipment.is_active and not equipment.is_closed
+        settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
+        return settings_obj is not None and settings_obj.is_accepting
+
+    def default_runner(self) -> Member | None:
+        """The fallback ``oriented_by`` when nobody explicit ran it.
+
+        Guild-owned falls back to the guild lead; equipment-owned has no default
+        (managers confirm explicitly; token/system paths leave it unattributed).
+        """
+        if self.is_equipment_owned:
+            return None
+        return cast(Guild, self.guild).guild_lead
+
+
+class OrientationAvailabilityQuerySet(models.QuerySet):
+    def for_orienter(self, member: Member) -> OrientationAvailabilityQuerySet:
+        """The member's personal recurring-hours rules."""
+        return self.filter(orienter=member)
+
+    def guild_level(self) -> OrientationAvailabilityQuerySet:
+        """Legacy shared rules with no personal orienter ("any orienter")."""
+        return self.filter(orienter__isnull=True)
+
+    def for_equipment(self, equipment: Equipment) -> OrientationAvailabilityQuerySet:
+        """The rules owned by one piece of equipment (through its owned orientation types)."""
+        return self.filter(orientation_type__equipment=equipment)
+
+
 class OrientationAvailability(models.Model):
-    """A weekly recurring window during which a guild offers orientations.
+    """A weekly recurring window during which a guild or a piece of equipment offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
-    each active rule across a rolling window.
+    each active rule across a rolling window. A rule with an ``orienter`` is one
+    staff member's personal hours; ``orienter=NULL`` is a legacy guild-level rule
+    ("any orienter"). The owner of record is ``orientation_type`` (guild XOR
+    equipment); ``guild`` is denormalized and empty for an equipment rule.
+
+    ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
+    spanning the whole window; set, each occurrence is carved into slots that long,
+    ``buffer_minutes`` apart (see :meth:`carve_spans`).
     """
 
     class Weekday(models.IntegerChoices):
@@ -7698,7 +8876,29 @@ class OrientationAvailability(models.Model):
         SUNDAY = 6, "Sunday"
 
     guild = models.ForeignKey(
-        Guild, on_delete=models.CASCADE, related_name="orientation_rules", help_text="Parent guild."
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_rules",
+        help_text="Parent guild. Empty when an equipment owns the orientation type.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.CASCADE,
+        related_name="rules",
+        help_text="The orientation type slots generated from this rule are for.",
+    )
+    orienter = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_availability_rules",
+        help_text=(
+            "The staff member who personally gives orientations during this window. "
+            "Empty means any orienter (legacy guild hours)."
+        ),
     )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
@@ -7706,11 +8906,24 @@ class OrientationAvailability(models.Model):
     start_time = models.TimeField(help_text="When the orientation window starts.")
     end_time = models.TimeField(help_text="When the orientation window ends.")
     seats = models.PositiveSmallIntegerField(default=4, help_text="Capacity for slots generated from this rule.")
+    slot_minutes = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Carve each occurrence of this window into slots this long. Empty keeps one slot spanning the whole window."
+        ),
+    )
+    buffer_minutes = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Minutes left free between consecutive carved slots. Ignored when slot_minutes is empty.",
+    )
     location = models.CharField(
         max_length=200, blank=True, default="", help_text="Overrides the guild's default location for these slots."
     )
     is_active = models.BooleanField(default=True, help_text="Generate slots from this rule.")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrientationAvailabilityQuerySet.as_manager()
 
     class Meta:
         ordering = ["weekday", "start_time"]
@@ -7719,10 +8932,238 @@ class OrientationAvailability(models.Model):
                 condition=Q(end_time__gt=models.F("start_time")),
                 name="ck_orientationavailability_end_after_start",
             ),
+            models.CheckConstraint(
+                condition=Q(slot_minutes__isnull=True) | Q(slot_minutes__gt=0),
+                name="ck_orientavail_slot_positive",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M}"
+        who = self.orienter.display_name if self.orienter is not None else "any orienter"
+        owner_name = self.orientation_type.owner_name
+        return f"{owner_name} orientation: {self.get_weekday_display()} {self.start_time:%H:%M} ({who})"
+
+    def clean(self) -> None:
+        """Half hour grid guard for a carved window (the auto-registered Django admin runs this too).
+
+        The hub editors only offer grid times, but the admin's raw time inputs could
+        write a 9:15 window the carve loop would step from. A legacy one-slot rule
+        (``slot_minutes`` empty) is left alone: the guild editor deliberately
+        round-trips pre-grid :15 rows, and one slot at 9:15 is harmless.
+        """
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        if self.slot_minutes is None:
+            return
+        errors: dict[str, str] = {}
+        for field in ("start_time", "end_time"):
+            value = getattr(self, field)
+            if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
+                errors[field] = "Orientation hours line up on half hour marks, e.g. 9:00 or 9:30."
+        if errors:
+            raise ValidationError(errors)
+
+    def carve_spans(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """Aware local ``(start, end)`` spans this window yields on ``day`` (already known to be its weekday).
+
+        ``slot_minutes`` empty yields one span covering the whole window (the legacy
+        shape). Otherwise the window is stepped from ``start_time`` by
+        ``slot_minutes + buffer_minutes`` for as long as a whole slot still fits before
+        ``end_time``. Stepping happens on local wall clock time and each instant is made
+        aware individually, so a DST day never shifts the whole grid (the
+        make_aware-per-candidate rule from the reservation engine).
+        """
+        window_start = datetime_type.combine(day, self.start_time)
+        window_end = datetime_type.combine(day, self.end_time)
+        if self.slot_minutes is None:
+            return [(timezone.make_aware(window_start), timezone.make_aware(window_end))]
+        length = timedelta(minutes=self.slot_minutes)
+        step = length + timedelta(minutes=self.buffer_minutes)
+        spans: list[tuple[datetime_type, datetime_type]] = []
+        cursor = window_start
+        while cursor + length <= window_end:
+            spans.append((timezone.make_aware(cursor), timezone.make_aware(cursor + length)))
+            cursor += step
+        return spans
+
+    def carve_starts(self, day: date_type) -> list[datetime_type]:
+        """The aware local starts of :meth:`carve_spans` on ``day``."""
+        return [start for start, _end in self.carve_spans(day)]
+
+
+class OrientationAvailabilityBlockQuerySet(models.QuerySet):
+    def upcoming(self) -> OrientationAvailabilityBlockQuerySet:
+        """Uncancelled blocks with time still remaining (a partly elapsed block can still book its tail)."""
+        return self.filter(is_cancelled=False, ends_at__gt=timezone.now())
+
+
+class OrientationAvailabilityBlock(models.Model):
+    """A one-off window of an orienter's available time that members book INTO (issue #283).
+
+    Unlike a fixed whole-window slot, a block is a flexible span: a member picks an
+    orientation type, then any 15-minute-aligned start inside the block that leaves
+    room for the type's duration. Booking carves out a 1-seat ``FROM_BLOCK``
+    :class:`OrientationSlot` and rides the normal booking pipeline; the block row is
+    never physically split — free intervals are computed live as the block minus its
+    seat-holding segments, so cancellations and expired payment holds free their
+    segment automatically.
+
+    Blocks are type-agnostic (any of the guild's active types may book in) and are
+    posted one-off from the orientations dashboard. Deliberately NOT auto-generated
+    from weekly recurring rules — that stays a possible future mode (YAGNI for now).
+    Shrinking/editing a block is not supported either: edit = cancel + repost, which
+    keeps the model simple. Cancelling stops NEW bookings only; existing bookings
+    live on their own slots and are handled by the per-slot cancel tools.
+    """
+
+    guild = models.ForeignKey(
+        Guild, on_delete=models.CASCADE, related_name="orientation_blocks", help_text="Parent guild."
+    )
+    orienter = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="orientation_blocks_offered",
+        help_text="The staff member available during this window. Required — a block is one person's posted time.",
+    )
+    starts_at = models.DateTimeField(help_text="When the availability window opens.")
+    ends_at = models.DateTimeField(help_text="When the availability window closes.")
+    location = models.CharField(
+        max_length=200, blank=True, default="", help_text="Where orientations booked into this block happen."
+    )
+    is_cancelled = models.BooleanField(
+        default=False, help_text="Set when the orienter calls the window off. Stops new bookings only."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrientationAvailabilityBlockQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=models.F("starts_at")),
+                name="ck_orientationblock_end_after_start",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.guild.name} block: {self.starts_at:%Y-%m-%d %H:%M}–{self.ends_at:%H:%M} ({self.orienter})"
+
+    SNAP_MINUTES = 15
+
+    def _busy_spans(self) -> list[tuple[datetime_type, datetime_type]]:
+        """Merged occupied segments: this block's live carved-out slot spans, sorted.
+
+        A slot occupies its span while it is uncancelled and either holds a seat
+        (``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking) or has no bookings yet —
+        the momentary gap between the segment being carved out and its booking row
+        landing. A slot whose bookings all resolved (cancelled / declined / released
+        hold) frees its segment, as does a cancelled slot; orphan bookingless slots
+        are deleted by the failure paths.
+        """
+        seat_holding = [
+            OrientationBooking.Status.PENDING_PAYMENT,
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+        ]
+        occupied = (
+            self.slots.filter(is_cancelled=False)
+            .annotate(
+                holder_count=Count("bookings", filter=Q(bookings__status__in=seat_holding)),
+                booking_count=Count("bookings"),
+            )
+            .filter(Q(holder_count__gt=0) | Q(booking_count=0))
+            .order_by("starts_at")
+        )
+        merged: list[tuple[datetime_type, datetime_type]] = []
+        for slot in occupied:
+            start, end = slot.starts_at, slot.ends_at
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def free_intervals(self) -> list[tuple[datetime_type, datetime_type]]:
+        """The block's open time: its span minus the occupied segments, in order."""
+        free: list[tuple[datetime_type, datetime_type]] = []
+        cursor = self.starts_at
+        for busy_start, busy_end in self._busy_spans():
+            if busy_start > cursor:
+                free.append((cursor, min(busy_start, self.ends_at)))
+            cursor = max(cursor, busy_end)
+            if cursor >= self.ends_at:
+                break
+        if cursor < self.ends_at:
+            free.append((cursor, self.ends_at))
+        return free
+
+    def valid_starts_for(self, orientation_type: OrientationType) -> list[datetime_type]:
+        """Future 15-minute-aligned starts (measured from the block start) that fit the type's duration."""
+        if self.is_cancelled:
+            return []
+        duration = timedelta(minutes=orientation_type.duration_minutes)
+        step = timedelta(minutes=self.SNAP_MINUTES)
+        now = timezone.now()
+        free = self.free_intervals()
+        starts: list[datetime_type] = []
+        candidate = self.starts_at
+        while candidate + duration <= self.ends_at:
+            if candidate > now and any(
+                interval_start <= candidate and candidate + duration <= interval_end
+                for interval_start, interval_end in free
+            ):
+                starts.append(candidate)
+            candidate += step
+        return starts
+
+    def ensure_start_valid(self, orientation_type: OrientationType, starts_at: datetime_type) -> None:
+        """Raise :class:`OrientationError` unless ``starts_at`` is a bookable start for this type.
+
+        Checks (in order): the block is not cancelled, the type belongs to this guild and
+        is active, the start is in the future, on the 15 minute grid from the block start,
+        inside the block with room for the type's duration, and not overlapping an
+        occupied segment. Callers re-run this under ``select_for_update`` on the block
+        row before carving out a slot, so two members can't take one interval.
+
+        Raises:
+            OrientationError: With member-friendly copy naming the failed check.
+        """
+        if self.is_cancelled:
+            raise OrientationError("That availability window was cancelled. Please pick another time.")
+        if orientation_type.guild_id != self.guild_id or not orientation_type.is_active:
+            raise OrientationError("That orientation isn't offered right now.")
+        if starts_at <= timezone.now():
+            raise OrientationError("That time's already past. Please pick a future time.")
+        offset = starts_at - self.starts_at
+        if offset < timedelta(0) or starts_at + timedelta(minutes=orientation_type.duration_minutes) > self.ends_at:
+            raise OrientationError("That time doesn't fit inside this availability window.")
+        if int(offset.total_seconds()) % (self.SNAP_MINUTES * 60) != 0:
+            raise OrientationError("Start times line up on 15 minute marks. Please pick one of the listed times.")
+        ends_at = starts_at + timedelta(minutes=orientation_type.duration_minutes)
+        for busy_start, busy_end in self._busy_spans():
+            if starts_at < busy_end and ends_at > busy_start:
+                raise OrientationError("That time was just taken. Please pick another time.")
+
+    def booked_segments(self) -> OrientationSlotQuerySet:
+        """This block's live carved-out slots (seat-holding, uncancelled) — for the dashboard listing."""
+        seat_holding = [
+            OrientationBooking.Status.PENDING_PAYMENT,
+            OrientationBooking.Status.REQUESTED,
+            OrientationBooking.Status.CONFIRMED,
+        ]
+        return (
+            self.slots.filter(is_cancelled=False, bookings__status__in=seat_holding)
+            .select_related("orientation_type")
+            .distinct()
+            .order_by("starts_at")
+        )
+
+    def cancel(self) -> None:
+        """Call off the window — stops NEW bookings only; existing carved-out slots live on."""
+        self.is_cancelled = True
+        self.save(update_fields=["is_cancelled"])
 
 
 class OrientationSlotQuerySet(models.QuerySet):
@@ -7733,23 +9174,193 @@ class OrientationSlotQuerySet(models.QuerySet):
         """Future, uncancelled slots."""
         return self.filter(is_cancelled=False, starts_at__gte=timezone.now())
 
+    def with_active_booking_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``active_booking_count`` (requested + confirmed).
+
+        The list-render companion to the ``seats_taken`` property: one aggregate in the
+        slot query instead of a COUNT per row (the Upcoming Slots card is unbounded).
+        """
+        return self.annotate(
+            active_booking_count=Count(
+                "bookings",
+                filter=Q(
+                    bookings__status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
+                ),
+            )
+        )
+
+    def with_pending_hold_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``hold_count`` — seats held by checkouts in progress.
+
+        The list-render companion to the ``pending_hold_count`` property, so staff
+        surfaces can show "1 seat held by a checkout in progress" without a COUNT
+        per row.
+        """
+        return self.annotate(
+            hold_count=Count(
+                "bookings",
+                filter=Q(bookings__status=OrientationBooking.Status.PENDING_PAYMENT),
+            )
+        )
+
+    def with_seat_holding_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``seat_holding_count`` — the list-render twin of ``seats_taken``.
+
+        Counts ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` in one aggregate so the
+        retirement loops and the member day picker never COUNT per row.
+        """
+        return self.annotate(
+            seat_holding_count=Count(
+                "bookings",
+                filter=Q(
+                    bookings__status__in=[
+                        OrientationBooking.Status.PENDING_PAYMENT,
+                        OrientationBooking.Status.REQUESTED,
+                        OrientationBooking.Status.CONFIRMED,
+                    ]
+                ),
+            )
+        )
+
+    def holding_seats(self) -> OrientationSlotQuerySet:
+        """Uncancelled slots that hold a seat: a ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking.
+
+        Busy time on the tool's reservation schedule (equipment-orientation-hours
+        PR 2): a booked orientation occupies the machine; an open, unbooked slot
+        does NOT, otherwise every posted window would freeze the tool.
+        """
+        return self.filter(
+            is_cancelled=False,
+            bookings__status__in=[
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.CONFIRMED,
+            ],
+        ).distinct()
+
+    def holding_seats_on(
+        self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
+    ) -> OrientationSlotQuerySet:
+        """:meth:`holding_seats` narrowed to ``equipment``'s owned types overlapping ``[starts_at, ends_at)``.
+
+        Strict inequalities: touching spans never conflict. Pass ``now`` for both
+        bounds to ask what is running right now.
+        """
+        return self.holding_seats().filter(
+            orientation_type__equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at
+        )
+
+    def with_booking_history_count(self) -> OrientationSlotQuerySet:
+        """Annotate each slot with ``booking_history_count`` — booking rows of ANY status.
+
+        Retirement reads it to decide between deleting a slot nobody ever touched
+        and cancelling one whose declined / cancelled / refunded bookings must
+        survive (``OrientationBooking.slot`` cascades).
+        """
+        return self.annotate(booking_history_count=Count("bookings"))
+
+    @staticmethod
+    def _run_by_gate() -> Q:
+        """The SQL twin of :meth:`Equipment.is_run_by` for a slot's ``orienter``.
+
+        A staff row on the tool, the owning guild's lead, or the owning guild's staff:
+        exactly ``Equipment.orienter_members()``. Deliberately no fog-admin leg and no
+        EQUIPMENT capability leg (see ``is_run_by``). A departed manager's personal slot
+        blocks NEW bookings only.
+        """
+        gate = (
+            Exists(
+                EquipmentStaffMembership.objects.filter(
+                    equipment_id=OuterRef("orientation_type__equipment_id"), member_id=OuterRef("orienter_id")
+                )
+            )
+            | Q(orienter_id=models.F("orientation_type__equipment__guild__guild_lead_id"))
+            | Exists(
+                GuildStaffMembership.objects.filter(
+                    guild_id=OuterRef("orientation_type__equipment__guild_id"), member_id=OuterRef("orienter_id")
+                )
+            )
+        )
+        # ``Exists | Q`` really is a Q at runtime; django-stubs widens the chain to Combinable.
+        return cast(Q, gate)
+
     def bookable(self) -> OrientationSlotQuerySet:
-        """Upcoming slots at guilds currently accepting bookings (does not check seats)."""
-        return self.upcoming().filter(
+        """Upcoming slots whose owner is currently accepting bookings (does not check seats).
+
+        Owner-aware: a guild-owned slot requires the guild's settings gate and a
+        still-on-leadership orienter (a departed staffer's surviving slot must not
+        reappear the moment its booking is declined or cancelled). An
+        equipment-owned slot (``guild`` is None) requires active, open (not closed
+        for maintenance) equipment, an orienter who still manages it (or no orienter
+        for a shared slot), and no confirmed reservation over its span (a reserved
+        machine cannot host an orientation). For both owners a slot generated from
+        a paused rule stops taking NEW bookings; a one time slot has no rule and is
+        unaffected.
+        """
+        still_on_staff = GuildStaffMembership.objects.filter(
+            guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
+        )
+        guild_gate = Q(
+            orientation_type__guild__isnull=False,
             guild__orientation_settings__is_enabled=True,
             guild__orientation_settings__is_closed=False,
+        ) & (Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
+        reserved_over_span = EquipmentReservation.objects.confirmed().filter(
+            equipment=OuterRef("orientation_type__equipment"),
+            starts_at__lt=OuterRef("ends_at"),
+            ends_at__gt=OuterRef("starts_at"),
+        )
+        equipment_gate = (
+            Q(
+                orientation_type__equipment__isnull=False,
+                orientation_type__equipment__is_active=True,
+                orientation_type__equipment__is_closed=False,
+            )
+            & (Q(orienter__isnull=True) | self._run_by_gate())
+            & ~Exists(reserved_over_span)
+        )
+        rule_gate = Q(availability__isnull=True) | Q(availability__is_active=True)
+        return (
+            self.upcoming()
+            .filter(orientation_type__is_active=True)
+            .filter(guild_gate | equipment_gate)
+            .filter(rule_gate)
         )
 
 
 class OrientationSlot(models.Model):
     """A concrete, bookable orientation appointment with a seat cap."""
 
+    # View-attached display label ("with Bob P.") — set where a slot list is built
+    # with the guild-wide duplicate-first-name disambiguation map.
+    with_display: str
+    # Queryset annotation (set by OrientationSlotQuerySet.with_active_booking_count)
+    active_booking_count: int
+    # Queryset annotation (set by OrientationSlotQuerySet.with_pending_hold_count)
+    hold_count: int
+    # Queryset annotation (set by OrientationSlotQuerySet.with_seat_holding_count)
+    seat_holding_count: int
+    # Queryset annotation (set by OrientationSlotQuerySet.with_booking_history_count)
+    booking_history_count: int
+
     class Source(models.TextChoices):
         MANUAL = "manual", "Added manually"
         GENERATED = "generated", "From a recurring rule"
+        FROM_BLOCK = "from_block", "Booked into an availability block"
 
     guild = models.ForeignKey(
-        Guild, on_delete=models.CASCADE, related_name="orientation_slots", help_text="Parent guild."
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="orientation_slots",
+        help_text="Parent guild. Empty for an equipment-owned orientation.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.CASCADE,
+        related_name="slots",
+        help_text="The orientation type this slot is for.",
     )
     availability = models.ForeignKey(
         OrientationAvailability,
@@ -7761,6 +9372,22 @@ class OrientationSlot(models.Model):
     )
     source = models.CharField(
         max_length=10, choices=Source.choices, default=Source.MANUAL, help_text="How this slot was created."
+    )
+    block = models.ForeignKey(
+        OrientationAvailabilityBlock,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="slots",
+        help_text="The availability block this slot was carved out of, for FROM_BLOCK slots.",
+    )
+    orienter = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orientation_slots_offered",
+        help_text="The staff member this slot is booked with. Empty means any orienter.",
     )
     starts_at = models.DateTimeField(help_text="When the orientation starts.")
     ends_at = models.DateTimeField(help_text="When the orientation ends.")
@@ -7783,14 +9410,27 @@ class OrientationSlot(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.guild.name} orientation @ {self.starts_at:%Y-%m-%d %H:%M}"
+        return f"{self.orientation_type.owner_name} — {self.orientation_type.name} @ {self.starts_at:%Y-%m-%d %H:%M}"
 
     @property
     def seats_taken(self) -> int:
-        """Active (requested or confirmed) bookings — declined/cancelled free their seat."""
-        return self.bookings.filter(
-            status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED]
-        ).count()
+        """Seat-holding bookings — a live paid checkout holds its seat like a real booking.
+
+        Counts ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` so two members can't buy the
+        last seat at once; declined/cancelled (and deleted holds) free their seat. A
+        slot loaded through ``with_seat_holding_count()`` answers from that annotation
+        (a page of rows costs one aggregate, not a COUNT each); such an instance is a
+        snapshot, so code that books or releases a seat refetches before re-reading.
+        """
+        annotated = getattr(self, "seat_holding_count", None)
+        if annotated is not None:
+            return annotated
+        return self.bookings.seat_holding().count()
+
+    @property
+    def pending_hold_count(self) -> int:
+        """Seats held by checkouts in progress (``PENDING_PAYMENT``) — for staff visibility."""
+        return self.bookings.filter(status=OrientationBooking.Status.PENDING_PAYMENT).count()
 
     @property
     def seats_remaining(self) -> int:
@@ -7810,12 +9450,93 @@ class OrientationSlot(models.Model):
         return self.ends_at <= timezone.now()
 
     @property
+    def orienter_first_name(self) -> str:
+        """The orienter's first name ("Bob"), or "" for a guild slot or a nameless member."""
+        if self.orienter is None:
+            return ""
+        name = (self.orienter.display_name or "").strip()
+        if not name:
+            return ""
+        return name.split()[0]
+
+    @property
+    def with_label(self) -> str:
+        """The member-facing "with Bob" phrase — "" for a guild slot (never a bare "with")."""
+        first = self.orienter_first_name
+        return f"with {first}" if first else ""
+
+    @property
     def is_bookable(self) -> bool:
-        """Future, uncancelled, has a free seat, and the guild is accepting bookings."""
+        """Future, uncancelled, has a free seat, owner accepting, rule not paused, orienter still current.
+
+        A personal slot whose orienter is no longer in the guild's leadership (or no
+        longer manages the equipment) blocks NEW bookings only — existing bookings on
+        it are untouched. A slot whose orientation type was deactivated, or whose
+        recurring rule was paused, blocks new bookings the same way (the per-slot
+        twin of ``bookable()``).
+        """
         if self.is_cancelled or self.has_started or self.is_full:
             return False
-        settings_obj = GuildOrientationSettings.objects.filter(guild=self.guild).first()
+        if not self.orientation_type.is_active:
+            return False
+        rule = self.availability
+        if rule is not None and not rule.is_active:
+            return False
+        if self.orientation_type.is_equipment_owned:
+            # No orienter-leadership check and no settings gate for equipment — the
+            # equipment's active + open state is the whole switch (via is_accepting),
+            # plus the machine itself must be free: a confirmed reservation over this
+            # span hides the slot until that reservation is cancelled (PR 2).
+            if not self.orientation_type.is_accepting:
+                return False
+            equipment = cast("Equipment", self.orientation_type.equipment)
+            # A personal slot whose manager no longer RUNS orientations here blocks NEW
+            # bookings only (the equipment twin of the departed-orienter guard).
+            if self.orienter_id is not None and not equipment.is_run_by(cast(Member, self.orienter)):
+                return False
+            return not EquipmentReservation.objects.overlapping(equipment, self.starts_at, self.ends_at).exists()
+        guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
+        if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
+            return False
+        settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
         return settings_obj is not None and settings_obj.is_accepting
+
+    def ensure_bookable_for(self, member: Member) -> None:
+        """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
+
+        The duplicate guard runs at the ``seat_holding()`` scope — a member with a
+        live ``PENDING_PAYMENT`` checkout is caught here with a friendly error, never
+        by the widened DB constraint as a raw ``IntegrityError`` (the constraint stays
+        as the concurrent-race backstop only). A full slot whose remaining seats are
+        held by in-progress checkouts names that cause, so staff aren't left guessing.
+
+        The duplicate guards are scoped to this slot's ORIENTATION TYPE (issue #282):
+        a member may hold one live booking per type, so being booked for Shop Basics
+        never blocks a Lathe request at the same guild.
+
+        Raises:
+            OrientationError: If the slot can't be booked, or the member is already
+                oriented for, mid-checkout on, or actively booked on this orientation type.
+        """
+        # The seat cap must read live on the write path: a picker-annotated instance
+        # carries a ``seat_holding_count`` snapshot that would let a second book() on
+        # the same object overbook the last seat. Drop the snapshot before the check.
+        self.__dict__.pop("seat_holding_count", None)
+        if not self.is_bookable:
+            if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
+                raise OrientationError(
+                    "That slot's remaining seat is held by a member finishing checkout. "
+                    "It frees up within an hour if they don't complete payment."
+                )
+            raise OrientationError("This orientation slot is not available to book.")
+        if member.is_oriented_for_type(self.orientation_type):
+            raise OrientationError("You've already completed this orientation.")
+        if member.pending_payment_orientation_for_type(self.orientation_type) is not None:
+            raise OrientationError(
+                "You already have a checkout in progress for this orientation. Resume or cancel it first."
+            )
+        if member.active_orientation_for_type(self.orientation_type) is not None:
+            raise OrientationError("You already have a pending booking for this orientation.")
 
     def book(self, member: Member, *, note: str = "") -> OrientationBooking:
         """Create a requested booking for ``member`` on this slot.
@@ -7828,16 +9549,17 @@ class OrientationSlot(models.Model):
             The newly created (REQUESTED) OrientationBooking.
 
         Raises:
-            OrientationError: If the slot can't be booked, or the member is
-                already oriented for or already has a live booking on this guild.
+            OrientationError: If the slot can't be booked, or the member already
+                completed or already has a live booking for this slot's orientation type.
         """
-        if not self.is_bookable:
-            raise OrientationError("This orientation slot is not available to book.")
-        if member.is_oriented_for(self.guild):
-            raise OrientationError("You're already oriented for this guild.")
-        if member.active_orientation_for(self.guild) is not None:
-            raise OrientationError("You already have a pending orientation for this guild.")
-        return OrientationBooking.objects.create(slot=self, guild=self.guild, member=member, member_note=note)
+        self.ensure_bookable_for(member)
+        return OrientationBooking.objects.create(
+            slot=self,
+            guild=self.guild,
+            orientation_type=self.orientation_type,
+            member=member,
+            member_note=note,
+        )
 
     def mark_cancelled(self, *, reason: str = "") -> None:
         """Flip the slot's own cancel state without touching its bookings.
@@ -7851,6 +9573,21 @@ class OrientationSlot(models.Model):
         self.cancelled_reason = reason
         self.save(update_fields=["is_cancelled", "cancelled_reason"])
 
+    def mark_retired(self, *, reason: str) -> None:
+        """Cancel a generated slot its hours no longer justify AND detach it from its rule, in one save.
+
+        The cancelled row keeps its booking history (``OrientationBooking.slot``
+        cascades, so it is never deleted), but with ``availability`` cleared it no
+        longer owns the ``(rule, start)`` key: the next generation creates a fresh
+        open slot at that time once the rule is live again. A manager's deliberate
+        cancel (:meth:`mark_cancelled`) stays attached and dead on purpose, so the
+        time is never quietly re-offered.
+        """
+        self.is_cancelled = True
+        self.cancelled_reason = reason
+        self.availability = None
+        self.save(update_fields=["is_cancelled", "cancelled_reason", "availability"])
+
     def cancel(self, *, reason: str = "") -> None:
         """Call off the slot and cancel each of its still-active bookings."""
         self.mark_cancelled(reason=reason)
@@ -7863,8 +9600,18 @@ class OrientationBookingQuerySet(models.QuerySet):
         return self.filter(guild=guild)
 
     def active(self) -> OrientationBookingQuerySet:
-        """Requested or confirmed — i.e. still occupying a seat."""
+        """Requested or confirmed — real bookings. Deliberately excludes payment holds."""
         return self.filter(status__in=[OrientationBooking.Status.REQUESTED, OrientationBooking.Status.CONFIRMED])
+
+    def seat_holding(self) -> OrientationBookingQuerySet:
+        """Everything occupying a seat — real bookings plus live ``PENDING_PAYMENT`` checkout holds."""
+        return self.filter(
+            status__in=[
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.CONFIRMED,
+            ]
+        )
 
     def upcoming(self) -> OrientationBookingQuerySet:
         return self.active().filter(slot__starts_at__gte=timezone.now())
@@ -7887,6 +9634,7 @@ class OrientationBooking(models.Model):
     """
 
     class Status(models.TextChoices):
+        PENDING_PAYMENT = "pending_payment", "Pending payment"
         REQUESTED = "requested", "Requested"
         CONFIRMED = "confirmed", "Confirmed"
         DECLINED = "declined", "Declined"
@@ -7897,15 +9645,23 @@ class OrientationBooking(models.Model):
     )
     guild = models.ForeignKey(
         Guild,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name="orientation_bookings",
-        help_text="Denormalized from the slot for cheap filtering and scoping.",
+        help_text="Denormalized from the slot for cheap filtering and scoping. Empty for an equipment-owned orientation.",
+    )
+    orientation_type = models.ForeignKey(
+        OrientationType,
+        on_delete=models.CASCADE,
+        related_name="bookings",
+        help_text="Denormalized from the slot (like guild) for cheap filtering and the per-type duplicate guard.",
     )
     member = models.ForeignKey(
         Member, on_delete=models.CASCADE, related_name="orientation_bookings", help_text="Who's getting oriented."
     )
     status = models.CharField(
-        max_length=10, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
+        max_length=20, choices=Status.choices, default=Status.REQUESTED, help_text="Request lifecycle state."
     )
     is_completed = models.BooleanField(
         default=False,
@@ -7921,6 +9677,22 @@ class OrientationBooking(models.Model):
     )
     member_note = models.TextField(blank=True, default="", help_text="Optional note from the member when requesting.")
     lead_note = models.TextField(blank=True, default="", help_text="Note from the lead when declining or following up.")
+    amount_paid_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Amount paid to book, in cents. 0 for free bookings. Set provisionally at "
+            "checkout start; the webhook's amount_total is canonical."
+        ),
+    )
+    stripe_session_id = models.CharField(
+        max_length=255, blank=True, default="", help_text="Stripe Checkout Session ID."
+    )
+    stripe_payment_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Stripe PaymentIntent ID, stamped by the webhook on payment.",
+    )
     requested_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
@@ -7932,18 +9704,25 @@ class OrientationBooking(models.Model):
         ordering = ["-requested_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["guild", "member"],
-                condition=Q(status__in=["requested", "confirmed"]),
-                name="uq_orientationbooking_active_per_guild",
+                fields=["orientation_type", "member"],
+                # One live row per member per ORIENTATION TYPE (issue #282) — a member
+                # may hold live bookings for different types of the same guild. Includes
+                # pending_payment so a member can't open two checkouts (or a checkout
+                # plus a live booking) for one type — the race backstop behind the
+                # friendly ensure_bookable_for guard.
+                condition=Q(status__in=["pending_payment", "requested", "confirmed"]),
+                name="uq_orientationbooking_active_per_type",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.member} — {self.guild.name} orientation ({self.get_status_display()})"
+        return f"{self.member} — {self.orientation_type.owner_name} orientation ({self.get_status_display()})"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if self.slot_id and not self.guild_id:
             self.guild = self.slot.guild
+        if self.slot_id and not self.orientation_type_id:
+            self.orientation_type_id = self.slot.orientation_type_id
         super().save(*args, **kwargs)
 
     @property
@@ -7951,15 +9730,35 @@ class OrientationBooking(models.Model):
         """Still live (requested/confirmed) and the slot is in the future."""
         return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and self.slot.starts_at >= timezone.now()
 
+    def _refuse_checkout_hold(self) -> None:
+        """Guard every lifecycle transition against a live ``PENDING_PAYMENT`` hold.
+
+        A hold is not a booking yet — declining or cancelling one would leave its
+        Stripe session payable for up to an hour, and the webhook's non-pending
+        branch would then eat the member's money with no refund anchor. Holds
+        resolve themselves: payment lands (webhook flips to REQUESTED) or the
+        seat frees automatically (session expiry / the sweep).
+
+        Raises:
+            OrientationError: If this booking is a checkout hold.
+        """
+        if self.status == self.Status.PENDING_PAYMENT:
+            raise OrientationError(
+                "This booking is still finishing checkout. It becomes a real request when the "
+                "payment lands, and the seat frees automatically if it doesn't."
+            )
+
     def confirm(self, *, oriented_by: Member | None = None) -> None:
-        """Accept the request; default the giver to the guild lead."""
+        """Accept the request; default the giver to the slot's orienter, then the owner's default runner."""
+        self._refuse_checkout_hold()
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
-        self.oriented_by = oriented_by or self.guild.guild_lead
+        self.oriented_by = oriented_by or self.slot.orienter or self.orientation_type.default_runner()
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self, *, note: str = "") -> None:
         """Turn down the request, optionally with a note for the member."""
+        self._refuse_checkout_hold()
         self.status = self.Status.DECLINED
         self.declined_at = timezone.now()
         self.lead_note = note
@@ -7967,6 +9766,7 @@ class OrientationBooking(models.Model):
 
     def cancel(self) -> None:
         """Cancel the booking, freeing its seat."""
+        self._refuse_checkout_hold()
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
         self.save(update_fields=["status", "cancelled_at"])
@@ -7977,13 +9777,92 @@ class OrientationBooking(models.Model):
         if oriented_by is not None:
             self.oriented_by = oriented_by
         elif self.oriented_by is None:
-            self.oriented_by = self.guild.guild_lead
+            self.oriented_by = self.slot.orienter or self.orientation_type.default_runner()
         self.save(update_fields=["is_completed", "oriented_by"])
 
     def uncomplete(self) -> None:
         """Undo a completion (a lead correcting an auto-completed no-show)."""
         self.is_completed = False
         self.save(update_fields=["is_completed"])
+
+    # --- Refund engine surface (billing.refunds.RefundableSource) -----------
+
+    @property
+    def amount_refunded_cents(self) -> int:
+        """Sum of succeeded refunds against this booking's payment.
+
+        Iterates ``refunds.all()`` (not an aggregate) so a ``prefetch_related``
+        caller pays no extra query per row.
+        """
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        return sum(r.amount_cents for r in self.refunds.all() if r.status == PaymentRefundModel.Status.SUCCEEDED)
+
+    @property
+    def refundable_cents(self) -> int:
+        """Cents still available to refund — the paid amount minus succeeded refunds."""
+        return self.amount_paid_cents - self.amount_refunded_cents
+
+    @property
+    def refund_state(self) -> str:
+        """``"none" | "partial" | "full" | "failed"`` — the panel/badge vocabulary.
+
+        ``"failed"``: the latest refund attempt is FAILED and no succeeded refund
+        has since covered that amount. Mirrors ``Registration.refund_state`` —
+        deliberately not a booking ``Status``; money and scheduling stay
+        independently controlled.
+        """
+        from billing.models import PaymentRefund as PaymentRefundModel
+
+        refunds = list(self.refunds.all())  # newest first per PaymentRefund.Meta.ordering
+        latest = refunds[0] if refunds else None
+        if latest is not None and latest.status == PaymentRefundModel.Status.FAILED and self.refundable_cents > 0:
+            return "failed"
+        if self.amount_refunded_cents == 0:
+            return "none"
+        if self.refundable_cents == 0:
+            return "full"
+        return "partial"
+
+    @property
+    def refund_payment_intent_id(self) -> str:
+        """The Stripe PaymentIntent id refunds are issued against (blank when unpaid)."""
+        return self.stripe_payment_id
+
+    def refund_receipt_context(self) -> dict[str, Any]:
+        """The documented context keys the shared refund service reads (see the protocol)."""
+        orientation_type = self.orientation_type
+        return {
+            "item_title": f"{orientation_type.owner_name} orientation: {orientation_type.name}",
+            "recipient_email": self.member.primary_email,
+            "recipient_name": self.member.display_name,
+            "payer_name": self.member.display_name,
+            "member": self.member,
+            "manage_url": orientation_type.owner_page_url(),
+            "in_app_url": orientation_type.owner_page_path(),
+        }
+
+    def on_fully_refunded(self, reason: str, actor: User | None) -> None:
+        """Full-refund bookkeeping — deliberately nothing to do for orientations.
+
+        A manual full refund on a still-live booking does NOT auto-cancel it:
+        money and scheduling stay independently controlled (the admin cancels
+        separately when that's the intent), and decline/cancel already changed
+        state before their automatic refund fired.
+        """
+
+    def issue_refund(
+        self, *, amount_cents: int | None = None, reason: str = "", actor: User | None = None
+    ) -> PaymentRefund:
+        """Send a real Stripe refund for this booking — full when ``amount_cents`` is ``None``.
+
+        Thin delegate: the shared billing-side service owns locking, the Stripe
+        call, ledger-row lifecycle, the receipt email, and full-refund
+        bookkeeping. See :func:`billing.refunds.issue_refund` for the exceptions.
+        """
+        from billing.refunds import issue_refund
+
+        return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
 
 # ── Signage slideshow ─────────────────────────────────────────────────────────
@@ -8277,6 +10156,14 @@ class Floorplan(models.Model):
         listed = (hotspot for hotspot in self.hotspots.all() if not hotspot.is_decorative)
         return sorted(listed, key=lambda hotspot: rank[hotspot.availability_class or "info"])
 
+    @property
+    def has_cubbies(self) -> bool:
+        """True when this floor has any cubby (shelf) markers, so the map can caption them.
+
+        Counted over the already-prefetched hotspots, so it adds no query.
+        """
+        return any(hotspot.kind == hotspot.Kind.CUBBY for hotspot in self.hotspots.all())
+
 
 class MapHotspotQuerySet(models.QuerySet):
     def for_map(self) -> MapHotspotQuerySet:
@@ -8505,13 +10392,23 @@ class MapHotspot(models.Model):
 
     @property
     def occupants(self) -> list[Member | Guild]:
-        """Current tenants of the linked space (empty for info markers)."""
+        """ALL current tenants of the linked space (empty for info markers). Staff data — unfiltered."""
         return self.space.current_occupants if self.space is not None else []
 
     @property
+    def visible_occupants(self) -> list[Member | Guild]:
+        """Tenants the member-facing map may show: guilds plus members who opted in."""
+        return self.space.visible_occupants if self.space is not None else []
+
+    @property
     def occupant_names(self) -> list[str]:
-        """Display names of the current tenants — members by preferred name, guilds by name."""
-        return [getattr(tenant, "display_name", "") or str(tenant) for tenant in self.occupants]
+        """Display names of the tenants the map may show — opted-in members by preferred name, guilds by name.
+
+        Members who have not opted in (:attr:`Member.show_on_space_map`) are absent from
+        this list; their space still reads as occupied. Templates additionally gate the
+        rendered list to authenticated viewers, because the map itself is public.
+        """
+        return [getattr(tenant, "display_name", "") or str(tenant) for tenant in self.visible_occupants]
 
     @property
     def cta_kind(self) -> str | None:
@@ -8528,7 +10425,7 @@ class MapHotspot(models.Model):
     def cta_label(self) -> str:
         """The button text for this marker's action, or ``""`` when it has none."""
         return {
-            "lease": "Request to lease",
+            "lease": "Request this space",
             "cubby": "Request this space",
             "reserve": "Reserve",
         }.get(self.cta_kind or "", "")
@@ -8626,7 +10523,7 @@ class SpaceRequest(models.Model):
         WITHDRAWN = "withdrawn", "Withdrawn"
 
     class RequestKind(models.TextChoices):
-        LEASE = "lease", "Studio lease"
+        LEASE = "lease", "Studio space"
         CUBBY = "cubby", "Cubby / shelf"
 
     requester = models.ForeignKey(
@@ -8653,7 +10550,7 @@ class SpaceRequest(models.Model):
         max_length=10,
         choices=RequestKind.choices,
         default=RequestKind.LEASE,
-        help_text="Whether this is a studio lease ask or a cubby/shelf ask. Sets who reviews it.",
+        help_text="Whether this is a studio space ask or a cubby/shelf ask. Sets who reviews it.",
     )
     state = models.CharField(
         max_length=12,
@@ -8857,3 +10754,820 @@ class SpaceRequest(models.Model):
         if price is None:
             return "Price on request"
         return f"${price:.2f}/mo"
+
+
+class EquipmentError(Exception):
+    """Raised when an equipment reservation can't be made or transitioned.
+
+    The sibling of :class:`OrientationError` — always carries member-facing copy;
+    views map it to a friendly error toast plus a refreshed start list.
+    """
+
+
+class EquipmentQuerySet(models.QuerySet["Equipment"]):
+    """Query helpers for the Equipment directory."""
+
+    def active(self) -> EquipmentQuerySet:
+        """Equipment currently offered — inactive (retired) gear is hidden from members entirely."""
+        return self.filter(is_active=True)
+
+    def for_guild(self, guild: Guild) -> EquipmentQuerySet:
+        """Equipment owned by the given guild."""
+        return self.filter(guild=guild)
+
+    def standalone(self) -> EquipmentQuerySet:
+        """Equipment with no owning guild."""
+        return self.filter(guild__isnull=True)
+
+
+class Equipment(HeroCropMixin, models.Model):
+    """A shared tool or room members can find (and, from PR 2, reserve) on the Equipment page.
+
+    One Django-owned model for both kinds (the locked Option A decision). The optional
+    ``space`` FK is a **read-only** relationship into the Airtable-synced :class:`Space` —
+    Django never writes through it and ``airtable_pull`` never sees this model. Access is
+    gated by the existing orientation stack: ``required_orientation`` points at an
+    :class:`OrientationType` and the gate is :meth:`Member.is_oriented_for_type`.
+    """
+
+    class Kind(models.TextChoices):
+        TOOL = "tool", "Tool"
+        ROOM = "room", "Room"
+
+    class AccessState(models.TextChoices):
+        """What stands between a member and this equipment — one state at a time.
+
+        Rendered by both the index card badge and the detail-page requirements banner,
+        so the two surfaces can't drift.
+        """
+
+        OK = "ok", "You're all set"
+        NEEDS_ORIENTATION = "needs_orientation", "Orientation needed"
+        NEEDS_GUILD = "needs_guild", "Guild members only"
+        INACTIVE_MEMBER = "inactive_member", "Membership inactive"
+
+    name = models.CharField(max_length=120, help_text="Display name members see, e.g. CNC Router.")
+    slug = models.SlugField(
+        max_length=140,
+        unique=True,
+        blank=True,
+        help_text="URL slug for the equipment page, auto-generated from the name (stable across renames).",
+    )
+    kind = models.CharField(
+        max_length=10,
+        choices=Kind.choices,
+        default=Kind.TOOL,
+        help_text="Whether this is a tool or a room. Both live on the Equipment page.",
+    )
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="equipment",
+        help_text=(
+            "The guild this equipment belongs to; its leadership manages it. Blank = standalone. "
+            "PROTECT: deleting a guild with equipment must be a deliberate re-home, not a silent cascade."
+        ),
+    )
+    space = models.ForeignKey(
+        Space,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="equipment",
+        help_text=(
+            "Optional read-only link to the physical room on the space map. Django never writes "
+            "through this relationship; the Airtable sync never sees Equipment."
+        ),
+    )
+    photo = models.ImageField(
+        upload_to="equipment/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text="Hero photo shown on the card and detail page.",
+    )
+    description = models.TextField(
+        blank=True, default="", help_text="The About body on the equipment page — what it is, how to use it well."
+    )
+    location_note = models.CharField(
+        max_length=200, blank=True, default="", help_text="Wayfinding note, e.g. 'Back corner of the wood shop.'"
+    )
+    required_orientation = models.ForeignKey(
+        OrientationType,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="gated_equipment",
+        help_text=(
+            "Members must complete this orientation before booking. PROTECT: deleting an orientation "
+            "type that gates live equipment should fail loudly, not silently un-gate a dangerous tool."
+        ),
+    )
+    requires_guild_membership = models.BooleanField(
+        default=False,
+        help_text="Only members of the owning guild may book. Only meaningful when a guild is set.",
+    )
+    is_active = models.BooleanField(
+        default=True, help_text="Offer this equipment to members. Inactive (retired) gear is hidden from the index."
+    )
+    # --- Booking configuration (PR 2) — the locked default limits, per-equipment editable.
+    min_duration_minutes = models.PositiveSmallIntegerField(
+        default=30, help_text="Shortest reservation members can make, in minutes (half hour steps)."
+    )
+    max_duration_minutes = models.PositiveSmallIntegerField(
+        default=240, help_text="Longest reservation members can make, in minutes (half hour steps)."
+    )
+    max_advance_days = models.PositiveSmallIntegerField(
+        default=30, help_text="How far ahead members can book, in days."
+    )
+    max_active_reservations_per_member = models.PositiveSmallIntegerField(
+        default=2, help_text="How many upcoming reservations one member can hold on this equipment at once."
+    )
+    is_closed = models.BooleanField(
+        default=False,
+        help_text="Temporarily stop NEW reservations. Existing reservations stand until a manager cancels each.",
+    )
+    closed_message = models.CharField(
+        max_length=200, blank=True, default="", help_text="Shown to members while closed, e.g. 'Down for maintenance.'"
+    )
+
+    objects = EquipmentQuerySet.as_manager()
+
+    RESERVATION_SNAP_MINUTES = 30
+
+    # View-attached by the index (hub_equipment_index): booked orientation slots running
+    # right now, so availability_line() reads them without a per-card query.
+    current_orientation_slots: list[OrientationSlot]
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name_plural = "Equipment"
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.get_kind_display()})"
+
+    def get_hero_image_field_name(self) -> str:
+        return "photo"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.slug:
+            self.slug = self._unique_slug()
+        delete_orphan_on_replace(self, "photo")
+        super().save(*args, **kwargs)
+
+    def _unique_slug(self) -> str:
+        """A URL slug derived from the equipment name, suffixed (``-2``, ``-3``…) to stay unique."""
+        from django.utils.text import slugify
+
+        base = slugify(self.name) or "equipment"
+        slug = base
+        n = 2
+        while Equipment.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+            slug = f"{base}-{n}"
+            n += 1
+        return slug
+
+    def is_run_by(self, member: Member) -> bool:
+        """True when ``member`` may RUN orientations on this equipment: the :meth:`orienter_members` set.
+
+        A staff row on this tool, or the owning guild's leadership (lead or staff).
+        Deliberately NO fog-admin leg and NO site-wide EQUIPMENT capability leg, unlike
+        the permission helpers (``can_manage_equipment`` keeps both, so an admin can still
+        edit anyone's hours and act on requests): authority over every tool is not the same
+        as running orientations on this one. An admin who wants to be booked by name adds
+        themselves on the Staff tab, exactly as a guild admin needs a staff row.
+
+        One predicate, and it must stay one: it feeds ``bookable()`` (its SQL twin
+        ``_run_by_gate``), ``is_bookable``, slot generation, the Runs with picker, the
+        schedule overview, and the staff-removal retirement check. When it drifted wider
+        than the set that generates slots, a removed manager's slots stopped extending but
+        stayed publicly bookable with their name on them.
+        """
+        guild = self.guild
+        if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
+            return True
+        return self.staff_memberships.filter(member=member).exists()
+
+    def manager_members(self) -> list[Member]:
+        """Everyone who may manage this equipment, de-duplicated.
+
+        Per-equipment staff rows ∪ the owning guild's :meth:`Guild.leadership_members`
+        ∪ EQUIPMENT capability holders. No production call site in PR 1 — this becomes
+        the ``equipment.reservation_made`` notification audience (the
+        ``equipment_managers`` resolver) when reservations land in PR 2.
+        """
+        members = self.orienter_members()
+        seen = {member.pk for member in members}
+        capability_rows = AdminCapability.objects.filter(
+            capability=AdminCapability.Capability.EQUIPMENT
+        ).select_related("member")
+        for grant in capability_rows:
+            if grant.member_id not in seen:
+                members.append(grant.member)
+                seen.add(grant.member_id)
+        return members
+
+    def orienter_members(self) -> list[Member]:
+        """The people who actually run orientations on this tool, de-duplicated.
+
+        The equipment twin of :meth:`Guild.leadership_members` — this tool's own staff rows
+        plus the owning guild's leadership. Deliberately NOT :meth:`manager_members`, which
+        also unions in every site-wide EQUIPMENT capability holder: that set is the right
+        audience for notifications and the right gate for permissions, but listing every
+        council member as an orienter on every machine made the Orientation Schedule read
+        as a roster of thirteen people on a tool nobody had been assigned to.
+
+        An admin who genuinely gives orientations on a tool joins it on the Staff tab, the
+        same way an admin joins a guild's leadership to publish hours there.
+        """
+        members: list[Member] = []
+        seen: set[int] = set()
+        # Staff rows are unique per (equipment, member), so no in-loop dedupe needed here.
+        for staff in self.staff_memberships.select_related("member"):
+            members.append(staff.member)
+            seen.add(staff.member_id)
+        guild = self.guild
+        if guild is not None:
+            for leader in guild.leadership_members():
+                if leader.pk not in seen:
+                    members.append(leader)
+                    seen.add(leader.pk)
+        return members
+
+    def access_state(
+        self,
+        member: Member | None,
+        *,
+        oriented_type_ids: set[int] | None = None,
+        member_guild_ids: set[int] | None = None,
+    ) -> str:
+        """The one :class:`AccessState` between ``member`` and this equipment.
+
+        Drives both the index card badge and the detail-page requirements banner.
+        The two optional sets are the bulk-caller optimization for the index page —
+        pass the member's completed orientation-type pks and joined-guild pks so a
+        page of cards costs two queries, not two per card. Omit both and the checks
+        query per call.
+        """
+        if member is None or member.status != Member.Status.ACTIVE:
+            return self.AccessState.INACTIVE_MEMBER
+        required_orientation = self.required_orientation
+        if required_orientation is not None:
+            if oriented_type_ids is not None:
+                oriented = required_orientation.pk in oriented_type_ids
+            else:
+                oriented = member.is_oriented_for_type(required_orientation)
+            if not oriented:
+                return self.AccessState.NEEDS_ORIENTATION
+        if self.requires_guild_membership and self.guild_id is not None:
+            if member_guild_ids is not None:
+                in_guild = self.guild_id in member_guild_ids
+            else:
+                in_guild = member.guild_memberships.filter(guild_id=self.guild_id).exists()
+            if not in_guild:
+                return self.AccessState.NEEDS_GUILD
+        return self.AccessState.OK
+
+    def booking_blockers(self, member: Member | None) -> list[str]:
+        """Ordered, member-readable reasons this member cannot book yet; empty = bookable.
+
+        The single gate the requirements banner, the index badge, and ``reserve()``
+        all read. Retired equipment fails closed for everyone, at the engine level —
+        no crafted POST can book it. An inactive or unlinked member short-circuits —
+        the remaining checks are meaningless without an active member. Closure blocks
+        NEW bookings only; existing reservations stand until a manager cancels each.
+        """
+        if not self.is_active:
+            return ["This equipment is retired and not taking reservations."]
+        if member is None or member.status != Member.Status.ACTIVE:
+            return ["Your membership needs to be active to reserve equipment."]
+        blockers: list[str] = []
+        required_orientation = self.required_orientation
+        if required_orientation is not None and not member.is_oriented_for_type(required_orientation):
+            blockers.append(f"You need the {required_orientation.name} orientation before you can book time here.")
+        guild = self.guild
+        if (
+            self.requires_guild_membership
+            and guild is not None
+            and not member.guild_memberships.filter(guild_id=guild.pk).exists()
+        ):
+            blockers.append(f"Only {guild.name} members can book this.")
+        if self.is_closed:
+            blockers.append(self.closed_message or "Closed for now.")
+        return blockers
+
+    # --- Reservation engine (PR 2) — the valid_starts_for algorithm re-derived over
+    # --- weekly EquipmentHours minus confirmed reservations, all math in local time.
+
+    def open_intervals_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """The day's open windows from active weekly hours, as aware local datetimes, merged.
+
+        Overlapping or touching windows merge so a start is never offered twice. No
+        hours rows means not bookable yet (the honest empty state, never "always open").
+        """
+        windows: list[tuple[datetime_type, datetime_type]] = []
+        for rule in self.hours_rules.active().for_weekday(day.weekday()).order_by("start_time"):
+            start = timezone.make_aware(datetime_type.combine(day, rule.start_time))
+            end = timezone.make_aware(datetime_type.combine(day, rule.end_time))
+            if windows and start <= windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], end))
+            else:
+                windows.append((start, end))
+        return windows
+
+    def busy_spans_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """Merged busy spans overlapping the local ``day``, sorted.
+
+        The union of confirmed reservations and this equipment's orientation slots
+        that hold a seat (a ``PENDING_PAYMENT | REQUESTED | CONFIRMED`` booking): a
+        booked orientation on a CNC occupies the CNC. Open, unbooked slots are NOT
+        busy, or every posted window would freeze the tool. ``free_intervals_for_day``,
+        ``free_starts_for_day`` and ``durations_for`` all inherit this union, so the
+        Book a Time selects never offer a start over a booked orientation.
+        """
+        day_start = timezone.make_aware(datetime_type.combine(day, time_type.min))
+        day_end = day_start + timedelta(days=1)
+        spans = [
+            (reservation.starts_at, reservation.ends_at)
+            for reservation in EquipmentReservation.objects.overlapping(self, day_start, day_end)
+        ]
+        spans.extend(
+            (slot.starts_at, slot.ends_at)
+            for slot in OrientationSlot.objects.holding_seats_on(self, day_start, day_end)
+        )
+        merged: list[tuple[datetime_type, datetime_type]] = []
+        for start, end in sorted(spans):
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        return merged
+
+    def free_intervals_for_day(self, day: date_type) -> list[tuple[datetime_type, datetime_type]]:
+        """The day's open windows minus the busy spans, in order (the free time)."""
+        free: list[tuple[datetime_type, datetime_type]] = []
+        busy = self.busy_spans_for_day(day)
+        for window_start, window_end in self.open_intervals_for_day(day):
+            cursor = window_start
+            for busy_start, busy_end in busy:
+                if busy_end <= cursor or busy_start >= window_end:
+                    continue
+                if busy_start > cursor:
+                    free.append((cursor, busy_start))
+                cursor = max(cursor, busy_end)
+            if cursor < window_end:
+                free.append((cursor, window_end))
+        return free
+
+    def free_starts_for_day(self, day: date_type) -> list[datetime_type]:
+        """Future, half-hour-aligned starts on ``day`` that fit at least the minimum duration.
+
+        Empty for past days and days beyond the booking horizon. Pure availability
+        math — closure and member blockers are the caller's checks (``reserve()``
+        re-validates everything under the row lock).
+        """
+        today = timezone.localdate()
+        if day < today or day > today + timedelta(days=self.max_advance_days):
+            return []
+        now = timezone.now()
+        min_duration = timedelta(minutes=self.min_duration_minutes)
+        step = timedelta(minutes=self.RESERVATION_SNAP_MINUTES)
+        free = self.free_intervals_for_day(day)
+        starts: list[datetime_type] = []
+        for window_start, window_end in self.open_intervals_for_day(day):
+            # Snap the stepping to the wall-clock half hour grid: a legacy off-grid
+            # window (9:15, from before the model-layer clean guard) degrades to
+            # offering only starts ensure_reservable would accept, never a dead 9:15.
+            candidate = self._snap_forward(window_start)
+            while candidate + min_duration <= window_end:
+                if candidate > now and any(
+                    interval_start <= candidate and candidate + min_duration <= interval_end
+                    for interval_start, interval_end in free
+                ):
+                    starts.append(candidate)
+                candidate += step
+        return starts
+
+    def hours_windows(self) -> list[dict[str, Any]]:
+        """Existing per-day hours rows grouped into editor windows for the manage tab.
+
+        Rows with an identical (start, end, active) window collapse to one editor
+        row carrying every weekday they cover — the "put the hours, then set the
+        days" shape. Ordered by start then end time; times as "HH:MM" choice keys.
+        """
+        grouped: dict[tuple[time_type, time_type, bool], list[int]] = {}
+        for rule in self.hours_rules.order_by("start_time", "end_time", "weekday"):
+            grouped.setdefault((rule.start_time, rule.end_time, rule.is_active), []).append(rule.weekday)
+        return [
+            {
+                "start_time": start.strftime("%H:%M"),
+                "end_time": end.strftime("%H:%M"),
+                "days": days,
+                "is_active": is_active,
+            }
+            for (start, end, is_active), days in sorted(grouped.items(), key=lambda item: (item[0][0], item[0][1]))
+        ]
+
+    def apply_hours_windows(self, windows: list[dict[str, Any]]) -> None:
+        """Expand editor windows into per-day :class:`EquipmentHours` rows, reconciling fully.
+
+        Creates a row per checked day, flips a changed active flag in place, and
+        deletes every row no window covers any more — an unchecked day, or a whole
+        deleted window. The per-day model is unchanged; the window shape is pure UI.
+        """
+        desired: dict[tuple[int, time_type, time_type], bool] = {}
+        for window in windows:
+            for day in window["days"]:
+                desired[(int(day), window["start_time"], window["end_time"])] = window["is_active"]
+        existing = {(rule.weekday, rule.start_time, rule.end_time): rule for rule in self.hours_rules.all()}
+        for key, rule in existing.items():
+            if key not in desired:
+                rule.delete()
+            elif rule.is_active != desired[key]:
+                rule.is_active = desired[key]
+                rule.save(update_fields=["is_active"])
+        for key, is_active in desired.items():
+            if key not in existing:
+                weekday, start, end = key
+                self.hours_rules.create(weekday=weekday, start_time=start, end_time=end, is_active=is_active)
+
+    def _snap_forward(self, value: datetime_type) -> datetime_type:
+        """The first wall-clock half-hour-grid instant at or after ``value`` (local time)."""
+        local = timezone.localtime(value)
+        remainder = local.minute % self.RESERVATION_SNAP_MINUTES
+        if remainder == 0 and local.second == 0 and local.microsecond == 0:
+            return value
+        return (
+            value
+            + timedelta(minutes=self.RESERVATION_SNAP_MINUTES - remainder)
+            - timedelta(seconds=local.second, microseconds=local.microsecond)
+        )
+
+    def durations_for(self, starts_at: datetime_type) -> list[int]:
+        """The bookable duration options at ``starts_at``, in minutes, half hour steps.
+
+        From the minimum up to the largest that fits before the next reservation or
+        closing, capped at the per-equipment maximum. Empty when the start is not
+        inside any free interval — an impossible start offers no durations.
+        """
+        day = timezone.localtime(starts_at).date()
+        for interval_start, interval_end in self.free_intervals_for_day(day):
+            if interval_start <= starts_at < interval_end:
+                room = int((interval_end - starts_at).total_seconds() // 60)
+                limit = min(room, self.max_duration_minutes)
+                return list(range(self.min_duration_minutes, limit + 1, self.RESERVATION_SNAP_MINUTES))
+        return []
+
+    def availability_line(self) -> tuple[str, str]:
+        """The index card's ``(tone, text)`` availability line, computed from now.
+
+        Tones: ``free`` (available now), ``busy`` (reserved or in an orientation
+        right now), ``closed``, ``muted`` (no hours yet, or outside open hours).
+        Reads prefetched ``hours_rules``, a ``current_reservations`` ``to_attr`` and a
+        ``current_orientation_slots`` list when the index view supplies them, so a
+        page of cards runs no per-card queries; without them it queries per call.
+        """
+        now = timezone.now()
+        if self.is_closed:
+            return ("closed", f"Closed. {self.closed_message}".strip() if self.closed_message else "Closed for now.")
+        rules = [rule for rule in self.hours_rules.all() if rule.is_active]
+        if not rules:
+            return ("muted", "Not taking reservations yet")
+        current = getattr(self, "current_reservations", None)
+        if current is None:
+            current = list(
+                EquipmentReservation.objects.confirmed().filter(equipment=self, starts_at__lte=now, ends_at__gt=now)
+            )
+        busy_ends = [reservation.ends_at for reservation in current]
+        # A booked orientation running now occupies the tool exactly like a reservation
+        # (the detail page already shows it busy); an open, unbooked slot does not.
+        running_slots = getattr(self, "current_orientation_slots", None)
+        if running_slots is None:
+            running_slots = list(OrientationSlot.objects.holding_seats_on(self, now, now))
+        busy_ends.extend(slot.ends_at for slot in running_slots)
+        if busy_ends:
+            ends_local = timezone.localtime(max(busy_ends))
+            hour = ends_local.hour % 12 or 12
+            suffix = "AM" if ends_local.hour < 12 else "PM"
+            return ("busy", f"Reserved until {hour}:{ends_local.minute:02d} {suffix}")
+        local = timezone.localtime(now)
+        open_now = any(
+            rule.weekday == local.weekday() and rule.start_time <= local.time() < rule.end_time for rule in rules
+        )
+        if open_now:
+            return ("free", "Available now")
+        return ("muted", "Not open right now")
+
+    def ensure_reservable(self, member: Member, starts_at: datetime_type, duration_minutes: int) -> None:
+        """Raise :class:`EquipmentError` unless this exact reservation may be made.
+
+        The full two-layer guard: callers re-run this inside ``transaction.atomic()``
+        under ``select_for_update`` on this Equipment row (the same lock object every
+        competing booking takes), so two members can never hold one interval. Checks,
+        in order: member blockers (active / orientation / guild / closure), the start
+        is in the future and inside the horizon, the half hour grid, duration bounds,
+        inside open hours, the per-member cap, no overlapping confirmed reservation,
+        and no overlapping booked orientation (checked directly, never through the
+        busy spans, so a stale or crafted POST cannot double book the machine).
+
+        Raises:
+            EquipmentError: With member-facing copy naming the failed check.
+        """
+        blockers = self.booking_blockers(member)
+        if blockers:
+            raise EquipmentError(blockers[0])
+        now = timezone.now()
+        if starts_at <= now:
+            raise EquipmentError("That time's already past. Please pick a future time.")
+        local_start = timezone.localtime(starts_at)
+        today = timezone.localdate()
+        if local_start.date() > today + timedelta(days=self.max_advance_days):
+            raise EquipmentError(f"You can book up to {self.max_advance_days} days ahead.")
+        if (local_start.minute % self.RESERVATION_SNAP_MINUTES) != 0 or local_start.second or local_start.microsecond:
+            raise EquipmentError("Start times line up on half hour marks. Please pick one of the listed times.")
+        self._ensure_duration_valid(duration_minutes)
+        ends_at = starts_at + timedelta(minutes=duration_minutes)
+        in_hours = any(
+            window_start <= starts_at and ends_at <= window_end
+            for window_start, window_end in self.open_intervals_for_day(local_start.date())
+        )
+        if not in_hours:
+            raise EquipmentError("That time is outside this equipment's open hours.")
+        cap = self.max_active_reservations_per_member
+        if EquipmentReservation.objects.active_count_for(member, self) >= cap:
+            raise EquipmentError(
+                f"You already have {cap} upcoming reservation{'' if cap == 1 else 's'} here. "
+                "Cancel one to book another time."
+            )
+        if EquipmentReservation.objects.overlapping(self, starts_at, ends_at).exists():
+            raise EquipmentError("That time was just taken. Please pick another time.")
+        if OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).exists():
+            raise EquipmentError("That time overlaps a booked orientation. Please pick another time.")
+
+    def _ensure_duration_valid(self, duration_minutes: int) -> None:
+        """Raise :class:`EquipmentError` unless the duration is on grid and within bounds."""
+        if duration_minutes % self.RESERVATION_SNAP_MINUTES != 0:
+            raise EquipmentError("Reservation lengths come in half hour steps. Please pick one of the listed lengths.")
+        if duration_minutes < self.min_duration_minutes:
+            raise EquipmentError(f"Reservations here are at least {self.min_duration_minutes} minutes.")
+        if duration_minutes > self.max_duration_minutes:
+            raise EquipmentError(f"Reservations here are at most {self.max_duration_minutes} minutes.")
+
+
+class EquipmentStaffMembership(models.Model):
+    """A member's manager role on one piece of equipment — the resource permission tier.
+
+    Mirrors :class:`GuildStaffMembership`: the row itself is the grant. One role today;
+    ``TextChoices`` anyway so a future role is a value, not a migration of shape.
+    """
+
+    class Role(models.TextChoices):
+        MANAGER = "manager", "Manager"
+
+    equipment = models.ForeignKey(
+        Equipment,
+        on_delete=models.CASCADE,
+        related_name="staff_memberships",
+        help_text="The equipment this manager role applies to.",
+    )
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="equipment_staff_memberships",
+        help_text="The member holding the manager role.",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.MANAGER,
+        help_text="The staff role on this equipment. Manager is the only role today.",
+    )
+    granted_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The member who granted this role (audit; nulled if they're deleted).",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this role was granted.")
+
+    class Meta:
+        ordering = ["member__full_legal_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["equipment", "member"], name="uq_%(class)s_equipment_member"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name}: {self.equipment.name} manager"
+
+
+class EquipmentHoursQuerySet(models.QuerySet["EquipmentHours"]):
+    """Query helpers for weekly equipment opening hours."""
+
+    def active(self) -> EquipmentHoursQuerySet:
+        """Rules currently in force — paused rules keep their data but open no time."""
+        return self.filter(is_active=True)
+
+    def for_weekday(self, weekday: int) -> EquipmentHoursQuerySet:
+        """Rules for one weekday (Monday=0)."""
+        return self.filter(weekday=weekday)
+
+
+class EquipmentHours(models.Model):
+    """A weekly recurring window during which a piece of equipment can be reserved.
+
+    The structural clone of :class:`OrientationAvailability`, minus orienter/seats.
+    No rows means not bookable yet — the honest empty state, never "always open".
+    """
+
+    class Weekday(models.IntegerChoices):
+        MONDAY = 0, "Monday"
+        TUESDAY = 1, "Tuesday"
+        WEDNESDAY = 2, "Wednesday"
+        THURSDAY = 3, "Thursday"
+        FRIDAY = 4, "Friday"
+        SATURDAY = 5, "Saturday"
+        SUNDAY = 6, "Sunday"
+
+    equipment = models.ForeignKey(
+        Equipment, on_delete=models.CASCADE, related_name="hours_rules", help_text="The equipment this window opens."
+    )
+    weekday = models.PositiveSmallIntegerField(choices=Weekday.choices, help_text="Day of week (Monday=0).")
+    start_time = models.TimeField(help_text="When the window opens (half hour grid, local time).")
+    end_time = models.TimeField(help_text="When the window closes (half hour grid, local time).")
+    is_active = models.BooleanField(default=True, help_text="Pause a window without deleting it.")
+
+    objects = EquipmentHoursQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["weekday", "start_time"]
+        verbose_name_plural = "Equipment hours"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_time__gt=models.F("start_time")),
+                name="ck_equiphours_end_after_start",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.equipment.name}: {self.get_weekday_display()} {self.start_time:%H:%M}-{self.end_time:%H:%M}"
+
+    def clean(self) -> None:
+        """Model-layer half hour grid guard — the auto-registered Django admin runs this too.
+
+        The hub formset's ``<select>`` choices only offer grid times, but the admin's
+        raw time inputs could create a 9:15 window whose starts the engine always
+        rejects. Fail loudly at every write path instead.
+        """
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        errors: dict[str, str] = {}
+        for field in ("start_time", "end_time"):
+            value = getattr(self, field)
+            if value is not None and (value.minute % 30 != 0 or value.second or value.microsecond):
+                errors[field] = "Opening hours line up on half hour marks, e.g. 9:00 or 9:30."
+        if errors:
+            raise ValidationError(errors)
+
+
+class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
+    """Query helpers for equipment reservations."""
+
+    def confirmed(self) -> EquipmentReservationQuerySet:
+        return self.filter(status=EquipmentReservation.Status.CONFIRMED)
+
+    def overlapping(
+        self, equipment: Equipment, starts_at: datetime_type, ends_at: datetime_type
+    ) -> EquipmentReservationQuerySet:
+        """Confirmed reservations overlapping [starts_at, ends_at) on ``equipment``.
+
+        Strict inequalities: adjacent bookings (a 4:00 end against a 4:00 start) do
+        NOT conflict. Cancelled rows never conflict.
+        """
+        return self.confirmed().filter(equipment=equipment, starts_at__lt=ends_at, ends_at__gt=starts_at)
+
+    def upcoming(self) -> EquipmentReservationQuerySet:
+        """Confirmed reservations that haven't ended yet, soonest first."""
+        return self.confirmed().filter(ends_at__gt=timezone.now()).order_by("starts_at")
+
+    def active_count_for(self, member: Member, equipment: Equipment) -> int:
+        """The per-member anti-hog input: this member's upcoming confirmed count here."""
+        return self.confirmed().filter(member=member, equipment=equipment, ends_at__gt=timezone.now()).count()
+
+
+class EquipmentReservation(models.Model):
+    """A member's instant, self-confirmed hold on a piece of equipment.
+
+    No PENDING state — instant booking is the locked decision. Conflicts are made
+    unrepresentable in the UI by the computed option lists and impossible in the DB
+    by ``reserve()`` re-validating under ``select_for_update`` on the Equipment row.
+    """
+
+    class Status(models.TextChoices):
+        CONFIRMED = "confirmed", "Confirmed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    equipment = models.ForeignKey(
+        Equipment, on_delete=models.CASCADE, related_name="reservations", help_text="The reserved equipment."
+    )
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="equipment_reservations", help_text="Who reserved it."
+    )
+    starts_at = models.DateTimeField(help_text="When the reservation begins (aware UTC).")
+    ends_at = models.DateTimeField(help_text="When the reservation ends (aware UTC).")
+    purpose = models.CharField(
+        max_length=140, blank=True, default="", help_text="Optional one liner shown on the schedule."
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.CONFIRMED, help_text="Confirmed or cancelled."
+    )
+    cancelled_by = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who cancelled it — distinguishes self cancel from manager cancel.",
+    )
+    cancelled_reason = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Required when a manager cancels; shown to the member.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the reservation was made.")
+    cancelled_at = models.DateTimeField(null=True, blank=True, help_text="When it was cancelled, if it was.")
+
+    objects = EquipmentReservationQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["starts_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=models.F("starts_at")),
+                name="ck_equipres_end_after_start",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["equipment", "starts_at"],
+                name="idx_equipres_confirmed",
+                condition=Q(status="confirmed"),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.equipment.name}: {self.member.display_name} {self.starts_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_cancelled_by_manager(self) -> bool:
+        """True when a manager (not the member) cancelled this reservation."""
+        return (
+            self.status == self.Status.CANCELLED
+            and self.cancelled_by_id is not None
+            and self.cancelled_by_id != self.member_id
+        )
+
+    def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> None:
+        """Cancel this reservation as ``actor`` — the member themselves, or a manager.
+
+        Self cancel: future reservations only, no reason needed, notifies nobody (no
+        approver exists to care). Manager cancel: also allowed while in progress,
+        requires a reason the member will see, and notifies the member. A manager
+        cancelling THEIR OWN row from the manage tab passes ``as_manager=True`` —
+        the manager guards apply (reason honored, in-progress allowed) but nobody is
+        notified, because the member IS the actor.
+
+        Raises:
+            EquipmentError: When already cancelled, already started (self cancel),
+                already ended (manager cancel), or ``actor`` has no authority here.
+            ValueError: When a manager cancels without a reason (form-enforced
+                upstream; loud guard here, mirroring the decline-notes convention).
+        """
+        if self.status != self.Status.CONFIRMED:
+            raise EquipmentError("This reservation was already cancelled.")
+        now = timezone.now()
+        is_own_row = actor.pk == self.member_id
+        acting_as_manager = as_manager or not is_own_row
+        cleaned_reason = reason.strip()
+        if acting_as_manager:
+            if not actor.can_manage_equipment(self.equipment):
+                raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
+            if not cleaned_reason:
+                raise ValueError("A manager cancel needs a reason the member will see.")
+            if self.ends_at <= now:
+                raise EquipmentError("This reservation already ended.")
+        elif self.starts_at <= now:
+            raise EquipmentError("This reservation already started. Ask a manager if it needs cancelling.")
+        self.status = self.Status.CANCELLED
+        self.cancelled_by = actor
+        self.cancelled_reason = cleaned_reason
+        self.cancelled_at = now
+        self.save(update_fields=["status", "cancelled_by", "cancelled_reason", "cancelled_at"])
+        if acting_as_manager and not is_own_row:
+            from membership import equipment as equipment_service
+
+            equipment_service.notify_manager_cancelled(self)

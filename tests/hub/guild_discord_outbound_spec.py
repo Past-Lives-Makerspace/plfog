@@ -43,27 +43,27 @@ def _linked_login(discord_user_id="u1"):
     return client, member
 
 
-def describe_guild_join_outbound():
+def describe_guild_subscribe_outbound():
     @respx.mock
-    def it_assigns_the_guild_role_on_join(settings):
+    def it_assigns_the_guild_role_on_subscribe(settings):
         _configure(settings)
         client, member = _linked_login()
         guild = GuildFactory(discord_role_ids=["role-1"])
         put = respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
-        resp = client.post(reverse("hub_guild_join", args=[guild.pk]))
-        assert resp.status_code == 302
+        resp = client.post(reverse("hub_guild_membership_set", args=[guild.pk]), {"joined": "on"})
+        assert resp.status_code == 204
         assert put.called
         assert GuildMembership.objects.filter(guild=guild, member=member).exists()
 
     @respx.mock
-    def it_removes_the_guild_role_on_leave(settings):
+    def it_removes_the_guild_role_on_unsubscribe(settings):
         _configure(settings)
         client, member = _linked_login()
         guild = GuildFactory(discord_role_ids=["role-1"])
         GuildMembership.objects.record_app_join(guild, member)
         delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
-        resp = client.post(reverse("hub_guild_leave", args=[guild.pk]))
-        assert resp.status_code == 302
+        resp = client.post(reverse("hub_guild_membership_set", args=[guild.pk]))
+        assert resp.status_code == 204
         assert delete.called
         assert not GuildMembership.objects.filter(guild=guild, member=member).exists()
 

@@ -83,9 +83,15 @@ class Recipients(str, Enum):
     EVENTS_APPROVERS = "events_approvers"
     GUILD_LEADERSHIP_OR_EVENTS_APPROVERS = "guild_leadership_or_events_approvers"
     BILLING_APPROVERS = "billing_approvers"
+    # Composed union: fog admins OR REFUNDS capability holders — everyone who may issue
+    # a refund (exactly the set ``refund_authority_required`` admits).
+    REFUND_AUTHORITY = "refund_authority"
     GUILD_LEAD = "guild_lead"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
+    # Composed (never a union): equipment in context -> the equipment's managers;
+    # else the guild's orienters (personal-slot narrowing preserved).
+    GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS = "guild_orienters_or_equipment_managers"
     ORIENTATION_RUNNER = "orientation_runner"
     REGISTRANT = "registrant"
     INSTRUCTOR = "instructor"
@@ -102,6 +108,9 @@ class Recipients(str, Enum):
     EVERYONE_WITH_LOGIN = "everyone_with_login"
     RELEASE_AUDIENCE = "release_audience"
     SINGLE_USER = "single_user"
+    # Equipment managers: per-equipment staff rows ∪ the owning guild's leadership ∪
+    # EQUIPMENT capability holders, deduped (a union of the three manage tiers).
+    EQUIPMENT_MANAGERS = "equipment_managers"
 
 
 @dataclass(frozen=True)
@@ -210,6 +219,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         # Membership — someone accepted the invite you sent
         "invite_accepted",
+        # Equipment — your reservation is set (time-sensitive, carries the invite)
+        "equipment.reservation_confirmed",
     }
 )
 
@@ -235,6 +246,10 @@ def _with_push(event: EventType) -> EventType:
 
 
 _DISCORD_DM_OFF = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.OFF)
+# Default-ON DM — reserved for per-person verdicts the member explicitly asked for (their
+# event proposal's outcome): a Discord-originated proposer must hear back without hunting
+# for an opt-in. The adapter no-ops for unlinked members; anyone can opt out in settings.
+_DISCORD_DM_ON = ChannelSpec(Channel.DISCORD_DM, ChannelDefault.ON)
 
 
 def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]:
@@ -244,14 +259,17 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
     faithful structural copy:
 
     * In-app is always present and on (``dispatch`` always writes a bell row).
-    * Email is ``FORCED`` for ``force_email`` triggers, else default from
+    * Email is omitted entirely for ``no_email`` triggers (in-app / push / Discord
+      DM only), ``FORCED`` for ``force_email`` triggers, else default from
       ``email_default`` (on/off).
     * Push default from ``push_default`` (on/off).
     * Discord DM is always offered, default OFF — every member may opt into a
       personal DM for any of these events once they've linked their Discord account.
     """
     specs: list[ChannelSpec] = [_IN_APP_ON]
-    if trigger.force_email:
+    if trigger.no_email:
+        pass  # this trigger sends no email at all — no EMAIL channel is declared
+    elif trigger.force_email:
         specs.append(_EMAIL_FORCED)
     else:
         specs.append(_EMAIL_ON if trigger.email_default else _EMAIL_OFF)
@@ -282,18 +300,21 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "instructor_changes_requested": Recipients.INSTRUCTOR,
     "instructor_new_registration": Recipients.INSTRUCTOR,
     # A guild-led class routes to that guild's leadership; a lead-less category (guild
-    # is None in context) routes to the Class Administrators (composition, not union).
+    # is None in context) routes to the CMS Administrators (composition, not union).
     "class_review_requested": Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
-    # The admin validation stage always routes to the Class Administrators.
+    # The admin validation stage always routes to the CMS Administrators.
     "class_validation_requested": Recipients.CLASS_APPROVERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
-    "orientation_requested": Recipients.GUILD_ORIENTERS,
+    "orientation_requested": Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
     "orientation_update": Recipients.REGISTRANT,
     # guild_joined notifies the guild LEAD only today (audit-D audience J); the
     # orientation Decision-7 fan-out fix is scoped to orientation events, not this one.
     "guild_joined": Recipients.GUILD_LEAD,
     # Billing / tab
+    # refund_failed is the admin-facing async-refund-failure alert — it routes to
+    # the Billing Administrators (holders only), like billing.charge_failed_admin.
+    "refund_failed": Recipients.BILLING_APPROVERS,
     "tab_charged": Recipients.TAB_MEMBER,
     "tab_charge_failed": Recipients.TAB_MEMBER,
     "tab_entry_added": Recipients.TAB_MEMBER,
@@ -334,6 +355,9 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "waitlist_spot_available": None,
     "waitlist_confirmed": None,
     "refund_issued": None,
+    # refund_failed logs no SiteActivity: the refund service writes the CmsActivity
+    # (REGISTRATION_REFUND_FAILED) itself, deliberately unmirrored to the site feed.
+    "refund_failed": None,
     "instructor_class_approved": None,
     "instructor_changes_requested": None,
     "instructor_new_registration": None,
@@ -413,6 +437,9 @@ EVENT_GUILD_PUBLISHED = "event.guild_published"
 EVENT_COMMUNITY_PUBLISHED = "event.community_published"
 EVENT_LEAD_MEETING_PUBLISHED = "event.lead_meeting_published"
 GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
+# Instructor-raised staff notices on a live class (class-lifecycle spec PR 2).
+CLASS_CANCELLED_ADMIN_NOTICE = "class_cancelled_admin_notice"
+CLASS_CHANGE_REQUESTED = "class_change_requested"
 GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
 GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
 GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
@@ -434,6 +461,13 @@ MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
+WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
+WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
+REGISTRATION_REMOVED = "registration_removed"  # staff removed a registrant (seat-holder or waitlister)
+GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — email only via email_to, no matrix row
+EQUIPMENT_RESERVATION_CONFIRMED = "equipment.reservation_confirmed"  # your reservation is set (+ .ics)
+EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by_manager"  # with the reason
+EQUIPMENT_RESERVATION_MADE = "equipment.reservation_made"  # awareness ping to the equipment's managers
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -495,7 +529,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=GUILD_ANNOUNCEMENT,
         label="Guild announcement",
-        description="A guild you're in posted an announcement.",
+        description="A guild you follow posted an announcement. Pick which guilds in your hub Settings.",
         category="Guilds",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -611,7 +645,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=EVENT_GUILD_PUBLISHED,
         label="New guild event",
-        description="A guild you're in scheduled a meeting or event.",
+        description="A guild you follow scheduled a meeting or event.",
         category="Events",
         recipient=Recipients.GUILD_MEMBERS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
@@ -632,7 +666,7 @@ _NEW_EVENTS: list[EventType] = [
     # 9. event.lead_meeting_published — an admin posts the cross-guild Guild Lead Meeting.
     #    Notifies every guild lead/officer/staffer site-wide; in-app on, email ON by default
     #    (owner call, copy-review 2026-08-18), Discord on (central). The event still shows on
-    #    the Community Calendar for all members.
+    #    the Calendar for all members.
     EventType(
         key=EVENT_LEAD_MEETING_PUBLISHED,
         label="Guild Lead Meeting scheduled",
@@ -684,13 +718,13 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # 14. event.submitted — a member proposed a Community Calendar event; it lands in the
+    # 14. event.submitted — a member proposed a Calendar event; it lands in the
     #     review queue. Goes to the guild's leadership OR (site-wide → admins). A per-person
     #     workflow reply: in-app + email, no Discord broadcast.
     EventType(
         key=EVENT_SUBMITTED,
         label="Event proposal submitted",
-        description="A member proposed a Community Calendar event that needs review.",
+        description="A member proposed a Calendar event that needs review.",
         category="Events",
         recipient=Recipients.GUILD_LEADERSHIP_OR_EVENTS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
@@ -703,7 +737,7 @@ _NEW_EVENTS: list[EventType] = [
         description="A reviewer approved a member's proposed event and it's now published.",
         category="Events",
         recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
     # 16. event.changes_requested — the proposer is asked to edit + resubmit.
@@ -713,7 +747,7 @@ _NEW_EVENTS: list[EventType] = [
         description="A reviewer asked the proposer to adjust their event and resubmit.",
         category="Events",
         recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
     # 17. event.declined — the proposal was turned down.
@@ -723,7 +757,7 @@ _NEW_EVENTS: list[EventType] = [
         description="A reviewer declined a member's proposed event.",
         category="Events",
         recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
+        channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_DM_ON),
         activity_kind=None,
     ),
     # 18. event.reminder — a 7/3/1-day-before nudge for an upcoming community event, to the
@@ -765,6 +799,22 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_EMAIL_FORCED,),
         activity_kind=None,
     ),
+    # 20b. guild_welcome — the per-guild join welcome email. Transactional: addressed with an
+    #      explicit ``email_to`` (sends regardless of preferences — the member deliberately
+    #      joined), so it declares NO channel at all. The REGISTRANT resolver reads
+    #      ``context["member"]`` = None, so the unused in-app/push fan-out finds nobody, and
+    #      declaring no EMAIL channel keeps it off the member settings matrix (like the
+    #      orientation thank-you, which piggybacks on orientation_update). ``activity_kind``
+    #      stays None — member_joined_guild's guild_joined emit already logs GUILD_JOINED.
+    EventType(
+        key=GUILD_WELCOME,
+        label="Welcome to the guild",
+        description="A warm welcome when a member joins one of your guilds.",
+        category="Guilds",
+        recipient=Recipients.REGISTRANT,
+        channels=(),
+        activity_kind=None,
+    ),
     # 21. orientation.completed — a member finished their orientation; welcome them to the
     #     guild. Goes to the guild's existing members (GUILD_MEMBERS); in-app on + the guild's
     #     own Discord channel on (no email — a light social nudge, not an inbox item). Carries
@@ -791,9 +841,9 @@ _NEW_EVENTS: list[EventType] = [
     #     so this always routes to the makerspace admins.
     EventType(
         key=SPACE_LEASE_REQUESTED,
-        label="Studio lease requested",
-        description="A member asked to lease a studio from the space map.",
-        category="Spaces",
+        label="Studio space requested",
+        description="A member asked for a studio space from the space map.",
+        category="Spaces & Equipment",
         recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -807,7 +857,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_CUBBY_REQUESTED,
         label="Shelf requested",
         description="A member asked for a shelf from the space map.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SPACE_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -818,7 +868,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_REQUEST_APPROVED,
         label="Your space request was approved",
         description="A reviewer approved a member's studio or cubby request.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -828,7 +878,7 @@ _NEW_EVENTS: list[EventType] = [
         key=SPACE_REQUEST_DECLINED,
         label="Update on your space request",
         description="A reviewer declined a member's studio or cubby request.",
-        category="Spaces",
+        category="Spaces & Equipment",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind="space_request",
@@ -886,28 +936,28 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # 30. meeting.minutes_approved — a guild meeting's minutes were approved and locked.
-    #     Same defaults as event.guild_published: the guild's members, in-app on, email
-    #     opt-in, Discord on (``guild`` in context dual-routes to the guild's own webhook).
+    #     The guild's members, in-app on, email opt-in. NO Discord by owner decision
+    #     (2026-09-03): an approval is routine housekeeping, not channel news.
     #     The spine writes the meeting_approved activity row (Meeting.approve doesn't).
     EventType(
         key=MEETING_MINUTES_APPROVED,
         label="Meeting minutes approved",
-        description="A guild you're in approved and locked a meeting's minutes.",
+        description="A guild you follow approved and locked a meeting's minutes.",
         category="Meetings",
         recipient=Recipients.GUILD_MEMBERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_OFF),
         activity_kind="meeting_approved",
     ),
     # 31. meeting.council_minutes_approved — the cross-guild council meeting's minutes were
-    #     approved. Mirrors event.lead_meeting_published: all guild leads/staff/officers,
-    #     in-app on, email opt-in, Discord on (central).
+    #     approved. All guild leads/staff/officers, in-app on, email opt-in. NO Discord by
+    #     owner decision (2026-09-03), same as meeting.minutes_approved.
     EventType(
         key=MEETING_COUNCIL_MINUTES_APPROVED,
         label="Council minutes approved",
         description="The cross-guild council meeting's minutes were approved and locked.",
         category="Meetings",
         recipient=Recipients.ALL_GUILD_LEADS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        channels=(_IN_APP_ON, _EMAIL_OFF),
         activity_kind="meeting_approved",
     ),
     # 32. discount_code.requested — a new discount code was created and awaits approval.
@@ -934,6 +984,109 @@ _NEW_EVENTS: list[EventType] = [
         description="A member's monthly tab charge failed — the admin heads-up to follow up.",
         category="Billing",
         recipient=Recipients.BILLING_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # Roster management — staff promote / remove notices to the registrant. The email
+    # goes to the registration's raw address via ``email_to`` (guest-safe, never
+    # pref-gated); the REGISTRANT resolver posts the bell row to the linked member
+    # when one exists — exactly the ``waitlist_spot_available`` pattern. No activity
+    # row from emit: the classes app writes its own CmsActivity at each workflow point.
+    EventType(
+        key=WAITLIST_PROMOTED,
+        label="Added from the waitlist",
+        description="Staff added you to a class straight from the waitlist — you're in.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=WAITLIST_PROMOTED_PAY,
+        label="Added from the waitlist (payment due)",
+        description="Staff added you to a paid class from the waitlist — your seat is held; a payment link is included.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    EventType(
+        key=REGISTRATION_REMOVED,
+        label="Removed from a class",
+        description="Staff removed your registration or waitlist spot for a class.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # --- Equipment reservations (equipment-reservations spec §8, PR 2) ----------
+    # equipment.reservation_confirmed — the member's own booking receipt. Operational
+    # mail like orientation updates: in-app on + email FORCED, push on (via
+    # _PUSH_ON_BY_DEFAULT). The email carries a calendar invite (.ics) via the emit
+    # attachments. Discord stays absent on the two personal events — a personal reservation
+    # is not a broadcast (and the greeting rule stays un-walked-into).
+    EventType(
+        key=EQUIPMENT_RESERVATION_CONFIRMED,
+        label="Reservation confirmed",
+        description="Your equipment reservation is set. Comes with a calendar invite.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.reservation_cancelled_by_manager — the member hears a manager freed
+    # their time, with the required reason. Forced operational mail; member self
+    # cancel emits nothing (no approver exists to care).
+    EventType(
+        key=EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER,
+        label="Reservation cancelled by a manager",
+        description="A manager cancelled your equipment reservation and told you why.",
+        category="Spaces & Equipment",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # equipment.reservation_made — awareness, not action (no approval exists), to the
+    # equipment's managers: in-app on, email opt-in. Grouped under Staff & leadership
+    # on the settings page via the EQUIPMENT_MANAGERS recipient. The DISCORD broadcast
+    # posts to the #reservations channel ONLY: the event is pinned to the Site Settings
+    # discord_reservations_webhook_url (core.events.discord.SITE_CONFIG_EVENT_WEBHOOKS —
+    # blank silences it, never the central notify webhook), and the emit context carries
+    # no "guild" key, so the guild dual-route in emit._guild_broadcast never fires.
+    EventType(
+        key=EQUIPMENT_RESERVATION_MADE,
+        label="New equipment reservation",
+        description="A member reserved time on equipment you manage.",
+        category="Spaces & Equipment",
+        recipient=Recipients.EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_OFF, _DISCORD_ON),
+        activity_kind=None,
+    ),
+    # class_cancelled_admin_notice — an instructor cancelled their own live class and
+    # paid registrations need refunds. Money never moves on an instructor click, so the
+    # people who CAN refund (fog admins OR REFUNDS holders, the REFUND_AUTHORITY union)
+    # get an in-app row + email pointing at the class's Registrations tab. Never fires
+    # for a free class or an admin's own cancel. Per-recipient only, no broadcast.
+    # Grouped under Staff & leadership on the settings page via its recipient.
+    EventType(
+        key=CLASS_CANCELLED_ADMIN_NOTICE,
+        label="Instructor cancelled a paid class",
+        description="An instructor cancelled a live class that has paid registrations; refunds are needed.",
+        category="Classes",
+        recipient=Recipients.REFUND_AUTHORITY,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # class_change_requested — an instructor asked for a structural change (title, dates,
+    # price, capacity) to their live class, which only an admin may make. Routes to the
+    # CMS Administrators with the note and a CTA to the admin edit page. Per-recipient
+    # only, no broadcast; each request is its own dedupe period.
+    EventType(
+        key=CLASS_CHANGE_REQUESTED,
+        label="Instructor asked for a class change",
+        description="An instructor asked an admin to change a live class's title, dates, price, or capacity.",
+        category="Classes",
+        recipient=Recipients.CLASS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

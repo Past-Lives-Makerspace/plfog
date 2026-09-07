@@ -82,11 +82,18 @@ def describe_form():
         form = CommunityEventForm(data=_event_payload(event_type="guild_meeting", guild=str(guild.pk)), as_admin=True)
         assert form.is_valid(), form.errors
 
-    def it_defaults_the_calendar_target_to_member_when_omitted():
-        # The payload has no google_calendar_target — the forgiving clean coerces it to MEMBER.
+    def it_defaults_the_calendar_target_to_public_when_omitted():
+        # The payload has no google_calendar_target — the forgiving clean coerces it to PUBLIC.
         form = CommunityEventForm(data=_event_payload(event_type="community"), as_admin=True)
         assert form.is_valid(), form.errors
-        assert form.cleaned_data["google_calendar_target"] == CommunityEvent.GoogleCalendarTarget.MEMBER
+        assert form.cleaned_data["google_calendar_target"] == CommunityEvent.GoogleCalendarTarget.PUBLIC
+
+    def it_saves_the_chosen_member_calendar_target():
+        form = CommunityEventForm(
+            data=_event_payload(event_type="community", google_calendar_target="member"), as_admin=True
+        )
+        assert form.is_valid(), form.errors
+        assert form.save().google_calendar_target == CommunityEvent.GoogleCalendarTarget.MEMBER
 
     def it_saves_the_chosen_public_calendar_target():
         form = CommunityEventForm(
@@ -396,3 +403,85 @@ def describe_google_sync_note():
         client.login(username="sync_on", password="pass")
         resp = client.get(reverse("hub_community_calendar"))
         assert SYNC_COPY in resp.content
+
+
+@pytest.mark.django_db
+def describe_edit_page_delete_button():
+    def it_shows_delete_on_the_site_wide_edit_page(client: Client):
+        _user_with_role("dele1", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True, moderation_state=CommunityEvent.ModerationState.PUBLISHED)
+        client.login(username="dele1", password="pass")
+        resp = client.get(reverse("hub_event_edit", args=[event.pk]))
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert reverse("hub_event_delete", args=[event.pk]) in html
+        assert "open-confirm" in html
+        assert "removed from Google Calendar and Discord" in html
+
+    def it_shows_delete_on_the_guild_edit_page(client: Client):
+        user = _user_with_role("dele2")
+        guild = GuildFactory(guild_lead=user.member)
+        event = CommunityEventFactory(guild=guild)
+        client.login(username="dele2", password="pass")
+        resp = client.get(reverse("hub_guild_event_edit", args=[guild.pk, event.pk]))
+        assert resp.status_code == 200
+        assert reverse("hub_guild_event_delete", args=[guild.pk, event.pk]) in resp.content.decode()
+
+    def it_hides_delete_when_creating(client: Client):
+        _user_with_role("dele3", fog_role=Member.FogRole.ADMIN)
+        client.login(username="dele3", password="pass")
+        resp = client.get(reverse("hub_event_add"))
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "delete-event" not in html
+        assert "Delete event" not in html
+
+    def it_uses_unannounced_copy_for_scheduled_events(client: Client):
+        _user_with_role("dele4", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(community=True, moderation_state=CommunityEvent.ModerationState.SCHEDULED)
+        client.login(username="dele4", password="pass")
+        html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+        assert "ever announced" in html
+        assert "removed from Google Calendar and Discord" not in html
+
+    def it_uses_series_copy_for_recurring_events(client: Client):
+        _user_with_role("dele5", fog_role=Member.FogRole.ADMIN)
+        event = CommunityEventFactory(
+            community=True,
+            moderation_state=CommunityEvent.ModerationState.PUBLISHED,
+            recurrence=CommunityEvent.Recurrence.WEEKLY,
+        )
+        client.login(username="dele5", password="pass")
+        html = client.get(reverse("hub_event_edit", args=[event.pk])).content.decode()
+        assert "This removes the whole series." in html
+
+
+@pytest.mark.django_db
+def describe_calendar_subscribe_links():
+    def it_offers_member_and_public_subscribe_links_when_configured(client: Client):
+        _user_with_role("sub1")
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = "memid@group.calendar.google.com"
+        config.public_google_calendar_id = "pubid@group.calendar.google.com"
+        config.save()
+        client.login(username="sub1", password="pass")
+
+        body = client.get(reverse("hub_community_calendar")).content.decode()
+
+        assert "webcal://calendar.google.com/calendar/ical/memid%40group.calendar.google.com/public/basic.ics" in body
+        assert "webcal://calendar.google.com/calendar/ical/pubid%40group.calendar.google.com/public/basic.ics" in body
+        assert "Subscribe to the Member calendar" in body
+        assert "Subscribe to the Public calendar" in body
+
+    def it_hides_a_subscribe_link_when_its_calendar_is_unset(client: Client):
+        _user_with_role("sub2")
+        config = SiteConfiguration.load()
+        config.member_google_calendar_id = "memid@group.calendar.google.com"
+        config.public_google_calendar_id = ""
+        config.save()
+        client.login(username="sub2", password="pass")
+
+        body = client.get(reverse("hub_community_calendar")).content.decode()
+
+        assert "Subscribe to the Member calendar" in body
+        assert "Subscribe to the Public calendar" not in body

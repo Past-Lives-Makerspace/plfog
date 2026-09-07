@@ -1,0 +1,27 @@
+YOU'RE IN!
+
+Hi {{ registration.first_name }},
+
+Great news: a spot opened up in "{{ offering.title }}" and you've been added to the class. Your seat is confirmed and held for you.
+
+Amount due: ${{ amount_due_dollars }}
+
+No payment is required to hold your seat. When you're ready, you can pay online with the link below.
+
+Pay now:
+{{ pay_url }}
+
+{% if upcoming_sessions %}Schedule:
+{% for session in upcoming_sessions %}{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}
+{% endfor %}{% else %}Schedule: TBA. {{ offering.instructor.display_name }} will be in touch with dates.
+{% endif %}Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
+{% if offering.welcome_email_ready %}
+A note from {{ offering.instructor.display_name }}:
+{{ offering.welcome_email_body }}
+{% endif %}
+View class details:
+{{ class_url }}
+
+Manage your registration:
+{{ self_serve_url }}
+{% include "membership/emails/_footer.txt" %}

@@ -57,7 +57,7 @@ def describe_class_published_notification():
     def it_dispatches_to_active_members_when_published(db):
         recipient = _active_member_user()
         instructor = InstructorFactory(user=UserFactory())
-        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, instructor=instructor)
         Notification.objects.all().delete()
 
         _publish_offering(offering)
@@ -66,6 +66,33 @@ def describe_class_published_notification():
             trigger="class_published",
             user=recipient,
         ).exists()
+
+
+# ---------------------------------------------------------------------------
+# instructor review explainer — email-only; must not fan out to class approvers
+# ---------------------------------------------------------------------------
+
+
+def describe_instructor_review_explainer():
+    def it_emails_only_the_instructor_and_fans_out_to_nobody(db, mailoutbox):
+        # Regression: the explainer's None-guild context composes the resolver to the
+        # CLASS_APPROVER capability holders, who each received a bell row, push, and
+        # Discord DM ("Hi [missing: member_name]") carrying the instructor's edit link.
+        from classes.emails import _emit_instructor_review_explainer
+        from membership.models import AdminCapability
+
+        approver = _active_member_user()
+        AdminCapability.objects.create(member=approver.member, capability=AdminCapability.Capability.CLASS_APPROVER)
+        instructor = InstructorFactory(user=UserFactory())
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, instructor=instructor)
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        Notification.objects.all().delete()
+
+        _emit_instructor_review_explainer(offering, row)
+
+        assert len(mailoutbox) == 1
+        assert mailoutbox[0].to == [offering.instructor.primary_email]
+        assert not Notification.objects.filter(trigger="class_review_requested").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +106,7 @@ def describe_instructor_class_approved_notification():
 
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, instructor=instructor)
         admin_user = UserFactory()
         approval = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         approval.decide(ClassApproval.Decision.APPROVED, user=admin_user)
@@ -109,7 +136,7 @@ def describe_instructor_changes_requested_notification():
 
         instructor_user = UserFactory()
         instructor = InstructorFactory(user=instructor_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING, instructor=instructor)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, instructor=instructor)
         admin_user = UserFactory()
         approval = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         approval.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="please fix the desc")
@@ -231,7 +258,11 @@ def describe_waitlist_confirmed_notification():
 
 
 def describe_refund_issued_notification():
-    def it_notifies_member_when_refund_is_issued(db):
+    def it_notifies_member_when_refund_is_issued(db, django_capture_on_commit_callbacks):
+        # The bell row now rides the PaymentRefund succeeded transition
+        # (billing.refunds), not the Registration.save() REFUNDED transition.
+        from unittest.mock import patch
+
         member_user = UserFactory()
         # The ensure_user_has_member signal auto-creates an ACTIVE Member for member_user.
         member = member_user.member  # type: ignore[attr-defined]
@@ -241,11 +272,15 @@ def describe_refund_issued_notification():
             member=member,
             email=member_user.email,
             status=Registration.Status.CONFIRMED,
+            amount_paid_cents=4000,
+            stripe_payment_id="pi_notif_refund",
         )
         Notification.objects.all().delete()
 
-        reg.status = Registration.Status.REFUNDED
-        reg.save()
+        with patch("billing.stripe_utils.create_refund") as mock_create:
+            mock_create.return_value = {"id": "re_notif_1", "status": "succeeded", "amount": 4000}
+            with django_capture_on_commit_callbacks(execute=True):
+                reg.issue_refund()
 
         assert Notification.objects.filter(
             trigger="refund_issued",
@@ -293,12 +328,12 @@ def describe_waitlist_spot_available_notification():
 
 
 def describe_class_cancelled_notification():
-    def it_dispatches_to_active_members_when_class_is_archived(db):
+    def it_dispatches_to_active_members_when_class_is_cancelled(db):
         recipient = _active_member_user()
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         Notification.objects.all().delete()
 
-        offering.archive()
+        offering.cancel(None, "The kiln broke.")
 
         assert Notification.objects.filter(
             trigger="class_cancelled",

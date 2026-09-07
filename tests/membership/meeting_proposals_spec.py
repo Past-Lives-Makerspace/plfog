@@ -373,9 +373,28 @@ def describe_can_propose_to_meeting():
             GuildFactory(guild_lead=lead.member)
             assert can_propose_to_meeting(_request(lead, roles={ROLE_MEMBER}), MeetingFactory(guild=None)) is True
 
-        def it_denies_a_plain_member():
+        def it_allows_an_active_plain_member():
             plain = _user("cm2")
+            assert can_propose_to_meeting(_request(plain, roles={ROLE_MEMBER}), MeetingFactory(guild=None)) is True
+
+        def it_denies_an_inactive_member():
+            plain = _user("cm3")
+            plain.member.status = Member.Status.SUSPENDED
+            plain.member.save(update_fields=["status"])
             assert can_propose_to_meeting(_request(plain, roles={ROLE_MEMBER}), MeetingFactory(guild=None)) is False
+
+        def it_denies_an_anonymous_request():
+            assert can_propose_to_meeting(_request(AnonymousUser()), MeetingFactory(guild=None)) is False
+
+        def it_still_denies_an_active_member_once_the_minutes_are_locked():
+            plain = _user("cm4")
+            meeting = MeetingFactory(guild=None, approved=True)
+            assert can_propose_to_meeting(_request(plain, roles={ROLE_MEMBER}), meeting) is False
+
+        def it_still_denies_an_active_member_once_the_date_has_passed():
+            plain = _user("cm5")
+            meeting = MeetingFactory(guild=None, scheduled_date=timezone.localdate() - timedelta(days=1))
+            assert can_propose_to_meeting(_request(plain, roles={ROLE_MEMBER}), meeting) is False
 
     def describe_closed_meetings():
         def it_denies_everyone_once_the_minutes_are_locked():

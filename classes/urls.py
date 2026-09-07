@@ -13,6 +13,7 @@ urlpatterns = [
     # Self-serve registration management (token-based, no auth)
     path("my/<str:token>/", views.my_registration, name="my_registration"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
+    path("my/<str:token>/pay/", views.my_registration_pay, name="my_registration_pay"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
     # Instructor orientation — reachable by any active member (it IS the unlock).
@@ -28,15 +29,28 @@ urlpatterns = [
         name="teach_class_duplicate_run",
     ),
     path("teach/classes/<int:pk>/", views.teach_class_detail, name="teach_class_detail"),
+    # Instructor-scoped hero + gallery endpoints (the edit pages' instant uploads).
+    path("teach/classes/<int:pk>/hero/upload/", views.teach_class_hero_upload, name="teach_class_hero_upload"),
+    path("teach/classes/<int:pk>/images/upload/", views.teach_class_image_upload, name="teach_class_image_upload"),
+    path("teach/classes/<int:pk>/images/reorder/", views.teach_class_image_reorder, name="teach_class_image_reorder"),
+    path("teach/images/<int:pk>/delete/", views.teach_class_image_delete, name="teach_class_image_delete"),
+    path("teach/images/<int:pk>/alt/", views.teach_class_image_alt, name="teach_class_image_alt"),
+    path("teach/classes/<int:pk>/withdraw/", views.teach_class_withdraw, name="teach_class_withdraw"),
+    path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
+    path(
+        "teach/classes/<int:pk>/request-change/",
+        views.teach_class_request_change,
+        name="teach_class_request_change",
+    ),
     path(
         "teach/classes/<int:pk>/registrations/",
         views.teach_class_registrations,
         name="teach_class_registrations",
     ),
     path(
-        "teach/classes/<int:pk>/registrations/export/",
-        views.teach_class_export,
-        name="teach_class_export",
+        "teach/classes/<int:pk>/registrations/table/",
+        views.teach_class_registrations_table,
+        name="teach_class_registrations_table",
     ),
     path(
         "teach/classes/<int:pk>/registrations/email/",
@@ -83,7 +97,11 @@ urlpatterns = [
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
     path("admin/<int:pk>/registrations/", views.admin_class_registrations, name="admin_class_registrations"),
-    path("admin/<int:pk>/registrations/export/", views.admin_class_export, name="admin_class_export"),
+    path(
+        "admin/<int:pk>/registrations/table/",
+        views.admin_class_registrations_table,
+        name="admin_class_registrations_table",
+    ),
     path("admin/<int:pk>/waitlist/", views.admin_class_waitlist, name="admin_class_waitlist"),
     path("admin/<int:pk>/discount-codes/", views.admin_class_discount_codes, name="admin_class_discount_codes"),
     path("admin/<int:pk>/emails/", views.admin_class_emails, name="admin_class_emails"),
@@ -96,6 +114,9 @@ urlpatterns = [
     path("review/<str:token>/", views.class_review, name="class_review"),
     path("review/<str:token>/preview/", views.class_review_preview, name="class_review_preview"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
+    path("admin/<int:pk>/cancel/", views.admin_class_cancel, name="admin_class_cancel"),
+    path("admin/<int:pk>/restore/", views.admin_class_restore, name="admin_class_restore"),
+    path("admin/<int:pk>/remind-lead/", views.admin_class_remind_lead, name="admin_class_remind_lead"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
     path("admin/<int:pk>/another-date-set/", views.admin_class_duplicate_run, name="admin_class_duplicate_run"),
     path("admin/<int:pk>/delete/", views.admin_class_delete, name="admin_class_delete"),
@@ -116,6 +137,36 @@ urlpatterns = [
     path("admin/registrations/<int:pk>/cancel/", views.admin_registration_cancel, name="admin_registration_cancel"),
     path("admin/registrations/<int:pk>/move/", views.admin_registration_move, name="admin_registration_move"),
     path("admin/registrations/<int:pk>/refund/", views.admin_registration_refund, name="admin_registration_refund"),
+    path(
+        "admin/registrations/<int:pk>/refund/form/",
+        views.admin_registration_refund_form,
+        name="admin_registration_refund_form",
+    ),
+    path(
+        "admin/registrations/<int:pk>/refunds-card/",
+        views.admin_registration_refunds_card,
+        name="admin_registration_refunds_card",
+    ),
+    # Roster & waitlist management actions (shared teach + admin surface, HTMX POST)
+    path("registrations/<int:pk>/remove/", views.registration_remove, name="registration_remove"),
+    path("registrations/<int:pk>/move/", views.registration_move, name="registration_move"),
+    path("registrations/<int:pk>/promote/", views.registration_promote, name="registration_promote"),
+    path(
+        "registrations/<int:pk>/promote/followup/",
+        views.registration_promote_followup,
+        name="registration_promote_followup",
+    ),
+    path(
+        "registrations/<int:pk>/promote/notify/",
+        views.registration_promote_notify,
+        name="registration_promote_notify",
+    ),
+    path(
+        "registrations/<int:pk>/send-payment-link/",
+        views.registration_send_payment_link,
+        name="registration_send_payment_link",
+    ),
+    path("registrations/<int:pk>/mark-paid/", views.registration_mark_paid, name="registration_mark_paid"),
     path("admin/discount-codes/", views.admin_discount_codes, name="admin_discount_codes"),
     path("admin/discount-codes/new/", views.admin_discount_code_create, name="admin_discount_code_create"),
     path("admin/discount-codes/<int:pk>/edit/", views.admin_discount_code_edit, name="admin_discount_code_edit"),

@@ -65,7 +65,7 @@ class Command(BaseCommand):
         """Core billing logic."""
         settings = BillingSettings.load()
 
-        if not SiteConfiguration.load().tab_payments_enabled:
+        if not SiteConfiguration.load().my_tab_enabled:
             self.stdout.write("Tab payments are disabled. Exiting.")
             return
 

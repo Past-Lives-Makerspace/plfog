@@ -444,12 +444,30 @@ def describe_AnnouncementComposeForm():
         assert labels[AnnouncementDraft.Mention.ROLE.value] == "@Ceramics"
         assert form.fields["mention"].initial == AnnouncementDraft.Mention.ROLE.value
 
-    def it_omits_the_role_ping_and_defaults_to_everyone_without_configured_roles():
+    def it_omits_the_role_ping_and_defaults_to_no_ping_without_configured_roles():
+        # Regression for issue #271: the old @everyone default plus a shared channel
+        # fallback pinged the whole makerspace from a webhook less guild.
         guild = GuildFactory(name="Roleless", discord_role_ids=[])
         form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
         values = [value for value, _label in form.fields["mention"].choices]
         assert AnnouncementDraft.Mention.ROLE.value not in values
-        assert form.fields["mention"].initial == AnnouncementDraft.Mention.EVERYONE.value
+        assert form.fields["mention"].initial == AnnouncementDraft.Mention.NONE.value
+
+    def it_defaults_a_webhook_less_guild_to_not_posting_even_with_shared_channels():
+        # Regression for issue #271: the default fell through to site wide #general-chat.
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.discord_general_webhook_url = "https://discord.com/api/webhooks/9/x"
+        config.save()
+        guild = GuildFactory(discord_webhook_url="")
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        assert form.fields["discord_channel"].initial == "none"
+
+    def it_defaults_a_guild_with_its_own_webhook_to_its_own_channel():
+        guild = GuildFactory(discord_webhook_url="https://discord.com/api/webhooks/9/x")
+        form = AnnouncementComposeForm(is_admin=False, editable_guilds=[guild])
+        assert form.fields["discord_channel"].initial == "guild"
 
     def it_labels_the_guild_channel_with_its_real_name_when_synced():
         guild = GuildFactory(discord_channel_name="#glass", discord_webhook_url="https://d/hook")
@@ -510,14 +528,25 @@ def describe_compose_helpers():
         )
 
 
-def _instructor(client: Client, username: str = "instr"):
-    """Log in a member who teaches one PUBLISHED class; returns (user, member, offering)."""
+def _instructor(
+    client: Client,
+    username: str = "instr",
+    *,
+    slug: bool = True,
+    status: str = ClassOffering.Status.PUBLISHED,
+):
+    """Log in a member who teaches one class (PUBLISHED by default); returns (user, member, offering).
+
+    ``slug=False`` makes a *teaching-only* instructor — no public instructor profile
+    (``instructor_slug`` unset), which is the shape that used to bounce off the composer gate.
+    """
     MembershipPlanFactory()
     user = User.objects.create_user(username=username, email=f"{username}@x.com", password="p")
     member = user.member
-    member.instructor_slug = username
-    member.save(update_fields=["instructor_slug"])
-    offering = ClassOfferingFactory(instructor=member, status=ClassOffering.Status.PUBLISHED)
+    if slug:
+        member.instructor_slug = username
+        member.save(update_fields=["instructor_slug"])
+    offering = ClassOfferingFactory(instructor=member, status=status)
     client.login(username=username, password="p")
     return user, member, offering
 
@@ -654,7 +683,119 @@ def describe_locked_composer():
         assert "Sending to:" not in content
 
 
+def describe_teaching_instructor_gate():
+    def it_admits_a_slugless_teaching_instructor_to_the_locked_composer(client: Client):
+        # The bug: is_instructor is the public-profile flag, so a real teacher without a slug
+        # bounced to the propose flow. The class page's button URL must land on the composer.
+        _user, _member, offering = _instructor(client, username="noslug", slug=False)
+        response = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1")
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Sending to:" in content
+        assert f"Registrants of {offering.title}" in content
+
+    def it_admits_a_slugless_teaching_instructor_to_the_open_composer(client: Client):
+        # The broadened general gate: teaching a published class qualifies on its own, and the
+        # class shows up as an audience option.
+        _user, _member, offering = _instructor(client, username="noslug2", slug=False)
+        response = client.get(reverse("hub_compose"))
+        assert response.status_code == 200
+        assert f'value="class:{offering.pk}"' in response.content.decode()
+
+    def it_frames_the_locked_class_composer_as_emailing_the_registrants(client: Client):
+        _user, _member, offering = _instructor(client)
+        content = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1").content.decode()
+        assert f"Email the registrants of {offering.title}" in content
+        assert "This goes to everyone registered for this class." in content
+
+    def it_keeps_the_announce_framing_for_a_locked_guild(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1").content.decode()
+        assert f"Announce to {guild.name}" in content
+        assert "This goes to everyone registered for this class." not in content
+
+    def it_admits_the_instructor_of_an_unpublished_class_via_the_lock(client: Client):
+        # A pending class's instructor legitimately emails early registrants before publish.
+        _user, _member, offering = _instructor(
+            client, username="draftteach", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        response = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1")
+        assert response.status_code == 200
+        assert f"Email the registrants of {offering.title}" in response.content.decode()
+
+    def it_sends_to_the_instructors_own_unpublished_class(client: Client):
+        _user, _member, offering = _instructor(
+            client, username="draftsend", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        student = MemberFactory()
+        with mute_signals(post_save):
+            student_user = User.objects.create_user(username="stu3", email="stu3@x.com", last_login=timezone.now())
+        student.user = student_user
+        student.save(update_fields=["user"])
+        RegistrationFactory(class_offering=offering, member=student, status=Registration.Status.CONFIRMED)
+        response = client.post(
+            reverse("hub_compose_send"),
+            data=_valid_send_data(
+                audience=f"class:{offering.pk}", title="Early note", body="<p>See you soon.</p>", discord_channel=""
+            ),
+        )
+        assert response.status_code == 302
+        assert Notification.objects.filter(user=student_user, trigger="class_announcement").exists()
+
+    def it_still_bounces_a_plain_member_from_a_locked_class_they_do_not_teach(client: Client):
+        _login_plain(client)
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        response = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1")
+        assert response.status_code == 302
+        assert response.url == reverse("hub_guild_announcement_propose")
+
+    def it_resumes_a_lock_only_teachers_own_draft(client: Client):
+        # Saved from the locked composer; the resume URL carries no ?audience, so the gate
+        # must judge the draft's own class audience instead of bouncing to propose.
+        user, _member, offering = _instructor(
+            client, username="draftresume", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        save = client.post(
+            reverse("hub_compose_save_draft"),
+            _valid_send_data(audience=f"class:{offering.pk}", body="<p>Early note draft</p>", discord_channel=""),
+        )
+        assert save.status_code == 200
+        draft = AnnouncementDraft.objects.get(author=user)
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "Early note draft" in content
+        assert f'value="class:{offering.pk}"' in content  # the draft's class is a valid audience choice
+
+    def it_admits_a_lock_only_teacher_to_the_push_test(client: Client):
+        # The push-test button posts the whole form, so the audience travels with it and the
+        # audience-aware gate admits the lock-only teacher (204 with a toast, never a 403).
+        _user, _member, offering = _instructor(
+            client, username="pushlock", slug=False, status=ClassOffering.Status.DRAFT
+        )
+        response = client.post(reverse("hub_compose_push_test"), {"audience": f"class:{offering.pk}"})
+        assert response.status_code == 204
+
+    def it_still_bounces_a_plain_member_from_a_locked_guild(client: Client):
+        # A non-class pre-scope never admits on its own — only the general gate applies.
+        _login_plain(client, username="plain2")
+        guild = GuildFactory()
+        response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1")
+        assert response.status_code == 302
+        assert response.url == reverse("hub_guild_announcement_propose")
+
+
 def describe_send_announcement_entry_points():
+    def it_shows_a_send_email_button_on_the_teach_class_page(client: Client):
+        _user, member, offering = _instructor(client, username="teachbtn")
+        member.instructor_oriented_at = timezone.now()  # the teach portal's own gate
+        member.save(update_fields=["instructor_oriented_at"])
+        content = client.get(reverse("classes:teach_class_detail", args=[offering.pk])).content.decode()
+        assert "</svg>Send Email</a>" in content
+        assert "Send Announcement" not in content
+        assert f"audience=class:{offering.pk}" in content
+
     def it_shows_a_send_announcement_button_to_guild_editors(client: Client):
         guild = GuildFactory()
         _login_lead(client, guild)
@@ -662,11 +803,14 @@ def describe_send_announcement_entry_points():
         assert "Send Announcement" in content
         assert f"audience=guild:{guild.pk}" in content
 
-    def it_shows_a_send_announcement_button_on_the_admin_class_page(client: Client):
+    def it_shows_a_send_email_button_on_the_admin_class_page(client: Client):
+        # The admin twin lands on the same registrant-addressed composer, so it carries the
+        # same "Send Email" label as the teach-side button.
         _login_admin(client)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         content = client.get(reverse("classes:admin_class_detail", args=[offering.pk])).content.decode()
-        assert "Send Announcement" in content
+        assert "</svg>Send Email</a>" in content
+        assert "Send Announcement" not in content
         assert f"audience=class:{offering.pk}" in content
 
     def it_lets_an_admin_send_to_a_class_they_do_not_teach_when_locked(client: Client):
@@ -703,6 +847,12 @@ def describe_admin_tools_sidebar_link():
 
     def it_shows_the_admin_tools_tab_to_an_instructor(client: Client):
         _instructor(client)
+        content = client.get(reverse("hub_member_directory")).content.decode()
+        assert reverse("hub_admin_tools") in content
+
+    def it_shows_the_admin_tools_tab_to_a_slugless_teaching_instructor(client: Client):
+        # Teaching a published class counts, with or without the public profile flag.
+        _instructor(client, username="noslugtools", slug=False)
         content = client.get(reverse("hub_member_directory")).content.decode()
         assert reverse("hub_admin_tools") in content
 
@@ -744,21 +894,32 @@ def describe_admin_tools_page():
         assert resp.url == reverse("hub_home")
 
     def describe_quickstart_guide_cards():
-        def it_shows_both_quickstarts_to_an_admin(client: Client):
+        """The two Quickstart tiles were removed from Admin Tools.
+
+        This block used to pin their per-role gating: an admin saw both, a guild lead
+        saw only the guild-lead guide, an instructor only the instructor guide. The
+        tiles are gone, so the coverage is inverted rather than deleted — no role gets
+        a Quickstart link on this page any more. The guides themselves stay published
+        in the Help Center, which tests/hub/admin_tools_spec.py pins.
+        """
+
+        _QUICKSTART_HREFS = (
+            "/help/running-a-guild/guild-lead-quickstart/",
+            "/help/teaching/instructor-quickstart/",
+        )
+
+        def it_shows_neither_quickstart_to_an_admin(client: Client):
             _login_admin(client)
             content = client.get(reverse("hub_admin_tools")).content.decode()
-            assert "/help/running-a-guild/guild-lead-quickstart/" in content
-            assert "/help/teaching/instructor-quickstart/" in content
+            assert not [href for href in _QUICKSTART_HREFS if href in content]
 
-        def it_shows_only_the_guild_lead_quickstart_to_a_guild_lead(client: Client):
+        def it_shows_neither_quickstart_to_a_guild_lead(client: Client):
             guild = GuildFactory()
             _login_lead(client, guild)
             content = client.get(reverse("hub_admin_tools")).content.decode()
-            assert "/help/running-a-guild/guild-lead-quickstart/" in content
-            assert "/help/teaching/instructor-quickstart/" not in content
+            assert not [href for href in _QUICKSTART_HREFS if href in content]
 
-        def it_shows_only_the_instructor_quickstart_to_a_pure_instructor(client: Client):
+        def it_shows_neither_quickstart_to_a_pure_instructor(client: Client):
             _instructor(client)
             content = client.get(reverse("hub_admin_tools")).content.decode()
-            assert "/help/teaching/instructor-quickstart/" in content
-            assert "/help/running-a-guild/guild-lead-quickstart/" not in content
+            assert not [href for href in _QUICKSTART_HREFS if href in content]

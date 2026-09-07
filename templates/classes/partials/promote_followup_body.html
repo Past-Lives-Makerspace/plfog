@@ -1,0 +1,43 @@
+{% comment %}
+The "Send them a payment link?" follow-up modal body — loaded per row into the
+single promote-followup modal shell right after a paid promote.
+
+Close/abandon behavior: clicking either button sets choiceMade BEFORE its post;
+the x-effect fallback fires choice=skip only when the modal closed (backdrop / X
+/ Esc) with no explicit choice, so an explicit Send is never chased by a skip.
+The server treats a late skip as a 204 no-op regardless (the two-email failure
+mode is closed even if this client wiring misbehaves).
+
+Context: registration, amount_due_dollars.
+{% endcomment %}
+<div x-data="{ choiceMade: false, wasOpen: false }"
+     x-effect="if (open) { wasOpen = true }; if (wasOpen && !open && !choiceMade) { choiceMade = true; document.getElementById('promote-skip-fallback-{{ registration.pk }}').requestSubmit() }">
+    <p style="margin:0 0 1.25rem;">
+        <strong>{{ registration.first_name }}'s in!</strong>
+        They owe ${{ amount_due_dollars }}. Send them a payment link now?
+        You can always send it later from the roster. Either way, {{ registration.first_name }} gets an email saying they're in the class.
+    </p>
+    <div class="pl-modal__actions">
+        <form hx-post="{% url 'classes:registration_promote_notify' registration.pk %}" hx-swap="none"
+              @submit="choiceMade = true"
+              @htmx:after-request="$dispatch('close-modal', 'promote-followup')"
+              style="flex:1;">
+            {% csrf_token %}
+            <input type="hidden" name="choice" value="send">
+            <button type="submit" class="pl-btn pl-btn--primary" style="width:100%;" hx-disabled-elt="this">Send Payment Link</button>
+        </form>
+        <form hx-post="{% url 'classes:registration_promote_notify' registration.pk %}" hx-swap="none"
+              @submit="choiceMade = true"
+              @htmx:after-request="$dispatch('close-modal', 'promote-followup')"
+              style="flex:1;">
+            {% csrf_token %}
+            <input type="hidden" name="choice" value="skip">
+            <button type="submit" class="pl-btn pl-btn--secondary" style="width:100%;" hx-disabled-elt="this">Not Now</button>
+        </form>
+    </div>
+    <form id="promote-skip-fallback-{{ registration.pk }}" style="display:none;"
+          hx-post="{% url 'classes:registration_promote_notify' registration.pk %}" hx-swap="none">
+        {% csrf_token %}
+        <input type="hidden" name="choice" value="skip">
+    </form>
+</div>

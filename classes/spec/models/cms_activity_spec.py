@@ -17,7 +17,7 @@ def describe_CmsActivity():
             assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CREATED, class_offering=offering).exists()
 
         def it_logs_class_submitted_on_submit_for_review(db):
-            offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
             offering.submit_for_review()
             assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_SUBMITTED, class_offering=offering).exists()
 

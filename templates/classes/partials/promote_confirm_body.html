@@ -1,0 +1,25 @@
+{% load classes_tags %}
+{% comment %}
+Rich body for the per-row promote confirm modal (rendered via confirm_body_include).
+Which variant renders is decided by the COMPUTED promote price — the same
+payment_due_cents == 0 branch the endpoint uses — so a 100% discount code promote
+gets the free copy, never a $0.00 payment mention.
+
+Context: reg (WAITLISTED registration), offering, spots_remaining.
+{% endcomment %}
+{% with due=reg.compute_promote_price_cents %}
+<p style="margin:0 0 1rem;">
+    {% if due > 0 %}
+        {{ reg.first_name }} takes a seat immediately. This class costs <strong>{{ due|cents_as_dollars }}</strong> for them{% if reg.member and offering.member_discount_pct %} (member discount applied){% endif %}.
+        You'll choose whether to send a payment link next. No payment is required to hold the seat.
+    {% else %}
+        {{ reg.first_name }} takes a seat immediately and gets a confirmation email.
+    {% endif %}
+</p>
+{% if spots_remaining == 0 %}
+<p class="pl-confirm-warn">
+    ⚠ This class is already full ({{ offering.capacity }} seats). Adding {{ reg.first_name }} puts it over capacity.
+    Your call; make sure the room can take it.
+</p>
+{% endif %}
+{% endwith %}

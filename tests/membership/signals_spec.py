@@ -78,7 +78,10 @@ def describe_ensure_user_has_member():
         member = Member.objects.get(user=user)
         assert member.full_legal_name == "Jane Doe"
 
-    def it_falls_back_to_username_when_full_name_is_blank():
+    def it_leaves_full_legal_name_blank_when_user_has_no_name():
+        # Issue #274: the old fallback seeded the username (the lowercased email
+        # local part) as a legal name. Blank is now deliberate; nothing renders
+        # garbage and str()/display_name stay safe on the empty string.
         MembershipPlanFactory()
         user = User.objects.create_user(
             username="nofullname",
@@ -88,7 +91,28 @@ def describe_ensure_user_has_member():
             password="password",
         )
         member = Member.objects.get(user=user)
-        assert member.full_legal_name == "nofullname"
+        assert member.full_legal_name == ""
+        assert member.display_name == ""
+        assert str(member) == ""
+
+    def it_keeps_placeholder_name_when_linking_user_has_no_name():
+        # An invited/Airtable placeholder keeps its seeded name when the linking
+        # user carries none (the login-code auto-create path) — never the username.
+        plan = MembershipPlanFactory()
+        placeholder = MemberFactory(
+            user=None,
+            _pre_signup_email="noname@example.com",
+            full_legal_name="Seeded Placeholder",
+            status=Member.Status.INVITED,
+            membership_plan=plan,
+        )
+        user = User.objects.create_user(
+            username="noname@example.com",
+            email="noname@example.com",
+        )
+        placeholder.refresh_from_db()
+        assert placeholder.user == user
+        assert placeholder.full_legal_name == "Seeded Placeholder"
 
     def it_links_pre_created_invite_member_by_email():
         plan = MembershipPlanFactory()

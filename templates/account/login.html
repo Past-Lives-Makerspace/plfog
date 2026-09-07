@@ -48,6 +48,15 @@
         <button class="site-version-badge" onclick="document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
     </div>
     <div class="auth-card">
+        {% comment %}Biometric sign in mount. Starts hidden and only the native app reveals
+        it (static/js/biometric-auth.js), and only on a phone that already has a stored
+        secret. Its presence is also how that script knows this is the login page. Everyone
+        else sees the login-code form below, unchanged.{% endcomment %}
+        <div class="pl-biometric-unlock" id="biometric-unlock" hidden>
+            <button type="button" class="btn btn--primary btn--full" data-biometric-unlock-button>Sign in</button>
+            <p class="pl-biometric-unlock__status" data-biometric-unlock-status role="status"></p>
+            <div class="pl-biometric-unlock__divider">or</div>
+        </div>
         <form method="POST" action="{% url 'account_request_login_code' %}">
             {% csrf_token %}
             <label for="id_email">Email address</label>

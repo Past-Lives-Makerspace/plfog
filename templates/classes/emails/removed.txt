@@ -1,0 +1,13 @@
+{% if was_waitlisted %}WAITLIST UPDATE{% else %}REGISTRATION CANCELLED{% endif %}
+
+Hi {{ registration.first_name }},
+
+{% if was_waitlisted %}You've been removed from the waitlist for "{{ offering.title }}". Nothing else changes for you, and you're welcome to sign up for any other class.{% else %}Your registration for "{{ offering.title }}" was cancelled by the studio. Your spot has been released.{% endif %}
+{% if show_refund_note %}
+You paid ${{ amount_paid_dollars }} for this class. Your refund is handled separately and we'll be in touch about it.
+{% endif %}
+Browse upcoming classes:
+{{ browse_url }}
+
+Questions? Reach us at info@pastlives.space.
+{% include "membership/emails/_footer.txt" %}

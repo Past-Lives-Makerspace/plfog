@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.core.exceptions import ValidationError
@@ -538,6 +538,71 @@ class CategoryForm(forms.ModelForm):
     class Meta:
         model = Category
         fields = ["name", "slug", "sort_order", "hero_image"]
+
+
+class TeachPublishedClassForm(forms.ModelForm):
+    """Light edits an instructor may make to a LIVE class without re-review.
+
+    Only fields that do not change what registrants booked on: description, prep notes,
+    materials, safety, guardian note, the flexible-scheduling note, and the video. Title,
+    guild type, price, sale, capacity, dates, and scheduling model stay admin-only after
+    publish (the instructor asks through :class:`ClassChangeRequestForm`). A crafted POST
+    carrying those fields is simply ignored: a ModelForm saves only its declared fields.
+    """
+
+    class Meta:
+        model = ClassOffering
+        fields = [
+            "description",
+            "prerequisites",
+            "materials_included",
+            "materials_to_bring",
+            "safety_requirements",
+            "age_guardian_note",
+            "flexible_note",
+            "video_url",
+        ]
+
+    def clean_video_url(self) -> str:
+        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
+
+
+class ClassChangeRequestForm(forms.Form):
+    """The Request a change modal on a live class: one note for the admins."""
+
+    note = forms.CharField(
+        max_length=1000,
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Move the price to $85 and add one more seat."}),
+        label="What needs to change?",
+        help_text="An admin makes the change and can reach you with questions.",
+    )
+
+    def clean_note(self) -> str:
+        note = " ".join((self.cleaned_data.get("note") or "").split())
+        if not note:
+            raise ValidationError("Say what needs to change.")
+        return note
+
+
+class ClassCancelForm(forms.Form):
+    """The Cancel class modal: one required reason, emailed to everyone registered."""
+
+    reason = forms.CharField(
+        max_length=300,
+        required=False,
+        widget=forms.Textarea(
+            attrs={"rows": 3, "placeholder": "The instructor is unwell and we could not find a date."}
+        ),
+        label="Reason",
+        help_text="Your reason is emailed to everyone registered.",
+    )
+
+    def clean_reason(self) -> str:
+        reason = (self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise ValidationError("Please tell people why.")
+        return reason
 
 
 class ClassReviewDecisionForm(forms.Form):
@@ -1143,6 +1208,20 @@ class RegistrationMoveForm(forms.Form):
 
     The target queryset excludes the registration's current class, so a
     same-class move can't be selected (or POSTed) at all — no extra clean needed.
+    The two audiences are deliberately asymmetric:
+
+    - **Admins** (no ``instructor``) may pick any ``upcoming()`` class — drafts,
+      private, and not-yet-scheduled classes included (they previously had every
+      class and sometimes stage a move deliberately) — and may overfill a class.
+    - **Instructors** (``instructor=`` given) only see their own ``bookable()``
+      classes — published, non-private, flexible or not yet started — so the
+      moved student's class page link can never 404. A full class is rejected
+      in ``clean_target`` for instructors only; admins keep the historical
+      ability to overfill on purpose.
+
+    The choices are materialized once at construction (a single query per form
+    instance): Django's ``ModelChoiceIterator`` re-runs the queryset on every
+    widget render, which would be an N+1 across the per-row roster modals.
     """
 
     target = forms.ModelChoiceField(
@@ -1151,16 +1230,51 @@ class RegistrationMoveForm(forms.Form):
         empty_label="Choose a class…",
     )
 
-    def __init__(self, *args: object, current: "ClassOffering | None" = None, **kwargs: object) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        current: "ClassOffering | None" = None,
+        instructor: "Member | None" = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
-        offerings = ClassOffering.objects.all()
+        self._instructor = instructor
+        if instructor is not None:
+            offerings = ClassOffering.objects.bookable().filter(instructor=instructor)
+        else:
+            offerings = ClassOffering.objects.upcoming()
         if current is not None:
             offerings = offerings.exclude(pk=current.pk)
-        self.fields["target"].queryset = offerings.order_by("title")
-        self.fields["target"].widget.attrs["style"] = (
+        offerings = offerings.order_by("title")
+        field = cast(forms.ModelChoiceField, self.fields["target"])
+        field.queryset = offerings  # POSTed pks still validate against the scoped queryset
+        self._targets: list[ClassOffering] = list(offerings)  # the one query
+        field.choices = [("", str(field.empty_label)), *((o.pk, field.label_from_instance(o)) for o in self._targets)]
+        field.widget.attrs["style"] = (
             "padding:0.45rem 0.75rem; border:1px solid var(--hub-border); border-radius:6px; "
             "background:var(--hub-card-bg,#0c2236); color:var(--hub-text,#f4efdd); font-size:0.875rem;"
         )
+
+    def clean_target(self) -> ClassOffering:
+        """Instructor moves can't overfill the destination; admin moves can (see the class docstring)."""
+        target = cast(ClassOffering, self.cleaned_data["target"])
+        if self._instructor is not None and target.spots_remaining <= 0:
+            raise ValidationError("That class is full.")
+        return target
+
+    @property
+    def has_targets(self) -> bool:
+        """Whether any class can be picked — drives the move modal's empty state. No query: choices are pre-materialized."""
+        return bool(self._targets)
+
+    @property
+    def is_instructor_scoped(self) -> bool:
+        """True when this form was built for an instructor (drives instructor-only modal copy)."""
+        return self._instructor is not None
+
+    def any_target_price_differs(self, amount_paid_cents: int) -> bool:
+        """Whether any offered class's price differs from what the student paid — drives the modal's price note."""
+        return any(offering.price_cents != amount_paid_cents for offering in self._targets)
 
 
 class TeachWelcomeEmailForm(forms.ModelForm):
@@ -1205,3 +1319,38 @@ class TeachWelcomeEmailForm(forms.ModelForm):
     def save(self, commit: bool = True) -> ClassOffering:
         self.instance.welcome_email_updated_at = timezone.now()
         return super().save(commit=commit)
+
+
+class PaymentRefundForm(forms.Form):
+    """Validates the refund modal — amount bounds live here, not in the view.
+
+    ``amount`` is pre-filled with the full refundable remainder (full refund is
+    the default; editing it down makes it partial). ``reason`` is an optional
+    internal note stored on the ``PaymentRefund`` row — the payer never sees it.
+    """
+
+    amount = forms.DecimalField(max_digits=8, decimal_places=2)
+    reason = forms.CharField(required=False, widget=forms.TextInput)
+
+    def __init__(self, *args: Any, registration: Registration, **kwargs: Any) -> None:
+        self.registration = registration
+        refundable = (Decimal(registration.refundable_cents) / 100).quantize(Decimal("0.01"))
+        kwargs.setdefault("initial", {})
+        kwargs["initial"].setdefault("amount", refundable)
+        super().__init__(*args, **kwargs)
+        self.fields["amount"].label = "Amount"
+        self.fields["amount"].help_text = f"Up to ${refundable:.2f}. Edit for a partial refund."
+        self.fields["reason"].label = "Reason"
+        self.fields["reason"].help_text = "Internal note. The payer never sees this."
+
+    def clean_amount(self) -> Decimal:
+        amount: Decimal = self.cleaned_data["amount"]
+        refundable = Decimal(self.registration.refundable_cents) / 100
+        if not Decimal("0.01") <= amount <= refundable:
+            raise ValidationError(f"Enter an amount between $0.01 and ${refundable:.2f}.")
+        return amount
+
+    @property
+    def amount_cents(self) -> int:
+        """The validated refund amount in cents — what ``issue_refund`` takes."""
+        return int(self.cleaned_data["amount"] * 100)

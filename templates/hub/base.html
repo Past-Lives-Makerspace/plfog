@@ -1,12 +1,13 @@
 {% load static hub_tags %}
+{% static 'img/favicon.png' as fallback_logo %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#092E4C">
-    <title>{% block title %}Member View{% endblock %} - Past Lives</title>
-    <link rel="icon" type="image/png" href="{% static 'img/favicon.png' %}">
+    <meta name="theme-color" content="{{ brand_primary_color }}">
+    <title>{% block title %}Member View{% endblock %} - {{ brand_short_name }}</title>
+    <link rel="icon" type="image/png" href="{% firstof brand_logo_url fallback_logo %}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">
     <link rel="stylesheet" href="{% static 'css/components.css' %}">
@@ -69,15 +70,15 @@
     </script>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
+<body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
 {% include "components/toast.html" %}
 {% include "components/loading_bar.html" %}
 {% block extra_body %}{% endblock %}
-    {% if user.is_authenticated and not request.GET.public and not is_guest_surface %}
+    {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}
     <div class="hub-sidebar-backdrop" :class="{ 'hub-sidebar-backdrop--visible': sidebarOpen }" @click="sidebarOpen = false"></div>
     <aside class="hub-sidebar" :class="{ 'hub-sidebar--closed': !sidebarOpen }">
         <a href="{% url 'hub_home' %}" class="pl-brand">
-            <img src="{% static 'img/favicon.png' %}" alt="Past Lives" class="pl-brand__icon" width="24" height="24">
+            <img src="{% firstof brand_logo_url fallback_logo %}" alt="{{ brand_short_name }}" class="pl-brand__icon" width="24" height="24">
             <span class="pl-brand__info">
                 <span class="pl-brand__text">Member Portal</span>
                 <button type="button" class="pl-badge--version" onclick="event.preventDefault();event.stopPropagation();document.getElementById('changelog-modal').style.display='flex'">v{{ app_version }}</button>
@@ -97,7 +98,8 @@
             <hr class="hub-sidebar__divider" />
 
             {% if can_use_admin_tools %}
-            <a href="{% url 'hub_admin_tools' %}" class="hub-sidebar__link {% active_nav 'hub_admin_tools' %}">
+            {# Also lights on the class admin: Manage Classes is a card on this page now. #}
+            <a href="{% url 'hub_admin_tools' %}" class="hub-sidebar__link {% active_nav 'hub_admin_tools' %}{% if request.path|slice:':15' == '/classes/admin/' %} active{% endif %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                 </svg>
@@ -105,13 +107,30 @@
             </a>
             {% endif %}
 
-            <a href="{% url 'classes:public_list' %}" class="hub-sidebar__link {% if request.path|slice:':9' == '/classes/' %}active{% endif %}">
+            {% comment %}
+            Class Catalog lights up on /classes/ EXCEPT the class admin (Admin Tools claims it)
+            and, for a member who has a Teaching entry, the teaching portal. A member with no
+            Teaching entry reaching /classes/teach/orientation/ falls back here rather than
+            lighting nothing.
+            {% endcomment %}
+            <a href="{% url 'classes:public_list' %}" class="hub-sidebar__link {% if request.path|slice:':9' == '/classes/' and not request.path|slice:':15' == '/classes/admin/' and not teach_nav.is_active %}active{% endif %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
                     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
                 </svg>
                 Class Catalog
             </a>
+
+            {% if teach_nav %}
+            {# Teaching: present only for a member who can actually teach (see _teach_nav). #}
+            <a href="{{ teach_nav.url }}" class="hub-sidebar__link{% if teach_nav.is_active %} active{% endif %}" data-nav="teach">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+                    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+                </svg>
+                {{ teach_nav.label }}
+            </a>
+            {% endif %}
 
             <a href="{% url 'hub_community_calendar' %}" class="hub-sidebar__link {% active_nav 'hub_community_calendar' %}" data-help-key="nav.calendar">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -120,7 +139,7 @@
                     <line x1="8" y1="2" x2="8" y2="6"/>
                     <line x1="3" y1="10" x2="21" y2="10"/>
                 </svg>
-                Community Calendar
+                Calendar
             </a>
 
             {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Class Catalog idiom). #}
@@ -145,7 +164,7 @@
                 Member Directory
             </a>
 
-            {% if request.view_as.is_member and tab_payments_enabled %}
+            {% if request.view_as.is_member and my_tab_enabled %}
             <a href="{% url 'hub_tab_detail' %}" class="hub-sidebar__link {% active_nav 'hub_tab_detail' 'hub_tab_history' %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
@@ -158,26 +177,6 @@
             </a>
             {% endif %}
 
-            {% if tab_payments_enabled %}
-            <a href="{% url 'billing_admin_dashboard' %}" class="hub-sidebar__link {% if request.path|slice:':16' == '/billing/admin/d' %}active{% endif %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="2" y="5" width="20" height="14" rx="2"/>
-                    <path d="M2 10h20"/>
-                </svg>
-                Payments
-            </a>
-
-            <a href="{% url 'billing_admin_reports' %}" class="hub-sidebar__link {% if request.path|slice:':17' == '/billing/admin/r' %}active{% endif %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 3v18h18"/>
-                    <path d="M18 17V9"/>
-                    <path d="M13 17V5"/>
-                    <path d="M8 17v-3"/>
-                </svg>
-                Reports
-            </a>
-            {% endif %}
-
             <a href="{% url 'hub_spaces' %}" class="hub-sidebar__link {% active_nav 'hub_spaces' %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
@@ -186,6 +185,15 @@
                 </svg>
                 Spaces
             </a>
+
+            {% if equipment_page_enabled %}
+            <a href="{% url 'hub_equipment_index' %}" class="hub-sidebar__link {% active_nav 'hub_equipment_index' %}">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+                Equipment
+            </a>
+            {% endif %}
 
             <a href="{% url 'hub_admin_voting_overview' %}" class="hub-sidebar__link {% active_nav 'hub_admin_voting_overview' %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -229,7 +237,8 @@
             <hr class="hub-sidebar__divider" />
 
             {% if can_use_admin_tools %}
-            <a href="{% url 'hub_admin_tools' %}" class="hub-sidebar__link {% active_nav 'hub_admin_tools' %}">
+            {# Also lights on the class admin: Manage Classes is a card on this page now. #}
+            <a href="{% url 'hub_admin_tools' %}" class="hub-sidebar__link {% active_nav 'hub_admin_tools' %}{% if request.path|slice:':15' == '/classes/admin/' %} active{% endif %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                 </svg>
@@ -237,13 +246,30 @@
             </a>
             {% endif %}
 
-            <a href="{% url 'classes:public_list' %}" class="hub-sidebar__link {% if request.path|slice:':9' == '/classes/' %}active{% endif %}">
+            {% comment %}
+            Class Catalog lights up on /classes/ EXCEPT the class admin (Admin Tools claims it)
+            and, for a member who has a Teaching entry, the teaching portal. A member with no
+            Teaching entry reaching /classes/teach/orientation/ falls back here rather than
+            lighting nothing.
+            {% endcomment %}
+            <a href="{% url 'classes:public_list' %}" class="hub-sidebar__link {% if request.path|slice:':9' == '/classes/' and not request.path|slice:':15' == '/classes/admin/' and not teach_nav.is_active %}active{% endif %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
                     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
                 </svg>
                 Class Catalog
             </a>
+
+            {% if teach_nav %}
+            {# Teaching: present only for a member who can actually teach (see _teach_nav). #}
+            <a href="{{ teach_nav.url }}" class="hub-sidebar__link{% if teach_nav.is_active %} active{% endif %}" data-nav="teach">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+                    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+                </svg>
+                {{ teach_nav.label }}
+            </a>
+            {% endif %}
 
             <a href="{% url 'hub_community_calendar' %}" class="hub-sidebar__link {% active_nav 'hub_community_calendar' %}" data-help-key="nav.calendar">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -252,7 +278,7 @@
                     <line x1="8" y1="2" x2="8" y2="6"/>
                     <line x1="3" y1="10" x2="21" y2="10"/>
                 </svg>
-                Community Calendar
+                Calendar
             </a>
 
             {% if request.view_as.is_member %}
@@ -287,7 +313,7 @@
                 Member Directory
             </a>
 
-            {% if request.view_as.is_member and tab_payments_enabled %}
+            {% if request.view_as.is_member and my_tab_enabled %}
             <a href="{% url 'hub_tab_detail' %}" class="hub-sidebar__link {% active_nav 'hub_tab_detail' 'hub_tab_history' %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
@@ -308,6 +334,15 @@
                 </svg>
                 Spaces
             </a>
+
+            {% if equipment_page_enabled %}
+            <a href="{% url 'hub_equipment_index' %}" class="hub-sidebar__link {% active_nav 'hub_equipment_index' %}">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+                Equipment
+            </a>
+            {% endif %}
 
             <hr class="hub-sidebar__divider" />
 
@@ -364,14 +399,14 @@
         <div class="hub-sidebar__footer" aria-label="Member resources">
             {# The Member Guide + Code of Conduct Google Docs moved into the Help page (/help/). #}
             <div class="hub-sidebar__icons">
-                <a href="https://pastlives.space" target="_blank" rel="noopener noreferrer" class="hub-sidebar__icon-link" title="pastlives.space" hx-boost="false" aria-label="Past Lives main site">
+                <a href="{{ brand_website_url }}" target="_blank" rel="noopener noreferrer" class="hub-sidebar__icon-link" title="{{ brand_website_display }}" hx-boost="false" aria-label="{{ brand_short_name }} main site">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <circle cx="12" cy="12" r="10"/>
                         <line x1="2" y1="12" x2="22" y2="12"/>
                         <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
                     </svg>
                 </a>
-                <a href="https://discord.com/channels/933589656996565023" target="_blank" rel="noopener noreferrer" class="hub-sidebar__icon-link" title="Discord" hx-boost="false" aria-label="Past Lives Discord">
+                <a href="https://discord.com/channels/933589656996565023" target="_blank" rel="noopener noreferrer" class="hub-sidebar__icon-link" title="Discord" hx-boost="false" aria-label="{{ brand_short_name }} Discord">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
                     </svg>
@@ -399,8 +434,10 @@
     </a>
     {% endif %}
 
-    <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public or is_guest_surface %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public and not is_guest_surface %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
-        {% if user.is_authenticated and not request.GET.public and not is_guest_surface %}
+    <div class="hub-main-wrapper {% if not user.is_authenticated or request.GET.public or is_guest_surface or is_framed %}hub-main-wrapper--public hub-main-wrapper--expanded{% endif %}" {% if user.is_authenticated and not request.GET.public and not is_guest_surface and not is_framed %}:class="{ 'hub-main-wrapper--expanded': !sidebarOpen }"{% endif %}>
+        {% if is_framed %}
+        {# Framed preview: no chrome of any kind, including the public topbar below. #}
+        {% elif user.is_authenticated and not request.GET.public and not is_guest_surface %}
         <header class="pl-topbar">
             <button class="pl-topbar__toggle" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle sidebar">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -434,6 +471,57 @@
                     </button>
                     {% endfor %}
                     <div class="pl-view-as-popover__hint">Preview the hub as a different role. Session-only.</div>
+                    {% if request.view_as.actual_is_admin %}
+                    {% comment %}
+                    Real self-service permission grants (not a preview) — admin-only. Instructor sits
+                    above the admin duties, the same order as the member edit Permissions tab.
+                    {% endcomment %}
+                    {% if view_as_instructor %}
+                    <div class="pl-view-as-popover__duties">
+                        <div class="pl-view-as-popover__header">Instructor</div>
+                        <div class="pl-toggle-row pl-view-as-popover__duty">
+                            <div class="pl-toggle-info">
+                                <div class="pl-toggle-label">
+                                    Instructor
+                                    <span class="pl-help">
+                                        <span class="pl-help__icon" tabindex="0" role="img" aria-label="Instructor: {{ view_as_instructor.description }}">?</span>
+                                        <span class="pl-help__bubble">{{ view_as_instructor.description }}</span>
+                                    </span>
+                                </div>
+                            </div>
+                            <label class="pl-toggle">
+                                <input type="checkbox" {% if view_as_instructor.checked %}checked{% endif %}
+                                       @change="setInstructor($event.target.checked, $event.target)"
+                                       aria-label="Instructor">
+                                <span class="pl-toggle__slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    {% endif %}
+                    <div class="pl-view-as-popover__duties">
+                        <div class="pl-view-as-popover__header">Your admin duties</div>
+                        {% for cap in view_as_capabilities %}
+                        <div class="pl-toggle-row pl-view-as-popover__duty">
+                            <div class="pl-toggle-info">
+                                <div class="pl-toggle-label">
+                                    {{ cap.label }}
+                                    <span class="pl-help">
+                                        <span class="pl-help__icon" tabindex="0" role="img" aria-label="{{ cap.label }}: {{ cap.description }}">?</span>
+                                        <span class="pl-help__bubble">{{ cap.description }}</span>
+                                    </span>
+                                </div>
+                            </div>
+                            <label class="pl-toggle">
+                                <input type="checkbox" {% if cap.checked %}checked{% endif %}
+                                       @change="setCapability('{{ cap.value }}', $event.target.checked, $event.target)"
+                                       aria-label="{{ cap.label }}">
+                                <span class="pl-toggle__slider"></span>
+                            </label>
+                        </div>
+                        {% endfor %}
+                        <div class="pl-view-as-popover__hint">Grant or revoke your own permissions (real changes, applied right away).</div>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
@@ -482,8 +570,8 @@
         {% block public_topbar %}
         <header class="pl-public-topbar">
             <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__brand">
-                <img src="{% static 'img/favicon.png' %}" alt="" width="22" height="22">
-                <span>Past Lives Member Portal</span>
+                <img src="{% firstof brand_logo_url fallback_logo %}" alt="" width="22" height="22">
+                <span>{{ brand_short_name }} Member Portal</span>
             </a>
             <nav class="pl-public-topbar__nav" aria-label="Public navigation">
                 <a href="{% url 'classes:public_list' %}" class="pl-public-topbar__link">Classes</a>
@@ -580,11 +668,55 @@
                         window.location.reload();
                     }
                 },
+                async setCapability(capability, enabled, el) {
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+                        || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1];
+                    const response = await fetch("{% url 'hub_view_as_capability_set' %}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": csrfToken || "",
+                        },
+                        body: JSON.stringify({ capability, enabled }),
+                    });
+                    if (response.ok) {
+                        // Reload so nav/sidebar a capability unlocks (e.g. the Payments dashboard) refreshes.
+                        window.location.reload();
+                    } else if (el) {
+                        // Revert the toggle so it never lies about the real grant state.
+                        el.checked = !enabled;
+                    }
+                },
+                async setInstructor(enabled, el) {
+                    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+                        || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1];
+                    const response = await fetch("{% url 'hub_view_as_instructor_set' %}", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": csrfToken || "",
+                        },
+                        body: JSON.stringify({ enabled }),
+                    });
+                    if (response.ok) {
+                        // Reload so the Teaching sidebar entry appears or disappears with the grant.
+                        window.location.reload();
+                    } else if (el) {
+                        // Revert the toggle so it never lies about the real grant state.
+                        el.checked = !enabled;
+                    }
+                },
             };
         }
     </script>
     {% block extra_js %}{% endblock %}
     <script src="{% static 'js/hero_placement.js' %}?v=1.1"></script>
     <script src="{% static 'js/session_calendar.js' %}"></script>
+    {% comment %}Biometric sign in for the native app. This document is not a child of
+    base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices
+    settings card both live on hub pages. The file no-ops in a browser, no-ops in an app
+    build without the plugin, and refuses to run twice under hx-boost.{% endcomment %}
+    <script src="{% static 'js/biometric-auth.js' %}" defer></script>
+    {% block tour_runtime %}{% include "hub/partials/_tour.html" %}{% endblock %}
 </body>
 </html>

@@ -1,18 +1,16 @@
-"""BDD specs for guild social/contact buttons and the welcome-on-join email."""
+"""BDD specs for guild social/contact buttons."""
 
 from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
-from django.core import mail
 from django.test import Client
 from django.urls import reverse
 
 from hub.forms import GuildEditForm
-from membership.models import GuildMembership, Member
+from membership.models import Member
 from tests.membership.factories import (
     GuildFactory,
-    GuildOrientationSettingsFactory,
     MemberFactory,
     MembershipPlanFactory,
 )
@@ -28,38 +26,6 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
     member.save(update_fields=["fog_role"])
     member.sync_user_permissions()
     return user
-
-
-def describe_guild_join_welcome_email():
-    def it_emails_a_new_member_on_join(client: Client):
-        _user_with_role("gj1")
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome aboard!",
-            join_email_body="So glad you're here.",
-        )
-        client.login(username="gj1", password="pass")
-        client.post(reverse("hub_guild_join", args=[guild.pk]))
-        assert any(m.subject == "Welcome aboard!" for m in mail.outbox)
-
-    def it_does_not_email_on_rejoin(client: Client):
-        user = _user_with_role("gj2")
-        guild = GuildFactory()
-        GuildOrientationSettingsFactory(
-            guild=guild,
-            is_enabled=True,
-            join_email_enabled=True,
-            join_email_subject="Welcome aboard!",
-            join_email_body="Hi",
-        )
-        GuildMembership.objects.create(guild=guild, member=user.member)
-        mail.outbox.clear()
-        client.login(username="gj2", password="pass")
-        client.post(reverse("hub_guild_join", args=[guild.pk]))
-        assert mail.outbox == []
 
 
 def describe_guild_social_buttons():

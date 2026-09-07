@@ -1,0 +1,36 @@
+{% comment %}
+The shared roster table — included by BOTH the teach and admin Registrations tabs,
+and served standalone by classes:teach_class_registrations_table as the
+refund-done refresh target on the teach tab. Rows render via the shared
+classes/partials/registration_row.html so the roster action endpoints can swap a
+single row in place.
+{% endcomment %}
+{% if registrations %}
+<div class="admin-table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>
+                Paid
+                <span class="pl-help">
+                  <span class="pl-help__icon" tabindex="0" role="img" aria-label="Paid column: what Unpaid means.">?</span>
+                  <span class="pl-help__bubble">Unpaid means this person was added from the waitlist and still owes for the class. Their seat is held either way. You can send or resend a payment link, or record a cash payment with Mark as Paid.</span>
+                </span>
+            </th>
+            <th>Registered</th>
+            {% if can_manage or viewer_has_refund_authority %}<th>Actions</th>{% endif %}
+        </tr>
+    </thead>
+    <tbody>
+    {% for reg in registrations %}
+        {% include "classes/partials/registration_row.html" %}
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">No registrations yet.</div>
+{% endif %}

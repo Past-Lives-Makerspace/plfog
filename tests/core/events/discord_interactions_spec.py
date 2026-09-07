@@ -9,6 +9,7 @@ layer). All Discord REST is mocked with ``respx`` — never the network.
 from __future__ import annotations
 
 import httpx
+import pytest
 import respx
 from nacl.signing import SigningKey
 
@@ -182,3 +183,188 @@ def describe_send_followup():
         settings.DISCORD_CLIENT_ID = "app789"
         respx.patch(_FOLLOWUP_URL).mock(side_effect=httpx.ConnectError("no route"))
         assert di.send_followup("tok456", content="done") is False
+
+
+def describe_deferred_update_ack():
+    def it_is_a_bare_type_6_body():
+        assert di.deferred_update_ack() == {"type": 6}
+
+
+def describe_ack_component_deferred():
+    @respx.mock
+    def it_posts_a_type_6_ack_and_returns_true(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        route = respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+        assert di.ack_component_deferred("int123", "tok456") is True
+        assert route.called
+        import json
+
+        assert json.loads(route.calls.last.request.content) == {"type": 6}
+
+    @respx.mock
+    def it_returns_false_on_a_non_2xx(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(403, text="forbidden"))
+        assert di.ack_component_deferred("int123", "tok456") is False
+
+    @respx.mock
+    def it_returns_false_on_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(side_effect=httpx.ConnectError("no route"))
+        assert di.ack_component_deferred("int123", "tok456") is False
+
+
+def describe_update_message():
+    def it_builds_a_type_7_body_with_only_content_by_default():
+        result = di.update_message("edited")
+        assert result == {"type": 7, "data": {"content": "edited"}}
+
+    def it_includes_embeds_components_and_allowed_mentions_when_given():
+        data = di.update_message(
+            "edited",
+            embeds=[{"title": "t"}],
+            components=[{"type": 1}],
+            allowed_mentions={"parse": []},
+        )["data"]
+        assert data["embeds"] == [{"title": "t"}]
+        assert data["components"] == [{"type": 1}]
+        assert data["allowed_mentions"] == {"parse": []}
+
+
+_EXPIRE_URL = "https://discord.com/api/v10/channels/chan/polls/msg/expire"
+
+
+def describe_expire_poll():
+    @respx.mock
+    def it_returns_true_on_a_2xx(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        route = respx.post(_EXPIRE_URL).mock(return_value=httpx.Response(200, json={}))
+        assert di.expire_poll("chan", "msg") is True
+        assert route.calls.last.request.headers["Authorization"] == "Bot bot-token"
+
+    @respx.mock
+    def it_returns_false_on_a_non_2xx(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_EXPIRE_URL).mock(return_value=httpx.Response(400, json={"code": 520003}))
+        assert di.expire_poll("chan", "msg") is False
+
+    @respx.mock
+    def it_returns_false_on_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_EXPIRE_URL).mock(side_effect=httpx.ConnectError("no route"))
+        assert di.expire_poll("chan", "msg") is False
+
+
+def describe_modal_builders():
+    def it_builds_a_type_9_modal():
+        result = di.modal("myform", "My Form", [{"type": 10, "content": "hi"}])
+        assert result == {
+            "type": 9,
+            "data": {"custom_id": "myform", "title": "My Form", "components": [{"type": 10, "content": "hi"}]},
+        }
+
+    def it_wraps_a_child_in_a_label_and_adds_a_description_only_when_given():
+        child = {"type": 4, "custom_id": "q"}
+        assert di.modal_label("Q", child) == {"type": 18, "label": "Q", "component": child}
+        assert di.modal_label("Q", child, description="hint")["description"] == "hint"
+
+    def it_builds_a_text_display():
+        assert di.text_display("note") == {"type": 10, "content": "note"}
+
+    def it_builds_a_minimal_short_text_input():
+        assert di.text_input("q") == {"type": 4, "custom_id": "q", "style": 1, "required": True}
+
+    def it_includes_the_optional_text_input_keys_when_given():
+        comp = di.text_input("q", style=2, placeholder="p", value="v", required=False, min_length=1, max_length=9)
+        assert comp == {
+            "type": 4,
+            "custom_id": "q",
+            "style": 2,
+            "required": False,
+            "placeholder": "p",
+            "value": "v",
+            "min_length": 1,
+            "max_length": 9,
+        }
+
+    def it_builds_a_string_select():
+        options = [{"label": "A", "value": "a"}]
+        assert di.string_select("s", options) == {"type": 3, "custom_id": "s", "options": options, "required": True}
+
+    def it_builds_a_checkbox_unchecked_by_default():
+        assert di.checkbox("c") == {"type": 23, "custom_id": "c", "required": False}
+
+    def it_marks_a_checkbox_checked_by_default():
+        assert di.checkbox("c", default=True, required=True) == {
+            "type": 23,
+            "custom_id": "c",
+            "required": True,
+            "value": True,
+        }
+
+
+def describe_parse_modal_values():
+    def it_reads_label_wrapped_text_inputs_and_selects():
+        interaction = {
+            "data": {
+                "components": [
+                    {"type": 18, "component": {"custom_id": "q", "value": "Hello"}},
+                    {"type": 18, "component": {"custom_id": "dur", "values": ["24"]}},
+                ]
+            }
+        }
+        assert di.parse_modal_values(interaction) == {"q": "Hello", "dur": ["24"]}
+
+    def it_reads_the_legacy_action_row_shape():
+        interaction = {"data": {"components": [{"type": 1, "components": [{"custom_id": "q", "value": "Hi"}]}]}}
+        assert di.parse_modal_values(interaction) == {"q": "Hi"}
+
+    def it_skips_a_child_without_a_custom_id():
+        interaction = {"data": {"components": [{"type": 18, "component": {"value": "orphan"}}]}}
+        assert di.parse_modal_values(interaction) == {}
+
+    def it_skips_a_child_carrying_neither_value_nor_values():
+        # An unchecked checkbox Discord may echo with no values key at all.
+        interaction = {"data": {"components": [{"type": 18, "component": {"custom_id": "c"}}]}}
+        assert di.parse_modal_values(interaction) == {}
+
+
+def describe_send_modal_via_callback():
+    _MODAL = {"type": 9, "data": {"custom_id": "x", "title": "T", "components": []}}
+
+    @respx.mock
+    def it_returns_none_on_success_and_posts_the_modal(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        route = respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(204))
+        assert di.send_modal_via_callback("int123", "tok456", _MODAL) is None
+        import json
+
+        assert json.loads(route.calls.last.request.content)["type"] == 9
+
+    @respx.mock
+    def it_returns_the_error_detail_on_a_rejection(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(return_value=httpx.Response(400, text='{"message": "Invalid Form Body"}'))
+        detail = di.send_modal_via_callback("int123", "tok456", _MODAL)
+        assert detail is not None
+        assert "400" in detail and "Invalid Form Body" in detail
+
+    @respx.mock
+    def it_reports_a_network_error(settings):
+        settings.DISCORD_BOT_TOKEN = "bot-token"
+        respx.post(_CALLBACK_URL).mock(side_effect=httpx.ConnectError("no route"))
+        assert di.send_modal_via_callback("int123", "tok456", _MODAL) == "network error talking to Discord"
+
+
+def describe_modal_label_limits():
+    def it_rejects_a_label_over_100_chars():
+        with pytest.raises(ValueError, match="100-char cap"):
+            di.modal_label("x" * 101, di.text_input("a"))
+
+    def it_rejects_a_description_over_100_chars():
+        with pytest.raises(ValueError, match="100-char cap"):
+            di.modal_label("ok", di.text_input("a"), description="x" * 101)
+
+    def it_accepts_the_boundary():
+        row = di.modal_label("x" * 100, di.text_input("a"), description="y" * 100)
+        assert row["label"] == "x" * 100

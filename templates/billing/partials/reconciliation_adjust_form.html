@@ -1,0 +1,35 @@
+{# Adjust-transaction modal body — loaded via HTMX into #txn-adjust-body. #}
+<form hx-post="{% url 'billing_reconciliation_adjust' source_kind source_pk %}"
+      hx-target="#txn-adjust-body" hx-swap="innerHTML"
+      x-data="{ omitted: {{ form.is_omitted.value|yesno:'true,false' }} }">
+  {% csrf_token %}
+  {% if form.non_field_errors %}
+  <div class="hub-form-error" style="margin-bottom:1rem">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <span @change="omitted = $event.target.checked">
+    {% include "components/toggle.html" with field=form.is_omitted toggle_label="Do not count this transaction" toggle_description="An omitted transaction is excluded from the allocation entirely." %}
+  </span>
+
+  {% if form.percent_fields %}
+  <div x-show="!omitted" x-cloak style="margin-top:1rem">
+    {% for field in form.percent_fields %}
+    {% include "components/form_field.html" with field=field %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="hub-text-muted" style="margin-top:1rem">Tab charges use their product splits; here you can only exclude the whole charge.</p>
+  {% endif %}
+
+  {% include "components/form_field.html" with field=form.reason %}
+
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;margin-top:1.5rem">
+    {% if has_existing %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+            hx-post="{% url 'billing_reconciliation_clear' source_kind source_pk %}" hx-swap="none">Reset to default</button>
+    {% else %}
+    <span></span>
+    {% endif %}
+    <button type="submit" class="pl-btn pl-btn--primary">Save adjustment</button>
+  </div>
+</form>

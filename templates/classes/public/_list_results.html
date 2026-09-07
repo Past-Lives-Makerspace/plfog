@@ -37,7 +37,7 @@ list.html for the initial full-page response.{% endcomment %}
 <div class="cls-grid">
   {% for group in page_obj %}
     {% with offering=group.representative %}
-    <div class="cls-card">
+    <div class="cls-card"{% if forloop.first %} data-help-key="catalog.class-card"{% endif %}>
       <a class="cls-media" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="View {{ offering.title|strip_date_suffix }}">
         {% if offering.image %}
           <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"

@@ -3,7 +3,7 @@
 {% block content %}
 <div x-data="{}">
   <p style="margin-bottom:0.75rem;">
-    <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Community Calendar</a>
+    <a href="{{ cancel_url }}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the Calendar</a>
   </p>
   <h1 class="hub-page-title">{% if editing %}Edit your proposal{% else %}Propose an event{% endif %}</h1>
 
@@ -35,7 +35,7 @@
 
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
       {% if policy == "open" %}
-      Your event will be published to the Community Calendar right away.
+      Your event will be published to the Calendar right away.
       {% else %}
       Your event goes to your guild's leads (or an admin) for a quick review before it appears on the calendar.
       {% endif %}

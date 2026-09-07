@@ -1,7 +1,7 @@
 {% extends "hub/base.html" %}
 {% load static hub_tags %}
 
-{% block title %}Community Calendar — Past Lives Makerspace{% endblock %}
+{% block title %}Calendar — Past Lives Makerspace{% endblock %}
 
 {% block body_class %}calendar-portal{% endblock %}
 
@@ -23,7 +23,7 @@
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 
 <div class="hub-page-header" style="display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;">
-    <h1 class="hub-page-title">Community Calendar</h1>
+    <h1 class="hub-page-title">Calendar</h1>
     <span x-data="{ open: false }" style="position:relative;display:inline-flex;align-items:center;">
         <button type="button"
                 @mouseenter="open=true" @mouseleave="open=false"
@@ -160,19 +160,25 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                     </svg>
-                    Export Calendar
+                    Subscribe
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l3 3 3-3"/></svg>
                 </button>
                 <div class="pl-calendar-export__dropdown" x-show="open" x-transition>
-                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download>
-                        Download .ics (Apple / Outlook)
+                    {% if member_calendar_subscribe_url %}
+                    <a href="{{ member_calendar_subscribe_url }}" class="pl-calendar-export__item">
+                        Subscribe to the Member calendar
                     </a>
-                    <a href="webcal://{{ request.get_host }}{% url 'hub_calendar_export_ics' %}"
-                       class="pl-calendar-export__item">
-                        Subscribe via webcal
+                    {% endif %}
+                    {% if public_calendar_subscribe_url %}
+                    <a href="{{ public_calendar_subscribe_url }}" class="pl-calendar-export__item">
+                        Subscribe to the Public calendar
+                    </a>
+                    {% endif %}
+                    <a href="{% url 'hub_calendar_export_ics' %}" class="pl-calendar-export__item" download>
+                        Download .ics (one time)
                     </a>
                     <p class="pl-calendar-export__note">
-                        Exports the full community calendar — all guild, general, and class events. To register for a specific class, use the More Info link on that event instead.
+                        Subscribe once and your calendar app stays up to date. The Member calendar is all makerspace events; the Public calendar is the outward facing one.
                     </p>
                 </div>
             </div>
@@ -181,13 +187,16 @@
 
     {# ── Filter toggles ── #}
     <div class="pl-calendar-filters" data-help-key="calendar.filter">
+        {% if has_unmapped_events %}
+        {# Fallback chip: only for FOG events whose Google target has no matching feed. #}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('community') }"
                 @click="toggleFilter('community')"
                 style="--filter-color: {{ community_color }};">
             <span class="pl-calendar-filter__dot" style="background: {{ community_color }};"></span>
-            Community events
+            Events
         </button>
+        {% endif %}
         {% for feed in calendar_feeds %}
         <button class="pl-calendar-filter"
                 :class="{ 'pl-calendar-filter--active': isActive('feed-{{ feed.pk }}') }"
@@ -219,7 +228,7 @@
             {{ guild.name }}
         </button>
         {% endfor %}
-        {% if not calendar_feeds and not has_ungrouped_classes and not legend_guilds %}
+        {% if not calendar_feeds and not has_ungrouped_classes and not legend_guilds and not has_unmapped_events %}
         <p class="pl-calendar-empty-notice">No calendars configured yet. Guild officers can add a Google Calendar link from their guild page.</p>
         {% endif %}
     </div>

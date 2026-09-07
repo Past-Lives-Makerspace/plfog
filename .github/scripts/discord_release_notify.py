@@ -31,9 +31,21 @@ _DESC_LIMIT = 4000  # Discord's hard cap is 4096; leave headroom
 
 
 def _release_entries() -> list[dict[str, object]]:
-    """Only the CHANGELOG entry/entries for the version being announced (what just went live)."""
+    """Only the CHANGELOG entry/entries for the version being announced (what just went live).
+
+    No entry stamped at ``VERSION`` means different things depending on who asked. On an
+    automatic push it means the release carried nothing member-facing (a test or tooling fix
+    that still bumped ``VERSION`` per the every-PR rule), so there is nothing to announce, and
+    falling back to the newest entry would re-post an already-shipped release to members. A
+    manual run is the documented escape hatch for re-sending an announcement, so there the
+    fallback stands. ``FORCE_ANNOUNCE`` is set by the workflow on ``workflow_dispatch``.
+    """
     entries = [e for e in CHANGELOG if str(e["version"]) == VERSION]
-    return entries or [CHANGELOG[0]]
+    if entries:
+        return entries
+    if os.environ.get("FORCE_ANNOUNCE", "").strip().lower() == "true":
+        return [CHANGELOG[0]]
+    return []
 
 
 def _bullets(entries: list[dict[str, object]]) -> list[str]:
@@ -88,6 +100,10 @@ def main() -> None:
         return
 
     entries = _release_entries()
+    if not entries:
+        print(f"No changelog entry stamped at v{VERSION}, nothing member-facing to announce.")
+        return
+
     title = str(entries[0]["title"])
     chunks = _chunks(_bullets(entries))
     footer = {"text": f"Past Lives Member Portal v{VERSION}"}

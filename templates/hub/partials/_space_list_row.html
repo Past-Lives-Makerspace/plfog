@@ -48,7 +48,8 @@ back in the list already filterable.
             <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
                     hx-get="{{ detail_url }}" hx-target="#space-detail-body" hx-swap="innerHTML"
                     @click="$dispatch('open-modal', 'space-detail')">{{ h.cta_label }}</button>
-        {% elif h.occupant_names %}
+        {% elif user.is_authenticated and h.occupant_names %}
+            {# Occupant names are opt-in AND members-only: guests fall through to the Details button. #}
             <span class="hub-text-muted pl-map-list__note">{{ h.occupant_names|join:", " }}</span>
         {% else %}
             <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"

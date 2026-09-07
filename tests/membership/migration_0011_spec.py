@@ -33,7 +33,10 @@ def describe_migration_0011_seed_default_membership_plan():
         member = Member.objects.get(user=user)
         assert member.full_legal_name == "Alice Smith"
 
-    def it_backfills_member_with_username_when_name_is_blank():
+    def it_leaves_name_blank_when_user_has_no_name():
+        # This spec exercises the live signal, not the historical migration.
+        # Issue #274 removed the username fallback: blank beats seeding the
+        # lowercased email local part as a legal name.
         from membership.models import Member
 
         user = User.objects.create_user(
@@ -44,7 +47,7 @@ def describe_migration_0011_seed_default_membership_plan():
             password="pass",
         )
         member = Member.objects.get(user=user)
-        assert member.full_legal_name == "noname_user"
+        assert member.full_legal_name == ""
 
     def it_backfills_member_with_first_name_only():
         from membership.models import Member

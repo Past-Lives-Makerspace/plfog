@@ -13,6 +13,41 @@ def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
+def _real_image_file(name: str = "hero.png") -> SimpleUploadedFile:
+    """A genuine PNG: the hero ``image`` form field runs Pillow validation, unlike gallery files."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+def _future_session_fields() -> dict[str, str]:
+    """One session ten days out, so a created class passes the publish readiness check."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    start = timezone.now() + timedelta(days=10)
+    return {
+        "sessions-TOTAL_FORMS": "1",
+        "sessions-0-starts_at": start.strftime("%Y-%m-%dT%H:%M"),
+        "sessions-0-ends_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+    }
+
+
+def _publishable_fields() -> dict:
+    """The readiness essentials the admin create form must carry to publish: photos + a real description."""
+    from classes.factories import READY_DESCRIPTION
+
+    return {
+        "description": READY_DESCRIPTION,
+        "image": _real_image_file(),
+        "gallery_images": [_image_file("ready.png")],
+        **_future_session_fields(),
+    }
+
+
 def describe_status_filter():
     def it_shows_all_by_default(admin_user, client, db):
         from classes.factories import ClassOfferingFactory
@@ -195,7 +230,6 @@ def describe_create_class():
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -204,7 +238,6 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
-                "sessions-TOTAL_FORMS": "0",
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
@@ -216,6 +249,7 @@ def describe_create_class():
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
                 "images-MAX_NUM_FORMS": "1000",
+                **_publishable_fields(),
             },
         )
         assert response.status_code == 302
@@ -231,11 +265,13 @@ def describe_create_class():
 
     def it_date_stamps_the_slug_from_the_first_session(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
         from classes.models import ClassOffering
 
         client.force_login(admin_user)
         cat = CategoryFactory()
         inst = InstructorFactory()
+        session_fields = _future_session_fields()
         response = client.post(
             reverse("classes:admin_class_create"),
             {
@@ -248,7 +284,9 @@ def describe_create_class():
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                "gallery_images": [_image_file("g.png")],
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -257,7 +295,6 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
-                "sessions-TOTAL_FORMS": "1",
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
@@ -265,8 +302,7 @@ def describe_create_class():
                 "faq-INITIAL_FORMS": "0",
                 "faq-MIN_NUM_FORMS": "0",
                 "faq-MAX_NUM_FORMS": "1000",
-                "sessions-0-starts_at": "2026-08-20T18:00",
-                "sessions-0-ends_at": "2026-08-20T20:00",
+                **session_fields,
                 "images-TOTAL_FORMS": "0",
                 "images-INITIAL_FORMS": "0",
                 "images-MIN_NUM_FORMS": "0",
@@ -275,10 +311,11 @@ def describe_create_class():
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Admin Stamped")
-        assert offering.slug == "admin-stamped-2026-08-20"
+        assert offering.slug == "admin-stamped-" + session_fields["sessions-0-starts_at"][:10]
 
     def it_saves_gallery_images_on_create(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
         from classes.models import ClassImage, ClassOffering
 
         client.force_login(admin_user)
@@ -297,7 +334,9 @@ def describe_create_class():
                 "scheduling_model": "fixed",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
+                **_future_session_fields(),
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
@@ -306,7 +345,6 @@ def describe_create_class():
                 "flexible_note": "",
                 "private_for_name": "",
                 "recurring_pattern": "",
-                "sessions-TOTAL_FORMS": "0",
                 "sessions-INITIAL_FORMS": "0",
                 "sessions-MIN_NUM_FORMS": "0",
                 "sessions-MAX_NUM_FORMS": "1000",
@@ -327,6 +365,7 @@ def describe_create_class():
 
     def it_rejects_an_over_cap_gallery_batch_without_publishing(admin_user, client, db):
         from classes.factories import CategoryFactory, InstructorFactory
+        from classes.factories import READY_DESCRIPTION
         from classes.models import ClassOffering
 
         client.force_login(admin_user)
@@ -342,16 +381,17 @@ def describe_create_class():
                 "price_cents": "50.00",
                 "member_discount_pct": 10,
                 "capacity": 6,
-                "scheduling_model": "fixed",
+                "scheduling_model": "flexible",
                 "sale_kind": "percent",
                 "scheduling_type": "single_session",
-                "description": "d",
+                "description": READY_DESCRIPTION,
+                "image": _real_image_file(),
                 "prerequisites": "",
                 "materials_included": "",
                 "materials_to_bring": "",
                 "safety_requirements": "",
                 "age_guardian_note": "",
-                "flexible_note": "",
+                "flexible_note": "We will pick a time together.",
                 "private_for_name": "",
                 "recurring_pattern": "",
                 "sessions-TOTAL_FORMS": "0",
@@ -481,6 +521,207 @@ def describe_edit_class():
         assert offering.slug == "original-2025-01-01"
 
 
+def describe_mine_filter():
+    def it_filters_to_classes_taught_by_me(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Mine Taught", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Not Mine Taught", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert b"Mine Taught" in response.content
+        assert b"Not Mine Taught" not in response.content
+
+    def it_includes_classes_i_authored_but_do_not_teach(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        # created_by=me, instructor is a different member (factory default) → still mine.
+        ClassOfferingFactory(title="I Authored This", created_by=me, status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert b"I Authored This" in response.content
+
+    def it_excludes_classes_where_i_am_neither(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Keep Mine", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        # NULL instructor AND NULL author — a memberful "mine" must not match these either.
+        ClassOfferingFactory(
+            title="Orphan Class", instructor=None, created_by=None, status=ClassOffering.Status.PUBLISHED
+        )
+        ClassOfferingFactory(title="Someone Elses", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert b"Keep Mine" in response.content
+        assert b"Orphan Class" not in response.content
+        assert b"Someone Elses" not in response.content
+
+    def it_composes_with_status_and_search(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Alpha Published", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Alpha Draft", instructor=me, status=ClassOffering.Status.DRAFT)
+        ClassOfferingFactory(title="Zeta Published", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Alpha NotMine", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&status=upcoming&q=Alpha")
+        assert b"Alpha Published" in response.content
+        assert b"Alpha Draft" not in response.content  # wrong status
+        assert b"Zeta Published" not in response.content  # does not match q
+        assert b"Alpha NotMine" not in response.content  # not mine
+
+    def it_shows_the_pill_without_an_instructor_slug(admin_user, client, db):
+        # The admin_user's member has no instructor_slug — the exact condition that
+        # hid the old toggle. The pill must render anyway.
+        assert not admin_user.member.instructor_slug
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes"))
+        assert b"My Classes" in response.content
+
+    def it_returns_empty_for_a_user_with_no_member(client, db):
+        from classes.factories import ClassOfferingFactory, UserFactory
+        from classes.models import ClassOffering
+
+        # A superuser passes the admin gate even with no linked Member.
+        user = UserFactory(username="super-nomember@example.com", is_superuser=True, is_staff=True)
+        user.member.delete()
+        # A NULL-instructor/NULL-author class must NOT leak to a memberless "mine".
+        ClassOfferingFactory(
+            title="Orphan Leak", instructor=None, created_by=None, status=ClassOffering.Status.PUBLISHED
+        )
+        client.force_login(user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert response.status_code == 200
+        assert b"Orphan Leak" not in response.content
+        assert response.context["mine_count"] == 0
+
+    def it_ignores_bogus_mine_values(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="My One", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Other One", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=yes")
+        assert response.context["mine_active"] is False
+        assert b"My One" in response.content
+        assert b"Other One" in response.content
+
+    def it_counts_my_classes_across_all_statuses(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(instructor=me, status=ClassOffering.Status.DRAFT)
+        ClassOfferingFactory(instructor=me, status=ClassOffering.Status.ARCHIVED)
+        ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)  # not mine
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?status=published")
+        # Count is global — all three of mine, not just the published one.
+        assert response.context["mine_count"] == 3
+
+    def it_counts_my_classes_ignoring_the_search_box(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Findable Mine", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Hidden By Search", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?q=Findable")
+        assert response.context["mine_count"] == 2
+
+    def it_preserves_mine_in_status_pill_urls(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&q=pottery")
+        for url, _label, _count, _selected in response.context["status_filters"]:
+            assert "mine=1" in url
+            assert "q=pottery" in url
+
+    def it_preserves_mine_in_base_params(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        assert "mine=1" in response.context["base_params"]
+
+    def it_preserves_mine_when_searching(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1&status=published&instructor=5")
+        html = response.content.decode()
+        # The search form carries the sibling filters as hidden inputs.
+        assert '<input type="hidden" name="mine" value="1">' in html
+        assert '<input type="hidden" name="status" value="published">' in html
+        assert '<input type="hidden" name="instructor" value="5">' in html
+        # Clearing the search drops only q, keeping mine and the rest.
+        clear = response.context["search_clear_url"]
+        assert "mine=1" in clear
+        assert "status=published" in clear
+        assert "q=" not in clear
+
+    def it_strips_bogus_mine_from_computed_urls(admin_user, client, db):
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=yes&status=published")
+        # No pill / clear URL echoes the bogus value or carries a mine at all (it is off).
+        for url, _label, _count, _selected in response.context["status_filters"]:
+            assert "mine" not in url
+        assert "mine" not in response.context["search_clear_url"]
+        assert "mine" not in response.context["mine_clear_url"]
+        assert "mine" not in response.context["instructor_clear_url"]
+        # The toggle is the turn-ON link → a clean mine=1, never mine=yes.
+        assert "mine=yes" not in response.context["mine_toggle_url"]
+        assert "mine=1" in response.context["mine_toggle_url"]
+
+    def it_renders_the_mine_empty_state_with_a_clear_link(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        # The admin owns no classes → mine=1 is empty.
+        ClassOfferingFactory(title="Someone Elses Only", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        html = response.content.decode()
+        assert "not listed as instructor or author" in html
+        assert "Show all classes" in html
+        # The clear link drops only mine.
+        assert "mine" not in response.context["mine_clear_url"]
+
+    def it_uses_the_real_user_under_view_as_preview(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import ClassOffering
+
+        me = admin_user.member
+        ClassOfferingFactory(title="Real Mine", instructor=me, status=ClassOffering.Status.PUBLISHED)
+        ClassOfferingFactory(title="Not Real Mine", status=ClassOffering.Status.PUBLISHED)
+        client.force_login(admin_user)
+        session = client.session
+        session["view_as_role"] = "member"
+        session.save()
+        response = client.get(reverse("classes:admin_classes") + "?mine=1")
+        # Mine follows the real request.user.member, not the previewed role.
+        assert b"Real Mine" in response.content
+        assert b"Not Real Mine" not in response.content
+
+
+def describe_table_search_component():
+    def it_leaves_other_table_search_callers_unchanged():
+        from django.template.loader import render_to_string
+
+        # A caller that passes neither preserved_fields nor clear_url (e.g. the
+        # categories admin) gets no hidden inputs and the bare href="?" clear link.
+        html = render_to_string("components/table_search.html", {"q": "anything", "placeholder": "Search…"})
+        assert 'type="hidden"' not in html
+        assert 'href="?"' in html
+
+
 def describe_class_detail():
     def it_shows_the_detail_page(admin_user, client, db):
         from classes.factories import ClassOfferingFactory
@@ -498,7 +739,7 @@ def describe_approve_class():
         from classes.models import ClassOffering
 
         client.force_login(admin_user)
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING)
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING)
         response = client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
         assert response.status_code == 302
         offering.refresh_from_db()

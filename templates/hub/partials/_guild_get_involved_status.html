@@ -1,0 +1,12 @@
+{# The membership-status lines inside Get Involved. A member sees a quiet confirmation #}
+{# plus a plain link to channel prefs; a non-member sees nothing here (the hero Join owns #}
+{# that job now). Kept in an OOB-swappable wrapper so it flips with join/leave. #}
+<div id="guild-get-involved-status"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if member and is_member_of_guild %}
+    <div class="hub-text-muted pl-guild-updates-note">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        You get this guild's updates
+    </div>
+    <a href="{% if is_guilds_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'hub_user_settings' %}?tab=guilds" class="pl-btn pl-btn--secondary" style="width:100%;" data-help-key="guild.join-leave"{% if is_guilds_surface %} hx-boost="false"{% endif %}>Manage in Settings</a>
+    {% endif %}
+</div>

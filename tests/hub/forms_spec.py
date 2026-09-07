@@ -63,8 +63,10 @@ def describe_profile_settings_form():
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "show_on_space_map",
             "open_for_commissions",
             "commission_note",
+            "marketing_opt_in",
             "instructor_bio",
             "show_pronouns",
             "show_phone",
@@ -74,6 +76,51 @@ def describe_profile_settings_form():
             "show_profile_photo",
             "show_skills",
         ]
+
+    def describe_marketing_opt_in():
+        def it_saves_true_when_the_member_picks_yes():
+            member = MemberFactory(full_legal_name="Marketing User")
+            form = ProfileSettingsForm({"preferred_name": "MU", "marketing_opt_in": "True"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().marketing_opt_in is True
+
+        def it_saves_false_when_the_member_picks_no():
+            member = MemberFactory(full_legal_name="Marketing User", marketing_opt_in=True)
+            form = ProfileSettingsForm({"preferred_name": "MU", "marketing_opt_in": "False"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().marketing_opt_in is False
+
+        def it_defaults_to_false_when_the_field_is_missing_from_the_post():
+            member = MemberFactory(full_legal_name="Marketing User")
+            form = ProfileSettingsForm({"preferred_name": "MU"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().marketing_opt_in is False
+
+        def it_preselects_the_member_current_answer():
+            member = MemberFactory(full_legal_name="Marketing User", marketing_opt_in=True)
+            form = ProfileSettingsForm(instance=member)
+            assert form["marketing_opt_in"].value() is True
+
+    def describe_show_on_space_map():
+        def it_defaults_off_for_a_new_member():
+            assert MemberFactory().show_on_space_map is False
+
+        def it_saves_the_opt_in_when_checked():
+            member = MemberFactory(full_legal_name="Map User")
+            form = ProfileSettingsForm({"preferred_name": "MU", "show_on_space_map": "on"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().show_on_space_map is True
+
+        def it_clears_the_opt_in_when_the_box_is_unchecked():
+            member = MemberFactory(full_legal_name="Map User", show_on_space_map=True)
+            form = ProfileSettingsForm({"preferred_name": "MU"}, instance=member)
+            assert form.is_valid(), form.errors
+            assert form.save().show_on_space_map is False
+
+        def it_preselects_the_member_current_answer():
+            member = MemberFactory(full_legal_name="Map User", show_on_space_map=True)
+            form = ProfileSettingsForm(instance=member)
+            assert form["show_on_space_map"].value() is True
 
     def it_writes_visibility_flags_into_directory_visibility_json():
         member = MemberFactory(full_legal_name="Visibility User")
@@ -179,3 +226,40 @@ def describe_push_test_form():
         form = PushTestForm({"email": "ghost@example.com"})
         assert not form.is_valid()
         assert "email" in form.errors
+
+
+def describe_DeleteAccountConfirmForm():
+    def it_is_valid_when_the_exact_word_is_typed():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "DELETE"})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["confirm_text"] == "DELETE"
+
+    def it_strips_surrounding_whitespace_before_comparing():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "  DELETE  "})
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["confirm_text"] == "DELETE"
+
+    def it_rejects_a_lowercase_word():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "delete"})
+        assert not form.is_valid()
+        assert "confirm_text" in form.errors
+
+    def it_rejects_a_different_word():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": "REMOVE"})
+        assert not form.is_valid()
+        assert "confirm_text" in form.errors
+
+    def it_rejects_a_blank_value():
+        from hub.forms import DeleteAccountConfirmForm
+
+        form = DeleteAccountConfirmForm({"confirm_text": ""})
+        assert not form.is_valid()
+        assert "confirm_text" in form.errors

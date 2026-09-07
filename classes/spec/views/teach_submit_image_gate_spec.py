@@ -15,10 +15,19 @@ from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from classes.factories import CategoryFactory, ClassImageFactory, ClassOfferingFactory, InstructorFactory, UserFactory
+from classes.factories import (
+    READY_DESCRIPTION,
+    CategoryFactory,
+    ClassImageFactory,
+    ClassOfferingFactory,
+    InstructorFactory,
+    UserFactory,
+)
 from classes.models import ClassOffering
 
-_ERROR_FRAGMENT = "Add a photo before submitting"
+# The photo requirement now folds into the readiness checklist; an imageless submit
+# names the photo items inside the one "Not ready to submit" error.
+_ERROR_FRAGMENT = "Not ready to submit: Add a hero photo. Add one gallery photo."
 _NUDGE_FRAGMENT = "3 or more photos"
 
 
@@ -30,6 +39,15 @@ def instructor_fixture(db):
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     buf = BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+def _real_image_file(name: str = "hero.png") -> SimpleUploadedFile:
+    """A genuine PNG — the hero ``image`` form field runs Pillow validation, unlike gallery files."""
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, "PNG")
     return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
 
 
@@ -46,7 +64,7 @@ def _create_payload(cat, **extra) -> dict:
     payload = {
         "title": "Gate Class",
         "category": cat.pk,
-        "description": "d",
+        "description": READY_DESCRIPTION,
         "prerequisites": "",
         "materials_included": "",
         "materials_to_bring": "",
@@ -58,7 +76,7 @@ def _create_payload(cat, **extra) -> dict:
         "scheduling_model": "flexible",
         "sale_kind": "percent",
         "scheduling_type": "single_session",
-        "flexible_note": "",
+        "flexible_note": "We will find a time together.",
         "recurring_pattern": "",
         "sessions-TOTAL_FORMS": "0",
         "sessions-INITIAL_FORMS": "0",
@@ -82,7 +100,7 @@ def _edit_payload(offering, **extra) -> dict:
     payload = {
         "title": offering.title,
         "category": offering.category_id,
-        "description": "d",
+        "description": READY_DESCRIPTION,
         "prerequisites": "",
         "materials_included": "",
         "materials_to_bring": "",
@@ -94,7 +112,7 @@ def _edit_payload(offering, **extra) -> dict:
         "scheduling_model": "flexible",
         "sale_kind": "percent",
         "scheduling_type": "single_session",
-        "flexible_note": "",
+        "flexible_note": "We will find a time together.",
         "recurring_pattern": "",
         "sessions-TOTAL_FORMS": "0",
         "sessions-INITIAL_FORMS": "0",
@@ -116,7 +134,9 @@ def _edit_payload(offering, **extra) -> dict:
 
 def describe_teach_class_submit_photo_gate():
     def it_bounces_an_imageless_draft_to_the_edit_page(instructor_fixture, client):
-        draft = ClassOfferingFactory(instructor=instructor_fixture, image="", status=ClassOffering.Status.DRAFT)
+        draft = ClassOfferingFactory(
+            instructor=instructor_fixture, image="", gallery=0, status=ClassOffering.Status.DRAFT
+        )
         client.force_login(instructor_fixture.user)
         response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
         assert response.status_code == 302
@@ -126,7 +146,7 @@ def describe_teach_class_submit_photo_gate():
         assert any(_ERROR_FRAGMENT in m for m in _messages(response))
 
     def it_submits_and_nudges_with_fewer_than_three_photos(instructor_fixture, client):
-        draft = ClassOfferingFactory(instructor=instructor_fixture, status=ClassOffering.Status.DRAFT)
+        draft = ClassOfferingFactory(ready=True, instructor=instructor_fixture, status=ClassOffering.Status.DRAFT)
         client.force_login(instructor_fixture.user)
         response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
         assert response.status_code == 302
@@ -135,7 +155,7 @@ def describe_teach_class_submit_photo_gate():
         assert any(_NUDGE_FRAGMENT in m for m in _messages(response))
 
     def it_submits_without_a_nudge_at_three_or_more_photos(instructor_fixture, client):
-        draft = ClassOfferingFactory(instructor=instructor_fixture, status=ClassOffering.Status.DRAFT)
+        draft = ClassOfferingFactory(ready=True, instructor=instructor_fixture, status=ClassOffering.Status.DRAFT)
         _add_gallery(draft, 3)
         client.force_login(instructor_fixture.user)
         response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
@@ -160,7 +180,7 @@ def describe_teach_class_create_photo_gate():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_create"),
-            _create_payload(cat, gallery_images=[_image_file("a.png")]),
+            _create_payload(cat, image=_real_image_file(), gallery_images=[_image_file("a.png")]),
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gate Class")
@@ -172,7 +192,11 @@ def describe_teach_class_create_photo_gate():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_create"),
-            _create_payload(cat, gallery_images=[_image_file("a.png"), _image_file("b.png"), _image_file("c.png")]),
+            _create_payload(
+                cat,
+                image=_real_image_file(),
+                gallery_images=[_image_file("a.png"), _image_file("b.png"), _image_file("c.png")],
+            ),
         )
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gate Class")
@@ -182,7 +206,9 @@ def describe_teach_class_create_photo_gate():
 
 def describe_teach_class_edit_photo_gate():
     def it_keeps_an_imageless_class_as_draft_with_an_error(instructor_fixture, client):
-        offering = ClassOfferingFactory(instructor=instructor_fixture, image="", status=ClassOffering.Status.DRAFT)
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, image="", gallery=0, status=ClassOffering.Status.DRAFT
+        )
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),

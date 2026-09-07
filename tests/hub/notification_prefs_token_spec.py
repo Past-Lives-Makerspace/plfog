@@ -48,6 +48,18 @@ def describe_user_settings_when_logged_out():
 
             assert response.status_code != 302
 
+        def it_stays_chip_and_subtitle_free(client):
+            # The token page has no Alpine tab/go(), so the jump chips and the in-page
+            # Guilds/Meetings subtitles (which route through go()) must not render here.
+            user = _member_user("token_chipfree", email="token_chipfree@example.com")
+            token = make_prefs_token(user)
+
+            content = client.get(f"{reverse('hub_user_settings')}?tab=notifications&t={token}").content.decode()
+
+            assert "pl-notif-jump__chip" not in content
+            assert "Manage which guilds send you updates" not in content
+            assert "View upcoming meetings" not in content
+
         def it_saves_a_posted_preference_for_the_tokens_user_and_redirects(client):
             user = _member_user("token_post", email="token_post@example.com")
             token = make_prefs_token(user)

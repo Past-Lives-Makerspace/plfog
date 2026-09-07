@@ -16,7 +16,14 @@ refresh. Expects: pending_results_snapshot (FundingSnapshot or None).
   <div class="pl-results-banner__actions">
     <a href="{% url 'hub_admin_voting_history_detail' pending_results_snapshot.pk %}"
        class="hub-btn hub-btn--ghost">Review numbers</a>
-    {% include "hub/admin/_results_send_control.html" with snapshot=pending_results_snapshot %}
+    {% comment %}
+    oob=False is load bearing. The send control renders THIS banner when oob is set, so
+    without it the two partials include each other forever: include hands the whole parent
+    context down and `with` only ADDS names, so the oob=True from the HTMX response would
+    survive into the control below and bring the banner back. That recursion 500s the send,
+    after the emails have already gone out. Covered by tests/hub/voting_results_send_spec.py.
+    {% endcomment %}
+    {% include "hub/admin/_results_send_control.html" with snapshot=pending_results_snapshot oob=False %}
   </div>
 </div>
 {% endif %}

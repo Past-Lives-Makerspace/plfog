@@ -10,9 +10,25 @@ from django import template
 from django.http import QueryDict
 
 if TYPE_CHECKING:
-    from classes.models import ClassApproval, DiscountApprover, DiscountCode
+    from classes.models import ClassApproval, ClassOffering, DiscountApprover, DiscountCode
 
 register = template.Library()
+
+
+@register.inclusion_tag("classes/emails/_review_pipeline.html")
+def review_pipeline(offering: ClassOffering) -> dict:
+    """The email-safe review pipeline table (inline styles, no SVG) for ``offering``.
+
+    Renders from the same :meth:`ClassOffering.review_pipeline` the pages use, so an
+    email and the portal can never disagree on a step.
+    """
+    return {"pipeline": offering.review_pipeline()}
+
+
+@register.inclusion_tag("classes/emails/_review_pipeline.txt")
+def review_pipeline_text(offering: ClassOffering) -> dict:
+    """The one-line bracketed pipeline plus headline for text emails."""
+    return {"pipeline": offering.review_pipeline()}
 
 
 _YOUTUBE_PATTERNS = (
@@ -286,3 +302,15 @@ def concat(*parts) -> str:
     instead so template-rendered ids stay unique.
     """
     return "".join("" if p is None else str(p) for p in parts)
+
+
+@register.filter
+def move_price_note_needed(move_form, reg) -> bool:
+    """Whether the move-student modal should warn about a price difference.
+
+    Instructor-scoped modals only, and only when at least one offered class's
+    price differs from what this student actually paid — admins already see
+    payment detail on the registration page, and an all-equal picker has
+    nothing to warn about.
+    """
+    return move_form.is_instructor_scoped and move_form.any_target_price_differs(reg.amount_paid_cents)

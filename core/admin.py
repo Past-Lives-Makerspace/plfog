@@ -94,6 +94,21 @@ class SiteConfigurationAdmin(ModelAdmin):
     ]
     fieldsets = [
         (
+            "Brand",
+            {
+                "fields": [
+                    "org_name",
+                    "org_short_name",
+                    "org_legal_name",
+                    "org_logo",
+                    "org_primary_color",
+                    "org_support_email",
+                    "org_website_url",
+                ],
+                "description": "Your organization's identity. These strings and this logo appear across the member hub, the public pages, and the privacy policy.",
+            },
+        ),
+        (
             None,
             {
                 "fields": ["registration_mode"],
@@ -111,13 +126,13 @@ class SiteConfigurationAdmin(ModelAdmin):
             },
         ),
         (
-            "Classes on the Community Calendar",
+            "Classes on the Calendar",
             {
                 "fields": [
                     "sync_classes_enabled",
                     ("classes_calendar_color", "classes_last_synced_at"),
                 ],
-                "description": "When enabled, upcoming classes from our catalog appear on the Community Calendar, each linking to its class page. Events refresh automatically every morning — there's nothing to sync by hand.",
+                "description": "When enabled, upcoming classes from our catalog appear on the Calendar, each linking to its class page. Events refresh automatically every morning — there's nothing to sync by hand.",
             },
         ),
         (

@@ -76,6 +76,7 @@ def describe_gallery_rendering():
             slug="with-images",
             status=ClassOffering.Status.DRAFT,
             image=img("hero.png"),
+            gallery=0,
         )
         ClassImageFactory(class_offering=offering, image=img("g1.png"), sort_order=1)
         ClassImageFactory(class_offering=offering, image=img("g2.png"), sort_order=2)

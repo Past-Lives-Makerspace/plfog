@@ -87,11 +87,11 @@ Use the menu on the left to get around:
 
 - Home: your dashboard and recent activity.
 - Class Catalog: every class and workshop you can sign up for.
-- Community Calendar: everything happening at the space, in one place.
+- Calendar: everything happening at the space, in one place.
 - Spaces: the floor plan and every studio and shared area.
 - Guild Voting: rank the guilds you want the monthly funding pool to support.
 - Help: this page, plus answers to common questions.
-- Member Directory: find other members by skill or guild.
+- Member Directory: find other members by skill.
 - Guilds: jump straight to any guild's page.
 
 The guides below cover the parts people ask about most. Stuck? The Who's Who section \
@@ -147,16 +147,16 @@ ARTICLES: list[dict[str, Any]] = [
         "title": "Welcome to the Member Portal: What's Where",
         "sort_order": 10,
         "related": ["guilds-and-guild-pages", "taking-a-class"],
-        "body": """The Member Portal is the Past Lives member hub — the app where the makerspace runs day to day. Your guilds, the class catalog, the community calendar, guild voting, and your account settings all live here.
+        "body": """The Member Portal is the Past Lives member hub — the app where the makerspace runs day to day. Your guilds, the class catalog, the calendar, guild voting, and your account settings all live here.
 
 ## Your Home Dashboard {#home-dashboard}
 
 Log in and you land on **Home**. It shows:
 
 - **Get started at Past Lives** — a short checklist for new members. Dismiss it once you're settled.
-- Quick links — one tap to the **Community Calendar**, **Class Catalog**, **Guild Voting**, **Member Directory**, and **Settings**.
+- Quick links — one tap to the **Calendar**, **Class Catalog**, **Guild Voting**, **Member Directory**, and **Settings**.
 - **Your upcoming** — classes and events you're signed up for.
-- **Latest from your guilds** — recent announcements from guilds you've joined.
+- **Latest from your guilds** — recent announcements from guilds you follow.
 - **Your guilds** — a chip for each of your guilds, linking straight to its page.
 
 ![The home dashboard: your checklist, quick links, upcoming events, and guild news.](/static/help/welcome-to-fog/01-home-dashboard.png)
@@ -167,7 +167,7 @@ The left sidebar is the map:
 
 - **Home** — your dashboard.
 - **Class Catalog** — every class and workshop you can sign up for.
-- **Community Calendar** — everything happening at the space, in one place.
+- **Calendar** — everything happening at the space, in one place.
 - **Spaces** — the floor map and every studio and shared area.
 - **Guild Voting** — rank the guilds you want the monthly funding pool to support.
 - **Help** — the guides you're reading now, with search.
@@ -181,7 +181,7 @@ The top bar has a light/dark theme toggle and your avatar. Open the avatar for *
 
 ## Good First Steps
 
-- Join a guild or two — see [Guilds and Guild Pages](/help/guilds/guilds-and-guild-pages/).
+- Follow a guild or two — see [Guilds and Guild Pages](/help/guilds/guilds-and-guild-pages/).
 - Book a guild orientation — see [Getting Oriented](/help/guilds/getting-oriented/).
 - Grab a seat in a class — see [Taking a Class](/help/classes/taking-a-class/).
 - Cast your guild vote — see [Guild Voting](/help/guilds/guild-voting/).
@@ -274,29 +274,23 @@ Tabs across the top:
 
 - **Overview** — announcements, what the guild is about, upcoming classes, and meetings.
 - **Guild Calendar** — that guild's meetings, classes, and orientation times.
+- **Orientations** — book a time to get oriented (appears when the guild offers orientations).
 - **FAQ**, **Meeting Notes**, and **Gallery** — appear once the guild adds content to them.
 
-The Overview's side panels show the guild's staff, studio hours, next meeting, members, links, and contact info — plus the **Get Involved** panel, where joining happens.
+The Overview's side panels show the guild's staff, studio hours, next meeting, members, links, and contact info — plus the **Get Involved** panel with quick actions like booking an orientation.
 
-## Join a Guild {#guild-join-leave}
+## Follow a Guild {#guild-join-leave}
 
-1. Open the guild's page.
-2. In the **Get Involved** panel, click **Join This Guild**.
-
-![Join This Guild lives in the Get Involved panel on every guild page.](/static/help/guilds-and-guild-pages/02-join-this-guild.png)
-
-Joining is free, and you can be in as many guilds as you want. It puts you on the guild's roster and its announcement emails. Some guilds send a welcome email with next steps, and the guild's leads are notified so they can say hi.
-
-### Leave a Guild
-
-1. Click your avatar (top right), open **Settings**, then the **Guilds** tab. Guild pages you've joined also show a **Manage in Settings** shortcut.
-2. Flip that guild's toggle off. Changes save instantly — flip it back on any time to rejoin.
+1. Click your avatar (top right), open **Settings**, then the **Guilds** tab. The first time you sign in, we also ask which guilds you want updates from.
+2. Flip on each guild you want updates from. Flip one off any time to stop. Changes save instantly.
 
 ![The Guilds tab in Settings: one toggle per guild, saved instantly.](/static/help/guilds-and-guild-pages/03-leave-from-settings.png)
 
+Following is free, and you can follow as many guilds as you want. It gets you the guild's announcements, puts you on its roster, and gives you its Discord role, and the guild's leads are notified so they can say hi.
+
 ## Good to Know
 
-- Anyone can propose an announcement for a guild, but a guild lead or admin has to approve it before it appears — so yours may not show up right away.
+- Anyone can propose an announcement for a guild when the guild has member suggestions on, but a guild lead or admin has to approve it before it appears — so yours may not show up right away.
 - Only guild leads, their staff, and admins can edit a guild page. If you help run a guild and need access, ask an admin.
 - Many guilds ask you to get oriented before using their space and tools — see [Getting Oriented](/help/guilds/getting-oriented/).
 """,
@@ -306,13 +300,6 @@ Joining is free, and you can be in as many guilds as you want. It puts you on th
                 "page": "/guilds/ceramics-guild/",
                 "selector": None,
                 "caption": "A guild page: the tabs across the top, announcements, and the Get Involved panel.",
-                "as_role": "member",
-            },
-            {
-                "file": "02-join-this-guild.png",
-                "page": "/guilds/ceramics-guild/",
-                "selector": '.hub-card:has(form[action$="/join/"])',
-                "caption": "Join This Guild lives in the Get Involved panel on every guild page.",
                 "as_role": "member",
             },
             {
@@ -334,17 +321,21 @@ Joining is free, and you can be in as many guilds as you want. It puts you on th
 
 ## Book a Slot {#orientation-book-slot}
 
-1. Open the guild's page and click **Join an Orientation** in the **Get Involved** panel. It jumps you to the booking section on the **Guild Calendar** tab.
+1. Open the guild's page and click **Join an Orientation** in the **Get Involved** panel. It jumps you to the booking section on the **Orientations** tab.
 
    ![Join an Orientation in the Get Involved panel jumps to the booking section.](/static/help/getting-oriented/01-join-an-orientation.png)
 
 2. The booking section lists upcoming times with a **Request** button next to each open one. Pick a time and click **Request**. (A time marked **Full** has no seats left — pick another.)
 
-   ![The Guild Calendar tab holds the guild's schedule and the orientation booking section.](/static/help/getting-oriented/02-guild-calendar-tab.png)
+   ![The Orientations tab holds the guild's booking section.](/static/help/getting-oriented/02-orientations-tab.png)
 
 3. Click **Send request** to confirm.
 
 Your request goes to the guild's leads, and it is not official until one of them approves it. Until then the guild page shows your booking as **Requested — awaiting confirmation from the guild lead**. You'll get an email right away confirming the request was received, with a tentative calendar invite attached — and an "Orientation confirmed" email with a real invite once a lead locks it in.
+
+## Pick a Time {#orientation-pick-a-time}
+
+Some guilds post open windows of orienter time as well as fixed slots. Under **Pick a Time**, click **Pick a time** on a window that works and choose the start that suits you; your booking takes up the orientation's usual length inside the window. It still goes to the guild's leads to confirm, same as a slot booking.
 
 ## Request a Custom Time {#orientation-request-custom-time}
 
@@ -365,15 +356,15 @@ On the guild page, your booking shows under **Your orientation** with a **Cancel
             {
                 "file": "01-join-an-orientation.png",
                 "page": "/guilds/ceramics-guild/",
-                "selector": '.hub-card:has(form[action$="/join/"])',
+                "selector": '.hub-card:has(button[data-help-key="orientation.book-slot"])',
                 "caption": "Join an Orientation in the Get Involved panel jumps to the booking section.",
                 "as_role": "member",
             },
             {
-                "file": "02-guild-calendar-tab.png",
+                "file": "02-orientations-tab.png",
                 "page": "/guilds/ceramics-guild/",
                 "selector": 'nav[role="tablist"]',
-                "caption": "The Guild Calendar tab holds the guild's schedule and the orientation booking section.",
+                "caption": "The Orientations tab holds the guild's booking section.",
                 "as_role": "member",
             },
         ],
@@ -526,20 +517,20 @@ Refunds aren't automatic: for a paid class, an admin handles the refund — emai
     {
         "slug": "community-calendar",
         "category": "events-community",
-        "title": "The Community Calendar",
+        "title": "The Calendar",
         "sort_order": 10,
         "related": ["propose-an-event", "taking-a-class"],
         "body": """\
-The Community Calendar puts everything happening at the space in one place: guild meetings, classes, and community events.
+The Calendar puts everything happening at the space in one place: guild meetings, classes, and community events.
 
 ### Browse the Calendar {#calendar-browse}
 
-1. Click **Community Calendar** in the left menu.
+1. Click **Calendar** in the left menu.
 2. Use the **Week** / **Month** toggle to switch views, and the arrows to move through time.
 3. The **Events** tab next to **Calendar** shows the same events as a plain list.
 4. Click any event to open its page — the details, plus an **Add to calendar** button that downloads a calendar file for just that event.
 
-![The Community Calendar — Week and Month views, with the Events tab beside them.](/static/help/community-calendar/01-calendar-page.png)
+![The Calendar — Week and Month views, with the Events tab beside them.](/static/help/community-calendar/01-calendar-page.png)
 
 Heads up: some colored events are pulled in from subscribed and guild calendars — not all of them are Past Lives classes, so they won't all appear in the Class Catalog.
 
@@ -556,13 +547,13 @@ A row of colored filter chips sits above the grid — one per guild or calendar.
 
 You'll need to be signed in for this part.
 
-1. On the **Calendar** tab, click **Export Calendar** (top right).
-2. Pick **Subscribe via webcal** to keep your calendar app in sync — new events show up there automatically.
-3. Or pick **Download .ics (Apple / Outlook)** for a one-time import.
+1. On the **Calendar** tab, click **Subscribe** (top right).
+2. Pick **Subscribe to the Member calendar** for all makerspace events, or **Subscribe to the Public calendar** for the outward facing one. Your calendar app stays in sync as new events are added.
+3. Or pick **Download .ics (one time)** for a one time import of this page.
 
-![The Export Calendar button, top right of the Calendar tab.](/static/help/community-calendar/03-export-calendar.png)
+![The Subscribe button, top right of the Calendar tab.](/static/help/community-calendar/03-export-calendar.png)
 
-The export covers the full community calendar — all guild, general, and class events. To register for a class, use the class's own page instead.
+The Member and Public calendars are the makerspace's shared Google calendars. To register for a class, use the class's own page instead.
 
 Each guild also has its own calendar, on the **Guild Calendar** tab of its guild page.
 """,
@@ -571,7 +562,7 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
                 "file": "01-calendar-page.png",
                 "page": "hub_community_calendar",
                 "selector": None,
-                "caption": "The Community Calendar — Week and Month views, with the Events tab beside them.",
+                "caption": "The Calendar — Week and Month views, with the Events tab beside them.",
                 "as_role": "member",
             },
             {
@@ -585,7 +576,7 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
                 "file": "03-export-calendar.png",
                 "page": "hub_community_calendar",
                 "selector": ".pl-calendar-export",
-                "caption": "The Export Calendar button, top right of the Calendar tab.",
+                "caption": "The Subscribe button, top right of the Calendar tab.",
                 "as_role": "member",
             },
         ],
@@ -600,11 +591,11 @@ Each guild also has its own calendar, on the **Guild Calendar** tab of its guild
         "sort_order": 20,
         "related": ["community-calendar", "announcements"],
         "body": """\
-Got a workshop, meetup, or hangout in mind? Any member can propose an event for the Community Calendar.
+Got a workshop, meetup, or hangout in mind? Any member can propose an event for the Calendar.
 
 ### Propose It {#event-propose}
 
-1. Open the **Community Calendar** and click **+ Propose an event**.
+1. Open the **Calendar** and click **+ Propose an event**.
 2. Fill in the form: title, when it starts, whether it repeats, and the details. Pick your guild to propose one of its meetings or events, or leave the guild blank for a site-wide community event.
 3. Click **Submit for review**.
 
@@ -653,18 +644,20 @@ Announcements are how guilds share news — a restock, a schedule change, a call
 ### Where They Show Up {#announcement-where}
 
 - Every guild page has an **Announcements** section with that guild's posts.
-- Your **Home** dashboard shows **Latest from your guilds** — recent announcements from the guilds you've joined.
+- Your **Home** dashboard shows **Latest from your guilds** — recent announcements from the guilds you follow.
 - A guild's leads can also send an announcement to guild members by email, so keep an eye on your inbox.
 
 ![The Announcements section on a guild page, with the Suggest an announcement button.](/static/help/announcements/01-guild-announcements.png)
 
 ### Suggest an Announcement {#announcement-propose}
 
-Anyone can suggest an announcement for any guild — you don't need to run it.
+Anyone can suggest an announcement for any guild that has member suggestions on — you don't need to run it.
 
 1. On the guild's page, click **+ Suggest an announcement**.
 2. Write your title and message, and submit it.
 3. It goes to the guild's leads (or an admin) for review before it posts. You'll get a note when someone responds.
+
+Some guilds turn member suggestions off. If you don't see the button, that guild isn't taking suggestions right now.
 
 ![The Suggest an announcement form.](/static/help/announcements/02-propose-announcement.png)
 
@@ -702,21 +695,21 @@ Your in-flight proposals appear under **Your proposed announcements** at the top
         "sort_order": 40,
         "related": ["guilds-and-guild-pages"],
         "body": """\
-The Member Directory is where you find other makers — by name, guild, or skill — and where you decide what they see about you.
+The Member Directory is where you find other makers — by name or skill — and where you decide what they see about you.
 
 ### Find People {#directory-search-filter}
 
 1. Click **Member Directory** in the left menu. You'll need to be signed in (unless an admin has made the directory public).
-2. Filter with the **Guild** and **Skill** dropdowns.
+2. Filter with the **Skill** dropdown.
 3. Type a name or a skill into the **Search** box.
 4. Tick **Open for commissions** to see only members taking commission work.
 5. Click **Apply**.
 
 ![The Member Directory — a card for every listed member.](/static/help/member-directory/01-directory.png)
 
-![Filter by guild or skill, search by name, or show only members open for commissions.](/static/help/member-directory/02-directory-filters.png)
+![Filter by skill, search by name, or show only members open for commissions.](/static/help/member-directory/02-directory-filters.png)
 
-Each card shows what that member chose to share: name, photo, pronouns, contact details, guilds, and skills. Want to be findable by skill? Add yours under **My skills** in your settings.
+Each card shows what that member chose to share: name, photo, pronouns, contact details, and skills. Want to be findable by skill? Add yours under **My skills** in your settings.
 
 ### Control What Others See {#directory-visibility}
 
@@ -733,7 +726,7 @@ The fine print:
 
 - Anything you switch off stays private to staff.
 - Admins, guild officers, guild leads, and instructors are always listed — their role needs a public profile — but they still choose which fields appear on their card.
-- Some things are never shown to other members, no matter what: your full legal name, billing details, emergency contacts, and your account status or notes.
+- Some things are never shown to other members, no matter what: your full legal name, billing details, emergency contacts, your account status or notes, and which guilds you follow (that's a notification choice, not a public label).
 - The directory normally requires signing in. Admins can turn on a site setting that opens it to visitors without an account — if that's on, treat whatever your card shows as public.
 """,
         "screenshots": [
@@ -748,7 +741,7 @@ The fine print:
                 "file": "02-directory-filters.png",
                 "page": "hub_member_directory",
                 "selector": ".pl-directory-filters",
-                "caption": "Filter by guild or skill, search by name, or show only members open for commissions.",
+                "caption": "Filter by skill, search by name, or show only members open for commissions.",
                 "as_role": "member",
             },
             {
@@ -786,37 +779,36 @@ The guided tour points at the real buttons, right on the teaching portal, in abo
 - **Create a class** — a private draft with your title, description, dates, price, and photos. See [Become an Instructor](/help/teaching/become-an-instructor/).
 - **Submit it for review** — a guild lead (when your category has one) and an admin check it before it goes live. Same guide.
 - **Preview as a student** — see the public page exactly as a student will, at any point while you work.
-- **Offer it again on new dates** — one click clones a class into a new dated run, grouped with the original. See [Run Your Class](/help/teaching/run-your-class/).
+- **Offer it again on new dates** — one click copies a class into a new draft so you can run it again; the two link to each other on the public page. See [Run Your Class](/help/teaching/run-your-class/).
 
 **Run the class:**
 
-- **See your roster** — who signed up, their answers to your questions, and a CSV export.
+- **See your roster** — who signed up and their answers to your questions.
 - **Email your students** — pick recipients and send, straight from the portal.
 - **Watch the waitlist** — it runs itself; the portal shows you the line.
 - **Write a welcome email** — sent automatically to each student the moment their spot is confirmed.
-- **Create discount codes** — percent or a flat amount off; an admin approves each code before it works.
 
-All five are covered in [Run Your Class](/help/teaching/run-your-class/).
+All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 **Reach further:**
 
-- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**; your published classes appear as audiences, and it reaches students in the app, by push, and by email — see [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
+- **Announce to your class** — open **Admin Tools** in the sidebar, then **Announcements**, and pick one of your published classes as the recipient group: everyone registered for it gets the announcement in the app, by push, and by email — see [The Announcement Composer](/help/running-a-guild/announcement-composer/). (Admin Tools shows up once an admin has given you the Instructor role — ask if you don't see it.)
 - **Your public instructor page** — with the Instructor role, the catalog links your bio and your classes from every class you teach.
 
 ### The Ground Rules {#instructor-ground-rules}
 
 - Nobody self-publishes. Every class — including every new run of an old one — goes through review first.
 - Draft and pending classes are all yours to edit. Once a class publishes, only an admin can change it.
-- The one-time [Instructor Orientation](/help/more/instructor-orientation/) is what unlocks the portal, and the quality bar lives there.
+- The one-time [portal orientation for instructors](/help/more/instructor-orientation/) is what unlocks the portal, and the quality bar lives there.
 
-![The teaching portal: overview, your classes, registrations, and discount codes.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
+![The teaching portal: overview, your classes, and registrations.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
 """,
         "screenshots": [
             {
                 "file": "01-the-teaching-portal.png",
                 "page": "/classes/teach/",
                 "selector": None,
-                "caption": "The teaching portal: overview, your classes, registrations, and discount codes.",
+                "caption": "The teaching portal: overview, your classes, and registrations.",
                 "as_role": "instructor",
             },
         ],
@@ -828,19 +820,15 @@ All five are covered in [Run Your Class](/help/teaching/run-your-class/).
         "sort_order": 20,
         "related": ["run-your-class", "taking-a-class"],
         "body": """\
-Any active member can become an instructor at Past Lives. There is no application to fill out and no waiting on approval — just a short, one-time orientation.
-
-What nobody can do is self-publish. Every class goes through review before it appears in the catalog, no matter who wrote it.
+Are you an experienced instructor? Past Lives instructors come from our membership base. If you have a vision for a class you'd like to teach at Past Lives, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
 ### Complete the Orientation {#teach-become-instructor}
 
-The first time you head for the teaching portal, you land on the [instructor orientation](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — no admin sign-off, and you only ever do it once.
+The first time you head for the teaching portal, you land on the [portal orientation for instructors](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — you only ever do it once. (This is about using the portal; it's separate from any guild equipment or tool orientations.)
 
-Already taught a class before the orientation existed? You're grandfathered in — the portal is already open for you.
-
-One note on the word "instructor": an admin can set your role to Instructor, which creates your public instructor page in the class catalog (and opens the teaching portal for you if it wasn't open already). The role and the unlock are separate things — you don't need the role to teach.
+One note on the word "instructor": an admin can also set your role to Instructor. The role adds extras — a public instructor page in the class catalog and the class Announcements tool. You don't need the role to create or teach a class; completing the portal orientation is what opens the teaching portal.
 
 ### Open the Teaching Portal
 
@@ -850,8 +838,6 @@ Three ways in:
 2. Go straight to `/classes/teach/`.
 3. On any guild page, click **Teach a Class** in the Get Involved panel. That one jumps straight to the new class form.
 
-Haven't done the orientation yet? Any of these takes you there first — finish it and you're through.
-
 ![The teaching portal Overview: your drafts, classes in review, and recent sign-ups.](/static/help/become-an-instructor/01-teaching-portal.png)
 
 ### Create Your Draft {#teach-create-class}
@@ -859,7 +845,7 @@ Haven't done the orientation yet? Any of these takes you there first — finish 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
 2. Fill in the basics: title, guild category, description, price, and how many spots.
 3. Add your dates. A class can be one session or a series; add one row per session. You can also pick flexible scheduling if the dates are arranged later.
-4. Add at least one photo. A class needs its own hero image or one gallery photo before it can be submitted.
+4. Add at least two photos: a hero image and at least one gallery photo. A class needs both before it can be submitted.
 5. Click **Save Draft** to keep working, or **Save & Submit for Review** when it is ready.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
@@ -909,11 +895,11 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
         # never appears on the landing, category pages, or search.
         "slug": "instructor-orientation",
         "category": None,
-        "title": "Instructor Orientation",
+        "title": "Portal Orientation for Instructors",
         "sort_order": 0,
         "related": [],
         "body": """\
-Teaching at Past Lives is open to every active member. This page is the one-time orientation: read it, tick the box at the bottom, and the teaching portal unlocks right away.
+Past Lives instructors come from our membership base. This page is the one-time portal orientation for instructors: read it, tick the box at the bottom, and the teaching portal unlocks right away. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
 
 ## What We Expect From Instructors {#what-we-expect}
 
@@ -937,7 +923,7 @@ Reviewers can approve, request changes, or decline — and they have to leave a 
 
 Before a class can be submitted it needs:
 
-- **At least one photo** — its own hero image or a gallery photo. Classes with real photos of the work get real sign-ups.
+- **At least two photos** — its own hero image and at least one gallery photo. Classes with real photos of the work get real sign-ups.
 - **A description that answers the basics** — what students will make or learn, what's provided, and what (if anything) to bring.
 - **Fair pricing** — cover your materials and time. If you set a member discount, members get it automatically when they register with their member email.""",
         "screenshots": [],
@@ -949,19 +935,17 @@ Before a class can be submitted it needs:
         "sort_order": 30,
         "related": ["become-an-instructor", "taking-a-class"],
         "body": """\
-Once your class is submitted or live, the teaching portal at `/classes/teach/` is where you run it: see who signed up, email them, watch the waitlist, set up your welcome email and discount codes, and offer the class again.
+Once your class is submitted or live, the teaching portal at `/classes/teach/` is where you run it: see who signed up, email them, watch the waitlist, set up your welcome email, and offer the class again.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-The portal has four tabs: **Overview**, **Classes**, **Registrations**, and **Discount Codes**. Opening a class from the **Classes** tab gives that class its own workspace with sub-tabs: **Overview**, **Registrations**, **Waitlist**, **Discount Codes**, and **Emails**.
+The portal has three tabs: **Overview**, **Classes**, and **Registrations**. Opening a class from the **Classes** tab gives that class its own workspace with sub-tabs: **Overview**, **Registrations**, **Waitlist**, and **Emails**.
 
 ![The Classes tab lists every class you teach, with its status and sign-up count.](/static/help/run-your-class/01-your-classes.png)
 
 ### See Who Signed Up
 
 Open the portal-wide **Registrations** tab to see students for all your classes at once, grouped by class. Or open one class and use its **Registrations** sub-tab. Each row shows the student's name, email, status, when they registered, and their answers to any registration questions.
-
-Need the list outside the app? Click **Export Data** on a class's Registrations sub-tab to download the full roster as a CSV. It opens in any spreadsheet.
 
 ![The Registrations tab: your students grouped by class, with the email tool.](/static/help/run-your-class/02-registrations.png)
 
@@ -976,17 +960,13 @@ You can only email people registered for your own classes, and the per-class tab
 
 ### Your Welcome Email {#teach-welcome-email}
 
-Each class can have a welcome email, sent automatically to every student the moment their spot is confirmed — right away for a free class, when the payment clears for a paid one. Waitlist joins never get it; they're not in the class yet.
+Each class can have a welcome email, sent automatically to every student the moment their spot is confirmed — that is, when their payment clears. Waitlist joins never get it; they're not in the class yet.
 
 Open the class's **Emails** sub-tab, switch the welcome email on, and write the subject and body. **Send a test to me** puts it in your own inbox so you can check it before students see it. It only goes out when it's switched on and has both a subject and a body.
 
 ### Discount Codes {#teach-discount-codes}
 
-On the **Discount Codes** tab you can create codes for your own classes: percent off or a flat amount off, an optional first and last valid date, and an optional cap on total uses. There's also an auto-apply option — the discount applies to everyone without typing a code, which is how you run a sale.
-
-One catch: a new code starts switched off. An admin approves it before it works, and you'll see its status right on the tab. (Some instructors are trusted to approve their own codes — that's a per-member setting an admin grants.) Site-wide codes made by admins show up here too, read-only.
-
-![The Discount Codes tab: your codes, their status, and the site-wide ones.](/static/help/run-your-class/03-discount-codes.png)
+Discount codes are created by admins. Want one for your class — a percent off, a flat amount off, or an auto-apply sale? Ask an admin.
 
 ### Announce to Your Class {#teach-announce-class}
 
@@ -1004,7 +984,7 @@ You do not need to rebuild a class to run it on new dates.
 2. At the bottom, click **+ Offer on another set of dates**.
 3. You get a draft copy with no dates. Add the new dates, then submit it for review.
 
-The new run stays grouped with the original on the public page, and every new run goes through review before it publishes.
+On the public class page, the original and the new class link to each other under **Other Dates for This Class**, so students always see every date the class is offered. And like any class, the new one goes through review before it publishes.
 
 The caveat: once a class is published, only an admin can edit it, and that edit page is where the button lives. To add a new date-set to a live class, ask an admin; they have the same one-click tool.""",
         "screenshots": [
@@ -1020,13 +1000,6 @@ The caveat: once a class is published, only an admin can edit it, and that edit 
                 "page": "/classes/teach/registrations/",
                 "selector": None,
                 "caption": "The Registrations tab: your students grouped by class, with the email tool.",
-                "as_role": "instructor",
-            },
-            {
-                "file": "03-discount-codes.png",
-                "page": "/classes/teach/discount-codes/",
-                "selector": None,
-                "caption": "The Discount Codes tab: your codes, their status, and the site-wide ones.",
                 "as_role": "instructor",
             },
         ],
@@ -1115,7 +1088,7 @@ The Overview's "Needs your attention" panel lists every class waiting on review.
 - **Approve** records your admin approval on the spot.
 - **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a decision form with **Approve**, **Request changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit decision** records it and emails the instructor.
 
-Review order matters. When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). Your admin gate only opens after the lead approves, so quick-approving early gets you a "waiting on the remaining reviewer(s)" message rather than a publish. Once every required approval is in, the class publishes and opens for sign-ups. **Request changes** and **Decline** send it back to the instructor as a draft, with your notes.
+When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Request changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
 Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
 
@@ -1139,9 +1112,9 @@ Open the **Registrations** tab and click into a registration. Three admin-only a
 
 ![A registration's detail page, with Cancel, Move, and Mark Refunded.](/static/help/reviewing-classes-admin/03-registrations.png)
 
-### Discount Code Approvals
+### Discount Codes
 
-Every discount code an instructor creates starts inactive, waiting on approval. The **Discount Codes** tab shows them all; **Approve** activates a code and **Unapprove** switches it back off. Members you have given the "can approve their own discount codes" checkbox (on their Manage Members edit page) can activate their own without you.""",
+Discount codes are created by admins — instructors ask you when they want one for a class. The **Discount Codes** tab is where you create and manage them: percent off or a flat amount off, optional valid dates, an optional cap on total uses, and an auto-apply option for running a sale. A new code starts inactive; **Approve** activates it and **Unapprove** switches it back off.""",
         "screenshots": [
             {
                 "file": "01-review-queue.png",
@@ -1252,7 +1225,7 @@ Below the switches, the Email wording links let you edit the text of each voting
         "sort_order": 10,
         "related": ["your-guild-page", "guild-staff-roles", "guild-announcements"],
         "body": """\
-Lead a guild, or hold any staff role on one? You have a full control room for your guild: its public page, orientations, announcements, events, and staff. This page is the map — one line per tool, each linking to a short guide with screenshots.
+Lead a guild, or hold any staff role on one? You have a full control room for your guild: its portal landing page, orientations, announcements, events, and staff. This page is the map — one line per tool, each linking to a short guide with screenshots.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
@@ -1270,7 +1243,7 @@ The [Cartographers Guild](/guilds/cartographers-guild/) is a permanent, fictiona
 
 Open your guild's page and click **Guild Settings**. Every tool below lives on one of its tabs.
 
-**Your public page:**
+**Your guild's portal landing page:**
 
 - **Basic Information** — name, About text, essential rules, contact email, website, Discord invite, a YouTube video, a featured class, and whether your member roster shows. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 - **Banner and gallery** — a hero banner with a crop tool, plus up to 10 photos with alt text. Same guide.
@@ -1285,7 +1258,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 **Reaching members:**
 
 - **Announcements** — write to your whole guild (in-app, push, email, and Discord from one wizard), manage your mailing list, and review member-proposed announcements. See [Guild Announcements](/help/running-a-guild/guild-announcements/) and [The Announcement Composer](/help/running-a-guild/announcement-composer/).
-- **Two automatic emails** — a welcome email when someone joins your guild and a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
+- **One automatic email** — a thank-you after their orientation. See [Your Guild Page](/help/running-a-guild/your-guild-page/).
 
 **Calendar and records:**
 
@@ -1330,7 +1303,7 @@ Wondering how far you can take the page? The [Cartographers Guild](/guilds/carto
 
 ### The Tabs {#guild-edit-page}
 
-Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Images**, **FAQ & Links**, **Announcements/Emails**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
+Guild Settings is one page with tabs across the top: **Basic Information**, **Meetings**, **Studio Hours**, **Meeting Notes**, **Events**, **Orientations**, **Welcome Email**, **Images**, **FAQ**, **Links**, **Announcements**, and **Staff**. Basic Information, Meetings, and Images share one **Save Changes** button. Every other tab has its own Save button, so save each tab before you leave it.
 
 This guide covers the page itself. Orientations, announcements, events, studio hours, and staff each have their own guide.
 
@@ -1356,17 +1329,17 @@ The **Gallery** section on the Images tab holds up to 10 photos. They save the m
 
 ### FAQ
 
-On the **FAQ & Links** tab, click **+ Add a question**. Each answer can also embed a YouTube video and attach one document: upload a file or paste a link, not both. **Delete this question** saves the whole page right away, so nothing else you typed is lost. Click **Save FAQ** when you're done. Want the section called something other than FAQ? Rename it on the **Basic Information** tab.
+On the **FAQ** tab, click **+ Add a question**. Each answer can also embed a YouTube video and attach one document: upload a file or paste a link, not both. **Delete this question** saves the whole page right away, so nothing else you typed is lost. Click **Save FAQ** when you're done. Want the section called something other than FAQ? Rename it on the **Basic Information** tab.
 
-![The FAQ & Links tab. Each answer can carry a video and a document.](/static/help/your-guild-page/03-faq-and-links.png)
+![The FAQ tab. Each answer can carry a video and a document.](/static/help/your-guild-page/03-faq-and-links.png)
 
 ### Links
 
-Below the FAQ editor, add links with a label and a URL, then click **Save Links**. They show on your guild page.
+On the **Links** tab, add links with a label and a URL, then click **Save Links**. They show on your guild page.
 
-### Two Automatic Emails
+### Your Automatic Email
 
-On the **Announcements/Emails** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete, and a **Welcome email**, sent when a member joins your guild. Each one only goes out when it's switched on and has both a subject and a body. Click **Save emails**.
+On the **Orientations** tab you can write a **Thank-you email**, sent to a member once their orientation is marked complete. It's on by default and falls back to standard wording, so you can leave the subject and body blank or write your own. Click its **Save** button.
 
 Only leads, staff, and admins see the Guild Settings button. Everything a staff member can do here, they can do with your full authority; see the guild staff roles guide before adding anyone.""",
         "screenshots": [
@@ -1388,7 +1361,7 @@ Only leads, staff, and admins see the Guild Settings button. Everything a staff 
                 "file": "03-faq-and-links.png",
                 "page": "/guilds/1/edit/?tab=content",
                 "selector": "[x-show=\"section === 'content'\"]",
-                "caption": "The FAQ & Links tab. Each answer can carry a video and a document.",
+                "caption": "The FAQ tab. Each answer can carry a video and a document.",
                 "as_role": "guild_lead",
             },
         ],
@@ -1402,7 +1375,7 @@ Only leads, staff, and admins see the Guild Settings button. Everything a staff 
         "body": """\
 ### One Rule Before Anything Else {#guild-staff-authority}
 
-**Every staff role grants the full authority of the guild lead.** There are no junior roles. Whether you add someone as a Guild Lead, Secretary, Treasurer, Orientator, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild.
+**Every staff role grants the full authority of the guild lead.** There are no junior roles. Whether you add someone as a Co-Lead, Secretary, Treasurer, Orienter, or under a custom title you invent, the title is only a label. The moment they're on your staff, they can do everything you can do for this guild.
 
 Concretely, every staff member can:
 
@@ -1418,7 +1391,7 @@ So add people you trust with the whole guild, not just with one job.
 ### Add or Remove Staff {#guild-manage-staff}
 
 1. Open your guild's page and click **Guild Settings**, then the **Staff** tab.
-2. Pick the member, then either a preset role (Guild Lead, Secretary, Treasurer, Orientator) or type your own title. One or the other, not both.
+2. Pick the member, then either a preset role (Secretary, Treasurer, Orienter) or type your own title. One or the other, not both. Only admins can add a Co-Lead, and the guild lead itself is set by an admin.
 3. Click **Add staff member**.
 
 ![The Staff tab: current staff with their title badges, and the add form below.](/static/help/guild-staff-roles/01-staff-tab.png)
@@ -1465,7 +1438,7 @@ Members request orientations from your guild's own page. Every request stays pen
 3. Choose whether members may propose their own time (custom requests).
 4. Click **Save orientation settings**.
 
-![The Orientations tab: booking settings, the pause switch, and recurring hours.](/static/help/running-orientations/01-orientations-tab.png)
+![The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.](/static/help/running-orientations/01-orientations-tab.png)
 
 Going away for a while? The **Closed for orientations** card pauses bookings without losing any of your settings, and shows members your message (like: on vacation till Sept 8).
 
@@ -1474,6 +1447,10 @@ Going away for a while? The **Closed for orientations** card pauses bookings wit
 The **Recurring hours** card is where bookable times come from. Add one row per weekly window (Tuesdays 6-7 pm and Saturdays 10-11 am are two rows), then click **Save Hours**. Saving turns your hours into concrete bookable slots immediately, and a nightly job keeps the next eight weeks open.
 
 ![Recurring hours become bookable slots automatically.](/static/help/running-orientations/02-recurring-hours.png)
+
+### Availability Blocks {#orientation-availability-blocks}
+
+The **Availability Blocks** card on the Orientations dashboard is another way to open up time. Post one window (say, Saturday 1 to 4 pm) and members pick any of the guild's orientations plus a start time inside it; each booking takes up that orientation's length, so one block can serve several members back to back. Blocks can't be edited once posted; cancel one and post a fresh block instead. Cancelling stops new bookings right away but keeps anything already booked on the calendar.
 
 ### Custom Times and One-Off Slots
 
@@ -1500,13 +1477,13 @@ Need to orient someone who never booked? Use **Add a member to a slot** at the b
 
 ### Past Orientations Complete Themselves
 
-Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Announcements/Emails tab) and posts a welcome notice to the guild. If a no-show got auto-completed, the guild's lead or an admin can flip it back with the **Mark done** toggle in the dashboard table.""",
+Every 15 minutes, a background job marks confirmed orientations complete once their time has passed. Completion sends your thank-you email (if you've set one up on the Orientations tab) and posts a welcome notice to the guild. If a no-show got auto-completed, the guild's lead or an admin can flip it back with the **Mark done** toggle in the dashboard table.""",
         "screenshots": [
             {
                 "file": "01-orientations-tab.png",
                 "page": "/guilds/1/edit/?tab=orientations",
                 "selector": "[x-show=\"section === 'orientations'\"]",
-                "caption": "The Orientations tab: booking settings, the pause switch, and recurring hours.",
+                "caption": "The Orientations tab: booking settings, the thank-you email, and the Orientation Schedule.",
                 "as_role": "guild_lead",
             },
             {
@@ -1545,7 +1522,7 @@ Guild leads and staff can announce things to their whole guild: in the app, by e
 
 ### The Compose Wizard {#announcements-compose}
 
-From **Guild Settings**, open the **Announcements/Emails** tab and click **Compose announcement**; it opens already pointed at your guild. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
+From **Guild Settings**, open the **Announcements** tab and click **Compose announcement**; it opens already pointed at your guild. Two tabs: **Compose** (message, recipients, and the push/email/Discord delivery switches) and **Preview & send** (the push phone line, the email preview, the Discord channel and ping, and the confirm button).
 
 ![The composer's Compose tab: message, recipients, and the delivery switches.](/static/help/guild-announcements/01-compose-wizard.png)
 
@@ -1553,9 +1530,9 @@ The full walkthrough — including push notifications, the urgent switch, and te
 
 ### Your Mailing List
 
-The **Announcements/Emails** tab shows exactly who your emails reach. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
+The **Announcements** tab shows exactly who your emails reach. Guild members are on the list automatically. You can add custom addresses too (a booster, a partner org) one at a time or by importing a CSV or text file, one email per line.
 
-![The Announcements/Emails tab: your mailing list, the compose button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
+![The Announcements tab: your mailing list, the compose button, and recent announcements.](/static/help/guild-announcements/02-announcements-tab.png)
 
 ### Edit or Delete a Posted Announcement
 
@@ -1563,7 +1540,7 @@ Under **Recent Announcements** on the same tab, each announcement has **Edit** a
 
 ### Review Member Proposals {#announcements-review-proposals}
 
-Any logged-in member can propose an announcement for any guild. Nothing posts until a lead, staff member, or admin approves it. When proposals are waiting, the Announcements/Emails tab shows a banner with a **Review proposals** button; the queue shows proposals for the guilds you help run (admins see every guild's).
+Any logged-in member can propose an announcement for any guild. Nothing posts until a lead, staff member, or admin approves it. When proposals are waiting, the Announcements tab shows a banner with a **Review proposals** button; the queue shows proposals for the guilds you help run (admins see every guild's).
 
 ![The review queue for member-proposed announcements.](/static/help/guild-announcements/03-review-queue.png)
 
@@ -1573,7 +1550,11 @@ For each proposal you can:
 - **Request changes**, with a note. The proposal goes back to the member, who can edit and resubmit it.
 - **Decline** it, with a note explaining why.
 
-The proposer is notified of your decision either way.""",
+The proposer is notified of your decision either way.
+
+### Turning Member Suggestions Off {#announcements-member-suggestions}
+
+If you'd rather not take member-proposed announcements, open the **Member Suggestions** card on the **Announcements** tab and switch it off. The **+ Suggest an announcement** button disappears from your guild page, and the suggest page stops offering your guild in its picker. Proposals already in your queue stay decidable, and anyone mid-revision on a changes-requested proposal can still resubmit it. Turn it back on any time.""",
         "screenshots": [
             {
                 "file": "01-compose-wizard.png",
@@ -1586,7 +1567,7 @@ The proposer is notified of your decision either way.""",
                 "file": "02-announcements-tab.png",
                 "page": "/guilds/1/edit/?tab=announcements",
                 "selector": "[x-show=\"section === 'announcements'\"]",
-                "caption": "The Announcements/Emails tab: your mailing list, the compose button, and recent announcements.",
+                "caption": "The Announcements tab: your mailing list, the compose button, and recent announcements.",
                 "as_role": "guild_lead",
             },
             {
@@ -1615,7 +1596,7 @@ One composer sends an announcement everywhere it needs to go: the notification b
 - **Guild leads and staff** can send to the guilds they help run.
 - **Instructors** can send to the roster of any published class they teach. (Admins reach a class's roster from that class's page — its **Send Announcement** button.)
 
-Ways in: **Admin Tools → Announcements**, the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements/Emails tab.
+Ways in: **Admin Tools → Announcements**, the **Send Announcement** button on your guild page or class pages (those arrive already aimed at that guild or class), and **Compose announcement** on your guild's Announcements tab.
 
 ### Tab 1: Compose {#composer-compose}
 
@@ -1685,13 +1666,13 @@ Urgent is the break-glass switch: it bypasses each recipient's notification pref
         "sort_order": 60,
         "related": ["community-calendar", "your-guild-page"],
         "body": """\
-Three ways to keep members in the loop, each on its own Guild Settings tab. Events make noise, studio hours stay quiet, and meeting notes are the paper trail.
+Three ways to keep members in the loop, each on its own Guild Settings tab. Events go on the calendar and send members a heads-up. Studio hours simply show on your guild page — no announcements. Meeting notes are the written record members can read later.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
 ### Guild Events {#guild-events}
 
-On the **Events** tab, click **+ Add event** to schedule a meeting or event. Your events publish straight away; there's no approval step for guild leads and staff. They show on the Community Calendar and on your guild's own calendar, and members get a heads-up in the app when a new one goes live.
+On the **Events** tab, click **+ Add event** to schedule a meeting or event. Your events publish straight away; there's no approval step for guild leads and staff. They show on the Calendar and on your guild's own calendar, and members get a heads-up in the app when a new one goes live.
 
 ![The Events tab. Add event puts your meetings and events on the calendars.](/static/help/guild-events-hours-notes/01-events-tab.png)
 
@@ -1704,7 +1685,7 @@ Good to know:
 
 ### Studio Hours {#guild-studio-hours}
 
-Studio hours are the weekly windows when someone from your guild is around for members to drop by. They're ambient: shown on your guild page's Studio Hours card, never announced, never a notification to anyone.
+Studio hours are the weekly windows when someone from your guild — usually the lead or a staff member — is in the studio, so members can drop by to work, ask questions, and get guidance. They only appear on your guild page's Studio Hours card; posting them never announces anything or sends a notification to anyone.
 
 On the **Studio Hours** tab, add one row per window (Tuesdays and Saturdays are two rows) with a day, start and end time, location, and an optional note. Click **Save Studio Hours**. The row's **Delete** button saves the page at the same time, so nothing else is lost.
 
@@ -1762,10 +1743,17 @@ The moment a class is submitted, the guild lead and every staff member get a rev
 
 ### Where to Review {#guild-approve-classes}
 
-Two doors, same review page:
+Two doors lead to the same review page.
 
-- **The email link.** The review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
-- **The teaching area.** Open the teaching overview and the **Waiting on your review** panel sits at the top, one **Review** button per waiting class. (You'll only see this panel if you lead or staff a guild — and the teaching portal itself sits behind the one-time instructor orientation, so if you've never unlocked teaching, use the email link instead. It works without it.)
+**From the email (easiest):** the review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
+
+**From the teaching area:**
+
+1. Go to `/classes/teach/` (or click **Class Catalog** in the left menu, then **Manage My Classes**).
+2. On the Overview, find the **Waiting on your review** panel at the top. You only see this panel if you lead or staff a guild.
+3. Click **Review** next to the waiting class.
+
+One caveat: the teaching area itself sits behind the one-time portal orientation for instructors. If you've never unlocked teaching, use the email link instead — it works without it.
 
 ![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 
@@ -1919,7 +1907,7 @@ There are no release days. When a change merges to the main branch on GitHub (af
 
 ## What the Member Portal Talks To
 
-- **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and leases in on a schedule, and pushes guild-voting results back out.
+- **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and space agreements in on a schedule, and pushes guild-voting results back out.
 - **Discord** — the Fog Bot mirrors community events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
 - **Google Calendar** — community events are pushed to the shared calendar automatically.
 
@@ -1973,7 +1961,7 @@ You don't have one — at least not one you ever need to know. Internally the sy
 
 Without you doing anything, the Fog Bot:
 
-- Mirrors the community calendar into **Discord's event list**, so events show up where you already hang out.
+- Mirrors the calendar into **Discord's event list**, so events show up where you already hang out.
 - Posts **guild announcements** to Discord channels (for guilds that turn that on).
 - Posts **new classes** when they're published.
 
@@ -1986,7 +1974,7 @@ Linking tells the Member Portal which Discord user is you. Two ways:
 
 ## What Linking Gets You
 
-- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in the Member Portal. Join or leave a guild in the Member Portal and your Discord roles follow.
+- **Guild sync, both directions.** Reacted to the guild role message in Discord? Those guilds are set up for you in the Member Portal. Follow or unfollow a guild in the Member Portal and your Discord roles update to match.
 - One identity across both systems, so your guild channels, roles, and Member Portal account always agree.
 
 Linking is safe by design: a Discord account can only ever be linked to one member, and the Member Portal will never silently swap or reassign a link. You can disconnect anytime from the same settings tab.""",
@@ -2018,7 +2006,7 @@ Because the Member Portal owns it end to end, this is the path that gives you "c
 
 Anyone with edit access to the Member or Public Google calendar can add an event there. The Member Portal then:
 
-- **Imports** it (read-only) on the nightly sync, so it appears on the Community Calendar.
+- **Imports** it (read-only) on the nightly sync, so it appears on the Calendar.
 - **Mirrors** it into Discord's event list.
 
 The catch: the Member Portal treats these as read-only. You **cannot edit or delete a Google-born event from the Member Portal** — editing the Member Portal copy just gets overwritten on the next sync. To change its date, time, or details, or to remove it, do that **on the Google calendar**; the Member Portal picks up the change on the next sync.

@@ -81,6 +81,9 @@ class InstructorFactory(DjangoModelFactory):
         return super()._create(model_class, *args, **kwargs)
 
 
+READY_DESCRIPTION = "A hands-on class where you build a real project, learn the tools safely, and take your work home."
+
+
 class ClassOfferingFactory(DjangoModelFactory):
     class Meta:
         model = models.ClassOffering
@@ -95,11 +98,35 @@ class ClassOfferingFactory(DjangoModelFactory):
     capacity = 6
     status = models.ClassOffering.Status.DRAFT
     scheduling_type = models.ClassOffering.SchedulingType.SINGLE_SESSION
-    # Submitting a class for review now requires its own hero photo (see
-    # ClassOffering.has_submittable_image), so a factory-built offering carries a
-    # real, readable hero by default. Pass image="" to model a class that has no
-    # photo of its own (e.g. category-hero-fallback or empty-state tests).
+    # Submitting a class for review requires its own hero photo AND one gallery
+    # photo (see ClassOffering.has_submittable_image), so a factory-built offering
+    # carries both by default. Pass image="" to model a class with no hero of its
+    # own (e.g. category-hero-fallback tests) and gallery=0 for one with no
+    # gallery (empty-state or exact-count tests).
     image = factory.django.ImageField(width=4, height=4, color="blue")
+
+    @factory.post_generation
+    def gallery(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
+        if not create:
+            return
+        count = 1 if extracted is None else extracted
+        for i in range(count):
+            ClassImageFactory(class_offering=obj, sort_order=i)
+
+    @factory.post_generation
+    def ready(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
+        """``ready=True`` makes the class pass every readiness check (``ClassOffering.readiness``).
+
+        Adds a real description and one session two days out on top of the default hero,
+        gallery photo, and capacity. Specs that submit or publish a class use it; everything
+        else keeps the lean default so unrelated suites never gain a session.
+        """
+        if not create or not extracted:
+            return
+        obj.description = READY_DESCRIPTION
+        obj.save(update_fields=["description"])
+        start = timezone.now() + timedelta(days=2)
+        ClassSessionFactory(class_offering=obj, starts_at=start, ends_at=start + timedelta(hours=2))
 
 
 class SeriesClassOfferingFactory(ClassOfferingFactory):
@@ -131,6 +158,7 @@ class ClassImageFactory(DjangoModelFactory):
         model = models.ClassImage
 
     class_offering = factory.SubFactory(ClassOfferingFactory)
+    image = factory.django.ImageField(width=4, height=4, color="red")
     alt_text = ""
     sort_order = 0
 

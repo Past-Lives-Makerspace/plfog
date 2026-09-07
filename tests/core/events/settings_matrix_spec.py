@@ -124,10 +124,10 @@ def describe_staff_section():
             assert settings_matrix.STAFF_SECTION not in _sections(user)
 
     def describe_a_fog_admin_without_capabilities():
-        def it_sees_the_section_for_admin_alerts_rendered_first(db):
+        def it_sees_the_section_for_admin_alerts_rendered_last(db):
             user = _member_user("admin1", fog_role=Member.FogRole.ADMIN)
             sections = _sections(user)
-            assert sections[0] == settings_matrix.STAFF_SECTION
+            assert sections[-1] == settings_matrix.STAFF_SECTION
             assert _section_of(user, ADMIN_ALERT_EVENT) == settings_matrix.STAFF_SECTION
 
         def it_does_not_see_a_capability_it_does_not_hold(db):
@@ -144,6 +144,43 @@ def describe_staff_section():
             user = _member_user("cap2")
             _grant(user, AdminCapability.Capability.SPACE_APPROVER)
             assert _section_of(user, "class_validation_requested") is None
+
+    def describe_an_equipment_manager():
+        # equipment.reservation_made routes to EQUIPMENT_MANAGERS — the three manage
+        # tiers (per-equipment staff row / guild leadership / EQUIPMENT capability)
+        # each see the row; a plain member never does. Page == delivery.
+        EQUIPMENT_EVENT = "equipment.reservation_made"
+
+        def it_shows_the_row_to_a_per_equipment_staff_row_holder(db):
+            from tests.membership.factories import EquipmentStaffMembershipFactory
+
+            user = _member_user("equipmgr1")
+            EquipmentStaffMembershipFactory(member=Member.objects.get(user=user))
+            assert _section_of(user, EQUIPMENT_EVENT) == settings_matrix.STAFF_SECTION
+
+        def it_shows_the_row_to_an_equipment_capability_holder(db):
+            user = _member_user("equipmgr2")
+            _grant(user, AdminCapability.Capability.EQUIPMENT)
+            assert _section_of(user, EQUIPMENT_EVENT) == settings_matrix.STAFF_SECTION
+
+        def it_hides_the_row_from_a_plain_member(db):
+            user = _member_user("equipmgr3")
+            assert _section_of(user, EQUIPMENT_EVENT) is None
+
+        def it_shows_orientation_requested_to_equipment_managers_too(db):
+            # The composed GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS recipient: an
+            # equipment staff-row holder and an EQUIPMENT capability holder each see
+            # the row; a plain member never does. Page == delivery.
+            from tests.membership.factories import EquipmentStaffMembershipFactory
+
+            staffed = _member_user("equiporient1")
+            EquipmentStaffMembershipFactory(member=Member.objects.get(user=staffed))
+            assert _section_of(staffed, "orientation_requested") == settings_matrix.STAFF_SECTION
+            holder = _member_user("equiporient2")
+            _grant(holder, AdminCapability.Capability.EQUIPMENT)
+            assert _section_of(holder, "orientation_requested") == settings_matrix.STAFF_SECTION
+            plain = _member_user("equiporient3")
+            assert _section_of(plain, "orientation_requested") is None
 
     def describe_a_guild_lead():
         def it_sees_composite_leadership_events_but_not_unheld_capabilities(db):

@@ -1,0 +1,44 @@
+{% load classes_tags %}
+{% comment %}
+Shared roster row — included by the teach + admin Registrations tabs and returned
+standalone by the roster action endpoints (hx-target="#reg-row-<pk>", outerHTML).
+
+Context:
+  reg                         — Registration, annotated with promoted_email_sent
+  can_manage                  — the viewer may act on this row (all four tabs pass True)
+  viewer_has_refund_authority — fog-admin or REFUNDS holder (refund buttons)
+{% endcomment %}
+<tr id="reg-row-{{ reg.pk }}"{% if reg.status == 'cancelled' or reg.status == 'refunded' %} style="opacity:0.5;"{% endif %}>
+    <td>
+        <a href="{% url 'classes:admin_registration_detail' pk=reg.pk %}">{{ reg.first_name }} {{ reg.last_name }}</a>
+        {% if reg.pronouns %} <span style="color:var(--hub-text-muted); font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}
+    </td>
+    <td style="font-size:0.9rem;">{{ reg.email }}</td>
+    <td>
+        {{ reg.get_status_display }}
+        {% if reg.refund_state == "failed" %}<span class="pl-status-badge pl-status-badge--fail">Refund failed</span>
+        {% elif reg.refund_state == "partial" %}<span class="pl-status-badge pl-status-badge--warn">Partially refunded</span>{% endif %}
+    </td>
+    <td>
+        {% if reg.payment_due_cents > 0 %}
+            {% if reg.is_unpaid %}
+                <span class="pl-status-badge pl-status-badge--warn">Unpaid · {{ reg.balance_due_cents|cents_as_dollars }}</span>
+            {% else %}
+                <span class="pl-status-badge pl-status-badge--ok">Paid {{ reg.amount_paid_cents|cents_as_dollars }}</span>
+            {% endif %}
+            {% if reg.payment_link_sent_at %}
+                <div class="pl-paid-note">Link sent {{ reg.payment_link_sent_at|date:"M j" }}</div>
+            {% elif not reg.promoted_email_sent %}
+                <div class="pl-paid-note pl-paid-note--warn">No email sent yet</div>
+            {% endif %}
+        {% else %}
+            {{ reg.amount_paid_cents|cents_as_dollars }}
+        {% endif %}
+    </td>
+    <td>{{ reg.registered_at|date:"M j, Y" }}</td>
+    {% if can_manage or viewer_has_refund_authority %}
+    <td>
+        {% include "components/row_actions.html" with menu_include="classes/partials/registration_row_menu.html" menu_label="Actions for "|add:reg.first_name|add:" "|add:reg.last_name %}
+    </td>
+    {% endif %}
+</tr>

@@ -7,7 +7,11 @@ page's "Show me around" button or the Help page still work (the description says
 {% if tours_form %}
 <div class="hub-card" style="margin-top:1.5rem;">
     <h2 class="pl-notif-title">Guided Tours</h2>
-    <form method="post" class="hub-form">
+    <form method="post" class="hub-form"
+          data-dirty-key="tours"
+          @input="dirty.tours = true"
+          @change="dirty.tours = true"
+          @submit="dirty.tours = false">
         {% csrf_token %}
         <input type="hidden" name="form_id" value="tours">
         {% include "components/toggle.html" with field=tours_form.guided_tours_enabled toggle_label="Offer guided tours" toggle_description="Suggest a quick tour the first time you visit a new area. You can always start one yourself from a page's Show me around button or the Help page." %}

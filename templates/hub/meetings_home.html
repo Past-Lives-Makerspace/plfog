@@ -30,6 +30,8 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
             <a href="{% url 'hub_meeting' meeting.pk %}" class="pl-meeting-up__title">{{ meeting.display_title }}</a>
             {% if meeting.is_locked %}
             <span class="pl-meeting-badge pl-meeting-badge--approved">Approved</span>
+            {% elif meeting.status == 'published' %}
+            <span class="pl-meeting-badge pl-meeting-badge--published">Published</span>
             {% else %}
             <span class="pl-meeting-badge pl-meeting-badge--draft">Draft</span>
             {% endif %}
@@ -47,7 +49,7 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
         <div class="pl-meeting-up__actions">
             <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('open-modal', 'propose-item-{{ meeting.pk }}')">Propose an agenda item</button>
         </div>
-        {% include "hub/partials/_propose_modal.html" with meeting=meeting modal_key="propose-item-"|add:mkid %}
+        {% include "hub/partials/_propose_modal.html" with meeting=meeting modal_key="propose-item-"|add:mkid form=meeting.propose_form %}
         {% endwith %}
         {% endif %}
     </div>
@@ -106,7 +108,7 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
                 <td data-label="Most recent">
                     {% if row.most_recent %}
                     <a href="{% url 'hub_meeting' row.most_recent.pk %}">{{ row.most_recent.scheduled_date|date:"M j, Y" }}</a>
-                    {% if row.most_recent.is_locked %}<span class="pl-meeting-tick">✓</span>{% endif %}
+                    {% if row.most_recent.is_locked %}<span class="pl-meeting-tick">✓</span>{% elif row.most_recent.status == 'published' %}<span class="pl-meeting-badge pl-meeting-badge--published">Published</span>{% endif %}
                     {% else %}
                     <span class="hub-text-muted">—</span>
                     {% endif %}
@@ -160,7 +162,7 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
                 {% endfor %}
             </select>
         </div>
-        <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-meeting-filterbar__apply">Apply</button>
+        <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-meeting-filterbar__apply">Apply</button>
     </form>
     {% if archive_page.object_list %}
     <div class="admin-table-wrap">
@@ -177,6 +179,8 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
                     <td>
                         {% if meeting.is_locked %}
                         <span class="pl-meeting-badge pl-meeting-badge--approved">✓ Approved</span>
+                        {% elif meeting.status == 'published' %}
+                        <span class="pl-meeting-badge pl-meeting-badge--published">Published</span>
                         {% else %}
                         <span class="pl-meeting-badge pl-meeting-badge--draft">Draft</span>
                         {% endif %}
@@ -218,9 +222,9 @@ layout inlined because its action must OPEN A MODAL, not follow a link.
                 {% csrf_token %}
                 {% include "components/form_field.html" with field=create_form.scope %}
                 {% include "components/form_field.html" with field=create_form.kind %}
-                <div class="pl-modal__actions">
-                    <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Create meeting</button>
-                    <button type="button" @click="open = false" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
+                <div class="pl-modal__actions pl-modal__actions--fill">
+                    <button type="submit" class="pl-btn pl-btn--primary">Create meeting</button>
+                    <button type="button" @click="open = false" class="pl-btn pl-btn--secondary">Cancel</button>
                 </div>
             </form>
         </div>

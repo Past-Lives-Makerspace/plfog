@@ -50,6 +50,17 @@ def describe_capabilities_form():
         assert form.is_valid()
         assert set(form.selected()) == {"class_approver", "billing_approver"}
 
+    def it_offers_the_refunds_toggle():
+        form = MemberCapabilitiesForm({"cap_refunds": "on"})
+        assert form.is_valid()
+        assert form.selected() == ["refunds"]
+        assert form.fields["cap_refunds"].label == "Refunds"
+
+    def it_initializes_the_refunds_toggle_from_an_existing_grant():
+        member = _member_user("refinit").member
+        member.admin_capabilities.create(capability=AdminCapability.Capability.REFUNDS)
+        assert MemberCapabilitiesForm.initial_for(member)["cap_refunds"] is True
+
 
 def describe_admin_member_edit_permissions():
     def it_grants_the_checked_capabilities(client: Client):
@@ -64,6 +75,18 @@ def describe_admin_member_edit_permissions():
         held = set(target.admin_capabilities.values_list("capability", flat=True))
         assert held == {"class_approver", "space_approver"}
 
+    def it_grants_and_revokes_the_refunds_capability(client: Client):
+        _member_user("refboss", fog_role=Member.FogRole.ADMIN)
+        target = _member_user("reftarget").member
+        client.login(username="refboss", password="pass")
+        url = reverse("hub_admin_member_edit", args=[target.pk])
+
+        client.post(url, _cap_post(cap_refunds=True))
+        assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"refunds"}
+
+        client.post(url, _cap_post())
+        assert target.admin_capabilities.count() == 0
+
     def it_renders_the_capability_toggles_on_the_permissions_tab(client: Client):
         _member_user("boss3", fog_role=Member.FogRole.ADMIN)
         target = _member_user("target3").member
@@ -73,7 +96,7 @@ def describe_admin_member_edit_permissions():
         assert response.status_code == 200
         content = response.content.decode()
         assert 'name="cap_class_approver"' in content
-        assert "Class Administrator" in content
+        assert "CMS Administrator" in content
         assert "Billing Administrator" in content
         # Notifications live on their own tab (not under Permissions), rendering the matrix.
         assert "section === 'notifications'" in content

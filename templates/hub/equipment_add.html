@@ -1,0 +1,20 @@
+{% extends "hub/base.html" %}
+{% block title %}Add Equipment{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:1rem;">
+  <a href="{% url 'hub_equipment_index' %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Equipment</a>
+</div>
+{% include "components/page_header.html" with title="Add Equipment" description="Add a shared tool or room to the Equipment page." %}
+
+<div class="hub-card pl-equip-form-card">
+  <form method="post" action="{% url 'hub_equipment_add' %}" enctype="multipart/form-data" class="hub-form">
+    {% csrf_token %}
+    {% include "hub/partials/_equipment_form_fields.html" %}
+    <div class="pl-equip-save-row">
+      <a href="{% url 'hub_equipment_index' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Cancel</a>
+      <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

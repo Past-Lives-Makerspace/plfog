@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -127,6 +127,28 @@ class DiscordScheduledEventsClient:
             json=body,
             retry_on_rate_limit=retry_on_rate_limit,
         )
+
+    def list_interested_user_ids(self, server_id: str, event_id: str) -> "list[str]":
+        """Every Discord user id marked Interested on a Scheduled Event, paginated.
+
+        Walks ``GET /guilds/{id}/scheduled-events/{id}/users`` in pages of 100 (Discord's
+        cap) using the ``after`` cursor until a short page arrives. Raises
+        :class:`DiscordEventsError` like every other call — the sync skips that event and
+        moves on.
+        """
+        ids: list[str] = []
+        after = ""
+        while True:
+            path = f"/guilds/{server_id}/scheduled-events/{event_id}/users?limit=100&with_member=false"
+            if after:
+                path += f"&after={after}"
+            # This endpoint returns a JSON array; _execute is annotated for the dict-shaped
+            # calls, so narrow the actual shape here.
+            page = cast("list[dict[str, Any]]", self._execute("GET", path))
+            ids.extend(row["user"]["id"] for row in page)
+            if len(page) < 100:
+                return ids
+            after = ids[-1]
 
     def delete_event(self, server_id: str, event_id: str, *, retry_on_rate_limit: bool = False) -> None:
         """Delete a Scheduled Event. Wraps API errors (caller catches one type)."""

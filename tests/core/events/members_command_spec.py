@@ -133,7 +133,7 @@ def describe_members_privacy():
             full_legal_name="Gated Member",
             phone="503-555-0100",
             discord_handle="gated_makes",
-            pronouns=Member.Pronouns.SHE_HER,
+            pronouns="she/her",
             directory_visibility={"email": False, "phone": False, "discord_handle": False, "pronouns": False},
         )
         description = _card_for(_invoke(invoker), member)["description"]
@@ -148,7 +148,7 @@ def describe_members_privacy():
             full_legal_name="Open Member",
             phone="503-555-0100",
             discord_handle="open_makes",
-            pronouns=Member.Pronouns.SHE_HER,
+            pronouns="she/her",
         )
         description = _card_for(_invoke(invoker), member)["description"]
         assert f"✉️ {member.primary_email}" in description
@@ -156,9 +156,9 @@ def describe_members_privacy():
         assert "💬 open_makes" in description
         assert "she/her" in description
 
-    def it_skips_prefer_not_to_share_pronouns_even_when_public(invoker):
-        member = MemberFactory(full_legal_name="Quiet Member", pronouns=Member.Pronouns.PREFER_NOT)
-        assert "prefer not to share" not in _card_for(_invoke(invoker), member)["description"]
+    def it_renders_free_text_pronouns(invoker):
+        member = MemberFactory(full_legal_name="Free Text Member", pronouns="she/him")
+        assert "she/him" in _card_for(_invoke(invoker), member)["description"]
 
     def it_hides_the_commissions_line_when_skills_are_hidden(invoker):
         # Web parity: the commissions block nests inside the skills gate on the directory card.
@@ -263,7 +263,7 @@ def describe_members_cards():
                 full_legal_name=f"{n}" + "N" * 254,
                 phone="503-555-0100",
                 discord_handle="a-very-long-discord-handle-indeed",
-                pronouns=Member.Pronouns.ALL_THREE,
+                pronouns="he/she/they",
                 open_for_commissions=True,
                 commission_note="c" * 280,
             )

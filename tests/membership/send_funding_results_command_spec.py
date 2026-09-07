@@ -7,6 +7,7 @@ base64-encoded intro note (so a whitespace-splitting job runner can't mangle it)
 from __future__ import annotations
 
 import base64
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
@@ -83,3 +84,44 @@ def describe_send_funding_results_command():
         call_command("send_funding_results", snapshot_id=snap.pk, resend=True)
         snap.refresh_from_db()
         assert snap.results_send_count == 2
+
+
+def describe_re_running_after_a_run_was_killed():
+    """A killed run must be resumable without re-emailing the people it already reached.
+
+    The delivery period embeds a generation number. The command bumps that number for a
+    fresh send but must NOT bump it for a re-run of a send that never finished, or the
+    re-run gets new periods and emails everyone a second time. This is what actually
+    saved the September 2026 results: the worker died before the counter was persisted,
+    so the manual re-run landed on the same generation and reached only the members the
+    dead run had missed.
+    """
+
+    def it_keeps_the_generation_and_emails_only_the_members_the_dead_run_missed():
+        _voter("reached@x.com")
+        _voter("missed@x.com")
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        mail.outbox.clear()
+
+        from core.email import _deliver as real_send
+
+        def die_on_the_second_member(*args, **kwargs):
+            if "missed@x.com" in kwargs.get("recipients", []):
+                raise KeyboardInterrupt("worker killed")
+            return real_send(*args, **kwargs)
+
+        with patch("core.email._deliver", side_effect=die_on_the_second_member):
+            with pytest.raises(KeyboardInterrupt):
+                call_command("send_funding_results", snapshot_id=snap.pk)
+
+        snap.refresh_from_db()
+        assert snap.results_sent_at is None
+        assert snap.results_send_count == 1
+
+        call_command("send_funding_results", snapshot_id=snap.pk)
+
+        snap.refresh_from_db()
+        assert snap.results_send_count == 1, "a resumed run must not open a new generation"
+        recipients = sorted(m.to[0] for m in mail.outbox)
+        assert recipients == ["missed@x.com", "reached@x.com"], "nobody emailed twice"

@@ -173,6 +173,20 @@ def describe_send_results():
         assert "1st: Clay" in bodies["b@x.com"]
         assert "1st: Clay" not in bodies["a@x.com"]
 
+    def it_omits_blank_ranks_from_a_partial_ballot_recap():
+        # A member who voted 1st-only must not get "2nd: None, 3rd: None" in their recap.
+        _voter("solo@x.com", picks=(GuildFactory(name="Solo"), None, None))
+        snap = FundingSnapshot.take()
+        assert snap is not None
+        mail.outbox.clear()
+
+        snap.send_results()
+
+        body = next(m.body for m in mail.outbox if m.to[0] == "solo@x.com")
+        assert "1st: Solo" in body
+        assert "2nd:" not in body
+        assert "None" not in body
+
     def it_raises_when_sent_twice_without_resend():
         _voter("v@x.com")
         snap = FundingSnapshot.take()
@@ -278,7 +292,10 @@ def describe_send_results_audience_safety():
             Notification.objects.filter(trigger="voting.results_published").values_list("user_id", flat=True)
         )
         assert inapp_users == {active.user_id, opted_out.user_id}
-        assert n == 2  # active + opted-out each had at least one fresh delivery
+        # The count is EMAILS, not deliveries on any channel. The opted-out voter got a
+        # bell row but no results email, and reporting them as sent is exactly the
+        # silent-skip the send path is meant to surface.
+        assert n == 1
 
 
 def describe_allocation_chart_html():

@@ -13,6 +13,7 @@ from core.events.discord_commands import dispatch
 from membership.discord_commands import SCHEDULE_ORIENTATION, _schedule_orientation
 from membership.models import OrientationBooking, OrientationError, OrientationSlot
 from tests.membership.factories import (
+    OrientationTypeFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
     OrientationBookingFactory,
@@ -25,6 +26,8 @@ pytestmark = pytest.mark.django_db
 def _guild(name: str = "Blacksmithing", **settings_kwargs) -> object:
     guild = GuildFactory(name=name)
     GuildOrientationSettingsFactory(guild=guild, is_enabled=True, **settings_kwargs)
+    # Custom requests default to the guild's first active type (issue #282).
+    OrientationTypeFactory(guild=guild)
     return guild
 
 

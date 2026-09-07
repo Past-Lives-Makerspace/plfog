@@ -73,6 +73,11 @@
     margin-top: 1.5rem;
 }
 
+/* Opt-in: action buttons share the row's width equally (inline-form modals). */
+.pl-modal__actions--fill .pl-btn {
+    flex: 1;
+}
+
 /* First-login welcome modal (nudges profile setup) */
 .pl-welcome-modal__lead {
     margin: 0;
@@ -355,6 +360,60 @@
     font-size: 0.85rem;
 }
 
+/* "Push On This Device" card, above the notifications matrix. Only the native app ever
+   reveals it (static/js/native-push.js clears [hidden]), so the default is hidden and the
+   rule is explicit rather than leaning on the UA stylesheet, which .hub-card could outrank. */
+.pl-push-device[hidden] {
+    display: none;
+}
+
+/* The `hidden` attribute is ONLY a UA-stylesheet `display: none`, so any author rule that sets
+   display outranks it and the element stays on screen no matter what the script sets. That is
+   real here: `.pl-btn` is `display: inline-flex`, so hiding a button by attribute alone did
+   nothing and both Turn On and Turn Off showed at once. One rule for every descendant the
+   script toggles, so elements added to this card later are covered too. */
+.pl-push-device [hidden] {
+    display: none;
+}
+
+.pl-push-device {
+    margin-bottom: 1rem;
+}
+
+.pl-push-device__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+.pl-push-device__status {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--hub-text, #F4EFDD);
+}
+
+/* The blocked state: the only one a member cannot fix from inside the app, so it gets
+   room for the plain instructions rather than being crammed onto the status line. */
+.pl-push-device__help {
+    margin: 0.5rem 0 0;
+    font-size: 0.85rem;
+    color: var(--hub-text-muted, #8b97a8);
+}
+
+/* display lives here, not inline, so toggling [hidden] cannot strand a display:flex on it.
+   The card-wide `.pl-push-device [hidden]` rule above is what actually hides it. */
+.pl-push-device__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.pl-push-device__others {
+    margin: 1rem 0 0;
+    font-size: 0.85rem;
+}
+
 /* Discord account-linking control on the Notifications tab: a themed banner with the
    linked status on the left and the Connect/Disconnect action on the right. Uses the
    hub surface/border/text tokens so it adapts to both Obsidian (dark) and Slate
@@ -412,6 +471,76 @@
 .pl-notif-section-note {
     margin: 0 0 0.75rem;
     font-size: 0.85rem;
+}
+
+/* Anchor offset so a jumped-to section clears the sticky topbar. */
+.pl-notif-section {
+    scroll-margin-top: calc(var(--topbar-height) + 1rem);
+}
+
+/* Jump-to-section chips above the notification matrix. */
+.pl-notif-jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+}
+.pl-notif-jump__chip {
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    background: var(--hub-surface);
+    color: var(--hub-text-muted);
+    border: 1px solid transparent;
+    text-decoration: none;
+}
+.pl-notif-jump__chip:hover,
+.pl-notif-jump__chip:focus-visible {
+    color: var(--hub-text);
+    border-color: var(--color-tuscan-yellow);
+    text-decoration: none;
+}
+
+/* Danger-zone card treatment: red-tinted border + background in both themes, warning
+   icon, right-aligned footer button. Reusable, so it lives with the components. */
+.pl-danger-zone {
+    border: 1px solid rgba(220, 38, 38, 0.45);
+    background: rgba(220, 38, 38, 0.07);
+}
+.pl-danger-zone__head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.pl-danger-zone__icon {
+    color: #f0a0a0;
+    flex-shrink: 0;
+}
+.pl-danger-zone__title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+    color: #f0a0a0;
+}
+.pl-danger-zone__text {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+}
+.pl-danger-zone__footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(220, 38, 38, 0.25);
+}
+[data-theme="light"] .pl-danger-zone {
+    border-color: rgba(220, 38, 38, 0.35);
+    background: rgba(220, 38, 38, 0.05);
+}
+[data-theme="light"] .pl-danger-zone__icon,
+[data-theme="light"] .pl-danger-zone__title {
+    color: #b03030;
 }
 
 /* Bulk on/off controls (the top "Everything" row and each section's). */
@@ -1016,10 +1145,12 @@
 [data-theme="light"] .pl-btn--secondary {
     background: #f3f4f6;
     color: #1f2937;
+    border-color: #cbd0d6;
 }
 
 [data-theme="light"] .pl-btn--secondary:hover {
     background: #e5e7eb;
+    border-color: #9ca3af;
 }
 
 [data-theme="light"] .pl-cart {
@@ -1085,4 +1216,323 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+}
+
+/* ===== Social / link icons (profile contact rows) ===== */
+.pl-social-icon {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+/* ===== Refund UI (shared by the billing dashboard, CMS registration detail, teach portal) ===== */
+
+/* Theme-aware status badge for payment / refund states. */
+.pl-status-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.pl-status-badge--ok { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.pl-status-badge--warn { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.pl-status-badge--fail { background: rgba(220, 60, 60, 0.15); color: #f87171; }
+.pl-status-badge--muted { background: rgba(255, 255, 255, 0.06); color: var(--hub-text-muted); }
+[data-theme="light"] .pl-status-badge--ok { background: rgba(16, 150, 100, 0.12); color: #0b7a52; }
+[data-theme="light"] .pl-status-badge--warn { background: rgba(180, 120, 10, 0.12); color: #8a5b06; }
+[data-theme="light"] .pl-status-badge--fail { background: rgba(200, 50, 50, 0.1); color: #b32d2d; }
+[data-theme="light"] .pl-status-badge--muted { background: rgba(0, 0, 0, 0.06); color: var(--hub-text-muted); }
+
+/* ===== Roster & waitlist management (teach + admin Workspace tabs) ===== */
+
+/* Filter-bar / inline-action control on admin pages (selects + text inputs).
+   Theme input tokens per FRONTEND.md Rule 13 — never inline background/color. */
+.pl-admin-control {
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--hub-input-border, var(--hub-border));
+    border-radius: 6px;
+    background: var(--hub-input-bg);
+    color: var(--hub-text);
+    font-size: 0.875rem;
+}
+/* Native option popups don't inherit the select's colors (Rule 13). */
+.pl-admin-control option {
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+}
+
+/* ========================================
+   Row actions overflow menu (.pl-row-menu)
+   Kebab trigger + fixed-position dropdown for table-row actions. The menu is
+   position:fixed (placed from JS in components/row_actions.html) so it escapes
+   the roster table wrapper's overflow:hidden clip. Both themes.
+   ======================================== */
+.pl-row-menu {
+    display: inline-flex;
+}
+
+.pl-row-menu__trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--hub-text-muted);
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.pl-row-menu__trigger:hover,
+.pl-row-menu__trigger:focus-visible {
+    color: var(--hub-text);
+    background-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .pl-row-menu__trigger:hover,
+[data-theme="light"] .pl-row-menu__trigger:focus-visible {
+    background-color: rgba(0, 0, 0, 0.06);
+}
+
+.pl-row-menu__menu {
+    position: fixed;
+    display: block;
+    min-width: 200px;
+    background-color: var(--hub-dropdown-bg);
+    border: 1px solid var(--hub-dropdown-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    z-index: 150;
+}
+
+.pl-row-menu__item {
+    display: block;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-family: var(--font-body);
+    color: var(--hub-text);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    text-decoration: none;
+    transition: background-color 0.15s ease;
+}
+
+.pl-row-menu__item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+    color: var(--hub-text);
+}
+
+[data-theme="light"] .pl-row-menu__item:hover {
+    background-color: rgba(0, 0, 0, 0.04);
+}
+
+.pl-row-menu__item:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: -2px;
+}
+
+.pl-row-menu__item--danger { color: #e05555; }
+.pl-row-menu__item--danger:hover { color: #e05555; }
+
+.pl-row-menu__divider {
+    height: 1px;
+    background-color: var(--hub-dropdown-border);
+    margin: 0.25rem 0;
+}
+
+@media (max-width: 768px) {
+    .pl-row-menu__trigger {
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+}
+
+/* Muted sub-line under the Paid badge ("Link sent Aug 26" / "No email sent yet"). */
+.pl-paid-note {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    margin-top: 0.2rem;
+    white-space: nowrap;
+}
+.pl-paid-note--warn { color: #fbbf24; }
+[data-theme="light"] .pl-paid-note--warn { color: #8a5b06; }
+
+/* Warn-toned line inside a confirm modal (over-capacity, in-flight payment). */
+.pl-confirm-warn {
+    margin: 0 0 1rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+}
+[data-theme="light"] .pl-confirm-warn {
+    background: rgba(180, 120, 10, 0.1);
+    color: #8a5b06;
+}
+
+/* The refund modal body — context header, consequence line, busy state. */
+.pl-refund-context {
+    margin: 0 0 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--hub-border, rgba(255, 255, 255, 0.08));
+}
+.pl-refund-context__payer {
+    font-weight: 700;
+    margin: 0 0 0.15rem;
+}
+.pl-refund-context__meta {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 0;
+}
+.pl-refund-consequence {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 1rem 0 0.75rem;
+}
+.pl-refund-failure {
+    font-size: 0.8125rem;
+    color: #f87171;
+    margin: 0.5rem 0 0;
+}
+[data-theme="light"] .pl-refund-failure { color: #b32d2d; }
+.pl-refund-form.htmx-request button[type="submit"] {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Refund history rows (detail page card + panel amount sub-lines). */
+.pl-refund-history {
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: grid;
+    gap: 0.5rem;
+}
+.pl-refund-history__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+.pl-refund-history__meta {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+.pl-refund-line {
+    display: block;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+/* Payments ledger cells (the billing dashboard's dark-fixed partial — literal
+   colors match the page's own pl-* chrome, like .pl-text-muted there). */
+.pl-payer-link { color: #a0c0e0; }
+.pl-cell-muted { color: #96ACBB; }
+.pl-table-empty {
+    text-align: center;
+    color: #96ACBB;
+    padding: 2rem;
+}
+
+/* "Signed In Devices" card on the settings Account tab — the phones that can sign a member
+   in with a face or a fingerprint. The list itself is server rendered and shows on the web
+   too, so a member can kill a lost phone's access from a laptop. Only the app-only block
+   inside it is revealed by static/js/biometric-auth.js. */
+.pl-biometric-devices {
+    margin-bottom: 1.5rem;
+}
+
+/* The `hidden` attribute is only a UA-stylesheet `display:none`, so any author rule that
+   sets display outranks it and the element stays on screen whatever the script does. That
+   is real here: `.pl-btn` is `display:inline-flex`, so the "Turn on ..." button would show
+   on every device. One rule for every descendant the script toggles. */
+.pl-biometric-devices [hidden] {
+    display: none;
+}
+
+.pl-biometric-devices__title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+}
+
+.pl-biometric-devices__intro {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+}
+
+.pl-biometric-devices__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.pl-biometric-devices__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-border, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    background: var(--hub-surface, rgba(255, 255, 255, 0.04));
+}
+
+.pl-biometric-devices__row + .pl-biometric-devices__row {
+    margin-top: 0.5rem;
+}
+
+.pl-biometric-devices__device {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.pl-biometric-devices__name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--hub-text, #F4EFDD);
+    overflow-wrap: anywhere; /* device_label is member typed and can be one long word */
+}
+
+.pl-biometric-devices__meta {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted, #8b97a8);
+}
+
+.pl-biometric-devices__empty {
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+/* display lives here, not inline, so toggling [hidden] cannot strand a display:flex on it.
+   The card-wide `.pl-biometric-devices [hidden]` rule above is what actually hides it. */
+.pl-biometric-devices__app {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.pl-biometric-devices__note {
+    margin: 0;
+    font-size: 0.85rem;
 }

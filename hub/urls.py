@@ -1,7 +1,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import discord_views, meeting_views, notification_views, views
+from . import discord_views, equipment_views, meeting_views, notification_views, views
 
 urlpatterns = [
     # --- Meetings (spec §6.0) ---
@@ -16,6 +16,7 @@ urlpatterns = [
     ),
     path("meetings/<int:pk>/save/", meeting_views.hub_meeting_save, name="hub_meeting_save"),
     path("meetings/<int:pk>/publish/", meeting_views.hub_meeting_publish, name="hub_meeting_publish"),
+    path("meetings/<int:pk>/unpublish/", meeting_views.hub_meeting_unpublish, name="hub_meeting_unpublish"),
     path("meetings/<int:pk>/approve/", meeting_views.hub_meeting_approve, name="hub_meeting_approve"),
     path("meetings/<int:pk>/unlock/", meeting_views.hub_meeting_unlock, name="hub_meeting_unlock"),
     path("meetings/<int:pk>/delete/", meeting_views.hub_meeting_delete, name="hub_meeting_delete"),
@@ -81,19 +82,31 @@ urlpatterns = [
     path("guilds/<int:pk>/qr.<str:fmt>/", views.guild_qr_download, name="hub_guild_qr"),
     path("guilds/<int:pk>/flyer/", views.guild_flyer, name="hub_guild_flyer"),
     path("guilds/<int:pk>/delete/", views.guild_delete, name="hub_guild_delete"),
+    path("guilds/<int:pk>/visibility/save/", views.guild_visibility_save, name="hub_guild_visibility_save"),
     path("hero-adjust/", views.hub_hero_adjust, name="hub_hero_adjust"),
     path("guilds/<int:pk>/banner/delete/", views.guild_banner_delete, name="hub_guild_banner_delete"),
     path("guilds/<int:pk>/orientation/edit/", views.guild_orientation_edit, name="hub_guild_orientation_edit"),
+    path(
+        "guilds/<int:pk>/orientation/types/save/",
+        views.guild_orientation_types_save,
+        name="hub_guild_orientation_types_save",
+    ),
     path(
         "guilds/<int:pk>/orientation/hours/save/",
         views.guild_orientation_hours_save,
         name="hub_guild_orientation_hours_save",
     ),
     path(
+        "guilds/<int:pk>/orientation/hours/form/",
+        views.guild_orientation_hours_form,
+        name="hub_guild_orientation_hours_form",
+    ),
+    path(
         "guilds/<int:pk>/studio-hours/save/",
         views.guild_studio_hours_save,
         name="hub_guild_studio_hours_save",
     ),
+    path("guilds/<int:pk>/lead/set/", views.guild_lead_set, name="hub_guild_lead_set"),
     path("guilds/<int:pk>/staff/add/", views.guild_staff_add, name="hub_guild_staff_add"),
     path(
         "guilds/<int:pk>/staff/<int:staff_pk>/remove/",
@@ -118,6 +131,22 @@ urlpatterns = [
         name="hub_guild_orientation_request_custom",
     ),
     path("orientation/slots/<int:slot_pk>/book/", views.orientation_book, name="hub_orientation_book"),
+    path(
+        "orientation/blocks/<int:block_pk>/starts/<int:type_pk>/",
+        views.orientation_block_starts,
+        name="hub_orientation_block_starts",
+    ),
+    path(
+        "orientation/blocks/<int:block_pk>/book/",
+        views.orientation_block_book,
+        name="hub_orientation_block_book",
+    ),
+    path("orientation/blocks/post/", views.orientation_block_post, name="hub_orientation_block_post"),
+    path(
+        "orientation/blocks/<int:block_pk>/cancel/",
+        views.orientation_block_cancel,
+        name="hub_orientation_block_cancel",
+    ),
     path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),
     path(
         "orientation/bookings/<int:booking_pk>/lead-cancel/",
@@ -130,6 +159,26 @@ urlpatterns = [
         name="hub_orientation_cancel_mine",
     ),
     path("orientation/act/<str:token>/", views.orientation_action, name="hub_orientation_action"),
+    path(
+        "orientation/checkout/return/<str:token>/",
+        views.orientation_checkout_return,
+        name="hub_orientation_checkout_return",
+    ),
+    path(
+        "orientation/checkout/cancelled/<str:token>/",
+        views.orientation_checkout_cancelled,
+        name="hub_orientation_checkout_cancelled",
+    ),
+    path(
+        "orientation/checkout/<int:booking_pk>/cancel-hold/",
+        views.orientation_checkout_cancel_hold,
+        name="hub_orientation_checkout_cancel_hold",
+    ),
+    path(
+        "orientation/checkout/<int:booking_pk>/resume/",
+        views.orientation_checkout_resume,
+        name="hub_orientation_checkout_resume",
+    ),
     path("orientations/", views.orientations_dashboard, name="hub_orientations_dashboard"),
     path("orientations/export/", views.orientations_export, name="hub_orientations_export"),
     path("orientations/add-member/", views.orientation_add_member, name="hub_orientation_add_member"),
@@ -138,8 +187,6 @@ urlpatterns = [
         views.orientation_toggle_completed,
         name="hub_orientation_toggle_completed",
     ),
-    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
-    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path(
         "guilds/<int:pk>/images/<int:image_pk>/delete/",
         views.guild_image_delete,
@@ -214,7 +261,16 @@ urlpatterns = [
         views.guild_announcement_review_decision,
         name="hub_guild_announcement_review_decision",
     ),
+    path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
+    path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
+    path("guilds/<int:pk>/welcome-email/test/", views.guild_welcome_test, name="hub_guild_welcome_test"),
+    path("guilds/<int:pk>/welcome-email/preview/", views.guild_welcome_preview, name="hub_guild_welcome_preview"),
+    path(
+        "guilds/<int:pk>/announcement-settings/save/",
+        views.guild_announcement_settings_save,
+        name="hub_guild_announcement_settings_save",
+    ),
     path("guilds/<int:pk>/faq/save/", views.guild_faq_save, name="hub_guild_faq_save"),
     path("guilds/<int:pk>/links/save/", views.guild_links_save, name="hub_guild_links_save"),
     path(
@@ -238,6 +294,11 @@ urlpatterns = [
     path("spaces/map/markers/<int:pk>/position/", views.map_hotspot_position, name="hub_map_hotspot_position"),
     path("spaces/map/markers/<int:pk>/status/", views.map_hotspot_status, name="hub_map_hotspot_status"),
     path("spaces/map/markers/<int:pk>/edit/", views.map_hotspot_edit, name="hub_map_hotspot_edit"),
+    path(
+        "spaces/map/markers/<int:pk>/inline-edit/",
+        views.map_hotspot_inline_edit,
+        name="hub_map_hotspot_inline_edit",
+    ),
     path("spaces/map/markers/<int:pk>/delete/", views.map_hotspot_delete, name="hub_map_hotspot_delete"),
     path("spaces/map/markers/<int:pk>/", views.map_hotspot_detail, name="hub_map_hotspot_detail"),
     path("spaces/map/markers/<int:pk>/request/", views.space_request_create, name="hub_space_request_create"),
@@ -247,6 +308,70 @@ urlpatterns = [
         "spaces/requests/review/<int:pk>/decision/",
         views.space_request_review_decision,
         name="hub_space_request_review_decision",
+    ),
+    # Equipment directory (equipment-reservations spec §6 — PR 1). /add/ must stay above <slug>/.
+    path("equipment/", equipment_views.hub_equipment_index, name="hub_equipment_index"),
+    path("equipment/add/", equipment_views.hub_equipment_add, name="hub_equipment_add"),
+    path("equipment/<slug:slug>/", equipment_views.hub_equipment_detail, name="hub_equipment_detail"),
+    path("equipment/<slug:slug>/manage/", equipment_views.hub_equipment_manage, name="hub_equipment_manage"),
+    path(
+        "equipment/<slug:slug>/manage/details/",
+        equipment_views.hub_equipment_details_save,
+        name="hub_equipment_details_save",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/photo/delete/",
+        equipment_views.hub_equipment_photo_delete,
+        name="hub_equipment_photo_delete",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/staff/add/",
+        equipment_views.hub_equipment_staff_add,
+        name="hub_equipment_staff_add",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/staff/<int:pk>/remove/",
+        equipment_views.hub_equipment_staff_remove,
+        name="hub_equipment_staff_remove",
+    ),
+    # Equipment-owned orientations: type formset, one-off slots, slot cancel (manage tab).
+    path(
+        "equipment/<slug:slug>/manage/orientation/types/save/",
+        equipment_views.hub_equipment_orientation_types_save,
+        name="hub_equipment_orientation_types_save",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/hours/form/",
+        equipment_views.hub_equipment_orientation_hours_form,
+        name="hub_equipment_orientation_hours_form",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/hours/save/",
+        equipment_views.hub_equipment_orientation_hours_save,
+        name="hub_equipment_orientation_hours_save",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/slots/add/",
+        equipment_views.hub_equipment_orientation_slot_add,
+        name="hub_equipment_orientation_slot_add",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/orientation/slots/<int:pk>/cancel/",
+        equipment_views.hub_equipment_orientation_slot_cancel,
+        name="hub_equipment_orientation_slot_cancel",
+    ),
+    # Reservations (PR 2): the HTMX schedule partial, instant booking, cancels, hours.
+    path("equipment/<slug:slug>/schedule/", equipment_views.hub_equipment_schedule, name="hub_equipment_schedule"),
+    path("equipment/<slug:slug>/reserve/", equipment_views.hub_equipment_reserve, name="hub_equipment_reserve"),
+    path(
+        "equipment/<slug:slug>/reservations/<int:pk>/cancel/",
+        equipment_views.hub_equipment_reservation_cancel,
+        name="hub_equipment_reservation_cancel",
+    ),
+    path(
+        "equipment/<slug:slug>/manage/hours/",
+        equipment_views.hub_equipment_hours_save,
+        name="hub_equipment_hours_save",
     ),
     # Help — how the app works: intro, guides, parking, who-to-contact, FAQ, code of conduct, resources.
     path("help/", views.help_page, name="hub_help"),
@@ -315,6 +440,7 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    path("welcome/guild-updates/", views.guild_updates_prompt, name="hub_guild_updates_prompt"),
     # Guided tours (Spec C): the one state-recording endpoint — the offer card's
     # "No thanks" and the tour runtime's end-of-tour hook both POST here.
     path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),
@@ -325,10 +451,19 @@ urlpatterns = [
         views.profile_photo_delete,
         name="hub_profile_photo_delete",
     ),
+    path(
+        "settings/notification-email/",
+        views.notification_email_set,
+        name="hub_notification_email_set",
+    ),
+    path("settings/delete-account/", views.account_delete, name="hub_account_delete"),
+    path("account-deleted/", views.account_deleted, name="hub_account_deleted"),
     path("settings/skills/add/", views.skill_add, name="hub_skill_add"),
     path("settings/skills/<int:skill_pk>/remove/", views.skill_remove, name="hub_skill_remove"),
     path("settings/skills/suggest/", views.skill_suggest, name="hub_skill_suggest"),
     path("settings/guilds/<int:pk>/", views.guild_membership_set, name="hub_guild_membership_set"),
+    # Revoke one phone's biometric sign in from the Signed In Devices card.
+    path("settings/biometric/<int:pk>/revoke/", views.biometric_revoke, name="hub_biometric_revoke"),
     # Discord account-linking for the per-member Discord DM notification channel.
     path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
     path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
@@ -364,9 +499,12 @@ urlpatterns = [
     # Public per-event pages + QR (bare-pk route can't shadow the siblings above: it
     # won't match the literal events/add/ nor any deeper events/<int>/<segment>/ path).
     path("events/<int:pk>/", views.event_detail, name="hub_event_detail"),
+    path("events/<int:pk>/rsvp/", views.event_rsvp, name="hub_event_rsvp"),
     path("events/<int:pk>/event.ics", views.event_ics, name="hub_event_ics"),
     path("events/<int:pk>/qr.<str:fmt>/", views.event_qr, name="hub_event_qr"),
     path("view-as/set/", views.view_as_set, name="hub_view_as_set"),
+    path("view-as/capability/set/", views.view_as_capability_set, name="hub_view_as_capability_set"),
+    path("view-as/instructor/set/", views.view_as_instructor_set, name="hub_view_as_instructor_set"),
     path("manage/voting/", views.voting_overview, name="hub_admin_voting_overview"),
     path("manage/voting/history/", views.voting_history, name="hub_admin_voting_history"),
     path("manage/voting/history/<int:pk>/", views.voting_history_detail, name="hub_admin_voting_history_detail"),
@@ -456,6 +594,11 @@ urlpatterns = [
         name="hub_admin_user_email_toggle_verified",
     ),
     path("manage/site-settings/", views.admin_site_settings, name="hub_admin_site_settings"),
+    path(
+        "manage/site-settings/brand/logo/delete/",
+        views.admin_brand_logo_delete,
+        name="hub_admin_brand_logo_delete",
+    ),
     path(
         "manage/site-settings/slideshow/zones/save/",
         views.admin_slideshow_zones_save,

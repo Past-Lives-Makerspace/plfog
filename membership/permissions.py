@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
-    from membership.models import CommunityEvent, Guild, Meeting, Member
+    from membership.models import CommunityEvent, Equipment, Guild, Meeting, Member
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
@@ -66,6 +66,109 @@ def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
     other helpers, so an admin previewing as a member sees only what that viewer would.
     """
     return can_edit_guild(request, guild)
+
+
+def can_edit_orienter_hours(request: HttpRequest, guild: Guild, orienter: Member | None) -> bool:
+    """True when this request may edit ``orienter``'s recurring orientation hours in ``guild``.
+
+    Own hours: anyone who may manage the guild's orientations (lead, staff, admin,
+    officer) — but ONLY while actually on this guild's leadership. An admin/officer who
+    is not on the guild's staff must not publish hours for themselves: ``generate_slots``
+    skips non-leadership personal rules, so such a save would be a silent no-op — fail
+    loudly here instead (they can still edit-on-behalf, the ``orienter != self`` path).
+    Someone else's hours, or the guild-level rows (``orienter is None``): admin/officer
+    or the ``guild_lead`` holder only. This is deliberately the first intra-staff
+    authority distinction (a locked spec decision) — widening it later happens here.
+    """
+    member = _editing_member(request)
+    if orienter is not None and member is not None and orienter.pk == member.pk:
+        if all(leader.pk != member.pk for leader in guild.leadership_members()):
+            return False  # self scope off this guild's leadership would only make dead rules
+        return can_manage_orientations(request, guild)
+    if is_effective_staff(request):
+        return True
+    return member is not None and guild.guild_lead_id == member.pk
+
+
+def can_edit_equipment_orienter_hours(request: HttpRequest, equipment: Equipment, orienter: Member | None) -> bool:
+    """True when this request may edit ``orienter``'s recurring orientation hours on ``equipment``.
+
+    The equipment twin of :func:`can_edit_orienter_hours`. Own hours: anyone who may
+    manage the equipment (all three tiers) — but ONLY while actually one of the tool's
+    orienters. An admin or capability holder who has not been added on the Staff tab must
+    not publish hours for themselves: ``_rule_generates`` skips personal rules whose owner
+    is off ``orienter_members()``, so such a save would be a silent no-op — fail loudly
+    here instead (they can still edit on behalf, the ``orienter != self`` path).
+    Someone else's hours, or the shared rows (``orienter is None``): a full admin
+    (``view_as``-aware), an EQUIPMENT capability holder (preview-independent, like every
+    capability gate), or the owning guild's lead. A plain per-equipment manager therefore
+    edits only their own hours.
+    """
+    from membership.models import AdminCapability
+
+    member = _editing_member(request)
+    if orienter is not None and member is not None and orienter.pk == member.pk:
+        if all(runner.pk != member.pk for runner in equipment.orienter_members()):
+            return False  # self scope off this tool's orienters would only make dead rules
+        return can_manage_equipment(request, equipment)
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return True
+    guild = equipment.guild
+    return member is not None and guild is not None and guild.guild_lead_id == member.pk
+
+
+def can_manage_equipment(request: HttpRequest, equipment: Equipment) -> bool:
+    """True when this request may manage the equipment (its manage panel, details, staff).
+
+    Three tiers (the locked equipment-permissions decision):
+    site tier — full admin (``view_as``-aware) or the EQUIPMENT capability;
+    guild tier — the owning guild's lead or any staff member;
+    resource tier — an ``EquipmentStaffMembership`` row.
+    Guild officers get no blanket grant here — the site tier is deliberately
+    narrower than ``is_effective_staff``.
+
+    The admin leg honors ``view_as`` preview, but the capability leg is deliberately
+    **preview-independent** — it reads the request's actual linked member, like every
+    house capability gate (``hub.view_as._capability_or_admin_required``): a granted
+    duty follows the person, not the preview. Migration 0161 backfills EQUIPMENT onto
+    every existing admin, so in practice a previewing admin keeps manage access.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    if actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT):
+        return True
+    member = _editing_member(request)
+    if member is None:
+        return False
+    guild = equipment.guild
+    if guild is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member)):
+        return True
+    return equipment.staff_memberships.filter(member=member).exists()
+
+
+def can_create_equipment(request: HttpRequest) -> bool:
+    """True when this request may create equipment — full admin or EQUIPMENT capability only.
+
+    Guild leads and per-equipment managers edit and run equipment they manage but do not
+    create it (locked decision #3). The admin leg honors ``view_as`` preview; the
+    capability leg is preview-independent, matching :func:`can_manage_equipment` and the
+    house capability gates.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    actual_member: Member | None = getattr(request.user, "member", None)
+    return actual_member is not None and actual_member.has_admin_capability(AdminCapability.Capability.EQUIPMENT)
 
 
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
@@ -149,8 +252,8 @@ def can_propose_to_meeting(
     """True when this request may propose an agenda item for the meeting.
 
     Guild meeting: any active member of that guild (its leadership and admins
-    trivially). Council: guild leads/staff/admins only. Always ``False`` once the
-    meeting is locked or its date has passed.
+    trivially). Council: any active member. Always ``False`` once the meeting is
+    locked or its date has passed.
 
     ``member_guild_ids`` is the bulk optimization for a caller checking many meetings at
     once (the Meetings home §6.2): pass the viewer's joined-guild pks (see
@@ -183,10 +286,10 @@ def can_propose_to_meeting(
     editable = is_editable if is_editable is not None else can_edit_meeting(request, meeting)
     if editable:
         return True
-    if meeting.guild is None:
-        return False
     if member is None or member.status != Member.Status.ACTIVE:
         return False
+    if meeting.guild is None:
+        return True  # council: any active member may propose
     if member_guild_ids is not None:
         return meeting.guild_id in member_guild_ids
     return meeting.guild.memberships.filter(member=member).exists()

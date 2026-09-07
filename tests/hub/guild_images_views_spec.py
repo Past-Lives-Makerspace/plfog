@@ -37,12 +37,14 @@ def describe_guild_image_views():
         response = client.post(f"/guilds/{guild.pk}/images/upload/", {})
         assert response.status_code == 400
 
-    def it_rejects_upload_large_file(client):
+    def it_rejects_upload_large_file(client, settings):
+        settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024  # 1 MB, so the file below is over the limit
         member = login_member(client, "u3")
         guild = GuildFactory(guild_lead=member)
-        large_file = SimpleUploadedFile("large.jpg", b"x" * (4 * 1024 * 1024), content_type="image/jpeg")
+        large_file = SimpleUploadedFile("large.jpg", b"x" * (1024 * 1024 + 1), content_type="image/jpeg")
         response = client.post(f"/guilds/{guild.pk}/images/upload/", {"image": large_file})
         assert response.status_code == 400
+        assert "1 MB" in response.json()["error"]
 
     def it_rejects_upload_over_10_images(client, image_file):
         member = login_member(client, "u4")

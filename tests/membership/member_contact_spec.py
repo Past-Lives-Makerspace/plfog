@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from membership.models import MemberContact
 from tests.membership.factories import MemberContactFactory, MemberFactory
 
 
@@ -71,3 +72,31 @@ def describe_MemberContact():
             shown = MemberContactFactory(member=member, show_on_instructor_page=True)
             MemberContactFactory(member=member, show_on_instructor_page=False)
             assert list(member.instructor_page_contacts) == [shown]
+
+    def describe_kind():
+        def it_defaults_to_other():
+            member = MemberFactory()
+            contact = MemberContact.objects.create(member=member, label="Signal", value="@quiet")
+            assert contact.kind == MemberContact.Kind.OTHER
+
+    def describe_social_icon():
+        def it_maps_an_instagram_label_to_the_instagram_icon():
+            assert MemberContactFactory(label="Instagram").social_icon == "instagram"
+
+        def it_maps_a_youtube_label_to_the_youtube_icon():
+            assert MemberContactFactory(label="My YouTube channel").social_icon == "youtube"
+
+        def it_maps_a_facebook_label_to_the_facebook_icon():
+            assert MemberContactFactory(label="Facebook").social_icon == "facebook"
+
+        def it_maps_a_tiktok_label_to_the_tiktok_icon():
+            assert MemberContactFactory(label="TikTok").social_icon == "tiktok"
+
+        def it_maps_a_linkedin_label_to_the_linkedin_icon():
+            assert MemberContactFactory(label="LinkedIn profile").social_icon == "linkedin"
+
+        def it_maps_a_twitter_label_to_the_x_icon():
+            assert MemberContactFactory(label="Twitter").social_icon == "x"
+
+        def it_falls_back_to_the_link_icon_for_an_unrecognized_label():
+            assert MemberContactFactory(label="Mastodon").social_icon == "link"

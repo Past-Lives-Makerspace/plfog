@@ -194,21 +194,21 @@ def describe_member_directory():
 
     def it_shows_pronouns_in_directory(client: Client):
         User.objects.create_user(username="viewer", password="pass")
-        MemberFactory(full_legal_name="Sam", show_in_directory=True, pronouns=Member.Pronouns.THEY_THEM)
+        MemberFactory(full_legal_name="Sam", show_in_directory=True, pronouns="they/them")
         client.login(username="viewer", password="pass")
 
         response = client.get("/members/")
 
         assert "they/them" in response.content.decode()
 
-    def it_hides_prefer_not_to_share_pronouns(client: Client):
+    def it_shows_free_text_pronouns_in_directory(client: Client):
         User.objects.create_user(username="viewer2", password="pass")
-        MemberFactory(full_legal_name="Alex", show_in_directory=True, pronouns=Member.Pronouns.PREFER_NOT)
+        MemberFactory(full_legal_name="Alex", show_in_directory=True, pronouns="she/him")
         client.login(username="viewer2", password="pass")
 
         response = client.get("/members/")
 
-        assert "prefer not to share" not in response.content.decode()
+        assert "she/him" in response.content.decode()
 
     def it_does_not_trigger_n_plus_1_on_primary_email(client: Client):
         """Regression guard for the member.primary_email N+1.
@@ -314,32 +314,43 @@ def describe_user_settings():
         assert response.context["capabilities_url"] is None
         assert b"Manage your admin duties" not in response.content
 
-    def it_defaults_to_profile_tab(client: Client):
+    def it_offers_the_spaces_map_opt_in_toggle(client: Client):
+        User.objects.create_user(username="maptoggle", password="pass")
+        client.login(username="maptoggle", password="pass")
+
+        response = client.get("/settings/")
+
+        assert response.status_code == 200
+        assert b'name="show_on_space_map"' in response.content
+
+    def it_defaults_to_guilds_tab(client: Client):
         User.objects.create_user(username="tabdefault", password="pass")
         client.login(username="tabdefault", password="pass")
 
         response = client.get("/settings/")
 
-        assert response.context["active_tab"] == "profile"
+        assert response.context["active_tab"] == "guilds"
 
-    def it_honors_tab_query_param(client: Client):
+    def it_aliases_the_legacy_emails_tab_to_account(client: Client):
+        # The Emails tab folded into Account (its Manage Email Addresses card moved there),
+        # so old ?tab=emails deep links resolve to account and keep working.
         User.objects.create_user(username="tabemails", password="pass")
         client.login(username="tabemails", password="pass")
 
-        response = client.get("/settings/?tab=emails")
+        response = client.get("/settings/?tab=account")
 
-        assert response.context["active_tab"] == "emails"
+        assert response.context["active_tab"] == "account"
 
-    def it_falls_back_to_profile_when_tab_param_is_not_whitelisted(client: Client):
+    def it_falls_back_to_guilds_when_tab_param_is_not_whitelisted(client: Client):
         """Regression: ``active_tab`` flows into an Alpine x-data JS expression,
         so raw user input must not reach the template — arbitrary values are
-        coerced back to ``profile`` to prevent XSS."""
+        coerced back to the default (``guilds``) to prevent XSS."""
         User.objects.create_user(username="xssguard", password="pass")
         client.login(username="xssguard", password="pass")
 
         response = client.get("/settings/?tab=%27%2Balert(1)%2B%27")
 
-        assert response.context["active_tab"] == "profile"
+        assert response.context["active_tab"] == "guilds"
         # And the raw payload never lands in the rendered HTML.
         assert b"alert(1)" not in response.content
 
@@ -481,6 +492,75 @@ def describe_user_settings():
         member.refresh_from_db()
         assert member.pronouns == "she/her"
 
+    def it_accepts_free_text_pronouns_end_to_end(client: Client):
+        user = User.objects.create_user(username="freetextpronouns", password="pass")
+        member = user.member
+        client.login(username="freetextpronouns", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                **_CONTACTS_MGMT,
+                "form_id": "profile",
+                "preferred_name": "Sasha",
+                "pronouns": "she/him",
+                "phone": "",
+                "discord_handle": "",
+                "about_me": "",
+                "show_in_directory": "on",
+                "show_pronouns": "on",
+            },
+        )
+
+        member.refresh_from_db()
+        assert member.pronouns == "she/him"
+        assert "she/him" in client.get("/settings/").content.decode()
+        assert "she/him" in client.get("/members/").content.decode()
+
+    def it_strips_whitespace_around_pronouns(client: Client):
+        user = User.objects.create_user(username="stripPronouns", password="pass")
+        member = user.member
+        client.login(username="stripPronouns", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                **_CONTACTS_MGMT,
+                "form_id": "profile",
+                "preferred_name": "",
+                "pronouns": "  she/him  ",
+                "phone": "",
+                "discord_handle": "",
+                "about_me": "",
+                "show_in_directory": False,
+            },
+        )
+
+        member.refresh_from_db()
+        assert member.pronouns == "she/him"
+
+    def it_keeps_pronouns_blank_when_left_blank(client: Client):
+        user = User.objects.create_user(username="blankpronouns", password="pass")
+        member = user.member
+        client.login(username="blankpronouns", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                **_CONTACTS_MGMT,
+                "form_id": "profile",
+                "preferred_name": "",
+                "pronouns": "",
+                "phone": "",
+                "discord_handle": "",
+                "about_me": "",
+                "show_in_directory": False,
+            },
+        )
+
+        member.refresh_from_db()
+        assert member.pronouns == ""
+
     def it_errors_and_redirects_when_profile_post_has_no_member(client: Client):
         user = User.objects.create_user(username="profilenolink", password="pass")
         client.login(username="profilenolink", password="pass")
@@ -516,7 +596,7 @@ def describe_user_settings():
         EmailAddress.objects.create(user=user, email="v@example.com", verified=True, primary=True)
         client.login(username="primaryverified", password="pass")
 
-        response = client.get("/settings/?tab=emails")
+        response = client.get("/settings/?tab=account")
 
         assert response.context["primary_verified_json"] == "true"
 
@@ -528,7 +608,7 @@ def describe_user_settings():
         EmailAddress.objects.create(user=user, email="u@example.com", verified=False, primary=True)
         client.login(username="unverifiedprimary", password="pass")
 
-        response = client.get("/settings/?tab=emails")
+        response = client.get("/settings/?tab=account")
 
         assert response.context["primary_verified_json"] == "false"
 
@@ -542,7 +622,7 @@ def describe_user_settings():
         EmailAddress.objects.create(user=user, email="alias@example.com", verified=True, primary=False)
         client.login(username="emaillist", password="pass")
 
-        response = client.get("/settings/?tab=emails")
+        response = client.get("/settings/?tab=account")
 
         addrs = list(response.context["email_addresses"])
         assert {a.email for a in addrs} == {"primary@example.com", "alias@example.com"}
@@ -562,6 +642,7 @@ def describe_user_settings():
                 "contacts-0-value": "https://maker.example",
                 "contacts-0-show_in_directory": "on",
                 "contacts-0-sort_order": "0",
+                "contacts-0-kind": "website",
             },
         )
 
@@ -569,6 +650,42 @@ def describe_user_settings():
         assert contact.label == "Website"
         assert contact.value == "https://maker.example"
         assert contact.show_in_directory is True
+
+    def it_saves_a_contact_with_the_posted_kind(client: Client):
+        user = User.objects.create_user(username="kindsaver", password="pass")
+        member = user.member
+        client.login(username="kindsaver", password="pass")
+
+        client.post(
+            "/settings/",
+            {
+                "form_id": "profile",
+                "contacts-TOTAL_FORMS": "1",
+                "contacts-INITIAL_FORMS": "0",
+                "contacts-0-label": "Portfolio",
+                "contacts-0-value": "https://portfolio.example",
+                "contacts-0-show_in_directory": "on",
+                "contacts-0-sort_order": "0",
+                "contacts-0-kind": "website",
+            },
+        )
+
+        contact = member.contacts.get()
+        assert contact.kind == "website"
+
+    def it_renders_the_three_contact_section_headings(client: Client):
+        user = User.objects.create_user(username="sectionviewer", password="pass")
+        member = user.member
+        MemberContactFactory(member=member, label="My site", kind="website")
+        MemberContactFactory(member=member, label="Instagram", kind="social")
+        MemberContactFactory(member=member, label="Signal", kind="other")
+        client.login(username="sectionviewer", password="pass")
+
+        html = client.get("/settings/").content.decode()
+
+        assert "Website" in html
+        assert "Social" in html
+        assert "Other Contact Methods" in html
 
     def it_deletes_a_contact_when_the_profile_form_flags_the_row(client: Client):
         user = User.objects.create_user(username="contactdeleter", password="pass")
@@ -647,7 +764,7 @@ def describe_legacy_settings_redirects():
         response = client.get("/accounts/email/")
 
         assert response.status_code == 302
-        assert response.url == "/settings/?tab=emails"
+        assert response.url == "/settings/?tab=account"
 
     def it_sends_email_action_post_back_to_emails_tab(client: Client):
         """After allauth's EmailView handles add/remove/resend/primary, the user
@@ -662,7 +779,7 @@ def describe_legacy_settings_redirects():
         response = client.post("/accounts/email/", {"action_add": "", "email": "alias@example.com"})
 
         assert response.status_code == 302
-        assert response.url == "/settings/?tab=emails"
+        assert response.url == "/settings/?tab=account"
 
 
 _PROFILE_PHOTO_DELETE_URL = "/settings/profile-photo/delete/"

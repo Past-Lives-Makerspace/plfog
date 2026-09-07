@@ -28,6 +28,7 @@
 {# ── Filter bar: category dropdown + Filter popover button ── #}
 <form id="cp-filter-form"
       class="cp-filter"
+      data-help-key="catalog.filter"
       method="get"
       action="{% url 'classes:public_list' %}"
       hx-get="{% url 'classes:public_list' %}"

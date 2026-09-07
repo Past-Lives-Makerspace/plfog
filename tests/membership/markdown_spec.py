@@ -166,6 +166,28 @@ def describe_render_markdown():
                 )
                 assert 'src="https://www.youtube-nocookie.com/embed/xyz789"' in html
 
+            def it_keeps_an_origin_only_referrerpolicy():
+                # Without a referrerpolicy the site-wide same-origin policy sends the
+                # player no Referer, so it cannot identify the embedding origin and
+                # refuses to play (YouTube error 153). Stripping it here would make the
+                # failure unfixable from the content side.
+                html = render_markdown(
+                    '<iframe src="https://www.loom.com/embed/abc" title="Vid" '
+                    'referrerpolicy="strict-origin-when-cross-origin"></iframe>',
+                    profile="help",
+                )
+                assert 'referrerpolicy="strict-origin-when-cross-origin"' in html
+
+            def it_drops_a_referrerpolicy_that_would_leak_the_full_url():
+                # unsafe-url would hand the player the whole path of the page the member
+                # is reading; only origin-only policies are allowed through.
+                html = render_markdown(
+                    '<iframe src="https://www.loom.com/embed/abc" title="Vid" referrerpolicy="unsafe-url"></iframe>',
+                    profile="help",
+                )
+                assert "unsafe-url" not in html
+                assert 'src="https://www.loom.com/embed/abc"' in html
+
             def it_removes_a_plain_youtube_com_iframe_entirely():
                 # Cookied youtube.com is deliberately not on the allowlist — only the
                 # privacy-enhanced nocookie host is.

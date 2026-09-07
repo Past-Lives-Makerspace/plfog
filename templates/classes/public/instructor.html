@@ -26,7 +26,7 @@
             {% with instructor_contacts=instructor.instructor_page_contacts %}
             {% if instructor_contacts %}
             <div class="ip-links">
-              {% for contact in instructor_contacts %}<span>{{ contact.label }}: {{ contact.as_link }}</span>{% endfor %}
+              {% for contact in instructor_contacts %}{% if contact.kind == "social" %}<span>{% include "components/social_icon.html" with platform=contact.social_icon %} {{ contact.as_link }}</span>{% else %}<span>{{ contact.label }}: {{ contact.as_link }}</span>{% endif %}{% endfor %}
             </div>
             {% endif %}
             {% endwith %}
