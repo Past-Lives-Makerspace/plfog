@@ -1,0 +1,34 @@
+{% extends "hub/base.html" %}
+{% block title %}Start A Page{% endblock %}
+
+{% block content %}
+{% comment %}
+The starter chooser. The grid renders from membership/wiki_starters.py module data and never
+from hardcoded markup — that is the seam spec D extends with its seventh Safety & Rules card,
+and six hand-written blocks here would force D to edit this template.
+
+Every card carries the incoming ?guild= / ?title= / ?wanted= through unchanged. Spec B renders
+"Start this page" links from four surfaces and each has to survive this one hop, or B's whole
+wanted-page loop silently never completes.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="Start A Page" description="Pick what kind of thing it is. You can change your mind later." %}
+
+{% if can_write %}
+<div class="pl-wp-starter-grid">
+    {% for starter in starters %}
+    <a href="{% url 'hub_wiki_create' starter.kind %}{% if carried_params %}?{{ carried_params }}{% endif %}" class="hub-card pl-wp-starter">
+        <span class="pl-wp-starter__title">{{ starter.label }}</span>
+        <span class="hub-text-muted pl-wp-starter__desc">{{ starter.description }}</span>
+    </a>
+    {% endfor %}
+</div>
+<p class="hub-text-muted pl-wp-starter__hint">Not sure? Pick How to do something. Nothing here is hard to move.</p>
+<p class="pl-wp-starter__back"><a href="{% url 'hub_wiki_home' %}">Back to the wiki</a></p>
+{% else %}
+<div class="hub-card pl-wp-group">
+    <p class="hub-text-muted">Your membership needs to be active to write here.</p>
+    <p><a href="{% url 'hub_user_settings' %}">Open Settings</a></p>
+</div>
+{% endif %}
+{% endblock %}

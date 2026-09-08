@@ -1,0 +1,93 @@
+{% comment %}
+The attachments list editor. Same structure as the Quick Answers rows, extra=0 in both modes
+(attachments have no starter prompts), {{ f.id }} on every row, and the enclosing <form>
+carries enctype="multipart/form-data" — without it these file inputs post nothing at all and
+the failure is completely silent.
+
+components/image_field.html is deliberately NOT used here: it binds a per-field modal_id and
+a preview id that collide the moment a row is cloned, and its inline script never executes
+inside cloned innerHTML. Drag, drop and preview come from one delegated handler on
+#wp-attach-rows instead (Rule 16).
+{% endcomment %}
+{{ attachments_formset.management_form }}
+{% for error in attachments_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+<div id="wp-attach-rows" class="pl-wp-rows">
+    {% for f in attachments_formset %}
+    <div class="hub-card pl-wp-row">
+        <div class="pl-wp-row__grip" draggable="true" aria-hidden="true">&#10287;</div>
+        {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+        {% include "components/form_field.html" with field=f.label %}
+        <div class="pl-form-group">
+            <label class="pl-form-label" for="{{ f.file.id_for_label }}">File</label>
+            <label class="cls-image-upload-zone" for="{{ f.file.id_for_label }}">
+                <span class="cls-image-upload-label">{% if f.instance.pk and f.instance.file %}Replace file{% else %}Choose a file or drag one here{% endif %}</span>
+                <span class="cls-image-upload-hint">Photos or documents.</span>
+                {{ f.file }}
+            </label>
+            <span class="pl-help">
+                <span class="pl-help__icon" tabindex="0" role="img" aria-label="Upload limits.">?</span>
+                <span class="pl-help__bubble">Photos or documents, up to 10 MB for a photo and 25 MB for a file.</span>
+            </span>
+            {% for error in f.file.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+        </div>
+        {% include "components/form_field.html" with field=f.url %}
+        {{ f.id }}
+        {{ f.sort_order }}
+        <div class="pl-wp-row__controls">
+            <button type="button" class="hub-btn hub-btn--sm" data-move="up" aria-label="Move up">&#8593;</button>
+            <button type="button" class="hub-btn hub-btn--sm" data-move="down" aria-label="Move down">&#8595;</button>
+            {% if f.instance.pk %}
+            <div style="display:none;">{{ f.DELETE }}</div>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">Delete</button>
+            {% else %}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="this.closest('.pl-wp-row').remove();">Remove</button>
+            {% endif %}
+        </div>
+    </div>
+    {% empty %}
+    <p class="hub-text-muted pl-wp-factrow__empty">Nothing attached yet. A photo of the setup helps more than a paragraph.</p>
+    {% endfor %}
+</div>
+
+<template id="wp-attach-empty-template">
+    <div class="hub-card pl-wp-row">
+        {% with attachments_formset.empty_form as ef %}
+        <div class="pl-wp-row__grip" draggable="true" aria-hidden="true">&#10287;</div>
+        {% include "components/form_field.html" with field=ef.label %}
+        <div class="pl-form-group">
+            <label class="pl-form-label" for="{{ ef.file.id_for_label }}">File</label>
+            <label class="cls-image-upload-zone" for="{{ ef.file.id_for_label }}">
+                <span class="cls-image-upload-label">Choose a file or drag one here</span>
+                <span class="cls-image-upload-hint">Photos or documents.</span>
+                {{ ef.file }}
+            </label>
+        </div>
+        {% include "components/form_field.html" with field=ef.url %}
+        {{ ef.id }}
+        {{ ef.sort_order }}
+        <div class="pl-wp-row__controls">
+            <button type="button" class="hub-btn hub-btn--sm" data-move="up" aria-label="Move up">&#8593;</button>
+            <button type="button" class="hub-btn hub-btn--sm" data-move="down" aria-label="Move down">&#8595;</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                    onclick="this.closest('.pl-wp-row').remove();">Remove</button>
+        </div>
+        {% endwith %}
+    </div>
+</template>
+
+<button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+        onclick="
+          const tpl = document.getElementById('wp-attach-empty-template');
+          const total = document.getElementById('id_attachments-TOTAL_FORMS');
+          const idx = parseInt(total.value, 10);
+          const wrap = document.createElement('div');
+          wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+          const rows = document.getElementById('wp-attach-rows');
+          rows.appendChild(wrap.firstElementChild);
+          total.value = idx + 1;
+          rows.dispatchEvent(new CustomEvent('wp:reindex'));
+        ">
+    + Add A File Or Link
+</button>

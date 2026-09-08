@@ -1,0 +1,297 @@
+{% extends "hub/base.html" %}
+{% block title %}{% if is_create %}Start A Page{% else %}Edit {{ page.title }}{% endif %}{% endblock %}
+
+{% block content %}
+{% comment %}
+One template, two modes: create (/wiki/new/<kind>/) and edit (/wiki/p/<slug>/edit/).
+
+The form carries enctype="multipart/form-data" because the attachment rows hold file inputs;
+without it every upload silently vanishes with no error anywhere. It also carries a hidden
+base_revision, which spec A never compares — spec D's conflict check reads it, and on a
+resumed draft it is the ancestor the member actually typed over rather than "now".
+
+Two named blocks are seams for spec D: wiki_editor_banners (its lock warning and conflict
+notice, alongside A's resume card) and wiki_editor_footer.
+
+Rule 21: Save is the LAST element in the form and says just "Save". Both anti-fear hint lines
+sit ABOVE it with room to breathe (Rule 18), never underneath.
+{% endcomment %}
+{% include "_components/rich_editor_assets.html" %}
+
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_wiki_home' %}">Wiki</a>
+    {% if not is_create %} / <a href="{{ page.get_absolute_url }}">{{ page.title }}</a>{% endif %}
+</nav>
+{% if is_create %}
+{% include "components/page_header.html" with title="Start A Page" description="Rough is fine. Two fields and whatever you know." %}
+{% else %}
+{% include "components/page_header.html" with title="Edit This Page" description="Every version is saved, so nothing here can be lost." %}
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="hub-form pl-wp-editor"
+      x-data="plWikiEditor('{{ autosave_url }}')"
+      @htmx:before-request.camel="onBeforeRequest()"
+      @wiki-saved="onSaved()"
+      @htmx:response-error.camel="onResponseError($event)"
+      @htmx:send-error.camel="onSendError()">
+    {% csrf_token %}
+    <input type="hidden" name="base_revision" value="{{ base_revision }}">
+    {% if wanted_pk %}<input type="hidden" name="wanted" value="{{ wanted_pk }}">{% endif %}
+
+    {% block wiki_editor_banners %}{% endblock %}
+
+    {% if resume_draft %}
+    <div class="pl-wp-resume">
+        <p class="pl-wp-resume__line">You have unsaved changes from {{ resume_draft.updated_at|timesince }} ago.</p>
+        <div class="pl-wp-resume__actions">
+            <a href="{{ resume_use_url }}" class="pl-btn pl-btn--sm">Use My Draft</a>
+            <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
+                    @click="$dispatch('open-confirm', 'wiki-draft-fresh')">Start From The Saved Page</button>
+        </div>
+    </div>
+    {% include "components/confirm_modal.html" with confirm_id="wiki-draft-fresh" confirm_title="Throw away your unsaved changes?" confirm_message="The text you had here is not saved anywhere else." confirm_button_text="Throw It Away" confirm_js=resume_fresh_js %}
+    {% endif %}
+
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+
+    <div class="hub-card pl-wp-editor__card">
+        <h2 class="hub-detail-label pl-wp-section__title">The Basics</h2>
+        {% include "components/form_field.html" with field=form.title %}
+        {% if is_create %}
+        {% include "components/form_field.html" with field=form.guild %}
+        {% include "components/form_field.html" with field=form.kind %}
+        {% endif %}
+        {% if form.equipment %}
+        {% include "components/form_field.html" with field=form.equipment %}
+        {% endif %}
+    </div>
+
+    <div class="hub-card pl-wp-editor__card">
+        <h2 class="hub-detail-label pl-wp-section__title">Quick Answers</h2>
+        <p class="hub-text-muted">The four or five things people actually came for. Short beats complete.</p>
+        {% include "hub/partials/_wiki_fact_rows.html" %}
+    </div>
+
+    <div class="hub-card pl-wp-editor__card">
+        <div class="pl-wp-editor__head">
+            <h2 class="hub-detail-label pl-wp-section__title">The Page</h2>
+            <span class="pl-wp-savepill" :class="'pl-wp-savepill--' + saveState" x-show="savePillVisible()"
+                  x-text="saveStateLabel()" aria-live="polite"
+                  title="Title and writing are saved as you type. Quick answers and files save when you press Save."></span>
+        </div>
+        {% include "components/form_field.html" with field=form.body %}
+        <p class="hub-text-muted pl-wp-editor__hint">Every version is saved. Nothing here can be lost.</p>
+        {% block wiki_editor_footer %}{% endblock %}
+    </div>
+
+    <div class="hub-card pl-wp-editor__card">
+        <h2 class="hub-detail-label pl-wp-section__title">Files And Photos</h2>
+        {% include "hub/partials/_wiki_attach_rows.html" %}
+    </div>
+
+    {% if verification_warning %}
+    <p class="hub-text-muted pl-wp-editor__hint">This page is guild verified. Saving moves it back to Community until someone checks it again.</p>
+    {% endif %}
+    <p class="hub-text-muted pl-wp-editor__hint">Rough is fine. Someone will tidy it.</p>
+
+    <div class="pl-wp-editor__save">
+        <a href="{{ cancel_url }}" class="hub-btn hub-btn--ghost">Cancel</a>
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+    </div>
+</form>
+
+<script>
+  // The savestate pill, the debounced title/body autosave, and one delegated reorder +
+  // drop-zone handler per rows container. All delegated on purpose: a "+ Add" button clones
+  // a <template>'s innerHTML and cloned innerHTML never executes its scripts (Rule 16).
+  // Registered defensively: on a first page load alpine:init has not fired yet, but on an
+  // hx-boost body swap Alpine is already running and the event never comes again — the
+  // component would silently never register and autosave would be dead on that navigation.
+  (function () {
+    function definePlWikiEditor() {
+    Alpine.data('plWikiEditor', function (autosaveUrl) {
+      return {
+        saveState: 'idle',
+        savedAt: null,
+        autosaveUrl: autosaveUrl,
+        _timers: {},
+        init() { this.bindAutosave(); },
+        savePillVisible() { return this.saveState !== 'idle'; },
+        saveStateLabel() {
+          if (this.saveState === 'saving') return 'Saving…';
+          if (this.saveState === 'error') return "Couldn't save. Check your connection.";
+          if (this.saveState === 'saved') {
+            var secs = (Date.now() - (this.savedAt || Date.now())) / 1000;
+            return secs < 10 ? 'Saved ✓ just now' : 'Saved ✓ a moment ago';
+          }
+          return '';
+        },
+        onBeforeRequest() { this.saveState = 'saving'; },
+        onSaved() { this.savedAt = Date.now(); this.saveState = 'saved'; },
+        onResponseError(evt) {
+          if (evt.detail.xhr.status === 422) {
+            var elt = evt.detail.elt;
+            if (elt && elt.dataset && elt.dataset.autosave !== undefined && 'value' in elt) {
+              elt.value = elt.dataset.saved || '';
+            }
+            this.saveState = 'saved';  // the error toast arrives on the HX-Trigger header
+            return;
+          }
+          this.saveState = 'error';
+        },
+        onSendError() { this.saveState = 'error'; },
+        save(field, value, sourceEl) {
+          var self = this;
+          var key = 'wp|' + field;
+          clearTimeout(this._timers[key]);
+          this._timers[key] = setTimeout(function () {
+            htmx.ajax('POST', self.autosaveUrl, {
+              source: sourceEl || self.$el,
+              values: { field: field, value: String(value) },
+              swap: 'none',
+            });
+          }, 700);
+        },
+        bindAutosave() {
+          var self = this;
+          var title = this.$el.querySelector('input[name="title"]');
+          if (title) {
+            title.dataset.autosave = '';
+            title.dataset.saved = title.value;
+            title.addEventListener('input', function () { self.save('title', title.value, title); });
+          }
+          var body = this.$el.querySelector('textarea[name="body"]');
+          if (body) {
+            body.dataset.autosave = '';
+            body.dataset.saved = body.value;
+            // Quill writes back into the hidden textarea, which fires no input event, so the
+            // crash net polls it instead of listening. Cheap, and it cannot miss a keystroke.
+            setInterval(function () {
+              if (body.value === body.dataset.saved) return;
+              body.dataset.saved = body.value;
+              self.save('body', body.value, body);
+            }, 4000);
+          }
+        },
+      };
+    });
+    }
+    if (window.Alpine && window.Alpine.data) {
+      definePlWikiEditor();
+    } else {
+      document.addEventListener('alpine:init', definePlWikiEditor);
+    }
+  })();
+
+  (function () {
+    function wire(containerId) {
+      var container = document.getElementById(containerId);
+      if (!container) return;
+
+      function rows() {
+        return Array.prototype.filter.call(container.children, function (el) {
+          return el.classList && el.classList.contains('pl-wp-row');
+        });
+      }
+      function reindex() {
+        rows().forEach(function (row, idx) {
+          var input = row.querySelector('input[name$="-sort_order"]');
+          if (input) input.value = idx;
+        });
+      }
+      container.addEventListener('wp:reindex', reindex);
+
+      // Up / down are the touch path and the only visible control with gloves on; the grip
+      // is the desktop path. Both rewrite every row's hidden sort_order to its visual index.
+      container.addEventListener('click', function (e) {
+        var btn = e.target.closest && e.target.closest('[data-move]');
+        if (!btn || !container.contains(btn)) return;
+        var row = btn.closest('.pl-wp-row');
+        if (!row) return;
+        if (btn.getAttribute('data-move') === 'up') {
+          var prev = row.previousElementSibling;
+          if (prev && prev.classList.contains('pl-wp-row')) container.insertBefore(row, prev);
+        } else {
+          var next = row.nextElementSibling;
+          if (next && next.classList.contains('pl-wp-row')) container.insertBefore(next, row);
+        }
+        reindex();
+      });
+
+      var dragRow = null;
+      container.addEventListener('dragstart', function (e) {
+        var grip = e.target.closest && e.target.closest('.pl-wp-row__grip');
+        if (!grip) return;
+        dragRow = grip.closest('.pl-wp-row');
+        if (dragRow) dragRow.classList.add('pl-wp-row--dragging');
+      });
+      container.addEventListener('dragend', function () {
+        if (dragRow) dragRow.classList.remove('pl-wp-row--dragging');
+        dragRow = null;
+      });
+      container.addEventListener('dragover', function (e) {
+        if (dragRow) {
+          var row = e.target.closest && e.target.closest('.pl-wp-row');
+          if (!row || row === dragRow) return;
+          e.preventDefault();
+          return;
+        }
+        if (!hasFiles(e.dataTransfer)) return;
+        var zone = zoneOf(e.target);
+        if (!zone) return;
+        e.preventDefault();
+        zone.classList.add('drag-hover');
+      });
+      container.addEventListener('dragleave', function (e) {
+        var zone = zoneOf(e.target);
+        if (zone) zone.classList.remove('drag-hover');
+      });
+      container.addEventListener('drop', function (e) {
+        if (dragRow) {
+          var row = e.target.closest && e.target.closest('.pl-wp-row');
+          if (!row || row === dragRow) return;
+          e.preventDefault();
+          var list = rows();
+          if (list.indexOf(dragRow) < list.indexOf(row)) {
+            container.insertBefore(dragRow, row.nextElementSibling);
+          } else {
+            container.insertBefore(dragRow, row);
+          }
+          reindex();
+          return;
+        }
+        if (!hasFiles(e.dataTransfer)) return;
+        var zone = zoneOf(e.target);
+        if (!zone) return;
+        e.preventDefault();
+        zone.classList.remove('drag-hover');
+        var input = zone.querySelector('input[type="file"]');
+        if (input && e.dataTransfer.files.length) {
+          input.files = e.dataTransfer.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
+      container.addEventListener('change', function (e) {
+        var input = e.target;
+        if (!input.matches || !input.matches('.cls-image-upload-zone input[type="file"]')) return;
+        var zone = zoneOf(input);
+        if (!zone || !input.files || !input.files.length) return;
+        var label = zone.querySelector('.cls-image-upload-label');
+        if (label) label.textContent = input.files[0].name;
+      });
+    }
+
+    function zoneOf(el) { return el && el.closest ? el.closest('.cls-image-upload-zone') : null; }
+    // Only react to genuine FILE drags — a row-reorder drag carries no files and must not
+    // light up an image drop zone.
+    function hasFiles(dt) {
+      if (!dt || !dt.types) return false;
+      for (var i = 0; i < dt.types.length; i++) { if (dt.types[i] === 'Files') return true; }
+      return false;
+    }
+
+    wire('wp-fact-rows');
+    wire('wp-attach-rows');
+  })();
+</script>
+{% endblock %}

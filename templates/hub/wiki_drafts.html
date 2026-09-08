@@ -1,0 +1,48 @@
+{% extends "hub/base.html" %}
+{% block title %}Your Drafts{% endblock %}
+
+{% block content %}
+{% comment %}
+The member's own unfinished writing, and nobody else's.
+
+The copy says what actually autosaves. Only the title and the body go into a draft: a
+formset row is only meaningful as a complete submission and a file input cannot be
+debounce-posted at all. A screen that said "unsaved changes" flatly, when three quick
+answer rows were never in the draft, would be a promise the store does not keep.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="Your Drafts" description="Things you started. Only you can see these." %}
+
+{% for draft in drafts %}
+<div class="hub-card pl-wp-draft">
+    <h2 class="hub-detail-label pl-wp-section__title">{% if draft.title %}{{ draft.title }}{% elif draft.page %}{{ draft.page.title }}{% else %}Untitled {{ draft.get_kind_display|lower }}{% endif %}</h2>
+    <p class="hub-text-muted pl-wp-draft__meta">
+        {% if draft.guild %}{{ draft.guild.name }}{% elif draft.page.guild %}{{ draft.page.guild.name }}{% else %}Space wide{% endif %} &middot; {{ draft.get_kind_display }}
+        &middot; Last saved {{ draft.updated_at|timesince }} ago
+    </p>
+    <p class="hub-text-muted pl-wp-draft__meta">Quick answers and files are saved when you press Save.</p>
+    <div class="pl-wp-draft__actions">
+        <a href="{% if draft.page %}{% url 'hub_wiki_edit' draft.page.slug %}{% else %}{% url 'hub_wiki_create' draft.kind %}{% endif %}?draft=use" class="pl-btn pl-btn--primary">Keep Writing</a>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                @click="$dispatch('open-confirm', 'wiki-draft-{{ draft.pk }}')">Discard</button>
+    </div>
+    {% url 'hub_wiki_draft_discard' draft.pk as discard_url %}
+    {% with draft_pk=draft.pk|stringformat:"s" %}
+    {% include "components/confirm_modal.html" with confirm_id="wiki-draft-"|add:draft_pk confirm_title="Discard this draft?" confirm_message="The text is not saved anywhere else." confirm_action_url=discard_url confirm_button_text="Discard" %}
+    {% endwith %}
+</div>
+{% empty %}
+{% if not held_pages %}
+<div class="hub-card pl-wp-group">
+    <p class="hub-text-muted">No drafts. Your title and writing are saved here automatically as you type.</p>
+</div>
+{% endif %}
+{% endfor %}
+
+{% for held in held_pages %}
+<div class="hub-card pl-wp-draft">
+    <h2 class="hub-detail-label pl-wp-section__title"><a href="{{ held.get_absolute_url }}">{{ held.title }}</a></h2>
+    <p class="hub-text-muted pl-wp-draft__meta">Waiting for a guild lead to publish it.</p>
+</div>
+{% endfor %}
+{% endblock %}
