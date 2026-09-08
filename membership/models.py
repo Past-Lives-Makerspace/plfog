@@ -12364,6 +12364,42 @@ class WikiPage(models.Model):
 
         return reverse("hub_wiki_page", args=[self.slug])
 
+    # --- The sticker (/m/<code>/) ---------------------------------------------------
+
+    @property
+    def sticker_url(self) -> str:
+        """The absolute ``/m/<code>/`` link a printed sticker carries.
+
+        The ``Guild.vanity_url`` idiom: one place builds it, so the QR, the printable
+        sheet, and the typed fallback under it can never encode three different links.
+        It points at the member host because the wiki is member-only; a scan by someone
+        signed out lands on the login screen carrying the page as ``?next=``.
+        """
+        from django.urls import reverse
+
+        return f"{settings.MEMBER_BASE_URL}{reverse('hub_wiki_qr', args=[self.qr_code])}"
+
+    @property
+    def sticker_url_typed(self) -> str:
+        """The sticker link without its scheme, for someone typing it off a dusty label.
+
+        The whole reason the code is six characters from an alphabet with no O or I: a
+        member with a dead phone battery has to be able to read it and type it.
+        """
+        return self.sticker_url.split("://", 1)[-1]
+
+    def qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG of this page's sticker QR (crisp at any print size)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.sticker_url)
+
+    def qr_png_bytes(self) -> bytes:
+        """PNG bytes of the same QR (segno's native writer — no Pillow)."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.sticker_url)
+
     # --- One status pill, everywhere -----------------------------------------------
 
     @property

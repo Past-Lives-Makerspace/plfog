@@ -76,7 +76,10 @@ none()-on-empty search all three of them would have dead-ended on a blank page.
         <div class="hub-card pl-wp-home__card">
             <div class="pl-wp-home__head">
                 <h2 class="hub-detail-label pl-wp-section__title">Machines</h2>
-                <a href="{% url 'hub_wiki_search' %}?kind=machine" class="pl-wp-home__seeall">See all</a>
+                <span class="pl-wp-home__headlinks">
+                    {% if can_print_stickers %}<a href="{% url 'hub_wiki_stickers' %}{% if guild_filter and guild_filter != 'space-wide' %}?guild={{ guild_filter|urlencode }}{% endif %}" target="_blank" rel="noopener" class="pl-wp-home__seeall">Print stickers</a>{% endif %}
+                    <a href="{% url 'hub_wiki_search' %}?kind=machine" class="pl-wp-home__seeall">See all</a>
+                </span>
             </div>
             <div class="pl-wp-machinegrid">
                 {% for wiki_page in machine_pages %}

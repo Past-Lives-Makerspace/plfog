@@ -9,6 +9,10 @@ Parameters:
   png_url   — download URL for the PNG QR
   title     — card heading (e.g. "Share & Print")
   hint      — a single pre-computed hint line (callers compute any conditional text)
+  field_id  — optional id for the copy input, defaulting to "qr-share-url". Only needed
+              when one page renders this card twice (the wiki reading page renders it at
+              desktop width and again inside the phone Details disclosure), because two
+              elements sharing an id break the <label for> association.
 
 The copy input is readonly and has NO `name`, and every control is a type="button" button
 or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the event edit form)
@@ -22,9 +26,9 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
     <span class="pl-qr-share__qr-caption">Scan to open</span>
   </div>
   <div class="hub-form-group pl-qr-share__field">
-    <label for="qr-share-url">Share link</label>
+    <label for="{{ field_id|default:'qr-share-url' }}">Share link</label>
     <div class="pl-qr-share__link">
-      <input id="qr-share-url" x-ref="url" type="text" readonly value="{{ share_url }}" onclick="this.select()">
+      <input id="{{ field_id|default:'qr-share-url' }}" x-ref="url" type="text" readonly value="{{ share_url }}" onclick="this.select()">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
               @click="copy()" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
     </div>

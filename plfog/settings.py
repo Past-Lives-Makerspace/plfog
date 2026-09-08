@@ -90,6 +90,9 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/feedback/",
     "/find-account/",
     "/guilds/",
+    # The wiki sticker short link. Reachable pre-login on the members host (that is the
+    # whole point of a QR on a machine), but it must not resolve on the book surface.
+    "/m/",
     "/members/",
     "/push/",
     "/restart-login/",

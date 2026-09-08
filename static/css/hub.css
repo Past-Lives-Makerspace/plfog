@@ -8481,6 +8481,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-bottom: 0.75rem;
 }
 .pl-wp-home__seeall { font-size: 0.85rem; }
+.pl-wp-home__headlinks { display: flex; align-items: center; gap: 1rem; }
 .pl-wp-home__empty { margin: 0 0 1rem; }
 .pl-wp-section__title { margin-top: 0; margin-bottom: 0.5rem; }
 .pl-wp-machinegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0.75rem; }
@@ -8573,6 +8574,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-facts { display: grid; grid-template-columns: minmax(8rem, 14rem) 1fr; gap: 0.4rem 1rem; margin: 0; }
 .pl-wp-facts__label { margin: 0; font-weight: 600; color: var(--hub-text-muted); }
 .pl-wp-facts__value { margin: 0; color: var(--hub-text); }
+/* A seeded prompt nobody has answered yet. Quiet, so the answered rows still lead. */
+.pl-wp-facts__blank { color: var(--hub-text-muted); font-style: italic; }
 
 /* The locked Official block: its own tinted container, above member content, no edit
    affordance for anyone because there is nothing here to edit. */
@@ -8645,6 +8648,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-details { display: none; margin-bottom: 1.25rem; }
 .pl-wp-details summary { cursor: pointer; color: var(--hub-text-muted); font-size: 0.9rem; }
 .pl-wp-byline { margin: 0.5rem 0 0; font-size: 0.85rem; }
+/* Share This Page follows the byline's width swap: its own card on desktop (the only place
+   anybody prints a sticker) and the last block inside the phone Details disclosure. */
+.pl-wp-qrshare { margin-bottom: 1.25rem; }
 
 /* Only ever printed: a sheet taped to a machine has to say where it came from and how old
    it is, and on screen that is noise. */
@@ -8673,6 +8679,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-has-actionbar { padding-bottom: 5.5rem; }
     .pl-wp-bylinewide { display: none; }
     .pl-wp-details { display: block; }
+    .pl-wp-qrshare { display: none; }
     .pl-wp-facts { grid-template-columns: 1fr; gap: 0.1rem 0; }
     .pl-wp-facts__value { margin-bottom: 0.6rem; font-size: 17px; }
     .pl-wp-header { flex-direction: column; }
@@ -8745,6 +8752,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-related,
     .pl-wp-confirmcue,
     .pl-wp-breadcrumbs,
+    .pl-wp-qrshare,
     .pl-wp-actions,
     .pl-wp-page .pl-btn,
     .pl-wp-page .hub-btn {

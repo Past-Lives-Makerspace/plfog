@@ -1,0 +1,44 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wiki stickers{% if guild %} — {{ guild.name }}{% endif %} · Past Lives</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/wiki-stickers.css' %}">
+{% include "includes/google_analytics.html" %}
+</head>
+<body class="pl-stickers-body">
+
+{% comment %}
+A standalone print document in the guild_flyer idiom: no member chrome, its own stylesheet,
+its own @page rule, and black on white in both themes because print always is.
+
+Each cell carries the QR, the machine name in large type, and the typed short link. The
+name and the link are there so a member with a dead phone battery or a scratched sticker
+can still find the page, which is the whole reason the code is six characters from an
+alphabet with no O and no I.
+{% endcomment %}
+<div class="pl-stickers-toolbar no-print">
+  <button type="button" class="pl-stickers-print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <p class="pl-stickers-toolbar__hint">Print on label sheets or plain paper and tape them on. Use your browser's Print dialog and choose “Save as PDF.”</p>
+</div>
+
+{% if stickers %}
+<div class="pl-stickers-sheet">
+  {% for sticker in stickers %}
+  <div class="pl-wp-sticker">
+    <div class="pl-wp-sticker__qr">{{ sticker.qr_svg|safe }}</div>
+    <p class="pl-wp-sticker__name">{{ sticker.page.title }}</p>
+    <p class="pl-wp-sticker__url">{{ sticker.page.sticker_url_typed }}</p>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="pl-stickers-empty">
+  <p>No {{ kind_label|lower }} pages{% if guild %} in {{ guild.name }}{% endif %} yet. Run the equipment seed first.</p>
+</div>
+{% endif %}
+
+</body>
+</html>

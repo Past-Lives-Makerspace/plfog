@@ -23,6 +23,7 @@ from typing import Any, cast
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.views import redirect_to_login
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -59,6 +60,7 @@ from membership.permissions import (
     can_edit_wiki_page,
     can_verify_wiki_page,
     editable_wiki_scopes,
+    is_effective_staff,
     visible_wiki_pages,
 )
 from membership.wiki_starters import STARTERS
@@ -250,6 +252,9 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
             "drafts": drafts,
             "starters": [{"kind": key, **value} for key, value in STARTERS.items()],
             "can_write": _active_member(request) is not None,
+            # The printable sticker sheet's only entry point. Without it /wiki/stickers/
+            # is a URL you have to already know, which is the same as not shipping it.
+            "can_print_stickers": is_effective_staff(request),
             "has_any_page": visible.exists(),
         }
     )
@@ -1115,3 +1120,94 @@ def hub_wiki_draft_discard(request: HttpRequest, pk: int) -> HttpResponse:
     draft.delete()
     messages.success(request, "Draft discarded.")
     return redirect("hub_wiki_drafts")
+
+
+# --- Stickers: the /m/ short link, the QR download, and the print sheet (PR A4) --------
+
+
+@wiki_feature_required
+def hub_wiki_qr(request: HttpRequest, code: str) -> HttpResponse:
+    """``/m/<code>/`` — the sticker route. A scan must never dead-end.
+
+    The one wiki view with no ``@login_required``, because the whole point is the signed
+    out case: a member scanning a sticker on a machine is sent to the login screen
+    carrying that machine's page as ``?next=``, so finishing the emailed-code login lands
+    them on the tool they are standing in front of rather than on the home page. Without
+    that, every first scan teaches people the sticker does not work.
+
+    The code is uppercased before lookup, so a phone camera that lower-cases the path
+    still resolves. Visibility is deliberately NOT checked here: the reading page already
+    answers that question, and duplicating the gate is how two gates drift apart.
+    """
+    page = WikiPage.objects.filter(qr_code=code.upper()).first()
+    if page is None:
+        # A printed sticker outlives the page it was made for, so an unknown code gets a
+        # written explanation rather than a bare 404 — but the wiki is member-only, and
+        # that explanation lives in the member shell. Sending a signed-out scanner
+        # through login with this same path as ``next`` gets them the real page, one hop
+        # later, instead of rendering member chrome to the street.
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        context = _get_hub_context(request)
+        return render(request, "hub/wiki_qr_missing.html", context, status=404)
+    target = page.get_absolute_url()
+    if request.user.is_authenticated:
+        return redirect(target)
+    return redirect_to_login(target)
+
+
+@login_required
+@wiki_feature_required
+def hub_wiki_qr_download(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/qr/?fmt=svg|png`` — the sticker QR as a file, in the guild shape.
+
+    Gated on ``can_edit_wiki_page``: the QR is a page's own share artifact and sits in the
+    "Share This Page" card, which the same gate renders.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    if not can_edit_wiki_page(request, page):
+        return _forbidden()
+    fmt = request.GET.get("fmt", "svg")
+    if fmt == "svg":
+        resp = HttpResponse(page.qr_svg(), content_type="image/svg+xml")
+    elif fmt == "png":
+        resp = HttpResponse(page.qr_png_bytes(), content_type="image/png")
+    else:
+        raise Http404("Unknown QR format.")
+    resp["Content-Disposition"] = f'attachment; filename="{page.slug}-qr.{fmt}"'
+    return resp
+
+
+@login_required
+@wiki_feature_required
+def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
+    """``/wiki/stickers/`` — a printable sheet of QR stickers, one shop at a time.
+
+    ``is_effective_staff`` rather than ``can_moderate_wiki_page``: a staff-wide printable
+    sheet has no single page in scope, so there is no page argument to moderate against.
+
+    A standalone print document in the ``guild_flyer`` idiom — its own stylesheet, its own
+    ``@page`` rule, black on white in both themes, no member chrome.
+    """
+    if not is_effective_staff(request):
+        return _forbidden()
+    guild_slug = request.GET.get("guild", "").strip()
+    guild = Guild.objects.filter(slug=guild_slug).first() if guild_slug else None
+    kind = request.GET.get("kind", WikiPage.Kind.MACHINE.value).strip()
+    if kind not in WikiPage.Kind.values:
+        kind = WikiPage.Kind.MACHINE.value
+
+    pages = visible_wiki_pages(request).not_archived().published().filtered(guild=guild, kind=kind)
+    if guild_slug and guild is None:
+        pages = pages.none()
+    return render(
+        request,
+        "hub/wiki_sticker_sheet.html",
+        {
+            "stickers": [{"page": page, "qr_svg": page.qr_svg()} for page in pages.order_by("title")],
+            "guild": guild,
+            "kind_label": dict(WikiPage.Kind.choices)[kind],
+        },
+    )

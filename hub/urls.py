@@ -390,6 +390,12 @@ urlpatterns = [
     path("wiki/p/<slug:slug>/photo/", wiki_views.hub_wiki_quick_photo, name="hub_wiki_quick_photo"),
     path("wiki/p/<slug:slug>/tip/", wiki_views.hub_wiki_quick_tip, name="hub_wiki_quick_tip"),
     path("wiki/p/<slug:slug>/image/", wiki_views.hub_wiki_image_upload, name="hub_wiki_image_upload"),
+    path("wiki/p/<slug:slug>/qr/", wiki_views.hub_wiki_qr_download, name="hub_wiki_qr_download"),
+    path("wiki/stickers/", wiki_views.hub_wiki_stickers, name="hub_wiki_stickers"),
+    # The sticker link itself is top level and deliberately short: it is read off a dusty
+    # label in bad light and sometimes typed by hand. Two segments, so it cannot collide
+    # with core.urls' one-segment signage catch-all (and hub.urls is included first).
+    path("m/<str:code>/", wiki_views.hub_wiki_qr, name="hub_wiki_qr"),
     path("help/", views.help_page, name="hub_help"),
     path("help/edit/", views.help_edit, name="hub_help_edit"),
     path("help/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),
