@@ -60,6 +60,11 @@ from membership.models import (
     SpaceRequest,
     VotePreference,
     WikiArticle,
+    WikiAttachment,
+    WikiDraft,
+    WikiPage,
+    WikiPageFact,
+    WikiRevision,
 )
 
 
@@ -761,3 +766,91 @@ class EquipmentReservationFactory(factory.django.DjangoModelFactory):
     starts_at = factory.LazyFunction(lambda: timezone.now() + timedelta(days=2))
     ends_at = factory.LazyAttribute(lambda o: o.starts_at + timedelta(hours=1))
     status = EquipmentReservation.Status.CONFIRMED
+
+
+class WikiPageFactory(factory.django.DjangoModelFactory):
+    """A space-wide Community how-to by default.
+
+    Pass ``guild=`` to scope it, ``equipment=`` to link a tool (with ``kind=MACHINE``),
+    and ``status=`` to move it up the ladder. The slug and QR code fill themselves.
+    """
+
+    class Meta:
+        model = WikiPage
+
+    title = factory.Sequence(lambda n: f"Wiki page {n}")
+    kind = WikiPage.Kind.HOWTO
+    body = "How this part of the space works."
+    created_by = factory.SubFactory(MemberFactory)
+    updated_by = factory.LazyAttribute(lambda o: o.created_by)
+
+    class Params:
+        # ``verified=True`` gives a green check dated now, by the page's own author;
+        # override ``verified_by=`` when the spec cares who stood behind it.
+        verified = factory.Trait(
+            status=WikiPage.Status.GUILD_VERIFIED,
+            verified_by=factory.SelfAttribute("created_by"),
+            verified_at=factory.LazyFunction(timezone.now),
+        )
+        official = factory.Trait(status=WikiPage.Status.OFFICIAL)
+        archived = factory.Trait(
+            archived_at=factory.LazyFunction(timezone.now),
+            archive_reason="Replaced by the new guide.",
+        )
+
+
+class WikiPageFactFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = WikiPageFact
+
+    page = factory.SubFactory(WikiPageFactory)
+    label = factory.Sequence(lambda n: f"Fact {n}")
+    value = factory.Sequence(lambda n: f"Answer {n}")
+
+
+class WikiRevisionFactory(factory.django.DjangoModelFactory):
+    """One saved version. Mirrors its page's current state unless overridden."""
+
+    class Meta:
+        model = WikiRevision
+
+    page = factory.SubFactory(WikiPageFactory)
+    title = factory.LazyAttribute(lambda o: o.page.title)
+    body = factory.LazyAttribute(lambda o: o.page.body)
+    status = factory.LazyAttribute(lambda o: o.page.status)
+    author = factory.SubFactory(MemberFactory)
+
+
+class WikiAttachmentFactory(factory.django.DjangoModelFactory):
+    """A link attachment by default — the XOR constraint forbids setting both sides."""
+
+    class Meta:
+        model = WikiAttachment
+
+    page = factory.SubFactory(WikiPageFactory)
+    label = factory.Sequence(lambda n: f"Attachment {n}")
+    url = "https://example.com/spec-sheet"
+    uploaded_by = factory.SubFactory(MemberFactory)
+
+    class Params:
+        # ``as_file=True`` swaps the link for a small uploaded PDF, since one field
+        # carries both and the constraint allows exactly one.
+        as_file = factory.Trait(
+            url="",
+            file=factory.LazyFunction(
+                lambda: SimpleUploadedFile("sheet.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+            ),
+        )
+
+
+class WikiDraftFactory(factory.django.DjangoModelFactory):
+    """A draft against an existing page. Pass ``page=None`` for a not-yet-created page."""
+
+    class Meta:
+        model = WikiDraft
+
+    page = factory.SubFactory(WikiPageFactory)
+    author = factory.SubFactory(MemberFactory)
+    kind = WikiPage.Kind.HOWTO
+    title = "Half typed title"
+    body = "<p>Half typed body.</p>"

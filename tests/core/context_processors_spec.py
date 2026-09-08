@@ -88,6 +88,7 @@ def describe_feature_flags():
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
         config.wiki_link_enabled = False
+        config.wiki_enabled = True
         config.instructor_discount_codes_enabled = True
         config.guild_welcome_email_enabled = False
         config.equipment_page_enabled = False
@@ -102,6 +103,7 @@ def describe_feature_flags():
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
             "wiki_link_enabled": False,
+            "wiki_enabled": True,
             "instructor_discount_codes_enabled": True,
             "guild_welcome_email_enabled": False,
             "equipment_page_enabled": False,

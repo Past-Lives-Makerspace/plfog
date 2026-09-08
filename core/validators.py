@@ -58,3 +58,32 @@ def validate_document(upload: UploadedFile) -> None:
     size = getattr(upload, "size", None)
     if size is not None and size > limit:
         raise ValidationError(f"File must be {limit / (1024 * 1024):.0f} MB or smaller.")
+
+
+# Wiki attachments accept documents plus photos taken on a phone — a quick-photo
+# upload has no image-specific field of its own (WikiAttachment.file is one FileField
+# shared by both), so this allowlist is the union rather than a second field.
+ALLOWED_WIKI_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "heic"}
+
+
+def validate_wiki_upload(upload: UploadedFile) -> None:
+    """Reject a wiki attachment over its size cap or with a disallowed extension.
+
+    A wiki attachment is a document OR a photo through one field, so this validator
+    is the union of :func:`validate_document`'s allowlist and the image extensions —
+    each checked against its own size cap (``MAX_UPLOAD_IMAGE_BYTES`` for a photo,
+    ``MAX_UPLOAD_DOCUMENT_BYTES`` for everything else). ``validate_document`` alone
+    would reject every photo a member takes, since it carries no image extensions.
+    """
+    name = (getattr(upload, "name", "") or "").lower()
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    if ext in ALLOWED_WIKI_IMAGE_EXTENSIONS:
+        validate_image_size(upload)
+        return
+    if ext not in ALLOWED_DOCUMENT_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_DOCUMENT_EXTENSIONS | ALLOWED_WIKI_IMAGE_EXTENSIONS))
+        raise ValidationError(f"Unsupported file type '.{ext}'. Allowed: {allowed}.")
+    limit = settings.MAX_UPLOAD_DOCUMENT_BYTES
+    size = getattr(upload, "size", None)
+    if size is not None and size > limit:
+        raise ValidationError(f"File must be {limit / (1024 * 1024):.0f} MB or smaller.")
