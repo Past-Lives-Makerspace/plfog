@@ -1,0 +1,20 @@
+{% comment %}
+The quick-tip modal body. One field, through components/form_field.html — which is also
+what supplies the .pl-form-group wrapper that stops the textarea rendering as a
+browser-default white box on the dark theme (Rule 13).
+
+A tip IS unreviewed text on the page, so it drops a green check exactly like a full edit
+would. The modal says so before the member commits, which is the difference between a rule
+and a trap.
+{% endcomment %}
+<form hx-post="{% url 'hub_wiki_quick_tip' page.slug %}" hx-target="#wiki-body" hx-swap="outerHTML" method="post">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=quick_tip_form.tip %}
+    {% if tip_drops_verification %}
+    <p class="hub-text-muted pl-wp-modalnote">This page is guild verified. Adding a tip moves it back to Community until someone checks it.</p>
+    {% endif %}
+    <div class="pl-wp-modalactions">
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Add Tip</button>
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'wiki-tip')">Cancel</button>
+    </div>
+</form>

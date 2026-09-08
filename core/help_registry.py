@@ -596,6 +596,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    "nav.wiki": {
+        "title": "The Wiki",
+        "short_text": (
+            "How the space, the machines, and the materials actually work, written by members. "
+            "Anyone can add a photo, drop in a tip, or write a whole page."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
     "home.get-started": {
         "title": "Your Get started list",
         "short_text": (

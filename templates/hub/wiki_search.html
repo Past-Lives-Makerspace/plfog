@@ -1,0 +1,73 @@
+{% extends "hub/base.html" %}
+{% block title %}Search The Wiki{% endblock %}
+
+{% block content %}
+{% comment %}
+Search AND browse, on one screen. An empty query is a browse, not a blank: this URL is
+where spec B's "See all" links and spec E's Policies box land, and a prompt screen here
+would dead-end every one of them.
+
+Results are grouped by source with a quiet chip per group, so one box spans the wiki, the
+Help Center, and (once spec E lands) the policies, with no second card shape anywhere —
+every row is the one _wiki_card.html with a snippet passed in.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="Search The Wiki" %}
+
+<div class="hub-card pl-wp-searchbar">
+    {% url 'hub_wiki_search' as search_action %}
+    {% include "components/table_search.html" with action=search_action placeholder="Search the wiki" preserved_fields=preserved_fields %}
+</div>
+
+{% if show_source_chips %}
+<div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Filter by source">
+    <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if guild_filter %}guild={{ guild_filter|urlencode }}&{% endif %}{% if kind_filter %}kind={{ kind_filter|urlencode }}&{% endif %}{% if stale_filter %}stale=1{% endif %}" class="pl-wp-chip {% if not source_filter %}pl-wp-chip--active{% endif %}">All</a>
+    {% for slug in available_sources %}
+    <a href="?source={{ slug|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if guild_filter %}&guild={{ guild_filter|urlencode }}{% endif %}{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}{% if stale_filter %}&stale=1{% endif %}" class="pl-wp-chip {% if source_filter == slug %}pl-wp-chip--active{% endif %}">{{ slug|capfirst }}</a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Filter by kind">
+    <a href="?{% if q %}q={{ q|urlencode }}&{% endif %}{% if guild_filter %}guild={{ guild_filter|urlencode }}&{% endif %}{% if source_filter %}source={{ source_filter|urlencode }}&{% endif %}{% if stale_filter %}stale=1{% endif %}" class="pl-wp-chip {% if not kind_filter %}pl-wp-chip--active{% endif %}">All</a>
+    {% for value, label in kind_choices %}
+    <a href="?kind={{ value|urlencode }}{% if q %}&q={{ q|urlencode }}{% endif %}{% if guild_filter %}&guild={{ guild_filter|urlencode }}{% endif %}{% if source_filter %}&source={{ source_filter|urlencode }}{% endif %}{% if stale_filter %}&stale=1{% endif %}" class="pl-wp-chip {% if kind_filter == value %}pl-wp-chip--active{% endif %}">{{ label }}</a>
+    {% endfor %}
+</div>
+
+{% if guild_filter %}
+<div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Scope">
+    <span class="pl-wp-chip pl-wp-chip--active">{% if guild %}{{ guild.name }}{% else %}{{ guild_filter }}{% endif %}
+        <a href="?scope=all{% if q %}&q={{ q|urlencode }}{% endif %}{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}{% if source_filter %}&source={{ source_filter|urlencode }}{% endif %}{% if stale_filter %}&stale=1{% endif %}" class="pl-wp-chip__clear" aria-label="Search everything instead">&#10005;</a>
+    </span>
+</div>
+{% endif %}
+
+<p class="hub-text-muted pl-wp-searchcount">{{ result_count_line }}</p>
+
+{% if has_results %}
+    {% for group in groups %}
+    <div class="hub-card pl-wp-group">
+        {% if groups|length > 1 %}<h2 class="hub-detail-label pl-wp-section__title">{{ group.source_label }}</h2>{% endif %}
+        {% for row in group.rows %}
+        {% if groups|length > 1 %}
+        {% include "hub/partials/_wiki_card.html" with page=row.page snippet=row.snippet source_chip=group.source_label %}
+        {% else %}
+        {% include "hub/partials/_wiki_card.html" with page=row.page snippet=row.snippet %}
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% endfor %}
+    {% include "components/table_pagination.html" with page=page base_params=base_params %}
+{% elif q %}
+    {% include "hub/partials/_wiki_search_empty.html" %}
+{% elif is_filtered %}
+    <div class="hub-card pl-wp-group">
+        <p class="hub-text-muted">Nothing matches those filters. <a href="{% url 'hub_wiki_search' %}">Clear filters</a></p>
+    </div>
+{% else %}
+    <div class="hub-card pl-wp-group">
+        <p class="hub-text-muted">Nothing in the wiki yet. Start with the machine you know best.</p>
+    </div>
+{% endif %}
+{% endblock %}

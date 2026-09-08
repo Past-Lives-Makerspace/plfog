@@ -1,0 +1,140 @@
+{% extends "hub/base.html" %}
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+{% comment %}
+Reading a wiki page, in the brief's fixed top-to-bottom order and the same order on a phone
+as on a desktop: title and status, Quick Answers, the locked Official block, the body, the
+files, related pages, then the byline.
+
+Three gates the build must hold. Everything except "Still accurate", spec D's Report, and
+Print sits inside ONE can_edit branch — an Official page shows a member no edit affordance
+at all, not a disabled one. On an archived page the whole action row and the phone bar are
+gone, including "Still accurate", because there is nothing to keep accurate. And the phone
+bar carries the same actions under the same gate as the desktop row, so the two widths
+cannot drift apart.
+{% endcomment %}
+<div class="pl-wp-page {% if can_edit and not is_archived %}pl-wp-has-actionbar{% endif %}">
+
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_wiki_home' %}">Wiki</a>
+    {% if page.guild %} / <a href="{% url 'hub_wiki_search' %}?guild={{ page.guild.slug|urlencode }}">{{ page.guild.name }}</a>{% endif %}
+</nav>
+
+<div id="wiki-confirm-cue">{% if show_confirm_cue %}{% include "hub/partials/_wiki_confirm_cue.html" %}{% endif %}</div>
+
+<div class="pl-wp-header">
+    <div class="pl-wp-header__titles">
+        <h1 class="hub-page-title">{{ page.title }}</h1>
+        <div id="wiki-status" class="pl-wp-status">
+            <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
+            {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
+        </div>
+        <p class="hub-text-muted pl-wp-attrs">{{ page.attribute_line }}</p>
+        {% if official_block %}
+        <p class="hub-text-muted pl-wp-accessline">{{ official_block.access_line }}</p>
+        {% endif %}
+    </div>
+    {% if not is_archived %}
+    <div class="pl-wp-actions">
+        {% if can_edit %}
+        <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">Edit</a>
+        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">+ Add A Photo</button>
+        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'wiki-tip')">+ Add A Tip</button>
+        {% endif %}
+        {% if can_confirm %}
+        {% if checked_today %}
+        <span class="hub-text-muted pl-wp-checked">Checked today</span>
+        {% else %}
+        <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
+        {% endif %}
+        {% endif %}
+        {% block wiki_page_actions_extra %}{% endblock %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" onclick="window.print()">Print / Save PDF</button>
+    </div>
+    {% endif %}
+</div>
+
+{% comment %}Only printed, never on screen: a sheet taped to a machine has to say where it came from and how old it is.{% endcomment %}
+<p class="pl-wp-printhead">{{ request.scheme }}://{{ request.get_host }}{{ page.get_absolute_url }} &middot; Last checked {% if page.last_checked_at %}{{ page.last_checked_at|date:"j M Y" }}{% else %}never{% endif %}</p>
+
+{% if is_archived %}
+<div class="pl-wp-archived">
+    <p>This page was archived{% if page.archived_by %} by {{ page.archived_by.display_name }}{% endif %}{% if page.archived_at %} on {{ page.archived_at|date:"j M Y" }}{% endif %}.{% if page.archive_reason %} Reason: {{ page.archive_reason }}{% endif %}</p>
+    <p><a href="{% url 'hub_wiki_home' %}">Back to the wiki</a></p>
+</div>
+{% endif %}
+
+{% include "hub/partials/_wiki_facts.html" %}
+
+{% if official_block %}{% include "hub/partials/_wiki_official.html" %}{% endif %}
+
+{% if toc|length > 1 %}
+<nav class="pl-wp-toc" aria-label="On this page">
+    {% for level, anchor, text in toc %}
+    <a href="#{{ anchor }}" class="pl-wp-toc__chip" data-wp-toc="{{ anchor }}">{{ text }}</a>
+    {% endfor %}
+</nav>
+{% endif %}
+
+{% include "hub/partials/_wiki_body.html" %}
+
+{% include "hub/partials/_wiki_attachments.html" %}
+
+{% if related_pages %}
+<div class="hub-card pl-wp-related">
+    <h2 class="hub-detail-label pl-wp-section__title">Related Pages</h2>
+    {% for wiki_page in related_pages %}
+    {% include "hub/partials/_wiki_card.html" with page=wiki_page %}
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="pl-wp-bylinewide">{% include "hub/partials/_wiki_byline.html" %}</div>
+<details class="pl-wp-details">
+    <summary>Details</summary>
+    {% include "hub/partials/_wiki_byline.html" %}
+</details>
+
+{% if can_edit and not is_archived %}
+<div class="pl-wp-actionbar">
+    <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">Add Photo</button>
+    <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-modal', 'wiki-tip')">Add Tip</button>
+    {% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_menu.html" menu_label="More actions for this page" %}
+</div>
+{% endif %}
+
+{% if can_confirm %}
+{% url 'hub_wiki_confirm' page.slug as confirm_url %}
+{% include "components/confirm_modal.html" with confirm_id="wiki-confirm" confirm_title="Still accurate?" confirm_message="You are saying this page matches what is actually in the space today. Your name goes on it." confirm_button_text="Yes, it is accurate" confirm_button_style="primary" confirm_hx_post=confirm_url confirm_hx_target="#wiki-status" %}
+{% endif %}
+
+{% if can_edit %}
+{% include "components/modal.html" with modal_id="wiki-photo" modal_title="Add A Photo" modal_size="sm" modal_body_include="hub/partials/_wiki_photo_form.html" %}
+{% include "components/modal.html" with modal_id="wiki-tip" modal_title="Add A Tip" modal_size="sm" modal_body_include="hub/partials/_wiki_tip_form.html" %}
+{% endif %}
+</div>
+
+<script>
+  // TOC scrollspy — marks the chip whose section is in view. Plain IntersectionObserver, no
+  // library, and it degrades to a plain anchor row if the API is missing.
+  (function () {
+    var chips = document.querySelectorAll('[data-wp-toc]');
+    if (!chips.length || !window.IntersectionObserver) return;
+    var byId = {};
+    chips.forEach(function (chip) { byId[chip.getAttribute('data-wp-toc')] = chip; });
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        chips.forEach(function (chip) { chip.classList.remove('pl-wp-toc__chip--active'); });
+        var chip = byId[entry.target.id];
+        if (chip) chip.classList.add('pl-wp-toc__chip--active');
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    Object.keys(byId).forEach(function (id) {
+      var heading = document.getElementById(id);
+      if (heading) observer.observe(heading);
+    });
+  })();
+</script>
+{% endblock %}

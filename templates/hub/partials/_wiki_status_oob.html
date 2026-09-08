@@ -1,0 +1,14 @@
+{% comment %}
+The status block "Still accurate" swaps back in. The first element is the normal
+hx-swap="outerHTML" target (#wiki-status); the confirm cue below it is an out-of-band swap,
+so one 200 response updates both without a reload.
+
+This is deliberately NOT a 204: a 204 carries no body, so it could not carry the swap at
+all and the toast would fire while a stale "Out of date" pill sat there until the next
+reload — the exact "did that work?" failure a one-tap action exists to avoid.
+{% endcomment %}
+<div id="wiki-status" class="pl-wp-status">
+    <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
+    {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
+</div>
+<div id="wiki-confirm-cue" hx-swap-oob="true">{% if show_confirm_cue %}{% include "hub/partials/_wiki_confirm_cue.html" %}{% endif %}</div>

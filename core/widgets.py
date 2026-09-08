@@ -42,20 +42,47 @@ class PageContentEditorWidget(RichTextEditorWidget):
     * **Page toolbar** (``data-rte-toolbar="page"``): adds strike + blockquote over the
       email editor's set. Deliberately NO image button — help screenshots come from the
       committed ``/static/help/`` pipeline, which keeps the sanitizer tight.
+
+    The toolbar is a settable attribute rather than a hardcoded string: the member wiki
+    needs a third variant (``"wiki"``, the page set plus an image button whose uploads land
+    under the one prefix its sanitizer profile trusts). Both existing callers omit the
+    argument and keep ``"page"`` exactly as before.
     """
 
     markdown_profile = "help"
+    toolbar = "page"
+    upload_url = ""
 
-    def __init__(self, attrs: dict[str, Any] | None = None, *, markdown_profile: str = "help") -> None:
+    def __init__(
+        self,
+        attrs: dict[str, Any] | None = None,
+        *,
+        markdown_profile: str = "help",
+        toolbar: str = "page",
+        upload_url: str = "",
+    ) -> None:
         super().__init__(attrs)
         self.markdown_profile = markdown_profile
+        self.toolbar = toolbar
+        # Only the wiki toolbar has an image button, and only an existing page has somewhere
+        # to put the file — so this is set per form instance, where the slug is known.
+        self.upload_url = upload_url
 
     def get_context(self, name: str, value: Any, attrs: dict[str, Any] | None) -> dict[str, Any]:
         """Add the server-rendered display HTML and toolbar variant to the widget context."""
         # Lazy: core must not import membership at module level (membership imports core).
-        from membership.markdown import render_page_content
+        from membership.markdown import render_page_content, render_wiki_content
 
         context = super().get_context(name, value, attrs)
-        context["widget"]["seed_html"] = render_page_content(str(value or ""), profile=self.markdown_profile)
-        context["widget"]["toolbar"] = "page"
+        raw = str(value or "")
+        # The wiki body renders through its own profile, or a Quill image the member just
+        # inserted would be stripped out of the mount the moment the editor reopened.
+        seed = (
+            render_wiki_content(raw)
+            if self.markdown_profile == "wiki"
+            else render_page_content(raw, profile=self.markdown_profile)
+        )
+        context["widget"]["seed_html"] = seed
+        context["widget"]["toolbar"] = self.toolbar
+        context["widget"]["upload_url"] = self.upload_url
         return context

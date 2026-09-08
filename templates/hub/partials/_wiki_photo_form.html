@@ -1,0 +1,54 @@
+{% comment %}
+The quick-photo modal body. Two fields, so a modal plus a toast per the interaction table.
+
+On a phone the file input carries capture="environment" so the camera opens directly: a
+member in the shop has thirty seconds and a camera, not twenty minutes and a keyboard. The
+drop zone is the .cls-image-upload-zone markup and never a bare file input (Rule 16).
+{% endcomment %}
+<form hx-post="{% url 'hub_wiki_quick_photo' page.slug %}" hx-target="#wiki-attachments" hx-swap="outerHTML"
+      hx-encoding="multipart/form-data" enctype="multipart/form-data" method="post">
+    {% csrf_token %}
+    <div class="pl-form-group">
+        <label class="pl-form-label" for="id_photo">Photo</label>
+        <label class="cls-image-upload-zone" for="id_photo">
+            <span class="cls-image-upload-label">Choose a photo or drag one here</span>
+            <span class="cls-image-upload-hint">JPG, PNG, WEBP or HEIC.</span>
+            <input type="file" id="id_photo" name="photo" accept="image/*" capture="environment" required>
+        </label>
+        <span class="pl-help">
+            <span class="pl-help__icon" tabindex="0" role="img" aria-label="Photo size: up to 10 MB.">?</span>
+            <span class="pl-help__bubble">Photos up to 10 MB. Anything bigger is rejected before it uploads.</span>
+        </span>
+    </div>
+    {% include "components/form_field.html" with field=quick_photo_form.caption %}
+    <div class="pl-wp-modalactions">
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Add Photo</button>
+        <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'wiki-photo')">Cancel</button>
+    </div>
+</form>
+<script>
+  // The one drop zone on this page. Formset rows get a delegated handler instead (cloned
+  // innerHTML never runs its scripts); a single server-rendered modal field does not need one.
+  (function () {
+    var zone = document.querySelector('.pl-wp-page .cls-image-upload-zone');
+    if (!zone) return;
+    var input = zone.querySelector('input[type="file"]');
+    function hasFiles(dt) {
+      if (!dt || !dt.types) return false;
+      for (var i = 0; i < dt.types.length; i++) { if (dt.types[i] === 'Files') return true; }
+      return false;
+    }
+    zone.addEventListener('dragover', function (e) { if (hasFiles(e.dataTransfer)) { e.preventDefault(); zone.classList.add('drag-hover'); } });
+    zone.addEventListener('dragleave', function () { zone.classList.remove('drag-hover'); });
+    zone.addEventListener('drop', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      e.preventDefault();
+      zone.classList.remove('drag-hover');
+      if (input) { input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    zone.addEventListener('change', function () {
+      var label = zone.querySelector('.cls-image-upload-label');
+      if (label && input && input.files && input.files.length) { label.textContent = input.files[0].name; }
+    });
+  })();
+</script>

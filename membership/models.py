@@ -12358,6 +12358,174 @@ class WikiPage(models.Model):
             for level, anchor, inner in _HELP_TOC_HEADING_RE.findall(html)
         ]
 
+    def get_absolute_url(self) -> str:
+        """The page's own URL. One place, so a link in an email and a card agree."""
+        from django.urls import reverse
+
+        return reverse("hub_wiki_page", args=[self.slug])
+
+    # --- One status pill, everywhere -----------------------------------------------
+
+    @property
+    def status_pill(self) -> tuple[str, str, str]:
+        """``(modifier, label, tooltip)`` — the ONE status pill this page shows.
+
+        The single source for the page header, the card partial, and a search result, so
+        the three can never drift. Precedence, top wins: an open report, then the review
+        clock, then Official, then a green check (which fades to grey at a year rather
+        than silently un-verifying), then Community.
+
+        The first two legs read the denormalized ``needs_review_since`` column spec D
+        maintains, because a pill in a paginated list cannot join a report per row and the
+        brief requires the amber chips to appear *in search results*.
+        """
+        if self.needs_review_since is not None:
+            return ("warn", "Needs review", "Someone reported a problem with this page. It is still readable.")
+        if self.is_out_of_date:
+            return ("warn", "Out of date", "Nobody has checked this in a while. It may have drifted.")
+        if self.status == self.Status.OFFICIAL:
+            return ("primary", "Official", "Policy, safety, or membership terms. Members cannot edit this one.")
+        if self.status == self.Status.GUILD_VERIFIED:
+            if self.verification_is_aged:
+                verified_on = timezone.localtime(self.verified_at).strftime("%b %Y") if self.verified_at else ""
+                return ("neutral", f"Verified {verified_on}".strip(), "Checked a while ago. Worth a fresh look.")
+            return ("ok", "Guild verified", "A member wrote it. Someone with authority read it and stands behind it.")
+        return ("neutral", "Community", "Written by members. Helpful, not official.")
+
+    @property
+    def status_note(self) -> str:
+        """One line of plain-language state, shown under the title beside the pill.
+
+        A reason recorded and never shown is a lie told to the next reader, so every
+        column that explains the pill gets a sentence here. Cards get the pill only —
+        that is their whole budget.
+        """
+        if self.unverified_reason:
+            return "Edited since it was verified. Waiting for someone to check it again."
+        if self.needs_review_since is not None:
+            return "Someone reported a problem with this page."
+        if self.is_out_of_date:
+            return f"Nobody has checked this since {timezone.localtime(self.freshness_at).strftime('%B %Y')}."
+        return ""
+
+    @property
+    def attribute_line(self) -> str:
+        """The quiet muted attribute text on a card: "Machine or tool · Woodworking".
+
+        Kind, guild, and equipment are deliberately plain text and never colored pills —
+        the brief's "no pill salad" rule reserves color for status alone.
+        """
+        parts = [self.get_kind_display()]
+        if self.guild is not None:
+            parts.append(self.guild.name)
+        else:
+            parts.append("Space wide")
+        return " · ".join(parts)
+
+    # --- The locked Official block --------------------------------------------------
+
+    def official_block_context(
+        self,
+        member: Member | None,
+        *,
+        oriented_type_ids: set[int] | None = None,
+        member_guild_ids: set[int] | None = None,
+    ) -> dict[str, Any] | None:
+        """The small dict ``_wiki_official.html`` renders, or None for a page with no tool.
+
+        Read straight from the :class:`Equipment` register and never from wiki prose, so
+        it cannot drift per page and no member can edit it — there is nothing on the page
+        to edit. The two optional sets are the bulk-caller optimization
+        :meth:`Equipment.access_state` already accepts, so a list of machine cards costs
+        two queries rather than two per card.
+        """
+        equipment = self.equipment
+        if equipment is None:
+            return None
+        state = equipment.access_state(member, oriented_type_ids=oriented_type_ids, member_guild_ids=member_guild_ids)
+        return {
+            "equipment": equipment,
+            "guild": equipment.guild,
+            "required_orientation": equipment.required_orientation,
+            "location_note": equipment.location_note,
+            "access_state": state,
+            "access_line": _WIKI_ACCESS_LINES[state],
+        }
+
+    # --- Micro contributions --------------------------------------------------------
+
+    def add_tip(self, *, member: Member, editor_may_verify: bool, tip_html: str) -> WikiRevision:
+        """Append one member's tip under a stable "Tips From Members" heading.
+
+        A tip *is* unreviewed text on the page, so it goes through :meth:`apply_edit` like
+        any other edit and drops a green check exactly the same way. A quick photo does
+        not, because it writes an attachment and never the body — that asymmetry is
+        deliberate, and it is what makes the phone-first affordance the cheap one.
+
+        Args:
+            member: The member adding the tip.
+            editor_may_verify: True when this member could have verified the page.
+            tip_html: The already-sanitized tip, as one or more HTML paragraphs.
+
+        Returns:
+            The revision holding the pre-edit snapshot.
+
+        Raises:
+            WikiError: If the body is already at its cap, or the page is archived.
+        """
+        if len(self.body) + len(tip_html) + len(_WIKI_TIPS_HEADING) > _WIKI_BODY_MAX_CHARS:
+            raise WikiError("This page is full. Try editing it instead.")
+        body = self.body
+        if _WIKI_TIPS_HEADING in body:
+            body = body + tip_html
+        else:
+            body = body + _WIKI_TIPS_HEADING + tip_html
+        return self.apply_edit(
+            editor=member,
+            editor_may_verify=editor_may_verify,
+            title=self.title,
+            body=body,
+            note="Tip added",
+        )
+
+    def related_pages(self, limit: int = 3) -> list[WikiPage]:
+        """Up to ``limit`` other live pages of the same kind or the same guild, newest first.
+
+        Deliberately not a stored M2M: a member filing their first page should answer two
+        questions, not five, and "same kind or same guild, recently touched" is a good
+        enough neighbour list to be worth nothing to maintain.
+        """
+        condition = Q(kind=self.kind)
+        if self.guild_id is not None:
+            condition |= Q(guild_id=self.guild_id)
+        return list(
+            WikiPage.objects.published()
+            .not_archived()
+            .filter(condition)
+            .exclude(pk=self.pk)
+            .select_related("guild", "updated_by")
+            .order_by("-updated_at")[:limit]
+        )
+
+
+# The tips section a quick tip appends under, created on first use. A literal heading and
+# not a marker comment: the member sees it, the sanitizer keeps it, and a later full edit
+# can move or rename it without breaking anything.
+_WIKI_TIPS_HEADING = "<h2>Tips From Members</h2>"
+
+# The body cap the quick-tip path refuses to cross. Well past any real page; it exists so
+# a stuck client cannot grow one row without bound.
+_WIKI_BODY_MAX_CHARS = 60_000
+
+# The one plain sentence each Equipment.AccessState says on a machine page. A dict and not
+# a method so a missing state is a loud KeyError rather than a silently blank line.
+_WIKI_ACCESS_LINES: dict[str, str] = {
+    "ok": "You are set up for this tool.",
+    "needs_orientation": "Orientation needed before you use this.",
+    "needs_guild": "You need to join the guild before you use this.",
+    "inactive_member": "Your membership needs to be active to use this.",
+}
+
 
 # How long each kind stays fresh before the Out of date chip appears, in months.
 # None means the kind never goes stale: a project write-up is a record of what someone did

@@ -1,0 +1,19 @@
+{% extends "hub/base.html" %}
+{% block title %}Page not found{% endblock %}
+
+{% block content %}
+{% comment %}
+The wiki's own 404 body, rendered with render(..., status=404) and never through
+get_object_or_404 — which would render the site-wide templates/404.html and offer to
+"Browse Past Lives classes", the wrong answer for a member standing in a shop.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="Page Not Found" description="There is no page at that address. It may have been renamed, or the link may be old." %}
+<div class="hub-card pl-wp-searchbar">
+    {% url 'hub_wiki_search' as search_action %}
+    {% include "components/table_search.html" with action=search_action placeholder="Search the wiki" %}
+</div>
+<div class="hub-card pl-wp-group">
+    <p class="hub-text-muted"><a href="{% url 'hub_wiki_home' %}">Back to the wiki</a></p>
+</div>
+{% endblock %}

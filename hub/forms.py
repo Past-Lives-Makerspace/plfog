@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any, cast
 from django import forms
 from django.conf import settings
 from django.db.models import Case, Q, Value, When
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape
 from django.utils.text import slugify
 
 if TYPE_CHECKING:
@@ -20,10 +22,10 @@ if TYPE_CHECKING:
     from classes.models import ClassOffering
 
 from core.html_sanitize import sanitize_rich_html
-from core.validators import validate_image_size
+from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
 from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
-from membership.markdown import sanitize_page_submission
+from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.models import (
     AdminCapability,
     CommunityEvent,
@@ -59,8 +61,12 @@ from membership.models import (
     SpaceRequest,
     SlideshowSlide,
     SlideshowZone,
+    RESERVED_WIKI_SLUGS,
     VotingSettings,
     WikiArticle,
+    WikiAttachment,
+    WikiPage,
+    WikiPageFact,
 )
 
 
@@ -4162,3 +4168,320 @@ class EquipmentStaffAddForm(forms.Form):
         if self._equipment is not None and self._equipment.staff_memberships.filter(member=member).exists():
             raise forms.ValidationError("They already manage this equipment.")
         return member
+
+
+# --- Member wiki (spec A, PR A3) -------------------------------------------------------
+#
+# The wiki's page forms are plain ``forms.Form``s and NOT ``ModelForm``s on purpose. A
+# ModelForm's ``_post_clean`` writes the submitted values onto ``self.instance`` during
+# ``is_valid()``, so by the time the view called ``page.apply_edit(...)`` the "before"
+# snapshot it writes to ``WikiRevision`` would already be the "after" — the revision table
+# would hold every version except the ones anybody wants to restore.
+
+
+class WikiPageCreateForm(forms.Form):
+    """The New Page form: two required fields, both pre-filled from context.
+
+    The visible labels deliberately are not the field names. "Scope" and "Kind" are what
+    the columns are called; a member filing their first page is answering a question, not
+    populating a column, and the Kind choice labels already read that way.
+    """
+
+    title = forms.CharField(
+        max_length=200,
+        label="Title",
+        help_text="What would you type into search to find this?",
+    )
+    guild = forms.ModelChoiceField(
+        queryset=Guild.objects.none(),
+        required=False,
+        label="Who is this for?",
+        empty_label="Everyone (space wide)",
+        help_text="Pick a guild if this only makes sense inside one. Otherwise leave it for everyone.",
+    )
+    kind = forms.ChoiceField(
+        choices=WikiPage.Kind.choices,
+        label="What kind of page is this?",
+        help_text="You can change your mind later.",
+    )
+    body = forms.CharField(
+        required=False,
+        label="The page",
+        widget=PageContentEditorWidget(markdown_profile="wiki", toolbar="wiki"),
+    )
+
+    def __init__(self, *args: Any, scope_guilds: list[Guild] | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        guilds = scope_guilds or []
+        cast(forms.ModelChoiceField, self.fields["guild"]).queryset = Guild.objects.filter(
+            pk__in=[guild.pk for guild in guilds]
+        ).order_by("name")
+
+    def clean_title(self) -> str:
+        """Refuse a title whose slug would claim one of the fixed ``/wiki/`` segments.
+
+        The model's dedupe loop already treats a reserved value as taken, so nothing can
+        actually land on ``/wiki/p/edit/`` — but silently filing "Edit" at ``edit-2`` is a
+        worse answer than asking for another title. Named ``clean_title`` and not
+        ``clean_slug`` because the form has no slug field: the slug is derived, and the
+        member can only fix the thing they typed.
+        """
+        title = cast(str, self.cleaned_data["title"]).strip()
+        if slugify(title) in RESERVED_WIKI_SLUGS:
+            raise forms.ValidationError("That name is reserved. Pick another title.")
+        return title
+
+    def clean_body(self) -> str:
+        """Sanitize the editor's HTML under the wiki profile before it is ever stored."""
+        return sanitize_wiki_submission(cast(str, self.cleaned_data["body"]))
+
+
+class WikiPageForm(forms.Form):
+    """The Edit form. Same two content fields, plus a moderator-only Equipment link."""
+
+    title = forms.CharField(
+        max_length=200,
+        label="Title",
+        help_text="What would you type into search to find this?",
+    )
+    body = forms.CharField(
+        required=False,
+        label="The page",
+        widget=PageContentEditorWidget(markdown_profile="wiki", toolbar="wiki"),
+    )
+    equipment = forms.ModelChoiceField(
+        queryset=Equipment.objects.none(),
+        required=False,
+        label="Equipment",
+        empty_label="Not about a specific tool",
+        help_text="Links this page to the tool's official block and to its QR sticker.",
+    )
+
+    def __init__(self, *args: Any, page: WikiPage, can_moderate: bool = False, **kwargs: Any) -> None:
+        kwargs.setdefault("initial", {})
+        kwargs["initial"] = {
+            "title": page.title,
+            "body": page.body,
+            "equipment": page.equipment,
+            **kwargs["initial"],
+        }
+        super().__init__(*args, **kwargs)
+        # Only an existing page has anywhere to put an uploaded photo, so only the edit form
+        # hands the editor an upload endpoint. On the create form the same image button says
+        # "Save the page first, then add photos." rather than silently doing nothing.
+        self.fields["body"].widget.upload_url = reverse("hub_wiki_image_upload", args=[page.slug])
+        if can_moderate:
+            cast(forms.ModelChoiceField, self.fields["equipment"]).queryset = Equipment.objects.active().order_by(
+                "name"
+            )
+        else:
+            # A member never sees this field at all — the hand-fix for a mis-seeded
+            # equipment link is a moderator's tool, not a page-editing affordance.
+            del self.fields["equipment"]
+
+    def clean_title(self) -> str:
+        """Same reserved-name guard as the create form; the slug itself never changes."""
+        title = cast(str, self.cleaned_data["title"]).strip()
+        if slugify(title) in RESERVED_WIKI_SLUGS:
+            raise forms.ValidationError("That name is reserved. Pick another title.")
+        return title
+
+    def clean_body(self) -> str:
+        """Sanitize the editor's HTML under the wiki profile before it is ever stored."""
+        return sanitize_wiki_submission(cast(str, self.cleaned_data["body"]))
+
+
+class IgnorableRowFormMixin:
+    """A list-editor row the formset is going to discard, and must therefore not judge.
+
+    ``ModelForm.full_clean`` runs ``_post_clean`` AFTER ``clean()``, and ``_post_clean``
+    re-runs model validation and re-adds its own errors — so a row whose errors ``clean()``
+    just cleared came back carrying "This field cannot be blank." and, worse, the raw
+    ``Constraint "ck_wikiattach_file_xor_url" is violated.`` The save still worked (a
+    DELETE-marked form is skipped), but when the submission failed for some OTHER reason
+    the bound formset re-rendered and printed that constraint name at the member.
+
+    Rows marked ignorable skip ``_post_clean`` entirely: nothing reads their instance,
+    because the formset never saves them.
+
+    **List this mixin BEFORE ``forms.ModelForm`` in the bases.** Reversed, ``_post_clean``
+    resolves to ``BaseModelForm``'s and the override never runs — the mixin would silently
+    do nothing and the constraint name would come back.
+    """
+
+    _row_is_ignored = False
+
+    def ignore_row(self, cleaned: dict[str, Any]) -> dict[str, Any]:
+        """Mark this row discarded: clear its errors, flag it, and set ``DELETE``."""
+        self._row_is_ignored = True
+        self.errors.clear()  # type: ignore[attr-defined]
+        cleaned["DELETE"] = True
+        return cleaned
+
+    def _post_clean(self) -> None:
+        if self._row_is_ignored:
+            return
+        super()._post_clean()  # type: ignore[misc]
+
+
+class WikiPageFactForm(IgnorableRowFormMixin, forms.ModelForm):
+    """One Quick Answers row.
+
+    A row carrying a label and no answer is an untouched starter prompt, not an error:
+    without this, every prompt the member skipped would fail its required ``value`` and
+    block Save — the exact FRONTEND.md Rule 11 bug, arriving through the back door.
+    """
+
+    class Meta:
+        model = WikiPageFact
+        fields = ["label", "value", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+        labels = {"label": "Question", "value": "Answer"}
+        help_texts = {
+            "label": "Two or three words. 'Blade' or 'Max width'.",
+            "value": "Short enough to read at a glance.",
+        }
+
+    def clean(self) -> dict[str, Any]:
+        # Read the RAW submitted answer, not cleaned_data: a value that failed its own
+        # validation (too long, say) is missing from cleaned_data too, and treating that as
+        # a skipped prompt would silently discard the row instead of telling the member.
+        if cast(str, self.data.get(self.add_prefix("value")) or "").strip():
+            return cast(dict[str, Any], super().clean())
+        return self.ignore_row(cast(dict[str, Any], super().clean()))
+
+
+WIKI_MAX_FACTS = 8
+"""The brief's 4-8 target, enforced where the member can see it rather than in a comment."""
+
+
+class BaseWikiPageFactFormSet(forms.BaseModelFormSet):
+    """Formset-level rules for Quick Answers: no duplicate labels, at most eight rows."""
+
+    def clean(self) -> None:
+        super().clean()
+        if any(self.errors):
+            return
+        labels: list[str] = []
+        for form in self.forms:
+            cleaned = getattr(form, "cleaned_data", None)
+            # A row the member never filled in marks itself DELETE in its own clean(), and a
+            # row with a blank label failed its required check and short-circuited above —
+            # so anything still standing here carries a real label. cleaned["label"] and not
+            # .get(): a missing key would be a bug, and it should say so rather than count
+            # an empty string as a duplicate.
+            if cleaned and not cleaned.get("DELETE"):
+                labels.append(cast(str, cleaned["label"]).strip())
+        seen: set[str] = set()
+        for label in labels:
+            if label.lower() in seen:
+                raise forms.ValidationError(f"You have two answers called '{label}'. Rename one.")
+            seen.add(label.lower())
+        if len(labels) > WIKI_MAX_FACTS:
+            raise forms.ValidationError("Quick answers work best short. Keep it to eight.")
+
+
+def wiki_fact_formset_class(extra: int = 0) -> Any:
+    """The Quick Answers formset, with ``extra`` rows for create mode's starter prompts.
+
+    A model formset renders ``initial_form_count() + extra`` rows, which is ``0 + 0`` on a
+    brand new page — so ``extra=0`` in create mode would render no prompt rows at all and
+    the "prompt for the facts first" mechanic would silently not exist. Edit mode passes
+    nothing and keeps Rule 11's ``extra=0``.
+    """
+    return forms.modelformset_factory(
+        WikiPageFact,
+        form=WikiPageFactForm,
+        formset=BaseWikiPageFactFormSet,
+        extra=extra,
+        can_delete=True,
+    )
+
+
+class WikiAttachmentForm(IgnorableRowFormMixin, forms.ModelForm):
+    """One file OR link row. The label is required, because it is the whole value."""
+
+    class Meta:
+        model = WikiAttachment
+        fields = ["label", "file", "url", "sort_order"]
+        widgets = {"sort_order": forms.HiddenInput()}
+        labels = {"label": "Name", "file": "File", "url": "Link"}
+        help_texts = {
+            "label": "One line. 'Blade change steps' beats 'scan_0034'.",
+            "url": "Paste a link instead of uploading, if it lives somewhere else.",
+        }
+        error_messages = {"label": {"required": "Give it a one line name so people know what it is."}}
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        label = cast(str, cleaned.get("label") or "").strip()
+        uploaded = cleaned.get("file")
+        url = cast(str, cleaned.get("url") or "").strip()
+        if not self.instance.pk and not label and not uploaded and not url:
+            # A cloned row the member added and then abandoned. It must never block Save,
+            # and it must never leak the XOR check constraint's name into the page.
+            return self.ignore_row(cleaned)
+        if uploaded and url:
+            raise forms.ValidationError("Pick a file or paste a link, not both.")
+        if not uploaded and not url:
+            raise forms.ValidationError("Add a file or a link.")
+        return cleaned
+
+
+WikiAttachmentFormSet = forms.modelformset_factory(
+    WikiAttachment,
+    form=WikiAttachmentForm,
+    extra=0,
+    can_delete=True,
+)
+"""Attachments have no starter prompts, so ``extra=0`` in both modes (Rule 11)."""
+
+
+class WikiQuickPhotoForm(forms.Form):
+    """The thirty-second contribution: one photo and one line saying what it is."""
+
+    photo = forms.FileField(
+        label="Photo",
+        validators=[validate_wiki_upload],
+        error_messages={"required": "Pick a photo first."},
+    )
+    caption = forms.CharField(
+        max_length=200,
+        label="Caption",
+        help_text="What are we looking at?",
+        error_messages={"required": "Say what the photo shows."},
+    )
+
+    def clean_photo(self) -> UploadedFile:
+        """Refuse a document here — the file list below the photos is where those go."""
+        photo = cast("UploadedFile", self.cleaned_data["photo"])
+        name = (photo.name or "").lower()
+        extension = name.rsplit(".", 1)[-1] if "." in name else ""
+        if extension not in ALLOWED_WIKI_IMAGE_EXTENSIONS:
+            raise forms.ValidationError("That is not an image. Use the file list below for documents.")
+        return photo
+
+
+class WikiQuickTipForm(forms.Form):
+    """One or two sentences, appended under a stable "Tips From Members" heading."""
+
+    tip = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4}),
+        label="Your tip",
+        help_text="One or two sentences. What do you wish someone had told you?",
+        max_length=1000,
+        error_messages={"required": "Write a sentence first."},
+    )
+
+    def clean(self) -> dict[str, Any]:
+        """Escape the tip and wrap it as one paragraph.
+
+        Escaping rather than sanitizing: a tip is plain typed text, so there is no markup
+        to preserve and nothing to decide about. ``tip_html`` is what the view hands to
+        ``WikiPage.add_tip``.
+        """
+        cleaned = cast(dict[str, Any], super().clean())
+        tip = cast(str, cleaned.get("tip") or "").strip()
+        if tip:
+            cleaned["tip_html"] = f"<p>{escape(' '.join(tip.split()))}</p>"
+        return cleaned

@@ -1,0 +1,31 @@
+{% comment %}
+The locked Official block on a machine page — rendered from the Equipment register and
+NEVER from wiki prose, so it cannot drift per page and no member can edit it. There is
+nothing here to edit: it is not a form, it is a read of another table.
+
+Its own tinted container, a left rule, an Official chip in the corner, and a footer line
+saying where it came from. Sits above member content, always.
+{% endcomment %}
+<section class="pl-wp-official" aria-label="Official equipment information">
+    <div class="pl-wp-official__head">
+        <h2 class="hub-detail-label pl-wp-section__title">{{ official_block.equipment.name }}</h2>
+        <span class="hub-pill hub-pill--primary">Official</span>
+    </div>
+    <dl class="pl-wp-facts">
+        {% if official_block.guild %}
+        <dt class="pl-wp-facts__label">Guild</dt>
+        <dd class="pl-wp-facts__value">{{ official_block.guild.name }}</dd>
+        {% endif %}
+        {% if official_block.required_orientation %}
+        <dt class="pl-wp-facts__label">Orientation</dt>
+        <dd class="pl-wp-facts__value">{{ official_block.required_orientation.name }}</dd>
+        {% endif %}
+        {% if official_block.location_note %}
+        <dt class="pl-wp-facts__label">Where it is</dt>
+        <dd class="pl-wp-facts__value">{{ official_block.location_note }}</dd>
+        {% endif %}
+        <dt class="pl-wp-facts__label">You</dt>
+        <dd class="pl-wp-facts__value">{{ official_block.access_line }}</dd>
+    </dl>
+    <p class="hub-text-muted pl-wp-official__source">From the equipment register. Members cannot edit this.</p>
+</section>

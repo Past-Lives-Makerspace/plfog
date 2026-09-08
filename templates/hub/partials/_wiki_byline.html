@@ -1,0 +1,20 @@
+{% comment %}
+The byline. Included twice on purpose: a plain footer line at desktop width, and the same
+line inside a closed "Details" disclosure on a phone, where eight seconds of attention does
+not include who edited what.
+
+It reads revision_count from the view's context and NOT page.revision_count, which is a
+.count() — rendering this partial twice would otherwise cost two identical queries on
+every reading page.
+
+"(Woodworking orienter)" reads verified_role_label, which is spec B's column and not A's.
+The guard around it means A renders nothing there until B's migration lands, and A must not
+add the field itself.
+{% endcomment %}
+<p class="hub-text-muted pl-wp-byline">
+    {% if page.created_by %}Started by {{ page.created_by.display_name }} {{ page.created_at|date:"j M" }}. {% endif %}
+    {% if page.updated_by %}Last edited by {{ page.updated_by.display_name }} {{ page.updated_at|date:"j M" }}. {% endif %}
+    {% if page.last_checked_by %}Last checked by {{ page.last_checked_by.display_name }} {{ page.last_checked_at|date:"j M" }}. {% endif %}
+    {{ revision_count }} version{{ revision_count|pluralize }} saved.
+    {% if page.verified_by %}Verified by {{ page.verified_by.display_name }}{% if page.verified_role_label %} ({{ page.verified_role_label }}){% endif %}, {{ page.verified_at|date:"j M" }}.{% endif %}
+</p>
