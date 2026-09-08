@@ -108,6 +108,45 @@ def describe_can_edit_wiki_page():
         request = _request(user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
         assert can_edit_wiki_page(request, WikiPageFactory(official=True)) is False
 
+    def describe_a_page_the_safety_gate_is_holding():
+        """is_published=False must gate the WRITE routes, not only the listings.
+
+        The leg lives here and not in the six views that resolve a page, so spec D's own
+        routes inherit it off A's merged main. Brief section 3: v1.39.0 gated
+        /register/<key>/ while every register kept its own URL, and a member loading
+        /finance/ got a 200 and the full financials.
+        """
+
+        def it_denies_a_member_who_is_neither_the_author_nor_staff():
+            user = UserFactory(username="held_other@example.com")
+            request = _request(user, roles={ROLE_MEMBER})
+            page = WikiPageFactory(is_published=False)
+            assert can_edit_wiki_page(request, page) is False
+
+        def it_allows_the_author():
+            user = UserFactory(username="held_author@example.com")
+            request = _request(user, roles={ROLE_MEMBER})
+            page = WikiPageFactory(is_published=False, created_by=user.member)
+            assert can_edit_wiki_page(request, page) is True
+
+        def it_allows_effective_staff():
+            user = UserFactory(username="held_staff@example.com")
+            request = _request(user, roles={ROLE_ADMIN, ROLE_MEMBER})
+            page = WikiPageFactory(is_published=False)
+            assert can_edit_wiki_page(request, page) is True
+
+        def it_allows_the_guilds_lead():
+            user = UserFactory(username="held_lead@example.com")
+            guild = GuildFactory(guild_lead=user.member)
+            request = _request(user, roles={ROLE_MEMBER})
+            page = WikiPageFactory(is_published=False, guild=guild)
+            assert can_edit_wiki_page(request, page) is True
+
+        def it_leaves_a_published_page_alone():
+            user = UserFactory(username="held_published@example.com")
+            request = _request(user, roles={ROLE_MEMBER})
+            assert can_edit_wiki_page(request, WikiPageFactory(is_published=True)) is True
+
 
 def describe_can_verify_wiki_page():
     def describe_an_official_page():

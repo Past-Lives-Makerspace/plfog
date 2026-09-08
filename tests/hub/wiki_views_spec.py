@@ -59,6 +59,18 @@ def _login(client: Client, username: str, **kwargs: str) -> User:
     return user
 
 
+def _preview_as(client: Client, role: str) -> None:
+    """Put an admin into the view_as preview for ``role``, the shipped session idiom."""
+    session = client.session
+    session["view_as_role"] = role
+    session.save()
+
+
+# The home page's query budget. Fixed rather than proportional to the row count: that is
+# the whole point of with_fact_prefetch(), and a regression would blow straight past it.
+_HOME_QUERY_BUDGET = 32
+
+
 def describe_the_feature_flag():
     def it_404s_every_route_while_the_wiki_is_off(client: Client, _wiki_on):
         _wiki_on.wiki_enabled = False
@@ -550,3 +562,87 @@ def describe_wiki_page_reading():
         page.confirm_still_accurate(user.member)
         response = client.get(page.get_absolute_url())
         assert b"Checked today" in response.content
+
+
+def describe_the_review_round_fixes():
+    """One spec per defect an independent review of PR #340 found."""
+
+    def describe_a_page_the_safety_gate_is_holding():
+        def it_refuses_every_write_route_and_not_only_the_read(client: Client):
+            # The gate lives in can_edit_wiki_page, so the five write routes and spec D's
+            # future ones inherit it. Gating the index route and leaving the real URLs open
+            # is brief section 3's named failure, and it had happened here.
+            _login(client, "held_writes")
+            page = WikiPageFactory(is_published=False)
+            assert client.get(page.get_absolute_url()).status_code == 404
+            assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
+            assert (
+                client.post(
+                    reverse("hub_wiki_autosave", args=[page.slug]), {"field": "title", "value": "x"}
+                ).status_code
+                == 403
+            )
+            assert client.post(reverse("hub_wiki_quick_tip", args=[page.slug]), {"tip": "x"}).status_code == 403
+            assert client.post(reverse("hub_wiki_quick_photo", args=[page.slug]), {"caption": "x"}).status_code == 403
+            assert client.post(reverse("hub_wiki_image_upload", args=[page.slug])).status_code == 403
+            assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 404
+
+        def it_still_lets_its_own_author_write(client: Client):
+            user = _login(client, "held_author_writes")
+            page = WikiPageFactory(is_published=False, created_by=user.member)
+            assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
+            assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 200
+
+        def it_still_lets_staff_write(client: Client):
+            _login(client, "held_staff_writes", fog_role=Member.FogRole.ADMIN)
+            page = WikiPageFactory(is_published=False)
+            assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
+
+    def describe_the_home_pages_query_count():
+        def it_does_not_grow_with_the_number_of_rows(client: Client, django_assert_num_queries):
+            # Every card renders guild.name and the updated_by byline. Before with_fact_prefetch
+            # this page cost two queries per row and grew with the wiki.
+            user = _login(client, "home_queries")
+            guild = GuildFactory(name="Woodworking")
+            GuildMembershipFactory(guild=guild, member=user.member)
+            WikiPageFactory(title="One", guild=guild, kind=WikiPage.Kind.MACHINE)
+            baseline = len(client.get(reverse("hub_wiki_home")).context["recent_pages"])
+            assert baseline == 1
+            for index in range(12):
+                WikiPageFactory(
+                    title=f"Row {index}",
+                    guild=GuildFactory(name=f"Guild {index}"),
+                    created_by=MemberFactory(),
+                    kind=WikiPage.Kind.MACHINE,
+                )
+            with django_assert_num_queries(_HOME_QUERY_BUDGET):
+                response = client.get(reverse("hub_wiki_home"))
+            assert response.status_code == 200
+
+    def describe_the_search_count_line():
+        def it_reports_the_real_help_total_past_the_page_cap(client: Client):
+            _login(client, "count_helpcap")
+            for index in range(22):
+                WikiArticleFactory(title=f"Orientation Guide {index}", body="orientation help")
+            response = client.get(reverse("hub_wiki_search"), {"q": "orientation", "source": "help"})
+            assert b"22 pages match" in response.content
+
+    def describe_view_as():
+        def it_gives_an_admin_previewing_as_guest_no_write_affordance(client: Client):
+            _login(client, "viewas_guest", fog_role=Member.FogRole.ADMIN)
+            page = WikiPageFactory()
+            _preview_as(client, "guest")
+            response = client.get(page.get_absolute_url())
+            assert b"Still accurate" not in response.content
+            assert client.get(reverse("hub_wiki_drafts")).status_code == 403
+            assert client.get(reverse("hub_wiki_create", args=["howto"])).status_code == 403
+
+    def describe_the_reading_pages_byline():
+        def it_counts_the_revisions_once_for_both_renders(client: Client):
+            _login(client, "byline_once")
+            page = WikiPageFactory()
+            WikiRevisionFactory(page=page)
+            response = client.get(page.get_absolute_url())
+            # Rendered twice (wide line + phone disclosure), counted once.
+            assert response.content.count(b"1 version saved.") == 2
+            assert response.context["revision_count"] == 1

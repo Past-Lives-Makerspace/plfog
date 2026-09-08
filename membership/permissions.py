@@ -352,6 +352,15 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     photo, and the editor's image upload (brief §9.3). The tip route writes the body
     through ``apply_edit``, so gating it on membership alone would put two write
     affordances at the bottom of an Official page.
+
+    **A held-back page is invisible here too.** Spec D's safety gate saves an Official
+    page ``is_published=False`` for a lead to read; if that only filtered the listings,
+    every write route would still answer a crafted URL and the gate would be decoration.
+    The check lives HERE and not in each view for brief §3's named reason: v1.39.0 gated
+    ``/register/<key>/`` while every register kept its own URL, so a member loading
+    ``/finance/`` got a 200 and the full financials. Every alternate path to a page needs
+    the same gate, so it belongs on the one function every path already calls — including
+    the ones spec D adds on top of A's merged main.
     """
     from membership.models import Member, WikiPage
 
@@ -363,7 +372,13 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     if page.archived_at is not None:
         return _can_moderate_wiki_page(request, page)
     member = _editing_member(request)
-    return member is not None and member.status == Member.Status.ACTIVE
+    if member is None or member.status != Member.Status.ACTIVE:
+        return False
+    if not page.is_published:
+        # visible_for() is the same predicate in bulk; asking it for one row keeps the
+        # listing filter and the write gate provably in step.
+        return WikiPage.objects.visible_for(request).filter(pk=page.pk).exists()
+    return True
 
 
 def can_verify_wiki_page(request: HttpRequest, page: WikiPage) -> bool:

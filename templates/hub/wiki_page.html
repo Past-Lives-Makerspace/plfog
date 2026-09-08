@@ -77,14 +77,7 @@ cannot drift apart.
 </nav>
 {% endif %}
 
-{% if page.body %}
 {% include "hub/partials/_wiki_body.html" %}
-{% else %}
-<div class="hub-card pl-wp-body__empty">
-    <p class="hub-text-muted">Nobody has written this one yet. You probably know something.</p>
-    {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-btn pl-btn--primary">+ Add What You Know</a>{% endif %}
-</div>
-{% endif %}
 
 {% include "hub/partials/_wiki_attachments.html" %}
 

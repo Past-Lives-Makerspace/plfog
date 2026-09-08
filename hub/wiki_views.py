@@ -18,7 +18,7 @@ guarded imports until those specs merge.
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib import messages
@@ -41,7 +41,7 @@ from hub.forms import (
     wiki_fact_formset_class,
 )
 from hub.toast import trigger_client_event, trigger_toast
-from hub.views import _get_hub_context, _get_member
+from hub.views import _get_hub_context
 from membership.markdown import sanitize_wiki_submission
 from membership.models import (
     Guild,
@@ -55,6 +55,7 @@ from membership.models import (
 )
 from membership.permissions import (
     _can_moderate_wiki_page,
+    _editing_member,
     can_edit_wiki_page,
     can_verify_wiki_page,
     editable_wiki_scopes,
@@ -96,7 +97,11 @@ def _active_member(request: HttpRequest) -> Member | None:
 
     Writing anywhere in the wiki takes an active membership; reading does not.
     """
-    member = _get_member(request)
+    # _editing_member and not _get_member: an admin previewing as Guest must not be able
+    # to create a page, tap "Still accurate", or open somebody's drafts. can_edit_wiki_page
+    # already answers through _editing_member, so using the raw member here would have let
+    # the two disagree about the same request.
+    member = _editing_member(request)
     if member is None or member.status != Member.Status.ACTIVE:
         return None
     return member
@@ -130,6 +135,17 @@ def _page_or_none(slug: str) -> WikiPage | None:
         .filter(slug=slug)
         .first()
     )
+
+
+def _hidden_from(request: HttpRequest, page: WikiPage) -> bool:
+    """True when spec D's safety gate is holding this page back from this request.
+
+    The write routes get this for free through ``can_edit_wiki_page``, which carries the
+    same leg. The two routes that do NOT go through it need it by name: the reading page
+    (which resolves archived rows through ``objects.all()`` on purpose) and "Still
+    accurate" (which any active member may tap, so it cannot borrow the edit gate).
+    """
+    return not page.is_published and not WikiPage.objects.visible_for(request).filter(pk=page.pk).exists()
 
 
 def _refresh_edit_lock(page: WikiPage, member: Member) -> None:
@@ -190,7 +206,7 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
     ``/wiki/search/``, which browses on an empty query — under a ``none()``-on-empty
     search every one of them would have dead-ended on a blank page.
     """
-    member = _get_member(request)
+    member = _editing_member(request)
     visible = visible_wiki_pages(request)
     kind = request.GET.get("kind", "")
     if kind not in WikiPage.Kind.values:
@@ -205,14 +221,19 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
     elif guild_slug and guild is None:
         filtered = filtered.none()
 
+    # Every card renders page.attribute_line (guild.name) and the updated_by byline, so
+    # without this the home page costs two queries PER ROW and grows with the wiki. The
+    # search screen has always been flat because it chains with_fact_prefetch(); this is
+    # the same call, on the page more members land on.
+    cards = filtered.with_fact_prefetch()
     joined_guild_ids = list(member.guild_memberships.values_list("guild_id", flat=True)) if member else []
     your_guild_pages = (
-        list(filtered.filter(guild_id__in=joined_guild_ids).order_by("-updated_at")[:_HOME_GUILD_LIMIT])
+        list(cards.filter(guild_id__in=joined_guild_ids).order_by("-updated_at")[:_HOME_GUILD_LIMIT])
         if joined_guild_ids
         else []
     )
-    recent_pages = list(filtered.order_by("-updated_at")[:_HOME_RECENT_LIMIT])
-    machine_pages = list(filtered.filter(kind=WikiPage.Kind.MACHINE).order_by("title")[:_HOME_MACHINE_LIMIT])
+    recent_pages = list(cards.order_by("-updated_at")[:_HOME_RECENT_LIMIT])
+    machine_pages = list(cards.filter(kind=WikiPage.Kind.MACHINE).order_by("title")[:_HOME_MACHINE_LIMIT])
     drafts = list(WikiDraft.objects.for_member(member)[:_HOME_DRAFT_LIMIT]) if member is not None else []
 
     context = _get_hub_context(request)
@@ -283,8 +304,13 @@ def hub_wiki_search(request: HttpRequest) -> HttpResponse:
     # The help query runs whenever it could produce a group, even under ?source=wiki, so
     # the source chip row knows whether there is more than one source to offer.
     help_results: list[WikiArticle] = []
+    help_total = 0
     if q and SiteConfiguration.load().help_page_enabled:
-        help_results = list(WikiArticle.objects.search(q)[:_SEARCH_PAGE_SIZE])
+        help_matches = WikiArticle.objects.search(q)
+        # The count and the rows are separate on purpose: the group renders at most a page
+        # of results, but "20 pages match" when 45 do is a lie the member can check.
+        help_total = help_matches.count()
+        help_results = list(help_matches[:_SEARCH_PAGE_SIZE])
 
     available_sources = ["wiki"]
     if help_results:
@@ -315,8 +341,8 @@ def hub_wiki_search(request: HttpRequest) -> HttpResponse:
     # dict[key], not a chain of conditionals: source is already validated to one of these
     # three or blank, so a fourth value should raise rather than silently count the wrong
     # store. "policies" is spec E's group and answers 0 until E ships.
-    source_totals = {"wiki": wiki_total, "help": len(help_results), "policies": 0}
-    total = source_totals[source] if source else wiki_total + len(help_results)
+    source_totals = {"wiki": wiki_total, "help": help_total, "policies": 0}
+    total = source_totals[source] if source else wiki_total + help_total
     context = _get_hub_context(request)
     context.update(
         {
@@ -388,10 +414,10 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
     page = _page_or_none(slug)
     if page is None:
         return _not_found(request)
-    if not page.is_published and not WikiPage.objects.visible_for(request).filter(pk=page.pk).exists():
+    if _hidden_from(request, page):
         return _not_found(request)
 
-    member = _get_member(request)
+    member = _editing_member(request)
     can_edit = can_edit_wiki_page(request, page)
     is_archived = page.archived_at is not None
     attachments = list(page.attachments.select_related("uploaded_by"))
@@ -411,6 +437,8 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
             # optimization Equipment.access_state offers buys nothing here.
             "official_block": page.official_block_context(member),
             "related_pages": page.related_pages(),
+            # Counted once here rather than in the byline partial, which renders twice.
+            "revision_count": page.revision_count,
             "can_edit": can_edit,
             "can_verify": can_verify_wiki_page(request, page),
             "is_archived": is_archived,
@@ -470,7 +498,11 @@ def _fact_formset(
     ``extra=0`` per FRONTEND.md Rule 11, so no perpetual blank row can block Save.
     """
     queryset = WikiPageFact.objects.filter(page=page) if page is not None else WikiPageFact.objects.none()
-    if initial_facts is not None:
+    # A resumed draft only overrides the prompts when it actually carries rows. Autosave's
+    # allowlist is title and body, so a new-page draft's facts are ALWAYS [] — treating
+    # "not None" as authoritative rendered zero rows, and "Use My Draft" silently produced
+    # a promptless form while a plain visit to the same URL got one row per prompt.
+    if initial_facts:
         initial = initial_facts
     elif prompts:
         initial = [{"label": prompt, "value": ""} for prompt in prompts]
@@ -486,23 +518,45 @@ def _attachment_formset(*, data: Any = None, files: Any = None, page: WikiPage |
     return WikiAttachmentFormSet(data, files, queryset=queryset, prefix="attachments")
 
 
-def _save_child_formsets(page: WikiPage, fact_formset: Any, attachment_formset: Any, member: Member) -> None:
-    """Commit the two list editors against ``page`` and refresh the search text.
+def _submitted_facts(fact_formset: Any) -> list[tuple[str, str]]:
+    """The validated Quick Answers rows as ``(label, value)``, in the submitted order.
+
+    Create mode hands these to ``create_page`` instead of saving the formset, so the
+    page's FIRST revision snapshots the facts that were actually written with it. Writing
+    the revision first and the rows second recorded ``facts=[]`` as version one, and spec
+    D's revert would have restored a page state that never existed.
+
+    Rows are ordered by the hidden ``sort_order`` the reorder handler rewrites, with the
+    submitted position as the tie break, because ``create_page`` numbers them by position.
+    """
+    rows: list[tuple[int, int, str, str]] = []
+    for index, form in enumerate(fact_formset.forms):
+        cleaned = getattr(form, "cleaned_data", None)
+        if not cleaned or cleaned.get("DELETE"):
+            continue
+        rows.append((cleaned["sort_order"], index, cast(str, cleaned["label"]).strip(), cleaned["value"].strip()))
+    rows.sort()
+    return [(label, value) for _order, _index, label, value in rows]
+
+
+def _save_child_formsets(
+    page: WikiPage,
+    fact_formset: Any | None,
+    attachment_formset: Any,
+    member: Member,
+) -> None:
+    """Commit the list editors against ``page`` and refresh the search text.
+
+    ``fact_formset`` is None on create, where the rows went in through ``create_page`` so
+    the first revision could snapshot them (see :func:`_submitted_facts`).
 
     Children are saved after the parent, so the page's own ``save()`` could not have seen
     them — which is why ``rebuild_search_text`` is called again here rather than trusted
     to the model's save. Search has to reach the Quick Answers; that is where the useful
     nouns live.
     """
-    facts = fact_formset.save(commit=False)
-    for fact in facts:
-        # sort_order comes from the row's hidden input, which the reorder handler rewrites
-        # to the visual index. Never re-derive it here: a legitimate 0 would be clobbered
-        # and the first row would sort last.
-        fact.page = page
-        fact.save()
-    for deleted in fact_formset.deleted_objects:
-        deleted.delete()
+    if fact_formset is not None:
+        _save_fact_formset(page, fact_formset)
     attachments = attachment_formset.save(commit=False)
     for attachment in attachments:
         attachment.page = page
@@ -513,6 +567,19 @@ def _save_child_formsets(page: WikiPage, fact_formset: Any, attachment_formset: 
         deleted.delete()
     page.rebuild_search_text()
     page.save(update_fields=["search_text"])
+
+
+def _save_fact_formset(page: WikiPage, fact_formset: Any) -> None:
+    """Commit the Quick Answers rows for an edit."""
+    facts = fact_formset.save(commit=False)
+    for fact in facts:
+        # sort_order comes from the row's hidden input, which the reorder handler rewrites
+        # to the visual index. Never re-derive it here: a legitimate 0 would be clobbered
+        # and the first row would sort last.
+        fact.page = page
+        fact.save()
+    for deleted in fact_formset.deleted_objects:
+        deleted.delete()
 
 
 @login_required
@@ -548,11 +615,12 @@ def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
                     author=member,
                     guild=form.cleaned_data["guild"],
                     body=form.cleaned_data["body"],
+                    facts=_submitted_facts(fact_formset),
                 )
             except WikiError as exc:
                 form.add_error("title", str(exc))
             else:
-                _save_child_formsets(page, fact_formset, attachment_formset, member)
+                _save_child_formsets(page, None, attachment_formset, member)
                 if draft is not None:
                     draft.delete()
                 fulfilled = _fulfil_wanted_page(wanted_pk, page)
@@ -572,7 +640,7 @@ def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
                 initial={"title": draft.title, "kind": kind, "guild": draft.guild, "body": draft.body},
                 scope_guilds=scope_guilds,
             )
-            fact_formset = _fact_formset(page=None, initial_facts=draft.facts)
+            fact_formset = _fact_formset(page=None, prompts=starter["fact_prompts"], initial_facts=draft.facts)
         else:
             form = WikiPageCreateForm(
                 initial={
@@ -708,7 +776,7 @@ def hub_wiki_edit(request: HttpRequest, slug: str) -> HttpResponse:
     page = _page_or_none(slug)
     if page is None:
         return _not_found(request)
-    member = _get_member(request)
+    member = _editing_member(request)
     if member is None or not can_edit_wiki_page(request, page):
         return _forbidden()
 
@@ -810,7 +878,7 @@ def hub_wiki_autosave(request: HttpRequest, slug: str) -> HttpResponse:
     page = _page_or_none(slug)
     if page is None:
         raise Http404("No such wiki page.")
-    member = _get_member(request)
+    member = _editing_member(request)
     if member is None or not can_edit_wiki_page(request, page):
         return _forbidden()
     field = request.POST.get("field", "")
@@ -877,6 +945,8 @@ def hub_wiki_confirm(request: HttpRequest, slug: str) -> HttpResponse:
     member = _active_member(request)
     if member is None:
         return _forbidden()
+    if _hidden_from(request, page):
+        raise Http404("No such wiki page.")
     if page.archived_at is not None:
         response = HttpResponse("This page is archived.", status=409)
         trigger_toast(response, "This page is archived. There is nothing to confirm.", "error")
@@ -901,7 +971,7 @@ def hub_wiki_quick_photo(request: HttpRequest, slug: str) -> HttpResponse:
     page = _page_or_none(slug)
     if page is None:
         raise Http404("No such wiki page.")
-    member = _get_member(request)
+    member = _editing_member(request)
     if member is None or not can_edit_wiki_page(request, page):
         return _forbidden()
     form = WikiQuickPhotoForm(request.POST, request.FILES)
@@ -948,7 +1018,7 @@ def hub_wiki_quick_tip(request: HttpRequest, slug: str) -> HttpResponse:
     page = _page_or_none(slug)
     if page is None:
         raise Http404("No such wiki page.")
-    member = _get_member(request)
+    member = _editing_member(request)
     if member is None or not can_edit_wiki_page(request, page):
         return _forbidden()
     form = WikiQuickTipForm(request.POST)
@@ -967,7 +1037,9 @@ def hub_wiki_quick_tip(request: HttpRequest, slug: str) -> HttpResponse:
         response = HttpResponse(str(exc), status=422)
         trigger_toast(response, str(exc), "error")
         return response
-    response = render(request, "hub/partials/_wiki_body.html", {"page": page})
+    # can_edit is True by construction here (the route is gated on it), and the partial
+    # needs it for the empty-body branch's "+ Add What You Know" link.
+    response = render(request, "hub/partials/_wiki_body.html", {"page": page, "can_edit": True})
     trigger_toast(response, "Tip added. Thanks.")
     trigger_client_event(response, "close-modal", "wiki-tip")
     return response
@@ -1018,7 +1090,7 @@ def hub_wiki_drafts(request: HttpRequest) -> HttpResponse:
     Also lists the pages spec D's safety gate is holding, so a member whose page went to
     a lead for a read is never left wondering where it went.
     """
-    member = _get_member(request)
+    member = _editing_member(request)
     if member is None:
         return _forbidden()
     held_pages = list(
@@ -1034,7 +1106,7 @@ def hub_wiki_drafts(request: HttpRequest) -> HttpResponse:
 @require_POST
 def hub_wiki_draft_discard(request: HttpRequest, pk: int) -> HttpResponse:
     """``/wiki/drafts/<pk>/discard/`` — throw away one of my own drafts, and only mine."""
-    member = _get_member(request)
+    member = _editing_member(request)
     if member is None:
         return _forbidden()
     draft = WikiDraft.objects.filter(pk=pk, author=member).first()

@@ -1,6 +1,18 @@
 {% comment %}
 The rendered page body. Its own partial so the quick-tip endpoint can swap just this block
 back in after appending a tip, instead of reloading the whole reading page on a phone.
+
+BOTH branches carry id="wiki-body". The empty branch is the one a freshly seeded stub
+renders, and it is exactly where the first tip lands — with the id on the prose branch
+only, htmx aborted on targetError and the tip saved, toasted, and stayed invisible until a
+manual reload. That is the stub-page-first flow the whole design rests on.
 {% endcomment %}
 {% load membership_md %}
+{% if page.body %}
 <div id="wiki-body" class="pl-md pl-wp-body">{{ page.body|wiki_content }}</div>
+{% else %}
+<div id="wiki-body" class="hub-card pl-wp-body__empty">
+    <p class="hub-text-muted">Nobody has written this one yet. You probably know something.</p>
+    {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-btn pl-btn--primary">+ Add What You Know</a>{% endif %}
+</div>
+{% endif %}

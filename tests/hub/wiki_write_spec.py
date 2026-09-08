@@ -1208,3 +1208,153 @@ def describe_the_remaining_edges():
         user.member.delete()
         assert client.get(reverse("hub_wiki_drafts")).status_code == 403
         assert client.post(reverse("hub_wiki_draft_discard", args=[draft.pk])).status_code == 403
+
+
+def describe_the_review_round_fixes():
+    """One spec per defect an independent review of PR #340 found."""
+
+    def describe_the_quick_tip_target():
+        def it_exists_on_a_page_with_no_body_yet(client: Client):
+            # The stub-page-first flow: a seeded machine page has no body, and the first
+            # tip lands right here. With the id only on the prose branch htmx aborted on
+            # targetError, so the tip saved, the toast fired, and nothing moved on screen.
+            _login(client, "tip_target_empty")
+            page = WikiPageFactory(body="")
+            response = client.get(page.get_absolute_url())
+            assert b'id="wiki-body"' in response.content
+            assert b"Nobody has written this one yet." in response.content
+
+        def it_swaps_the_prose_in_on_the_first_tip(client: Client):
+            _login(client, "tip_target_first")
+            page = WikiPageFactory(body="")
+            response = client.post(reverse("hub_wiki_quick_tip", args=[page.slug]), {"tip": "Keep the guard on."})
+            assert response.status_code == 200
+            assert b'id="wiki-body"' in response.content
+            assert b"Keep the guard on." in response.content
+            assert b"Nobody has written this one yet." not in response.content
+
+    def describe_create_mode_draft_resume():
+        def it_keeps_the_starter_prompts(client: Client):
+            # Autosave's allowlist is title and body, so a new-page draft's facts are
+            # ALWAYS empty. Treating that as authoritative rendered zero prompt rows, so
+            # "Use My Draft" produced a promptless form while a plain visit did not.
+            user = _login(client, "draft_prompts")
+            WikiDraftFactory(page=None, author=user.member, kind="machine", title="Half A Saw")
+            response = client.get(reverse("hub_wiki_create", args=["machine"]), {"draft": "use"})
+            assert response.context["form"].initial["title"] == "Half A Saw"
+            assert response.context["facts_formset"].total_form_count() == 4
+            assert b"Blade or bit" in response.content
+
+        def it_prefers_the_drafts_own_rows_when_it_has_any(client: Client):
+            user = _login(client, "draft_ownrows")
+            WikiDraftFactory(
+                page=None,
+                author=user.member,
+                kind="machine",
+                title="Half A Saw",
+                facts=[{"label": "Typed", "value": "By hand"}],
+            )
+            response = client.get(reverse("hub_wiki_create", args=["machine"]), {"draft": "use"})
+            assert response.context["facts_formset"].total_form_count() == 1
+            assert b"Typed" in response.content
+
+    def describe_an_ignored_list_editor_row():
+        def it_never_prints_a_database_constraint_name(client: Client):
+            # ModelForm._post_clean runs AFTER clean() and re-adds model errors, so a row
+            # whose errors clean() had just cleared came back carrying the raw
+            # ck_wikiattach_file_xor_url constraint name — visible the moment the
+            # submission bounced for some other reason.
+            _login(client, "ignored_row_leak")
+            page = WikiPageFactory(title="Something Fine")
+            data = {
+                "title": "History",  # reserved, so the form bounces and re-renders bound
+                "body": "",
+                **_formset_data(attachments=1, facts=1),
+                "attachments-0-label": "",
+                "attachments-0-url": "",
+                "attachments-0-sort_order": "0",
+                "facts-0-label": "",
+                "facts-0-value": "",
+                "facts-0-sort_order": "0",
+            }
+            response = client.post(reverse("hub_wiki_edit", args=[page.slug]), data)
+            assert response.status_code == 200
+            assert b"That name is reserved. Pick another title." in response.content
+            assert b"ck_wikiattach_file_xor_url" not in response.content
+            assert b"Constraint" not in response.content
+            assert b"This field cannot be blank." not in response.content
+
+        def it_reports_nothing_at_all_for_the_ignored_rows(client: Client):
+            _login(client, "ignored_row_clean")
+            page = WikiPageFactory(title="Also Fine")
+            data = {
+                "title": "History",
+                "body": "",
+                **_formset_data(attachments=1),
+                "attachments-0-label": "",
+                "attachments-0-url": "",
+                "attachments-0-sort_order": "0",
+            }
+            response = client.post(reverse("hub_wiki_edit", args=[page.slug]), data)
+            assert response.context["attachments_formset"].forms[0].errors == {}
+
+    def describe_the_creating_revision():
+        def it_snapshots_the_quick_answers_it_was_created_with(client: Client):
+            # create_page writes revision one; the formsets used to commit the rows after
+            # it, so version one recorded facts=[] and a spec D revert would restore a
+            # page state that never existed.
+            _login(client, "rev_snapshot")
+            data = {
+                "title": "Snapshot Saw",
+                "kind": "machine",
+                "body": "<p>Body.</p>",
+                **_formset_data(facts=2),
+                "facts-0-label": "Blade",
+                "facts-0-value": "10 inch",
+                "facts-0-sort_order": "0",
+                "facts-1-label": "Max width",
+                "facts-1-value": "24 inch",
+                "facts-1-sort_order": "1",
+            }
+            client.post(reverse("hub_wiki_create", args=["machine"]), data)
+            page = WikiPage.objects.get(title="Snapshot Saw")
+            assert page.revisions.count() == 1
+            assert page.revisions.first().facts == [
+                {"label": "Blade", "value": "10 inch"},
+                {"label": "Max width", "value": "24 inch"},
+            ]
+
+        def it_honors_the_submitted_sort_order(client: Client):
+            _login(client, "rev_order")
+            data = {
+                "title": "Ordered Saw",
+                "kind": "machine",
+                "body": "",
+                **_formset_data(facts=2),
+                "facts-0-label": "Second",
+                "facts-0-value": "b",
+                "facts-0-sort_order": "1",
+                "facts-1-label": "First",
+                "facts-1-value": "a",
+                "facts-1-sort_order": "0",
+            }
+            client.post(reverse("hub_wiki_create", args=["machine"]), data)
+            page = WikiPage.objects.get(title="Ordered Saw")
+            assert list(page.facts.values_list("label", flat=True)) == ["First", "Second"]
+            assert [row["label"] for row in page.revisions.first().facts] == ["First", "Second"]
+
+        def it_snapshots_nothing_when_no_answers_were_filled_in(client: Client):
+            _login(client, "rev_noanswers")
+            data = {
+                "title": "Bare Guide",
+                "kind": "howto",
+                "body": "",
+                **_formset_data(facts=1),
+                "facts-0-label": "Tools needed",
+                "facts-0-value": "",
+                "facts-0-sort_order": "0",
+            }
+            client.post(reverse("hub_wiki_create", args=["howto"]), data)
+            page = WikiPage.objects.get(title="Bare Guide")
+            assert page.facts.count() == 0
+            assert page.revisions.first().facts == []

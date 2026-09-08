@@ -4291,7 +4291,36 @@ class WikiPageForm(forms.Form):
         return sanitize_wiki_submission(cast(str, self.cleaned_data["body"]))
 
 
-class WikiPageFactForm(forms.ModelForm):
+class IgnorableRowFormMixin:
+    """A list-editor row the formset is going to discard, and must therefore not judge.
+
+    ``ModelForm.full_clean`` runs ``_post_clean`` AFTER ``clean()``, and ``_post_clean``
+    re-runs model validation and re-adds its own errors — so a row whose errors ``clean()``
+    just cleared came back carrying "This field cannot be blank." and, worse, the raw
+    ``Constraint "ck_wikiattach_file_xor_url" is violated.`` The save still worked (a
+    DELETE-marked form is skipped), but when the submission failed for some OTHER reason
+    the bound formset re-rendered and printed that constraint name at the member.
+
+    Rows marked ignorable skip ``_post_clean`` entirely: nothing reads their instance,
+    because the formset never saves them.
+    """
+
+    _row_is_ignored = False
+
+    def ignore_row(self, cleaned: dict[str, Any]) -> dict[str, Any]:
+        """Mark this row discarded: clear its errors, flag it, and set ``DELETE``."""
+        self._row_is_ignored = True
+        self.errors.clear()  # type: ignore[attr-defined]
+        cleaned["DELETE"] = True
+        return cleaned
+
+    def _post_clean(self) -> None:
+        if self._row_is_ignored:
+            return
+        super()._post_clean()  # type: ignore[misc]
+
+
+class WikiPageFactForm(IgnorableRowFormMixin, forms.ModelForm):
     """One Quick Answers row.
 
     A row carrying a label and no answer is an untouched starter prompt, not an error:
@@ -4315,11 +4344,7 @@ class WikiPageFactForm(forms.ModelForm):
         # a skipped prompt would silently discard the row instead of telling the member.
         if cast(str, self.data.get(self.add_prefix("value")) or "").strip():
             return cast(dict[str, Any], super().clean())
-        cleaned = cast(dict[str, Any], super().clean())
-        self.errors.pop("value", None)
-        self.errors.pop("label", None)
-        cleaned["DELETE"] = True
-        return cleaned
+        return self.ignore_row(cast(dict[str, Any], super().clean()))
 
 
 WIKI_MAX_FACTS = 8
@@ -4369,7 +4394,7 @@ def wiki_fact_formset_class(extra: int = 0) -> Any:
     )
 
 
-class WikiAttachmentForm(forms.ModelForm):
+class WikiAttachmentForm(IgnorableRowFormMixin, forms.ModelForm):
     """One file OR link row. The label is required, because it is the whole value."""
 
     class Meta:
@@ -4389,10 +4414,9 @@ class WikiAttachmentForm(forms.ModelForm):
         uploaded = cleaned.get("file")
         url = cast(str, cleaned.get("url") or "").strip()
         if not self.instance.pk and not label and not uploaded and not url:
-            # A cloned row the member added and then abandoned. It must never block Save.
-            self.errors.clear()
-            cleaned["DELETE"] = True
-            return cleaned
+            # A cloned row the member added and then abandoned. It must never block Save,
+            # and it must never leak the XOR check constraint's name into the page.
+            return self.ignore_row(cleaned)
         if uploaded and url:
             raise forms.ValidationError("Pick a file or paste a link, not both.")
         if not uploaded and not url:
