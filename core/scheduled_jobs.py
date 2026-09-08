@@ -5,9 +5,10 @@ tuples, the standalone crons (``airtable_pull``) record through the same helper,
 the Site Settings → Automations dashboard renders it. Because all three read the same
 registry, the admin list can never drift out of sync with what actually runs.
 
-``is_enabled`` and ``record_run`` are the two shared helpers: the dispatcher and the
-"Run now" view both gate on ``is_enabled`` and wrap each run in ``record_run`` so every
-run — scheduled or manual — is recorded uniformly.
+``is_enabled`` and ``record_run`` are the two shared helpers. The dispatcher gates on
+``is_enabled``; the "Run now" view deliberately does NOT, because a manual override
+should run even a paused job. Both wrap each run in ``record_run``, so every run —
+scheduled or manual — is recorded uniformly.
 """
 
 from __future__ import annotations

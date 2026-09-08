@@ -27,11 +27,24 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         sent = 0
         skipped = 0
+        undelivered = 0
         for member in Member.objects.awaiting_welcome_email():
             try:
-                member.send_welcome_email()
-                sent += 1
+                # send_welcome_email returns False when the provider swallowed the send.
+                # The job log is the only human-visible signal this automation has, so
+                # reporting those as welcomed would hide a quota incident completely.
+                if member.send_welcome_email():
+                    sent += 1
+                else:
+                    undelivered += 1
+                    self.stderr.write(
+                        self.style.WARNING(
+                            f"  ! welcome {member.pk} ({member.display_name}): not delivered, will retry next run"
+                        )
+                    )
             except Exception as exc:  # noqa: BLE001 — one bad member must not abort the batch
                 skipped += 1
                 self.stderr.write(self.style.ERROR(f"  ✗ welcome {member.pk} ({member.display_name}): {exc}"))
-        self.stdout.write(self.style.SUCCESS(f"Welcomed {sent} new member(s); skipped {skipped}."))
+        summary = f"Welcomed {sent} new member(s); {undelivered} not delivered; skipped {skipped}."
+        style = self.style.SUCCESS if not (undelivered or skipped) else self.style.WARNING
+        self.stdout.write(style(summary))

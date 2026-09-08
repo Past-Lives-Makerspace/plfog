@@ -1595,7 +1595,10 @@ class Member(models.Model):
             return False
         try:
             result = self.send_login_invite()
-        except Exception:
+        except BaseException:
+            # BaseException, not Exception, for the same reason core.events.emit guards
+            # this exact window that way: a worker being shut down raises SystemExit, and
+            # that is precisely when a claimed-but-unsent member would be stranded.
             self._release_welcome_claim()
             raise
         if not any(channel is Channel.EMAIL for _, channel in result.delivered):

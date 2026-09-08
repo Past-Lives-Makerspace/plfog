@@ -1388,7 +1388,7 @@ def describe_admin_member_send_login_invite():
         assert member.welcome_email_sent_at is not None
         assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists() is False
 
-    def it_does_not_stamp_when_the_send_failed(client, mailoutbox):
+    def it_does_not_stamp_when_the_send_raised(client, mailoutbox):
         from tests.membership.factories import MemberFactory
 
         _create_superuser(client)
@@ -1396,6 +1396,30 @@ def describe_admin_member_send_login_invite():
         client.post(reverse("hub_admin_member_send_login_invite", args=[member.pk]))
         member.refresh_from_db()
         assert member.welcome_email_sent_at is None
+
+    def it_does_not_stamp_or_claim_success_when_the_provider_swallowed_the_send(client, monkeypatch, mailoutbox):
+        # best_effort=True means a provider rejection never reaches the view as an
+        # exception. Reporting success on "did not raise" would show a green toast for an
+        # email that never left AND drop the member from the welcome automation forever.
+        from core import email as core_email
+        from membership.models import Member
+        from tests.membership.factories import MemberFactory
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("provider said no")
+
+        _create_superuser(client)
+        member = MemberFactory(
+            _pre_signup_email="swallowed@example.com", airtable_record_id="recSWALLOW", status=Member.Status.ACTIVE
+        )
+        monkeypatch.setattr(core_email, "_deliver", _boom)
+
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[member.pk]))
+
+        assert "Could not send" in response["HX-Trigger"]
+        member.refresh_from_db()
+        assert member.welcome_email_sent_at is None
+        assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists()
 
 
 def describe_admin_user_edit():

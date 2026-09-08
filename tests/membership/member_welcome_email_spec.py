@@ -145,9 +145,24 @@ def describe_a_send_that_does_not_land():
         assert member.welcome_email_sent_at is not None
         assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists() is False
 
-    def it_claims_the_send_before_attempting_it(mailoutbox):
-        # Two callers racing (the 13:xx cron tick and an admin's Run now) must produce one
-        # email, not two. The claim is an UPDATE, so the loser sees zero rows changed.
+    def it_writes_the_claim_to_the_database_before_sending(monkeypatch, mailoutbox):
+        # The atomicity assertion: at the moment the email is attempted, the stamp must
+        # already be committed, so a second caller's UPDATE matches zero rows. A
+        # read-then-write ordering fails this; asserting only on the two return values
+        # does not, because a stale in-memory guard produces the same pair.
+        member = _candidate(_pre_signup_email="claimed@example.com")
+        seen: dict[str, object] = {}
+        original = Member.send_login_invite
+
+        def spy(self):
+            seen["stamp_in_db"] = Member.objects.get(pk=self.pk).welcome_email_sent_at
+            return original(self)
+
+        monkeypatch.setattr(Member, "send_login_invite", spy)
+        assert member.send_welcome_email() is True
+        assert seen["stamp_in_db"] is not None
+
+    def it_lets_only_one_of_two_racing_callers_send(mailoutbox):
         member = _candidate(_pre_signup_email="raced@example.com")
         racer = Member.objects.get(pk=member.pk)
 
