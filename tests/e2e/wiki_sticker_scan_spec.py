@@ -54,7 +54,7 @@ def _wiki_on() -> None:
 
 
 def describe_scanning_a_machine_sticker():
-    def it_carries_a_signed_out_scan_through_login_onto_the_machines_page(live_server, page, login_via_code):
+    def it_carries_a_signed_out_scan_through_login_onto_the_machines_page(live_server, page):
         MembershipPlanFactory()
         _wiki_on()
         EquipmentFactory(name="Table Saw", guild=GuildFactory(name="Woodworking"))

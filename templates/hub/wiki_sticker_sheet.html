@@ -38,7 +38,11 @@ alphabet with no O and no I.
 </div>
 {% else %}
 <div class="pl-stickers-empty">
-  <p>No {{ kind_noun }} pages{% if guild %} in {{ guild.name }}{% endif %} yet. Ask an admin to run the equipment seed.</p>
+  {% if kind_is_machine %}
+  <p>No machine pages{% if guild %} in {{ guild.name }}{% endif %} yet. Ask an admin to run the equipment seed.</p>
+  {% else %}
+  <p>No pages of that kind{% if guild %} in {{ guild.name }}{% endif %} yet.</p>
+  {% endif %}
 </div>
 {% endif %}
 

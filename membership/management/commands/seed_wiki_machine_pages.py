@@ -115,6 +115,12 @@ class Command(BaseCommand):
         candidate = self._adoptable(tool)
         if candidate is not None:
             self._claimed.add(candidate.pk)
+            # A real run moves a space-wide page into the tool's guild as it claims it, so
+            # the NEXT tool's clash check meets a page that has already moved. A dry run
+            # writes nothing, so it has to record the move it would have made or it
+            # promises a page the real run refuses.
+            landing_guild = candidate.guild_id if candidate.guild_id is not None else tool.guild_id
+            self._planned.add((candidate.title.lower(), landing_guild))
             return self._refresh(candidate, tool, adopted=True, dry_run=dry_run)
 
         try:
@@ -305,7 +311,15 @@ class Command(BaseCommand):
 
         guild_id = guild.pk if guild is not None else None
         planned = (title.lower(), guild_id) in self._planned
-        if planned or WikiPage.objects.filter(title__iexact=title, guild=guild).not_archived().exists():
+        # Claimed pages are excluded because a real run has already re-scoped them; the
+        # _planned entry above is what stands in for where they landed.
+        taken = (
+            WikiPage.objects.filter(title__iexact=title, guild=guild)
+            .not_archived()
+            .exclude(pk__in=self._claimed)
+            .exists()
+        )
+        if planned or taken:
             scope = f"in {guild.name}" if guild is not None else "space wide"
             raise WikiError(f"A page called '{title}' already exists {scope}. Add to that one instead.")
 

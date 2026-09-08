@@ -228,6 +228,20 @@ def describe_the_share_this_page_card():
         response = client.get(archived.get_absolute_url())
         assert b"Share This Page" not in response.content
 
+    def it_is_absent_on_an_archived_page_for_a_moderator(client, db):
+        # The one who actually has can_edit on an archived page. Every other affordance is
+        # gone there, and inviting somebody to print a sticker for it is no different.
+        archived = WikiPageFactory(title="Old Saw", archived=True)
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(archived.get_absolute_url())
+        assert b"Share This Page" not in response.content
+
+    def it_is_present_for_that_moderator_once_the_page_is_live(client, db):
+        live = WikiPageFactory(title="Table Saw")
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(live.get_absolute_url())
+        assert b"Share This Page" in response.content
+
 
 def describe_the_sticker_sheet():
     @pytest.fixture
@@ -485,10 +499,12 @@ def describe_the_sticker_sheet_and_held_back_pages():
         assert b"Air Compressor" in response.content
         assert b"Table Saw" not in response.content
 
-    def it_names_the_kind_readably_in_the_empty_state(client, db):
+    def it_does_not_speak_the_enum_label_in_the_empty_state(client, db):
         _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers") + "?kind=howto")
-        assert b"No how to do something pages yet" in response.content
+        assert b"No pages of that kind yet" in response.content
+        # Only the machine sheet can honestly point at the equipment seeder.
+        assert b"run the equipment seed" not in response.content
 
     def it_names_the_page_for_a_screen_reader_without_printing_it(client, db):
         tool = EquipmentFactory(name="Table Saw")
@@ -510,9 +526,11 @@ def describe_the_print_stickers_link():
         response = client.get(reverse("hub_wiki_home") + "?guild=woodworking")
         assert f"{reverse('hub_wiki_stickers')}?guild=woodworking".encode() in response.content
 
-    def it_drops_a_space_wide_filter(client, db):
+    def it_carries_a_space_wide_filter(client, db):
+        # Both surfaces speak this parameter; the link used to drop it, which left the
+        # sheet's space-wide branch unreachable from anywhere in the app.
         tool = EquipmentFactory(name="Table Saw")
         WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=None)
         _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_home") + "?guild=space-wide")
-        assert f'{reverse("hub_wiki_stickers")}"'.encode() in response.content
+        assert f"{reverse('hub_wiki_stickers')}?guild=space-wide".encode() in response.content

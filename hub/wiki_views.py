@@ -1221,7 +1221,8 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
         {
             "stickers": [{"page": page, "qr_svg": page.qr_svg()} for page in pages.order_by("title")],
             "guild": guild,
-            # "Machine or tool" is the enum's label and reads badly in "No … pages yet".
-            "kind_noun": "machine" if kind == WikiPage.Kind.MACHINE else dict(WikiPage.Kind.choices)[kind].lower(),
+            # Only the machine sheet can honestly point at the equipment seeder, and
+            # "No how to do something pages yet" is the enum's label doing a noun's job.
+            "kind_is_machine": kind == WikiPage.Kind.MACHINE,
         },
     )

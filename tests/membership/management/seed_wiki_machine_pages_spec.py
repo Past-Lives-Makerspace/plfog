@@ -599,3 +599,39 @@ def describe_a_stub_that_has_drifted_from_the_register():
         page.refresh_from_db()
         assert page.title == "Big Saw"
         assert page.body == "<p>Mine.</p>"
+
+
+def describe_dry_run_parity_when_adoption_moves_a_page():
+    """A real run re-scopes a space-wide page as it claims it, so the NEXT tool's clash
+    check meets a page that has already moved. Both directions of that divergence were
+    reachable with two active tools sharing a name, which nothing forbids."""
+
+    def it_does_not_promise_a_page_the_real_run_refuses(db):
+        # Two tools in one guild, one space-wide member page. The real run adopts it INTO
+        # the guild, so the second tool then clashes; the preview used to say "added".
+        guild = GuildFactory(name="Woodworking")
+        EquipmentFactory(name="Drill Press", slug="drill-press", guild=guild)
+        EquipmentFactory(name="Drill Press", slug="drill-press-2", guild=guild)
+        WikiPageFactory(title="Drill Press", guild=None)
+        preview = _run(dry_run=True).replace("Would seed", "Seeded")
+        assert preview == _run()
+
+    def it_does_not_invent_a_clash_the_real_run_never_hits(db):
+        # A guild tool and a space-wide tool. The real run moves the page into the guild,
+        # leaving the space-wide scope free; the preview used to report a clash.
+        EquipmentFactory(name="Drill Press", slug="drill-press", guild=GuildFactory(name="Woodworking"))
+        EquipmentFactory(name="Drill Press", slug="drill-press-2", guild=None)
+        WikiPageFactory(title="Drill Press", guild=None)
+        preview = _run(dry_run=True).replace("Would seed", "Seeded")
+        assert preview == _run()
+
+    def it_still_writes_nothing(db):
+        guild = GuildFactory(name="Woodworking")
+        EquipmentFactory(name="Drill Press", slug="drill-press", guild=guild)
+        EquipmentFactory(name="Drill Press", slug="drill-press-2", guild=guild)
+        page = WikiPageFactory(title="Drill Press", guild=None)
+        _run(dry_run=True)
+        page.refresh_from_db()
+        assert page.equipment_id is None
+        assert page.guild_id is None
+        assert WikiPage.objects.count() == 1
