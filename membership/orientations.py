@@ -25,6 +25,7 @@ from core.models import SiteActivity
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+    from django.db.models import QuerySet
 
     from membership.models import (
         Equipment,
@@ -568,6 +569,24 @@ def start_custom_orientation_checkout(
         raise
 
 
+def locked_booking_queryset() -> QuerySet[OrientationBooking]:
+    """The row-locked booking queryset every finalize path reads through.
+
+    Extracted so its shape is assertable: the ``of=("self",)`` is load bearing and a spec
+    has to be able to reach it. Without it this statement is invalid SQL on Postgres --
+    ``guild`` is nullable, so ``select_related`` reaches it through a LEFT OUTER JOIN, and
+    Postgres refuses FOR UPDATE on the nullable side of an outer join. That took every
+    paid-checkout path down for five days without CI noticing, because SQLite ignores FOR
+    UPDATE entirely and never compiles the clause at all.
+
+    Locking only the booking row is also correct on the merits: the atomic block writes
+    booking columns and nothing else, and the joined rows are read, not written.
+    """
+    from membership.models import OrientationBooking
+
+    return OrientationBooking.objects.select_for_update(of=("self",)).select_related("slot", "guild", "member").all()
+
+
 def finalize_paid_booking(
     booking: OrientationBooking, *, payment_intent: str, amount_total: int | None, session_id: str = ""
 ) -> str:
@@ -599,17 +618,7 @@ def finalize_paid_booking(
     from membership.models import OrientationBooking
 
     with transaction.atomic():
-        locked = (
-            # ``of=("self",)`` locks the booking row and nothing else. Without it Postgres
-            # rejects the whole statement: ``guild`` is nullable, so ``select_related``
-            # reaches it through a LEFT OUTER JOIN, and Postgres refuses FOR UPDATE on the
-            # nullable side of an outer join. The booking row is the only thing that needs
-            # locking anyway — the joined rows are read for display, not written here.
-            OrientationBooking.objects.select_for_update(of=("self",))
-            .select_related("slot", "guild", "member")
-            .filter(pk=booking.pk)
-            .first()
-        )
+        locked = locked_booking_queryset().filter(pk=booking.pk).first()
         if locked is None:
             return "gone"
         if locked.status != OrientationBooking.Status.PENDING_PAYMENT:

@@ -51,38 +51,53 @@ def describe_catalogue():
 
 
 def describe_column_widths():
-    """Every stored key must fit the columns that store it.
+    """Every stored key must fit every column that stores it.
 
     Postgres rejects an over-long value and aborts the surrounding transaction; SQLite
-    silently truncates nothing and stores it whole. The suite runs on SQLite, so without
-    an explicit width check this class of bug reaches production invisibly — which is
-    exactly what happened to ``equipment.reservation_cancelled_by_manager`` (42 characters
-    into a 40-character column), taking the manager-cancel path down with it.
+    enforces no declared width at all. The suite runs on SQLite, so without an explicit
+    width check this class of bug reaches production invisibly — which is exactly what
+    happened to ``equipment.reservation_cancelled_by_manager`` (42 characters into a
+    40-character ``Notification.trigger``), taking the manager-cancel path down with it.
+
+    Parametrized over every column rather than the one that broke: four more columns take
+    the same registry keys at ``max_length=60``, which is 18 characters from the identical
+    failure.
     """
 
-    def _trigger_column_width() -> int:
-        from core.models import Notification
+    def _key_columns() -> list[tuple[str, int]]:
+        from core.models import (
+            DiscordWebhookRoute,
+            EventDelivery,
+            Notification,
+            NotificationPreference,
+            NotificationTemplate,
+            TransactionalEmailLog,
+        )
 
-        return Notification._meta.get_field("trigger").max_length
+        pairs = [
+            (Notification, "trigger"),
+            (TransactionalEmailLog, "trigger_kind"),
+            (NotificationPreference, "event_key"),
+            (EventDelivery, "event_key"),
+            (NotificationTemplate, "event_key"),
+            (DiscordWebhookRoute, "event_key"),
+        ]
+        return [(f"{model.__name__}.{field}", model._meta.get_field(field).max_length) for model, field in pairs]
 
-    def it_fits_every_catalogue_key_in_the_notification_column():
-        width = _trigger_column_width()
-        too_long = {t.key: len(t.key) for t in triggers.TRIGGERS if len(t.key) > width}
-        assert too_long == {}, f"trigger keys longer than the {width}-char column: {too_long}"
+    def it_covers_every_column_that_stores_a_key():
+        # Guard the guard: a new key-storing column must be added to _key_columns above.
+        assert len(_key_columns()) == 6
 
-    def it_fits_every_registered_event_key_in_the_notification_column():
-        # The event registry writes the same column through emit(); its keys are longer
-        # than the catalogue's and are what actually overflowed.
+    def it_fits_every_catalogue_trigger_key():
+        longest = max(triggers.TRIGGERS, key=lambda t: len(t.key))
+        for label, width in _key_columns():
+            assert len(longest.key) <= width, f"{longest.key} ({len(longest.key)}) overflows {label} ({width})"
+
+    def it_fits_every_registered_event_key():
+        # The registry's keys are the long ones, and emit() writes them to these same
+        # columns. This is the assertion that fails on unfixed main, on SQLite.
         from core.events.registry import all_events
 
-        width = _trigger_column_width()
-        too_long = {e.key: len(e.key) for e in all_events() if len(e.key) > width}
-        assert too_long == {}, f"event keys longer than the {width}-char column: {too_long}"
-
-    def it_fits_every_registered_event_key_in_the_email_log_column():
-        from core.models import TransactionalEmailLog
-        from core.events.registry import all_events
-
-        width = TransactionalEmailLog._meta.get_field("trigger_kind").max_length
-        too_long = {e.key: len(e.key) for e in all_events() if len(e.key) > width}
-        assert too_long == {}, f"event keys longer than the {width}-char column: {too_long}"
+        longest = max(all_events(), key=lambda e: len(e.key))
+        for label, width in _key_columns():
+            assert len(longest.key) <= width, f"{longest.key} ({len(longest.key)}) overflows {label} ({width})"
