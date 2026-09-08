@@ -48,3 +48,56 @@ def describe_catalogue():
         grouped = triggers.by_category(is_instructor=True, is_staff=True)
         assert "Classes" in grouped
         assert any(t.key == "tab_charged" for t in grouped["Billing"])
+
+
+def describe_column_widths():
+    """Every stored key must fit every column that stores it.
+
+    Postgres rejects an over-long value and aborts the surrounding transaction; SQLite
+    enforces no declared width at all. The suite runs on SQLite, so without an explicit
+    width check this class of bug reaches production invisibly — which is exactly what
+    happened to ``equipment.reservation_cancelled_by_manager`` (42 characters into a
+    40-character ``Notification.trigger``), taking the manager-cancel path down with it.
+
+    Parametrized over every column rather than the one that broke: four more columns take
+    the same registry keys at ``max_length=60``, which is 18 characters from the identical
+    failure.
+    """
+
+    def _key_columns() -> list[tuple[str, int]]:
+        from core.models import (
+            DiscordWebhookRoute,
+            EventDelivery,
+            Notification,
+            NotificationPreference,
+            NotificationTemplate,
+            TransactionalEmailLog,
+        )
+
+        pairs = [
+            (Notification, "trigger"),
+            (TransactionalEmailLog, "trigger_kind"),
+            (NotificationPreference, "event_key"),
+            (EventDelivery, "event_key"),
+            (NotificationTemplate, "event_key"),
+            (DiscordWebhookRoute, "event_key"),
+        ]
+        return [(f"{model.__name__}.{field}", model._meta.get_field(field).max_length) for model, field in pairs]
+
+    def it_covers_every_column_that_stores_a_key():
+        # Guard the guard: a new key-storing column must be added to _key_columns above.
+        assert len(_key_columns()) == 6
+
+    def it_fits_every_catalogue_trigger_key():
+        longest = max(triggers.TRIGGERS, key=lambda t: len(t.key))
+        for label, width in _key_columns():
+            assert len(longest.key) <= width, f"{longest.key} ({len(longest.key)}) overflows {label} ({width})"
+
+    def it_fits_every_registered_event_key():
+        # The registry's keys are the long ones, and emit() writes them to these same
+        # columns. This is the assertion that fails on unfixed main, on SQLite.
+        from core.events.registry import all_events
+
+        longest = max(all_events(), key=lambda e: len(e.key))
+        for label, width in _key_columns():
+            assert len(longest.key) <= width, f"{longest.key} ({len(longest.key)}) overflows {label} ({width})"

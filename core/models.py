@@ -1481,7 +1481,12 @@ class Notification(models.Model):
     """One in-app bell entry for one user. Always created on dispatch (non-optional)."""
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
-    trigger = models.CharField(max_length=40, help_text="Trigger key from core.triggers.")
+    # 100 to match TransactionalEmailLog.trigger_kind, which stores the same keys. At 40
+    # the longest shipped key (equipment.reservation_cancelled_by_manager, 42 characters)
+    # overflowed the column: Postgres rejects the INSERT and aborts the surrounding
+    # transaction, while SQLite silently stores it, so the whole class of bug is invisible
+    # to a SQLite test run.
+    trigger = models.CharField(max_length=100, help_text="Trigger key from core.triggers.")
     title = models.CharField(max_length=200, help_text="Bold headline shown in the bell.")
     body = models.CharField(max_length=500, help_text="One-line detail.")
     url = models.CharField(max_length=500, blank=True, default="", help_text="Where clicking navigates.")

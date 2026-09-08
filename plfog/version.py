@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.44.4"
+VERSION = "1.44.6"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
