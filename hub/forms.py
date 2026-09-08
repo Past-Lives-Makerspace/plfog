@@ -4303,6 +4303,10 @@ class IgnorableRowFormMixin:
 
     Rows marked ignorable skip ``_post_clean`` entirely: nothing reads their instance,
     because the formset never saves them.
+
+    **List this mixin BEFORE ``forms.ModelForm`` in the bases.** Reversed, ``_post_clean``
+    resolves to ``BaseModelForm``'s and the override never runs — the mixin would silently
+    do nothing and the constraint name would come back.
     """
 
     _row_is_ignored = False

@@ -1344,6 +1344,10 @@ def describe_the_review_round_fixes():
             assert [row["label"] for row in page.revisions.first().facts] == ["First", "Second"]
 
         def it_snapshots_nothing_when_no_answers_were_filled_in(client: Client):
+            # "Tools needed" IS howto's first starter prompt, so this row is unchanged and
+            # empty_permitted short-circuits it to cleaned_data == {}. That is the arm
+            # _submitted_facts guards with `not cleaned`; the sibling below covers the
+            # other one. Do not "tidy" this label into something a member would type.
             _login(client, "rev_noanswers")
             data = {
                 "title": "Bare Guide",
@@ -1358,3 +1362,29 @@ def describe_the_review_round_fixes():
             page = WikiPage.objects.get(title="Bare Guide")
             assert page.facts.count() == 0
             assert page.revisions.first().facts == []
+
+        def it_snapshots_nothing_for_a_typed_label_with_no_answer(client: Client):
+            # A label the member typed over the prompt, then left unanswered. This row HAS
+            # changed, so it reaches WikiPageFactForm.clean and goes out through
+            # ignore_row() — whose cleaned_data carries no "value" key at all. It is the
+            # DELETE guard in _submitted_facts that catches it, and without that guard a
+            # real member's half-filled row would KeyError on the way to create_page.
+            _login(client, "rev_typednoanswer")
+            data = {
+                "title": "Typed Guide",
+                "kind": "howto",
+                "body": "",
+                **_formset_data(facts=2),
+                "facts-0-label": "Bench height",
+                "facts-0-value": "",
+                "facts-0-sort_order": "0",
+                "facts-1-label": "Time it takes",
+                "facts-1-value": "About an hour",
+                "facts-1-sort_order": "1",
+            }
+            response = client.post(reverse("hub_wiki_create", args=["howto"]), data)
+            assert response.status_code == 302
+            page = WikiPage.objects.get(title="Typed Guide")
+            # The answered row survives, the abandoned one leaves no trace in either place.
+            assert list(page.facts.values_list("label", flat=True)) == ["Time it takes"]
+            assert page.revisions.first().facts == [{"label": "Time it takes", "value": "About an hour"}]

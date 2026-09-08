@@ -353,9 +353,13 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     through ``apply_edit``, so gating it on membership alone would put two write
     affordances at the bottom of an Official page.
 
-    **A held-back page is invisible here too.** Spec D's safety gate saves an Official
-    page ``is_published=False`` for a lead to read; if that only filtered the listings,
-    every write route would still answer a crafted URL and the gate would be decoration.
+    **A held-back page is invisible here too.** Spec D's safety gate saves a page
+    ``is_published=False`` for a lead to read; if that only filtered the listings, every
+    write route would still answer a crafted URL and the gate would be decoration. Note
+    where the leg actually bites: OFFICIAL returns above it, so a held Official page is
+    staff-only by the earlier rule and never reaches this check. What it gates is a held
+    COMMUNITY or guild-verified page, whose author and whose guild lead/staff keep their
+    edit right while everyone else gets False.
     The check lives HERE and not in each view for brief §3's named reason: v1.39.0 gated
     ``/register/<key>/`` while every register kept its own URL, so a member loading
     ``/finance/`` got a 200 and the full financials. Every alternate path to a page needs
