@@ -56,3 +56,44 @@ def describe_welcome_new_members():
         healthy.refresh_from_db()
         assert broken.welcome_email_sent_at is None  # retried next run, not marked done
         assert healthy.welcome_email_sent_at is not None
+
+
+def describe_reporting_a_send_that_did_not_land():
+    """The job log is this automation's only human-visible signal, so a swallowed
+    provider failure must not be reported as a welcome."""
+
+    def it_counts_an_undelivered_member_separately_and_does_not_claim_success(monkeypatch, capsys, mailoutbox):
+        from core import email as core_email
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("provider said no")
+
+        MemberFactory(airtable_record_id="recUNDELIV", _pre_signup_email="undelivered@example.com")
+        monkeypatch.setattr(core_email, "_deliver", _boom)
+
+        call_command("welcome_new_members")
+
+        out = capsys.readouterr()
+        assert "Welcomed 0 new member(s)" in out.out
+        assert "1 not delivered" in out.out
+        assert "will retry next run" in out.err
+
+    def it_leaves_an_undelivered_member_in_the_candidate_set(monkeypatch, mailoutbox):
+        from core import email as core_email
+        from membership.models import Member
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("provider said no")
+
+        member = MemberFactory(airtable_record_id="recRETRY", _pre_signup_email="retry@example.com")
+        monkeypatch.setattr(core_email, "_deliver", _boom)
+
+        call_command("welcome_new_members")
+
+        assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists()
+
+    def it_reports_a_clean_run_as_success(capsys, mailoutbox):
+        MemberFactory(airtable_record_id="recCLEAN", _pre_signup_email="clean@example.com")
+        call_command("welcome_new_members")
+        out = capsys.readouterr()
+        assert "Welcomed 1 new member(s); 0 not delivered; skipped 0." in out.out

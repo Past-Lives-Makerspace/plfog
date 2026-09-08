@@ -495,6 +495,7 @@
             <div class="pl-automation-name">
               {{ row.job.name }}
               {% if row.job.money_job %}<span class="pl-automation-badge">charges cards</span>{% endif %}
+              {% if row.job.confirm_before_run %}<span class="pl-automation-badge">emails members</span>{% endif %}
             </div>
             <div class="pl-automation-desc">{{ row.job.description }}</div>
             {% if row.form and not row.form.instance.enabled %}
@@ -542,7 +543,7 @@
 
           <div class="pl-automation-cell pl-automation-run">
             <span class="pl-automation-cell-label">Run</span>
-            {% if row.job.money_job %}
+            {% if row.job.money_job or row.job.confirm_before_run %}
               <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
                       @click="$dispatch('open-confirm', 'run-{{ row.job.key }}')">Run now</button>
             {% else %}
@@ -772,6 +773,7 @@
   {% endcomment %}
   {% url 'hub_admin_site_settings' as automations_post_url %}
   {% include "components/confirm_modal.html" with confirm_id="run-bill_tabs" confirm_title="Run tab billing now?" confirm_message="This attempts real card charges. It still only runs if it's a scheduled billing day." confirm_action_url=automations_post_url confirm_button_text="Run billing" confirm_field_name="run_job" confirm_field_value="bill_tabs" %}
+  {% include "components/confirm_modal.html" with confirm_id="run-welcome_new_members" confirm_title="Send welcome emails now?" confirm_message="This emails every new member who has not been welcomed yet, right now, even while the automation is switched off. Emails cannot be recalled." confirm_action_url=automations_post_url confirm_button_text="Send welcome emails" confirm_field_name="run_job" confirm_field_value="welcome_new_members" %}
 
   {# -------- Slideshow tab · Block B (Parts 2 & 3: zones + slides editors) -------- #}
   {% comment %}

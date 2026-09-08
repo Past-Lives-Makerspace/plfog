@@ -55,6 +55,10 @@ class ScheduledJob:
     cadence: str
     toggleable: bool = True  # False → the dashboard shows a static "Always on" chip, no toggle
     money_job: bool = False  # True → "Run now" routes through a confirm modal; still never --force
+    # True → same confirm modal, for a job that is irreversible but does not touch money.
+    # Kept separate from money_job because that flag also renders a "charges cards" badge,
+    # and labelling an email job that way would be false to the admin reading it.
+    confirm_before_run: bool = False
     default_enabled: bool = True  # False → OFF until an admin turns it on; absence of a state row means OFF, not ON
 
 
@@ -228,6 +232,9 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Daily ~6 AM",
         cadence=Cadence.DAILY,
         default_enabled=False,
+        # "Run now" bypasses the enabled toggle by design, and this job sends mail that
+        # cannot be recalled, so it asks first.
+        confirm_before_run=True,
     ),
     ScheduledJob(
         key="expire_orientation_payment_holds",

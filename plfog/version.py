@@ -12,8 +12,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "New people added to the membership Airtable can now be emailed their sign-in link "
             "automatically once they're marked active, so they know their Past Lives account is "
-            "ready and can log in. It only emails paying members, never someone who already has "
-            "access, and never the same person twice.",
+            "ready and can log in. It only emails paying members who are active in Airtable, and "
+            "never the same person twice.",
             "It's a new switch on Site Settings, under the Automations tab, and it stays off until "
             "an admin turns it on.",
         ],

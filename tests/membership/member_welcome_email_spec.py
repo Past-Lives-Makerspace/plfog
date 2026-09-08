@@ -195,3 +195,27 @@ def describe_record_welcome_sent():
         member = _candidate()
         member.record_welcome_sent()
         assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists() is False
+
+
+def describe_a_worker_shutdown_mid_send():
+    """A SIGTERM between claiming and sending must hand the member back, not strand them.
+
+    Mirrors the sibling claim/release feature's own guard specs, which raise
+    KeyboardInterrupt out of ``core.email._deliver`` for exactly this window.
+    """
+
+    def it_releases_the_claim_when_the_worker_is_killed(monkeypatch, mailoutbox):
+        from core import email as core_email
+
+        def _killed(*args, **kwargs):
+            raise KeyboardInterrupt("worker killed")
+
+        member = _candidate(_pre_signup_email="killed@example.com")
+        monkeypatch.setattr(core_email, "_deliver", _killed)
+
+        with pytest.raises(KeyboardInterrupt):
+            member.send_welcome_email()
+
+        member.refresh_from_db()
+        assert member.welcome_email_sent_at is None
+        assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists()

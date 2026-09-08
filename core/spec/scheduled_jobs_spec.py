@@ -73,6 +73,15 @@ def describe_registry():
     def it_keeps_the_airtable_pull_external():
         assert JOBS_BY_KEY["airtable_pull"].cadence == Cadence.EXTERNAL
 
+    def it_asks_before_running_the_welcome_job_by_hand():
+        # "Run now" bypasses the enabled toggle by design, and this job sends mail that
+        # cannot be recalled, so it must route through the confirm modal.
+        assert JOBS_BY_KEY["welcome_new_members"].confirm_before_run is True
+
+    def it_does_not_call_the_welcome_job_a_money_job():
+        # money_job also renders a "charges cards" badge, which would be false here.
+        assert JOBS_BY_KEY["welcome_new_members"].money_job is False
+
     def it_marks_only_bill_tabs_as_a_money_job():
         money = {job.key for job in SCHEDULED_JOBS if job.money_job}
         assert money == {"bill_tabs"}
