@@ -393,8 +393,9 @@ urlpatterns = [
     path("wiki/p/<slug:slug>/qr/", wiki_views.hub_wiki_qr_download, name="hub_wiki_qr_download"),
     path("wiki/stickers/", wiki_views.hub_wiki_stickers, name="hub_wiki_stickers"),
     # The sticker link itself is top level and deliberately short: it is read off a dusty
-    # label in bad light and sometimes typed by hand. Two segments, so it cannot collide
-    # with core.urls' one-segment signage catch-all (and hub.urls is included first).
+    # label in bad light and sometimes typed by hand. core.urls carries slug catch-alls at
+    # one AND two segments, so what keeps this route safe is the include order —
+    # plfog/urls.py mounts hub.urls before core.urls, both at "".
     path("m/<str:code>/", wiki_views.hub_wiki_qr, name="hub_wiki_qr"),
     path("help/", views.help_page, name="hub_help"),
     path("help/edit/", views.help_edit, name="hub_help_edit"),

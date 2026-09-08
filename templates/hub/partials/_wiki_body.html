@@ -6,9 +6,13 @@ BOTH branches carry id="wiki-body". The empty branch is the one a freshly seeded
 renders, and it is exactly where the first tip lands — with the id on the prose branch
 only, htmx aborted on targetError and the tip saved, toasted, and stayed invisible until a
 manual reload. That is the stub-page-first flow the whole design rests on.
+
+The gate is has_written_body and NOT page.body: the equipment seeder fills every stub with
+the starter's headings, so `body` alone is truthy on a page nobody has written, and this
+branch would render four empty headings instead of the invitation.
 {% endcomment %}
 {% load membership_md %}
-{% if page.body %}
+{% if page.has_written_body %}
 <div id="wiki-body" class="pl-md pl-wp-body">{{ page.body|wiki_content }}</div>
 {% else %}
 <div id="wiki-body" class="hub-card pl-wp-body__empty">

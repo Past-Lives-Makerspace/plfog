@@ -5,8 +5,10 @@ through the real login-by-code flow, and land on the machine you are standing in
 Then contribute the way a member on a phone actually does: a tip, not an essay.
 
 Only a browser proves this. The redirect chain crosses the allauth screens, the login has
-to preserve ``?next`` across two form submits, and the tip lands through a modal whose
-form posts with HTMX. Run with ``pytest -m e2e``.
+to preserve ``?next`` across two form submits (which is why the first spec drives the login
+forms itself rather than through ``login_via_code``, whose own ``goto`` would throw the
+``?next=`` away), and the tip lands through a modal whose form posts with HTMX. Run with
+``pytest -m e2e``.
 
 Browser-writing e2e flake on local SQLite (one writer lock, so the browser's POST races
 the test's read). Run these on Postgres, the way CI does::
@@ -20,6 +22,8 @@ from __future__ import annotations
 import re
 from io import StringIO
 
+from django.contrib.auth import get_user_model
+from django.core import mail
 from django.core.management import call_command
 from django.urls import reverse
 from playwright.sync_api import expect
@@ -29,6 +33,18 @@ from membership.models import Member, WikiPage
 from tests.membership.factories import EquipmentFactory, GuildFactory, MembershipPlanFactory
 
 MEMBER_EMAIL = "sticker-scanner@example.com"
+
+
+def _seed_account(email: str) -> None:
+    """A sign-in-ready account, so the code flow can be driven from wherever we already are.
+
+    ``login_via_code`` does its own ``goto`` of the login screen, which discards the
+    ``?next=`` the scan set — exactly the thing this spec has to prove survives.
+    """
+    from allauth.account.models import EmailAddress
+
+    user, _ = get_user_model().objects.get_or_create(username=email, defaults={"email": email})
+    EmailAddress.objects.get_or_create(user=user, email=email, defaults={"verified": True, "primary": True})
 
 
 def _wiki_on() -> None:
@@ -50,9 +66,22 @@ def describe_scanning_a_machine_sticker():
         page.goto(f"{live_server.url}{reverse('hub_wiki_qr', args=[wiki_page.qr_code])}")
         expect(page).to_have_url(re.compile(rf"login.*next={re.escape(wiki_page.get_absolute_url())}"))
 
-        # Now finish the real emailed-code login. It has to land on the machine, not home.
-        login_via_code(MEMBER_EMAIL)
-        page.goto(f"{live_server.url}{reverse('hub_wiki_qr', args=[wiki_page.qr_code])}")
+        # Finish the login from exactly where the scan left us, WITHOUT navigating to the
+        # login screen ourselves. Only this proves ?next= survives both form submits, which
+        # is the whole difference between a sticker that works and one that teaches people
+        # it does not.
+        _seed_account(MEMBER_EMAIL)
+        mail.outbox = []
+        page.fill('input[name="email"]', MEMBER_EMAIL)
+        page.locator('input[name="email"]').press("Enter")
+        page.wait_for_selector('input[name="code"]')
+        assert mail.outbox, "expected a login-code email"
+        code = re.search(r"is:\s+(\S+)", mail.outbox[-1].body)
+        assert code, f"no login code in {mail.outbox[-1].body!r}"
+        page.fill('input[name="code"]', code.group(1))
+        page.locator('input[name="code"]').press("Enter")
+
+        # It has to land on the machine the member is standing in front of, not the hub home.
         expect(page).to_have_url(f"{live_server.url}{wiki_page.get_absolute_url()}")
         expect(page.locator("h1")).to_have_text("Table Saw")
 
@@ -135,7 +164,7 @@ def describe_scanning_a_sticker_whose_page_has_gone():
         login_via_code(MEMBER_EMAIL)
 
         page.goto(f"{live_server.url}/m/ZZZZZZ/")
-        expect(page.locator("h1")).to_have_text("Sticker Not Found")
+        expect(page.locator("h1")).to_have_text("No Page For That Sticker")
         expect(page.locator("body")).to_contain_text("points at a page that has moved")
         # A printed sticker outlives its page, so the dead end offers a way onward.
         expect(page.locator(f'form[action="{reverse("hub_wiki_search")}"]')).to_be_visible()

@@ -25,6 +25,13 @@
   text-align: center;
 }
 
+.pl-stickers-title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #092e4c;
+}
+
 .pl-stickers-print-btn {
   display: inline-block;
   padding: 0.75rem 2rem;

@@ -101,7 +101,7 @@ def describe_the_sticker_scan_route():
         def it_renders_the_wikis_own_dead_end_and_not_the_site_wide_404(client, db):
             _login(client, "scanner@example.com")
             response = client.get(reverse("hub_wiki_qr", args=["ZZZZZZ"]))
-            assert b"Sticker Not Found" in response.content
+            assert b"No Page For That Sticker" in response.content
             assert b"That sticker points at a page that has moved" in response.content
             # The site-wide 404's copy, which get_object_or_404 would have rendered.
             assert b"Browse Past Lives classes" not in response.content
@@ -300,13 +300,13 @@ def describe_the_sticker_sheet():
         def it_says_to_run_the_seed_first(client, db):
             _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
             response = client.get(reverse("hub_wiki_stickers"))
-            assert b"Run the equipment seed first" in response.content
+            assert b"Ask an admin to run the equipment seed" in response.content
 
         def it_says_the_same_for_an_unknown_guild(client, db, machine_page):
             _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
             response = client.get(reverse("hub_wiki_stickers") + "?guild=no-such-guild")
             assert response.status_code == 200
-            assert b"Run the equipment seed first" in response.content
+            assert b"Ask an admin to run the equipment seed" in response.content
 
     def describe_the_gate():
         def it_403s_a_plain_member(client, db, machine_page):
@@ -388,3 +388,131 @@ def describe_a_seeded_stub_on_the_reading_page():
         response = client.get(page.get_absolute_url())
         assert b"40 tooth" in response.content
         assert b"Not filled in yet" not in response.content
+
+
+def describe_a_seeded_stub_body():
+    """The seeder fills every stub with the starter's headings, so `page.body` alone is
+    truthy on a page nobody has written a word of. Without the body-clock gate the reading
+    page showed four empty headings and a TOC pointing at nothing — on every machine page
+    reached from a sticker, on launch day."""
+
+    def it_shows_the_invitation_and_not_the_empty_headings(client, db):
+        stub = WikiPageFactory(title="Table Saw", body="<h2>What It Does</h2><p></p>", seeded=True)
+        _login(client, "reader@example.com")
+        response = client.get(stub.get_absolute_url())
+        assert b"Nobody has written this one yet" in response.content
+        assert b"What It Does" not in response.content
+
+    def it_hides_the_table_of_contents(client, db):
+        stub = WikiPageFactory(
+            title="Table Saw",
+            body="<h2>What It Does</h2><p></p><h2>How To Use It</h2><p></p>",
+            seeded=True,
+        )
+        _login(client, "reader@example.com")
+        response = client.get(stub.get_absolute_url())
+        # The scrollspy script names the active-chip class either way, so assert on the nav.
+        assert b'<nav class="pl-wp-toc"' not in response.content
+
+    def it_offers_an_editor_the_way_in(client, db):
+        stub = WikiPageFactory(title="Table Saw", body="<h2>What It Does</h2><p></p>", seeded=True)
+        _login(client, "editor@example.com")
+        response = client.get(stub.get_absolute_url())
+        assert b"+ Add What You Know" in response.content
+
+    def it_shows_the_prose_once_a_person_has_written(client, db):
+        written = WikiPageFactory(title="Table Saw", body="<h2>What It Does</h2><p>It rips boards.</p>")
+        _login(client, "reader@example.com")
+        response = client.get(written.get_absolute_url())
+        assert b"It rips boards." in response.content
+        assert b"Nobody has written this one yet" not in response.content
+
+    def it_returns_the_prose_after_the_first_tip(client, db):
+        # add_tip goes through apply_edit, which stamps the body clock.
+        stub = WikiPageFactory(title="Table Saw", body="<h2>What It Does</h2><p></p>", seeded=True)
+        member = _login(client, "editor@example.com").member
+        stub.add_tip(member=member, editor_may_verify=False, tip_html="<p>Mind the riving knife.</p>")
+        response = client.get(stub.get_absolute_url())
+        assert b"Mind the riving knife." in response.content
+        assert b"Nobody has written this one yet" not in response.content
+
+
+def describe_the_quick_answers_on_a_seeded_stub():
+    def it_nudges_someone_to_answer_the_prompts(client, db):
+        page = WikiPageFactory(title="Table Saw", seeded=True)
+        WikiPageFactFactory(page=page, label="Blade or bit", value="")
+        WikiPageFactFactory(page=page, label="Max size", value="")
+        _login(client, "editor@example.com")
+        response = client.get(page.get_absolute_url())
+        assert b"Nobody has answered these yet" in response.content
+        assert b"Fill them in" in response.content
+
+    def it_drops_the_nudge_once_one_is_answered(client, db):
+        page = WikiPageFactory(title="Table Saw", seeded=True)
+        WikiPageFactFactory(page=page, label="Blade or bit", value="40 tooth")
+        WikiPageFactFactory(page=page, label="Max size", value="")
+        _login(client, "editor@example.com")
+        response = client.get(page.get_absolute_url())
+        assert b"Nobody has answered these yet" not in response.content
+
+    def it_offers_a_member_who_cannot_edit_no_link(client, db):
+        official = WikiPageFactory(title="Shop Rules", official=True, seeded=True)
+        WikiPageFactFactory(page=official, label="Who to ask", value="")
+        _login(client, "member@example.com")
+        response = client.get(official.get_absolute_url())
+        assert b"Nobody has answered these yet" in response.content
+        assert b"Fill them in" not in response.content
+
+
+def describe_the_sticker_sheet_and_held_back_pages():
+    def it_keeps_a_page_the_safety_gate_is_holding_off_the_sheet(client, db):
+        # visible_wiki_pages hands effective staff everything, so .published() is the only
+        # thing stopping an unreviewed page being printed and taped to a wall.
+        tool = EquipmentFactory(name="Table Saw")
+        WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, is_published=False)
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_stickers"))
+        assert b"Table Saw" not in response.content
+        assert b"Ask an admin to run the equipment seed" in response.content
+
+    def it_narrows_to_space_wide_pages(client, db):
+        # The wiki home speaks ?guild=space-wide; the sheet reads the same parameter.
+        guild_tool = EquipmentFactory(name="Table Saw", guild=GuildFactory(name="Woodworking"))
+        WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=guild_tool, guild=guild_tool.guild)
+        WikiPageFactory(title="Air Compressor", kind=WikiPage.Kind.MACHINE, guild=None)
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_stickers") + "?guild=space-wide")
+        assert b"Air Compressor" in response.content
+        assert b"Table Saw" not in response.content
+
+    def it_names_the_kind_readably_in_the_empty_state(client, db):
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_stickers") + "?kind=howto")
+        assert b"No how to do something pages yet" in response.content
+
+    def it_names_the_page_for_a_screen_reader_without_printing_it(client, db):
+        tool = EquipmentFactory(name="Table Saw")
+        WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool)
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_stickers"))
+        assert b'<h1 class="pl-stickers-title">Wiki Stickers' in response.content
+        # The heading sits inside the no-print toolbar, so it costs no printed sheet space.
+        head, _, _rest = response.content.partition(b"pl-stickers-sheet")
+        assert b"no-print" in head
+
+
+def describe_the_print_stickers_link():
+    def it_carries_the_current_guild_filter(client, db):
+        guild = GuildFactory(name="Woodworking")
+        tool = EquipmentFactory(name="Table Saw", guild=guild)
+        WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=guild)
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_home") + "?guild=woodworking")
+        assert f"{reverse('hub_wiki_stickers')}?guild=woodworking".encode() in response.content
+
+    def it_drops_a_space_wide_filter(client, db):
+        tool = EquipmentFactory(name="Table Saw")
+        WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=None)
+        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_home") + "?guild=space-wide")
+        assert f'{reverse("hub_wiki_stickers")}"'.encode() in response.content

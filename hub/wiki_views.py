@@ -426,6 +426,7 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
     can_edit = can_edit_wiki_page(request, page)
     is_archived = page.archived_at is not None
     attachments = list(page.attachments.select_related("uploaded_by"))
+    facts = list(page.facts.all())
     checked_today = (
         page.last_checked_at is not None and timezone.localtime(page.last_checked_at).date() == timezone.localdate()
     )
@@ -434,10 +435,16 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
     context.update(
         {
             "page": page,
-            "facts": list(page.facts.all()),
+            "facts": facts,
+            # A seeded stub HAS facts, all of them blank, so the no-facts nudge never
+            # reaches the pages that most need someone to fill them in.
+            "facts_all_blank": bool(facts) and not any(fact.value for fact in facts),
             "photo_attachments": [item for item in attachments if item.is_image],
             "file_attachments": [item for item in attachments if not item.is_image],
-            "toc": page.toc(),
+            # Empty while the body is still the seeder's headings: the body partial renders
+            # the "nobody has written this yet" invitation there instead of the prose, so a
+            # chip row would scroll to sections that are not on the page.
+            "toc": page.toc() if page.has_written_body else [],
             # No bulk sets: one page renders exactly one Official block, so the two-query
             # optimization Equipment.access_state offers buys nothing here.
             "official_block": page.official_block_context(member),
@@ -1194,13 +1201,19 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
     if not is_effective_staff(request):
         return _forbidden()
     guild_slug = request.GET.get("guild", "").strip()
-    guild = Guild.objects.filter(slug=guild_slug).first() if guild_slug else None
+    space_wide_only = guild_slug == "space-wide"
+    guild = Guild.objects.filter(slug=guild_slug).first() if guild_slug and not space_wide_only else None
     kind = request.GET.get("kind", WikiPage.Kind.MACHINE.value).strip()
     if kind not in WikiPage.Kind.values:
         kind = WikiPage.Kind.MACHINE.value
 
+    # published(): visible_wiki_pages hands effective staff EVERYTHING, so this is the only
+    # thing keeping a page spec D's safety gate is holding off a sheet somebody prints and
+    # tapes to a wall.
     pages = visible_wiki_pages(request).not_archived().published().filtered(guild=guild, kind=kind)
-    if guild_slug and guild is None:
+    if space_wide_only:
+        pages = pages.space_wide()
+    elif guild_slug and guild is None:
         pages = pages.none()
     return render(
         request,
@@ -1208,6 +1221,7 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
         {
             "stickers": [{"page": page, "qr_svg": page.qr_svg()} for page in pages.order_by("title")],
             "guild": guild,
-            "kind_label": dict(WikiPage.Kind.choices)[kind],
+            # "Machine or tool" is the enum's label and reads badly in "No … pages yet".
+            "kind_noun": "machine" if kind == WikiPage.Kind.MACHINE else dict(WikiPage.Kind.choices)[kind].lower(),
         },
     )

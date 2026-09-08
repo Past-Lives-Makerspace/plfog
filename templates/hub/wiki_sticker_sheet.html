@@ -20,6 +20,8 @@ can still find the page, which is the whole reason the code is six characters fr
 alphabet with no O and no I.
 {% endcomment %}
 <div class="pl-stickers-toolbar no-print">
+  {% comment %}The heading lives in the no-print toolbar: it names the page for a screen reader and for a browser tab, and never costs a line of the printed sheet.{% endcomment %}
+  <h1 class="pl-stickers-title">Wiki Stickers{% if guild %} &middot; {{ guild.name }}{% endif %}</h1>
   <button type="button" class="pl-stickers-print-btn" onclick="window.print()">Print / Save as PDF</button>
   <p class="pl-stickers-toolbar__hint">Print on label sheets or plain paper and tape them on. Use your browser's Print dialog and choose “Save as PDF.”</p>
 </div>
@@ -28,7 +30,7 @@ alphabet with no O and no I.
 <div class="pl-stickers-sheet">
   {% for sticker in stickers %}
   <div class="pl-wp-sticker">
-    <div class="pl-wp-sticker__qr">{{ sticker.qr_svg|safe }}</div>
+    <div class="pl-wp-sticker__qr" aria-hidden="true">{{ sticker.qr_svg|safe }}</div>
     <p class="pl-wp-sticker__name">{{ sticker.page.title }}</p>
     <p class="pl-wp-sticker__url">{{ sticker.page.sticker_url_typed }}</p>
   </div>
@@ -36,7 +38,7 @@ alphabet with no O and no I.
 </div>
 {% else %}
 <div class="pl-stickers-empty">
-  <p>No {{ kind_label|lower }} pages{% if guild %} in {{ guild.name }}{% endif %} yet. Run the equipment seed first.</p>
+  <p>No {{ kind_noun }} pages{% if guild %} in {{ guild.name }}{% endif %} yet. Ask an admin to run the equipment seed.</p>
 </div>
 {% endif %}
 

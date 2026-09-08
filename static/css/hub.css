@@ -8680,6 +8680,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-bylinewide { display: none; }
     .pl-wp-details { display: block; }
     .pl-wp-qrshare { display: none; }
+    /* Two 0.85rem links a thumb-width apart in the section header. Give them a real tap
+       height on the width where a thumb is what taps them. */
+    .pl-wp-home__seeall { display: inline-flex; align-items: center; min-height: 44px; }
     .pl-wp-facts { grid-template-columns: 1fr; gap: 0.1rem 0; }
     .pl-wp-facts__value { margin-bottom: 0.6rem; font-size: 17px; }
     .pl-wp-header { flex-direction: column; }

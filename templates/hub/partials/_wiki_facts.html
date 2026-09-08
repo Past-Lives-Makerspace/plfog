@@ -19,6 +19,12 @@ On a phone the two columns stack into label-above-value pairs at reading size.
         <dd class="pl-wp-facts__value">{% if fact.value %}{{ fact.value }}{% else %}<span class="pl-wp-facts__blank">Not filled in yet</span>{% endif %}</dd>
         {% endfor %}
     </dl>
+    {% if facts_all_blank %}
+    <p class="hub-text-muted pl-wp-factsblock__empty">
+        Nobody has answered these yet. These are the four or five things people actually came for.
+        {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}#wp-fact-rows">Fill them in</a>{% endif %}
+    </p>
+    {% endif %}
     {% else %}
     <p class="hub-text-muted pl-wp-factsblock__empty">
         No quick answers yet. These are the four or five things people actually came for.

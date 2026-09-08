@@ -10,6 +10,10 @@ Parameters:
 
 The QR and the printed link both come from page.sticker_url, so a sticker on a machine and
 the link a member copies can never encode two different addresses.
+
+The hint says "where people will need this page" and not "on the machine": the code lives
+on the page, not on the tool, and not everything worth stickering is a machine (a material
+shelf, a door, a dust collector).
 {% endcomment %}
 {% url 'hub_wiki_qr_download' page.slug as wiki_qr_url %}
-{% include "components/qr_share_card.html" with title="Share This Page" hint="Print it and tape it to the machine. A scan opens this page, even for someone who has to sign in first." qr_svg=page.qr_svg share_url=page.sticker_url svg_url=wiki_qr_url|add:"?fmt=svg" png_url=wiki_qr_url|add:"?fmt=png" field_id=field_id %}
+{% include "components/qr_share_card.html" with title="Share This Page" hint="Print it and stick it where people will need this page. A scan opens it, even for someone who has to sign in first." qr_svg=page.qr_svg share_url=page.sticker_url svg_url=wiki_qr_url|add:"?fmt=svg" png_url=wiki_qr_url|add:"?fmt=png" field_id=field_id %}

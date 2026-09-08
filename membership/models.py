@@ -12364,6 +12364,20 @@ class WikiPage(models.Model):
 
         return reverse("hub_wiki_page", args=[self.slug])
 
+    @property
+    def has_written_body(self) -> bool:
+        """True once a *person* has written the body, not merely that something fills it.
+
+        The equipment seeder writes the starter's headings into every stub, so ``body``
+        alone is truthy on a page nobody has written a word of — and the reading page would
+        show four empty headings and a table of contents pointing at nothing instead of the
+        invitation the "every contribution is an edit" mechanic depends on.
+        ``body_edited_at`` is what separates the two: ``create_page`` stamps it for an
+        authored page and leaves it blank for the seeder's, and ``apply_edit`` always
+        stamps it.
+        """
+        return bool(self.body) and self.body_edited_at is not None
+
     # --- The sticker (/m/<code>/) ---------------------------------------------------
 
     @property
