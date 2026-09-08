@@ -1,0 +1,40 @@
+{% comment %}
+Files And Photos. Photos render first as a grid with their labels as captions, because a
+photo of the right blade beats three paragraphs; documents and links follow as cards with an
+icon, the label, the size, and who added it.
+
+Its own partial so the quick-photo endpoint can swap just this card back in. The label on
+every attachment is required at the model, because a library of files called scan_0034.pdf
+is a library nobody opens.
+{% endcomment %}
+<div class="hub-card pl-wp-attachments" id="wiki-attachments">
+    <div class="pl-wp-attachments__head">
+        <h2 class="hub-detail-label pl-wp-section__title">Files And Photos</h2>
+        {% if can_edit %}
+        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">+ Add A Photo</button>
+        {% endif %}
+    </div>
+    {% if photo_attachments %}
+    <div class="pl-wp-photos">
+        {% for item in photo_attachments %}
+        <figure class="pl-wp-photos__item">
+            <a href="{{ item.file.url }}" target="_blank" rel="noopener"><img src="{{ item.file.url }}" alt="{{ item.label }}"></a>
+            <figcaption class="hub-text-muted">{{ item.label }}</figcaption>
+        </figure>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% for item in file_attachments %}
+    <div class="pl-wp-attach__card">
+        <a href="{% if item.is_file %}{{ item.file.url }}{% else %}{{ item.url }}{% endif %}" target="_blank" rel="noopener" class="pl-wp-attach__name">{{ item.display_name }}</a>
+        <p class="hub-text-muted pl-wp-attach__meta">
+            {% if item.is_link %}Link{% else %}File{% endif %}{% if item.size_label %} &middot; {{ item.size_label }}{% endif %}{% if item.uploaded_by %} &middot; Added by {{ item.uploaded_by.display_name }}{% endif %}
+        </p>
+    </div>
+    {% endfor %}
+    {% if not photo_attachments and not file_attachments %}
+    <p class="hub-text-muted pl-wp-attachments__empty">
+        Nothing attached yet. A photo of the setup helps more than a paragraph.
+    </p>
+    {% endif %}
+</div>

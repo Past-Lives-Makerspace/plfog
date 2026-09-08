@@ -1,7 +1,7 @@
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import discord_views, equipment_views, meeting_views, notification_views, views
+from . import discord_views, equipment_views, meeting_views, notification_views, views, wiki_views
 
 urlpatterns = [
     # --- Meetings (spec §6.0) ---
@@ -374,6 +374,22 @@ urlpatterns = [
         name="hub_equipment_hours_save",
     ),
     # Help — how the app works: intro, guides, parking, who-to-contact, FAQ, code of conduct, resources.
+    # --- Member wiki (spec A §3). The fixed ``p/`` segment means there are no catch-all
+    # routes here at all, so unlike /help/ nothing has to stay last.
+    path("wiki/", wiki_views.hub_wiki_home, name="hub_wiki_home"),
+    path("wiki/search/", wiki_views.hub_wiki_search, name="hub_wiki_search"),
+    path("wiki/new/", wiki_views.hub_wiki_new, name="hub_wiki_new"),
+    path("wiki/new/<slug:kind>/", wiki_views.hub_wiki_create, name="hub_wiki_create"),
+    path("wiki/new/<slug:kind>/autosave/", wiki_views.hub_wiki_new_autosave, name="hub_wiki_new_autosave"),
+    path("wiki/drafts/", wiki_views.hub_wiki_drafts, name="hub_wiki_drafts"),
+    path("wiki/drafts/<int:pk>/discard/", wiki_views.hub_wiki_draft_discard, name="hub_wiki_draft_discard"),
+    path("wiki/p/<slug:slug>/", wiki_views.hub_wiki_page, name="hub_wiki_page"),
+    path("wiki/p/<slug:slug>/edit/", wiki_views.hub_wiki_edit, name="hub_wiki_edit"),
+    path("wiki/p/<slug:slug>/autosave/", wiki_views.hub_wiki_autosave, name="hub_wiki_autosave"),
+    path("wiki/p/<slug:slug>/confirm/", wiki_views.hub_wiki_confirm, name="hub_wiki_confirm"),
+    path("wiki/p/<slug:slug>/photo/", wiki_views.hub_wiki_quick_photo, name="hub_wiki_quick_photo"),
+    path("wiki/p/<slug:slug>/tip/", wiki_views.hub_wiki_quick_tip, name="hub_wiki_quick_tip"),
+    path("wiki/p/<slug:slug>/image/", wiki_views.hub_wiki_image_upload, name="hub_wiki_image_upload"),
     path("help/", views.help_page, name="hub_help"),
     path("help/edit/", views.help_edit, name="hub_help_edit"),
     path("help/floorplan/delete/", views.org_info_floorplan_delete, name="hub_org_info_floorplan_delete"),

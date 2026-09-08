@@ -1,0 +1,47 @@
+{% comment %}
+The ONE wiki card. Home sections, search results, spec B's guild-tab rows and wanted list,
+and spec E's governance results all render through this — there is no second card shape.
+
+Parameters:
+  page            — required. The object. A duck-typed stand-in works: spec E passes a
+                    GovernanceDocument and only touches title, get_absolute_url, status_pill.
+  snippet         — optional. Pre-escaped HTML with <mark> already inserted. When present it
+                    REPLACES the lead line and is rendered |safe. This parameter is the whole
+                    reason search results do not need a card of their own.
+  source_chip     — optional. A quiet neutral label ("Wiki", "Help", "Policies"). Not a pill,
+                    not colored. Omitted when the surface has only one source.
+  actions_partial — optional. A template path rendered in .pl-wp-card__actions at the right of
+                    the row. This is where spec B's _wiki_verify_control.html with compact=True
+                    lives; without the slot B has nowhere to put a Verify button but a second card.
+
+Exactly one status pill per card (the brief's "no pill salad"): kind, guild and equipment are
+quiet muted text and never colored. The action slot sits OUTSIDE the title link so a tap on it
+is not swallowed by the card's own link.
+{% endcomment %}
+<div class="pl-wp-card">
+    <div class="pl-wp-card__main">
+        <div class="pl-wp-card__head">
+            <a href="{{ page.get_absolute_url }}" class="pl-wp-card__title">{{ page.title }}</a>
+            {% if page.status_pill %}
+            <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
+            {% endif %}
+        </div>
+        {% if page.attribute_line or source_chip %}
+        <p class="hub-text-muted pl-wp-card__attrs">
+            {% if source_chip %}<span class="pl-wp-card__source">{{ source_chip }}</span>{% endif %}
+            {{ page.attribute_line }}
+        </p>
+        {% endif %}
+        {% if snippet %}
+        <p class="pl-wp-card__snippet">{{ snippet|safe }}</p>
+        {% elif page.lead_text %}
+        <p class="hub-text-muted pl-wp-card__snippet">{{ page.lead_text }}</p>
+        {% endif %}
+        {% if page.updated_at %}
+        <p class="hub-text-muted pl-wp-card__meta">Updated {{ page.updated_at|date:"j M" }}{% if page.updated_by %} by {{ page.updated_by.display_name }}{% endif %}</p>
+        {% endif %}
+    </div>
+    {% if actions_partial %}
+    <div class="pl-wp-card__actions">{% include actions_partial %}</div>
+    {% endif %}
+</div>

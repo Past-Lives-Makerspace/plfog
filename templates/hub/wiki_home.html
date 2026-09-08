@@ -1,0 +1,124 @@
+{% extends "hub/base.html" %}
+{% block title %}Wiki{% endblock %}
+
+{% block content %}
+{% comment %}
+The wiki home. Search sits above every list because search is the primary way in; the chip
+rows below it are GET-param navigation and not a form, so each chip is a plain link whose
+active state is a class and therefore survives an hx-boost body swap.
+
+Every "See all" link lands on /wiki/search/, which browses on an empty query. Under a
+none()-on-empty search all three of them would have dead-ended on a blank page.
+{% endcomment %}
+{% if can_write %}
+{% url 'hub_wiki_new' as new_url %}
+{% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." action_url=new_url action_label="+ New Page" action_class="pl-btn pl-btn--primary" %}
+{% else %}
+{% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." %}
+{% endif %}
+
+<div class="hub-card pl-wp-searchbar">
+    {% url 'hub_wiki_search' as search_action %}
+    {% include "components/table_search.html" with action=search_action placeholder="Search the wiki" %}
+</div>
+
+<div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Filter by scope">
+    <a href="?{% if kind_filter %}kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if not guild_filter %}pl-wp-chip--active{% endif %}">All</a>
+    <a href="?guild=space-wide{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if guild_filter == 'space-wide' %}pl-wp-chip--active{% endif %}">Space wide</a>
+    {% for filter_guild in filter_guilds %}
+    <a href="?guild={{ filter_guild.slug|urlencode }}{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if guild_filter == filter_guild.slug %}pl-wp-chip--active{% endif %}">{{ filter_guild.name }}</a>
+    {% endfor %}
+</div>
+<div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Filter by kind">
+    <a href="?{% if guild_filter %}guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if not kind_filter %}pl-wp-chip--active{% endif %}">All</a>
+    {% for value, label in kind_choices %}
+    <a href="?kind={{ value|urlencode }}{% if guild_filter %}&guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if kind_filter == value %}pl-wp-chip--active{% endif %}">{{ label }}</a>
+    {% endfor %}
+</div>
+
+<div class="pl-guild-grid pl-wp-home">
+    <div>
+        {% if not has_any_page %}
+        <div class="hub-card pl-wp-home__card">
+            <p class="hub-text-muted pl-wp-home__empty">Nothing here yet. Start with the machine you know best.</p>
+            {% if can_write %}<a href="{% url 'hub_wiki_new' %}" class="pl-btn pl-btn--primary">+ New Page</a>{% endif %}
+        </div>
+        {% elif not recent_pages and not your_guild_pages and not machine_pages %}
+        <div class="hub-card pl-wp-home__card">
+            <p class="hub-text-muted pl-wp-home__empty">Nothing matches those filters. <a href="{% url 'hub_wiki_home' %}">Clear filters</a></p>
+        </div>
+        {% else %}
+        {% if your_guild_pages %}
+        <div class="hub-card pl-wp-home__card">
+            <div class="pl-wp-home__head">
+                <h2 class="hub-detail-label pl-wp-section__title">Your Guilds</h2>
+                <a href="{% url 'hub_wiki_search' %}{% if guild_filter and guild_filter != 'space-wide' %}?guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-home__seeall">See all</a>
+            </div>
+            {% for wiki_page in your_guild_pages %}
+            {% include "hub/partials/_wiki_card.html" with page=wiki_page %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if recent_pages %}
+        <div class="hub-card pl-wp-home__card">
+            <div class="pl-wp-home__head">
+                <h2 class="hub-detail-label pl-wp-section__title">Recently Updated</h2>
+                <a href="{% url 'hub_wiki_search' %}" class="pl-wp-home__seeall">See all</a>
+            </div>
+            {% for wiki_page in recent_pages %}
+            {% include "hub/partials/_wiki_card.html" with page=wiki_page %}
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if machine_pages %}
+        <div class="hub-card pl-wp-home__card">
+            <div class="pl-wp-home__head">
+                <h2 class="hub-detail-label pl-wp-section__title">Machines</h2>
+                <a href="{% url 'hub_wiki_search' %}?kind=machine" class="pl-wp-home__seeall">See all</a>
+            </div>
+            <div class="pl-wp-machinegrid">
+                {% for wiki_page in machine_pages %}
+                {% include "hub/partials/_wiki_card.html" with page=wiki_page %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <aside>
+        {% if can_write %}
+        <div class="hub-card pl-wp-home__card">
+            <h2 class="hub-detail-label pl-wp-section__title">Start A Page</h2>
+            <ul class="pl-wp-starterlist">
+                {% for starter in starters %}
+                <li><a href="{% url 'hub_wiki_create' starter.kind %}">{{ starter.label }}</a></li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if drafts %}
+        <div class="hub-card pl-wp-home__card">
+            <h2 class="hub-detail-label pl-wp-section__title">Your Drafts</h2>
+            <ul class="pl-wp-starterlist">
+                {% for draft in drafts %}
+                <li>{% if draft.page %}<a href="{% url 'hub_wiki_edit' draft.page.slug %}">{{ draft.title|default:draft.page.title }}</a>{% else %}<a href="{% url 'hub_wiki_create' draft.kind %}">{{ draft.title|default:"Untitled page" }}</a>{% endif %}</li>
+                {% endfor %}
+            </ul>
+            <a href="{% url 'hub_wiki_drafts' %}" class="pl-wp-home__seeall">See all your drafts</a>
+        </div>
+        {% endif %}
+
+        {% if wiki_link_enabled and makerspace_wiki_url %}
+        <div class="hub-card pl-wp-home__card">
+            <h2 class="hub-detail-label pl-wp-section__title">The Old Wiki</h2>
+            <p class="hub-text-muted">We are moving everything here. The old wiki is read only and will be switched off.</p>
+            <a href="{{ makerspace_wiki_url }}" target="_blank" rel="noopener noreferrer">Open the old wiki</a>
+        </div>
+        {% endif %}
+    </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% comment %}
+The zero-result search screen.
+
+OWNED BY SPEC B (2026-09-07-member-wiki-guild-tab.md). This file is a two line placeholder
+so spec A's search view has something real to include; B replaces the contents with the
+"Search Everything" escape, "Ask In #woodworking", "Request This Page" and the write-it-
+yourself link. A's own spec asserts on the include and not on this copy, so swapping the
+file in does not turn a test red.
+{% endcomment %}
+<div class="hub-card pl-wp-search__empty">
+    <p>Nothing matched <strong>{{ q }}</strong>.</p>
+    <a href="{% url 'hub_wiki_new' %}?title={{ q|urlencode }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start This Page</a>
+</div>

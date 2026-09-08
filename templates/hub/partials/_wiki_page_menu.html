@@ -1,0 +1,16 @@
+{% comment %}
+The phone action bar's overflow items, rendered inside components/row_actions.html. Real
+links and buttons with role="menuitem" — no hover affordances, no swipe, no long press;
+every one of those fails with gloves on.
+{% endcomment %}
+{% if can_edit %}
+<a href="{% url 'hub_wiki_edit' page.slug %}" role="menuitem" class="pl-row-menu__item">Edit</a>
+{% endif %}
+{% if can_confirm %}
+{% if checked_today %}
+<span role="menuitem" class="pl-row-menu__item hub-text-muted">Checked today</span>
+{% else %}
+<button type="button" role="menuitem" class="pl-row-menu__item" @click="$dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
+{% endif %}
+{% endif %}
+<button type="button" role="menuitem" class="pl-row-menu__item" onclick="window.print()">Print / Save PDF</button>

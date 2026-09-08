@@ -396,25 +396,26 @@ def describe_org_info_nav_and_folded_footer_links():
         # deliberately never rewritten — so assert on the link, not the words.)
         assert b'href="/info/"' not in resp.content
 
-    def it_renders_an_external_wiki_link_in_the_member_nav(client: Client, settings):
-        """The Wiki nav link points at the external MediaWiki and opens in a new tab."""
+    def it_no_longer_puts_the_external_wiki_in_the_member_nav(client: Client, settings):
+        """The sidebar Wiki slot now belongs to the in-app wiki, gated on wiki_enabled.
+
+        The external MediaWiki is demoted to a card on the wiki home for the length of the
+        migration and retired with the existing wiki_link_enabled toggle; while wiki_enabled
+        is off, the sidebar simply has no Wiki entry.
+        """
         settings.MAKERSPACE_WIKI_URL = "https://wiki.example.test"
         _user_with_role("m_wiki_nav")
         client.login(username="m_wiki_nav", password="pass")
         resp = client.get(reverse("hub_home"))
-        assert (
-            b'<a href="https://wiki.example.test" class="hub-sidebar__link" '
-            b'target="_blank" rel="noopener noreferrer">' in resp.content
-        )
+        assert b'href="https://wiki.example.test"' not in resp.content
 
-    def it_hides_the_wiki_link_when_no_url_is_configured(client: Client, settings):
+    def it_shows_no_wiki_nav_entry_while_the_wiki_is_off(client: Client, settings):
         settings.MAKERSPACE_WIKI_URL = ""
         _user_with_role("m_no_wiki")
         client.login(username="m_no_wiki", password="pass")
         resp = client.get(reverse("hub_home"))
         assert b"hub-sidebar__link" in resp.content  # the rest of the nav still renders
-        # The external Wiki link is the only nav link that opens in a new tab.
-        assert b'class="hub-sidebar__link" target="_blank"' not in resp.content
+        assert b'href="/wiki/" class="hub-sidebar__link' not in resp.content
 
     def it_no_longer_shows_the_two_google_doc_footer_links(client: Client):
         _user_with_role("m_footer")

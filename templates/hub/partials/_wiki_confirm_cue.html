@@ -1,0 +1,14 @@
+{% comment %}
+The ?confirm=1 cue card spec B's monthly lead digest links overdue pages with. Neutral, not
+amber: nothing is wrong, we are only asking. It never steals focus, opens no modal on load,
+and hijacks no scroll — a card that is already the first thing under the breadcrumb does not
+need to. Absent entirely for any viewer who could not confirm, so a two week old email link
+never errors.
+{% endcomment %}
+<div class="pl-wp-confirmcue">
+    <p class="pl-wp-confirmcue__ask">Does this page still match what is in the space today?</p>
+    <div class="pl-wp-confirmcue__actions">
+        <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="$dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
+        {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-wp-confirmcue__edit">Not quite. Edit it.</a>{% endif %}
+    </div>
+</div>

@@ -96,6 +96,7 @@ MEMBER_ONLY_PATH_PREFIXES: tuple[str, ...] = (
     "/settings/",
     "/site-migration/",
     "/tab/",
+    "/wiki/",
 )
 
 # Paths that only exist on the public/book surface. Requests to these on the

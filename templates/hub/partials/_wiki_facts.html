@@ -1,0 +1,23 @@
+{% comment %}
+Quick Answers — the two-column key/value block of the four to eight facts people actually
+came to the page for. First thing under the title on purpose: it is the most useful
+component on a wiki page, which is why the starter template prompts for these before prose.
+
+On a phone the two columns stack into label-above-value pairs at reading size.
+{% endcomment %}
+<div class="hub-card pl-wp-factsblock">
+    <h2 class="hub-detail-label pl-wp-section__title">Quick Answers</h2>
+    {% if facts %}
+    <dl class="pl-wp-facts">
+        {% for fact in facts %}
+        <dt class="pl-wp-facts__label">{{ fact.label }}</dt>
+        <dd class="pl-wp-facts__value">{{ fact.value }}</dd>
+        {% endfor %}
+    </dl>
+    {% else %}
+    <p class="hub-text-muted pl-wp-factsblock__empty">
+        No quick answers yet. These are the four or five things people actually came for.
+        {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}#wp-fact-rows">Add the first one</a>{% endif %}
+    </p>
+    {% endif %}
+</div>
