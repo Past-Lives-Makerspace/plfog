@@ -11642,9 +11642,9 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
         member = _editing_member(request)
         if member is None:
             return self.published().not_archived()
-        moderated_guild_ids = Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).values(
-            "pk"
-        )
+        # Member.staffed_guilds is exactly this predicate and already exists; the bulk
+        # form of can_edit_guild lives there, so both stay in step.
+        moderated_guild_ids = member.staffed_guilds.values("pk")
         return self.filter(
             Q(is_published=True, archived_at__isnull=True)
             | Q(is_published=False, created_by=member)
@@ -11784,6 +11784,11 @@ class WikiPageQuerySet(models.QuerySet["WikiPage"]):
             created_by=author,
             updated_by=author,
             is_published=is_published,
+            # Blank body_edited_at means "still exactly what the seeder wrote", which is
+            # the equipment seeder's licence to refresh the body. A member-authored page
+            # must never look like that, or the seeder overwrites their words the first
+            # time it runs against a machine page they created with an equipment link.
+            body_edited_at=timezone.now() if author is not None else None,
         )
         if status:
             page.status = status

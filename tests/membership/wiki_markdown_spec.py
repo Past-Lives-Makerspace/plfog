@@ -189,6 +189,11 @@ def describe_render_wiki_content():
         def it_replaces_an_invalid_existing_id():
             html = _inject_heading_ids('<h2 id="Not A Slug">Blade changes</h2>')
             assert 'id="blade-changes"' in html
+            # The stale id must be GONE, not merely joined by a second one: a browser
+            # honors the first id and the TOC regex captures the last, so a duplicate
+            # sends the chip to an anchor that does not exist.
+            assert "Not A Slug" not in html
+            assert html.count("id=") == 1
 
         def it_does_not_let_a_later_heading_collide_with_a_preserved_id():
             html = _inject_heading_ids('<h2 id="setup">First</h2><h3>Setup</h3>')

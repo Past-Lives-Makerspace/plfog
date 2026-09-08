@@ -459,7 +459,11 @@ def _inject_heading_ids(html: str) -> str:
             _unique(existing.group(1))  # reserve it, so a later duplicate text can't collide
             return match.group(0)
         anchor = _unique(slugify(strip_tags(inner)) or "section")
-        return f'<{tag}{attrs} id="{anchor}">{inner}</{tag}>'
+        # Drop any existing id first. Appending to attrs that still carry an invalid one
+        # emits two id attributes: the browser honors the first, the TOC regex captures
+        # the last, and the chip scrolls to an anchor that does not exist.
+        cleaned_attrs = _HEADING_EXISTING_ID_RE.sub("", attrs).rstrip()
+        return f'<{tag}{cleaned_attrs} id="{anchor}">{inner}</{tag}>'
 
     return _WIKI_HEADING_RE.sub(_replace, html)
 

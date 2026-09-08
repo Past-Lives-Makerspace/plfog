@@ -911,15 +911,38 @@ def describe_admin_site_settings_features():
         assert b"Enable My Tab" in response.content
         assert b"Allow class registration" in response.content
 
+    def _features_panel(response) -> bytes:
+        """Just the Features tab panel.
+
+        Every Alpine panel is in the same document, so asserting on whole-page content
+        proves only that a control rendered *somewhere* — it passes even when the field
+        falls through to the General catch-all loop as a bare, unstyled checkbox.
+        """
+        body = response.content
+        # Anchor on x-show, not a bare match: the same expression appears in the tab
+        # BUTTON's :class binding, which sits before the panel.
+        marker = b"x-show=\"tab === 'features'\""
+        stop = b"x-show=\"tab === 'automations'\""
+        start = body.index(marker)
+        return body[start : body.index(stop, start)]
+
     def it_renders_the_help_and_wiki_sidebar_toggles(client):
         # Two separate wiki switches now: the member wiki itself, and the link out to
         # the old MediaWiki that it replaces.
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         assert response.status_code == 200
-        assert b"Show Help in the sidebar" in response.content
-        assert b"Member wiki" in response.content
-        assert b"Show old wiki link" in response.content
+        panel = _features_panel(response)
+        assert b"Show Help in the sidebar" in panel
+        assert b"Member wiki" in panel
+        assert b"Show old wiki link" in panel
+
+    def it_renders_the_member_wiki_toggle_in_the_features_panel(client):
+        # The flag the whole wiki round is gated on has to be a real toggle in Features,
+        # not a bare checkbox in General (spec A section 4.7, FRONTEND.md rule 3).
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
+        assert b'id="id_wiki_enabled"' in _features_panel(response)
 
     def it_renders_the_feature_fields_only_once(client):
         # Excluded from the General loop — each control renders only in the Features panel.

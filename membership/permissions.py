@@ -355,10 +355,13 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """
     from membership.models import Member, WikiPage
 
-    if page.archived_at is not None:
-        return _can_moderate_wiki_page(request, page)
+    # OFFICIAL is checked FIRST and unconditionally. Testing archived first let an
+    # archived Official page in a guild fall through to the moderator leg, handing that
+    # guild's lead an edit right the locked rule never grants on Official content.
     if page.status == WikiPage.Status.OFFICIAL:
         return is_effective_staff(request)
+    if page.archived_at is not None:
+        return _can_moderate_wiki_page(request, page)
     member = _editing_member(request)
     return member is not None and member.status == Member.Status.ACTIVE
 
@@ -416,5 +419,6 @@ def editable_wiki_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
     member = _editing_member(request)
     if member is None or member.status != Member.Status.ACTIVE:
         return [], False
-    guilds = list(Guild.objects.filter(memberships__member=member).order_by("name").distinct())
-    return guilds, True
+    # Member.joined_guilds is this query, name-ordered. No .distinct() needed:
+    # GuildMembership carries uq_guildmembership_guild_member.
+    return list(member.joined_guilds), True

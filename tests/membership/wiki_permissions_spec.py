@@ -90,6 +90,19 @@ def describe_can_edit_wiki_page():
             request = _request(UserFactory(username="plain@example.com"), roles={ROLE_MEMBER})
             assert can_edit_wiki_page(request, WikiPageFactory(archived=True)) is False
 
+        def it_still_denies_a_guild_lead_when_the_archived_page_is_official():
+            # Official outranks archived. Checking archived first handed the guild's lead
+            # an edit right on Official content, which the locked rule never grants.
+            user = UserFactory(username="archofficial@example.com")
+            guild = GuildFactory(guild_lead=user.member)
+            page = WikiPageFactory(archived=True, official=True, guild=guild)
+            request = _request(user, roles={ROLE_MEMBER})
+            assert can_edit_wiki_page(request, page) is False
+
+        def it_allows_staff_on_an_archived_official_page():
+            request = _request(UserFactory(username="archadmin@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
+            assert can_edit_wiki_page(request, WikiPageFactory(archived=True, official=True)) is True
+
     def it_gives_an_admin_previewing_as_a_member_the_members_answer():
         user = UserFactory(username="preview@example.com")
         request = _request(user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)

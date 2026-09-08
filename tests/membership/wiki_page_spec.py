@@ -29,6 +29,7 @@ from membership.models import (
 from tests.membership.factories import (
     EquipmentFactory,
     GuildFactory,
+    GuildMembershipFactory,
     GuildStaffMembershipFactory,
     MemberFactory,
     WikiAttachmentFactory,
@@ -502,11 +503,15 @@ def describe_WikiPageQuerySet():
 
         def it_hides_a_held_back_page_in_a_guild_the_member_only_joined():
             # A held-back page is one the safety gate is holding for a second read.
-            # Every joined member seeing it would be that gate not existing.
+            # Every joined member seeing it would be that gate not existing. The
+            # membership row is the point of this spec: without it this proves only
+            # that a stranger cannot see the page.
             user = UserFactory(username="joiner@example.com")
             guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=user.member)
             held = WikiPageFactory(is_published=False, guild=guild, title="Held")
             request = _request(user, roles={ROLE_MEMBER})
+            assert guild.memberships.filter(member=user.member).exists()
             assert held not in WikiPage.objects.visible_for(request)
 
         def it_shows_only_live_pages_to_a_request_with_no_member():
@@ -576,6 +581,16 @@ def describe_create_page():
     def it_defaults_to_community():
         page = WikiPage.objects.create_page(title="Anything", kind=WikiPage.Kind.HOWTO, author=MemberFactory())
         assert page.status == WikiPage.Status.COMMUNITY
+
+    def it_stamps_the_body_clock_for_a_member_authored_page():
+        # Blank body_edited_at is the seeder's licence to overwrite the body, so a page a
+        # member wrote must never look untouched.
+        page = WikiPage.objects.create_page(title="Mine", kind=WikiPage.Kind.HOWTO, author=MemberFactory())
+        assert page.body_edited_at is not None
+
+    def it_leaves_the_body_clock_blank_for_a_seeded_page():
+        page = WikiPage.objects.create_page(title="Seeded page", kind=WikiPage.Kind.MACHINE, author=None)
+        assert page.body_edited_at is None
 
     def it_allows_a_seeder_page_with_no_author():
         page = WikiPage.objects.create_page(title="Seeded", kind=WikiPage.Kind.MACHINE, author=None)
