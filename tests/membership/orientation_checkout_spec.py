@@ -242,6 +242,50 @@ def describe_expire_payment_holds():
 
 
 def describe_finalize_paid_booking():
+    def describe_the_row_lock():
+        """Regression: the lock must not spread to the joined guild row.
+
+        ``guild`` became nullable when equipment-owned orientations shipped, which turned
+        ``select_related("guild")`` into a LEFT OUTER JOIN. Postgres refuses FOR UPDATE on
+        the nullable side of an outer join, so every finalize path (return page, webhook,
+        Resume, sweep) raised ``NotSupportedError`` for five days.
+
+        SQLite never compiles a FOR UPDATE clause at all, so the two end-to-end specs below
+        are inert on CI and only bite on Postgres. The two shape specs are what actually
+        hold the fix in place on a SQLite run.
+        """
+
+        def it_locks_only_the_booking_row():
+            # Asserts on the PRODUCTION queryset, not one this spec builds. Building it here
+            # would only prove Django stores the kwarg it was just handed, and would pass
+            # unchanged against the unfixed code.
+            query = orientations.locked_booking_queryset().query
+            assert query.select_for_update is True
+            assert query.select_for_update_of == ("self",), (
+                "finalize_paid_booking must lock only the booking row: guild is nullable, so "
+                "select_related reaches it through an outer join and Postgres refuses a bare FOR UPDATE"
+            )
+
+        def it_still_selects_the_related_rows_it_reads():
+            # Narrowing the lock must not narrow the fetch: the atomic block reads slot,
+            # guild and member out of this same SELECT.
+            assert orientations.locked_booking_queryset().query.select_related == {
+                "slot": {},
+                "guild": {},
+                "member": {},
+            }
+
+        def it_finalizes_a_guild_scoped_booking():
+            hold = OrientationBookingFactory(slot=_paid_slot(), status=OrientationBooking.Status.PENDING_PAYMENT)
+            assert hold.guild is not None
+            assert orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=1500) == "finalized"
+
+        def it_finalizes_an_equipment_owned_booking_whose_guild_is_null():
+            # The nullable case that made the join an outer join in the first place.
+            hold = OrientationBookingFactory(equipment_owned=True, status=OrientationBooking.Status.PENDING_PAYMENT)
+            assert hold.guild is None
+            assert orientations.finalize_paid_booking(hold, payment_intent="pi_1", amount_total=1500) == "finalized"
+
     def it_keeps_a_legacy_provisional_amount_when_the_session_has_none():
         slot = _paid_slot()
         hold = OrientationBookingFactory(

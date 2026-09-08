@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0077_siteconfiguration_org_legal_name_and_more"),
+        ("core", "0078_widen_notification_trigger"),
     ]
 
     operations = [
