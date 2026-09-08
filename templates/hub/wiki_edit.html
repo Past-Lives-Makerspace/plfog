@@ -109,72 +109,72 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
   // component would silently never register and autosave would be dead on that navigation.
   (function () {
     function definePlWikiEditor() {
-    Alpine.data('plWikiEditor', function (autosaveUrl) {
-      return {
-        saveState: 'idle',
-        savedAt: null,
-        autosaveUrl: autosaveUrl,
-        _timers: {},
-        init() { this.bindAutosave(); },
-        savePillVisible() { return this.saveState !== 'idle'; },
-        saveStateLabel() {
-          if (this.saveState === 'saving') return 'Saving…';
-          if (this.saveState === 'error') return "Couldn't save. Check your connection.";
-          if (this.saveState === 'saved') {
-            var secs = (Date.now() - (this.savedAt || Date.now())) / 1000;
-            return secs < 10 ? 'Saved ✓ just now' : 'Saved ✓ a moment ago';
-          }
-          return '';
-        },
-        onBeforeRequest() { this.saveState = 'saving'; },
-        onSaved() { this.savedAt = Date.now(); this.saveState = 'saved'; },
-        onResponseError(evt) {
-          if (evt.detail.xhr.status === 422) {
-            var elt = evt.detail.elt;
-            if (elt && elt.dataset && elt.dataset.autosave !== undefined && 'value' in elt) {
-              elt.value = elt.dataset.saved || '';
+      Alpine.data('plWikiEditor', function (autosaveUrl) {
+        return {
+          saveState: 'idle',
+          savedAt: null,
+          autosaveUrl: autosaveUrl,
+          _timers: {},
+          init() { this.bindAutosave(); },
+          savePillVisible() { return this.saveState !== 'idle'; },
+          saveStateLabel() {
+            if (this.saveState === 'saving') return 'Saving…';
+            if (this.saveState === 'error') return "Couldn't save. Check your connection.";
+            if (this.saveState === 'saved') {
+              var secs = (Date.now() - (this.savedAt || Date.now())) / 1000;
+              return secs < 10 ? 'Saved ✓ just now' : 'Saved ✓ a moment ago';
             }
-            this.saveState = 'saved';  // the error toast arrives on the HX-Trigger header
-            return;
-          }
-          this.saveState = 'error';
-        },
-        onSendError() { this.saveState = 'error'; },
-        save(field, value, sourceEl) {
-          var self = this;
-          var key = 'wp|' + field;
-          clearTimeout(this._timers[key]);
-          this._timers[key] = setTimeout(function () {
-            htmx.ajax('POST', self.autosaveUrl, {
-              source: sourceEl || self.$el,
-              values: { field: field, value: String(value) },
-              swap: 'none',
-            });
-          }, 700);
-        },
-        bindAutosave() {
-          var self = this;
-          var title = this.$el.querySelector('input[name="title"]');
-          if (title) {
-            title.dataset.autosave = '';
-            title.dataset.saved = title.value;
-            title.addEventListener('input', function () { self.save('title', title.value, title); });
-          }
-          var body = this.$el.querySelector('textarea[name="body"]');
-          if (body) {
-            body.dataset.autosave = '';
-            body.dataset.saved = body.value;
-            // Quill writes back into the hidden textarea, which fires no input event, so the
-            // crash net polls it instead of listening. Cheap, and it cannot miss a keystroke.
-            setInterval(function () {
-              if (body.value === body.dataset.saved) return;
+            return '';
+          },
+          onBeforeRequest() { this.saveState = 'saving'; },
+          onSaved() { this.savedAt = Date.now(); this.saveState = 'saved'; },
+          onResponseError(evt) {
+            if (evt.detail.xhr.status === 422) {
+              var elt = evt.detail.elt;
+              if (elt && elt.dataset && elt.dataset.autosave !== undefined && 'value' in elt) {
+                elt.value = elt.dataset.saved || '';
+              }
+              this.saveState = 'saved';  // the error toast arrives on the HX-Trigger header
+              return;
+            }
+            this.saveState = 'error';
+          },
+          onSendError() { this.saveState = 'error'; },
+          save(field, value, sourceEl) {
+            var self = this;
+            var key = 'wp|' + field;
+            clearTimeout(this._timers[key]);
+            this._timers[key] = setTimeout(function () {
+              htmx.ajax('POST', self.autosaveUrl, {
+                source: sourceEl || self.$el,
+                values: { field: field, value: String(value) },
+                swap: 'none',
+              });
+            }, 700);
+          },
+          bindAutosave() {
+            var self = this;
+            var title = this.$el.querySelector('input[name="title"]');
+            if (title) {
+              title.dataset.autosave = '';
+              title.dataset.saved = title.value;
+              title.addEventListener('input', function () { self.save('title', title.value, title); });
+            }
+            var body = this.$el.querySelector('textarea[name="body"]');
+            if (body) {
+              body.dataset.autosave = '';
               body.dataset.saved = body.value;
-              self.save('body', body.value, body);
-            }, 4000);
-          }
-        },
-      };
-    });
+              // Quill writes back into the hidden textarea, which fires no input event, so the
+              // crash net polls it instead of listening. Cheap, and it cannot miss a keystroke.
+              setInterval(function () {
+                if (body.value === body.dataset.saved) return;
+                body.dataset.saved = body.value;
+                self.save('body', body.value, body);
+              }, 4000);
+            }
+          },
+        };
+      });
     }
     if (window.Alpine && window.Alpine.data) {
       definePlWikiEditor();
