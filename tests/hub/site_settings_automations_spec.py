@@ -148,6 +148,36 @@ def describe_money_job_guard():
         assert "Always on" in html  # bill_tabs shows the non-toggleable chip
 
 
+def describe_confirm_before_run_guard():
+    def it_renders_a_confirm_modal_and_danger_button_for_welcome_new_members(client: Client):
+        _superuser(client)
+        html = client.get(f"{URL}?tab=automations").content.decode()
+        assert "open-confirm', 'run-welcome_new_members'" in html
+        assert "Send welcome emails now?" in html  # the confirm modal include expanded
+        assert "Emails cannot be recalled." in html
+        assert 'name="run_job" value="welcome_new_members"' in html  # the modal's hidden field
+
+    def it_never_renders_a_one_click_run_button_for_welcome_new_members(client: Client):
+        # The whole point of the guard: a plain submit would mass-email members with no
+        # confirmation, and the send cannot be recalled. The danger button must be the
+        # only route, so the `data-run-now` submit branch must not render for this job.
+        _superuser(client)
+        html = client.get(f"{URL}?tab=automations").content.decode()
+        assert 'value="welcome_new_members" data-run-now' not in html
+
+    def it_badges_the_job_as_one_that_emails_members(client: Client):
+        _superuser(client)
+        html = client.get(f"{URL}?tab=automations").content.decode()
+        assert "emails members" in html
+
+    def it_leaves_the_job_toggleable_unlike_the_money_job(client: Client):
+        # confirm_before_run guards the manual run; it must not pin the job the way
+        # money_job does, because the feature itself is a switch admins turn on and off.
+        _superuser(client)
+        client.post(URL, data=_settings_post(_disabled_keys=("welcome_new_members",)))
+        assert ScheduledJobState.objects.get(task_key="welcome_new_members").enabled is False
+
+
 def describe_toggle_persistence():
     def it_saves_a_job_toggled_off(client: Client):
         _superuser(client)

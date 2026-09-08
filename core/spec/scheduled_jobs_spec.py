@@ -38,7 +38,12 @@ _DISPATCHER_ALWAYS = {
     "take_reconciliation_snapshot",
     "send_pending_funding_results",
 }
-_DISPATCHER_DAILY = {"sync_all_sources", "generate_orientation_slots", "sweep_stale_refunds"}
+_DISPATCHER_DAILY = {
+    "sync_all_sources",
+    "generate_orientation_slots",
+    "sweep_stale_refunds",
+    "welcome_new_members",
+}
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
 
@@ -68,6 +73,15 @@ def describe_registry():
     def it_keeps_the_airtable_pull_external():
         assert JOBS_BY_KEY["airtable_pull"].cadence == Cadence.EXTERNAL
 
+    def it_asks_before_running_the_welcome_job_by_hand():
+        # "Run now" bypasses the enabled toggle by design, and this job sends mail that
+        # cannot be recalled, so it must route through the confirm modal.
+        assert JOBS_BY_KEY["welcome_new_members"].confirm_before_run is True
+
+    def it_does_not_call_the_welcome_job_a_money_job():
+        # money_job also renders a "charges cards" badge, which would be false here.
+        assert JOBS_BY_KEY["welcome_new_members"].money_job is False
+
     def it_marks_only_bill_tabs_as_a_money_job():
         money = {job.key for job in SCHEDULED_JOBS if job.money_job}
         assert money == {"bill_tabs"}
@@ -84,10 +98,23 @@ def describe_registry():
         pinned = {job.key for job in SCHEDULED_JOBS if not job.toggleable}
         assert pinned == {"bill_tabs", "send_pending_funding_results"}
 
+    def it_marks_welcome_new_members_default_off():
+        # The new-member welcome automation must ship OFF and be turned on deliberately.
+        assert JOBS_BY_KEY["welcome_new_members"].default_enabled is False
+
+    def it_leaves_every_other_job_default_on():
+        for job in SCHEDULED_JOBS:
+            if job.key != "welcome_new_members":
+                assert job.default_enabled is True
+
 
 def describe_is_enabled():
     def it_defaults_to_enabled_when_no_row_exists(db):
         assert is_enabled("send_class_reminders") is True
+
+    def it_defaults_to_disabled_for_a_default_off_job(db):
+        # welcome_new_members declares default_enabled=False, so absence of a row means OFF.
+        assert is_enabled("welcome_new_members") is False
 
     def it_reflects_a_disabled_state_row(db):
         ScheduledJobStateFactory(task_key="send_class_reminders", enabled=False)

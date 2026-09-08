@@ -5,9 +5,10 @@ tuples, the standalone crons (``airtable_pull``) record through the same helper,
 the Site Settings → Automations dashboard renders it. Because all three read the same
 registry, the admin list can never drift out of sync with what actually runs.
 
-``is_enabled`` and ``record_run`` are the two shared helpers: the dispatcher and the
-"Run now" view both gate on ``is_enabled`` and wrap each run in ``record_run`` so every
-run — scheduled or manual — is recorded uniformly.
+``is_enabled`` and ``record_run`` are the two shared helpers. The dispatcher gates on
+``is_enabled``; the "Run now" view deliberately does NOT, because a manual override
+should run even a paused job. Both wrap each run in ``record_run``, so every run —
+scheduled or manual — is recorded uniformly.
 """
 
 from __future__ import annotations
@@ -54,6 +55,11 @@ class ScheduledJob:
     cadence: str
     toggleable: bool = True  # False → the dashboard shows a static "Always on" chip, no toggle
     money_job: bool = False  # True → "Run now" routes through a confirm modal; still never --force
+    # True → same confirm modal, for a job that is irreversible but does not touch money.
+    # Kept separate from money_job because that flag also renders a "charges cards" badge,
+    # and labelling an email job that way would be false to the admin reading it.
+    confirm_before_run: bool = False
+    default_enabled: bool = True  # False → OFF until an admin turns it on; absence of a state row means OFF, not ON
 
 
 SCHEDULED_JOBS: list[ScheduledJob] = [
@@ -216,6 +222,21 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="welcome_new_members",
+        name="Welcome emails for new members",
+        description=(
+            "Emails new paying members their sign-in link once they're active in Airtable, so they know "
+            "their account is ready. Off by default."
+        ),
+        command="welcome_new_members",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+        default_enabled=False,
+        # "Run now" bypasses the enabled toggle by design, and this job sends mail that
+        # cannot be recalled, so it asks first.
+        confirm_before_run=True,
+    ),
+    ScheduledJob(
         key="expire_orientation_payment_holds",
         name="Release abandoned orientation checkouts",
         description="Releases orientation seats held by checkouts that were never completed.",
@@ -253,8 +274,10 @@ JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}
 
 
 def is_enabled(key: str) -> bool:
-    """Whether a job is currently allowed to run. Defaults to ``True`` when no state row
-    exists, so a fresh database preserves today's "everything runs" behavior. Manual
+    """Whether a job is currently allowed to run.
+
+    With no state row the answer is the job's own ``default_enabled``, so a job that ships
+    off stays off on a fresh database instead of firing on the next deploy. Manual
     "Run now" bypasses this — a manual override should run even a paused job."""
     from core.models import ScheduledJobState
 

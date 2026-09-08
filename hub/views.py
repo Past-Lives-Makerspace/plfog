@@ -6476,11 +6476,23 @@ def admin_member_send_login_invite(request: HttpRequest, pk: int) -> HttpRespons
     """
     member = get_object_or_404(Member, pk=pk)
     response = HttpResponse(status=204)
+    from core.events.channels import Channel
+
     try:
-        member.send_login_invite()
+        result = member.send_login_invite()
     except ValueError as exc:
         trigger_toast(response, str(exc), "error")
         return response
+    # "Did not raise" is not "was sent": core.email.send runs best_effort=True, so a
+    # provider rejection is logged FAILED and swallowed. Reporting success there would
+    # show a green toast for an email that never left, and — because this button targets
+    # exactly the welcome automation's candidate set — the stamp below would drop the
+    # member from that automation for good.
+    if not any(channel is Channel.EMAIL for _, channel in result.delivered):
+        trigger_toast(response, f"Could not send the login invite to {member.primary_email}.", "error")
+        return response
+    # Stamp the ledger so tomorrow's 6 AM run does not send the same person the same email.
+    member.record_welcome_sent()
     trigger_toast(response, f"Login invite sent to {member.primary_email}.", "success")
     return response
 

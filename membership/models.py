@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from billing.models import PaymentRefund
     from classes.models import ClassOffering
     from core.events.channels import Channel, Message
+    from core.events.emit import EmitResult
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,33 @@ class MemberQuerySet(models.QuerySet):
     def paying(self) -> MemberQuerySet:
         """Only standard members count as paying."""
         return self.filter(member_type=Member.MemberType.STANDARD)
+
+    def awaiting_welcome_email(self) -> MemberQuerySet:
+        """Paying (Standard), active members imported from Airtable who have not yet been sent the
+        automated welcome email — the candidate set for the ``welcome_new_members`` automation.
+
+        The email guard goes through :meth:`with_email_status`, the DB-level mirror of
+        :attr:`Member.primary_email`, rather than reading ``_pre_signup_email`` directly.
+        That column is only the source of truth for UNLINKED members, so filtering on it
+        silently skipped a linked member whose address lives in their allauth
+        ``EmailAddress`` row with the legacy column left blank — someone with an email we
+        can reach, never welcomed and never reported. There is deliberately no ``user``
+        filter: members auto-provisioned on import and members the Pending→Active path
+        left without an account both qualify; ``send_welcome_email`` provisions the latter
+        before emailing. The ``welcome_email_sent_at`` guard is the send-once ledger, and a
+        one-time backfill stamped every pre-existing member so the standing backlog is
+        never emailed (only members added after this shipped are eligible)."""
+        return (
+            self.with_email_status()
+            .filter(
+                member_type=Member.MemberType.STANDARD,
+                status=Member.Status.ACTIVE,
+                airtable_record_id__isnull=False,
+                welcome_email_sent_at__isnull=True,
+                has_email=True,
+            )
+            .select_related("user")
+        )
 
     def with_lease_totals(self) -> MemberQuerySet:
         active_filter = _active_lease_q(prefix="leases__")
@@ -573,6 +601,14 @@ class Member(models.Model):
         help_text=(
             "When the member completed the instructor orientation (or an admin granted teaching "
             "access); null = teaching portal locked. Cleared when an admin revokes access."
+        ),
+    )
+    welcome_email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the automated new-member welcome email was sent. Set once so the welcome automation "
+            "never emails the same member twice; blank means not yet welcomed."
         ),
     )
     leases = GenericRelation(
@@ -1482,7 +1518,7 @@ class Member(models.Model):
         self.user.is_superuser = new_super
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
-    def send_login_invite(self) -> None:
+    def send_login_invite(self) -> EmitResult:
         """Email this member a first-time sign-in link (one intentional email).
 
         Distinct from :meth:`core.models.Invite.create_and_send`, which rejects
@@ -1493,6 +1529,12 @@ class Member(models.Model):
         login-by-code works), then emits the branded ``member.login_invite`` email
         with a link to the login-code page, the member's email pre-filled. Re-sends
         always go out (a fresh idempotency ``period`` per send, like the invite).
+
+        Returns:
+            The :class:`~core.events.emit.EmitResult`. Callers that record a send MUST
+            check it: ``core.email.send`` runs ``best_effort=True``, so a provider
+            rejection is logged as FAILED and swallowed rather than raised, and this
+            method returns normally with an empty ``delivered``.
 
         Raises:
             ValueError: if the member has no email on file (nothing to send to).
@@ -1514,11 +1556,73 @@ class Member(models.Model):
         query = urlencode({"email": email})
         login_url = f"{protocol}://{current_site.domain}/accounts/login/code/?{query}"
 
-        emit(
+        return emit(
             "member.login_invite",
             target=self,
             context={"user": user, "member_name": self.display_name, "login_url": login_url},
             period=f"login_invite:{timezone.now():%Y%m%d%H%M%S%f}",
+        )
+
+    def send_welcome_email(self) -> bool:
+        """Send this member the automated new-member welcome (their first sign-in link) once.
+
+        Claims the send BEFORE attempting it, then releases the claim if the email did not
+        actually go out. Both halves matter:
+
+        - Claiming first is what makes this safe to race. A read-then-write would let the
+          13:xx cron tick and an admin's "Run now" both pass the guard and both send.
+        - Releasing on failure is what stops a silent drop becoming permanent.
+          ``core.email.send`` runs ``best_effort=True``, so a provider rejection (a 429
+          daily-quota reply, say) is logged FAILED and swallowed, and ``emit`` deliberately
+          releases its ledger slot so the next run can retry. Stamping regardless would
+          defeat exactly that, and ``awaiting_welcome_email`` filters on the stamp, so the
+          member would never be considered again. That is the failure that cost 39 members
+          their September results email.
+
+        Returns whether an email was actually delivered.
+
+        Propagates :meth:`send_login_invite`'s ``ValueError`` when the member genuinely cannot be
+        provisioned (e.g. their email already belongs to another account) — the caller skips and
+        surfaces it rather than recording a phantom send, so the member is retried next run.
+        """
+        from core.events.channels import Channel
+
+        stamped_at = timezone.now()
+        claimed = Member.objects.filter(pk=self.pk, welcome_email_sent_at__isnull=True).update(
+            welcome_email_sent_at=stamped_at
+        )
+        if not claimed:
+            return False
+        try:
+            result = self.send_login_invite()
+        except BaseException:
+            # BaseException, not Exception, for the same reason core.events.emit guards
+            # this exact window that way: a worker being shut down raises SystemExit, and
+            # that is precisely when a claimed-but-unsent member would be stranded.
+            self._release_welcome_claim()
+            raise
+        if not any(channel is Channel.EMAIL for _, channel in result.delivered):
+            self._release_welcome_claim()
+            return False
+        self.welcome_email_sent_at = stamped_at
+        return True
+
+    def _release_welcome_claim(self) -> None:
+        """Hand the member back to tomorrow's run after a send that did not land."""
+        Member.objects.filter(pk=self.pk).update(welcome_email_sent_at=None)
+        self.welcome_email_sent_at = None
+
+    def record_welcome_sent(self) -> None:
+        """Stamp the welcome ledger for a send made outside the automation.
+
+        The admin "send login invite" button targets members who have never signed in,
+        which is precisely the automation's candidate set. Without this, a manual send
+        today and the 6 AM run tomorrow both reach the same person with the same email,
+        and the changelog's "never the same person twice" is false to the member reading
+        it. Only fills a blank stamp, so a real re-send never rewrites history.
+        """
+        Member.objects.filter(pk=self.pk, welcome_email_sent_at__isnull=True).update(
+            welcome_email_sent_at=timezone.now()
         )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
