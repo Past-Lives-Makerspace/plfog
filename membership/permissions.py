@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from classes.models import Category, ClassOffering
-    from membership.models import CommunityEvent, Equipment, Guild, Meeting, Member
+    from membership.models import CommunityEvent, Equipment, Guild, Meeting, Member, WikiPage, WikiPageQuerySet
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
@@ -314,3 +314,111 @@ def can_edit_category(request: HttpRequest, category: Category) -> bool:
     if guild is not None:
         return can_edit_guild(request, guild)
     return is_effective_staff(request)
+
+
+# --- Wiki (member wiki, spec A) --------------------------------------------------------
+#
+# ``can_moderate_wiki_page`` is spec D's, not A's (brief §9.1). A ships a private,
+# D-shaped stand-in — ``_can_moderate_wiki_page`` — because its own archived-page leg
+# needs one before D lands; D deletes this function and lands the public one in the
+# same PR. Naming it privately means the two can never both be public at once and
+# ``git grep`` finds the collision instantly.
+
+
+def _can_moderate_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
+    """True for effective staff, or the page's own guild lead/staff.
+
+    Spec D's exact shape for ``can_moderate_wiki_page(request, page)``, kept private
+    here so a guild lead can archive a bad page in their own guild without finding an
+    officer, before spec D ships the public version. A space-wide page (``guild`` is
+    None) is moderatable by effective staff only.
+    """
+    if is_effective_staff(request):
+        return True
+    guild = page.guild
+    return guild is not None and can_edit_guild(request, guild)
+
+
+def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
+    """True when this request may edit the page's title, body, facts, and attachments.
+
+    ``OFFICIAL`` pages: effective staff only (admins/officers) — a member sees no edit
+    affordance at all, not a disabled one. An archived page: ``_can_moderate_wiki_page``
+    only — nothing about archiving requires a page to be locked to every plain member
+    forever, but members cannot delete and cannot resurrect one either. Everything else:
+    any ACTIVE member, live, with no approval queue (the locked "who may edit" rule).
+
+    This is also the gate on the three micro-contribution routes — quick tip, quick
+    photo, and the editor's image upload (brief §9.3). The tip route writes the body
+    through ``apply_edit``, so gating it on membership alone would put two write
+    affordances at the bottom of an Official page.
+    """
+    from membership.models import Member, WikiPage
+
+    # OFFICIAL is checked FIRST and unconditionally. Testing archived first let an
+    # archived Official page in a guild fall through to the moderator leg, handing that
+    # guild's lead an edit right the locked rule never grants on Official content.
+    if page.status == WikiPage.Status.OFFICIAL:
+        return is_effective_staff(request)
+    if page.archived_at is not None:
+        return _can_moderate_wiki_page(request, page)
+    member = _editing_member(request)
+    return member is not None and member.status == Member.Status.ACTIVE
+
+
+def can_verify_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
+    """True when this request may stand behind the page with a green check.
+
+    An OFFICIAL page is never verifiable, by anyone — this guard runs first, before any
+    authority test. Otherwise: a guild-scoped page defers to :func:`can_edit_guild`
+    (lead, every staff role, orienters included via the staff-role fold-in). A
+    space-wide page takes :func:`is_effective_staff`. A page linked to Equipment
+    additionally admits that tool's own orienters via ``Equipment.is_run_by`` — the
+    people who teach the machine — even when the tool belongs to no guild.
+    """
+    from membership.models import WikiPage
+
+    if page.status == WikiPage.Status.OFFICIAL:
+        return False
+    guild = page.guild
+    if guild is not None:
+        if can_edit_guild(request, guild):
+            return True
+    elif is_effective_staff(request):
+        return True
+    equipment = page.equipment
+    if equipment is not None:
+        member = _editing_member(request)
+        if member is not None and equipment.is_run_by(member):
+            return True
+    return False
+
+
+def visible_wiki_pages(request: HttpRequest) -> WikiPageQuerySet:
+    """The pages this request may see in listings and search — a FILTER, not a check.
+
+    Views ask for this and render what comes back, so a view that forgets to gate shows
+    too little, never too much.
+    """
+    from membership.models import WikiPage
+
+    return WikiPage.objects.visible_for(request)
+
+
+def editable_wiki_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
+    """(guilds this request may scope a page to, may-create-space-wide) in two queries.
+
+    The bulk companion for the New-page scope picker, mirroring
+    :func:`editable_meeting_scopes`. Every active member may create a space-wide page
+    and a page in any guild they have joined; staff get every guild.
+    """
+    from membership.models import Guild, Member
+
+    if is_effective_staff(request):
+        return list(Guild.objects.order_by("name")), True
+    member = _editing_member(request)
+    if member is None or member.status != Member.Status.ACTIVE:
+        return [], False
+    # Member.joined_guilds is this query, name-ordered. No .distinct() needed:
+    # GuildMembership carries uq_guildmembership_guild_member.
+    return list(member.joined_guilds), True

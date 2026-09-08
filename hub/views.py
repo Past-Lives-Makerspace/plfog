@@ -6481,6 +6481,10 @@ def admin_member_send_login_invite(request: HttpRequest, pk: int) -> HttpRespons
     except ValueError as exc:
         trigger_toast(response, str(exc), "error")
         return response
+    # This button targets members who have never signed in, which is exactly the
+    # welcome automation's candidate set. Stamp the ledger so tomorrow's 6 AM run does
+    # not send the same person the same email again.
+    member.record_welcome_sent()
     trigger_toast(response, f"Login invite sent to {member.primary_email}.", "success")
     return response
 

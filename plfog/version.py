@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "1.44.5"
+VERSION = "1.45.1"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.44.5",
+        "version": "1.45.1",
         "date": "2026-09-07",
         "title": "Admins: auto-welcome new members from Airtable",
         "changes": [

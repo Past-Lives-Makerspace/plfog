@@ -1,4 +1,4 @@
-"""Specs for the ScheduledJobState model + manager (per-job ON/OFF; absence == enabled)."""
+"""Specs for the ScheduledJobState model + manager (per-job ON/OFF; no row means the job default)."""
 
 from __future__ import annotations
 

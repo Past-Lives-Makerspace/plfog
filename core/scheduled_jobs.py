@@ -266,8 +266,10 @@ JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}
 
 
 def is_enabled(key: str) -> bool:
-    """Whether a job is currently allowed to run. Defaults to ``True`` when no state row
-    exists, so a fresh database preserves today's "everything runs" behavior. Manual
+    """Whether a job is currently allowed to run.
+
+    With no state row the answer is the job's own ``default_enabled``, so a job that ships
+    off stays off on a fresh database instead of firing on the next deploy. Manual
     "Run now" bypasses this — a manual override should run even a paused job."""
     from core.models import ScheduledJobState
 

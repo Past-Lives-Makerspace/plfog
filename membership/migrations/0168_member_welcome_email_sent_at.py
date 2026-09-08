@@ -22,7 +22,7 @@ def _unmark_members_welcomed(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0166_queued_results_send"),
+        ("membership", "0167_wiki_page_store"),
     ]
 
     operations = [

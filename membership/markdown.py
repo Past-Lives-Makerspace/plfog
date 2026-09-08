@@ -35,6 +35,9 @@ from typing import Any
 
 import bleach
 import markdown as md
+from django.conf import settings
+from django.utils.html import strip_tags
+from django.utils.text import slugify
 
 # Reused, not re-invented: the email rich-editor's Quill bullet-list normalizer and its
 # HTML→text flattener (both battle-tested against Quill 2.x output). core.html_sanitize
@@ -214,14 +217,55 @@ def _harden_link_help(attrs: dict[Any, Any], new: bool = False) -> dict[Any, Any
     return _harden_link(attrs, new)
 
 
+# Wiki profile (member-authored wiki pages, brief §4 "Sanitizer"): the member tag set
+# plus images, restricted to the wiki media prefix. No iframe, no div — an iframe is a
+# full browsing context and stays the admin-authored help profile's privilege, and the
+# wiki toolbar has no syntax to emit either one.
+_WIKI_TAGS = [*_ALLOWED_TAGS, "img"]
+_WIKI_EXTENSIONS = _MEMBER_EXTENSIONS  # no admonition — members have no syntax for it
+
+
+def wiki_image_src_prefixes() -> tuple[str, ...]:
+    """The ``src`` prefixes a wiki-profile ``img`` may use.
+
+    Computed per call from settings, not a module constant, so ``override_settings``
+    works in tests and dev/prod differ correctly: the local media prefix always
+    counts, and R2's public prefix joins it once R2 is configured.
+    """
+    prefixes: tuple[str, ...] = (f"{settings.MEDIA_URL}wiki/",)
+    r2_public_url = getattr(settings, "R2_PUBLIC_URL", "") or ""
+    if r2_public_url:
+        prefixes = (*prefixes, f"{r2_public_url}/wiki/")
+    return prefixes
+
+
+def _allow_wiki_img_attr(tag: str, name: str, value: str) -> bool:
+    """Bleach attribute filter for wiki-profile ``img``: alt/title pass; src must be ours."""
+    if name in ("alt", "title"):
+        return True
+    return name == "src" and value.startswith(wiki_image_src_prefixes())
+
+
+_WIKI_ATTRS = {
+    "a": ["href", "title"],
+    "th": ["align"],
+    "td": ["align"],
+    "img": _allow_wiki_img_attr,
+    "h2": _allow_help_heading_attr,
+    "h3": _allow_help_heading_attr,
+    "h4": _allow_help_heading_attr,
+}
+
+
 def render_markdown(source: str, *, profile: str = "member") -> str:
     """Render Markdown to sanitized HTML.
 
     Args:
         source: Markdown source text. Empty/blank returns an empty string.
-        profile: ``"member"`` (default — today's exact member-content behavior)
-            or ``"help"`` (help-center articles: local images, heading anchors,
-            same-tab internal links).
+        profile: ``"member"`` (default — today's exact member-content behavior),
+            ``"help"`` (help-center articles: local images, heading anchors,
+            same-tab internal links), or ``"wiki"`` (member wiki pages: member
+            content plus images from the wiki media prefix, no iframe).
 
     Returns:
         Sanitized HTML: scripts, styles, ``onclick``, inline ``style=``, and any
@@ -230,14 +274,20 @@ def render_markdown(source: str, *, profile: str = "member") -> str:
     Raises:
         ValueError: If ``profile`` is not a known profile name.
     """
-    if profile not in ("member", "help"):
+    if profile not in ("member", "help", "wiki"):
         raise ValueError(f"Unknown markdown profile '{profile}'")
     if not source:
         return ""
-    raw = md.markdown(source, extensions=_HELP_EXTENSIONS if profile == "help" else _MEMBER_EXTENSIONS)
     if profile == "member":
+        raw = md.markdown(source, extensions=_MEMBER_EXTENSIONS)
         cleaned = bleach.clean(raw, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS, strip=True)
         return bleach.linkify(cleaned, callbacks=[_harden_link], parse_email=False)
+    if profile == "wiki":
+        raw = md.markdown(source, extensions=_WIKI_EXTENSIONS)
+        cleaned = bleach.clean(raw, tags=_WIKI_TAGS, attributes=_WIKI_ATTRS, strip=True)
+        cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
+        return bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+    raw = md.markdown(source, extensions=_HELP_EXTENSIONS)
     cleaned = bleach.clean(raw, tags=_HELP_TAGS, attributes=_HELP_ATTRS, strip=True)
     cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
     cleaned = _SRCLESS_IFRAME_RE.sub("", cleaned)
@@ -336,4 +386,116 @@ def sanitize_page_submission(value: str) -> str:
     """
     if looks_like_html(value):
         return sanitize_page_html(value)
+    return value
+
+
+# --- Wiki page bodies — the member-writable /wiki/ store (dual-mode: Quill HTML or ------
+# --- legacy Markdown, sniffed exactly like the help/org columns above). ----------------
+
+# The Quill side of the wiki profile: the page-content tag set (what the shared toolbar
+# already emits) plus what a member wiki page additionally needs — an image (the wiki
+# toolbar's own image button), a fourth heading level, tables (a member pasting a spec
+# sheet from a supplier's page should keep it), inline code, and a rule. Still no
+# iframe, no div — those stay the admin-authored help profile's privilege.
+_WIKI_TAGS_HTML = [*_PAGE_TAGS, "img", "h4", "table", "thead", "tbody", "tr", "th", "td", "code", "pre", "hr"]
+_WIKI_ATTRS_HTML = {
+    "a": ["href"],
+    "img": _allow_wiki_img_attr,
+    "th": ["align"],
+    "td": ["align"],
+}
+
+# One pass over rendered wiki HTML: an h2/h3 with no id (or an invalid one) gets a
+# slugified id computed from its own text, deduped -2/-3 within the same body.
+_WIKI_HEADING_RE = re.compile(r"<(h[23])([^>]*)>(.*?)</\1>", re.DOTALL)
+_HEADING_EXISTING_ID_RE = re.compile(r'\bid="([^"]*)"')
+
+
+def sanitize_wiki_html(raw: str) -> str:
+    """Sanitize a Quill wiki-page body: the page tag set plus images, no iframe/div.
+
+    The Quill path for :func:`render_wiki_content` — bullet-list normalize, then
+    ``bleach.clean`` with the wiki HTML allowlist, then drop any src-less ``img`` bleach
+    left behind (a rejected external/`data:` source leaves a useless tag), then hardened
+    auto-linking (internal links stay same-tab, matching the help profile). Empty,
+    blank, or contentless input (an empty Quill editor is ``<p><br></p>``) returns ``""``.
+    """
+    if not raw or not raw.strip():
+        return ""
+    normalized = _normalize_quill_lists(raw)
+    cleaned = bleach.clean(normalized, tags=_WIKI_TAGS_HTML, attributes=_WIKI_ATTRS_HTML, strip=True)
+    cleaned = _SRCLESS_IMG_RE.sub("", cleaned)
+    hardened = bleach.linkify(cleaned, callbacks=[_harden_link_help], parse_email=False)
+    # An image counts as content here, unlike the help-page sanitizer this is modelled on
+    # (which strips img outright, so its text-only emptiness test can never be wrong). On a
+    # phone the primary contribution is a photo, not prose, so a body that is only a photo
+    # is a real contribution and must not be discarded as blank.
+    if not rich_html_to_text(hardened) and "<img" not in hardened:
+        return ""
+    return hardened
+
+
+def _inject_heading_ids(html: str) -> str:
+    """Give every ``h2``/``h3`` in ``html`` a slugified ``id``, computed at render time.
+
+    A member can rename a heading; a stored id would then point at text that no longer
+    exists and the TOC chip would scroll nowhere. Computing the id here, in the same
+    pass that produces the body HTML, makes the TOC and the anchors provably the same
+    thing — see :func:`render_wiki_content`. An existing pattern-valid id is kept as-is;
+    a missing or invalid one is replaced. Repeated heading text within one body is
+    deduped ``-2``, ``-3``, ….
+    """
+    seen: dict[str, int] = {}
+
+    def _unique(base: str) -> str:
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        return base if count == 0 else f"{base}-{count + 1}"
+
+    def _replace(match: re.Match[str]) -> str:
+        tag, attrs, inner = match.group(1), match.group(2), match.group(3)
+        existing = _HEADING_EXISTING_ID_RE.search(attrs)
+        if existing is not None and _HEADING_ID_PATTERN.match(existing.group(1)):
+            _unique(existing.group(1))  # reserve it, so a later duplicate text can't collide
+            return match.group(0)
+        anchor = _unique(slugify(strip_tags(inner)) or "section")
+        # Drop any existing id first. Appending to attrs that still carry an invalid one
+        # emits two id attributes: the browser honors the first, the TOC regex captures
+        # the last, and the chip scrolls to an anchor that does not exist.
+        cleaned_attrs = _HEADING_EXISTING_ID_RE.sub("", attrs).rstrip()
+        return f'<{tag}{cleaned_attrs} id="{anchor}">{inner}</{tag}>'
+
+    return _WIKI_HEADING_RE.sub(_replace, html)
+
+
+def render_wiki_content(source: str) -> str:
+    """Render a stored :class:`~membership.models.WikiPage` body to safe, anchored HTML.
+
+    The dual-mode entry point for wiki pages: content that :func:`looks_like_html` (a
+    Quill save) goes through :func:`sanitize_wiki_html`; everything else renders through
+    :func:`render_markdown` with ``profile="wiki"``. Either way, :func:`_inject_heading_ids`
+    runs over the result last, so ``WikiPage.toc()`` — one regex pass over this same output
+    — and the on-page anchors can never disagree, and running this twice on the same body
+    yields the same ids (deterministic anchors).
+    """
+    if not source:
+        return ""
+    if looks_like_html(source):
+        html = sanitize_wiki_html(source)
+    else:
+        html = render_markdown(source, profile="wiki")
+    return _inject_heading_ids(html)
+
+
+def sanitize_wiki_submission(value: str) -> str:
+    """Form-save seam for a wiki page body: sanitize editor HTML, pass Markdown through.
+
+    Mirrors :func:`sanitize_page_submission` exactly and does **not** call it — the two
+    profiles must stay independently editable. A normal wiki save carries Quill HTML and
+    gets sanitized before storage; a value that doesn't sniff as HTML (a no-JS fallback,
+    or a legacy Markdown value) is stored unchanged so it keeps rendering through the
+    Markdown path.
+    """
+    if looks_like_html(value):
+        return sanitize_wiki_html(value)
     return value
