@@ -284,6 +284,27 @@ def describe_wiki_search():
             response = client.get(reverse("hub_wiki_search"), {"q": "orientation"})
             assert b"Booking An Orientation" not in response.content
 
+        def it_counts_only_the_wiki_with_source_wiki(client: Client):
+            _login(client, "search_sourcewiki")
+            WikiArticleFactory(title="Orientation Guide", body="How to book an orientation.")
+            WikiPageFactory(title="Orientation Bench", body="An orientation happens here.")
+            response = client.get(reverse("hub_wiki_search"), {"q": "orientation", "source": "wiki"})
+            assert b"1 page match" in response.content
+            assert b"Orientation Guide" not in response.content
+
+        def it_answers_nothing_for_spec_es_group_until_it_ships(client: Client):
+            _login(client, "search_sourcepolicies")
+            WikiPageFactory(title="Orientation Bench", body="An orientation happens here.")
+            response = client.get(reverse("hub_wiki_search"), {"q": "orientation", "source": "policies"})
+            assert response.status_code == 200
+            assert b"0 pages match" in response.content
+
+        def it_ignores_an_unknown_source(client: Client):
+            _login(client, "search_sourcebogus")
+            WikiPageFactory(title="Orientation Bench", body="An orientation happens here.")
+            response = client.get(reverse("hub_wiki_search"), {"q": "orientation", "source": "bogus"})
+            assert b"Orientation Bench" in response.content
+
         def it_is_skipped_on_a_browse(client: Client):
             _login(client, "search_helpbrowse")
             WikiArticleFactory(title="Booking An Orientation", body="How to book an orientation.")

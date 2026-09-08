@@ -312,7 +312,11 @@ def hub_wiki_search(request: HttpRequest) -> HttpResponse:
             }
         )
 
-    total = wiki_total + len(help_results) if source == "" else (wiki_total if source == "wiki" else len(help_results))
+    # dict[key], not a chain of conditionals: source is already validated to one of these
+    # three or blank, so a fourth value should raise rather than silently count the wrong
+    # store. "policies" is spec E's group and answers 0 until E ships.
+    source_totals = {"wiki": wiki_total, "help": len(help_results), "policies": 0}
+    total = source_totals[source] if source else wiki_total + len(help_results)
     context = _get_hub_context(request)
     context.update(
         {
@@ -409,7 +413,6 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
             "related_pages": page.related_pages(),
             "can_edit": can_edit,
             "can_verify": can_verify_wiki_page(request, page),
-            "can_moderate": _can_moderate_wiki_page(request, page),
             "is_archived": is_archived,
             # "Still accurate" is the one action that does not need edit rights (a member
             # can attest that a page matched reality; authority is a different claim), but
