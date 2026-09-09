@@ -771,8 +771,25 @@
 /* The zone IS the control: its own label and hint say "choose a file or drag one here",
    so a native file input inside it renders a second, browser-chrome "Choose File / No file
    chosen" on top of that message. Every call site hid it by hand except the wiki's two,
-   which is exactly the kind of thing a call site should not have to remember. */
-.cls-image-upload-zone input[type="file"] { display: none; }
+   which is exactly the kind of thing a call site should not have to remember.
+
+   NOT display:none. _wiki_photo_form.html's input is `required`, and a display:none control
+   cannot be focused, so Chrome refuses to report it and aborts the submit with nothing but
+   "An invalid form control with name='photo' is not focusable." in the console: htmx never
+   fires and Add Photo becomes a silently dead button. Zero opacity at 1px keeps the control
+   rendered, focusable and reportable while showing nothing, and pointer-events:none stops it
+   swallowing clicks meant for the zone's own Remove button. Call sites that already set an
+   inline display:none keep it — an inline style wins over this rule either way. */
+.cls-image-upload-zone { position: relative; }
+.cls-image-upload-zone input[type="file"] {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
 
 .cls-image-upload-zone:hover,
 .cls-image-upload-zone.drag-hover {

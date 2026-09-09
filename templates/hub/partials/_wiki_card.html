@@ -23,7 +23,7 @@ is not swallowed by the card's own link.
         <div class="pl-wp-card__head">
             <a href="{{ page.get_absolute_url }}" class="pl-wp-card__title">{{ page.title }}</a>
             {% if page.status_pill %}
-            <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}" aria-label="{{ page.status_pill.1 }}: {{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
+            <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" role="img" title="{{ page.status_pill.2 }}" aria-label="{{ page.status_pill.1 }}: {{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
             {% endif %}
         </div>
         {% if page.attribute_line or source_chip %}

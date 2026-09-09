@@ -9287,9 +9287,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text);
     font-weight: 600;
 }
-/* A 44px tap target around a ~9px glyph. The negative margins reclaim the vertical growth
-   entirely and most of the horizontal, so the chip gets taller by nothing and wider by
-   roughly a thumb's worth — the trade this control is worth on a phone. */
+/* A 44px tap target around a glyph a few pixels wide. The negative margins pull the target
+   back over the chip's own padding rather than adding to its height; the chip does get
+   wider, which is the trade a reachable clear control is worth on a phone. */
 .pl-wp-chip__clear {
     display: inline-flex;
     align-items: center;
@@ -9385,8 +9385,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* Archive is the one action that takes a page away from every member at once, and it lands
    mid-row because .pl-wp-mod__actions is a flex item with Report and Print after it. Its
    own escalation order is right; what it lacked was separation from the routine buttons
-   either side, which is what made a destructive control read as the next button along. */
-.pl-wp-actions .pl-btn--danger { margin-left: 1rem; }
+   either side, which is what made a destructive control read as the next button along.
+   Scoped to the moderation cluster on purpose: .pl-wp-actions also holds Withdraw, which is
+   --danger red but only withdraws your own report and wants no such distance. */
+.pl-wp-actions .pl-wp-mod__actions .pl-btn--danger { margin-inline: 0.75rem; }
 .pl-wp-checked { font-size: 0.85rem; }
 
 /* Neutral, not amber: nothing is wrong, we are only asking. */

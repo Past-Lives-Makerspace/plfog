@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import secrets
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -3374,15 +3374,17 @@ _MD_EMPHASIS_RE = re.compile(r"[*_`]")
 
 # One pass over the help-rendered body: h2/h3 headings that carry an id.
 _HELP_TOC_HEADING_RE = re.compile(r'<h([23])[^>]*\bid="([^"]+)"[^>]*>(.*?)</h\1>', re.DOTALL)
-# Paragraph blocks of a rich-editor HTML body — lead_text's HTML-mode analog of splitting
-# Markdown on blank lines (headings/lists fall outside <p> and are skipped naturally).
-_HTML_PARAGRAPH_RE = re.compile(r"<p[^>]*>(.*?)</p>", re.IGNORECASE | re.DOTALL)
-
 # Lead-text block scanning. Headings are dropped outright (they are section labels, not lead
 # copy); what remains is scanned for the first block-level element with text in it. A nested
 # list closes early against the non-greedy match, which costs an excerpt a few trailing words
 # and never breaks it.
 _HTML_HEADING_RE = re.compile(r"<h[1-6]\b[^>]*>.*?</h[1-6]\s*>", re.IGNORECASE | re.DOTALL)
+# Both patterns are non-greedy, so a long run of unbalanced OPENING tags makes each start
+# position scan to the end of the string looking for a close that never comes: measured at
+# ~6s on 100KB of "<p><p><p>…". A lead is at most a couple of hundred characters, so only the
+# opening of a body can ever contribute one. Bounding the scan makes the cost constant and
+# leaves a scaffold (about 120 characters) with room to spare.
+_LEAD_SCAN_LIMIT = 8000
 _HTML_BLOCK_RE = re.compile(
     r"<(p|ul|ol|table|blockquote|pre|figure|div)\b[^>]*>.*?</\1\s*>",
     re.IGNORECASE | re.DOTALL,
@@ -3430,15 +3432,33 @@ def _lead_text(body: str, limit: int) -> str:
     does not recognise falls back to the whole heading-stripped body, so an inline-only or
     plain-text body still reads.
     """
+    from core.html_sanitize import rich_html_to_text
     from membership.markdown import looks_like_html
 
     if looks_like_html(body):
-        without_headings = _HTML_HEADING_RE.sub(" ", body)
-        blocks = [match.group(0) for match in _HTML_BLOCK_RE.finditer(without_headings)] or [without_headings]
+        # Flatten with rich_html_to_text directly rather than _source_to_text. That helper
+        # re-sniffs each fragment with lstrip().startswith("<"), and a heading-stripped body
+        # whose prose is loose text no longer starts with a tag — so it took the Markdown
+        # path, which leaves inline tags alone, and "<strong>bold</strong>" reached the card
+        # as literal text. The branch already knows this is HTML; it should not ask twice.
+        window = body[:_LEAD_SCAN_LIMIT]
+        if len(body) > _LEAD_SCAN_LIMIT:
+            # Cut back to the last complete tag so the window never ends mid-"<p", which
+            # would survive tag stripping as literal text.
+            last_close = window.rfind(">")
+            if last_close != -1:
+                window = window[: last_close + 1]
+        without_headings = _HTML_HEADING_RE.sub(" ", window)
+        blocks = [match.group(0) for match in _HTML_BLOCK_RE.finditer(without_headings)]
+        # Always the last resort, not only when no block matched: a body can open with an
+        # empty <p> and carry its real prose loose after it.
+        blocks.append(without_headings)
+        flatten: Callable[[str], str] = rich_html_to_text
     else:
         blocks = [b for b in re.split(r"\n\s*\n", body) if not b.lstrip().startswith("#")]
+        flatten = _markdown_to_text
     for block in blocks:
-        text = _source_to_text(block)
+        text = flatten(block)
         if not text:
             continue
         if len(text) <= limit:

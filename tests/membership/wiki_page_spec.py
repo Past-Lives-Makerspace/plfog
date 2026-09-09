@@ -397,6 +397,43 @@ def describe_WikiPage():
                     page = WikiPageFactory(body="<h2>A</h2><p></p><ul><li>Real step.</li></ul>")
                     assert page.lead_text() == "Real step."
 
+                def it_reads_a_table():
+                    page = WikiPageFactory(body="<p></p><table><tr><td>Blade</td><td>10 in</td></tr></table>")
+                    assert page.lead_text() == "Blade10 in"
+
+                def it_reads_a_preformatted_block():
+                    assert WikiPageFactory(body="<pre>make install</pre>").lead_text() == "make install"
+
+                def it_reads_a_figure_caption():
+                    page = WikiPageFactory(body="<figure><figcaption>The jig.</figcaption></figure>")
+                    assert page.lead_text() == "The jig."
+
+                def it_strips_inline_tags_from_prose_loose_after_a_heading():
+                    # No block element wraps it, so this lands on the final fallback. That
+                    # fallback used to be re-sniffed as Markdown, which leaves tags alone,
+                    # and "<strong>bold</strong>" reached the card as literal text.
+                    page = WikiPageFactory(body="<h2>Steps</h2>Loose prose with <strong>bold</strong>.")
+                    assert page.lead_text() == "Loose prose with bold."
+
+                def it_reaches_prose_that_follows_an_empty_block():
+                    # The fallback has to be tried even when a block DID match and was empty.
+                    assert WikiPageFactory(body="<p></p>Loose prose.").lead_text() == "Loose prose."
+
+            def describe_on_a_pathological_body():
+                def it_stays_fast_on_a_long_run_of_unclosed_tags():
+                    # Both patterns are non-greedy, so without a bound each start position
+                    # scans to the end looking for a close that never comes: ~6s on 100KB.
+                    import time
+
+                    page = WikiPageFactory(body="<p>" * 25000)
+                    started = time.perf_counter()
+                    page.lead_text()
+                    assert time.perf_counter() - started < 1.0
+
+                def it_still_finds_prose_that_follows_many_empty_blocks():
+                    page = WikiPageFactory(body="<h2>A</h2>" + "<p></p>" * 800 + "<p>Real prose here.</p>")
+                    assert page.lead_text() == "Real prose here."
+
             def it_returns_markdown_prose_under_a_heading():
                 page = WikiPageFactory(body="## What It Does\n\nCuts sheet goods.\n")
                 assert page.lead_text() == "Cuts sheet goods."
