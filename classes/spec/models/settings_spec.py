@@ -208,6 +208,13 @@ def describe_ClassSettings():
             items = ClassSettings(teach_page_faq="<h3> </h3><p>Orphan</p><h3>Real</h3><p>A</p>").teach_page_faq_items()
             assert [i.question for i in items] == ["Real"]
 
+        def it_skips_a_heading_with_nothing_under_it():
+            """Two headings in a row, or a heading bleach split out of another, never make an empty item."""
+            items = ClassSettings(
+                teach_page_faq="<h3>Empty</h3><h3>Real</h3><p>A</p><h3>Trailing</h3>  "
+            ).teach_page_faq_items()
+            assert [(i.question, str(i.answer_html)) for i in items] == [("Real", "<p>A</p>")]
+
     def describe_teach_page_feature_cards():
         """Pure parsing over the field; no row needed."""
 

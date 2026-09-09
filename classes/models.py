@@ -3959,7 +3959,9 @@ class ClassSettings(models.Model):
         Splits the SANITIZED HTML on its h2/h3 headings: each heading is a question and
         everything up to the next heading is its answer. Content before the first heading
         is the section's intro (``teach_page_faq_intro_html``). No headings means no
-        items, and the template then renders the whole field as one block.
+        items, and the template then renders the whole field as one block. A heading with
+        no text, or one with nothing under it (two headings in a row, or bleach repairing
+        a heading nested in another), is skipped rather than shown as an empty item.
         """
         parts = self._teach_page_faq_parts()
         items: list[FaqItem] = []
@@ -3967,9 +3969,10 @@ class ClassSettings(models.Model):
             # strip_tags leaves entities (``&amp;``) behind; unescape so the template's own
             # autoescape is the only escaping the question text ever gets.
             text = unescape(strip_tags(question)).strip()
-            if not text:
+            body = answer.strip()
+            if not text or not body:
                 continue
-            items.append(FaqItem(question=text, answer_html=mark_safe(answer.strip())))
+            items.append(FaqItem(question=text, answer_html=mark_safe(body)))
         return items
 
     @property

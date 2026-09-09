@@ -13,7 +13,11 @@ Three states:
       sliders are shown.
   saved with no photo
       both frames still render the real card, with the category or logo placeholder the
-      catalog would show, and the sliders are hidden until a photo exists.
+      catalog would show, and the sliders are hidden until a photo exists. The hero
+      field uploads instantly on a saved class and rewrites #hero-preview, which
+      cardFocus.localSrc mirrors: the moment that happens the placeholder frames give
+      way to the real card rendering the new photo (live_src) and the sliders appear,
+      no reload needed.
   unsaved (create mode, no card_group)
       a photo picked before the first save exists only as the hero field's local data
       URL, mirrored by cardFocus.localSrc into a skeleton card: the media strip plus a
@@ -32,7 +36,7 @@ are derived in the CSS comment above .pl-card-focus__frame--laptop.
   {% if form.card_focus.errors %}
   <ul class="pl-field-errors">{% for error in form.card_focus.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
   {% endif %}
-  {% if card_group %}
+  {% if card_group and offering.hero_image_url %}
     <div class="pl-card-focus__frames">
       <div class="pl-card-focus__frame pl-card-focus__frame--laptop">
         <span class="pl-card-focus__frame-label">On a Laptop</span>
@@ -43,11 +47,33 @@ are derived in the CSS comment above .pl-card-focus__frame--laptop.
         {% include "classes/public/_class_card.html" with group=card_group preview=True live_position="objectPosition" live_title="liveTitle" %}
       </div>
     </div>
-    {% if offering.hero_image_url %}
     <p class="pl-card-focus__note">Your photo, title, dates, price and spots, exactly as members see them. Dates and price update when you save.</p>
-    {% else %}
-    <p class="pl-card-focus__note">Add a photo above and the sliders appear.</p>
-    {% endif %}
+  {% elif card_group %}
+    {# Saved, no photo yet: the placeholder card until the hero field's instant upload lands in localSrc. #}
+    <div class="pl-card-focus__frames" x-show="!localSrc">
+      <div class="pl-card-focus__frame pl-card-focus__frame--laptop">
+        <span class="pl-card-focus__frame-label">On a Laptop</span>
+        {% include "classes/public/_class_card.html" with group=card_group preview=True live_position="objectPosition" live_title="liveTitle" %}
+      </div>
+      <div class="pl-card-focus__frame pl-card-focus__frame--phone">
+        <span class="pl-card-focus__frame-label">On a Phone</span>
+        {% include "classes/public/_class_card.html" with group=card_group preview=True live_position="objectPosition" live_title="liveTitle" %}
+      </div>
+    </div>
+    <template x-if="localSrc">
+      <div class="pl-card-focus__frames">
+        <div class="pl-card-focus__frame pl-card-focus__frame--laptop">
+          <span class="pl-card-focus__frame-label">On a Laptop</span>
+          {% include "classes/public/_class_card.html" with group=card_group preview=True live_position="objectPosition" live_title="liveTitle" live_src="localSrc" %}
+        </div>
+        <div class="pl-card-focus__frame pl-card-focus__frame--phone">
+          <span class="pl-card-focus__frame-label">On a Phone</span>
+          {% include "classes/public/_class_card.html" with group=card_group preview=True live_position="objectPosition" live_title="liveTitle" live_src="localSrc" %}
+        </div>
+      </div>
+    </template>
+    <p class="pl-card-focus__note" x-show="!localSrc">Add a photo above and the sliders appear.</p>
+    <p class="pl-card-focus__note" x-show="localSrc" x-cloak>Your photo, title, dates, price and spots, exactly as members see them. Dates and price update when you save.</p>
   {% else %}
     <div class="pl-preview-empty" x-show="!localSrc">Upload a photo and your card shows up here.</div>
     {# A photo picked before the first save exists only as the hero field's local preview; mirror it. #}
@@ -77,8 +103,8 @@ are derived in the CSS comment above .pl-card-focus__frame--laptop.
     </template>
     <p class="pl-card-focus__note" x-show="localSrc" x-cloak>Your photo, title, dates, price and spots, exactly as members see them. Dates and price update when you save.</p>
   {% endif %}
-  {% if not card_group or offering.hero_image_url %}
-  <div class="pl-card-focus__sliders"{% if not card_group %} x-show="localSrc" x-cloak{% endif %}>
+  {# The sliders render in every state; without a saved hero they wait for the mirrored photo. #}
+  <div class="pl-card-focus__sliders"{% if not offering.hero_image_url %} x-show="localSrc" x-cloak{% endif %}>
     <label class="pl-card-focus__slider-row">
       <span class="pl-card-focus__slider-label">Up and down</span>
       <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posY" @input="update()">
@@ -92,5 +118,4 @@ are derived in the CSS comment above .pl-card-focus__frame--laptop.
       <span class="pl-card-focus__note" x-show="following">Following the banner.</span>
     </div>
   </div>
-  {% endif %}
 </div>

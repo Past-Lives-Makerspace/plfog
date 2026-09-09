@@ -14,6 +14,11 @@ Parameters (pass via {% include ... with %}):
                    string; when set, the photo binds :style to it so the composer's
                    sliders move the image live. The server rendered style stays as the
                    first paint.
+  live_src       — optional, an Alpine expression whose value is an image URL (the hero
+                   field's local preview, a data URL or the just uploaded file). Only
+                   read when the offering has no hero_image_url: the photo then renders
+                   from it instead of the category or logo fallback, so a class with no
+                   saved photo shows the one being picked before the next save.
 
 Extracted from _class_card.html so every card, the composer's two preview frames, and the
 related classes strip read one markup and one object-position rule. The position is
@@ -28,6 +33,8 @@ are the fallbacks for a class with no photo of its own.
   {% if offering.hero_image_url %}
     <img class="cls-img" src="{{ offering.hero_image_url }}" alt="" loading="lazy"
          style="object-position: {{ offering.card_object_position }};"{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% endif %}>
+  {% elif live_src %}
+    <img class="cls-img" :src="{{ live_src }}" alt=""{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% endif %}>
   {% elif offering.category.hero_image %}
     <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
   {% elif offering.category.logo_prefix %}

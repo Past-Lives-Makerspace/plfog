@@ -114,6 +114,11 @@ img {
     --pl-lifecycle-live: var(--color-success);
     --pl-lifecycle-cancelled: var(--color-error);
     --pl-lifecycle-live-contrast: var(--color-navy);
+    /* The guild's share of the money split (Host a Workshop): the live green with
+       navy text on Obsidian; the light block flips the text to cream over its
+       darker green. Gold / blue / green, one triad in both themes. */
+    --pl-split-guild-bg: var(--pl-lifecycle-live);
+    --pl-split-guild-fg: var(--color-navy);
 
     /* Google Calendar sync-state badge (Screen C) — theme tokens so the badge
        stays legible on both Obsidian (here) and Slate (overridden below). */
@@ -168,6 +173,7 @@ img {
     --pl-lifecycle-live: #1f7a52;
     --pl-lifecycle-cancelled: #b03030;
     --pl-lifecycle-live-contrast: #ffffff;
+    --pl-split-guild-fg: var(--color-cream);
     --hub-hero-from: #f8fafc;
     --hub-hero-mid: #f1f5f9;
     --hub-hero-to: #e2e8f0;
@@ -7178,8 +7184,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* ── Where the Money Goes ─────────────────────────────────────────────────
    A proportional bar over three tiles, each tile topped in its segment's color
    so the bar and the tiles read as one figure. The flex-basis of each segment
-   is inline in the template because it is data. Cream on the two blues and
-   navy on gold: every pairing is a constant token, so both themes read. ── */
+   is inline in the template because it is data. Navy on gold, cream on blue,
+   and the theme aware --pl-split-guild-* pair for the guild's green. ── */
 .pl-teach-split__note {
     margin: 0 0 1rem;
     color: var(--hub-text-muted);
@@ -7220,8 +7226,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 .pl-teach-split__seg--guild {
-    background: var(--color-navy);
-    color: var(--color-cream);
+    background: var(--pl-split-guild-bg);
+    color: var(--pl-split-guild-fg);
 }
 
 .pl-teach-split__tiles {
@@ -7244,7 +7250,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 
 .pl-teach-split__tile--you { border-top-color: var(--color-tuscan-yellow); }
 .pl-teach-split__tile--space { border-top-color: var(--hub-blue); }
-.pl-teach-split__tile--guild { border-top-color: var(--color-navy); }
+.pl-teach-split__tile--guild { border-top-color: var(--pl-split-guild-bg); }
 
 .pl-teach-split__pct {
     font-family: 'Lato', sans-serif;

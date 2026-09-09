@@ -98,6 +98,22 @@ def describe_class_card_media():
         assert "_legacy-image" not in html
         assert f'src="{offering.image.url}"' in html
 
+    def it_renders_a_live_source_in_place_of_the_fallback_when_the_class_has_no_photo():
+        """The composer mirrors the hero field's local preview through live_src before a save."""
+        category = CategoryFactory(name="No Logo Here")
+        offering = _published(image="", category=category)
+        html = _media(offering, preview=True, live_src="localSrc", live_position="objectPosition")
+        assert '<img class="cls-img" :src="localSrc" alt="" :style="\'object-position: \' + objectPosition">' in html
+        assert "cls-img-ph" not in html
+        assert "loading=" not in html
+        assert '<img class="cls-img" :src="localSrc" alt="">' in _media(offering, preview=True, live_src="localSrc")
+
+    def it_ignores_a_live_source_when_the_class_already_has_a_photo():
+        offering = _published()
+        html = _media(offering, preview=True, live_src="localSrc")
+        assert ":src=" not in html
+        assert f'src="{offering.image.url}"' in html
+
 
 def describe_class_card():
     def it_renders_the_media_strip_with_the_card_position():
@@ -204,7 +220,9 @@ def describe_composer_preview_frames():
         assert "This is your whole card, at the two widths members see." in step_two
         assert "Your photo, title, dates, price and spots, exactly as members see them." in step_two
         assert "photo only" not in html
-        assert "pl-card-focus__sliders" in step_two
+        # A saved hero: the sliders show outright, nothing waits on a mirrored photo.
+        assert '<div class="pl-card-focus__sliders">' in step_two
+        assert 'x-if="localSrc"' not in step_two
 
     def it_mirrors_the_position_and_title_onto_the_review_step_card(instructor_fixture, client):
         offering = ClassOfferingFactory(
@@ -237,19 +255,30 @@ def describe_composer_preview_frames():
         assert _proxy_src(offering) in review
         assert "Add a photo on step 2 and your card shows up here." not in html
 
-    def it_renders_the_placeholder_card_and_hides_the_sliders_when_the_class_has_no_photo(instructor_fixture, client):
+    def it_renders_the_placeholder_card_and_waits_for_a_photo_when_the_class_has_none(instructor_fixture, client):
+        """Saved, no photo: placeholder frames now, the real card the moment an instant upload lands."""
         offering = ClassOfferingFactory(
-            instructor=instructor_fixture, image="", category=CategoryFactory(name="No Logo Here")
+            instructor=instructor_fixture, image="", category=CategoryFactory(name="No Logo Here"), title="Forge Night"
         )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         step_two = _step_two(html)
-        frames = step_two.split('class="cp-page pl-card-focus"')[1]
-        assert frames.count("cls-img-ph--logo") == 2
-        assert frames.count('class="cls-body"') == 2
-        assert "pl-card-focus__sliders" not in step_two
-        assert "Match the Banner" not in step_two
-        assert "Add a photo above and the sliders appear." in step_two
+        pane = step_two.split('class="cp-page pl-card-focus"')[1]
+        placeholder, mirrored = pane.split('<template x-if="localSrc">')
+        # The placeholder frames until a photo exists.
+        assert '<div class="pl-card-focus__frames" x-show="!localSrc">' in placeholder
+        assert placeholder.count("cls-img-ph--logo") == 2
+        assert placeholder.count('class="cls-body"') == 2
+        assert ":src=" not in placeholder
+        # The mirrored frames: the real card, its photo bound to the hero field's local preview.
+        assert mirrored.count(':src="localSrc"') == 2
+        assert mirrored.count(":style=\"'object-position: ' + objectPosition\"") == 2
+        assert mirrored.count("<span x-text=\"liveTitle || 'Forge Night'\">Forge Night</span>") == 2
+        assert "cls-img-ph" not in mirrored.split("</template>")[0]
+        # The notes swap with the photo, and the sliders wait for it instead of a page reload.
+        assert '<p class="pl-card-focus__note" x-show="!localSrc">Add a photo above and the sliders appear.</p>' in pane
+        assert 'x-show="localSrc" x-cloak>Your photo, title, dates, price and spots' in pane
+        assert '<div class="pl-card-focus__sliders" x-show="localSrc" x-cloak>' in pane
+        assert "Match the Banner" in pane
         assert "Upload a photo and your card shows up here." not in html
         assert "Add a photo on step 2 and your card shows up here." in html[html.index("How Your Card Looks") :]
-        assert ":style=\"'object-position: ' + objectPosition\"" not in step_two

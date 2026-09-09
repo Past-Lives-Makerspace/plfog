@@ -92,7 +92,23 @@
     document.addEventListener("pointerout", onLeave);
     document.addEventListener("focusin", onEnter);
     document.addEventListener("focusout", onLeave);
-    /* A lifted bubble is anchored to where the icon WAS; hide it rather than chase it. */
-    document.addEventListener("scroll", clear, true);
-    window.addEventListener("resize", clear);
+    /* A lifted bubble is anchored to where the icon WAS. If the pointer or focus is
+       still on the help, re-measure and lift again (the CSS :hover would otherwise keep
+       the bubble visible in its clipped, absolute position until the pointer moves);
+       otherwise just clear. */
+    function relift() {
+        if (!lifted) { return; }
+        var help = lifted;
+        var stillOn = false;
+        try {
+            stillOn = help.matches(":hover, :focus-within");
+        } catch (error) {
+            stillOn = false;
+        }
+        clear();
+        if (stillOn) { lift(help); }
+    }
+
+    document.addEventListener("scroll", relift, true);
+    window.addEventListener("resize", relift);
 })();

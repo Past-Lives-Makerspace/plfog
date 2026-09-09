@@ -15,6 +15,9 @@ Parameters (pass via {% include ... with %}):
                 use it so nothing inside a frame is a link.
   live_position — optional, an Alpine expression passed through to the media include so
                 the composer's sliders move the photo live.
+  live_src    — optional, an Alpine expression passed through to the media include: the
+                photo to show when the class has no saved hero (the composer mirrors the
+                hero field's local preview through it).
   live_title  — optional, an Alpine expression; when set the title text follows it
                 (falling back to the saved title) so the card tracks what the host is
                 typing on step 1 before the next save.
@@ -29,7 +32,7 @@ which the composer's card preview frames include on their own.
 {% endcomment %}
 {% with offering=group.representative %}
 <div class="cls-card"{% if card_help %} data-help-key="catalog.class-card"{% endif %}>
-  {% include "classes/public/_class_card_media.html" with offering=offering preview=preview live_position=live_position %}
+  {% include "classes/public/_class_card_media.html" with offering=offering preview=preview live_position=live_position live_src=live_src %}
   <div class="cls-body">
     {% if preview %}<span class="cls-title">{% else %}<a class="cls-title" href="{% url 'classes:public_class_detail' slug=offering.slug %}">{% endif %}
       {% if offering.category.logo_prefix %}
