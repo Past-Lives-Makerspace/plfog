@@ -7,6 +7,9 @@ It reads revision_count from the view's context and NOT page.revision_count, whi
 .count() — rendering this partial twice would otherwise cost two identical queries on
 every reading page.
 
+The version count links to spec D's history, which is where a nervous contributor goes
+looking for proof that "every version is saved" is true. Readable by any member.
+
 "(Woodworking orienter)" reads verified_role_label, which is spec B's column and not A's.
 The guard around it means A renders nothing there until B's migration lands, and A must not
 add the field itself.
@@ -15,6 +18,6 @@ add the field itself.
     {% if page.created_by %}Started by {{ page.created_by.display_name }} {{ page.created_at|date:"j M" }}. {% endif %}
     {% if page.updated_by %}Last edited by {{ page.updated_by.display_name }} {{ page.updated_at|date:"j M" }}. {% endif %}
     {% if page.last_checked_by %}Last checked by {{ page.last_checked_by.display_name }} {{ page.last_checked_at|date:"j M" }}. {% endif %}
-    {{ revision_count }} version{{ revision_count|pluralize }} saved.
+    <a href="{% url 'hub_wiki_history' page.slug %}">{{ revision_count }} version{{ revision_count|pluralize }} saved</a>.
     {% if page.verified_by %}Verified by {{ page.verified_by.display_name }}{% if page.verified_role_label %} ({{ page.verified_role_label }}){% endif %}, {{ page.verified_at|date:"j M" }}.{% endif %}
 </p>

@@ -4,8 +4,9 @@ from core import triggers
 
 
 def describe_catalogue():
-    def it_has_25_triggers():
-        assert len(triggers.TRIGGERS) == 25  # incl. the forced refund_failed admin alert
+    def it_has_28_triggers():
+        # 25, plus spec D's wiki.page_reported, wiki.page_proposed and wiki.page_verified.
+        assert len(triggers.TRIGGERS) == 28  # incl. the forced refund_failed admin alert
 
     def it_looks_up_by_key():
         t = triggers.get("class_published")

@@ -1,0 +1,7 @@
+{% comment %}
+A saved note: a fresh modal body, plus the rendered note region out of band. Same reason
+as the report result — a 204 cannot carry an OOB swap, so this is a 200 that updates the
+page the moderator is standing on.
+{% endcomment %}
+{% include "hub/partials/_wiki_official_note_form.html" %}
+{% include "hub/partials/_wiki_official_note.html" %}

@@ -117,6 +117,9 @@ _CATEGORY_SECTIONS: dict[str, str] = {
     "Events": "Events",
     "Meetings": "Events",  # meetings ride the events rails; their spine cards group there
     "Announcements": "Announcements & Release",
+    # The member wiki's two spine emails: a report to a guild's leadership, and the
+    # verification note back to the people who wrote the page.
+    "Wiki": "Guilds & Orientations",
 }
 
 
@@ -400,6 +403,37 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         text_template="membership/emails/orientation_declined.txt",
         html_template="membership/emails/orientation_declined.html",
         context_builder="orientation_member_context",
+    ),
+    GalleryEmail(
+        key="wiki_page_archived",
+        name="Wiki page archived",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a guild lead or admin archives a wiki page. Goes to the member who wrote it, "
+            "by name, with the remover's reason verbatim. Not sent when the page has no author "
+            "(every seeded equipment stub)."
+        ),
+        edit_pointer=_tpl("membership/emails", "wiki_page_archived"),
+        audience="The member named as the page's author.",
+        text_template="membership/emails/wiki_page_archived.txt",
+        html_template="membership/emails/wiki_page_archived.html",
+        context_builder="wiki_page_archived_context",
+    ),
+    GalleryEmail(
+        key="wiki_proposal_declined",
+        name="Wiki safety page sent back",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a guild lead or admin sends a proposed safety page back for a change. "
+            "Goes to the member who proposed it, with the reviewer's note and a link to their draft."
+        ),
+        edit_pointer=_tpl("membership/emails", "wiki_proposal_declined"),
+        audience="The member who proposed the safety page.",
+        text_template="membership/emails/wiki_proposal_declined.txt",
+        html_template="membership/emails/wiki_proposal_declined.html",
+        context_builder="wiki_proposal_declined_context",
     ),
     GalleryEmail(
         key="orientation_cancelled",
@@ -852,6 +886,8 @@ _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
     "classes.duplicate_payment_alert": "the duplicate_payment_alert INLINE_STRING card",
     "membership.orientation_orphan_payment": "the orientation_orphan_payment_alert INLINE_STRING card",
+    "wiki.page_archived": "the wiki_page_archived card",
+    "wiki.proposal_declined": "the wiki_proposal_declined card",
 }
 
 # trigger_kinds deliberately NOT carded, each with the reason.

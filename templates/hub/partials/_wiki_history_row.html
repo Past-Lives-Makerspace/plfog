@@ -1,0 +1,34 @@
+{% comment %}
+One saved version. Stacks into a card below 640px rather than scrolling sideways.
+
+The chips say what the row IS, not what it did: "Before this edit" / "Before this revert"
+for the pre-edit snapshots, and "Unmerged draft" for a conflict draft, which is the one
+post-edit snapshot in the table because it is text that was submitted and never applied.
+{% endcomment %}
+{% with revision_pk=revision.pk|stringformat:"s" %}
+<div class="pl-wp-mod__history-card">
+    <div class="pl-wp-mod__history-main">
+        <a href="?revision={{ revision.pk }}" class="pl-wp-mod__history-when">{{ revision.created_at|date:"j M Y, g:i A" }}</a>
+        <span class="hub-text-muted"> &middot; {{ revision.created_at|timesince }} ago</span>
+        <p class="hub-text-muted pl-wp-mod__history-who">
+            {% if revision.author %}{{ revision.author.display_name }}{% else %}a former member{% endif %}
+            <span class="pl-wp-mod__chip">{% if revision.kind == "conflict_draft" %}Unmerged draft{% elif revision.kind == "revert" %}Before this revert{% else %}Before this edit{% endif %}</span>
+            {% if revision.note %}<span class="hub-text-muted"> &middot; {{ revision.note }}</span>{% endif %}
+        </p>
+    </div>
+    {% comment %}
+    can_edit as well as can_moderate: a revert rewrites the page's own title, body and
+    facts, so it follows the content gate, not just the moderation one. And never on a row
+    whose snapshot already equals the page (every seeded stub has exactly one), because
+    that button can only ever answer "That is already the current version."
+    {% endcomment %}
+    {% if can_moderate and can_edit and revision.is_revertible and revision.kind != "conflict_draft" %}
+    <div class="pl-wp-mod__history-action">
+        <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
+                @click="$dispatch('open-confirm', 'revert-{{ revision.pk }}')">Revert to This</button>
+    </div>
+    {% url 'hub_wiki_revert' page.slug revision.pk as revert_url %}
+    {% include "components/confirm_modal.html" with confirm_id="revert-"|add:revision_pk confirm_title="Revert to this version?" confirm_message="Nothing is deleted: this creates a new version on top, and every later version stays in the history." confirm_button_text="Revert" confirm_action_url=revert_url %}
+    {% endif %}
+</div>
+{% endwith %}

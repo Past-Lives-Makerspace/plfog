@@ -16,16 +16,32 @@ from membership.wiki_starters import STARTERS
 
 
 def describe_STARTERS():
-    def it_covers_every_kind_exactly_once():
-        assert set(STARTERS) == {kind.value for kind in WikiPage.Kind}
+    def it_covers_every_kind_plus_the_safety_starter():
+        # Six content starters keyed by their own kind, plus spec D's Safety & Rules card,
+        # whose segment is deliberately not a kind (the brief locks the six).
+        assert set(STARTERS) == {kind.value for kind in WikiPage.Kind} | {"safety"}
+
+    @pytest.mark.parametrize("kind", sorted(STARTERS))
+    def it_files_every_starter_under_a_real_kind(kind):
+        assert STARTERS[kind]["page_kind"] in WikiPage.Kind.values
 
     def it_covers_the_same_kinds_as_the_review_intervals():
-        assert set(STARTERS) == set(REVIEW_INTERVALS)
+        assert {starter["page_kind"] for starter in STARTERS.values()} <= set(REVIEW_INTERVALS)
+        assert set(REVIEW_INTERVALS) == {kind.value for kind in WikiPage.Kind}
+
+    def it_forces_official_on_the_safety_starter_and_nothing_else():
+        # This IS the safety gate's determination rule: safety content is Official
+        # content, so there is no separate field and no box for a member to untick.
+        assert STARTERS["safety"]["status"] == WikiPage.Status.OFFICIAL
+        assert [key for key, value in STARTERS.items() if value["status"]] == ["safety"]
+
+    def it_puts_the_safety_starter_on_a_twelve_month_review_clock():
+        assert REVIEW_INTERVALS[STARTERS["safety"]["page_kind"]] == 12
 
     @pytest.mark.parametrize("kind", sorted(STARTERS))
     def it_supplies_every_key(kind):
         starter = STARTERS[kind]
-        assert set(starter) == {"label", "description", "icon", "fact_prompts", "body"}
+        assert set(starter) == {"label", "description", "icon", "fact_prompts", "body", "page_kind", "status"}
         assert starter["label"]
         assert starter["description"]
         assert starter["icon"]

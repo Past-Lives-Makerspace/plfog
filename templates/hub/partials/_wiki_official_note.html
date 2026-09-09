@@ -1,0 +1,29 @@
+{% comment %}
+The locked staff note, above all member content and below the equipment Official block, so
+the two never argue about which comes first.
+
+It reuses the visual grammar the brief specifies for the equipment Official block: tinted
+surface, a left rule, an Official chip, and NO edit affordance for a member — not a
+disabled button, no button. One grammar for "locked staff content", learned once.
+
+The note is rendered through the shared wiki renderer, so a link or a bold word works and
+there is no second renderer anywhere in the app.
+{% endcomment %}
+{% load membership_md %}
+<div id="wiki-official-note"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if page.official_note %}
+<div class="pl-wp-mod__note">
+    <div class="pl-wp-mod__note-head">
+        <span class="hub-pill hub-pill--primary pl-wp-mod__note-chip">Official</span>
+        {% if can_moderate %}
+        <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
+                @click="$dispatch('open-modal', 'wiki-official-note')">Edit Note</button>
+        {% endif %}
+    </div>
+    <div class="pl-wp-mod__note-body">{{ page.official_note|wiki_content }}</div>
+    <p class="hub-text-muted pl-wp-mod__note-by">
+        Added by {% if page.official_note_by %}{{ page.official_note_by.display_name }}{% else %}a former member{% endif %}{% if page.official_note_at %}, {{ page.official_note_at|date:"j M Y" }}{% endif %}
+    </p>
+</div>
+{% endif %}
+</div>

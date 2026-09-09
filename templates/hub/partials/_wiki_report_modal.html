@@ -1,0 +1,8 @@
+{% comment %}
+The Report modal and its Withdraw confirmation, rendered once per page. The withdraw POST
+is keyed on the page and the requester rather than on a report id, so a confirmation
+rendered with the page never goes stale against a report filed after it loaded.
+{% endcomment %}
+{% include "components/modal.html" with modal_id="wiki-report" modal_title="Report a Problem" modal_size="md" modal_body_include="hub/partials/_wiki_report_form.html" %}
+{% url 'hub_wiki_report_withdraw' page.slug as withdraw_url %}
+{% include "components/confirm_modal.html" with confirm_id="wiki-report-withdraw" confirm_title="Withdraw your report?" confirm_message="The note comes off the page. Nothing you wrote is deleted, and you can report the page again later if you need to." confirm_action_url=withdraw_url confirm_button_text="Withdraw" %}

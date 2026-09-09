@@ -1,0 +1,16 @@
+{% comment %}
+Mark one report reviewed. ONE modal template, one form and one view for both entry points
+(the queue card and the amber banner); only the swap target differs, which the caller
+passes as resolve_target and which the view is told about by the hidden source field.
+
+Not a confirm modal: resolving is not destructive, and confirm_modal.html is reserved for
+actions with a consequence to name.
+
+Parameters: report, source ("banner" or "queue"), resolve_target (a CSS selector).
+
+The id is built with stringformat first: Django's `add` filter tries int addition before
+string concatenation, so "resolve-"|add:report.pk on a raw integer pk renders empty.
+{% endcomment %}
+{% with report_pk=report.pk|stringformat:"s" %}
+{% include "components/modal.html" with modal_id="resolve-"|add:report_pk modal_title="Mark This Report Reviewed" modal_size="md" modal_body_include="hub/partials/_wiki_resolve_form.html" %}
+{% endwith %}

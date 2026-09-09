@@ -1,0 +1,5 @@
+{% comment %}
+The official-note modal container. modal_static, because its Remove Note confirmation
+teleports a second layer to <body> and those clicks would otherwise read as "outside".
+{% endcomment %}
+{% include "components/modal.html" with modal_id="wiki-official-note" modal_title="Official Note" modal_size="md" modal_static=1 modal_body_include="hub/partials/_wiki_official_note_form.html" %}

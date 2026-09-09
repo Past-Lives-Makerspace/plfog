@@ -1,0 +1,20 @@
+{% comment %}
+The graduated staff actions, desktop only (the phone gets them inside spec A's single
+overflow menu instead — two kebabs on a 390px screen, both containing Edit, reads as a bug
+even when both work).
+
+Escalation order, left to right, so the cheapest fix is closest to hand: Edit the sentence,
+state the correction with authority, and only then take the page away. Archive is last,
+red, and behind a typed confirmation — it is the one action that takes a page away from
+every member at once, and the one the brief names as ending a contributor's participation
+when it goes wrong.
+{% endcomment %}
+<div class="pl-wp-mod__actions">
+    <a href="{% url 'hub_wiki_history' page.slug %}" class="pl-btn pl-btn--sm pl-btn--ghost">History</a>
+    <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
+            @click="$dispatch('open-modal', 'wiki-official-note')">{% if page.official_note %}Edit Note{% else %}Add an Official Note{% endif %}</button>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+            @click="$dispatch('open-confirm', 'wiki-archive')">Archive</button>
+</div>
+{% url 'hub_wiki_archive' page.slug as archive_url %}
+{% include "components/confirm_modal.html" with confirm_id="wiki-archive" confirm_title="Archive this page?" confirm_message=archive_confirm_message confirm_action_url=archive_url confirm_note_name="reason" confirm_note_required=1 confirm_note_label="Why is this page being removed?" confirm_note_hint="One sentence. The author reads this. Be specific and be kind." confirm_typed_value="ARCHIVE" confirm_typed_placeholder="Type ARCHIVE to confirm" confirm_button_text="Archive Page" %}

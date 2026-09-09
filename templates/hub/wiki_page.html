@@ -14,7 +14,7 @@ gone, including "Still accurate", because there is nothing to keep accurate. And
 bar carries the same actions under the same gate as the desktop row, so the two widths
 cannot drift apart.
 {% endcomment %}
-<div class="pl-wp-page {% if can_edit and not is_archived %}pl-wp-has-actionbar{% endif %}">
+<div class="pl-wp-page {% if show_actionbar %}pl-wp-has-actionbar{% endif %}">
 
 <nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
     <a href="{% url 'hub_wiki_home' %}">Wiki</a>
@@ -22,6 +22,8 @@ cannot drift apart.
 </nav>
 
 <div id="wiki-confirm-cue">{% if show_confirm_cue %}{% include "hub/partials/_wiki_confirm_cue.html" %}{% endif %}</div>
+
+{% include "hub/partials/_wiki_review_banner.html" %}
 
 <div class="pl-wp-header">
     <div class="pl-wp-header__titles">
@@ -49,7 +51,8 @@ cannot drift apart.
         <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
         {% endif %}
         {% endif %}
-        {% block wiki_page_actions_extra %}{% endblock %}
+        {% if can_moderate %}{% include "hub/partials/_wiki_moderation_actions.html" %}{% endif %}
+        {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control" %}
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" onclick="window.print()">Print / Save PDF</button>
     </div>
     {% endif %}
@@ -59,15 +62,16 @@ cannot drift apart.
 <p class="pl-wp-printhead">{{ request.scheme }}://{{ request.get_host }}{{ page.get_absolute_url }} &middot; Last checked {% if page.last_checked_at %}{{ page.last_checked_at|date:"j M Y" }}{% else %}never{% endif %}</p>
 
 {% if is_archived %}
-<div class="pl-wp-archived">
-    <p>This page was archived{% if page.archived_by %} by {{ page.archived_by.display_name }}{% endif %}{% if page.archived_at %} on {{ page.archived_at|date:"j M Y" }}{% endif %}.{% if page.archive_reason %} Reason: {{ page.archive_reason }}{% endif %}</p>
-    <p><a href="{% url 'hub_wiki_home' %}">Back to the wiki</a></p>
-</div>
+{% include "hub/partials/_wiki_archived_banner.html" %}
+{% if not show_body %}<p><a href="{% url 'hub_wiki_home' %}">Back to the wiki</a></p>{% endif %}
 {% endif %}
 
+{% if show_body %}
 {% include "hub/partials/_wiki_facts.html" %}
 
 {% if official_block %}{% include "hub/partials/_wiki_official.html" %}{% endif %}
+
+{% include "hub/partials/_wiki_official_note.html" %}
 
 {% if toc|length > 1 %}
 <nav class="pl-wp-toc" aria-label="On this page">
@@ -109,14 +113,21 @@ time so the two copy inputs do not share one id.
     {% include "hub/partials/_wiki_byline.html" %}
     {% if can_edit and not is_archived %}{% include "hub/partials/_wiki_qr_share.html" with field_id="qr-share-url-phone" %}{% endif %}
 </details>
+{% endif %}
 
-{% if can_edit and not is_archived %}
+{% if show_actionbar %}
 <div class="pl-wp-actionbar">
+    {% if can_edit %}
     <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">Add Photo</button>
     <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-modal', 'wiki-tip')">Add Tip</button>
+    {% endif %}
+    {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control-bar" compact=1 %}
     {% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_menu.html" menu_label="More actions for this page" %}
 </div>
 {% endif %}
+
+{% if can_report %}{% include "hub/partials/_wiki_report_modal.html" %}{% endif %}
+{% if can_moderate %}{% include "hub/partials/_wiki_official_note_modal.html" %}{% endif %}
 
 {% if can_confirm %}
 {% url 'hub_wiki_confirm' page.slug as confirm_url %}

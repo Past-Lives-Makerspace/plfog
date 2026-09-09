@@ -644,6 +644,49 @@ def single_user(context: dict[str, Any]) -> list[Recipient]:
     return [(user, "self")]
 
 
+# --- Member wiki (spec D) ----------------------------------------------------
+
+
+def wiki_scope_leadership(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — the page's guild leadership, else (or if that guild has none) admins.
+
+    A guild-scoped report reaches the people who actually know the machine; a space-wide
+    page, or a dormant guild with no lead and no staff rows, escalates to the FOG admins
+    rather than landing nowhere.
+
+    Deliberately NOT :func:`guild_leadership_or_admins`'s union: a Woodworking typo that
+    emails six admins trains them to ignore the event, and then the one report that
+    mattered goes unread too. Admins still see every report in the queue, which is the
+    "officers second" leg of the routing rule.
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is not None:
+        recipients = guild_leadership(context)
+        if recipients:
+            return recipients
+    return fog_admins(context)
+
+
+def wiki_page_contributors(context: dict[str, Any]) -> list[Recipient]:
+    """Every member who has authored a revision of this page, minus the actor.
+
+    The people who wrote it hear that it was verified — that message is the round's
+    retention mechanism. The verifier gets no notification about their own tap, and a page
+    whose only author is the verifier resolves to nobody, which is correct rather than a
+    bug: emit simply fans out to zero recipients.
+
+    Conflict drafts count. Somebody whose text lost a race still wrote for this page.
+    """
+    from membership.models import Member
+
+    page = _require(context, "page")
+    actor_member_pk = _require(context, "actor_member_pk")
+    members = list(
+        Member.objects.filter(wiki_revisions__page=page).exclude(pk=actor_member_pk).select_related("user").distinct()
+    )
+    return _members_to_recipients(members, "wiki_contributor")
+
+
 # --- Registry ----------------------------------------------------------------
 
 _RESOLVERS: dict[Recipients, ResolverFn] = {
@@ -679,6 +722,8 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.EVERYONE_WITH_LOGIN: everyone_with_login,
     Recipients.RELEASE_AUDIENCE: release_audience,
     Recipients.SINGLE_USER: single_user,
+    Recipients.WIKI_SCOPE_LEADERSHIP: wiki_scope_leadership,
+    Recipients.WIKI_PAGE_CONTRIBUTORS: wiki_page_contributors,
 }
 
 

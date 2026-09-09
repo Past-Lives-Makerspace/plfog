@@ -15,9 +15,9 @@ answer rows were never in the draft, would be a promise the store does not keep.
 
 {% for draft in drafts %}
 <div class="hub-card pl-wp-draft">
-    <h2 class="hub-detail-label pl-wp-section__title">{% if draft.title %}{{ draft.title }}{% elif draft.page %}{{ draft.page.title }}{% else %}Untitled {{ draft.get_kind_display|lower }}{% endif %}</h2>
+    <h2 class="hub-detail-label pl-wp-section__title">{% if draft.title %}{{ draft.title }}{% elif draft.page %}{{ draft.page.title }}{% else %}Untitled {{ draft.kind_label|lower }}{% endif %}</h2>
     <p class="hub-text-muted pl-wp-draft__meta">
-        {% if draft.guild %}{{ draft.guild.name }}{% elif draft.page.guild %}{{ draft.page.guild.name }}{% else %}Space wide{% endif %} &middot; {{ draft.get_kind_display }}
+        {% if draft.guild %}{{ draft.guild.name }}{% elif draft.page.guild %}{{ draft.page.guild.name }}{% else %}Space wide{% endif %} &middot; {{ draft.kind_label }}
         &middot; Last saved {{ draft.updated_at|timesince }} ago
     </p>
     <p class="hub-text-muted pl-wp-draft__meta">Quick answers and files are saved when you press Save.</p>

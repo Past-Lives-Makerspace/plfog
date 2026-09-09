@@ -17,6 +17,17 @@ none()-on-empty search all three of them would have dead-ended on a blank page.
 {% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." %}
 {% endif %}
 
+{% if can_review %}
+{% comment %}
+The review queue's entry point, gated exactly as the queue itself is. Same shape as the
+Print stickers link below: a moderator-only affordance in the page a moderator already
+opens, because the queue has no other route on a day when nobody has reported anything.
+{% endcomment %}
+<p class="pl-wp-mod__homelink">
+    <a href="{% url 'hub_wiki_review' %}" class="pl-btn pl-btn--sm pl-btn--ghost">Review queue{% if open_review_count %} ({{ open_review_count }}){% endif %}</a>
+</p>
+{% endif %}
+
 <div class="hub-card pl-wp-searchbar">
     {% url 'hub_wiki_search' as search_action %}
     {% include "components/table_search.html" with action=search_action placeholder="Search the wiki" %}
