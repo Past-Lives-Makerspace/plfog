@@ -13,6 +13,24 @@ VERSION = "1.49.0"
 # which is the correct outcome here — do not invent an entry to fill the gap.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
+        "version": "1.48.0",
+        "date": "2026-09-09",
+        "title": "The whole card in the preview, where the money goes, and imported photos that count",
+        "changes": [
+            "The card preview in the class editor is now the whole catalog card: photo, title, dates, "
+            "price and spots, at the two widths members see. What you sign off on is what they get.",
+            "Classes brought over from the old class site had a photo on their page, but the editor and "
+            "the submit checklist said they had none. They count now, and you can position them like "
+            "any other photo.",
+            "Host a Workshop has a new Where the Money Goes section showing how a paid class splits "
+            "between you, Past Lives and your guild. The common questions open and close, and the "
+            "hosting guide has a clear open button.",
+            "Admins: the words on that page moved to their own Teaching Marketing Page under Class "
+            "Settings, with the same formatting toolbar as announcements instead of Markdown.",
+            "Status tooltips on the admin classes list no longer get cut off by the table.",
+        ],
+    },
+    {
         "version": "1.47.0",
         "date": "2026-09-09",
         "title": "A wiki written by members",

@@ -483,6 +483,15 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    "teach.money-split": {
+        "title": "Where the money goes",
+        "short_text": (
+            "How a paid class splits between you, Past Lives and your guild. The shares are "
+            "the same for every paid class; a free class has nothing to split."
+        ),
+        "article_slug": None,
+        "anchor": None,
+    },
     "teach.waitlists": {
         "title": "Class waitlists",
         "short_text": (

@@ -711,6 +711,10 @@
     </script>
     {% block extra_js %}{% endblock %}
     <script src="{% static 'js/hero_placement.js' %}?v=1.1"></script>
+    {% comment %}Lifts every .pl-help bubble out of overflow clipping ancestors (table wraps,
+    scrolling panels) on desktop by positioning it against the viewport. Delegated listeners
+    only, so no defer and nothing to re-run under hx-boost.{% endcomment %}
+    <script src="{% static 'js/pl_help.js' %}"></script>
     <script src="{% static 'js/session_calendar.js' %}"></script>
     {% comment %}Biometric sign in for the native app. This document is not a child of
     base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices

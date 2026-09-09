@@ -8,6 +8,21 @@ Parameters (pass via {% include ... with %}):
                 the "Pick a date:" block, so a bare offering will not do.
   card_help   — optional, truthy adds data-help-key="catalog.class-card" (the catalog
                 sets it on the first card only, for the guided tour).
+  preview     — optional, truthy renders a card that navigates nowhere: the media strip
+                as a span (passed through to _class_card_media.html), the title as a
+                <span class="cls-title"> with no href, the instructor as plain text, and
+                the "+N more" rows without their onclick. The composer's preview frames
+                use it so nothing inside a frame is a link.
+  live_position — optional, an Alpine expression passed through to the media include so
+                the composer's sliders move the photo live.
+  live_src    — optional, an Alpine expression passed through to the media include: the
+                photo to show when the class has no saved hero (the composer mirrors the
+                hero field's local preview through it).
+  live_title  — optional, an Alpine expression; when set the title text follows it
+                (falling back to the saved title) so the card tracks what the host is
+                typing on step 1 before the next save.
+With no parameters the card renders exactly as it always has; the catalog and the Host
+a Workshop showcase pass nothing.
 
 Extracted from _list_results.html so the Teach at Past Lives page can render the REAL
 catalog card for its worked example rather than a mock that drifts. Both surfaces build
@@ -17,20 +32,20 @@ which the composer's card preview frames include on their own.
 {% endcomment %}
 {% with offering=group.representative %}
 <div class="cls-card"{% if card_help %} data-help-key="catalog.class-card"{% endif %}>
-  {% include "classes/public/_class_card_media.html" with offering=offering %}
+  {% include "classes/public/_class_card_media.html" with offering=offering preview=preview live_position=live_position live_src=live_src %}
   <div class="cls-body">
-    <a class="cls-title" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+    {% if preview %}<span class="cls-title">{% else %}<a class="cls-title" href="{% url 'classes:public_class_detail' slug=offering.slug %}">{% endif %}
       {% if offering.category.logo_prefix %}
         <img src="{% static 'img/guild_logos/'|add:offering.category.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="{{ offering.category.name }}" style="vertical-align: middle; margin-right: 0.25rem;">
       {% endif %}
-      {{ offering.title|strip_date_suffix }}
+      {% if live_title %}<span x-text="{{ live_title }} || '{{ offering.title|strip_date_suffix|escapejs }}'">{{ offering.title|strip_date_suffix }}</span>{% else %}{{ offering.title|strip_date_suffix }}{% endif %}
       {% if offering.scheduling_model == 'flexible' %}<span class="badge fx">Flex</span>{% endif %}
       {% if offering.scheduling_type == 'series_package' %}<span class="badge series">Multi-session series</span>{% endif %}
       {% if offering.sale_is_active %}<span class="badge sale">Sale</span>{% endif %}
-    </a>
+    {% if preview %}</span>{% else %}</a>{% endif %}
     {% if offering.instructor %}
     <div class="cls-inst">
-      with {% if offering.instructor.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
+      with {% if offering.instructor.instructor_slug and not preview %}<a href="{% url 'classes:public_instructor' slug=offering.instructor.instructor_slug %}">{{ offering.instructor.display_name }}</a>{% else %}{{ offering.instructor.display_name }}{% endif %}
     </div>
     {% endif %}
     <div class="cls-schedule">
@@ -49,7 +64,7 @@ which the composer's card preview frames include on their own.
               {% include "classes/public/_schedule_option_row.html" with member=member %}
             {% endfor %}
           </div>
-          <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;" onclick="this.previousElementSibling.style.display='';this.remove();">+{{ group.date_count|add:"-4" }} more {% if offering.scheduling_type == 'series_package' %}option{{ group.date_count|add:"-4"|pluralize }}{% else %}date{{ group.date_count|add:"-4"|pluralize }}{% endif %}</button>
+          <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;"{% if not preview %} onclick="this.previousElementSibling.style.display='';this.remove();"{% endif %}>+{{ group.date_count|add:"-4" }} more {% if offering.scheduling_type == 'series_package' %}option{{ group.date_count|add:"-4"|pluralize }}{% else %}date{{ group.date_count|add:"-4"|pluralize }}{% endif %}</button>
         {% endif %}
       {% elif offering.scheduling_model == 'flexible' %}
         <div class="cls-schedule__flex">Flexible: schedule with the instructor</div>
@@ -71,7 +86,7 @@ which the composer's card preview frames include on their own.
                   </div>
                 {% endfor %}
               </div>
-              <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;" onclick="this.previousElementSibling.style.display='';this.remove();">+{{ sessions|length|add:"-4" }} more session{{ sessions|length|add:"-4"|pluralize }}</button>
+              <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;"{% if not preview %} onclick="this.previousElementSibling.style.display='';this.remove();"{% endif %}>+{{ sessions|length|add:"-4" }} more session{{ sessions|length|add:"-4"|pluralize }}</button>
             {% endif %}
           {% else %}
             <div class="cls-schedule__tba">Upcoming dates TBA</div>

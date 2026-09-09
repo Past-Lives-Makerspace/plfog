@@ -128,6 +128,13 @@ def _visible_text(html: str) -> str:
     return " ".join(parser.text)
 
 
+def _ComposerParser_x_data(html: str) -> str:  # noqa: N802  # reads as "the parser's x_data"
+    parser = _ComposerParser()
+    parser.feed(html)
+    assert parser.x_data is not None
+    return parser.x_data
+
+
 @pytest.fixture
 def instructor_fixture(db):
     user = UserFactory(username="composer-teacher@example.com")
@@ -263,6 +270,49 @@ def describe_teach_composer_get():
         assert "Save your draft once" in html
         assert f'href="{reverse("classes:teach_dashboard")}">Cancel</a>' in html
         assert "data-card-focus-input" in html
+
+    def it_mirrors_the_title_into_a_skeleton_card_before_the_first_save(instructor_fixture, client):
+        """Create mode has no CatalogGroup, so the mirrored photo sits in a skeleton card."""
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert "Dates, price and spots show up after your first save." in html
+        assert (
+            html.count('<span class="cls-title" x-text="liveTitle || \'Your class title\'">Your class title</span>')
+            == 2
+        )
+        assert "liveTitle: ''" in _ComposerParser_x_data(html)
+        assert 'class="pl-card-focus__sliders" x-show="localSrc" x-cloak' in html
+        assert "photo only" not in html
+        assert "Add a photo above and the sliders appear." not in html
+
+    def it_says_an_imported_photo_counts_on_the_photos_step(instructor_fixture, client):
+        """A legacy only class has its own hero: the note, the preview, and a ticked checklist."""
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            ready=True,
+            image="",
+            legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
+        )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert (
+            "This photo came over from the old class site. Everything here works the same. "
+            "Upload a new one to replace it." in html
+        )
+        hero = html.split('id="hero-preview"')[1].split("</div>")[0]
+        assert "_legacy-image/?url=https%3A%2F%2Fclasses.pastlives.space" in hero
+        assert "data-hero-cropper-preview" in hero
+        assert "Replace image" in html
+        assert "Add a hero photo." not in html
+        assert html.count("pl-phase-tab--done") == 3
+
+    def it_says_nothing_about_the_old_site_for_an_uploaded_photo(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "This photo came over from the old class site." not in html
+        assert 'id="hero-legacy-note"' not in html
 
     def it_shows_the_saved_row_surfaces_on_edit(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)

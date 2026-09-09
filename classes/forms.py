@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator
 from django.forms import inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
 from core.html_sanitize import sanitize_rich_html
-from core.widgets import RichTextEditorWidget
+from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 
 from classes.models import (
     DEFAULT_CLASS_FAQS,
@@ -1186,32 +1187,11 @@ class RegistrationForm(forms.ModelForm):
 
 
 class ClassSettingsForm(forms.ModelForm):
-    """The classes Settings page: the general fields plus the Host a Workshop page's copy.
+    """The Waivers & Reminders page: the general class settings only.
 
-    The template renders the two groups as separate sections (``GENERAL_FIELDS`` and
-    ``TEACH_PAGE_FIELDS``), so the field lists live here where the form is the one
-    place that knows which fields exist.
+    The Host a Workshop page's words moved to :class:`TeachingPageSettingsForm` and its
+    own page, so this form is back to the fields the waivers page has always saved.
     """
-
-    GENERAL_FIELDS = (
-        "liability_waiver_text",
-        "model_release_waiver_text",
-        "default_member_discount_pct",
-        "reminder_hours_before",
-        "instructor_approval_required",
-        "confirmation_email_footer",
-    )
-    TEACH_PAGE_FIELDS = (
-        "teach_page_title",
-        "teach_page_lead",
-        "teach_page_features",
-        "teach_page_how_it_works",
-        "teach_page_expectations",
-        "teach_page_faq",
-        "teach_page_cta_title",
-        "teach_page_cta_line",
-        "example_class",
-    )
 
     class Meta:
         model = ClassSettings
@@ -1222,10 +1202,41 @@ class ClassSettingsForm(forms.ModelForm):
             "reminder_hours_before",
             "instructor_approval_required",
             "confirmation_email_footer",
+        ]
+        widgets = {
+            "liability_waiver_text": forms.Textarea(attrs={"rows": 10}),
+            "model_release_waiver_text": forms.Textarea(attrs={"rows": 10}),
+            "confirmation_email_footer": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class TeachingPageSettingsForm(forms.ModelForm):
+    """The Teaching Marketing Page: every word of the Host a Workshop page, plus the money split.
+
+    The three prose sections use the rich editor (``PageContentEditorWidget``), so what an
+    admin types is stored as sanitized HTML; an older Markdown value, or one typed into
+    the raw textarea with no JS, passes through unchanged and still renders. The fields
+    are declared in page order, which is the order the template walks them.
+    """
+
+    PERCENT_FIELDS = (
+        "teach_page_split_instructor_pct",
+        "teach_page_split_space_pct",
+        "teach_page_split_guild_pct",
+    )
+
+    class Meta:
+        model = ClassSettings
+        fields = [
             "teach_page_title",
             "teach_page_lead",
             "teach_page_features",
             "teach_page_how_it_works",
+            "teach_page_split_enabled",
+            "teach_page_split_instructor_pct",
+            "teach_page_split_space_pct",
+            "teach_page_split_guild_pct",
+            "teach_page_split_note",
             "teach_page_expectations",
             "teach_page_faq",
             "teach_page_cta_title",
@@ -1235,23 +1246,29 @@ class ClassSettingsForm(forms.ModelForm):
         labels = {
             "teach_page_title": "Headline",
             "teach_page_lead": "Lead Paragraph",
-            "teach_page_features": "What You Get",
-            "teach_page_how_it_works": "How It Works",
-            "teach_page_expectations": "What We Ask Of You",
-            "teach_page_faq": "Common Questions",
+            "teach_page_features": "The cards, one per line",
+            "teach_page_how_it_works": "The steps",
+            "teach_page_split_enabled": "Show the money section",
+            "teach_page_split_instructor_pct": "You (the host)",
+            "teach_page_split_space_pct": "Past Lives",
+            "teach_page_split_guild_pct": "The guild",
+            "teach_page_split_note": "Line under the split",
+            "teach_page_expectations": "The list",
+            "teach_page_faq": "The questions and their answers",
             "teach_page_cta_title": "Bottom Card Headline",
             "teach_page_cta_line": "Bottom Card Line",
             "example_class": "Example Workshop Page",
         }
         widgets = {
-            "liability_waiver_text": forms.Textarea(attrs={"rows": 10}),
-            "model_release_waiver_text": forms.Textarea(attrs={"rows": 10}),
-            "confirmation_email_footer": forms.Textarea(attrs={"rows": 3}),
             "teach_page_lead": forms.Textarea(attrs={"rows": 4}),
             "teach_page_features": forms.Textarea(attrs={"rows": 8}),
-            "teach_page_how_it_works": forms.Textarea(attrs={"rows": 6}),
-            "teach_page_expectations": forms.Textarea(attrs={"rows": 6}),
-            "teach_page_faq": forms.Textarea(attrs={"rows": 12}),
+            "teach_page_how_it_works": PageContentEditorWidget(markdown_profile="member"),
+            "teach_page_split_instructor_pct": forms.NumberInput(attrs={"min": 0, "max": 100, "inputmode": "numeric"}),
+            "teach_page_split_space_pct": forms.NumberInput(attrs={"min": 0, "max": 100, "inputmode": "numeric"}),
+            "teach_page_split_guild_pct": forms.NumberInput(attrs={"min": 0, "max": 100, "inputmode": "numeric"}),
+            "teach_page_split_note": forms.Textarea(attrs={"rows": 2}),
+            "teach_page_expectations": PageContentEditorWidget(markdown_profile="member"),
+            "teach_page_faq": PageContentEditorWidget(markdown_profile="member"),
             "teach_page_cta_line": forms.Textarea(attrs={"rows": 3}),
         }
 
@@ -1263,14 +1280,41 @@ class ClassSettingsForm(forms.ModelForm):
         example_field = self.fields["example_class"]
         assert isinstance(example_field, forms.ModelChoiceField)
         example_field.queryset = ClassOffering.objects.filter(status=ClassOffering.Status.PUBLISHED).order_by("title")
+        # The model's MaxValueValidator only runs in _post_clean, after clean(); at field
+        # level a share over 100 fails its own check first and stays out of cleaned_data,
+        # so the sum rule never piles a second error on top of it.
+        for name in self.PERCENT_FIELDS:
+            self.fields[name].validators.append(MaxValueValidator(100))
 
-    def general_fields(self) -> list[forms.BoundField]:
-        """The bound fields of the general section, in display order."""
-        return [self[name] for name in self.GENERAL_FIELDS]
+    def _clean_prose(self, name: str) -> str:
+        """Sanitize a rich editor save; pass Markdown (a no JS textarea) through unchanged."""
+        from membership.markdown import sanitize_page_submission
 
-    def teach_page_fields(self) -> list[forms.BoundField]:
-        """The bound fields of the Host a Workshop Page section, in display order."""
-        return [self[name] for name in self.TEACH_PAGE_FIELDS]
+        return sanitize_page_submission(self.cleaned_data[name] or "")
+
+    def clean_teach_page_how_it_works(self) -> str:
+        return self._clean_prose("teach_page_how_it_works")
+
+    def clean_teach_page_expectations(self) -> str:
+        return self._clean_prose("teach_page_expectations")
+
+    def clean_teach_page_faq(self) -> str:
+        return self._clean_prose("teach_page_faq")
+
+    def clean(self) -> dict[str, Any]:
+        """The three shares must add up to 100 while the money section is shown.
+
+        A hidden section skips the check on purpose: an admin switching it off should
+        not be blocked by stale numbers. A share that failed its own validation is
+        absent from ``cleaned_data`` and already carries an error, so the sum is only
+        checked when all three are present.
+        """
+        super().clean()
+        cleaned = self.cleaned_data
+        if cleaned["teach_page_split_enabled"] and all(name in cleaned for name in self.PERCENT_FIELDS):
+            if sum(cleaned[name] for name in self.PERCENT_FIELDS) != 100:
+                self.add_error("teach_page_split_instructor_pct", "The three shares have to add up to 100.")
+        return cleaned
 
 
 class TeachEmailForm(forms.Form):

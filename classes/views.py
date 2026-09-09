@@ -15,7 +15,20 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.core.paginator import Paginator
-from django.db.models import Count, F, IntegerField, Max, Min, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum
+from django.db.models import (
+    Count,
+    F,
+    IntegerField,
+    Max,
+    Min,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    prefetch_related_objects,
+)
 from django.db.models.functions import TruncDate
 from django.http import (
     Http404,
@@ -70,6 +83,7 @@ from classes.forms import (
     TeachClassOfferingForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
+    TeachingPageSettingsForm,
     RegistrationForm,
     RegistrationQuestionForm,
     TeachingApplicationForm,
@@ -1147,6 +1161,11 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
         # its section, so the template guards every one.
         "teach_page": settings_obj,
         "feature_cards": settings_obj.teach_page_feature_cards(),
+        # Common Questions as an accordion: one item per heading in the sanitized HTML.
+        # Empty when the admin wrote the section without headings; the template then
+        # renders the whole field as one block.
+        "faq_items": settings_obj.teach_page_faq_items(),
+        "faq_intro_html": settings_obj.teach_page_faq_intro_html,
         "example_url": example.public_url if example is not None else None,
         "example_group": CatalogGroup(example) if example is not None else None,
         "catalog_url": book_absolute_url(reverse("classes:public_list")),
@@ -1417,9 +1436,17 @@ def _composer_context(
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
     is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
     marks = step_marks(readiness) if readiness is not None else {}
+    if saved is not None:
+        # The card preview frames render the REAL catalog card three times (two widths on
+        # step 2, the phone on step 5) and each read offering.sessions.all; one prefetch
+        # keeps that to a single sessions query however many frames there are.
+        prefetch_related_objects([saved], "sessions")
     return {
         "is_admin": is_admin,
         "offering": offering,
+        # The genuine CatalogGroup for this class, so the preview frames render exactly
+        # the card the catalog would build. None until the class has a pk.
+        "card_group": CatalogGroup(saved) if saved is not None else None,
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
@@ -4347,4 +4374,20 @@ def admin_settings(request: HttpRequest) -> HttpResponse:
         request,
         "classes/admin/settings.html",
         {"active_tab": "settings", "form": form},
+    )
+
+
+@admin_required
+def admin_teaching_page_settings(request: HttpRequest) -> HttpResponse:
+    """The Teaching Marketing Page: every word of the Host a Workshop page, plus the money split."""
+    settings_obj = ClassSettings.load()
+    form = TeachingPageSettingsForm(request.POST or None, instance=settings_obj)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Teaching Marketing Page saved.")
+        return redirect("classes:admin_teaching_page_settings")
+    return render(
+        request,
+        "classes/admin/teaching_page_settings.html",
+        {"active_tab": "teaching_page", "form": form},
     )
