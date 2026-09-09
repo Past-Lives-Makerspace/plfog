@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}Wiki Review{% endblock %}
 
 {% block content %}
@@ -44,9 +45,11 @@ trusting.
 {% else %}
 
 {% if not reports_page.object_list and not proposals %}
-<div class="pl-wp-mod__empty">
-    <p>Nothing to review. You are all caught up.</p>
-    <p class="hub-text-muted">{{ scope_line }}</p>
+<div class="hub-card pl-wp-group">
+    <div class="pl-wp-mod__empty">
+        <p>Nothing to review. You are all caught up.</p>
+        <p>{{ scope_line }}</p>
+    </div>
 </div>
 {% else %}
 <div class="hub-card pl-wp-group">

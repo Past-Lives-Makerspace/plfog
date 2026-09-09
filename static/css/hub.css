@@ -9287,7 +9287,31 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text);
     font-weight: 600;
 }
-.pl-wp-chip__clear { color: inherit; font-size: 0.8rem; }
+/* A 44px tap target around a glyph a few pixels wide. The negative margins pull the target
+   back over the chip's own padding rather than adding to its height; the chip does get
+   wider, which is the trade a reachable clear control is worth on a phone. */
+.pl-wp-chip__clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    margin: -0.35rem -0.6rem -0.35rem 0.2rem;
+    color: inherit;
+    font-size: 0.9rem;
+}
+
+/* components/table_search.html used to inline `max-width:340px` on its form, which no
+   selector could beat — .pl-wp-searchbar form { max-width: none } at the top of this
+   section was dead CSS and
+   the wiki's main search box stayed 340px wide inside a 1140px card. The default now
+   lives here so a surface can override it. */
+.pl-table-search { max-width: 340px; }
+
+/* A "Checked today" line is not a menu item: it is not focusable, and the roving-focus
+   handler in components/row_actions.html calls .focus() on every [role="menuitem"], so a
+   non-focusable one stops arrow-key navigation dead. Rendered as a plain note instead. */
+.pl-row-menu__note { padding: 0.625rem 1rem; margin: 0; font-size: 0.875rem; }
 
 .pl-wp-home__card { padding: 1.25rem; margin-bottom: 1.25rem; }
 .pl-wp-home__head {
@@ -9358,6 +9382,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-attrs,
 .pl-wp-accessline { margin: 0.25rem 0 0; font-size: 0.85rem; }
 .pl-wp-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+/* Archive is the one action that takes a page away from every member at once, and it lands
+   mid-row because .pl-wp-mod__actions is a flex item with Report and Print after it. Its
+   own escalation order is right; what it lacked was separation from the routine buttons
+   either side, which is what made a destructive control read as the next button along.
+   Scoped to the moderation cluster on purpose: .pl-wp-actions also holds Withdraw, which is
+   --danger red but only withdraws your own report and wants no such distance. */
+.pl-wp-actions .pl-wp-mod__actions .pl-btn--danger { margin-inline: 0.75rem; }
 .pl-wp-checked { font-size: 0.85rem; }
 
 /* Neutral, not amber: nothing is wrong, we are only asking. */
@@ -9373,18 +9404,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-confirmcue__actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .pl-wp-confirmcue__edit { font-size: 0.85rem; }
 
-/* Archived pages keep their URL and explain themselves. Amber is literal hex, both themes. */
-.pl-wp-archived {
-    margin-bottom: 1.25rem;
-    padding: 0.85rem 1rem;
-    border-radius: 8px;
-    background: rgba(251, 191, 36, 0.12);
-    color: #fbbf24;
-}
-.pl-wp-archived p { margin: 0 0 0.4rem; }
-.pl-wp-archived p:last-child { margin-bottom: 0; }
-.pl-wp-archived a { color: inherit; text-decoration: underline; }
-[data-theme="light"] .pl-wp-archived { background: rgba(180, 120, 10, 0.1); color: #8a5b06; }
+/* No .pl-wp-archived rules here on purpose: the archived tombstone renders through
+   .pl-wp-mod__banner--archived (_wiki_archived_banner.html), and a second amber banner
+   style that no template asks for only misleads the next reader about which one is live. */
 
 .pl-wp-factsblock { padding: 1.25rem; margin-bottom: 1.25rem; }
 .pl-wp-factsblock__empty { margin: 0; }
@@ -9411,8 +9433,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    accordion — 44px tall, scrolls inside its own container, one behavior at both widths. */
 .pl-wp-toc {
     position: sticky;
-    top: 0;
-    z-index: 5;
+    /* .hub-content is not a scroll container, so this sticks to the viewport top — the
+       same top the opaque .pl-topbar (z-50, 56px) already owns. At top:0/z-5 the chip row
+       parked *under* the topbar the moment anyone scrolled, invisible for exactly the
+       scroll the control exists for. Offset by the topbar, and sit above page content but
+       still below the topbar itself. */
+    top: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+    z-index: 20;
     display: flex;
     gap: 0.5rem;
     min-height: 44px;
@@ -9442,11 +9469,17 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-body { font-size: 17px; line-height: 1.6; margin-bottom: 1.25rem; }
 .pl-wp-body img { max-width: 100%; height: auto; border-radius: 8px; }
 .pl-wp-body table { display: block; overflow-x: auto; max-width: 100%; }
-.pl-wp-body [id] { scroll-margin-top: 4rem; }
+/* Clear the topbar AND the sticky TOC below it, or a chip tap lands the heading
+   underneath the very row that was tapped. */
+.pl-wp-body [id] { scroll-margin-top: calc(var(--topbar-height) + 3.5rem); }
 .pl-wp-body__empty { padding: 1.5rem; margin-bottom: 1.25rem; }
 
 .pl-wp-attachments { padding: 1.25rem; margin-bottom: 1.25rem; }
 .pl-wp-attachments__head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
+/* The title's own margin-bottom centres with it and lifts the text off the baseline of
+   whatever sits opposite. The head already owns the spacing. */
+.pl-wp-official__head .pl-wp-section__title,
+.pl-wp-attachments__head .pl-wp-section__title { margin-bottom: 0; }
 .pl-wp-attachments__empty { margin: 0; }
 .pl-wp-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
 .pl-wp-photos__item { margin: 0; }
@@ -9534,8 +9567,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-row { padding: 1rem; background: rgba(255, 255, 255, 0.02); }
 .pl-wp-row--dragging { opacity: 0.5; }
 .pl-wp-row__grip { cursor: grab; color: var(--hub-text-muted); font-size: 1.1rem; }
-.pl-wp-row__controls { display: flex; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap; }
-.pl-wp-row__controls .hub-btn { min-width: 44px; min-height: 44px; }
+/* align-items:center, not flex-start: the Delete button carried an inline margin-top to
+   push it clear of a field above, which in a flex row simply dropped it 12px below the
+   arrows beside it. The clearance belongs to the container. Both button families are named
+   because the wiki's arrows are .pl-btn and other rows still use .hub-btn. */
+.pl-wp-row__controls { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+.pl-wp-row__controls .hub-btn,
+.pl-wp-row__controls .pl-btn { min-width: 44px; min-height: 44px; }
 /* Gloves cannot drag. On touch the arrows are the only reorder control there is. */
 @media (hover: none) { .pl-wp-row__grip { display: none; } }
 .pl-wp-factrow__empty { margin: 0; }
@@ -9728,6 +9766,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     max-width: 44ch;
     margin: 0 auto;
 }
+/* Give the headline a step of contrast; without it both lines are the same muted grey at
+   the same size and the state reads as one undifferentiated paragraph. */
+.pl-wp-mod__empty p:first-child {
+    color: var(--hub-text);
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
 
 .pl-wp-mod__conflict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 .pl-wp-mod__conflict-body { max-height: 420px; overflow-y: auto; }
@@ -9780,6 +9826,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    single overflow menu, because two kebabs both containing Edit reads as a bug. */
 @media (max-width: 768px) {
     .pl-wp-mod__actions { display: none; }
+}
+
 /* ── Member wiki: the guild Wiki tab (spec B) ───────────────────────────────
    Namespace: pl-wp-tab__* and nothing else. Spec A owns bare pl-wp-*, spec D owns
    pl-wp-mod__*, spec E keeps pl-gov-*, so three parallel PRs cannot collide on a
@@ -9870,7 +9918,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-tab__wanted-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
 .pl-wp-tab__wanted-done-list { margin-top: 0.75rem; }
 .pl-wp-tab__wanted-scope { padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+/* .hub-form-group carries margin-bottom:1.25rem, margins do not collapse in a flex
+   container, and align-items:flex-end lines up margin boxes — so the button sat 20px
+   below the select it submits. */
 .pl-wp-tab__switcher { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
+.pl-wp-tab__switcher .hub-form-group { margin-bottom: 0; }
 .pl-wp-tab__editor { padding: 1.5rem; margin-top: 1.25rem; }
 .pl-wp-tab__editor-rows { display: flex; flex-direction: column; gap: 1rem; }
 .pl-wp-tab__editor-row { padding: 1rem; background: var(--hub-surface); }
@@ -9897,8 +9949,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    where it sits inside spec A's card partial. The wanted rows are named separately because
    they also render on /wiki/wanted/, outside the tab. */
 .pl-wp-tab .htmx-request,
-.pl-wp-tab__wanted-actions .htmx-request,
-.pl-wp-tab__busy { opacity: 0.55; pointer-events: none; }
+.pl-wp-tab__wanted-actions .htmx-request { opacity: 0.55; pointer-events: none; }
 
 /* No light-theme pill override here on purpose. Every status pill this tab renders comes
    through spec A's shared card partial, so it already sits inside .pl-wp-card and picks up
@@ -9921,15 +9972,31 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
        class. Enumerating the action rows missed the three controls that matter most: the
        compact Verify button lands in spec A's .pl-wp-card__actions slot and never in one
        of B's own rows; the zero-result screen and the wanted editor live outside the tab
-       entirely; and the tab's own Search button sat at 27px beside a 48px scope chip. */
+       entirely; and the tab's own Search button sat at 27px beside a 48px scope chip.
+
+       The enumeration was still short by a whole surface. .pl-wp-tab covers the guild
+       page's Wiki tab and nothing else, so /wiki/p/<slug>/ — the screen a QR sticker on a
+       machine opens, and the likeliest phone surface in the building — kept a 27px
+       toolbar. Every wiki template now sets body class .pl-wp-screen, which is the real
+       container root for the feature.
+
+       Being body-scoped it does also reach the three chrome buttons the hub renders on
+       every page (_tour.html's Resume tour, and the welcome modal's two), on wiki screens
+       only and at phone widths only. That is deliberate and harmless: those are a tour
+       control and a modal footer, which want a 48px target on a phone anyway. */
     .pl-wp-tab .pl-btn,
     .pl-wp-tab .hub-btn,
     .pl-wp-tab__scope-chip,
-    .pl-wp-tab__wanted-row .pl-btn,
-    .pl-wp-tab__editor .pl-btn,
-    .pl-wp-tab__editor .hub-btn,
-    .pl-wp-tab__switcher .pl-btn,
-    .pl-wp-search__empty .pl-btn { min-height: 48px; }
+    .pl-wp-screen .pl-btn,
+    .pl-wp-screen .hub-btn { min-height: 48px; }
+    /* Bare links standing in an action row are targets too, and were never covered by a
+       rule that only knew about buttons. .pl-wp-tab__scope-chip and __row-edit are NOT
+       mirrored under .pl-wp-screen: they exist only in _guild_wiki_tab.html, which renders
+       on the guild page, so a .pl-wp-screen copy of them could never match anything.
+       __miss-onlist is, because _wiki_miss_row.html also renders on /wiki/wanted/. */
+    .pl-wp-screen .pl-wp-tab__miss-onlist,
+    .pl-wp-tab .pl-wp-tab__row-edit,
+    .pl-wp-tab .pl-wp-tab__miss-onlist { display: inline-flex; align-items: center; min-height: 48px; }
 }
 
 /* Reviewer reassurance line above the class review decision radios. */

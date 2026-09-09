@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}Two People Edited This Page{% endblock %}
 
 {% block content %}
@@ -45,7 +46,7 @@ genuine disagreement.
 <div class="pl-wp-mod__conflict-actions">
     <button type="button" class="pl-btn pl-btn--primary"
             @click="$dispatch('open-confirm', 'conflict-keep')">Keep My Version</button>
-    <a href="{{ merge_url }}" class="pl-btn">Open the Editor With Both</a>
+    <a href="{{ merge_url }}" class="pl-btn pl-btn--secondary">Open the Editor With Both</a>
     <a href="{{ page.get_absolute_url }}" class="pl-btn pl-btn--secondary">Keep Their Version</a>
 </div>
 <p class="hub-text-muted pl-wp-mod__conflict-note">

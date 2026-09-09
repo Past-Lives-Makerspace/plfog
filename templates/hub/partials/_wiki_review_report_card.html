@@ -18,7 +18,7 @@ laptop will not happen.
     {% include "hub/partials/_wiki_quote.html" with reason=report.reason %}
     <p class="hub-text-muted pl-wp-mod__banner-by">Reported by {{ report.reporter_name }} &middot; {{ report.created_at|timesince }} ago</p>
     <div class="pl-wp-mod__banner-actions">
-        <a href="{{ report.page.get_absolute_url }}" class="pl-btn pl-btn--sm">Open the Page</a>
+        <a href="{{ report.page.get_absolute_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">Open the Page</a>
         <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
                 @click="$dispatch('open-modal', 'resolve-{{ report.pk }}')">Mark Reviewed</button>
     </div>

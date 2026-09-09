@@ -13,9 +13,9 @@ entire job is to explain what a member should do next.
     <p class="hub-text-muted pl-wp-mod__banner-by">
         Proposed by {% if proposal.created_by %}{{ proposal.created_by.display_name }}{% else %}a former member{% endif %} &middot; {{ proposal.created_at|timesince }} ago
     </p>
-    <p class="pl-wp-mod__banner-line">{{ proposal.lead_text }}</p>
+    {% if proposal.lead_text %}<p class="pl-wp-mod__banner-line">{{ proposal.lead_text }}</p>{% endif %}
     <div class="pl-wp-mod__banner-actions">
-        <a href="{{ proposal.get_absolute_url }}" class="pl-btn pl-btn--sm">Read the Full Draft</a>
+        <a href="{{ proposal.get_absolute_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">Read the Full Draft</a>
         <button type="button" class="pl-btn pl-btn--sm pl-btn--primary"
                 @click="$dispatch('open-confirm', 'publish-{{ proposal.pk }}')">Publish</button>
         <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"

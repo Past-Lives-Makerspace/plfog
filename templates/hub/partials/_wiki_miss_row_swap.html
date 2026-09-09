@@ -7,7 +7,7 @@ band so the lead watches the request land where they just sent it.
     <p class="pl-wp-tab__miss-query">{{ row.title }}</p>
     <p class="hub-text-muted pl-wp-tab__miss-people">{{ row.request_count }} {% if row.request_count == 1 %}person{% else %}people{% endif %}</p>
     <div class="pl-wp-tab__miss-actions">
-        <a href="{% url 'hub_wiki_new' %}?{% if guild %}guild={{ guild.slug|urlencode }}&amp;{% endif %}title={{ row.title|urlencode }}&amp;wanted={{ row.pk }}" class="pl-btn pl-btn--sm">Start This Page</a>
+        <a href="{% url 'hub_wiki_new' %}?{% if guild %}guild={{ guild.slug|urlencode }}&amp;{% endif %}title={{ row.title|urlencode }}&amp;wanted={{ row.pk }}" class="pl-btn pl-btn--secondary pl-btn--sm">Start This Page</a>
         <a href="{{ wanted_url }}" class="pl-wp-tab__miss-onlist">On the wanted list &rarr;</a>
     </div>
 </div>

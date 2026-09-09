@@ -8,7 +8,11 @@ all and the toast would fire while a stale "Out of date" pill sat there until th
 reload — the exact "did that work?" failure a one-tap action exists to avoid.
 {% endcomment %}
 <div id="wiki-status" class="pl-wp-status">
-    <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
+    <span class="hub-pill hub-pill--{{ page.status_pill.0 }}">{{ page.status_pill.1 }}</span>
+    <span class="pl-help">
+        <span class="pl-help__icon" tabindex="0" role="img" aria-label="{{ page.status_pill.1 }}: {{ page.status_pill.2 }}">?</span>
+        <span class="pl-help__bubble">{{ page.status_pill.2 }}</span>
+    </span>
     {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
 </div>
 <div id="wiki-confirm-cue" hx-swap-oob="true">{% if show_confirm_cue %}{% include "hub/partials/_wiki_confirm_cue.html" %}{% endif %}</div>

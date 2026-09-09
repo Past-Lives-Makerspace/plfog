@@ -17,10 +17,12 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
         <input type="hidden" name="guild" value="{{ wiki_tab_guild.slug }}">
         <div class="hub-form-group">
             <label for="wiki-tab-q">Search the {{ wiki_tab_guild.name }} wiki</label>
-            <input type="search" id="wiki-tab-q" name="q" placeholder="Search the {{ wiki_tab_guild.name }} wiki">
+            {% comment %}The placeholder must not repeat the label verbatim: a screen reader
+            announces both, and an example teaches what this box actually accepts.{% endcomment %}
+            <input type="search" id="wiki-tab-q" name="q" placeholder="A machine, a material, a step">
         </div>
         <div class="pl-wp-tab__scope">
-            <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Search</button>
+            <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Search</button>
             <span class="pl-wp-tab__scope-chip pl-wp-tab__scope-chip--active" aria-current="true">This guild</span>
             <button type="submit" name="scope" value="all" class="pl-wp-tab__scope-chip">Everything</button>
         </div>
@@ -51,7 +53,7 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
         <p class="hub-text-muted">Start the first page for {{ wiki_tab_guild.name }}, or ask someone to write one.</p>
         <div class="pl-wp-tab__empty-actions">
             <a href="{{ wiki_tab_new_url }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start A Page</a>
-            {% if wiki_tab_can_verify %}<a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--sm">+ Add A Wanted Page</a>{% endif %}
+            {% if wiki_tab_can_verify %}<a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">+ Add A Wanted Page</a>{% endif %}
         </div>
     </div>
     {% endif %}
@@ -73,8 +75,8 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
     {% if wiki_tab_can_verify %}
     <div class="hub-card pl-wp-tab__panel">
         <h3 class="hub-detail-label pl-wp-tab__panel-title">Overdue For Review
-            <span class="pl-help" tabindex="0" aria-label="How the review clock works">
-                <span class="pl-help__icon">?</span>
+            <span class="pl-help pl-help--right">
+                <span class="pl-help__icon" tabindex="0" role="img" aria-label="How the review clock works">?</span>
                 <span class="pl-help__bubble">Machines every 12 months, how-tos and materials every 24, guild info and reference every 12. Project pages never expire.</span>
             </span>
         </h3>
@@ -89,7 +91,7 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
                     <form hx-post="{% url 'hub_wiki_confirm' page.slug %}" hx-swap="none"
                           @htmx:after-request="if ($event.detail.successful) done = true">
                         {% csrf_token %}
-                        <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Still Accurate</button>
+                        <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm" hx-disabled-elt="this">Still Accurate</button>
                     </form>
                     <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-wp-tab__row-edit">Not quite. Edit it.</a>
                 </div>
@@ -125,7 +127,7 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
         </div>
         {% if not wiki_tab_wanted and wiki_tab_can_verify %}
         <p class="hub-text-muted">Ask for the pages your guild actually needs. A specific ask gets written; an open invitation doesn't.</p>
-        <a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--sm">+ Add A Wanted Page</a>
+        <a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">+ Add A Wanted Page</a>
         {% elif wiki_tab_can_verify %}
         <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">Manage the list &rarr;</a>
         {% elif wiki_tab_wanted_has_more %}

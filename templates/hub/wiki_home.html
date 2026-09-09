@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}Wiki{% endblock %}
 
 {% block content %}
@@ -34,16 +35,16 @@ opens, because the queue has no other route on a day when nobody has reported an
 </div>
 
 <div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Filter by scope">
-    <a href="?{% if kind_filter %}kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if not guild_filter %}pl-wp-chip--active{% endif %}">All</a>
-    <a href="?guild=space-wide{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if guild_filter == 'space-wide' %}pl-wp-chip--active{% endif %}">Space wide</a>
+    <a href="?{% if kind_filter %}kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if not guild_filter %}pl-wp-chip--active{% endif %}"{% if not guild_filter %} aria-current="page"{% endif %}>All</a>
+    <a href="?guild=space-wide{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if guild_filter == 'space-wide' %}pl-wp-chip--active{% endif %}"{% if guild_filter == 'space-wide' %} aria-current="page"{% endif %}>Space wide</a>
     {% for filter_guild in filter_guilds %}
-    <a href="?guild={{ filter_guild.slug|urlencode }}{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if guild_filter == filter_guild.slug %}pl-wp-chip--active{% endif %}">{{ filter_guild.name }}</a>
+    <a href="?guild={{ filter_guild.slug|urlencode }}{% if kind_filter %}&kind={{ kind_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if guild_filter == filter_guild.slug %}pl-wp-chip--active{% endif %}"{% if guild_filter == filter_guild.slug %} aria-current="page"{% endif %}>{{ filter_guild.name }}</a>
     {% endfor %}
 </div>
 <div class="pl-tabs pl-wp-chiprow" role="navigation" aria-label="Filter by kind">
-    <a href="?{% if guild_filter %}guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if not kind_filter %}pl-wp-chip--active{% endif %}">All</a>
+    <a href="?{% if guild_filter %}guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if not kind_filter %}pl-wp-chip--active{% endif %}"{% if not kind_filter %} aria-current="page"{% endif %}>All</a>
     {% for value, label in kind_choices %}
-    <a href="?kind={{ value|urlencode }}{% if guild_filter %}&guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if kind_filter == value %}pl-wp-chip--active{% endif %}">{{ label }}</a>
+    <a href="?kind={{ value|urlencode }}{% if guild_filter %}&guild={{ guild_filter|urlencode }}{% endif %}" class="pl-wp-chip {% if kind_filter == value %}pl-wp-chip--active{% endif %}"{% if kind_filter == value %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
 </div>
 

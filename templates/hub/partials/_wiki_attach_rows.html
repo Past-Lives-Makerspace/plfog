@@ -34,14 +34,14 @@ inside cloned innerHTML. Drag, drop and preview come from one delegated handler 
         {{ f.id }}
         {{ f.sort_order }}
         <div class="pl-wp-row__controls">
-            <button type="button" class="hub-btn hub-btn--sm" data-move="up" aria-label="Move up">&#8593;</button>
-            <button type="button" class="hub-btn hub-btn--sm" data-move="down" aria-label="Move down">&#8595;</button>
+            <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" data-move="up" aria-label="Move up">&#8593;</button>
+            <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" data-move="down" aria-label="Move down">&#8595;</button>
             {% if f.instance.pk %}
             <div style="display:none;">{{ f.DELETE }}</div>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                     onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">Delete</button>
             {% else %}
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                     onclick="this.closest('.pl-wp-row').remove();">Remove</button>
             {% endif %}
         </div>
@@ -68,16 +68,16 @@ inside cloned innerHTML. Drag, drop and preview come from one delegated handler 
         {{ ef.id }}
         {{ ef.sort_order }}
         <div class="pl-wp-row__controls">
-            <button type="button" class="hub-btn hub-btn--sm" data-move="up" aria-label="Move up">&#8593;</button>
-            <button type="button" class="hub-btn hub-btn--sm" data-move="down" aria-label="Move down">&#8595;</button>
-            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+            <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" data-move="up" aria-label="Move up">&#8593;</button>
+            <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" data-move="down" aria-label="Move down">&#8595;</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                     onclick="this.closest('.pl-wp-row').remove();">Remove</button>
         </div>
         {% endwith %}
     </div>
 </template>
 
-<button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+<button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" style="margin-top:1rem;"
         onclick="
           const tpl = document.getElementById('wp-attach-empty-template');
           const total = document.getElementById('id_attachments-TOTAL_FORMS');

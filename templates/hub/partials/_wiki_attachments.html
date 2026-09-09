@@ -11,7 +11,7 @@ is a library nobody opens.
     <div class="pl-wp-attachments__head">
         <h2 class="hub-detail-label pl-wp-section__title">Files And Photos</h2>
         {% if can_edit %}
-        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">+ Add A Photo</button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">+ Add A Photo</button>
         {% endif %}
     </div>
     {% if photo_attachments %}

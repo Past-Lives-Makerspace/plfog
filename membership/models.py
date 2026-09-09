@@ -3374,9 +3374,23 @@ _MD_EMPHASIS_RE = re.compile(r"[*_`]")
 
 # One pass over the help-rendered body: h2/h3 headings that carry an id.
 _HELP_TOC_HEADING_RE = re.compile(r'<h([23])[^>]*\bid="([^"]+)"[^>]*>(.*?)</h\1>', re.DOTALL)
-# Paragraph blocks of a rich-editor HTML body — lead_text's HTML-mode analog of splitting
-# Markdown on blank lines (headings/lists fall outside <p> and are skipped naturally).
-_HTML_PARAGRAPH_RE = re.compile(r"<p[^>]*>(.*?)</p>", re.IGNORECASE | re.DOTALL)
+# Lead text drops section headings and reads whatever prose is left. Deliberately NOT a list
+# of block tags to scan: two review rounds were spent discovering that any such list is both
+# incomplete (a how-to is as often a <ul> or a <table> as a <p>) and, once a whole-body
+# fallback exists behind it, untestable — every case the scan claimed to handle the fallback
+# answered identically. Removing headings is the entire transformation, which also makes the
+# safety property trivial to state: nothing that produced text before can now produce "".
+_HTML_HEADING_RE = re.compile(r"<h[1-6]\b[^>]*>.*?</h[1-6]\s*>", re.IGNORECASE | re.DOTALL)
+# The heading pattern is non-greedy, so a long run of unbalanced OPENING headings makes each
+# start position scan to the end for a close that never comes: measured at 7.5s on 100KB of
+# "<h2><h2><h2>…". A lead is a couple of hundred characters, so only the opening of a body can
+# contribute one, and bounding the window makes the cost constant.
+_LEAD_SCAN_LIMIT = 8000
+# A bounded window can end mid-"<stro". bleach does not drop an unterminated final tag — it
+# renders it as literal text — so trim exactly that, and nothing else. Cutting back to the
+# last ">" instead (the round-2 approach) collapsed a tag-sparse window to almost nothing and
+# emptied the lead of every body over the limit.
+_TRAILING_PARTIAL_TAG_RE = re.compile(r"<[^>]*$")
 
 
 def _markdown_to_text(source: str) -> str:
@@ -3403,6 +3417,53 @@ def _source_to_text(source: str) -> str:
     if looks_like_html(source):
         return rich_html_to_text(source)
     return _markdown_to_text(source)
+
+
+def _lead_text(body: str, limit: int) -> str:
+    """The opening prose of a dual-mode body, minus section headings, cut on a word boundary.
+
+    Section headings are not lead copy, so they are removed and a body with nothing else in
+    it returns "". That is the whole point: flattening the body *including* its headings made
+    a page created from the kind scaffold — headings plus empty paragraphs, which is every
+    page until a member writes in it — advertise its own template as its excerpt ("What It
+    Does How To Use It What Goes Wrong Tips From Members") on every card.
+
+    On the HTML side removing headings is the only transformation, and a 33-shape differential
+    against the two implementations this replaced found no body that produced an excerpt then
+    and an empty one now. The body is flattened whole rather than block by block: the result
+    is capped at ``limit`` anyway, and a card is better served by the opening two short
+    paragraphs than by only the first.
+
+    That is not a blanket guarantee, and two bounded exceptions are known. A window of
+    ``_LEAD_SCAN_LIMIT`` characters containing no non-heading text yields "" where flattening
+    the whole body would not — it takes some 1,100 consecutive empty paragraphs to reach.
+    And the Markdown branch skips a block opening with "#", so a body whose first line is
+    "#3 wrench sizes" is skipped as though it were a heading; that predates this helper on the
+    article side and is inherited here rather than introduced.
+    """
+    from core.html_sanitize import rich_html_to_text
+    from membership.markdown import looks_like_html
+
+    if looks_like_html(body):
+        # rich_html_to_text directly, not _source_to_text: that helper re-sniffs with
+        # lstrip().startswith("<"), and a heading-stripped body whose prose is loose text no
+        # longer opens with a tag, so it took the Markdown path and "<strong>bold</strong>"
+        # reached the card as literal text. This branch already knows it is HTML.
+        window = _TRAILING_PARTIAL_TAG_RE.sub("", body[:_LEAD_SCAN_LIMIT])
+        candidates = [rich_html_to_text(_HTML_HEADING_RE.sub(" ", window))]
+    else:
+        # Markdown keeps its block split: a body can open with an image-only block, which is
+        # not lead copy either, and skipping it is covered by the help-article specs.
+        candidates = [
+            _source_to_text(block) for block in re.split(r"\n\s*\n", body) if not block.lstrip().startswith("#")
+        ]
+    for text in candidates:
+        if not text:
+            continue
+        if len(text) <= limit:
+            return text
+        return text[:limit].rsplit(" ", 1)[0] + "\u2026"
+    return ""
 
 
 class WikiArticleQuerySet(models.QuerySet):
@@ -3515,20 +3576,7 @@ class WikiArticle(models.Model):
         Heading-only and image-only blocks are skipped — they aren't lead copy. Dual-mode:
         a rich-editor HTML body iterates its ``<p>`` blocks instead of Markdown blocks.
         """
-        from membership.markdown import looks_like_html
-
-        if looks_like_html(self.body):
-            blocks = [f"<p>{inner}</p>" for inner in _HTML_PARAGRAPH_RE.findall(self.body)]
-        else:
-            blocks = [b for b in re.split(r"\n\s*\n", self.body) if not b.lstrip().startswith("#")]
-        for block in blocks:
-            text = _source_to_text(block)
-            if not text:
-                continue
-            if len(text) <= limit:
-                return text
-            return text[:limit].rsplit(" ", 1)[0] + "…"
-        return ""
+        return _lead_text(self.body, limit)
 
     def search_snippet(self, q: str, radius: int = 90) -> str:
         """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.
@@ -12758,11 +12806,13 @@ class WikiPage(models.Model):
         self.search_text = re.sub(r"\s+", " ", " ".join(part for part in parts if part)).strip()
 
     def lead_text(self, limit: int = 200) -> str:
-        """The opening plain-text run of the body, for a card with no search snippet."""
-        text = _source_to_text(self.body)
-        if len(text) <= limit:
-            return text
-        return text[:limit].rsplit(" ", 1)[0] + "…"
+        """The opening prose paragraph of the body, for a card with no search snippet.
+
+        Empty until somebody writes prose: a page still holding only its kind scaffold has
+        no lead copy, and the card partial drops the line rather than printing the section
+        headings back at the reader.
+        """
+        return _lead_text(self.body, limit)
 
     def search_snippet(self, q: str, radius: int = 90) -> str:
         """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.

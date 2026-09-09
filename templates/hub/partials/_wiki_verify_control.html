@@ -29,7 +29,7 @@ while a stale pill sat there until the next reload.
           hx-post="{% url 'hub_wiki_verify' page.slug %}" hx-swap="none">
         {% csrf_token %}
         <input type="hidden" name="surface" value="tab">
-        <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Verify</button>
+        <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm" hx-disabled-elt="this">Verify</button>
     </form>
     {% endif %}
 {% else %}

@@ -337,6 +337,135 @@ def describe_WikiPage():
         def it_returns_an_empty_toc_with_no_headings():
             assert WikiPageFactory(body="<p>Just prose.</p>").toc() == []
 
+        def describe_lead_text_on_a_page_nobody_has_written_yet():
+            # Every page starts as its kind's scaffold: headings, and an empty paragraph
+            # under each. lead_text used to flatten the WHOLE body, so a brand-new page
+            # advertised its own template back at the reader — "What It Does How To Use It
+            # What Goes Wrong Tips From Members" — on every card, on the home page, in
+            # search results and in Related Pages. The wiki launched empty, so that was the
+            # default appearance of every page a member started.
+            SCAFFOLD = (
+                "<h2>What It Does</h2><p></p><h2>How To Use It</h2><p></p>"
+                "<h2>What Goes Wrong</h2><p></p><h2>Tips From Members</h2><p></p>"
+            )
+
+            def it_is_empty_for_an_unwritten_scaffold():
+                assert WikiPageFactory(body=SCAFFOLD).lead_text() == ""
+
+            def it_never_returns_the_section_headings():
+                lead = WikiPageFactory(body=SCAFFOLD).lead_text()
+                assert "What It Does" not in lead
+                assert "Tips From Members" not in lead
+
+            def it_returns_the_prose_once_somebody_writes_under_a_heading():
+                page = WikiPageFactory(body="<h2>What It Does</h2><p>Cuts sheet goods.</p>")
+                assert page.lead_text() == "Cuts sheet goods."
+
+            def it_skips_the_empty_sections_above_the_first_written_one():
+                page = WikiPageFactory(
+                    body="<h2>What It Does</h2><p></p><h2>What Goes Wrong</h2><p>The blade wanders.</p>"
+                )
+                assert page.lead_text() == "The blade wanders."
+
+            def it_is_empty_for_a_markdown_scaffold_too():
+                assert WikiPageFactory(body="## What It Does\n\n## How To Use It\n").lead_text() == ""
+
+            def describe_when_the_prose_is_not_in_a_paragraph():
+                # Removing headings is the whole transformation, so every one of these reads
+                # for the same reason. An earlier attempt scanned a list of block tags
+                # instead and gave each of these an empty excerpt, which was worse than the
+                # bug it replaced.
+                def it_reads_a_bulleted_procedure():
+                    page = WikiPageFactory(body="<ul><li>Set the fence to 3 inches.</li><li>Feed slowly.</li></ul>")
+                    assert page.lead_text() == "Set the fence to 3 inches. Feed slowly."
+
+                def it_reads_a_list_under_a_heading():
+                    page = WikiPageFactory(body="<h2>Steps</h2><ul><li>Set the fence.</li></ul>")
+                    assert page.lead_text() == "Set the fence."
+
+                def it_reads_a_numbered_list():
+                    assert WikiPageFactory(body="<ol><li>First step.</li></ol>").lead_text() == "First step."
+
+                def it_reads_a_blockquote():
+                    assert (
+                        WikiPageFactory(body="<blockquote>Wear the mask.</blockquote>").lead_text() == "Wear the mask."
+                    )
+
+                def it_reads_a_bare_div():
+                    assert WikiPageFactory(body="<div>Cuts sheet goods.</div>").lead_text() == "Cuts sheet goods."
+
+                def it_skips_an_empty_paragraph_to_reach_a_list():
+                    page = WikiPageFactory(body="<h2>A</h2><p></p><ul><li>Real step.</li></ul>")
+                    assert page.lead_text() == "Real step."
+
+                def it_reads_a_table():
+                    page = WikiPageFactory(body="<p></p><table><tr><td>Blade</td><td>10 in</td></tr></table>")
+                    assert page.lead_text() == "Blade10 in"
+
+                def it_reads_a_preformatted_block():
+                    assert WikiPageFactory(body="<pre>make install</pre>").lead_text() == "make install"
+
+                def it_reads_a_figure_caption():
+                    page = WikiPageFactory(body="<figure><figcaption>The jig.</figcaption></figure>")
+                    assert page.lead_text() == "The jig."
+
+                def it_strips_inline_tags_from_prose_loose_after_a_heading():
+                    # No block element wraps it, so this lands on the final fallback. That
+                    # fallback used to be re-sniffed as Markdown, which leaves tags alone,
+                    # and "<strong>bold</strong>" reached the card as literal text.
+                    page = WikiPageFactory(body="<h2>Steps</h2>Loose prose with <strong>bold</strong>.")
+                    assert page.lead_text() == "Loose prose with bold."
+
+                def it_reaches_prose_that_follows_an_empty_block():
+                    # The fallback has to be tried even when a block DID match and was empty.
+                    assert WikiPageFactory(body="<p></p>Loose prose.").lead_text() == "Loose prose."
+
+            def describe_on_a_body_longer_than_the_scan_window():
+                # The window is bounded because the heading pattern is non-greedy and a long
+                # run of unbalanced <h2> makes every start position scan to the end: 7.5s on
+                # 100KB. Bounding it must not cost the excerpt, which an earlier attempt did
+                # by cutting the window back to its last ">" — on a tag-sparse body that
+                # discarded almost everything and emptied the lead entirely.
+                def it_reads_a_paragraph_far_longer_than_the_window():
+                    page = WikiPageFactory(body="<p>" + ("word " * 1900) + "</p>")
+                    assert page.lead_text().startswith("word word")
+
+                def it_reads_a_long_body_that_never_closes_its_tag():
+                    assert WikiPageFactory(body="<p>" + ("x" * 9000)).lead_text().startswith("xxx")
+
+                def it_reads_a_list_far_longer_than_the_window():
+                    page = WikiPageFactory(body="<ul><li>" + ("word " * 2000) + "</li></ul>")
+                    assert page.lead_text().startswith("word word")
+
+                def it_never_leaks_a_tag_the_window_cut_in_half():
+                    # 1140 empty paragraphs is 7980 characters, so the 8000-character window
+                    # lands inside "</strong>". bleach renders an unterminated tag as literal
+                    # text rather than dropping it, so without the trim the excerpt reads
+                    # "bold</strong".
+                    page = WikiPageFactory(body="<p></p>" * 1140 + "<strong>bold</strong>" + "x" * 3000)
+                    assert page.lead_text() == "bold"
+
+                def it_never_leaks_an_unterminated_tag_at_the_end_of_a_short_body():
+                    assert WikiPageFactory(body="<p>hello</p><stro").lead_text() == "hello"
+
+                def it_stays_fast_on_a_long_run_of_unclosed_headings():
+                    import time
+
+                    page = WikiPageFactory(body="<h2>" * 25000)
+                    started = time.perf_counter()
+                    page.lead_text()
+                    # Unbounded this takes ~7.5s; bounded it is ~50ms. A 3s ceiling still
+                    # separates the two by 150x while tolerating a loaded CI runner.
+                    assert time.perf_counter() - started < 3.0
+
+                def it_still_finds_prose_that_follows_many_empty_blocks():
+                    page = WikiPageFactory(body="<h2>A</h2>" + "<p></p>" * 800 + "<p>Real prose here.</p>")
+                    assert page.lead_text() == "Real prose here."
+
+            def it_returns_markdown_prose_under_a_heading():
+                page = WikiPageFactory(body="## What It Does\n\nCuts sheet goods.\n")
+                assert page.lead_text() == "Cuts sheet goods."
+
     def describe_dunder_str():
         def it_names_the_page_and_its_kind():
             page = WikiPageFactory(title="SawStop", kind=WikiPage.Kind.MACHINE)

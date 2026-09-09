@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}Your Drafts{% endblock %}
 
 {% block content %}
@@ -22,8 +23,8 @@ answer rows were never in the draft, would be a promise the store does not keep.
     </p>
     <p class="hub-text-muted pl-wp-draft__meta">Quick answers and files are saved when you press Save.</p>
     <div class="pl-wp-draft__actions">
-        <a href="{% if draft.page %}{% url 'hub_wiki_edit' draft.page.slug %}{% else %}{% url 'hub_wiki_create' draft.kind %}{% endif %}?draft=use" class="pl-btn pl-btn--primary">Keep Writing</a>
-        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+        <a href="{% if draft.page %}{% url 'hub_wiki_edit' draft.page.slug %}{% else %}{% url 'hub_wiki_create' draft.kind %}{% endif %}?draft=use" class="pl-btn pl-btn--primary pl-btn--sm">Keep Writing</a>
+        <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'wiki-draft-{{ draft.pk }}')">Discard</button>
     </div>
     {% url 'hub_wiki_draft_discard' draft.pk as discard_url %}

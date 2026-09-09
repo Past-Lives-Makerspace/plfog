@@ -21,7 +21,7 @@ because the only way to fix an over-archive is to read what was archived.
     {% endif %}
     {% if can_moderate %}
     <div class="pl-wp-mod__banner-actions">
-        <button type="button" class="pl-btn pl-btn--sm"
+        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm"
                 @click="$dispatch('open-confirm', 'wiki-restore')">Restore</button>
         <a href="{% url 'hub_wiki_history' page.slug %}" class="pl-btn pl-btn--sm pl-btn--ghost">History</a>
     </div>
@@ -30,7 +30,7 @@ because the only way to fix an over-archive is to read what was archived.
     <form method="post" action="{% url 'hub_wiki_set_redirect' page.slug %}" class="pl-wp-mod__redirect">
         {% csrf_token %}
         {% include "components/form_field.html" with field=redirect_form.target %}
-        <button type="submit" class="pl-btn pl-btn--sm">Save</button>
+        <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Save</button>
     </form>
     {% endif %}
 </div>
