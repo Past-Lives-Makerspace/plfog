@@ -1131,23 +1131,24 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # instructor_application_approved — the member hears yes and gets the portal. Emitted
-    # by grant_teaching ONLY when an application exists, so an admin handing access to
-    # someone who never asked sends nothing.
+    # by grant_teaching ONLY when a note exists, so an admin handing access to someone
+    # who never asked sends nothing. Label and description are member facing (the
+    # notification preferences page), so they read as the invitation, not a job.
     EventType(
         key=INSTRUCTOR_APPLICATION_APPROVED,
-        label="Your teaching application was approved",
-        description="An admin approved a member's ask to teach and opened the teaching portal.",
+        label="You can host workshops",
+        description="An admin said yes to a member's note about hosting and opened the teaching portal.",
         category="Classes",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # instructor_application_declined — the member hears no, in the admin's own words,
-    # with a way back to the page that explains teaching and lets them apply again.
+    # with a way back to the page that explains hosting and lets them say so again.
     EventType(
         key=INSTRUCTOR_APPLICATION_DECLINED,
-        label="Update on your teaching application",
-        description="An admin declined a member's ask to teach, with a reason.",
+        label="About hosting a workshop",
+        description="An admin said not right now to a member's note about hosting, with a reason.",
         category="Classes",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),

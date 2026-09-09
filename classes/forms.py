@@ -524,7 +524,7 @@ class ClassSaleForm(_SaleMixin, forms.ModelForm):
 
 
 class TeachingApplicationForm(forms.Form):
-    """The Apply to Teach modal's single note field.
+    """The I'm Interested modal's single note field.
 
     Validation lives here, not the view: the note is what an admin reads when they
     decide, so a blank submit gets the field error rather than filing an empty ask.
@@ -534,14 +534,14 @@ class TeachingApplicationForm(forms.Form):
     note = forms.CharField(
         required=True,
         max_length=2000,
-        label="What Would You Like to Teach?",
+        label="What Would You Like to Host?",
         help_text=(
-            "A sentence or two is plenty. Tell us the subject, roughly how long a class would run, "
+            "A sentence or two is plenty. Tell us the subject, roughly how long it would run, "
             "and anything you have taught before."
         ),
         widget=forms.Textarea(attrs={"rows": 5}),
         error_messages={
-            "required": "Tell us a little about what you want to teach.",
+            "required": "Tell us a little about what you want to host.",
             "max_length": "That is longer than we can store. Trim it to 2000 characters or fewer.",
         },
     )
@@ -1132,6 +1132,33 @@ class RegistrationForm(forms.ModelForm):
 
 
 class ClassSettingsForm(forms.ModelForm):
+    """The classes Settings page: the general fields plus the Host a Workshop page's copy.
+
+    The template renders the two groups as separate sections (``GENERAL_FIELDS`` and
+    ``TEACH_PAGE_FIELDS``), so the field lists live here where the form is the one
+    place that knows which fields exist.
+    """
+
+    GENERAL_FIELDS = (
+        "liability_waiver_text",
+        "model_release_waiver_text",
+        "default_member_discount_pct",
+        "reminder_hours_before",
+        "instructor_approval_required",
+        "confirmation_email_footer",
+    )
+    TEACH_PAGE_FIELDS = (
+        "teach_page_title",
+        "teach_page_lead",
+        "teach_page_features",
+        "teach_page_how_it_works",
+        "teach_page_expectations",
+        "teach_page_faq",
+        "teach_page_cta_title",
+        "teach_page_cta_line",
+        "example_class",
+    )
+
     class Meta:
         model = ClassSettings
         fields = [
@@ -1140,14 +1167,47 @@ class ClassSettingsForm(forms.ModelForm):
             "default_member_discount_pct",
             "reminder_hours_before",
             "instructor_approval_required",
-            "example_class",
             "confirmation_email_footer",
+            "teach_page_title",
+            "teach_page_lead",
+            "teach_page_features",
+            "teach_page_how_it_works",
+            "teach_page_expectations",
+            "teach_page_faq",
+            "teach_page_cta_title",
+            "teach_page_cta_line",
+            "example_class",
         ]
+        labels = {
+            "teach_page_title": "Headline",
+            "teach_page_lead": "Lead Paragraph",
+            "teach_page_features": "What You Get",
+            "teach_page_how_it_works": "How It Works",
+            "teach_page_expectations": "What We Ask Of You",
+            "teach_page_faq": "Common Questions",
+            "teach_page_cta_title": "Bottom Card Headline",
+            "teach_page_cta_line": "Bottom Card Line",
+            "example_class": "Example Workshop Page",
+        }
         widgets = {
             "liability_waiver_text": forms.Textarea(attrs={"rows": 10}),
             "model_release_waiver_text": forms.Textarea(attrs={"rows": 10}),
             "confirmation_email_footer": forms.Textarea(attrs={"rows": 3}),
+            "teach_page_lead": forms.Textarea(attrs={"rows": 4}),
+            "teach_page_features": forms.Textarea(attrs={"rows": 8}),
+            "teach_page_how_it_works": forms.Textarea(attrs={"rows": 6}),
+            "teach_page_expectations": forms.Textarea(attrs={"rows": 6}),
+            "teach_page_faq": forms.Textarea(attrs={"rows": 12}),
+            "teach_page_cta_line": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def general_fields(self) -> list[forms.BoundField]:
+        """The bound fields of the general section, in display order."""
+        return [self[name] for name in self.GENERAL_FIELDS]
+
+    def teach_page_fields(self) -> list[forms.BoundField]:
+        """The bound fields of the Host a Workshop Page section, in display order."""
+        return [self[name] for name in self.TEACH_PAGE_FIELDS]
 
 
 class TeachEmailForm(forms.Form):

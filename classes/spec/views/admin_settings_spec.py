@@ -1,8 +1,33 @@
-"""BDD specs for the admin Settings tab."""
+"""BDD specs for the admin Settings tab, including the Host a Workshop Page section."""
 
 from __future__ import annotations
 
 from django.urls import reverse
+
+from classes.models import ClassSettings
+
+# What an admin would type into every Host a Workshop field, each distinct so a
+# round trip proves each one landed in its own column.
+TEACH_PAGE_INPUT = {
+    "teach_page_title": "Teach Us Something",
+    "teach_page_lead": "A lead an admin wrote.",
+    "teach_page_features": "One: first\nTwo: second",
+    "teach_page_how_it_works": "1. **Ask.** Say hi.\n2. **Build.** Make it.",
+    "teach_page_expectations": "- Be kind.\n- Be safe.",
+    "teach_page_faq": "### Is It Free?\n\nYes.",
+    "teach_page_cta_title": "Ready?",
+    "teach_page_cta_line": "Tell us.",
+}
+
+
+def _general_post() -> dict[str, object]:
+    return {
+        "liability_waiver_text": "LIABILITY",
+        "model_release_waiver_text": "MODEL RELEASE",
+        "default_member_discount_pct": 10,
+        "reminder_hours_before": 24,
+        "confirmation_email_footer": "",
+    }
 
 
 def describe_admin_settings():
@@ -11,6 +36,15 @@ def describe_admin_settings():
         response = client.get(reverse("classes:admin_settings"))
         assert response.status_code == 200
         assert b"Class Settings" in response.content
+
+    def it_ends_with_a_button_that_just_says_save(admin_user, client, db):
+        client.force_login(admin_user)
+        content = client.get(reverse("classes:admin_settings")).content.decode()
+        assert ">Save</button>" in content
+        assert "Save Settings" not in content
+        # Rule 21: nothing renders below the Save button.
+        assert "<input" not in content.split(">Save</button>")[1]
+        assert "<textarea" not in content.split(">Save</button>")[1]
 
     def it_saves_settings(admin_user, client, db):
         client.force_login(admin_user)
@@ -77,3 +111,54 @@ def describe_admin_settings():
                 },
             )
             assert ClassSettings.load().example_class_id is None
+
+    def describe_host_a_workshop_page():
+        def it_shows_the_section_with_every_field_and_a_view_the_page_link(admin_user, client, db):
+            client.force_login(admin_user)
+            content = client.get(reverse("classes:admin_settings")).content.decode()
+            assert "Host a Workshop Page" in content
+            for name in TEACH_PAGE_INPUT:
+                assert f'name="{name}"' in content
+            # example_class moved into this section: it renders after the heading.
+            assert content.index('name="example_class"') > content.index("Host a Workshop Page")
+            assert "View the Page" in content
+            assert f'href="{reverse("classes:teach_why")}"' in content
+            assert "until an admin says yes to them." in content
+            assert "Markdown works here: **bold**, lists, links." in content
+            # The section sits above the one Save button.
+            assert content.index("Host a Workshop Page") < content.index(">Save</button>")
+
+        def it_prefills_the_default_copy(admin_user, client, db):
+            client.force_login(admin_user)
+            content = client.get(reverse("classes:admin_settings")).content.decode()
+            assert 'value="Share What You Love"' in content
+            assert "A Page Worth Sharing: Your workshop gets its own page" in content
+            assert "### Do I Need to Be an Expert?" in content
+
+        def it_round_trips_every_field(admin_user, client, db):
+            client.force_login(admin_user)
+            response = client.post(reverse("classes:admin_settings"), {**_general_post(), **TEACH_PAGE_INPUT})
+            assert response.status_code == 302
+            settings_obj = ClassSettings.load()
+            for name, value in TEACH_PAGE_INPUT.items():
+                assert getattr(settings_obj, name) == value
+            assert len(settings_obj.teach_page_feature_cards()) == 2
+
+        def it_accepts_a_blanked_field_and_stores_it_blank(admin_user, client, db):
+            client.force_login(admin_user)
+            response = client.post(
+                reverse("classes:admin_settings"),
+                {**_general_post(), **TEACH_PAGE_INPUT, "teach_page_faq": "", "teach_page_title": ""},
+            )
+            assert response.status_code == 302
+            settings_obj = ClassSettings.load()
+            assert settings_obj.teach_page_faq == ""
+            assert settings_obj.teach_page_title == ""
+            assert settings_obj.teach_page_lead == "A lead an admin wrote."
+
+        def it_refuses_a_non_admin_on_get_and_post(member_user, client, db):
+            client.force_login(member_user)
+            assert client.get(reverse("classes:admin_settings")).status_code == 403
+            response = client.post(reverse("classes:admin_settings"), {**_general_post(), **TEACH_PAGE_INPUT})
+            assert response.status_code == 403
+            assert ClassSettings.load().teach_page_title == "Share What You Love"

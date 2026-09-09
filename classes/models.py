@@ -54,6 +54,70 @@ I waive any right to inspect or approve the finished images or the use to which 
 
 I understand that I may revoke this consent at any time by notifying PLM in writing at info@pastlives.space."""
 
+# The Host a Workshop page, as an admin first sees it. Each constant is the migration
+# default of the matching ClassSettings.teach_page_* field, so a fresh database renders
+# the whole page with no seed command; an admin edits the words on the classes Settings
+# page. No dashes anywhere in this copy: it is member facing.
+DEFAULT_TEACH_PAGE_TITLE = "Share What You Love"
+
+DEFAULT_TEACH_PAGE_LEAD = (
+    "Run a workshop or a class for the people already in the shop. Show a technique, teach a skill, "
+    "or just get folks making things together. You get a page for it, a sign up list, and the tools "
+    "to run the day."
+)
+
+DEFAULT_TEACH_PAGE_FEATURES = """\
+A Page Worth Sharing: Your workshop gets its own page with a wide banner photo, a gallery, the schedule, your bio, and a sign up panel that follows the reader down the page.
+Your Words, Your Photos: Write it the way you would say it. Add a banner and as many gallery shots as you like, and choose which part of each photo shows.
+Sign Ups That Run Themselves: When it fills up, people join a waitlist. The moment a seat opens, the next person is offered it and held for three days.
+Everyone On One Screen: See who is coming, mark someone as paid, move a person to another date, and email the whole group without leaving the page.
+Free, Paid, Or On Sale: Run it free, set a price with a member discount, or put it on sale and the new price shows up everywhere on its own.
+Run It Again In One Click: Went well? Make a copy with new dates and keep everything else exactly as it was."""
+
+DEFAULT_TEACH_PAGE_HOW_IT_WORKS = """\
+1. **Say you're interested.** Tell us what you'd like to host. A sentence is plenty. An admin reads every note.
+2. **Build your page.** Once you're in, the editor walks you through it in five short steps. Save a draft any time and come back.
+3. **Open sign ups.** Send it for a quick look. Your guild lead and an admin check it over, then it goes into the catalog and out to members."""
+
+DEFAULT_TEACH_PAGE_EXPECTATIONS = """\
+- Know your material and know the tools you're using.
+- Show up on time and leave the space the way you found it.
+- Answer people when they message you through the app.
+- Tell an admin as early as you can if you need to move or cancel a date."""
+
+DEFAULT_TEACH_PAGE_FAQ = """\
+### Do I Need to Be an Expert?
+No. You need to be safe and clear. Plenty of great workshops are run by people two steps ahead of everyone else in the room.
+
+### How Long Until I Hear Back?
+An admin usually gets to it within a week. You can check this page any time to see where things stand.
+
+### Can I Charge for It?
+Yes. You set the price and an optional member discount when you build the page. You can also run it free.
+
+### What If Nobody Signs Up?
+You can cancel from your dashboard and everyone who signed up is told automatically. Nothing is stuck."""
+
+DEFAULT_TEACH_PAGE_CTA_TITLE = "Got Something to Share?"
+
+DEFAULT_TEACH_PAGE_CTA_LINE = "Tell us what you have in mind and an admin will take it from there."
+
+#: Feature card icons, assigned by position (card 1 gets the first key, and so on,
+#: wrapping past the end). The order is chosen so the six default cards read right; an
+#: admin who reorders the cards moves the icons with the positions, which the field's
+#: help text says out loud. Every key has a matching branch in
+#: templates/classes/teach/partials/_feature_icon.html.
+TEACH_PAGE_FEATURE_ICONS: tuple[str, ...] = (
+    "page",
+    "image",
+    "users",
+    "user-check",
+    "tag",
+    "copy",
+    "clipboard",
+    "mail",
+)
+
 
 MAX_GALLERY_IMAGES = 10
 
@@ -3618,6 +3682,19 @@ class CmsActivity(models.Model):
         return f"{self.get_kind_display()} @ {self.created_at:%Y-%m-%d %H:%M}"
 
 
+@dataclass(frozen=True)
+class FeatureCard:
+    """One "What You Get" card on the Host a Workshop page.
+
+    Parsed from one line of ``ClassSettings.teach_page_features``. ``icon`` is a key from
+    :data:`TEACH_PAGE_FEATURE_ICONS`, decoration only, chosen by the card's position.
+    """
+
+    title: str
+    description: str
+    icon: str
+
+
 class ClassSettings(models.Model):
     liability_waiver_text = models.TextField(help_text="Full liability waiver text shown to all registrants.")
     model_release_waiver_text = models.TextField(
@@ -3647,8 +3724,66 @@ class ClassSettings(models.Model):
         on_delete=models.SET_NULL,
         related_name="+",
         help_text=(
-            "The class page shown as the worked example on the Teach at Past Lives page. Leave blank to hide that link."
+            "The class page shown as the worked example on the Host a Workshop page. Leave blank to hide that link."
         ),
+    )
+    teach_page_title = models.CharField(
+        max_length=120,
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_TITLE,
+        help_text="The big headline at the top of the Host a Workshop page. Leave blank to show no headline.",
+    )
+    teach_page_lead = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_LEAD,
+        help_text="The paragraph under the headline. Plain text. Leave blank to show no paragraph.",
+    )
+    teach_page_features = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_FEATURES,
+        help_text=(
+            "The What You Get cards, one per line, written as Title: description. Six lines make two even rows. "
+            "Icons are decoration and follow the position of the line, so reordering the lines moves the icons "
+            "with them. Leave blank to hide the section."
+        ),
+    )
+    teach_page_how_it_works = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_HOW_IT_WORKS,
+        help_text=(
+            "The How It Works steps, a numbered list. Each step shows a gold number. "
+            "Markdown works here: **bold**, lists, links. Leave blank to hide the section."
+        ),
+    )
+    teach_page_expectations = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_EXPECTATIONS,
+        help_text=(
+            "The What We Ask Of You list, a bullet list. "
+            "Markdown works here: **bold**, lists, links. Leave blank to hide the section."
+        ),
+    )
+    teach_page_faq = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_FAQ,
+        help_text=(
+            "The Common Questions section. Write each question as a ### heading with the answer under it. "
+            "Markdown works here: **bold**, lists, links. Leave blank to hide the section."
+        ),
+    )
+    teach_page_cta_title = models.CharField(
+        max_length=120,
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_CTA_TITLE,
+        help_text=(
+            "The headline on the card at the bottom of the page, above the I'm Interested button. "
+            "Leave blank to show no headline."
+        ),
+    )
+    teach_page_cta_line = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_CTA_LINE,
+        help_text=("The line under that headline on the bottom card. Plain text. Leave blank to show no line."),
     )
 
     class Meta:
@@ -3675,3 +3810,50 @@ class ClassSettings(models.Model):
             },
         )
         return obj
+
+    # ── The Host a Workshop page ─────────────────────────────────────────────
+
+    def teach_page_feature_cards(self) -> list[FeatureCard]:
+        """The What You Get cards, parsed from ``teach_page_features``.
+
+        One card per non-blank line, split on the FIRST colon so a description may
+        contain colons of its own; a line with no colon is a title-only card. Icons
+        come from :data:`TEACH_PAGE_FEATURE_ICONS` by position, wrapping past the
+        end. An empty field yields an empty list, which hides the section.
+        """
+        cards: list[FeatureCard] = []
+        for line in self.teach_page_features.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            title, _sep, description = stripped.partition(":")
+            icon = TEACH_PAGE_FEATURE_ICONS[len(cards) % len(TEACH_PAGE_FEATURE_ICONS)]
+            cards.append(FeatureCard(title=title.strip(), description=description.strip(), icon=icon))
+        return cards
+
+    @staticmethod
+    def _teach_page_markdown(source: str) -> SafeString:
+        """Render one of the page's Markdown fields through the member profile.
+
+        The member profile strips scripts, inline styles, event handlers and any tag
+        outside its allowlist, and hardens every link, so the result is safe to mark
+        safe here rather than with ``|safe`` on raw text in the template.
+        """
+        from membership.markdown import render_markdown
+
+        return mark_safe(render_markdown(source, profile="member"))
+
+    @property
+    def teach_page_how_it_works_html(self) -> SafeString:
+        """How It Works, rendered; the template numbers the list with CSS counters."""
+        return self._teach_page_markdown(self.teach_page_how_it_works)
+
+    @property
+    def teach_page_expectations_html(self) -> SafeString:
+        """What We Ask Of You, rendered."""
+        return self._teach_page_markdown(self.teach_page_expectations)
+
+    @property
+    def teach_page_faq_html(self) -> SafeString:
+        """Common Questions, rendered: each ``###`` heading is a question."""
+        return self._teach_page_markdown(self.teach_page_faq)

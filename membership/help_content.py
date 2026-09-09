@@ -776,7 +776,7 @@ The guided tour points at the real buttons, right on the teaching portal, in abo
 
 **Create and publish:**
 
-- **Create a class** — a private draft with your title, description, dates, price, and photos. See [Become an Instructor](/help/teaching/become-an-instructor/).
+- **Create a class** — a private draft with your title, description, dates, price, and photos. See [Host a Workshop](/help/teaching/become-an-instructor/).
 - **Submit it for review** — a guild lead (when your category has one) and an admin check it before it goes live. Same guide.
 - **Preview as a student** — see the public page exactly as a student will, at any point while you work.
 - **Offer it again on new dates** — one click copies a class into a new draft so you can run it again; the two link to each other on the public page. See [Run Your Class](/help/teaching/run-your-class/).
@@ -799,7 +799,7 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 - Nobody self-publishes. Every class — including every new run of an old one — goes through review first.
 - Draft and pending classes are all yours to edit. Once a class publishes, only an admin can change it.
-- An admin approving your [application to teach](/classes/teach/why/) is what opens the portal, and the quality bar lives in the [instructor guide](/help/more/instructor-orientation/).
+- An admin saying yes to your [note about hosting](/classes/teach/why/) is what opens the portal, and the quality bar lives in the [hosting guide](/help/more/instructor-orientation/).
 
 ![The teaching portal: overview, your classes, and registrations.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
 """,
@@ -816,21 +816,21 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
     {
         "slug": "become-an-instructor",
         "category": "teaching",
-        "title": "Become an Instructor",
+        "title": "Host a Workshop",
         "sort_order": 20,
         "related": ["run-your-class", "taking-a-class"],
         "body": """\
-Are you an experienced instructor? Past Lives instructors come from our membership base. If you have a vision for a class you'd like to teach at Past Lives, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
+Got something to share? Past Lives instructors come from our membership base. If you have a workshop or a class in mind, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-### Apply to Teach {#teach-become-instructor}
+### Say You're Interested {#teach-become-instructor}
 
-Click **Teaching** in the left menu and you land on [Teach at Past Lives](/classes/teach/why/). It shows what instructors get, links a real example class page, and carries the **Apply to Teach** button. Tell us what you would like to teach, in a sentence or two, and send it.
+Click **Host a Workshop** in the left menu and you land on [Host a Workshop](/classes/teach/why/). It shows what you get, links a real example workshop page, and carries the **I'm Interested** button. Tell us what you would like to host, in a sentence or two, and send it.
 
-An admin reads every application and usually gets to them within a week. You get an email either way, and you can open that page any time to see where yours stands. If the answer is no, the admin leaves a note saying why, and you can apply again whenever you like.
+An admin reads every note and usually gets to them within a week. You get an email either way, and you can open that page any time to see where things stand. If the answer is no, the admin leaves a note saying why, and you are welcome to say you're interested again whenever you like.
 
-Once you are approved the teaching portal opens and you get a public instructor page in the class catalog. (This is about using the portal; it is separate from any guild equipment or tool orientations.)
+Once an admin says yes the teaching portal opens, the menu entry reads **Teaching**, and you get a public instructor page in the class catalog. (This is about using the portal; it is separate from any guild equipment or tool orientations.)
 
 ### Open the Teaching Portal
 
@@ -893,8 +893,8 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
         ],
     },
     {
-        # UNLISTED (§10.6): renders inside the "Read the Instructor Guide" disclosure
-        # on the Teach at Past Lives page (/classes/teach/why/) and resolves at its own
+        # UNLISTED (§10.6): renders inside the "Read the Hosting Guide" disclosure
+        # on the Host a Workshop page (/classes/teach/why/) and resolves at its own
         # /help/ URL, but never appears on the landing, category pages, or search.
         "slug": "instructor-orientation",
         "category": None,
@@ -902,7 +902,7 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
         "sort_order": 0,
         "related": [],
         "body": """\
-Past Lives instructors come from our membership base. This is what we expect from an instructor, how class review works, and the bar a class has to clear. Read it before you apply to teach. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
+Past Lives instructors come from our membership base. This is what we expect from an instructor, how class review works, and the bar a class has to clear. Read it before you say you're interested. (Have a workshop in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
 
 ## What We Expect From Instructors {#what-we-expect}
 

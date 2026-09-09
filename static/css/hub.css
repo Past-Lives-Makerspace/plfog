@@ -6658,10 +6658,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
-/* ── Teach at Past Lives (.pl-teach-*) ─────────────────────────────────
-   The instructor marketing page. One centered column of hub-cards: a
-   state banner, a gradient hero, a feature grid, a live catalog card, the
-   steps, the asks, an FAQ, the guide, and the apply card.
+/* ── Host a Workshop (.pl-teach-*) ──────────────────────────────────────
+   The page inviting members to host a workshop. One centered column of
+   hub-cards: a state banner, a gradient hero, a feature grid, a live catalog
+   card, the steps, the asks, the questions, the guide, and the interest card.
+   The steps, asks and questions are admin-edited Markdown rendered into
+   .pl-md; the modifiers below give each its shape.
    Theme tokens only — verified on Obsidian + Slate. ── */
 
 .pl-teach {
@@ -6897,10 +6899,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
-/* "How It Works": three numbered steps. Deliberately NOT .pl-pipeline markup —
-   that strip means "where your class is in review", which this is not. */
-.pl-teach-steps {
+/* "How It Works": the admin's plain Markdown `1. 2. 3.` list, numbered here with
+   CSS counters so every step keeps the gold circle the hand built list used to
+   carry. Deliberately NOT .pl-pipeline markup — that strip means "where your class
+   is in review", which this is not. Two-class selectors so these beat the generic
+   .pl-md list rules regardless of source order. */
+.pl-md.pl-teach-steps-md ol {
     list-style: none;
+    counter-reset: pl-teach-step;
     margin: 1rem 0 0;
     padding: 0;
     display: flex;
@@ -6908,14 +6914,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     gap: 1rem;
 }
 
-.pl-teach-steps__item {
+.pl-md.pl-teach-steps-md ol > li {
+    counter-increment: pl-teach-step;
     display: flex;
     gap: 0.85rem;
     align-items: flex-start;
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
 }
 
 /* The gold numeral circle, copied from .pl-wizard-nav__n's active state. */
-.pl-teach-steps__n {
+.pl-md.pl-teach-steps-md ol > li::before {
+    content: counter(pl-teach-step);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -6929,41 +6941,60 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-weight: 700;
 }
 
-.pl-teach-steps__title {
-    display: block;
-    font-weight: 700;
+/* The bold lead of each step reads as its title, in the full text color. */
+.pl-md.pl-teach-steps-md ol > li strong {
+    color: var(--hub-text);
+    font-size: 1rem;
 }
 
-.pl-teach-steps__desc {
-    display: block;
+/* "What We Ask Of You": a plain bullet list in the muted text color. */
+.pl-md.pl-teach-asks-md {
     color: var(--hub-text-muted);
-    font-size: 0.875rem;
 }
 
-/* FAQ + the collapsed instructor guide: the public class page's disclosure
-   pattern, restyled for the hub in two rules. */
-.pl-teach-faq__item {
-    border-bottom: 1px solid var(--hub-border);
-    padding: 0.75rem 0;
+.pl-md.pl-teach-asks-md ul {
+    margin: 0.5rem 0 0;
 }
 
-.pl-teach-faq__item summary {
+/* Common Questions: each `###` heading is a question and the paragraph under it the
+   answer. Open and readable; the <details> accordions went with the hand built markup
+   because plain Markdown is what an admin can edit. */
+.pl-md.pl-teach-faq-md h3 {
+    margin: 0;
+    padding: 0.75rem 0 0.25rem;
+    border-top: 1px solid var(--hub-border);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.pl-md.pl-teach-faq-md h3:first-child {
+    border-top: none;
+    padding-top: 0.25rem;
+}
+
+.pl-md.pl-teach-faq-md p {
+    color: var(--hub-text-muted);
+    margin: 0 0 0.5rem;
+}
+
+/* The collapsed hosting guide: the public class page's disclosure pattern,
+   restyled for the hub. */
+.pl-teach-guide {
+    padding-bottom: 0.75rem;
+}
+
+.pl-teach-guide summary {
     cursor: pointer;
     font-weight: 600;
     list-style: none;
 }
 
-.pl-teach-faq__item summary::-webkit-details-marker {
+.pl-teach-guide summary::-webkit-details-marker {
     display: none;
 }
 
-.pl-teach-faq__item summary::marker {
+.pl-teach-guide summary::marker {
     content: "";
-}
-
-.pl-teach-guide {
-    border-bottom: none;
-    padding-top: 0;
 }
 
 /* Apply card. Its button clears the paragraph above it (Rule 18). */
@@ -6987,6 +7018,31 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         width: 100%;
         text-align: center;
     }
+}
+
+/* The Host a Workshop Page section on the classes Settings page: a ruled-off block
+   with its heading, "?" bubble and View the Page link on one row. */
+.pl-teach-settings {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-teach-settings__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.pl-teach-settings__title {
+    margin: 0;
+    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
 }
 
 /* ========================================

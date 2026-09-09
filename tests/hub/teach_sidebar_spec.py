@@ -48,27 +48,34 @@ def _teach_label(nav: str) -> str:
 
 
 def describe_teach_entry():
-    def it_is_present_for_a_plain_active_member_who_cannot_teach_yet(plain_user, client):
+    def it_reads_host_a_workshop_for_a_plain_active_member_who_cannot_teach_yet(plain_user, client):
         """Teaching is recruited for now, so every active member sees the door.
 
         It used to be gated on ``can_create_classes``, which meant the only people who
-        could find the teaching pages were the people who already had them.
+        could find the teaching pages were the people who already had them. A member
+        who cannot teach yet reads the invitation, not the portal's name.
         """
         client.force_login(plain_user)
         nav = _sidebar(client)
         assert 'data-nav="teach"' in nav
-        assert ">Teaching" in _teach_label(nav)
+        label = _teach_label(nav)
+        assert ">HostaWorkshop" in label  # whitespace-squeezed "Host a Workshop"
+        assert ">Teaching" not in label
         assert reverse("classes:teach_overview") in nav
 
     def it_is_present_for_an_admin_who_has_not_been_set_up_to_teach(admin_user, client):
         client.force_login(admin_user)
-        assert 'data-nav="teach"' in _sidebar(client)
+        nav = _sidebar(client)
+        assert 'data-nav="teach"' in nav
+        assert ">HostaWorkshop" in _teach_label(nav)
 
     def it_reads_teaching_and_opens_the_portal_once_unlocked(plain_user, client):
         _unlock(plain_user)
         client.force_login(plain_user)
         nav = _sidebar(client)
-        assert ">Teaching" in _teach_label(nav)
+        label = _teach_label(nav)
+        assert ">Teaching" in label
+        assert ">HostaWorkshop" not in label
         assert reverse("classes:teach_overview") in nav
         assert "Teach a Class" not in nav
 
@@ -189,9 +196,10 @@ def describe_context_processor():
         request.user = plain_user
         ctx = hub_sidebar(request)
         assert ctx["can_create_classes"] is False
-        # The entry is present before the grant; only ``can_create_classes`` flips.
+        # The entry is present before the grant; the grant flips ``can_create_classes``
+        # and the label with it.
         assert ctx["teach_nav"] == {
-            "label": "Teaching",
+            "label": "Host a Workshop",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
         }

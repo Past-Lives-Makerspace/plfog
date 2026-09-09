@@ -1,12 +1,15 @@
-"""BDD specs for the Teach at Past Lives page and the apply-to-teach POST (spec §A).
+"""BDD specs for the Host a Workshop page and the I'm Interested POST (spec §A, retoned).
 
-Teaching stopped being self-service: a member applies, an admin approves. These cover
-the page in all four application states, the apply POST's guards, and the branch that
-sends a member who CAN teach to their dashboard instead of the marketing page.
+Teaching stopped being self-service: a member says they are interested, an admin says
+yes. These cover the page in all four states, the POST's guards, the branch that sends
+a member who CAN teach to their dashboard instead of the marketing page, and the
+admin-edited copy: every section renders its default, a blanked field hides its section,
+and nothing an admin types reaches the page unescaped or unsanitized.
 """
 
 from __future__ import annotations
 
+import pytest
 from django.urls import reverse
 from django.utils import timezone
 
@@ -15,15 +18,30 @@ from classes.models import ClassOffering, ClassSettings
 from core.models import SiteActivity
 from membership.models import Member, OrgInfoPage, WikiArticle
 
-HERO_TITLE = "Teach at Past Lives"
-APPLY_BUTTON = "Apply to Teach"
-APPLY_AGAIN_BUTTON = "Apply Again"
-PENDING_BANNER = "Your Application Is In"
-DECLINED_BANNER = "Not This Time"
-APPROVED_BANNER = "You Can Teach"
+HERO_TITLE = "Share What You Love"
+APPLY_BUTTON = "I'm Interested"
+APPLY_AGAIN_BUTTON = "I'm Still Interested"
+SEND_BUTTON = "Send It"
+PENDING_BANNER = "Thanks, We Got Your Note"
+DECLINED_BANNER = "Not Right Now"
+APPROVED_BANNER = "You Can Host Workshops"
 # Template-literal copy is NOT autoescaped (only variables are), so these match verbatim.
 PLACEHOLDER = "The guide has not been loaded yet."
-BLANK_NOTE_ERROR = "Tell us a little about what you want to teach."
+BLANK_NOTE_ERROR = "Tell us a little about what you want to host."
+OPEN_MODAL = "$dispatch('open-modal', 'apply-to-teach')"
+
+# One marker per admin-edited field: text that is on the page only while that field
+# is filled. Used to prove each blanked field hides exactly its own section.
+SECTION_MARKERS = {
+    "teach_page_title": HERO_TITLE,
+    "teach_page_lead": "Run a workshop or a class for the people already in the shop.",
+    "teach_page_features": "What You Get",
+    "teach_page_how_it_works": "How It Works",
+    "teach_page_expectations": "What We Ask Of You",
+    "teach_page_faq": "Common Questions",
+    "teach_page_cta_title": "Got Something to Share?",
+    "teach_page_cta_line": "Tell us what you have in mind and an admin will take it from there.",
+}
 
 
 def _active_member_user(username: str) -> tuple[object, Member]:
@@ -71,9 +89,11 @@ def describe_teach_why():
         client.force_login(user)
         content = client.get(reverse("classes:teach_why")).content.decode()
         assert PENDING_BANNER in content
-        assert "Waiting on an Admin" in content
+        assert "Note Sent" in content
+        assert "Waiting to Hear Back" in content
         # The modal (and therefore its submit button) is not rendered while pending.
-        assert "Send My Application" not in content
+        assert SEND_BUTTON not in content
+        assert OPEN_MODAL not in content
 
     def it_renders_the_decline_reason_and_an_apply_again_button(db, client):
         user, member = _active_member_user("declined-page@example.com")
@@ -84,6 +104,7 @@ def describe_teach_why():
         assert DECLINED_BANNER in content
         assert "Finish the wheel orientation first." in content
         assert APPLY_AGAIN_BUTTON in content
+        assert "You are welcome to say you're interested again whenever you like." in content
 
     def it_renders_the_approved_banner_for_an_instructor(db, client):
         user, member = _active_member_user("approved-page@example.com")
@@ -92,7 +113,10 @@ def describe_teach_why():
         content = client.get(reverse("classes:teach_why")).content.decode()
         assert APPROVED_BANNER in content
         assert "Go to the Teaching Portal" in content
+        assert "Create a Workshop" in content
+        assert "You Are Already In" in content
         assert APPLY_BUTTON not in content
+        assert OPEN_MODAL not in content
 
     def it_reads_approved_for_a_grandfathered_instructor_who_never_applied(db, client):
         user, member = _active_member_user("grandfathered-page@example.com")
@@ -115,7 +139,84 @@ def describe_teach_why():
         client.force_login(user)
         content = client.get(reverse("classes:teach_why")).content.decode()
         assert PLACEHOLDER in content
-        assert APPLY_BUTTON in content  # the apply path is never blocked by a missing seed
+        assert "Read the Hosting Guide" in content
+        assert APPLY_BUTTON in content  # the interest path is never blocked by a missing seed
+
+    def describe_the_admin_edited_copy():
+        def it_renders_every_default_section(db, client):
+            user, _ = _active_member_user("defaults-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            for marker in SECTION_MARKERS.values():
+                assert marker in content
+            assert content.count('class="hub-card pl-feature-card"') == 6
+            assert "A Page Worth Sharing" in content
+            assert "Run It Again In One Click" in content
+            assert "<h3>Do I Need to Be an Expert?</h3>" in content
+            assert "Show up on time and leave the space the way you found it." in content
+            assert "<strong>Build your page.</strong>" in content
+            assert 'class="pl-md pl-teach-steps-md"' in content
+            assert 'class="pl-md pl-teach-faq-md"' in content
+            # The accordions are gone: questions are open headings now. The only
+            # disclosure left on the page is the guide's own.
+            faq_block = content.split('class="pl-md pl-teach-faq-md"')[1].split('<details class="pl-teach-guide">')[0]
+            assert "<details" not in faq_block
+            assert "<summary" not in faq_block
+
+        def it_renders_what_an_admin_typed(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_title = "Teach Us Something"
+            settings_obj.teach_page_features = "Only One Card: With one line."
+            settings_obj.teach_page_faq = "### Is It Free?\n\nYes."
+            settings_obj.save()
+            user, _ = _active_member_user("typed-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert "Teach Us Something" in content
+            assert HERO_TITLE not in content
+            assert content.count('class="hub-card pl-feature-card"') == 1
+            assert "Only One Card" in content
+            assert "<h3>Is It Free?</h3>" in content
+
+        @pytest.mark.parametrize("field", sorted(SECTION_MARKERS))
+        def it_hides_a_blanked_section_and_keeps_the_rest(db, client, field):
+            settings_obj = ClassSettings.load()
+            setattr(settings_obj, field, "")
+            settings_obj.save()
+            user, _ = _active_member_user(f"blank-{field}@example.com")
+            client.force_login(user)
+            response = client.get(reverse("classes:teach_why"))
+            assert response.status_code == 200
+            content = response.content.decode()
+            assert SECTION_MARKERS[field] not in content
+            for other, marker in SECTION_MARKERS.items():
+                if other != field:
+                    assert marker in content
+            assert APPLY_BUTTON in content  # the buttons are structural and never hide
+
+        def it_escapes_a_plain_text_field_an_admin_typed(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_title = "<b>Bold</b> & Co"
+            settings_obj.teach_page_cta_line = "<i>Line</i>"
+            settings_obj.save()
+            user, _ = _active_member_user("escaped-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert "&lt;b&gt;Bold&lt;/b&gt; &amp; Co" in content
+            assert "<b>Bold</b>" not in content
+            assert "&lt;i&gt;Line&lt;/i&gt;" in content
+
+        def it_strips_a_script_from_a_markdown_field_before_it_reaches_the_page(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_faq = '### Q\n\n<script>alert("faq")</script><p style="color:red">A</p>'
+            settings_obj.save()
+            user, _ = _active_member_user("script-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert '<script>alert("faq")</script>' not in content
+            assert 'alert("faq")' in content
+            assert 'style="color:red"' not in content
+            assert "<h3>Q</h3>" in content
 
     def describe_the_example_class():
         def it_renders_the_real_catalog_card_when_one_is_configured(db, client):
@@ -125,6 +226,7 @@ def describe_teach_why():
             content = client.get(reverse("classes:teach_why")).content.decode()
             assert "pl-teach-showcase__grid" in content
             assert "This is a live catalog card, not a picture of one." in content
+            assert "Open the Example Page" in content
             assert example.title in content
             assert example.public_url in content
 
@@ -197,7 +299,22 @@ def describe_teach_apply():
         user, _ = _active_member_user("apply-reopen@example.com")
         client.force_login(user)
         content = client.post(reverse("classes:teach_apply"), {"note": ""}).content.decode()
-        assert "$dispatch('open-modal', 'apply-to-teach')" in content
+        assert OPEN_MODAL in content
+
+    def it_thanks_the_member_on_the_page_it_lands_on(db, client):
+        user, _ = _active_member_user("apply-thanks@example.com")
+        client.force_login(user)
+        response = client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing."}, follow=True)
+        content = response.content.decode()
+        assert "Thanks. An admin will get back to you." in content
+        assert PENDING_BANNER in content
+
+    def it_says_it_already_has_the_note_on_a_duplicate(db, client):
+        user, member = _active_member_user("apply-dup-message@example.com")
+        member.apply_to_teach("First ask.")
+        client.force_login(user)
+        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask."}, follow=True)
+        assert "We already have your note." in response.content.decode()
 
     def it_refuses_a_second_application_while_one_is_pending(db, client):
         user, member = _active_member_user("apply-twice@example.com")

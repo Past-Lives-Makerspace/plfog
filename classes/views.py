@@ -1105,7 +1105,7 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
 
 
 def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> dict[str, Any]:
-    """Context for the Teach at Past Lives page — state, the example class, the guide.
+    """Context for the Host a Workshop page: state, the admin-edited copy, the example, the guide.
 
     A missing help-center seed must fail soft on the page (a placeholder line) but
     loudly in the logs: the page is the whole recruiting surface and must never 500
@@ -1125,7 +1125,8 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
             "Instructor-orientation article is not seeded — run `manage.py seed_help_center`."
         )
     guide = WikiArticle.objects.published().filter(slug="become-an-instructor").select_related("category").first()
-    example = ClassSettings.load().example_class
+    settings_obj = ClassSettings.load()
+    example = settings_obj.example_class
     if example is not None and example.status != ClassOffering.Status.PUBLISHED:
         example = None
     return {
@@ -1134,6 +1135,10 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
         "guide": guide,
         "apply_form": apply_form,
         "application_state": member.teaching_application_state,
+        # The page's words, edited on the classes Settings page. A blanked field hides
+        # its section, so the template guards every one.
+        "teach_page": settings_obj,
+        "feature_cards": settings_obj.teach_page_feature_cards(),
         "example_url": example.public_url if example is not None else None,
         "example_group": CatalogGroup(example) if example is not None else None,
         "catalog_url": book_absolute_url(reverse("classes:public_list")),
@@ -1142,7 +1147,7 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
 
 @active_member_required
 def teach_why(request: HttpRequest) -> HttpResponse:
-    """The Teach at Past Lives page: the marketing surface and apply-to-teach front door.
+    """The Host a Workshop page: the marketing surface and the I'm Interested front door.
 
     Open to every active member, instructors included, so an admin can link it and an
     approved instructor can still read the guide. Locked members reach it through
@@ -1155,13 +1160,14 @@ def teach_why(request: HttpRequest) -> HttpResponse:
 @active_member_required
 @require_POST
 def teach_apply(request: HttpRequest) -> HttpResponse:
-    """Handle the Apply to Teach submit: file the ask, tell the admins, say so.
+    """Handle the I'm Interested submit: file the note, tell the admins, say so.
 
     A full-page POST, so success is a Django message and not a toast (FRONTEND.md
     rule 6). An invalid note re-renders the page with the bound form, which reopens
-    the modal with the error inside it. A guard the UI never offers (applying twice,
-    an inactive account) comes back from the model as ``ValueError`` and becomes a
-    plain error message rather than a 500.
+    the modal with the error inside it. The one guard the UI never offers that can
+    still reach here (a second note while the first waits on an admin, say from two
+    tabs) comes back from the model as ``ValueError`` and becomes a plain message
+    rather than a 500; the decorator already keeps inactive accounts out.
     """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
     form = TeachingApplicationForm(request.POST)
@@ -1170,9 +1176,9 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
     try:
         member.apply_to_teach(form.cleaned_data["note"])
     except ValueError:
-        messages.error(request, "We could not file that application. Refresh the page and check where yours stands.")
+        messages.error(request, "We already have your note. Refresh the page and check where things stand.")
         return redirect("classes:teach_why")
-    messages.success(request, "Your application is in. An admin will get back to you.")
+    messages.success(request, "Thanks. An admin will get back to you.")
     return redirect("classes:teach_overview")
 
 
@@ -1182,8 +1188,8 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
 
     The Teaching sidebar entry is universal now, so this route is the front door for
     the whole membership: a member who can teach gets their dashboard (drafts, classes
-    awaiting review, recent sign-ups, waitlists), and everyone else gets the Teach at
-    Past Lives page instead of a 403 or a redirect loop.
+    awaiting review, recent sign-ups, waitlists), and everyone else gets the Host a
+    Workshop page instead of a 403 or a redirect loop.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     if not teaching_member.can_create_classes:

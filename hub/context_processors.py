@@ -60,10 +60,11 @@ def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
     Every ACTIVE member gets the entry now. Teaching is something we recruit for, and a
     member who cannot see the door cannot knock on it — the entry used to be gated on
     ``can_create_classes``, which meant the only people who could find the teaching
-    pages were the people who already had them. The label is the same either way;
-    ``classes:teach_overview`` is the one destination and it branches by itself, showing
-    the teaching dashboard to a member who can teach and the "Teach at Past Lives"
-    marketing page (with Apply to Teach) to everyone else.
+    pages were the people who already had them. ``classes:teach_overview`` is the one
+    destination and it branches by itself, showing the teaching dashboard to a member
+    who can teach and the "Host a Workshop" page (with I'm Interested) to everyone else.
+    The label follows the same split: an instructor reads "Teaching", everyone else
+    reads "Host a Workshop", the invitation rather than the portal.
 
     Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
     Instructor *role*, and someone can hold the portal unlock without a slug, which would
@@ -75,7 +76,7 @@ def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
     if member is None or member.status != Member.Status.ACTIVE:
         return None
     return {
-        "label": "Teaching",
+        "label": "Teaching" if member.can_create_classes else "Host a Workshop",
         "url": reverse("classes:teach_overview"),
         "is_active": request.path.startswith("/classes/teach/"),
     }

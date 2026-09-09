@@ -1,15 +1,15 @@
 {% comment %}
-Body of the Apply to Teach modal. Server-rendered inline (not fetched by HTMX), so a
+Body of the I'm Interested modal. Server-rendered inline (not fetched by HTMX), so a
 POST that fails validation re-renders the page with the bound form and the error shows
 inside the reopened modal. The note goes through form_field.html, which wraps it in
-.pl-form-group — that is what styles the textarea from the theme input tokens
+.pl-form-group; that is what styles the textarea from the theme input tokens
 (FRONTEND.md rule 13); a bare textarea on a hub page renders as a white box.
 {% endcomment %}
 <form method="post" action="{% url 'classes:teach_apply' %}">
     {% csrf_token %}
     {% include "components/form_field.html" with field=apply_form.note %}
     <div class="pl-modal__actions">
-        <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Send My Application</button>
+        <button type="submit" class="pl-btn pl-btn--primary" style="flex:1;">Send It</button>
         <button type="button" @click="$dispatch('close-modal', 'apply-to-teach')" class="pl-btn pl-btn--secondary" style="flex:1;">Cancel</button>
     </div>
 </form>
