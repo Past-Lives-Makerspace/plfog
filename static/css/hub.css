@@ -1156,6 +1156,7 @@ a:hover { color: var(--hub-link-hover); }
 }
 
 .hub-form-group input[type="text"],
+.hub-form-group input[type="search"],
 .hub-form-group input[type="email"],
 .hub-form-group input[type="tel"],
 .hub-form-group input[type="number"],
@@ -9480,6 +9481,156 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    single overflow menu, because two kebabs both containing Edit reads as a bug. */
 @media (max-width: 768px) {
     .pl-wp-mod__actions { display: none; }
+/* ── Member wiki: the guild Wiki tab (spec B) ───────────────────────────────
+   Namespace: pl-wp-tab__* and nothing else. Spec A owns bare pl-wp-*, spec D owns
+   pl-wp-mod__*, spec E keeps pl-gov-*, so three parallel PRs cannot collide on a
+   .pl-wp-row or a .pl-wp-empty. Every colour is a theme token; the only literal hexes
+   are the light-theme pill overrides, which copy the four the repo already carries.  */
+
+.pl-wp-tab__search {
+    display: flex;
+    align-items: flex-end;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+.pl-wp-tab__search form { flex: 1; min-width: 16rem; max-width: none; }
+.pl-wp-tab__scope { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.pl-wp-tab__scope-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--hub-text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+.pl-wp-tab__scope-chip--active {
+    border-color: var(--color-tuscan-yellow);
+    color: var(--hub-text);
+    cursor: default;
+}
+
+/* Two columns on desktop, one below 900px. The display lives here and never in an inline
+   style on the x-show pane: Alpine strips inline display when it reveals an element
+   (Rule 12 — the bug that collapsed the orientation slot table). */
+.pl-wp-tab__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+}
+.pl-wp-tab__col { min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
+
+.pl-wp-tab__group { padding: 1rem 1.25rem; }
+.pl-wp-tab__group-title { margin-top: 0; margin-bottom: 0.5rem; }
+.pl-wp-tab__group-more,
+.pl-wp-tab__panel-more { display: inline-block; margin-top: 0.75rem; font-size: 0.85rem; }
+.pl-wp-tab__row { border-bottom: 1px solid var(--hub-border); }
+.pl-wp-tab__row:last-of-type { border-bottom: none; }
+.pl-wp-tab__row-title { margin: 0; font-weight: 600; }
+.pl-wp-tab__row-meta { margin: 0.2rem 0 0; font-size: 0.85rem; }
+.pl-wp-tab__row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+}
+.pl-wp-tab__row-edit { font-size: 0.85rem; }
+
+.pl-wp-tab__recent,
+.pl-wp-tab__panel,
+.pl-wp-tab__misses,
+.pl-wp-tab__wanted { padding: 1rem 1.25rem; background: var(--hub-surface); }
+.pl-wp-tab__panel-title { margin-top: 0; margin-bottom: 0.35rem; }
+.pl-wp-tab__panel-empty { margin: 0.5rem 0 0; }
+.pl-wp-tab__panel-done { margin: 0.5rem 0; color: var(--hub-text-muted); }
+.pl-wp-tab__panel-row { padding: 0.75rem 0; border-bottom: 1px solid var(--hub-border); }
+.pl-wp-tab__panel-row:last-of-type { border-bottom: none; }
+.pl-wp-tab__recent-row { margin: 0.4rem 0; display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.9rem; }
+
+.pl-wp-tab__miss { padding: 0.75rem 0; border-bottom: 1px solid var(--hub-border); }
+.pl-wp-tab__miss:last-of-type { border-bottom: none; }
+.pl-wp-tab__miss-query { margin: 0; font-weight: 600; }
+.pl-wp-tab__miss-people { margin: 0.2rem 0 0; font-size: 0.85rem; }
+.pl-wp-tab__miss-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.pl-wp-tab__miss-onlist { font-size: 0.85rem; }
+
+.pl-wp-tab__wanted-row { padding: 0.75rem 0; border-bottom: 1px solid var(--hub-border); }
+.pl-wp-tab__wanted-row:last-of-type { border-bottom: none; }
+.pl-wp-tab__wanted-title { margin: 0; font-weight: 600; }
+.pl-wp-tab__wanted-meta,
+.pl-wp-tab__wanted-note,
+.pl-wp-tab__wanted-claim { margin: 0.2rem 0 0; font-size: 0.85rem; }
+.pl-wp-tab__wanted-count { font-weight: 600; color: var(--hub-text); }
+.pl-wp-tab__wanted-done { margin: 0.4rem 0 0; font-size: 0.9rem; }
+.pl-wp-tab__wanted-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.pl-wp-tab__wanted-done-list { margin-top: 0.75rem; }
+.pl-wp-tab__wanted-scope { padding: 1rem 1.25rem; margin-bottom: 1.25rem; }
+.pl-wp-tab__switcher { display: flex; align-items: flex-end; gap: 0.75rem; flex-wrap: wrap; }
+.pl-wp-tab__editor { padding: 1.5rem; margin-top: 1.25rem; }
+.pl-wp-tab__editor-rows { display: flex; flex-direction: column; gap: 1rem; }
+.pl-wp-tab__editor-row { padding: 1rem; background: var(--hub-surface); }
+
+.pl-wp-tab__verify { margin-top: 0.35rem; }
+.pl-wp-tab__verify:empty { margin-top: 0; }
+.pl-wp-tab__verify-credit,
+.pl-wp-tab__verify-note,
+.pl-wp-tab__verify-hint { margin: 0.2rem 0 0; font-size: 0.85rem; }
+.pl-wp-tab__verify-note { font-style: italic; }
+.pl-wp-tab__verify-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+
+.pl-wp-tab__empty { padding: 1.5rem; }
+.pl-wp-tab__empty p { margin: 0 0 0.5rem; }
+.pl-wp-tab__empty-headline { font-size: 1.05rem; font-weight: 600; margin: 0 0 0.5rem; }
+.pl-wp-tab__empty-actions,
+.pl-wp-tab__empty-scope { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; }
+.pl-wp-tab__empty-write { margin: 1rem 0 0; font-size: 0.9rem; }
+.pl-wp-tab__requested { margin: 0; font-size: 0.9rem; }
+
+/* Every in-flight one-tap control dims and stops taking taps, so a phone double tap cannot
+   double post; verify()'s 60-second same-member guard is the server-side backstop. Scoped
+   to the tab root rather than to each action row, so the compact Verify button also gets it
+   where it sits inside spec A's card partial. The wanted rows are named separately because
+   they also render on /wiki/wanted/, outside the tab. */
+.pl-wp-tab .htmx-request,
+.pl-wp-tab__wanted-actions .htmx-request,
+.pl-wp-tab__busy { opacity: 0.55; pointer-events: none; }
+
+/* No light-theme pill override here on purpose. Every status pill this tab renders comes
+   through spec A's shared card partial, so it already sits inside .pl-wp-card and picks up
+   A's [data-theme="light"] fix for .hub-pill--ok's too-pale dark green. The wanted rows and
+   the lead panels render no status pill at all. Adding a rule for them would be dead CSS
+   claiming to fix something that does not happen — and the shared .hub-pill--ok modifier
+   stays untouched either way, because changing it would move five other surfaces. */
+
+@media (max-width: 900px) {
+    .pl-wp-tab__grid { grid-template-columns: minmax(0, 1fr); }
+    /* A guild lead with forty minutes on a Sunday is who this feature is for. Stacking the
+       panels under as many as 72 page rows (six kinds x 12) asks them to thumb past the
+       whole directory to reach their to-do list, so for a lead the columns swap. For a
+       member nothing moves, because the panels do not render at all. */
+    .pl-wp-tab__grid--lead .pl-wp-tab__col--panels { order: 1; }
+    .pl-wp-tab__grid--lead .pl-wp-tab__col--list { order: 2; }
+    .pl-wp-tab__search { align-items: stretch; }
+    /* Gloves, dust, bad light. .pl-btn--sm sets min-height:0 (about 27px), so every
+       control on these surfaces is raised by CONTAINER ROOT rather than by action-row
+       class. Enumerating the action rows missed the three controls that matter most: the
+       compact Verify button lands in spec A's .pl-wp-card__actions slot and never in one
+       of B's own rows; the zero-result screen and the wanted editor live outside the tab
+       entirely; and the tab's own Search button sat at 27px beside a 48px scope chip. */
+    .pl-wp-tab .pl-btn,
+    .pl-wp-tab .hub-btn,
+    .pl-wp-tab__scope-chip,
+    .pl-wp-tab__wanted-row .pl-btn,
+    .pl-wp-tab__editor .pl-btn,
+    .pl-wp-tab__editor .hub-btn,
+    .pl-wp-tab__switcher .pl-btn,
+    .pl-wp-search__empty .pl-btn { min-height: 48px; }
 }
 
 /* Reviewer reassurance line above the class review decision radios. */

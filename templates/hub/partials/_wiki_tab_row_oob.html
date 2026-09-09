@@ -1,0 +1,8 @@
+{% comment %}
+One guild-tab row's answer to its inline Verify POST: a 200 whose body is the re-rendered
+row, swapped out of band. The row's status pill and its Verify button both change, and both
+live inside this wrapper, so one swap settles the whole row.
+{% endcomment %}
+<div id="wiki-tab-row-{{ page.pk }}" class="pl-wp-tab__row" hx-swap-oob="true">
+    {% include "hub/partials/_wiki_card.html" with page=page actions_partial="hub/partials/_wiki_verify_control.html" compact=True %}
+</div>

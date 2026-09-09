@@ -61,6 +61,7 @@ _BRAND_NEW_KEYS = {
     "instructor_application_received",
     "instructor_application_approved",
     "instructor_application_declined",
+    "wiki.guild_digest_monthly",
 }
 
 

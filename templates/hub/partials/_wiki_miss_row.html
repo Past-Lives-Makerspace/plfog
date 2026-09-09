@@ -1,0 +1,28 @@
+{% comment %}
+One row of "Searches That Found Nothing": a member's own words, and the two things a lead
+can do about them.
+
+A miss already matching an OPEN wanted row renders the quiet "On the wanted list" link
+instead of the button — annotated in the context builder, so the check costs no query and
+the control can never be tapped twice.
+{% endcomment %}
+<div class="pl-wp-tab__miss">
+    <p class="pl-wp-tab__miss-query">{{ miss.query }}</p>
+    <p class="hub-text-muted pl-wp-tab__miss-people">{{ miss.people }} {% if miss.people == 1 %}person{% else %}people{% endif %}</p>
+    <div class="pl-wp-tab__miss-actions">
+        <a href="{% url 'hub_wiki_new' %}?guild={{ guild.slug|urlencode }}&amp;title={{ miss.query|urlencode }}" class="pl-btn pl-btn--sm">Start This Page</a>
+        {% if miss.on_wanted %}
+        <a href="{{ wanted_url }}" class="pl-wp-tab__miss-onlist">On the wanted list &rarr;</a>
+        {% else %}
+        <form hx-post="{% url 'hub_wiki_wanted_request' %}" hx-target="closest .pl-wp-tab__miss" hx-swap="outerHTML">
+            {% csrf_token %}
+            <input type="hidden" name="title" value="{{ miss.query }}">
+            <input type="hidden" name="guild" value="{{ guild.slug }}">
+            {% comment %}bump=0: request_count counts people who asked, and a lead filing the row is not a fourth person asking.{% endcomment %}
+            <input type="hidden" name="bump" value="0">
+            <input type="hidden" name="surface" value="panel">
+            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Add To Wanted</button>
+        </form>
+        {% endif %}
+    </div>
+</div>

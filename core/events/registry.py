@@ -464,6 +464,7 @@ CLASS_CHANGE_REQUESTED = "class_change_requested"
 INSTRUCTOR_APPLICATION_RECEIVED = "instructor_application_received"
 INSTRUCTOR_APPLICATION_APPROVED = "instructor_application_approved"
 INSTRUCTOR_APPLICATION_DECLINED = "instructor_application_declined"
+WIKI_GUILD_DIGEST_MONTHLY = "wiki.guild_digest_monthly"
 GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
 GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
 GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
@@ -1151,6 +1152,32 @@ _NEW_EVENTS: list[EventType] = [
         description="An admin said not right now to a member's note about hosting, with a reason.",
         category="Classes",
         recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # wiki.guild_digest_monthly — one email per guild, on the 1st, to that guild's
+    # leadership (lead + every staff role, orienters included). It carries the three things
+    # a lead can act on in an afternoon: pages that went up, pages due a check, and what
+    # members searched for and did not find. A guild with nothing to report gets NO email,
+    # so this is never a monthly reminder that nothing happened.
+    #
+    # It renders under "Staff & leadership" on the settings page, not under Guilds: the
+    # category drives the email's X-Category header, while GUILD_LEADERSHIP being in
+    # settings_matrix.STAFF_RECIPIENTS is what picks the section. That is the right home
+    # (only leadership receives it) — do not "fix" the category to move a row that is
+    # already where it belongs.
+    #
+    # Push is offered but stays off by default (the key is absent from _PUSH_ON_BY_DEFAULT):
+    # a monthly summary should not buzz a phone.
+    EventType(
+        key=WIKI_GUILD_DIGEST_MONTHLY,
+        label="Monthly guild wiki digest",
+        description=(
+            "A monthly summary of your guild's wiki: new pages, pages due a check, and what "
+            "members searched for and didn't find."
+        ),
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

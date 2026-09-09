@@ -680,6 +680,21 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     custom_request_form = OrientationCustomRequestForm(guild=guild)
     join_form = GuildJoinForm()
 
+    # The Wiki tab (spec B). Three gates: the feature flag, the members surface (the guest
+    # guilds surface does not resolve wiki URLs, so a tab of links nobody can follow is a
+    # dead end), and a linked Member — the wiki is login-required. The context builder runs
+    # ONLY inside this guard, so a wiki that is off or raising cannot take a guild page down.
+    wiki_tab_enabled = (
+        SiteConfiguration.load().wiki_enabled
+        and getattr(request, "surface", "members") != "guilds"
+        and member is not None
+    )
+    wiki_tab_context: dict[str, Any] = {}
+    if wiki_tab_enabled:
+        from hub.wiki_views import guild_wiki_tab_block
+
+        wiki_tab_context = guild_wiki_tab_block(request, guild)
+
     guild_ct = ContentType.objects.get_for_model(Guild)
 
     return render(
@@ -722,6 +737,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "orientation_sections": orientation_sections,
             "custom_request_form": custom_request_form,
             "join_form": join_form,
+            "wiki_tab_enabled": wiki_tab_enabled,
+            **wiki_tab_context,
         },
     )
 

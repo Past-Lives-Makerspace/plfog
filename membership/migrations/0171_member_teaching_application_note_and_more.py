@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0169_wiki_moderation"),
+        ("membership", "0170_wiki_guild_tab"),
     ]
 
     operations = [

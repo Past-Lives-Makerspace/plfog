@@ -382,11 +382,18 @@ urlpatterns = [
     path("wiki/new/<slug:kind>/", wiki_views.hub_wiki_create, name="hub_wiki_create"),
     path("wiki/new/<slug:kind>/autosave/", wiki_views.hub_wiki_new_autosave, name="hub_wiki_new_autosave"),
     path("wiki/drafts/", wiki_views.hub_wiki_drafts, name="hub_wiki_drafts"),
+    # Spec B. Fixed segments, so they can never collide with a page slug (``wanted`` is
+    # already in RESERVED_WIKI_SLUGS) and no catch-all ordering rule applies.
+    path("wiki/wanted/", wiki_views.hub_wiki_wanted, name="hub_wiki_wanted"),
+    path("wiki/wanted/request/", wiki_views.hub_wiki_wanted_request, name="hub_wiki_wanted_request"),
+    path("wiki/wanted/<int:pk>/claim/", wiki_views.hub_wiki_wanted_claim, name="hub_wiki_wanted_claim"),
+    path("wiki/wanted/<int:pk>/fulfil/", wiki_views.hub_wiki_wanted_fulfil, name="hub_wiki_wanted_fulfil"),
     path("wiki/drafts/<int:pk>/discard/", wiki_views.hub_wiki_draft_discard, name="hub_wiki_draft_discard"),
     path("wiki/p/<slug:slug>/", wiki_views.hub_wiki_page, name="hub_wiki_page"),
     path("wiki/p/<slug:slug>/edit/", wiki_views.hub_wiki_edit, name="hub_wiki_edit"),
     path("wiki/p/<slug:slug>/autosave/", wiki_views.hub_wiki_autosave, name="hub_wiki_autosave"),
     path("wiki/p/<slug:slug>/confirm/", wiki_views.hub_wiki_confirm, name="hub_wiki_confirm"),
+    path("wiki/p/<slug:slug>/verify/", wiki_views.hub_wiki_verify, name="hub_wiki_verify"),
     path("wiki/p/<slug:slug>/photo/", wiki_views.hub_wiki_quick_photo, name="hub_wiki_quick_photo"),
     path("wiki/p/<slug:slug>/tip/", wiki_views.hub_wiki_quick_tip, name="hub_wiki_quick_tip"),
     path("wiki/p/<slug:slug>/image/", wiki_views.hub_wiki_image_upload, name="hub_wiki_image_upload"),

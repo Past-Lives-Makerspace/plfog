@@ -1,0 +1,12 @@
+{% comment %}
+The wanted list's rows, wherever they render: the guild tab's card, /wiki/wanted/, and the
+out-of-band refresh after a lead files one from the failed-search panel. One loop, so the
+row include's parameter list lives in exactly one place.
+
+Parameters: wanted_rows (a list of _wanted_row_context dicts) and wanted_empty_text.
+{% endcomment %}
+{% for wanted in wanted_rows %}
+{% include "hub/partials/_wiki_wanted_row.html" with wanted=wanted %}
+{% empty %}
+<p class="hub-text-muted pl-wp-tab__panel-empty">{{ wanted_empty_text|default:"No requests yet." }}</p>
+{% endfor %}

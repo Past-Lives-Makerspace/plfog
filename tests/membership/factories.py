@@ -67,6 +67,9 @@ from membership.models import (
     WikiPageFact,
     WikiReport,
     WikiRevision,
+    WikiSearchMiss,
+    WikiWantedPage,
+    normalize_wiki_ask,
 )
 
 
@@ -893,3 +896,37 @@ class WikiEditLockFactory(factory.django.DjangoModelFactory):
 
     page = factory.SubFactory(WikiPageFactory)
     holder = factory.SubFactory(MemberFactory)
+
+
+class WikiWantedPageFactory(factory.django.DjangoModelFactory):
+    """An open, unclaimed, space-wide request by default.
+
+    Pass ``guild=`` to scope it, ``claimed_by=`` plus ``claimed_at=`` to put a name on it,
+    and ``fulfilled_page=`` to close it. ``title_normalized`` fills itself in ``save()``.
+    """
+
+    class Meta:
+        model = WikiWantedPage
+
+    title = factory.Sequence(lambda n: f"Wanted page {n}")
+    note = ""
+    created_by = factory.SubFactory(MemberFactory)
+
+    class Params:
+        # A claim that has sat past the 30-day staleness window, so a lead's Release
+        # control and the "claimed 5 weeks ago" line both have something to describe.
+        stale_claim = factory.Trait(
+            claimed_by=factory.SubFactory(MemberFactory),
+            claimed_at=factory.LazyFunction(lambda: timezone.now() - timedelta(days=40)),
+        )
+
+
+class WikiSearchMissFactory(factory.django.DjangoModelFactory):
+    """One member's zero-result search. ``query_normalized`` mirrors ``query``."""
+
+    class Meta:
+        model = WikiSearchMiss
+
+    query = factory.Sequence(lambda n: f"missing thing {n}")
+    query_normalized = factory.LazyAttribute(lambda o: normalize_wiki_ask(o.query))
+    member = factory.SubFactory(MemberFactory)

@@ -1,0 +1,16 @@
+{% comment %}
+Mark As Written — one field, so it is a modal and a toast (the FRONTEND.md interaction
+table). Save is the last element and says exactly "Save".
+
+The response swaps the row back by outerHTML and, on success only, dispatches close-modal
+with this modal's id. An error leaves the modal open with its toast, so the lead can pick a
+different page without re-opening anything.
+{% endcomment %}
+<form hx-post="{% url 'hub_wiki_wanted_fulfil' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML" class="hub-form">
+    {% csrf_token %}
+    <p class="hub-text-muted">{{ wanted.row.title }}</p>
+    {% include "components/form_field.html" with field=wanted.fulfil_form.page %}
+    <div style="margin-top:1.5rem;">
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Save</button>
+    </div>
+</form>

@@ -1,0 +1,16 @@
+{% comment %}
+The failed-search panel's answer to "Add To Wanted": the row comes back already on the
+list, so the button cannot be tapped a second time, and the Wanted card refreshes out of
+band so the lead watches the request land where they just sent it.
+{% endcomment %}
+<div class="pl-wp-tab__miss">
+    <p class="pl-wp-tab__miss-query">{{ row.title }}</p>
+    <p class="hub-text-muted pl-wp-tab__miss-people">{{ row.request_count }} {% if row.request_count == 1 %}person{% else %}people{% endif %}</p>
+    <div class="pl-wp-tab__miss-actions">
+        <a href="{% url 'hub_wiki_new' %}?{% if guild %}guild={{ guild.slug|urlencode }}&amp;{% endif %}title={{ row.title|urlencode }}&amp;wanted={{ row.pk }}" class="pl-btn pl-btn--sm">Start This Page</a>
+        <a href="{{ wanted_url }}" class="pl-wp-tab__miss-onlist">On the wanted list &rarr;</a>
+    </div>
+</div>
+<div id="wiki-tab-wanted-rows" hx-swap-oob="true">
+    {% include "hub/partials/_wiki_wanted_rows.html" %}
+</div>

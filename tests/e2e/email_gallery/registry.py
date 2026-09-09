@@ -538,6 +538,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         html_template="membership/emails/guild_welcome.html",
         context_builder="guild_welcome_context",
     ),
+    GalleryEmail(
+        key="wiki_guild_digest",
+        name="Guild wiki digest (monthly)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent on the 1st of the month to each guild's leadership, summarising their wiki: pages "
+            "added last month, pages past their review date, and what members searched for and didn't "
+            "find. A guild with nothing to report gets no email at all."
+        ),
+        edit_pointer=_tpl("membership/emails", "wiki_guild_digest"),
+        audience="The guild's lead and every staff role, orienters included.",
+        event_keys=frozenset({"wiki.guild_digest_monthly"}),
+        text_template="membership/emails/wiki_guild_digest.txt",
+        html_template="membership/emails/wiki_guild_digest.html",
+        context_builder="wiki_guild_digest_context",
+    ),
     # --- Billing ---------------------------------------------------------------
     GalleryEmail(
         key="receipt",

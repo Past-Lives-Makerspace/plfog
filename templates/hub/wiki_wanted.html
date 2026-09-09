@@ -1,0 +1,124 @@
+{% extends "hub/base.html" %}
+{% block title %}Wanted Pages{% endblock %}
+
+{% block content %}
+{% comment %}
+One page, two roles. Every member sees the list and can Claim or just Start one; a guild's
+leadership additionally gets the editor.
+
+The editor is the canonical list editor: extra=0 so a blank required row can never block
+Save, a "+ Add A Wanted Page" button cloning a hidden template, a REAL danger Delete button
+per saved row that flips the hidden DELETE field and submits the whole form (so no other
+edit is lost), a Remove that just drops an abandoned clone, and Save last, saying "Save",
+with nothing under it.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_wiki_home' %}">Wiki</a>
+    {% if wanted_guild %} / <a href="{% url 'hub_wiki_search' %}?guild={{ wanted_guild.slug|urlencode }}">{{ wanted_guild.name }}</a>{% endif %}
+</nav>
+{% if wanted_guild %}
+{% comment %}The name alone, never "the <name> guild": the seeded example guild is called Cartographers Guild, which read as "the Cartographers Guild guild".{% endcomment %}
+{% include "components/page_header.html" with title="Wanted Pages" description="Pages "|add:wanted_guild.name|add:" wants written. A specific ask gets written; an open invitation doesn't." %}
+{% else %}
+{% include "components/page_header.html" with title="Wanted Pages" description="Pages the whole makerspace wants written. A specific ask gets written; an open invitation doesn't." %}
+{% endif %}
+
+<div class="hub-card pl-wp-tab__wanted-scope">
+    <p class="hub-text-muted">Showing: <strong>{{ wanted_scope_label }}</strong></p>
+    {% if switcher_guilds %}
+    <form method="get" action="{% url 'hub_wiki_wanted' %}" class="pl-wp-tab__switcher">
+        <div class="hub-form-group">
+            <label for="wanted-guild">Guild</label>
+            <select name="guild" id="wanted-guild" @change="$el.form.requestSubmit()">
+                <option value="">Space-wide</option>
+                {% for option in switcher_guilds %}
+                <option value="{{ option.slug }}"{% if wanted_guild and wanted_guild.pk == option.pk %} selected{% endif %}>{{ option.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% comment %}A real submit button, because a navigate-on-change select alone does nothing at all for a keyboard or no-JS visitor.{% endcomment %}
+        <button type="submit" class="pl-btn pl-btn--sm">Go</button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="hub-card pl-wp-tab__wanted">
+    <h2 class="hub-detail-label pl-wp-tab__panel-title">Open Requests</h2>
+    <div id="wiki-tab-wanted-rows">
+        {% include "hub/partials/_wiki_wanted_rows.html" with wanted_rows=wanted_rows wanted_empty_text="No requests yet. Ask for the pages your guild actually needs." %}
+    </div>
+    {% include "components/table_pagination.html" with page=page base_params=base_params %}
+</div>
+
+{% if wanted_done %}
+<div class="hub-card pl-wp-tab__wanted" x-data="{ open: false }">
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="open = !open">
+        Already Written ({{ wanted_done|length }})
+    </button>
+    <div x-show="open" x-cloak class="pl-wp-tab__wanted-done-list">
+        {% include "hub/partials/_wiki_wanted_rows.html" with wanted_rows=wanted_done wanted_empty_text="Nothing written from this list yet." %}
+    </div>
+</div>
+{% endif %}
+
+{% if can_manage_wanted and wanted_formset %}
+<form method="post" class="hub-form">
+    {% csrf_token %}
+    <div class="hub-card pl-wp-tab__editor">
+        <h2 class="hub-detail-label pl-wp-tab__panel-title">Edit The List</h2>
+        {% if wanted_formset.non_form_errors %}
+        {% for error in wanted_formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+        {% endif %}
+        {{ wanted_formset.management_form }}
+        <div id="wanted-rows" class="pl-wp-tab__editor-rows">
+            {% for f in wanted_formset %}
+            <div class="hub-card pl-wp-tab__editor-row">
+                {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+                {% include "components/form_field.html" with field=f.title %}
+                {% include "components/form_field.html" with field=f.note %}
+                {{ f.id }}
+                {% if f.instance.pk %}
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                    Delete this request
+                </button>
+                {% endif %}
+            </div>
+            {% empty %}
+            <p class="hub-text-muted">No requests yet. Add your first.</p>
+            {% endfor %}
+        </div>
+
+        {% comment %}Hidden empty-form template, cloned by the + Add button below.{% endcomment %}
+        <template id="wanted-empty-template">
+            <div class="hub-card pl-wp-tab__editor-row">
+                {% with wanted_formset.empty_form as ef %}
+                {% include "components/form_field.html" with field=ef.title %}
+                {% include "components/form_field.html" with field=ef.note %}
+                {{ ef.id }}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                {% endwith %}
+            </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                onclick="
+                  const tpl = document.getElementById('wanted-empty-template');
+                  const total = document.getElementById('id_wanted-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  document.getElementById('wanted-rows').appendChild(wrap.firstElementChild);
+                  total.value = idx + 1;
+                ">
+            + Add A Wanted Page
+        </button>
+
+        <div style="margin-top:1.5rem;">
+            <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+        </div>
+    </div>
+</form>
+{% endif %}
+{% endblock %}

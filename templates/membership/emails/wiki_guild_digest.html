@@ -1,0 +1,48 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+<div style="margin: 0 0 24px; border-radius: 10px; background: linear-gradient(135deg, #092E4C, #0d4876); padding: 28px 20px; text-align: center;">
+    <span style="font-size: 18px; font-weight: 700; color: #FFFFFF; letter-spacing: 0.02em;">The Wiki</span>
+</div>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Last month in the <a href="{{ guild_url }}" style="color: #0d4876; text-decoration: none;">{{ guild.name }}</a> wiki</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #55697a;">Three things you can work through in an afternoon. Nothing here is urgent, and nothing here needs a meeting.</p>
+
+{% if new_pages %}
+<div style="margin: 20px 0 0; padding: 20px 22px; background-color: #eef4f9; border-radius: 10px;">
+    <p style="margin: 0 0 12px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">New This Month</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px; color: #33424f; line-height: 1.6;">
+        {% for item in new_pages %}<tr><td style="padding: 3px 0;"><a href="{{ item.url }}" style="color: #0d4876; text-decoration: none;">{{ item.title }}</a>{% if item.author %} <span style="color: #55697a;">by {{ item.author }}</span>{% endif %} <span style="color: #55697a;">&middot; {{ item.kind }}</span></td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+{% if overdue %}
+<div style="margin: 20px 0 0; padding: 20px 22px; background-color: #eef4f9; border-radius: 10px;">
+    <p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">Overdue For Review</p>
+    <p style="margin: 0 0 12px; font-size: 13px; color: #55697a;">One tap on the page says it's still right.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px; color: #33424f; line-height: 1.6;">
+        {% for item in overdue %}<tr><td style="padding: 3px 0;"><a href="{{ item.url }}" style="color: #0d4876; text-decoration: none;">{{ item.title }}</a> <span style="color: #55697a;">&middot; {{ item.kind }} &middot; {% if item.last_checked %}last checked {{ item.last_checked }}{% else %}never checked{% endif %}</span></td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+{% if misses %}
+<div style="margin: 20px 0 0; padding: 20px 22px; background-color: #eef4f9; border-radius: 10px;">
+    <p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">Searches That Found Nothing</p>
+    <p style="margin: 0 0 12px; font-size: 13px; color: #55697a;">Members looked for these and came up empty. This is your writing list.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 14px; color: #33424f; line-height: 1.6;">
+        {% for item in misses %}<tr><td style="padding: 3px 0;"><strong style="color: #33424f;">{{ item.query }}</strong> <span style="color: #55697a;">&middot; {{ item.people }} {% if item.people == 1 %}person{% else %}people{% endif %}</span> &middot; <a href="{{ item.start_url }}" style="color: #0d4876; text-decoration: none;">Start this page</a></td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endif %}
+
+<div style="text-align: center; margin: 28px 0 0;">
+    <a href="{{ tab_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Open The {{ guild.name }} Wiki</a>
+</div>
+<p style="margin: 20px 0 0; font-size: 14px; color: #55697a;">
+    <a href="{{ wanted_url }}" style="color: #0d4876;">Wanted pages ({{ wanted_open_count }} open)</a> &middot;
+    <a href="{{ new_url }}" style="color: #0d4876;">Start a page</a>
+</p>
+{% endblock %}
