@@ -13,8 +13,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "There is now a Wiki in the sidebar, and you can write in it. Every machine already "
             "has a page waiting for what you know.",
             "Add a photo from your phone in about thirty seconds, drop in a tip, or write the whole thing.",
-            "Scan the sticker on a machine to jump straight to its page.",
-            "Every version is saved, so nothing you write can be lost.",
+            "Every edit is saved as its own version, so nothing you write gets overwritten.",
         ],
     },
     {
