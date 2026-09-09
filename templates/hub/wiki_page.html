@@ -30,6 +30,10 @@ cannot drift apart.
             <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
             {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
         </div>
+        <div id="wiki-verify" class="pl-wp-tab__verify">
+            {% comment %}Spec B's Verify control. The credit line renders for everyone (the brief wants members to see "Verified by Kate (Woodworking orienter), 3 Mar"); the buttons render only for someone who may verify, and nothing at all on an Official page.{% endcomment %}
+            {% if not is_archived %}{% include "hub/partials/_wiki_verify_control.html" with page=page can_verify=can_verify compact=False %}{% endif %}
+        </div>
         <p class="hub-text-muted pl-wp-attrs">{{ page.attribute_line }}</p>
         {% if official_block %}
         <p class="hub-text-muted pl-wp-accessline">{{ official_block.access_line }}</p>
@@ -126,6 +130,16 @@ time so the two copy inputs do not share one id.
 {% if can_edit %}
 {% include "components/modal.html" with modal_id="wiki-photo" modal_title="Add A Photo" modal_size="sm" modal_body_include="hub/partials/_wiki_photo_form.html" %}
 {% include "components/modal.html" with modal_id="wiki-tip" modal_title="Add A Tip" modal_size="sm" modal_body_include="hub/partials/_wiki_tip_form.html" %}
+{% endif %}
+
+{% if can_verify and not is_archived %}
+{% include "components/modal.html" with modal_id="wiki-verify-note" modal_title="Verify With A Note" modal_size="sm" modal_body_include="hub/partials/_wiki_verify_note_form.html" %}
+{% endif %}
+
+{% if can_verify and not is_archived and page.verified_at %}
+{% url 'hub_wiki_verify' page.slug as unverify_url %}
+{% comment %}Plain POST, not the HTMX mode: the answer to a Verify is two out-of-band swaps and nothing left over for a primary target, so a boosted full post that redirects back with a message is the honest shape here. It also works with JavaScript off.{% endcomment %}
+{% include "components/confirm_modal.html" with confirm_id="wiki-unverify" confirm_title="Remove this verification?" confirm_message="The page drops back to Community. Anyone can still read and edit it. Nothing is deleted." confirm_button_text="Remove verification" confirm_button_style="danger" confirm_action_url=unverify_url confirm_field_name="remove" confirm_field_value="1" %}
 {% endif %}
 </div>
 

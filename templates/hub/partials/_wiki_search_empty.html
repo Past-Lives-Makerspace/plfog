@@ -1,13 +1,41 @@
 {% comment %}
-The zero-result search screen.
+The zero-result search screen. Owned by spec B; spec A's search view includes it.
 
-OWNED BY SPEC B (2026-09-07-member-wiki-guild-tab.md). This file is a two line placeholder
-so spec A's search view has something real to include; B replaces the contents with the
-"Search Everything" escape, "Ask In #woodworking", "Request This Page" and the write-it-
-yourself link. A's own spec asserts on the include and not on this copy, so swapping the
-file in does not turn a test red.
+Search failing quietly is how a wiki loses to Discord, so this screen is three real
+actions, never a shrug: widen the scope, ask the people who know, or put the page on the
+list. The panel never disappears after one of them, so a member can take a second.
+
+Every miss that lands here is also logged (one row per member, per query, per day), which
+is what fills the guild lead's "Searches That Found Nothing" panel.
 {% endcomment %}
 <div class="hub-card pl-wp-search__empty">
-    <p>Nothing matched <strong>{{ q }}</strong>.</p>
-    <a href="{% url 'hub_wiki_new' %}?title={{ q|urlencode }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start This Page</a>
+    <p class="pl-wp-tab__empty-headline">Nothing found for &ldquo;{{ q }}&rdquo;.</p>
+
+    {% if guild_filter %}
+    <form method="get" action="{% url 'hub_wiki_search' %}" class="pl-wp-tab__empty-scope">
+        <input type="hidden" name="q" value="{{ q }}">
+        <input type="hidden" name="scope" value="all">
+        <p class="hub-text-muted">You searched <strong>{% if guild %}{{ guild.name }}{% else %}{{ guild_filter }}{% endif %}</strong> only.</p>
+        <button type="submit" class="pl-btn pl-btn--sm">Search Everything</button>
+    </form>
+    {% endif %}
+
+    <div class="pl-wp-tab__empty-actions">
+        {% if discord_ask %}
+        <a href="{{ discord_ask.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-btn pl-btn--sm">{{ discord_ask.label }}</a>
+        {% endif %}
+        <div id="wiki-request-page">
+            <form hx-post="{% url 'hub_wiki_wanted_request' %}" hx-target="#wiki-request-page" hx-swap="outerHTML">
+                {% csrf_token %}
+                <input type="hidden" name="title" value="{{ q }}">
+                <input type="hidden" name="guild" value="{{ guild_filter }}">
+                <input type="hidden" name="surface" value="empty">
+                <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" hx-disabled-elt="this">Request This Page</button>
+            </form>
+        </div>
+    </div>
+
+    <p class="hub-text-muted pl-wp-tab__empty-write">
+        Or <a href="{% url 'hub_wiki_new' %}?{% if guild_filter %}guild={{ guild_filter|urlencode }}&amp;{% endif %}title={{ q|urlencode }}">write it yourself</a> &mdash; rough is fine, someone will tidy it.
+    </p>
 </div>

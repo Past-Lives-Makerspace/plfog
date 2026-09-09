@@ -39,12 +39,16 @@ from hub.forms import (
     WikiPageForm,
     WikiQuickPhotoForm,
     WikiQuickTipForm,
+    WikiVerifyNoteForm,
+    WikiWantedFulfilForm,
+    build_wiki_wanted_formset,
     wiki_fact_formset_class,
 )
 from hub.toast import trigger_client_event, trigger_toast
 from hub.views import _get_hub_context
 from membership.markdown import sanitize_wiki_submission
 from membership.models import (
+    MISS_MIN_QUERY_LENGTH,
     Guild,
     Member,
     WikiArticle,
@@ -53,16 +57,21 @@ from membership.models import (
     WikiError,
     WikiPage,
     WikiPageFact,
+    WikiSearchMiss,
+    WikiWantedPage,
 )
 from membership.permissions import (
     _can_moderate_wiki_page,
     _editing_member,
+    can_edit_guild,
     can_edit_wiki_page,
     can_verify_wiki_page,
+    editable_meeting_scopes,
     editable_wiki_scopes,
     is_effective_staff,
     visible_wiki_pages,
 )
+from membership.wiki_guild import WANTED_CARD_LIMIT, guild_wiki_tab_context
 from membership.wiki_starters import STARTERS
 
 # How many rows one search group shows before the pager takes over.
@@ -112,6 +121,22 @@ def _active_member(request: HttpRequest) -> Member | None:
 def _forbidden() -> HttpResponse:
     """The plain 403 every wiki write route answers a member who may not write."""
     return HttpResponse("Forbidden", status=403)
+
+
+def _ordinal(number: int) -> str:
+    """``4`` -> ``"4th"``. Telling somebody they are the fourth to ask beats a silent dupe.
+
+    Hand-rolled rather than ``django.contrib.humanize``: that app is not installed here and
+    adding it for one string would be a settings change for a suffix.
+    """
+    if 11 <= number % 100 <= 13:
+        return f"{number}th"
+    return f"{number}{_ORDINAL_SUFFIXES[number % 10]}"
+
+
+# Indexed by last digit rather than looked up with a default: every digit has an answer, so
+# a total mapping is the honest shape (house rule: dict[key], never .get with a fallback).
+_ORDINAL_SUFFIXES: tuple[str, ...] = ("th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th")
 
 
 def _not_found(request: HttpRequest) -> HttpResponse:
@@ -303,7 +328,9 @@ def hub_wiki_search(request: HttpRequest) -> HttpResponse:
         base = base.none()
     wiki_results = base.search(q) if q else base.order_by("-updated_at")
     # Spec B's failed-search log hooks in HERE, and only when q is non-empty: a browse
-    # that matches nothing is not a failed search and must not pollute B's panel.
+    # that matches nothing is not a failed search and must not pollute B's panel. The
+    # actual record(...) call sits below the help query, because a question the Help
+    # Center answered did not "find nothing" — the panel is titled with what it counts.
     wiki_total = wiki_results.count()
 
     # The help query runs whenever it could produce a group, even under ?source=wiki, so
@@ -316,6 +343,12 @@ def hub_wiki_search(request: HttpRequest) -> HttpResponse:
         # of results, but "20 pages match" when 45 do is a lie the member can check.
         help_total = help_matches.count()
         help_results = list(help_matches[:_SEARCH_PAGE_SIZE])
+
+    if q and wiki_total == 0 and help_total == 0:
+        # One line, one call site: WikiSearchMiss.objects.record applies every write rule
+        # (signed in, 3-120 characters, one row per member per query per day, 90-day
+        # retention) and declines quietly when one of them says no.
+        WikiSearchMiss.objects.record(query=q, guild=guild, member=_active_member(request))
 
     available_sources = ["wiki"]
     if help_results:
@@ -367,9 +400,29 @@ def hub_wiki_search(request: HttpRequest) -> HttpResponse:
             "result_count_line": _result_count_line(q, total, guild, stale),
             "is_filtered": bool(kind or guild_slug or stale or source),
             "has_results": bool(groups),
+            # Only built on the zero-result branch, so the normal search path pays nothing
+            # for a button nobody is going to see.
+            "discord_ask": _wiki_discord_ask(guild) if q and not groups else {},
         }
     )
     return render(request, "hub/wiki_search.html", context)
+
+
+def _wiki_discord_ask(guild: Guild | None) -> dict[str, str]:
+    """The zero-result screen's "Ask In #woodworking" target, or ``{}`` for no button.
+
+    Falls back to the server link when the guild has no channel id, and renders nothing at
+    all when the server id is unset — a broken Discord link is worse than no button.
+    """
+    server_id = SiteConfiguration.load().discord_server_id
+    if not server_id:
+        return {}
+    if guild is not None and guild.discord_channel_id:
+        return {
+            "url": f"https://discord.com/channels/{server_id}/{guild.discord_channel_id}",
+            "label": f"Ask In {guild.announcement_channel_label}",
+        }
+    return {"url": f"https://discord.com/channels/{server_id}", "label": "Ask On Discord"}
 
 
 def _search_base_params(request: HttpRequest) -> str:
@@ -464,6 +517,8 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
             ),
             "quick_tip_form": WikiQuickTipForm(),
             "quick_photo_form": WikiQuickPhotoForm(),
+            # Spec B's "with a note…" modal. One field, so it is a modal and a toast.
+            "verify_note_form": WikiVerifyNoteForm(),
             "tip_drops_verification": (
                 page.status == WikiPage.Status.GUILD_VERIFIED and not can_verify_wiki_page(request, page)
             ),
@@ -1226,3 +1281,387 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
             "kind_is_machine": kind == WikiPage.Kind.MACHINE,
         },
     )
+
+
+# --- The guild Wiki tab: verification and wanted pages (spec B) ------------------------
+
+# How many wanted rows one page of the dedicated list shows before the pager takes over.
+_WANTED_PAGE_SIZE = 25
+
+
+def _can_manage_wanted_scope(request: HttpRequest, guild: Guild | None) -> bool:
+    """``can_verify_wiki_page``'s authority test, asked about a SCOPE rather than a page.
+
+    A guild scope defers to :func:`can_edit_guild` (lead, every staff role, orienters
+    included, plus effective staff); the space-wide scope takes :func:`is_effective_staff`,
+    because there is no guild whose authority could stand behind it. Deliberately the same
+    test the lead panels render against, so a lead never sees a control the view refuses.
+    """
+    if guild is None:
+        return is_effective_staff(request)
+    return can_edit_guild(request, guild)
+
+
+def _wanted_scope(request: HttpRequest) -> tuple[Guild | None, bool]:
+    """``(guild, known)`` from ``?guild=<slug>``. Blank means the space-wide scope.
+
+    ``known`` is False for a slug that matches nothing, which the view answers with a 404
+    rather than silently widening to the space-wide list.
+    """
+    slug = request.GET.get("guild", "").strip()
+    if not slug:
+        return None, True
+    guild = Guild.objects.filter(slug=slug).first()
+    return guild, guild is not None
+
+
+def _fulfilable_pages(request: HttpRequest, guild: Guild | None) -> list[WikiPage]:
+    """The live pages in one scope that could close a wanted row, fetched ONCE per screen.
+
+    A list and not a queryset on purpose: every open row's Mark As Written modal renders
+    the same candidates, so a lead looking at 25 requests costs one query rather than 25.
+    """
+    live = visible_wiki_pages(request).not_archived().published()
+    scoped = live.for_guild(guild) if guild is not None else live.space_wide()
+    return list(scoped.order_by("title"))
+
+
+def _wanted_row_context(
+    request: HttpRequest,
+    row: WikiWantedPage,
+    *,
+    can_manage: bool | None = None,
+    fulfil_pages: list[WikiPage] | None = None,
+) -> dict[str, Any]:
+    """The context one wanted row renders against, on the tab and on the list alike.
+
+    ``can_manage`` and ``fulfil_pages`` are passed in by list callers, which already know
+    the answer for the whole scope; a single-row caller (an HTMX swap) lets them default
+    and pays for the two lookups once.
+    """
+    member = _active_member(request)
+    manage = _can_manage_wanted_scope(request, row.guild) if can_manage is None else can_manage
+    context: dict[str, Any] = {
+        "row": row,
+        "target": f"#wiki-wanted-row-{row.pk}",
+        "release_confirm_id": f"wiki-wanted-release-{row.pk}",
+        "fulfil_modal_id": f"wiki-wanted-fulfil-{row.pk}",
+        "can_manage": manage,
+        "is_claimer": member is not None and row.claimed_by_id == member.pk,
+        "can_claim": member is not None,
+        "fulfil_form": None,
+    }
+    if manage and row.fulfilled_page_id is None:
+        pages = _fulfilable_pages(request, row.guild) if fulfil_pages is None else fulfil_pages
+        # Prefixed per row: without it, 25 modals would all render id_page and every label
+        # would point at the first one.
+        context["fulfil_form"] = WikiWantedFulfilForm(pages=pages, prefix=f"fulfil{row.pk}")
+    return context
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_verify(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/verify/`` — one tap that says "I read this and I stand behind it".
+
+    Answers **200 with a body carrying the out-of-band fragment**, never 204: a 204 has no
+    body, so it could not carry the swap and the toast would fire while a stale Community
+    pill sat there until the next reload. The toast is set first, because
+    ``trigger_toast`` overwrites ``HX-Trigger`` while ``trigger_client_event`` merges.
+
+    A plain (non-HTMX) post still works and redirects back with a Django message, so the
+    page-header control degrades with JavaScript off.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        raise Http404("No such wiki page.")
+    member = _active_member(request)
+    if member is None:
+        return _forbidden()
+    if _hidden_from(request, page):
+        raise Http404("No such wiki page.")
+    if not can_verify_wiki_page(request, page):
+        return _forbidden()
+
+    # HX-Boosted is the discriminator, not HX-Request alone: hub/base.html boosts the whole
+    # body, so a plain <form method="post"> (the confirm modal, and the JS-off fallback)
+    # arrives carrying HX-Request too. Answering that with a fragment would swap a bare
+    # <div> in where the page used to be.
+    is_htmx = request.headers.get("HX-Request") == "true" and request.headers.get("HX-Boosted") != "true"
+    removing = request.POST.get("remove") == "1"
+    note = ""
+    if not removing:
+        note_form = WikiVerifyNoteForm(request.POST)
+        if not note_form.is_valid():
+            return _verify_error(request, page, "Keep the note to 280 characters.", is_htmx=is_htmx)
+        note = note_form.cleaned_data["note"]
+    try:
+        if removing:
+            page.unverify(member)
+        else:
+            page.verify(member, note=note)
+    except WikiError as exc:
+        return _verify_error(request, page, str(exc), is_htmx=is_htmx)
+
+    message = "Verification removed." if removing else "Verified. Thanks for reading it."
+    if not is_htmx:
+        messages.success(request, message)
+        return redirect(page.get_absolute_url())
+    response = render(request, *_verify_fragment(request, page))
+    trigger_toast(response, message)
+    return response
+
+
+def _verify_error(request: HttpRequest, page: WikiPage, message: str, *, is_htmx: bool) -> HttpResponse:
+    """One place both verify failure paths answer from, so the two cannot drift."""
+    if not is_htmx:
+        messages.error(request, message)
+        return redirect(page.get_absolute_url())
+    response = HttpResponse(message, status=400)
+    trigger_toast(response, message, "error")
+    return response
+
+
+def _verify_fragment(request: HttpRequest, page: WikiPage) -> tuple[str, dict[str, Any]]:
+    """``(template, context)`` for the surface that posted — the page header or a tab row.
+
+    Both fragments are out-of-band, so the caller's form can use ``hx-swap="none"`` and
+    neither surface needs to know where the other's markup lives.
+    """
+    if request.POST.get("surface") == "tab":
+        page.tab_show_verify = page.status == WikiPage.Status.COMMUNITY  # type: ignore[attr-defined]
+        return "hub/partials/_wiki_tab_row_oob.html", {"page": page}
+    return "hub/partials/_wiki_verify_oob.html", {
+        "page": page,
+        "can_verify": True,
+        "verify_note_form": WikiVerifyNoteForm(),
+    }
+
+
+@login_required
+@wiki_feature_required
+def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
+    """``/wiki/wanted/`` — the list every member can work, and the editor leads curate.
+
+    One page, two roles. GET is any member (they can Claim or just Start one); the POST is
+    the ``extra=0`` formset save and takes the scope's own authority. An invalid save
+    re-renders bound in place rather than redirecting, so nobody loses what they typed.
+    """
+    guild, known = _wanted_scope(request)
+    if not known:
+        return _not_found(request)
+    can_manage = _can_manage_wanted_scope(request, guild)
+    formset = None
+
+    if request.method == "POST":
+        if not can_manage:
+            return _forbidden()
+        formset = build_wiki_wanted_formset(data=request.POST, guild=guild)
+        if formset.is_valid():
+            for row in formset.save(commit=False):
+                row.guild = guild
+                if row.created_by_id is None:
+                    row.created_by = _active_member(request)
+                row.save()
+            for row in formset.deleted_objects:
+                row.delete()
+            messages.success(request, "Wanted pages saved.")
+            query = urlencode({"guild": guild.slug}) if guild is not None else ""
+            return redirect(f"{reverse('hub_wiki_wanted')}{'?' + query if query else ''}")
+        messages.error(request, "Couldn't save — check the highlighted fields.")
+    elif can_manage:
+        formset = build_wiki_wanted_formset(guild=guild)
+
+    open_rows = WikiWantedPage.objects.for_guild(guild).open().with_people()
+    paginator = Paginator(open_rows, _WANTED_PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    scopes, _may_space_wide = editable_meeting_scopes(request)
+    fulfil_pages = _fulfilable_pages(request, guild) if can_manage else []
+
+    context = _get_hub_context(request)
+    context.update(
+        {
+            "wanted_guild": guild,
+            "wanted_scope_label": guild.name if guild is not None else "Space-wide",
+            "wanted_rows": [
+                _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages)
+                for row in page_obj.object_list
+            ],
+            "wanted_done": [
+                _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages)
+                for row in WikiWantedPage.objects.for_guild(guild).done().with_people()[:_WANTED_PAGE_SIZE]
+            ],
+            "wanted_formset": formset,
+            "can_manage_wanted": can_manage,
+            "page": page_obj,
+            "base_params": urlencode({"guild": guild.slug}) if guild is not None else "",
+            "switcher_guilds": scopes,
+        }
+    )
+    return render(request, "hub/wiki_wanted.html", context)
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_wanted_claim(request: HttpRequest, pk: int) -> HttpResponse:
+    """``/wiki/wanted/<pk>/claim/`` — put your name on a row, or take it back off.
+
+    ``release=1`` hands the row back. The claimer needs no ceremony; a lead releasing
+    somebody ELSE's stale claim comes through the confirm modal, because
+    ``is_claim_stale`` without a lever was a label that described a problem nobody could
+    fix.
+    """
+    row = WikiWantedPage.objects.filter(pk=pk).select_related("guild", "claimed_by").first()
+    if row is None:
+        raise Http404("No such request.")
+    member = _active_member(request)
+    if member is None:
+        return _forbidden()
+    releasing = request.POST.get("release") == "1"
+    if releasing and row.claimed_by_id != member.pk and not _can_manage_wanted_scope(request, row.guild):
+        return _forbidden()
+    try:
+        if releasing:
+            row.release()
+        else:
+            row.claim(member)
+    except ValueError as exc:
+        response = HttpResponse(str(exc), status=400)
+        trigger_toast(response, str(exc), "error")
+        return response
+    row.refresh_from_db()
+    response = render(
+        request,
+        "hub/partials/_wiki_wanted_row.html",
+        {"wanted": _wanted_row_context(request, row)},
+    )
+    trigger_toast(response, "Released. It is back on the list." if releasing else "Claimed. It's yours.")
+    return response
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_wanted_fulfil(request: HttpRequest, pk: int) -> HttpResponse:
+    """``/wiki/wanted/<pk>/fulfil/`` — Mark As Written, the caller ``fulfil()`` never had.
+
+    Spec A's ``?wanted=<pk>`` create path only closes a row for a writer who started from
+    that row's own button. Every other route to the page — written from ``/wiki/new/``,
+    written from a search result, or already existing — left the row open forever, which
+    made the "Already Written" section permanently empty and left Delete, which throws the
+    credit away, as a lead's only control.
+    """
+    row = WikiWantedPage.objects.filter(pk=pk).select_related("guild").first()
+    if row is None:
+        raise Http404("No such request.")
+    if _active_member(request) is None or not _can_manage_wanted_scope(request, row.guild):
+        return _forbidden()
+    form = WikiWantedFulfilForm(request.POST, pages=_fulfilable_pages(request, row.guild), prefix=f"fulfil{row.pk}")
+    if not form.is_valid():
+        message = str(next(iter(form.errors["page"])))
+        response = HttpResponse(message, status=400)
+        trigger_toast(response, message, "error")
+        return response
+    # No WikiError guard here: fulfil() raises only on an archived page, and the form's
+    # candidate list is rebuilt from _fulfilable_pages on every POST, which excludes them.
+    closed = row.fulfil(form.cleaned_data["page"])
+    if not closed:
+        message = "That request was already closed."
+        response = HttpResponse(message, status=400)
+        trigger_toast(response, message, "error")
+        return response
+    row.refresh_from_db()
+    response = render(
+        request,
+        "hub/partials/_wiki_wanted_row.html",
+        {"wanted": _wanted_row_context(request, row)},
+    )
+    trigger_toast(response, "Marked as written. Nice.")
+    trigger_client_event(response, "close-modal", f"wiki-wanted-fulfil-{row.pk}")
+    return response
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_wanted_request(request: HttpRequest) -> HttpResponse:
+    """``/wiki/wanted/request/`` — "Request this page" and a lead's "Add To Wanted".
+
+    ``bump=0`` is the lead path: ``request_count`` counts PEOPLE WHO ASKED, and a lead
+    filing a row off the failed-search panel is not a fourth person asking. Gated on the
+    scope's authority for exactly that reason — the flag suppresses the count, so a member
+    must not be able to pass it.
+    """
+    member = _active_member(request)
+    if member is None:
+        return _forbidden()
+    title = request.POST.get("title", "").strip()
+    if not (MISS_MIN_QUERY_LENGTH <= len(title) <= 200):
+        message = "Give the page a name of at least three characters."
+        response = HttpResponse(message, status=400)
+        trigger_toast(response, message, "error")
+        return response
+    slug = request.POST.get("guild", "").strip()
+    guild = Guild.objects.filter(slug=slug).first() if slug else None
+    if slug and guild is None:
+        raise Http404("No such guild.")
+    bump = request.POST.get("bump") != "0"
+    if not bump and not _can_manage_wanted_scope(request, guild):
+        return _forbidden()
+
+    row, created = WikiWantedPage.objects.request(title=title, guild=guild, member=member, bump=bump)
+    if not bump:
+        # The lead's own "Add To Wanted": they ARE the guild's leads, so telling them the
+        # leads will see it is noise, and they were never a person asking.
+        message = "Added to Wanted pages."
+    elif created:
+        message = "Added to Wanted pages. Your guild's leads will see it."
+    else:
+        message = f"Already on the list — you're the {_ordinal(row.request_count)} person to ask."
+
+    surface = request.POST.get("surface", "")
+    template = _WANTED_REQUEST_TEMPLATES[surface if surface in _WANTED_REQUEST_TEMPLATES else "empty"]
+    context: dict[str, Any] = {"row": row, "guild": guild, "wanted_url": _wanted_url_for(guild)}
+    if surface == "panel":
+        fulfil_pages = _fulfilable_pages(request, guild)
+        context["wanted_rows"] = [
+            _wanted_row_context(request, item, can_manage=True, fulfil_pages=fulfil_pages)
+            for item in WikiWantedPage.objects.for_guild(guild).open().with_people()[:WANTED_CARD_LIMIT]
+        ]
+    response = render(request, template, context)
+    trigger_toast(response, message)
+    return response
+
+
+def _wanted_url_for(guild: Guild | None) -> str:
+    """``/wiki/wanted/`` scoped to a guild, or the space-wide list."""
+    base = reverse("hub_wiki_wanted")
+    return f"{base}?{urlencode({'guild': guild.slug})}" if guild is not None else base
+
+
+# Which fragment a "Request this page" POST swaps back. Both carry hx-swap-oob and a toast;
+# neither is a 204, because in both places something on screen has to stop lying.
+_WANTED_REQUEST_TEMPLATES: dict[str, str] = {
+    "panel": "hub/partials/_wiki_miss_row_swap.html",
+    "empty": "hub/partials/_wiki_request_done.html",
+}
+
+
+def guild_wiki_tab_block(request: HttpRequest, guild: Guild) -> dict[str, Any]:
+    """The guild page's whole Wiki-tab context: the data, plus the wanted rows' controls.
+
+    ``guild_wiki_tab_context`` assembles the data in ``membership`` where it belongs; the
+    wanted rows pick up their per-row controls here, because those need a form and a form
+    is a view-layer object. ``guild_detail`` calls this inside its ``wiki_tab_enabled``
+    guard and nowhere else, so a wiki that is off or raising cannot take a guild page down.
+    """
+    context = guild_wiki_tab_context(request, guild)
+    can_manage = context["wiki_tab_can_verify"]
+    fulfil_pages = _fulfilable_pages(request, guild) if can_manage else []
+    context["wiki_tab_wanted"] = [
+        _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages)
+        for row in context["wiki_tab_wanted"]
+    ]
+    return context

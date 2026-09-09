@@ -1,0 +1,74 @@
+{% comment %}
+One Wanted Pages row. The same markup on the guild tab's card and on /wiki/wanted/, so the
+two surfaces cannot drift and one HTMX swap settles either of them.
+
+Parameter:
+  wanted — one dict from wiki_views._wanted_row_context, holding:
+    row            the WikiWantedPage
+    target         "#wiki-wanted-row-<pk>", this row's own swap target
+    release_confirm_id / fulfil_modal_id — per-row DOM ids, built in Python so the template
+                   never concatenates a pk onto a string
+    can_manage     the scope's own authority: can_edit_guild for a guild row,
+                   is_effective_staff for a space-wide one. The same test the view runs, so
+                   a lead never sees a control the POST then refuses
+    is_claimer     the viewer holds this claim; their own Release needs no ceremony
+    can_claim      the viewer is an active member
+    fulfil_form    the Mark As Written form, or None. Prefixed per row, so 25 modals do not
+                   all render id_page and point every label at the first one
+
+Every mutating control posts and swaps THIS ROW back by outerHTML — a 200 with a real body,
+never a 204, because a toast over a row still reading "unclaimed" is exactly the "did that
+work?" failure these one-tap controls exist to avoid.
+
+Claim and Start This Page render for any active member on a space-wide row exactly as on a
+guild row: a space-wide wanted page is the makerspace asking, and anyone may answer. Only
+the lead controls narrow.
+{% endcomment %}
+<div class="pl-wp-tab__wanted-row" id="wiki-wanted-row-{{ wanted.row.pk }}">
+    <p class="pl-wp-tab__wanted-title">{{ wanted.row.title }}</p>
+    <p class="hub-text-muted pl-wp-tab__wanted-meta">
+        {% if wanted.row.created_by %}asked by {{ wanted.row.created_by.display_name }}, {% endif %}{{ wanted.row.created_at|date:"j M" }}
+        {% if wanted.row.request_count > 1 %}<span class="pl-wp-tab__wanted-count">{{ wanted.row.request_count }} people asked for this</span>{% endif %}
+    </p>
+    {% if wanted.row.note %}<p class="hub-text-muted pl-wp-tab__wanted-note">{{ wanted.row.note }}</p>{% endif %}
+
+    {% if wanted.row.fulfilled_page %}
+    <p class="pl-wp-tab__wanted-done">
+        &rarr; <a href="{{ wanted.row.fulfilled_page.get_absolute_url }}">{{ wanted.row.fulfilled_page.title }}</a>{% if wanted.row.claimed_by %} &middot; written by {{ wanted.row.claimed_by.display_name }}{% endif %}
+    </p>
+    {% else %}
+    {% if wanted.row.claimed_by and not wanted.is_claimer %}
+    <p class="hub-text-muted pl-wp-tab__wanted-claim">Claimed by {{ wanted.row.claimed_by.display_name }}, {{ wanted.row.claimed_at|timesince }} ago{% if wanted.row.is_claim_stale %} &middot; still open to anyone{% endif %}</p>
+    {% endif %}
+    <div class="pl-wp-tab__wanted-actions">
+        <a href="{% url 'hub_wiki_new' %}?{% if wanted.row.guild %}guild={{ wanted.row.guild.slug|urlencode }}&amp;{% endif %}title={{ wanted.row.title|urlencode }}&amp;wanted={{ wanted.row.pk }}"
+           class="pl-btn pl-btn--primary pl-btn--sm">Start This Page</a>
+        {% if wanted.can_claim and not wanted.row.claimed_by %}
+        <form hx-post="{% url 'hub_wiki_wanted_claim' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML">
+            {% csrf_token %}
+            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Claim</button>
+        </form>
+        {% elif wanted.is_claimer %}
+        <form hx-post="{% url 'hub_wiki_wanted_claim' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML">
+            {% csrf_token %}
+            <input type="hidden" name="release" value="1">
+            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Release</button>
+        </form>
+        {% elif wanted.can_manage and wanted.row.claimed_by %}
+        <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-confirm', '{{ wanted.release_confirm_id }}')">Release</button>
+        {% endif %}
+        {% if wanted.fulfil_form %}
+        <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-modal', '{{ wanted.fulfil_modal_id }}')">Mark As Written</button>
+        {% endif %}
+    </div>
+
+    {% if wanted.can_manage and wanted.row.claimed_by and not wanted.is_claimer %}
+    {% comment %}A stale claim used to be a label describing a problem nobody could fix. release() always said "the claimer (or a lead)"; this is the lever.{% endcomment %}
+    {% url 'hub_wiki_wanted_claim' wanted.row.pk as release_url %}
+    {% include "components/confirm_modal.html" with confirm_id=wanted.release_confirm_id confirm_title="Release this claim?" confirm_message="Releasing it lets someone else pick it up. Nothing is deleted." confirm_button_text="Release the claim" confirm_button_style="danger" confirm_hx_post=release_url confirm_hx_target=wanted.target confirm_hx_vals='{"release": "1"}' %}
+    {% endif %}
+    {% if wanted.fulfil_form %}
+    {% include "components/modal.html" with modal_id=wanted.fulfil_modal_id modal_title="Mark As Written" modal_size="sm" modal_body_include="hub/partials/_wiki_wanted_fulfil_form.html" %}
+    {% endif %}
+    {% endif %}
+</div>

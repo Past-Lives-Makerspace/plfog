@@ -1,0 +1,9 @@
+{% comment %}
+What the zero-result screen's "Request This Page" button becomes once it has been tapped.
+A live button after the ask has landed is a control that lies: a second tap would count the
+same member twice on the one number the wanted list calls "people who asked".
+{% endcomment %}
+<p class="hub-text-muted pl-wp-tab__requested">
+    On the wanted list{% if row.request_count > 1 %} &middot; {{ row.request_count }} people have asked{% endif %} &middot;
+    <a href="{{ wanted_url }}">see the list</a>
+</p>

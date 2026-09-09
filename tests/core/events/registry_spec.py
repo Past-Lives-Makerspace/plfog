@@ -58,6 +58,7 @@ _BRAND_NEW_KEYS = {
     "equipment.reservation_made",
     "class_cancelled_admin_notice",
     "class_change_requested",
+    "wiki.guild_digest_monthly",
 }
 
 

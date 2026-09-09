@@ -1,0 +1,19 @@
+{% comment %}
+The page header's answer to a Verify / Re-verify / Remove verification POST.
+
+Two out-of-band swaps in one 200 response: the status pill (which the verification just
+changed) and the verify control itself (whose buttons and credit line just changed with
+it). The posting form uses hx-swap="none", so nothing here is a primary swap.
+
+Deliberately NOT a 204. A 204 has no body, so it cannot carry either swap: the toast would
+say "Verified" while the Community pill sat there until the next reload, which is the exact
+"did that work?" failure a one-tap action exists to avoid.
+{% endcomment %}
+<div id="wiki-status" class="pl-wp-status" hx-swap-oob="true">
+    <span class="hub-pill hub-pill--{{ page.status_pill.0 }}" title="{{ page.status_pill.2 }}">{{ page.status_pill.1 }}</span>
+    {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
+</div>
+<div id="wiki-verify" class="pl-wp-tab__verify" hx-swap-oob="true">
+    {% comment %}No "only": {% csrf_token %} inside the control needs the request context.{% endcomment %}
+    {% include "hub/partials/_wiki_verify_control.html" with page=page can_verify=can_verify compact=False %}
+</div>

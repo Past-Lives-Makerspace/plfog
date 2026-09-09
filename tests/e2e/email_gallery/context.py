@@ -549,6 +549,40 @@ def guild_welcome_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def wiki_guild_digest_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``send_wiki_guild_digest``, over one seeded page and one seeded miss.
+
+    Seeded here rather than drawn from :class:`SampleData`, because the wiki is a later
+    feature than the sample slice and no other card needs a wiki page.
+    """
+    from django.utils import timezone
+
+    from membership.models import WikiPage, WikiSearchMiss
+    from membership.wiki_guild import digest_subject, guild_digest_payload, previous_month_window
+
+    month_start, month_end = previous_month_window()
+    page = WikiPage.objects.create(
+        title="SawStop Table Saw",
+        kind=WikiPage.Kind.MACHINE,
+        guild=data.guild,
+        created_by=data.member,
+        updated_by=data.member,
+        body="<p>How to use the table saw safely.</p>",
+        body_edited_at=timezone.now(),
+    )
+    WikiPage.objects.filter(pk=page.pk).update(created_at=month_start)
+    WikiSearchMiss.objects.create(
+        query="epoxy cure time",
+        query_normalized="epoxy cure time",
+        guild=data.guild,
+        member=data.member,
+    )
+    WikiSearchMiss.objects.filter(guild=data.guild).update(created_at=month_start)
+    payload = guild_digest_payload(data.guild, month_start=month_start, month_end=month_end)
+    assert payload is not None
+    return {"subject": digest_subject(data.guild, payload), "template_context": payload}
+
+
 # --- Billing --------------------------------------------------------------------
 
 

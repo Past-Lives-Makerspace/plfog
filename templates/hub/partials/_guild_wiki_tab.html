@@ -1,0 +1,138 @@
+{% comment %}
+The guild page's Wiki tab: everything this guild knows, on the page members already open.
+
+A filtered view of the ONE global WikiPage store — there is no guild-local wiki and no page
+that lives "in" a tab. Every row is spec A's shared card partial with B's compact Verify
+button dropped into its actions slot, so there is exactly one card shape and one status
+pill across the whole wiki.
+
+Two columns on desktop; one below 900px, where .pl-wp-tab__grid--lead reorders them so a
+lead's to-do list is not underneath as many as 72 page rows. That ordering lives entirely
+in the CSS class, never in an inline style on the x-show pane (Rule 12).
+{% endcomment %}
+<div class="pl-wp-tab">
+
+<div class="pl-wp-tab__search">
+    <form method="get" action="{{ wiki_tab_search_url }}">
+        <input type="hidden" name="guild" value="{{ wiki_tab_guild.slug }}">
+        <div class="hub-form-group">
+            <label for="wiki-tab-q">Search the {{ wiki_tab_guild.name }} wiki</label>
+            <input type="search" id="wiki-tab-q" name="q" placeholder="Search the {{ wiki_tab_guild.name }} wiki">
+        </div>
+        <div class="pl-wp-tab__scope">
+            <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Search</button>
+            <span class="pl-wp-tab__scope-chip pl-wp-tab__scope-chip--active" aria-current="true">This guild</span>
+            <button type="submit" name="scope" value="all" class="pl-wp-tab__scope-chip">Everything</button>
+        </div>
+    </form>
+    <a href="{{ wiki_tab_new_url }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start A Page</a>
+</div>
+
+<div class="pl-wp-tab__grid{% if wiki_tab_lead_panels_first %} pl-wp-tab__grid--lead{% endif %}">
+
+<div class="pl-wp-tab__col pl-wp-tab__col--list">
+    {% if wiki_tab_has_pages %}
+    {% for group in wiki_tab_groups %}
+    <div class="hub-card pl-wp-tab__group">
+        <h3 class="hub-detail-label pl-wp-tab__group-title">{{ group.label }} <span class="hub-text-muted">{{ group.total }}</span></h3>
+        {% for page in group.rows %}
+        <div class="pl-wp-tab__row" id="wiki-tab-row-{{ page.pk }}">
+            {% include "hub/partials/_wiki_card.html" with page=page actions_partial="hub/partials/_wiki_verify_control.html" compact=True %}
+        </div>
+        {% endfor %}
+        {% if group.has_more %}
+        <a href="{{ group.see_all_url }}" class="pl-wp-tab__group-more">See all {{ group.total }} &rarr;</a>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="hub-card pl-wp-tab__empty">
+        <p><strong>Nothing here yet.</strong></p>
+        <p class="hub-text-muted">Start the first page for {{ wiki_tab_guild.name }}, or ask someone to write one.</p>
+        <div class="pl-wp-tab__empty-actions">
+            <a href="{{ wiki_tab_new_url }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start A Page</a>
+            {% if wiki_tab_can_verify %}<a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--sm">+ Add A Wanted Page</a>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<div class="pl-wp-tab__col pl-wp-tab__col--panels">
+    {% if wiki_tab_recent %}
+    <div class="hub-card pl-wp-tab__recent">
+        <h3 class="hub-detail-label pl-wp-tab__panel-title">Recently Updated</h3>
+        {% for page in wiki_tab_recent %}
+        <p class="pl-wp-tab__recent-row">
+            <a href="{{ page.get_absolute_url }}">{{ page.title }}</a>
+            <span class="hub-text-muted">{% if page.updated_by %}{{ page.updated_by.display_name }} &middot; {% endif %}{{ page.updated_at|timesince }} ago</span>
+        </p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if wiki_tab_can_verify %}
+    <div class="hub-card pl-wp-tab__panel">
+        <h3 class="hub-detail-label pl-wp-tab__panel-title">Overdue For Review
+            <span class="pl-help" tabindex="0" aria-label="How the review clock works">
+                <span class="pl-help__icon">?</span>
+                <span class="pl-help__bubble">Machines every 12 months, how-tos and materials every 24, guild info and reference every 12. Project pages never expire.</span>
+            </span>
+        </h3>
+        <p class="hub-text-muted">Past their check-up date. One tap says it's still right.</p>
+        {% for page in wiki_tab_overdue %}
+        <div class="pl-wp-tab__panel-row" x-data="{ done: false }">
+            <div x-show="!done">
+                <p class="pl-wp-tab__row-title"><a href="{{ page.get_absolute_url }}">{{ page.title }}</a></p>
+                <p class="hub-text-muted pl-wp-tab__row-meta">{{ page.get_kind_display }} &middot; last checked {% if page.last_checked_at %}{{ page.last_checked_at|date:"j M Y" }}{% else %}never checked{% endif %}</p>
+                <div class="pl-wp-tab__row-actions">
+                    {% comment %}Spec A owns this endpoint and answers it with the reading page's own status fragment, so the row updates itself here rather than swapping in markup meant for another screen. Nothing is left stale and no editor opens: confirming has to stay cheaper than editing or nothing gets confirmed.{% endcomment %}
+                    <form hx-post="{% url 'hub_wiki_confirm' page.slug %}" hx-swap="none"
+                          @htmx:after-request="if ($event.detail.successful) done = true">
+                        {% csrf_token %}
+                        <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Still Accurate</button>
+                    </form>
+                    <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-wp-tab__row-edit">Not quite. Edit it.</a>
+                </div>
+            </div>
+            <p class="pl-wp-tab__panel-done" x-show="done" x-cloak>&#10003; Confirmed just now</p>
+        </div>
+        {% empty %}
+        <p class="hub-text-muted pl-wp-tab__panel-empty">&#10003; Nothing overdue. Everything here has been checked recently.</p>
+        {% endfor %}
+        {% if wiki_tab_overdue_has_more %}
+        <a href="{{ wiki_tab_overdue_url }}" class="pl-wp-tab__panel-more">See all {{ wiki_tab_overdue_total }} &rarr;</a>
+        {% endif %}
+        {% comment %}Absorbs spec A's out-of-band confirm-cue swap, which has no home on a guild page, so htmx never logs a missing target.{% endcomment %}
+        <div id="wiki-confirm-cue" hidden></div>
+    </div>
+
+    <div class="hub-card pl-wp-tab__misses">
+        <h3 class="hub-detail-label pl-wp-tab__panel-title">Searches That Found Nothing</h3>
+        <p class="hub-text-muted">What members looked for in {{ wiki_tab_guild.name }} in the last 30 days and didn't find. This is your writing list.</p>
+        {% for miss in wiki_tab_misses %}
+        {% include "hub/partials/_wiki_miss_row.html" with miss=miss guild=wiki_tab_guild wanted_url=wiki_tab_wanted_url %}
+        {% empty %}
+        <p class="hub-text-muted pl-wp-tab__panel-empty">No failed searches in the last 30 days. Either everything is findable, or nobody looked.</p>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="hub-card pl-wp-tab__wanted">
+        <h3 class="hub-detail-label pl-wp-tab__panel-title">Wanted Pages</h3>
+        <p class="hub-text-muted">Pages this guild wants written. Claim one, or just start it.</p>
+        <div id="wiki-tab-wanted-rows">
+            {% include "hub/partials/_wiki_wanted_rows.html" with wanted_rows=wiki_tab_wanted %}
+        </div>
+        {% if not wiki_tab_wanted and wiki_tab_can_verify %}
+        <p class="hub-text-muted">Ask for the pages your guild actually needs. A specific ask gets written; an open invitation doesn't.</p>
+        <a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--sm">+ Add A Wanted Page</a>
+        {% elif wiki_tab_can_verify %}
+        <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">Manage the list &rarr;</a>
+        {% elif wiki_tab_wanted_has_more %}
+        <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">See the whole list &rarr;</a>
+        {% endif %}
+    </div>
+</div>
+
+</div>
+</div>

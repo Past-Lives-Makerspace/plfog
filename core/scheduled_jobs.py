@@ -268,6 +268,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
     ),
+    ScheduledJob(
+        key="send_wiki_guild_digest",
+        name="Guild wiki digest",
+        description=(
+            "Emails each guild's leadership a monthly summary of their wiki, and prunes old "
+            "search-miss rows. The digest only goes out on the 1st; the prune runs daily."
+        ),
+        command="send_wiki_guild_digest",
+        schedule_label="Daily (digest on the 1st)",
+        cadence=Cadence.DAILY,
+    ),
 ]
 
 JOBS_BY_KEY: dict[str, ScheduledJob] = {job.key: job for job in SCHEDULED_JOBS}
