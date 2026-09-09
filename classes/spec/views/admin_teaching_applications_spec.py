@@ -10,6 +10,7 @@ from __future__ import annotations
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 
+from core.models import Notification
 from membership.models import Member, MembershipPlan
 
 
@@ -85,6 +86,44 @@ def describe_admin_teaching_approve():
         member.refresh_from_db()
         assert member.can_create_classes is True
         assert member.instructor_slug  # grant_instructor mints the public page too
+
+    def it_says_it_let_them_know_when_it_answered_their_note(admin_user, client, db):
+        member = _applicant("approve-told@example.com")
+        client.force_login(admin_user)
+        response = client.post(reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}), follow=True)
+        content = response.content.decode()
+        assert f"Teaching is on for {member.display_name}. We let them know." in content
+        assert Notification.objects.filter(trigger="instructor_application_approved", user=member.user).count() == 1
+
+    def it_does_not_claim_an_email_for_someone_who_never_asked(admin_user, client, db):
+        """grant_teaching sends nothing to a member with no note, so the message must not say it did."""
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        user, _ = get_user_model().objects.get_or_create(username="approve-unasked@example.com")
+        member = Member.objects.get(user=user)
+        member.status = Member.Status.ACTIVE
+        member.membership_plan = plan
+        member.full_legal_name = "Quiet Member"
+        member.save(update_fields=["status", "membership_plan", "full_legal_name"])
+        client.force_login(admin_user)
+        response = client.post(reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}), follow=True)
+        content = response.content.decode()
+        assert f"Teaching is on for {member.display_name}." in content
+        assert "We let them know." not in content
+        member.refresh_from_db()
+        assert member.can_create_classes is True
+        assert Notification.objects.filter(trigger="instructor_application_approved").count() == 0
+
+    def it_does_not_claim_an_email_when_teaching_was_already_on(admin_user, client, db):
+        """A second click after the grant is a no-op in the model and sends no second email."""
+        member = _applicant("approve-again@example.com")
+        member.grant_teaching(granted_by=None)
+        assert Notification.objects.filter(trigger="instructor_application_approved").count() == 1
+        client.force_login(admin_user)
+        response = client.post(reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}), follow=True)
+        content = response.content.decode()
+        assert f"Teaching is on for {member.display_name}." in content
+        assert "We let them know." not in content
+        assert Notification.objects.filter(trigger="instructor_application_approved").count() == 1
 
     def it_404s_an_unknown_member(admin_user, client, db):
         client.force_login(admin_user)

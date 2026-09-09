@@ -874,7 +874,7 @@ Reviewers see your class exactly as a student would, in a full preview of the pu
 - **Pending**: submitted, waiting on review. You can still edit it.
 - **Published**: live in the catalog and open for sign-ups.
 
-Once a class is published (or archived), only an admin can edit it. Need a change to a live class? Ask an admin.""",
+Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note and the video are all still editable from the manage page, and so is putting the class on sale. The title, guild type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
         "screenshots": [
             {
                 "file": "01-teaching-portal.png",
@@ -983,13 +983,12 @@ When a class fills up, new sign-ups join a waitlist. You do not manage it by han
 
 You do not need to rebuild a class to run it on new dates.
 
-1. While the class is a draft or pending, open its **Edit** page.
-2. At the bottom, click **+ Offer on another set of dates**.
-3. You get a draft copy with no dates. Add the new dates, then submit it for review.
+1. While the class is a draft or pending, open its **Edit** page and click **+ Offer on another set of dates** at the bottom. Once the class is live, finished, or cancelled, open it from the **Classes** tab of the teaching portal and click **Run it again** instead.
+2. Either way you get a draft copy with no dates. Add the new dates, then submit it for review.
 
 On the public class page, the original and the new class link to each other under **Other Dates for This Class**, so students always see every date the class is offered. And like any class, the new one goes through review before it publishes.
 
-The caveat: once a class is published, only an admin can edit it, and that edit page is where the button lives. To add a new date-set to a live class, ask an admin; they have the same one-click tool.""",
+You never need an admin for this. An admin has the same one-click tool on their side, so if they add a date set for you it shows up in your list the same way.""",
         "screenshots": [
             {
                 "file": "01-your-classes.png",

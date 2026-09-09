@@ -1126,9 +1126,17 @@ def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> d
         )
     guide = WikiArticle.objects.published().filter(slug="become-an-instructor").select_related("category").first()
     settings_obj = ClassSettings.load()
-    example = settings_obj.example_class
-    if example is not None and example.status != ClassOffering.Status.PUBLISHED:
-        example = None
+    # One lookup carries everything the catalog card reads (category, instructor,
+    # sessions), so rendering it costs no per-field queries. Filtering on status here
+    # is what turns a draft or archived pick into "no example".
+    example = None
+    if settings_obj.example_class_id is not None:
+        example = (
+            ClassOffering.objects.filter(pk=settings_obj.example_class_id, status=ClassOffering.Status.PUBLISHED)
+            .select_related("category", "instructor")
+            .prefetch_related("sessions")
+            .first()
+        )
     return {
         "member": member,
         "article": article,
@@ -2957,8 +2965,15 @@ def admin_teaching_approve(request: HttpRequest, pk: int) -> HttpResponse:
     assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
     # None = a superuser acting without a linked Member (emergency access).
     admin_member = MemberModel.objects.filter(user=request.user).first()
+    # grant_teaching emails the member only when it answers a note they sent and the
+    # portal was still locked; read that before the grant so the message never claims
+    # an email that did not go out (a grant to someone who never asked sends nothing).
+    will_notify = member.teaching_applied_at is not None and not member.can_create_classes
     member.grant_instructor(granted_by=admin_member)
-    messages.success(request, f"{member.display_name} can teach now. We let them know.")
+    message = f"Teaching is on for {member.display_name}."
+    if will_notify:
+        message += " We let them know."
+    messages.success(request, message)
     return redirect("classes:admin_overview")
 
 

@@ -1255,6 +1255,15 @@ class ClassSettingsForm(forms.ModelForm):
             "teach_page_cta_line": forms.Textarea(attrs={"rows": 3}),
         }
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Only a published class can be the worked example: the page hides any other
+        # pick, so offering drafts and archived classes here would be offering choices
+        # that silently do nothing.
+        example_field = self.fields["example_class"]
+        assert isinstance(example_field, forms.ModelChoiceField)
+        example_field.queryset = ClassOffering.objects.filter(status=ClassOffering.Status.PUBLISHED).order_by("title")
+
     def general_fields(self) -> list[forms.BoundField]:
         """The bound fields of the general section, in display order."""
         return [self[name] for name in self.GENERAL_FIELDS]

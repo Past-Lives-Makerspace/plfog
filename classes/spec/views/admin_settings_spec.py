@@ -95,6 +95,66 @@ def describe_admin_settings():
             assert response.status_code == 302
             assert ClassSettings.load().example_class_id == offering.pk
 
+        def it_offers_published_classes_and_not_drafts(admin_user, client, db):
+            from classes.factories import ClassOfferingFactory
+            from classes.models import ClassOffering
+
+            published = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, title="Live Class")
+            draft = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, title="Draft Class")
+            archived = ClassOfferingFactory(status=ClassOffering.Status.ARCHIVED, title="Old Class")
+            client.force_login(admin_user)
+            content = client.get(reverse("classes:admin_settings")).content.decode()
+            picker = content.split('name="example_class"')[1].split("</select>")[0]
+            assert f'value="{published.pk}"' in picker
+            assert f'value="{draft.pk}"' not in picker
+            assert f'value="{archived.pk}"' not in picker
+
+        def it_refuses_a_draft_as_the_example(admin_user, client, db):
+            from classes.factories import ClassOfferingFactory
+            from classes.models import ClassOffering, ClassSettings
+
+            draft = ClassOfferingFactory(status=ClassOffering.Status.DRAFT)
+            client.force_login(admin_user)
+            response = client.post(
+                reverse("classes:admin_settings"),
+                {
+                    "liability_waiver_text": "LIABILITY",
+                    "model_release_waiver_text": "MODEL RELEASE",
+                    "default_member_discount_pct": 10,
+                    "reminder_hours_before": 24,
+                    "example_class": draft.pk,
+                    "confirmation_email_footer": "",
+                },
+            )
+            assert response.status_code == 200  # re-rendered with the field error, not saved
+            assert "Select a valid choice" in response.content.decode()
+            assert ClassSettings.load().example_class_id is None
+
+        def it_keeps_the_stored_pick_across_a_save(admin_user, client, db):
+            from classes.factories import ClassOfferingFactory
+            from classes.models import ClassOffering, ClassSettings
+
+            offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+            settings_obj = ClassSettings.load()
+            settings_obj.example_class = offering
+            settings_obj.save()
+            client.force_login(admin_user)
+            content = client.get(reverse("classes:admin_settings")).content.decode()
+            assert f'<option value="{offering.pk}" selected>' in content
+            response = client.post(
+                reverse("classes:admin_settings"),
+                {
+                    "liability_waiver_text": "LIABILITY",
+                    "model_release_waiver_text": "MODEL RELEASE",
+                    "default_member_discount_pct": 10,
+                    "reminder_hours_before": 24,
+                    "example_class": offering.pk,
+                    "confirmation_email_footer": "",
+                },
+            )
+            assert response.status_code == 302
+            assert ClassSettings.load().example_class_id == offering.pk
+
         def it_leaves_the_example_blank_when_none_is_chosen(admin_user, client, db):
             from classes.models import ClassSettings
 

@@ -90,7 +90,7 @@ def _seed_personas() -> dict[str, Member]:
         "instructor": {
             "full_legal_name": "Jules Instructor",
             "instructor_slug": "jules-instructor",
-            # Spec D: the teach portal is gated on the orientation unlock.
+            # The teach portal is gated on an admin granting teaching; this stamp is that grant.
             "instructor_oriented_at": _tz.now(),
         },
         "admin": {"full_legal_name": "Alex Admin", "fog_role": Member.FogRole.ADMIN},

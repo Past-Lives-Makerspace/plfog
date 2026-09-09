@@ -230,6 +230,26 @@ def describe_teach_why():
             assert example.title in content
             assert example.public_url in content
 
+        def it_builds_the_context_and_renders_the_card_in_a_fixed_number_of_queries(db, django_assert_num_queries):
+            """The example is fetched with its category, instructor and sessions in the same
+            lookup, so the card partial reads them from the cache instead of querying per
+            field. The count covers ``_why_teach_context`` (two guide lookups, the settings
+            row, the example plus its sessions) and the card render (one seat count).
+            """
+            from django.template.loader import render_to_string
+
+            from classes.factories import ClassSessionFactory
+            from classes.forms import TeachingApplicationForm
+            from classes.views import _why_teach_context
+
+            example = _published_example()
+            ClassSessionFactory(class_offering=example)
+            _, member = _active_member_user("query-count@example.com")
+            with django_assert_num_queries(6):
+                context = _why_teach_context(member, TeachingApplicationForm())
+                html = render_to_string("classes/public/_class_card.html", {"group": context["example_group"]})
+            assert example.title in html
+
         def it_falls_back_to_a_catalog_link_when_none_is_configured(db, client):
             user, _ = _active_member_user("example-none@example.com")
             client.force_login(user)
