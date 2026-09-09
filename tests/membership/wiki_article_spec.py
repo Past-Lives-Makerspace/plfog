@@ -160,6 +160,13 @@ def describe_WikiArticle():
             article = WikiArticleFactory(body="## Only a heading")
             assert article.lead_text() == ""
 
+        def it_strips_tags_from_an_html_block_inside_a_markdown_body(db):
+            # docs/HELP_AUTHORING.md tells authors to put a raw HTML slot in the body, so a
+            # Markdown article can carry a block that opens with "<". Flattening it as plain
+            # Markdown leaves the tags in, and they render literally on the /help/ card.
+            article = WikiArticleFactory(body="## Steps\n\n<div>Use the <strong>red</strong> lever.</div>")
+            assert article.lead_text() == "Use the red lever."
+
         def describe_with_a_rich_editor_html_body():
             def it_strips_tags_from_the_first_paragraph(db):
                 article = WikiArticleFactory(body="<p>Read the <strong>full</strong> <a href='/help/'>guide</a>.</p>")

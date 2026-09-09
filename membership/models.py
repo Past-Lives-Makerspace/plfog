@@ -3428,10 +3428,18 @@ def _lead_text(body: str, limit: int) -> str:
     page until a member writes in it — advertise its own template as its excerpt ("What It
     Does How To Use It What Goes Wrong Tips From Members") on every card.
 
-    Removing headings is the only transformation, so no body that produced an excerpt before
-    can produce an empty one now. An HTML body is flattened whole rather than block by block:
-    the result is capped at ``limit`` anyway, and a card is better served by the opening two
-    short paragraphs than by only the first.
+    On the HTML side removing headings is the only transformation, and a 33-shape differential
+    against the two implementations this replaced found no body that produced an excerpt then
+    and an empty one now. The body is flattened whole rather than block by block: the result
+    is capped at ``limit`` anyway, and a card is better served by the opening two short
+    paragraphs than by only the first.
+
+    That is not a blanket guarantee, and two bounded exceptions are known. A window of
+    ``_LEAD_SCAN_LIMIT`` characters containing no non-heading text yields "" where flattening
+    the whole body would not — it takes some 1,100 consecutive empty paragraphs to reach.
+    And the Markdown branch skips a block opening with "#", so a body whose first line is
+    "#3 wrench sizes" is skipped as though it were a heading; that predates this helper on the
+    article side and is inherited here rather than introduced.
     """
     from core.html_sanitize import rich_html_to_text
     from membership.markdown import looks_like_html
@@ -3447,7 +3455,7 @@ def _lead_text(body: str, limit: int) -> str:
         # Markdown keeps its block split: a body can open with an image-only block, which is
         # not lead copy either, and skipping it is covered by the help-article specs.
         candidates = [
-            _markdown_to_text(block) for block in re.split(r"\n\s*\n", body) if not block.lstrip().startswith("#")
+            _source_to_text(block) for block in re.split(r"\n\s*\n", body) if not block.lstrip().startswith("#")
         ]
     for text in candidates:
         if not text:
