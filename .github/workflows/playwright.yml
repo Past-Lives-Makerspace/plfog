@@ -40,13 +40,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
-      # Google's Chrome apt index intermittently serves a bad hash to the runners, and
       # `playwright install --with-deps` runs apt-get update across every source on the
-      # image. Playwright ships its own Chromium, so that source is never needed.
-      - name: Drop the Google Chrome apt source
-        run: sudo rm -f /etc/apt/sources.list.d/google-chrome*.list
+      # runner image, and mirrors flake: Google's Chrome index in particular has served a
+      # bad hash for hours at a time. Playwright ships its own Chromium, so that source is
+      # never needed; drop it, then give the install three attempts with a pause between.
       - name: Install Playwright browser
-        run: python -m playwright install --with-deps chromium
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list
+          for attempt in 1 2 3; do
+            if python -m playwright install --with-deps chromium; then
+              exit 0
+            fi
+            echo "playwright install failed on attempt $attempt; retrying in 20s"
+            sleep 20
+          done
+          echo "playwright install failed three times"
+          exit 1
 
       - name: Run end-to-end tests
         run: pytest -m e2e --no-cov --tb=short
