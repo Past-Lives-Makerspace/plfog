@@ -45,6 +45,7 @@ urlpatterns = [
     path("teach/images/<int:pk>/alt/", views.teach_class_image_alt, name="teach_class_image_alt"),
     path("teach/classes/<int:pk>/withdraw/", views.teach_class_withdraw, name="teach_class_withdraw"),
     path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
+    path("teach/classes/<int:pk>/sale/", views.teach_class_sale, name="teach_class_sale"),
     path(
         "teach/classes/<int:pk>/request-change/",
         views.teach_class_request_change,
@@ -134,6 +135,7 @@ urlpatterns = [
     path("review/<str:token>/preview/", views.class_review_preview, name="class_review_preview"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/cancel/", views.admin_class_cancel, name="admin_class_cancel"),
+    path("admin/<int:pk>/sale/", views.admin_class_sale, name="admin_class_sale"),
     path("admin/<int:pk>/restore/", views.admin_class_restore, name="admin_class_restore"),
     path("admin/<int:pk>/unpublish/", views.admin_class_unpublish, name="admin_class_unpublish"),
     path("admin/<int:pk>/remind-lead/", views.admin_class_remind_lead, name="admin_class_remind_lead"),

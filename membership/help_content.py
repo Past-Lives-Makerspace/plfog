@@ -845,10 +845,11 @@ Three ways in:
 ### Create Your Draft {#teach-create-class}
 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
-2. Fill in the basics: title, guild category, description, price, and how many spots.
-3. Add your dates. A class can be one session or a series; add one row per session. You can also pick flexible scheduling if the dates are arranged later.
-4. Add at least two photos: a hero image and at least one gallery photo. A class needs both before it can be submitted.
-5. Click **Save Draft** to keep working, or **Save & Submit for Review** when it is ready.
+2. The form is five steps. Step 1 is the basics: title, guild type, and description.
+3. Step 2 is photos. Add a hero image and at least one gallery photo; a class needs both before it can be submitted. Pick the important part of the photo for the class page banner and again for the catalog card.
+4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. You can also pick flexible scheduling if the dates are arranged later.
+5. Step 4 holds the optional details students read to prepare. Step 5 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
+6. Click **Save Draft** on any step to keep working.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
 
@@ -858,7 +859,7 @@ Not sure what "done" looks like? Study the permanent example class, [Shaker Side
 
 ### Submit It for Review {#teach-submit-for-review}
 
-Click **Save & Submit for Review** on the form, or **Submit for review** on the class page. Review happens in order:
+Click **Submit for Review** on the last step of the form, or **Submit for review** on the class page. Review happens in order:
 
 - If your class's category belongs to a guild that has a lead, that guild lead reviews it first.
 - Then an admin gives the final yes. No guild lead involved? The admin reviews it directly.

@@ -152,6 +152,51 @@ class _HeroCropMixin:
         offering.hero_crop_h = crop["h"]
 
 
+class _CardFocusMixin:
+    """Adds a hidden ``card_focus`` JSON field bound to ``card_focus_x`` / ``card_focus_y``.
+
+    The card focus tool in ``static/js/card_focus.js`` writes ``{"x": int, "y": int}``
+    (percentages, 0 to 100) on every slider move, and an empty string when the
+    instructor chooses Match the Banner. Empty clears both columns to null, which the
+    model reads as "follow the banner". Saves with the form, exactly like ``hero_crop``,
+    so the Photos step has one save rule rather than two.
+    """
+
+    def add_card_focus_field(self) -> None:
+        instance = getattr(self, "instance", None)
+        initial = ""
+        if instance and instance.pk and instance.card_focus_x is not None and instance.card_focus_y is not None:
+            initial = json.dumps({"x": instance.card_focus_x, "y": instance.card_focus_y})
+        self.fields["card_focus"] = forms.CharField(  # type: ignore[attr-defined]
+            required=False,
+            initial=initial,
+            widget=forms.HiddenInput(attrs={"data-card-focus-input": ""}),
+        )
+
+    def clean_card_focus(self) -> dict[str, int] | None:
+        raw = (self.cleaned_data.get("card_focus") or "").strip()  # type: ignore[attr-defined]
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            x = int(data["x"])
+            y = int(data["y"])
+        except (ValueError, KeyError, TypeError):
+            raise forms.ValidationError("Focal point is malformed; clear it and try again.") from None
+        if not (0 <= x <= 100 and 0 <= y <= 100):
+            raise forms.ValidationError("Focal point must be between 0 and 100.")
+        return {"x": x, "y": y}
+
+    def apply_card_focus_to_instance(self, offering: ClassOffering) -> None:
+        focus = self.cleaned_data.get("card_focus")  # type: ignore[attr-defined]
+        if focus is None:
+            offering.card_focus_x = None
+            offering.card_focus_y = None
+            return
+        offering.card_focus_x = focus["x"]
+        offering.card_focus_y = focus["y"]
+
+
 class _FreeClassMixin:
     """Adds an `is_free` checkbox that, when checked, forces price/discount to 0.
 
@@ -303,11 +348,10 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
-class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _SchedulingTypeMixin, forms.ModelForm):
+class ClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
+    """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
+
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
-    sale_amount_cents = CentsAsDollarsField(
-        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
-    )
 
     class Meta:
         model = ClassOffering
@@ -324,12 +368,6 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
             "age_guardian_note",
             "price_cents",
             "member_discount_pct",
-            "sale_enabled",
-            "sale_kind",
-            "sale_percent",
-            "sale_amount_cents",
-            "sale_banner_text",
-            "sale_allow_discount_codes",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -346,6 +384,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
         self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.add_card_focus_field()
         self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
@@ -354,13 +393,13 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
-        self.clean_sale_fields()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
+        self.apply_card_focus_to_instance(offering)
         _assign_provisional_slug(offering)
         if commit:
             offering.save()
@@ -368,13 +407,13 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
         return offering
 
 
-class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _SchedulingTypeMixin, forms.ModelForm):
-    """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated."""
+class TeachClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
+    """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
+
+    The six ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
+    """
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
-    sale_amount_cents = CentsAsDollarsField(
-        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
-    )
 
     class Meta:
         model = ClassOffering
@@ -390,12 +429,6 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
             "age_guardian_note",
             "price_cents",
             "member_discount_pct",
-            "sale_enabled",
-            "sale_kind",
-            "sale_percent",
-            "sale_amount_cents",
-            "sale_banner_text",
-            "sale_allow_discount_codes",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -411,6 +444,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
         self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.add_card_focus_field()
         self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
@@ -419,18 +453,71 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
-        self.clean_sale_fields()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
+        self.apply_card_focus_to_instance(offering)
         if self.teaching_member is not None and not offering.instructor_id:
             offering.instructor = self.teaching_member
             if not offering.created_by_id:
                 offering.created_by = self.teaching_member
         _assign_provisional_slug(offering)
+        if commit:
+            offering.save()
+        return offering
+
+
+class ClassSaleForm(_SaleMixin, forms.ModelForm):
+    """The Put This Class On Sale modal on the Manage Class page (teach and admin).
+
+    Carries the five sale amount fields alone. ``sale_enabled`` is not a field: the modal's
+    buttons carry it. Turning a sale on or saving its changes validates through
+    :meth:`_SaleMixin.clean_sale_fields` unchanged (the Stripe floor and free class checks
+    are the reason that validation exists), fed the price and free flag from the saved
+    class since the modal has no price field of its own. Turning a sale off never goes
+    through this form: :meth:`ClassOffering.turn_sale_off` skips validation on purpose.
+    """
+
+    sale_amount_cents = CentsAsDollarsField(
+        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
+    )
+
+    class Meta:
+        model = ClassOffering
+        fields = ["sale_kind", "sale_percent", "sale_amount_cents", "sale_banner_text", "sale_allow_discount_codes"]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["sale_kind"].label = "How Much Off?"
+        self.fields["sale_percent"].label = "Percent off"
+        self.fields["sale_percent"].help_text = ""
+        self.fields["sale_banner_text"].label = "Banner text"
+        self.fields["sale_banner_text"].help_text = "Leave it blank to use the standard sale banner."
+        self.fields["sale_allow_discount_codes"].label = "Allow discount codes on top"
+        self.fields[
+            "sale_allow_discount_codes"
+        ].help_text = "Off by default, so a sale price cannot be stacked with another offer."
+
+    def add_error(self, field: str | None, error: Any) -> None:
+        """Route the mixin's ``price_cents`` errors to the form level: this form has no price field."""
+        super().add_error(None if field == "price_cents" else field, error)
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        # The mixin reads the switch, the price, and the free flag from cleaned_data; the
+        # modal has none of those fields, so they come from the class being edited.
+        data["sale_enabled"] = True
+        data["price_cents"] = self.instance.price_cents
+        data["is_free"] = self.instance.price_cents == 0
+        self.clean_sale_fields()
+        return data
+
+    def save(self, commit: bool = True) -> ClassOffering:
+        offering = super().save(commit=False)
+        offering.sale_enabled = True
         if commit:
             offering.save()
         return offering

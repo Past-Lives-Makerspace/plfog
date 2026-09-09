@@ -748,6 +748,33 @@ class ClassOffering(HeroCropMixin, models.Model):
     def get_hero_image_field_name(self) -> str:
         return "image"
 
+    # The catalog card is a 150px strip, not the 16:9 banner, so it gets its own focal
+    # point. Null on both means "follow the banner" (see ``card_object_position``), which
+    # is what every existing class does until an instructor deliberately overrides it.
+    card_focus_x = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Horizontal focal point for the catalog card, 0 to 100. Null follows the banner.",
+    )
+    card_focus_y = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Vertical focal point for the catalog card, 0 to 100. Null follows the banner.",
+    )
+
+    @property
+    def card_object_position(self) -> str:
+        """CSS ``object-position`` for the 150px catalog card.
+
+        Falls back to :attr:`hero_object_position` (and through it to ``"50% 50%"``) when no
+        card override is stored, so the card follows whatever the banner tool chose, focal
+        point mode included. That fallback is the fix for the catalog ignoring the detail
+        page's Adjust sliders: the card no longer gates on ``hero_crop_w``.
+        """
+        if self.card_focus_x is None or self.card_focus_y is None:
+            return self.hero_object_position
+        return f"{self.card_focus_x}% {self.card_focus_y}%"
+
     video_url = models.URLField(
         blank=True,
         max_length=500,
@@ -1693,6 +1720,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         dollars, rem = divmod(self.sale_amount_cents, 100)  # type: ignore[operator]
         money = f"${dollars}" if rem == 0 else f"${dollars}.{rem:02d}"
         return f"{money} off"
+
+    def turn_sale_off(self) -> None:
+        """Switch the sale off, keeping the dormant amounts so it can be switched back on as it was.
+
+        Skips the sale validation on purpose: an instructor must always be able to end a
+        sale even when the stored amounts have gone stale against a changed price.
+        """
+        self.sale_enabled = False
+        self.save(update_fields=["sale_enabled", "updated_at"])
 
     @property
     def sale_banner_display(self) -> str:

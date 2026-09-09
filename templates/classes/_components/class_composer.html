@@ -1,0 +1,277 @@
+{% load static %}
+{% comment %}
+The five step class composer, shared by templates/classes/teach/class_form.html and
+templates/classes/admin/class_form.html (design spec §C). Built exactly like the
+announcement composer (templates/hub/announcement_compose.html): one page, one <form>,
+one Alpine x-data holding `phase`, x-show per step, and the .pl-phase-tabs bar. No
+per-step POST: every field of every step is in the DOM on every render, so one Save posts
+everything and the server side validation is unchanged.
+
+Context (from _composer_context in classes/views.py, plus the form context):
+  form, formset (sessions), faq_formset, offering (may be None on create), mode
+  (anchor_steps_json is rendered autoescaped ON PURPOSE: it sits inside the double quoted
+  x-data attribute, so its quotes must reach the browser as &quot; or they end the attribute.)
+  is_admin        — controls instructor / is_private / private_for_name, the discount code
+                    URL names, and the step 5 action (Publish instead of Submit for Review)
+  composer_tabs   — [{step: ComposerStep, done: bool}], the tab bar with completion marks
+  initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
+  error_steps / error_summary — the broken steps and their failing field labels
+  anchor_steps_json — DOM id -> step number, for goToField()
+  pipeline, readiness, is_ready — only present once the class has a pk
+  cancel_url, save_label
+
+The step tabs ("how much of the form have I filled in?") and the review pipeline card
+("where is my class with the reviewers?") are two components with two meanings (§C.4).
+Do not merge them.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
+<link rel="stylesheet" href="{% static 'css/cms-public.css' %}">
+
+<h2 class="pl-composer__title">{% if mode == 'create' %}New Class{% else %}Edit Class: {{ offering.title }}{% endif %}</h2>
+{% if is_admin %}
+<p class="pl-wizard-lead">Five steps. Save a draft any time and come back to it. Publish when it is ready.</p>
+{% else %}
+<p class="pl-wizard-lead">Five steps. Save a draft any time and come back to it. Nothing goes live until an admin approves it.</p>
+{% endif %}
+
+{% if pipeline and not pipeline.is_live and not pipeline.muted %}
+{# One place, one truth: the review pipeline, its headline, and the reviewer's note when bounced. #}
+<section class="hub-card pl-pipeline-card pl-composer__pipeline" data-help-key="teach.review-pipeline">
+    <h3 class="pl-composer__card-title">Where Your Class Is</h3>
+    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
+    {% if pipeline.is_bounced %}
+        <div class="pl-review-note">
+            <span class="pl-review-note__label">Reviewer's note</span>{% if pipeline.note %}{{ pipeline.note }}{% else %}The reviewer left no note.{% endif %}
+        </div>
+        {% if not is_admin %}<p class="pl-composer__footnote">Fix the notes below and submit again.</p>{% endif %}
+    {% elif offering.status == 'pending' and not is_admin %}
+        <p class="pl-composer__footnote">You can still edit it until it is approved.</p>
+    {% endif %}
+</section>
+{% endif %}
+
+<div class="hub-card pl-composer"
+     x-data="{
+       phase: {{ initial_phase }},
+       errorSteps: {{ error_steps }},
+       anchorSteps: {{ anchor_steps_json }},
+       cardPosition: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}',
+       previewLoaded: false,
+       goTo(n) {
+         this.phase = n;
+         this.$nextTick(() => {
+           const tab = this.$root.querySelector('[data-step-tab=&quot;' + n + '&quot;]');
+           if (tab) { tab.scrollIntoView({ inline: 'center', block: 'nearest' }); }
+         });
+       },
+       goToField(id) {
+         const step = this.anchorSteps[id];
+         if (step) { this.phase = step; }
+         this.$nextTick(() => { const el = document.getElementById(id); if (el) { el.scrollIntoView({ block: 'center' }); } });
+       },
+       reloadPreview() {
+         this.$refs.previewFrame.contentWindow.location.reload();
+       }
+     }"
+     @card-focus.window="cardPosition = $event.detail.position">
+
+  <p class="pl-composer-count">Step <span x-text="phase"></span> of 5</p>
+  <div class="pl-phase-tabs" role="tablist" aria-label="Class steps">
+    {% for tab in composer_tabs %}
+    <button type="button" class="pl-phase-tab{% if tab.done %} pl-phase-tab--done{% endif %}" role="tab"
+            data-step-tab="{{ tab.step.number }}"
+            :aria-selected="phase === {{ tab.step.number }}"
+            :aria-invalid="errorSteps.includes({{ tab.step.number }})"
+            :class="{ 'pl-phase-tab--active': phase === {{ tab.step.number }}, 'pl-phase-tab--error': errorSteps.includes({{ tab.step.number }}) }"
+            @click="goTo({{ tab.step.number }})">{{ tab.step.tab_label }}{% if tab.done %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="!errorSteps.includes({{ tab.step.number }})">&#10003;</span>{% endif %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="errorSteps.includes({{ tab.step.number }})" x-cloak>&#9679;</span></button>
+    {% endfor %}
+  </div>
+
+  <form method="post" enctype="multipart/form-data" id="composer-form" x-ref="composerForm">
+    {% csrf_token %}
+    {# The submit confirm flips this to "submit" (teach) or "publish" (admin) before requestSubmit(); everything else is a draft save. #}
+    <input type="hidden" id="composer-action" name="action" value="save">
+    {# Which step the user was looking at, so a save comes back to it (?step=N). #}
+    <input type="hidden" name="step" :value="phase">
+
+    {% if form.non_field_errors %}
+    <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
+    {% endif %}
+    {% if error_summary %}
+    <div class="pl-composer-errors pl-wizard-errors" role="alert">
+      <p class="pl-composer-errors__title">Some Things Need Fixing</p>
+      <ul class="pl-composer-errors__list">
+        {% for step, labels in error_summary %}
+        <li><button type="button" class="pl-composer-errors__jump" @click="goTo({{ step.number }})">{{ step.heading }}{% if labels %}: {{ labels|join:", " }}{% endif %}</button></li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {# ── Step 1 ── #}
+    <div class="pl-composer__step" x-show="phase === 1" data-help-key="teach.class-basics">
+      <h2 class="pl-composer__heading">The Basics</h2>
+      <p class="pl-compose-section__note">What the class is and which guild it belongs to. The description is the first thing a member reads.</p>
+      {% include "components/form_field.html" with field=form.title %}
+      {% include "components/form_field.html" with field=form.category %}
+      {% if is_admin %}{% include "components/form_field.html" with field=form.instructor %}{% endif %}
+      {% include "components/form_field.html" with field=form.description %}
+    </div>
+
+    {# ── Step 2 ── #}
+    <div class="pl-composer__step" x-show="phase === 2" x-cloak>
+      <h2 class="pl-composer__heading">Photos And Video</h2>
+      <div class="pl-compose-section">
+        <h3 class="pl-compose-section__title">Your Photo, Two Shapes</h3>
+        <p class="pl-compose-section__note">The class page shows a wide banner. The catalog card shows a short strip. They crop your photo differently, so you choose the important part of the photo twice.</p>
+        <div class="pl-crop-pair">
+          <div class="pl-crop-pane">
+            <p class="pl-crop-pane__label">Class Page Banner</p>
+            <p class="pl-crop-pane__hint">Drag the box. Everything outside it is cut off.</p>
+            {% include "classes/_components/hero_image_field.html" with field=form.image current_image=offering.image crop_field=form.hero_crop offering=offering %}
+          </div>
+          <div class="pl-crop-pane">
+            <p class="pl-crop-pane__label">Catalog Card</p>
+            <p class="pl-crop-pane__hint">Drag the sliders. These are the exact sizes members see in the catalog.</p>
+            {% include "classes/_components/card_focus_field.html" %}
+          </div>
+        </div>
+      </div>
+      <div class="pl-compose-section">
+        <h3 class="pl-compose-section__title">Gallery</h3>
+        <p class="pl-compose-section__note">Extra photos shown on your class page. Finished pieces, the studio, tool close ups. Images save the moment you drop them in. You need at least one before you can submit.</p>
+        {% include "classes/_components/image_formset.html" with offering=offering %}
+      </div>
+      <div class="pl-compose-section">
+        <h3 class="pl-compose-section__title">Video</h3>
+        <p class="pl-compose-section__note">Paste a YouTube link and it plays right on your class page. Optional.</p>
+        {% include "components/form_field.html" with field=form.video_url %}
+      </div>
+    </div>
+
+    {# ── Step 3 ── #}
+    <div class="pl-composer__step" x-show="phase === 3" x-cloak>
+      <h2 class="pl-composer__heading">Dates, Seats And Price</h2>
+      <div class="pl-compose-section" id="class-dates" data-help-key="teach.class-schedule">
+        <h3 class="pl-compose-section__title">When It Meets</h3>
+        <p class="pl-compose-section__note">Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time.</p>
+        {% include "components/form_field.html" with field=form.scheduling_model %}
+        {% include "classes/_components/scheduling_type_field.html" with field=form.scheduling_type %}
+        {% include "classes/_components/session_calendar.html" %}
+        {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
+      </div>
+      <div class="pl-compose-section" data-help-key="teach.class-pricing">
+        <h3 class="pl-compose-section__title">Seats And Price</h3>
+        <p class="pl-compose-section__note">Set the full price. Members can get a discount on top of it.</p>
+        {% include "components/form_field.html" with field=form.capacity %}
+        {% include "components/form_field.html" with field=form.is_free %}
+        {% include "components/form_field.html" with field=form.price_cents %}
+        {% include "components/form_field.html" with field=form.member_discount_pct %}
+        {% if is_admin %}
+          {% include "components/form_field.html" with field=form.is_private %}
+          {% include "components/form_field.html" with field=form.private_for_name %}
+          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:admin_discount_code_create' edit_url='classes:admin_discount_code_edit' %}
+        {% elif instructor_discount_codes_enabled %}
+          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Step 4 ── #}
+    <div class="pl-composer__step" x-show="phase === 4" x-cloak>
+      <h2 class="pl-composer__heading">What Students Need To Know</h2>
+      <p class="pl-compose-section__note">All optional. Fill in what fits your class and leave the rest closed.</p>
+      {% include "classes/_components/collapsible_field.html" with field=form.prerequisites %}
+      {% include "classes/_components/collapsible_field.html" with field=form.materials_included %}
+      {% include "classes/_components/collapsible_field.html" with field=form.materials_to_bring %}
+      {% include "classes/_components/collapsible_field.html" with field=form.safety_requirements %}
+      {% include "classes/_components/collapsible_field.html" with field=form.age_minimum %}
+      {% include "classes/_components/collapsible_field.html" with field=form.age_guardian_note %}
+      {% include "classes/_components/faq_formset.html" %}
+    </div>
+
+    {# ── Step 5 ── #}
+    <div class="pl-composer__step" x-show="phase === 5" x-cloak>
+      <h2 class="pl-composer__heading">Review And Submit</h2>
+      {% if readiness and offering.status == 'draft' %}
+      {# The five things a class needs before it can be submitted; each hint jumps to its step and field. #}
+      <section class="hub-card pl-readiness-card pl-composer__card" data-help-key="teach.submit-for-review">
+        <h3 class="pl-composer__card-title">Ready to Submit?</h3>
+        {% include "classes/_components/readiness_list.html" with readiness=readiness link_hints=True jump=True grid=True %}
+      </section>
+      {% endif %}
+      {% if offering and offering.pk %}
+      <div class="pl-compose-section">
+        <h3 class="pl-compose-section__title">How Your Page Looks</h3>
+        <div class="pl-wizard-preview">
+          <div class="pl-wizard-preview__bar">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="reloadPreview()">Refresh Preview</button>
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Open in a New Tab &#8599;</a>
+          </div>
+          <div class="pl-wizard-preview__pane">
+            <p class="pl-wizard-preview__loading" x-show="!previewLoaded">Building your preview&hellip;</p>
+            <iframe class="pl-wizard-preview__iframe" x-ref="previewFrame" src="{% url 'classes:class_preview' pk=offering.pk %}?framed=1" title="Preview of your class page" loading="lazy" @load="previewLoaded = true"></iframe>
+          </div>
+        </div>
+      </div>
+      <div class="pl-compose-section">
+        <h3 class="pl-compose-section__title">How Your Card Looks</h3>
+        {% if offering.image %}
+        {# The phone frame only: it is the width where a photo gets cut the most, so it is the one to sign off on. #}
+        <div class="cp-page pl-card-focus">
+          <div class="pl-card-focus__frame pl-card-focus__frame--phone">
+            <span class="pl-card-focus__frame-label">On a Phone</span>
+            <div class="cls-card">{% include "classes/public/_class_card_media.html" with offering=offering preview=True live_position="cardPosition" %}</div>
+          </div>
+        </div>
+        {% else %}
+        <div class="pl-preview-empty">Upload a photo and your card shows up here.</div>
+        {% endif %}
+      </div>
+      <div class="pl-compose-section">
+        {% include "classes/_components/class_qr_share.html" %}
+      </div>
+      {% else %}
+      <p class="pl-compose-section__note">Save your draft once and the page preview, the card preview, and the QR code appear here.</p>
+      {% endif %}
+    </div>
+
+    {# ── Action bar: outside every step, present on all five, sticky. ── #}
+    <div class="pl-composer-bar">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="phase > 1" @click="goTo(phase - 1)">&larr; Back</button>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">{{ save_label }}</button>
+      {% if offering and offering.pk %}
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview &#8599;</a>
+      {% endif %}
+      <span class="pl-composer-bar__spacer"></span>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase < 5" @click="goTo(phase + 1)">Next &rarr;</button>
+      {% if not offering or offering.status == 'draft' %}
+        {% if is_admin %}
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === 5" x-cloak
+                  @click="$dispatch('open-confirm', 'submit-class')">Publish</button>
+        {% elif not offering or is_ready %}
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--primary pl-composer-bar__primary" x-show="phase === 5" x-cloak
+                  data-help-key="teach.submit-for-review"
+                  @click="$dispatch('open-confirm', 'submit-class')">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
+        {% else %}
+          <span class="pl-help pl-help--right pl-composer-bar__primary" x-show="phase === 5" x-cloak>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-label="Submit for Review: finish the checklist above first."
+                    data-help-key="teach.submit-for-review">{% if pipeline.is_bounced %}Fix and Resubmit{% else %}Submit for Review{% endif %}</button>
+            <span class="pl-help__bubble" role="tooltip">Finish the checklist above first.</span>
+          </span>
+        {% endif %}
+      {% endif %}
+      <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
+    </div>
+  </form>
+
+  {% if not offering or offering.status == 'draft' %}
+    {% if is_admin %}
+      {% include "components/confirm_modal.html" with confirm_id="submit-class" confirm_button_style="primary" confirm_title="Publish This Class?" confirm_message="It goes live in the catalog, every active member gets a new class notice, and it posts to Discord." confirm_button_text="Publish It" confirm_js="document.getElementById('composer-action').value='publish'; document.getElementById('composer-form').requestSubmit();" %}
+    {% else %}
+      {% include "components/confirm_modal.html" with confirm_id="submit-class" confirm_button_style="primary" confirm_title="Submit This Class for Review?" confirm_message="Your guild lead and an admin take a look. You can still edit it while it waits, or take it back to draft." confirm_button_text="Submit It" confirm_js="document.getElementById('composer-action').value='submit'; document.getElementById('composer-form').requestSubmit();" %}
+    {% endif %}
+  {% endif %}
+</div>
+<script src="{% static 'js/hero_cropper.js' %}" defer></script>
+<script src="{% static 'js/card_focus.js' %}" defer></script>
