@@ -6914,12 +6914,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     gap: 1rem;
 }
 
+/* Block flow, not flex: Markdown gives us <li><strong>title</strong> description</li>, and a
+   flex li would make the title and the bare description text sibling columns (the title then
+   wraps mid phrase). The numeral is absolutely positioned in the left gutter instead. */
 .pl-md.pl-teach-steps-md ol > li {
     counter-increment: pl-teach-step;
-    display: flex;
-    gap: 0.85rem;
-    align-items: flex-start;
+    position: relative;
+    display: block;
     margin: 0;
+    padding-left: 2.2rem;
     color: var(--hub-text-muted);
     font-size: 0.875rem;
     line-height: 1.5;
@@ -6928,6 +6931,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* The gold numeral circle, copied from .pl-wizard-nav__n's active state. */
 .pl-md.pl-teach-steps-md ol > li::before {
     content: counter(pl-teach-step);
+    position: absolute;
+    left: 0;
+    top: 0.1rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -6943,6 +6949,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 
 /* The bold lead of each step reads as its title, in the full text color. */
 .pl-md.pl-teach-steps-md ol > li strong {
+    display: block;
+    margin-bottom: 0.15rem;
     color: var(--hub-text);
     font-size: 1rem;
 }
