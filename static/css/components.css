@@ -768,6 +768,12 @@
     background: rgba(238, 180, 75, 0.02);
 }
 
+/* The zone IS the control: its own label and hint say "choose a file or drag one here",
+   so a native file input inside it renders a second, browser-chrome "Choose File / No file
+   chosen" on top of that message. Every call site hid it by hand except the wiki's two,
+   which is exactly the kind of thing a call site should not have to remember. */
+.cls-image-upload-zone input[type="file"] { display: none; }
+
 .cls-image-upload-zone:hover,
 .cls-image-upload-zone.drag-hover {
     border-color: rgba(238, 180, 75, 0.6);

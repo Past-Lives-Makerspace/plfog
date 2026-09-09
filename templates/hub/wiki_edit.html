@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}{% if is_create %}Start A Page{% else %}Edit {{ page.title }}{% endif %}{% endblock %}
 
 {% block content %}
@@ -46,7 +47,7 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
     <div class="pl-wp-resume">
         <p class="pl-wp-resume__line">You have unsaved changes from {{ resume_draft.updated_at|timesince }} ago.</p>
         <div class="pl-wp-resume__actions">
-            <a href="{{ resume_use_url }}" class="pl-btn pl-btn--sm">Use My Draft</a>
+            <a href="{{ resume_use_url }}" class="pl-btn pl-btn--secondary pl-btn--sm">Use My Draft</a>
             <button type="button" class="pl-btn pl-btn--primary pl-btn--sm"
                     @click="$dispatch('open-confirm', 'wiki-draft-fresh')">Start From The Saved Page</button>
         </div>
@@ -97,7 +98,7 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
     <p class="hub-text-muted pl-wp-editor__hint">Rough is fine. Someone will tidy it.</p>
 
     <div class="pl-wp-editor__save">
-        <a href="{{ cancel_url }}" class="hub-btn hub-btn--ghost">Cancel</a>
+        <a href="{{ cancel_url }}" class="pl-btn pl-btn--ghost">Cancel</a>
         <button type="submit" class="pl-btn pl-btn--primary">Save</button>
     </div>
 </form>

@@ -10,7 +10,10 @@ with gloves on.
 {% endif %}
 {% if can_confirm %}
 {% if checked_today %}
-<span class="pl-row-menu__item hub-text-muted" role="menuitem">Checked today</span>
+{% comment %}Not a menu item: components/row_actions.html focuses every [role="menuitem"]
+in turn, and a non-focusable one leaves activeElement where it was, so Down arrow keeps
+landing on the same index and never reaches Print.{% endcomment %}
+<p class="pl-row-menu__note hub-text-muted">Checked today</p>
 {% else %}
 <button type="button" class="pl-row-menu__item" role="menuitem"
         @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>

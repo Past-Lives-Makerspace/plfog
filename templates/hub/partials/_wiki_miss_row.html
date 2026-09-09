@@ -10,7 +10,7 @@ the control can never be tapped twice.
     <p class="pl-wp-tab__miss-query">{{ miss.query }}</p>
     <p class="hub-text-muted pl-wp-tab__miss-people">{{ miss.people }} {% if miss.people == 1 %}person{% else %}people{% endif %}</p>
     <div class="pl-wp-tab__miss-actions">
-        <a href="{% url 'hub_wiki_new' %}?guild={{ guild.slug|urlencode }}&amp;title={{ miss.query|urlencode }}" class="pl-btn pl-btn--sm">Start This Page</a>
+        <a href="{% url 'hub_wiki_new' %}?guild={{ guild.slug|urlencode }}&amp;title={{ miss.query|urlencode }}" class="pl-btn pl-btn--secondary pl-btn--sm">Start This Page</a>
         {% if miss.on_wanted %}
         <a href="{{ wanted_url }}" class="pl-wp-tab__miss-onlist">On the wanted list &rarr;</a>
         {% else %}
@@ -21,7 +21,7 @@ the control can never be tapped twice.
             {% comment %}bump=0: request_count counts people who asked, and a lead filing the row is not a fourth person asking.{% endcomment %}
             <input type="hidden" name="bump" value="0">
             <input type="hidden" name="surface" value="panel">
-            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Add To Wanted</button>
+            <button type="submit" class="pl-btn pl-btn--ghost pl-btn--sm" hx-disabled-elt="this">Add To Wanted</button>
         </form>
         {% endif %}
     </div>

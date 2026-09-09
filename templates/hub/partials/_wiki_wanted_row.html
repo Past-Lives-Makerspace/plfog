@@ -36,7 +36,7 @@ the lead controls narrow.
     <p class="pl-wp-tab__wanted-title">{{ wanted.row.title }}</p>
     <p class="hub-text-muted pl-wp-tab__wanted-meta">
         {% if wanted.row.created_by %}asked by {{ wanted.row.created_by.display_name }}, {% endif %}{{ wanted.row.created_at|date:"j M" }}
-        {% if wanted.row.request_count > 1 %}<span class="pl-wp-tab__wanted-count">{{ wanted.row.request_count }} people asked for this</span>{% endif %}
+        {% if wanted.row.request_count > 1 %}&middot; <span class="pl-wp-tab__wanted-count">{{ wanted.row.request_count }} people asked for this</span>{% endif %}
     </p>
     {% if wanted.row.note %}<p class="hub-text-muted pl-wp-tab__wanted-note">{{ wanted.row.note }}</p>{% endif %}
 
@@ -50,7 +50,7 @@ the lead controls narrow.
         <form hx-post="{% url 'hub_wiki_wanted_fulfil' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML">
             {% csrf_token %}
             <input type="hidden" name="reopen" value="1">
-            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Put Back On The List</button>
+            <button type="submit" class="pl-btn pl-btn--ghost pl-btn--sm" hx-disabled-elt="this">Put Back On The List</button>
         </form>
     </div>
     {% endif %}
@@ -64,19 +64,19 @@ the lead controls narrow.
         {% if wanted.can_claim and not wanted.row.claimed_by %}
         <form hx-post="{% url 'hub_wiki_wanted_claim' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML">
             {% csrf_token %}
-            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Claim</button>
+            <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm" hx-disabled-elt="this">Claim</button>
         </form>
         {% elif wanted.is_claimer %}
         <form hx-post="{% url 'hub_wiki_wanted_claim' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML">
             {% csrf_token %}
             <input type="hidden" name="release" value="1">
-            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Release</button>
+            <button type="submit" class="pl-btn pl-btn--ghost pl-btn--sm" hx-disabled-elt="this">Release</button>
         </form>
         {% elif wanted.can_manage and wanted.row.claimed_by %}
-        <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-confirm', '{{ wanted.release_confirm_id }}')">Release</button>
+        <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="$dispatch('open-confirm', '{{ wanted.release_confirm_id }}')">Release</button>
         {% endif %}
         {% if wanted.fulfil_form %}
-        <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-modal', '{{ wanted.fulfil_modal_id }}')">Mark As Written</button>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', '{{ wanted.fulfil_modal_id }}')">Mark As Written</button>
         {% endif %}
     </div>
 

@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-VERSION = "1.47.0"
+VERSION = "1.49.0"
 
+# No entry at 1.49.0 on purpose. That release is the wiki frontend cleanup: the guild Wiki
+# tab's stylesheet had been trapped inside an unclosed media query, three dozen controls were
+# rendering as raw browser chrome on the dark theme, and a page nobody had written yet showed
+# its own section headings as its excerpt. Members lived with all of it for a few hours on the
+# same day the wiki was announced, so re-announcing "the wiki, but tidier" would post a second
+# Discord message about the same feature. A VERSION with no matching entry announces nothing,
+# which is the correct outcome here — do not invent an entry to fill the gap.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "1.47.0",

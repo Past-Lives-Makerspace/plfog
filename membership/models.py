@@ -3405,6 +3405,31 @@ def _source_to_text(source: str) -> str:
     return _markdown_to_text(source)
 
 
+def _lead_text(body: str, limit: int) -> str:
+    """First *prose* paragraph of a dual-mode body, truncated on a word boundary.
+
+    Section headings are not lead copy, so heading-only blocks are skipped and a body that
+    has none left returns "". Both wiki models share this: flattening the whole body instead
+    made a page created from the kind scaffold — headings plus empty paragraphs, which is
+    every page until a member writes in it — advertise its own template as its excerpt
+    ("What It Does How To Use It What Goes Wrong Tips From Members") on every card.
+    """
+    from membership.markdown import looks_like_html
+
+    if looks_like_html(body):
+        blocks = [f"<p>{inner}</p>" for inner in _HTML_PARAGRAPH_RE.findall(body)]
+    else:
+        blocks = [b for b in re.split(r"\n\s*\n", body) if not b.lstrip().startswith("#")]
+    for block in blocks:
+        text = _source_to_text(block)
+        if not text:
+            continue
+        if len(text) <= limit:
+            return text
+        return text[:limit].rsplit(" ", 1)[0] + "…"
+    return ""
+
+
 class WikiArticleQuerySet(models.QuerySet):
     def published(self) -> "WikiArticleQuerySet":
         """Only the guides members should see — drafts stay off the public page."""
@@ -3515,20 +3540,7 @@ class WikiArticle(models.Model):
         Heading-only and image-only blocks are skipped — they aren't lead copy. Dual-mode:
         a rich-editor HTML body iterates its ``<p>`` blocks instead of Markdown blocks.
         """
-        from membership.markdown import looks_like_html
-
-        if looks_like_html(self.body):
-            blocks = [f"<p>{inner}</p>" for inner in _HTML_PARAGRAPH_RE.findall(self.body)]
-        else:
-            blocks = [b for b in re.split(r"\n\s*\n", self.body) if not b.lstrip().startswith("#")]
-        for block in blocks:
-            text = _source_to_text(block)
-            if not text:
-                continue
-            if len(text) <= limit:
-                return text
-            return text[:limit].rsplit(" ", 1)[0] + "…"
-        return ""
+        return _lead_text(self.body, limit)
 
     def search_snippet(self, q: str, radius: int = 90) -> str:
         """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.
@@ -12758,11 +12770,13 @@ class WikiPage(models.Model):
         self.search_text = re.sub(r"\s+", " ", " ".join(part for part in parts if part)).strip()
 
     def lead_text(self, limit: int = 200) -> str:
-        """The opening plain-text run of the body, for a card with no search snippet."""
-        text = _source_to_text(self.body)
-        if len(text) <= limit:
-            return text
-        return text[:limit].rsplit(" ", 1)[0] + "…"
+        """The opening prose paragraph of the body, for a card with no search snippet.
+
+        Empty until somebody writes prose: a page still holding only its kind scaffold has
+        no lead copy, and the card partial drops the line rather than printing the section
+        headings back at the reader.
+        """
+        return _lead_text(self.body, limit)
 
     def search_snippet(self, q: str, radius: int = 90) -> str:
         """An HTML-escaped window around the first hit of ``q``, the match wrapped in ``<mark>``.

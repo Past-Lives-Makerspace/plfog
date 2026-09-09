@@ -16,13 +16,13 @@ is what fills the guild lead's "Searches That Found Nothing" panel.
         <input type="hidden" name="q" value="{{ q }}">
         <input type="hidden" name="scope" value="all">
         <p class="hub-text-muted">You searched <strong>{% if guild %}{{ guild.name }}{% else %}{{ guild_filter }}{% endif %}</strong> only.</p>
-        <button type="submit" class="pl-btn pl-btn--sm">Search Everything</button>
+        <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Search Everything</button>
     </form>
     {% endif %}
 
     <div class="pl-wp-tab__empty-actions">
         {% if discord_ask %}
-        <a href="{{ discord_ask.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-btn pl-btn--sm">{{ discord_ask.label }}</a>
+        <a href="{{ discord_ask.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-btn pl-btn--ghost pl-btn--sm">{{ discord_ask.label }}</a>
         {% endif %}
         <div id="wiki-request-page">
             <form hx-post="{% url 'hub_wiki_wanted_request' %}" hx-target="#wiki-request-page" hx-swap="outerHTML">

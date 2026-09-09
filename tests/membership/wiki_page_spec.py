@@ -337,6 +337,43 @@ def describe_WikiPage():
         def it_returns_an_empty_toc_with_no_headings():
             assert WikiPageFactory(body="<p>Just prose.</p>").toc() == []
 
+        def describe_lead_text_on_a_page_nobody_has_written_yet():
+            # Every page starts as its kind's scaffold: headings, and an empty paragraph
+            # under each. lead_text used to flatten the WHOLE body, so a brand-new page
+            # advertised its own template back at the reader — "What It Does How To Use It
+            # What Goes Wrong Tips From Members" — on every card, on the home page, in
+            # search results and in Related Pages. The wiki launched empty, so that was the
+            # default appearance of every page a member started.
+            SCAFFOLD = (
+                "<h2>What It Does</h2><p></p><h2>How To Use It</h2><p></p>"
+                "<h2>What Goes Wrong</h2><p></p><h2>Tips From Members</h2><p></p>"
+            )
+
+            def it_is_empty_for_an_unwritten_scaffold():
+                assert WikiPageFactory(body=SCAFFOLD).lead_text() == ""
+
+            def it_never_returns_the_section_headings():
+                lead = WikiPageFactory(body=SCAFFOLD).lead_text()
+                assert "What It Does" not in lead
+                assert "Tips From Members" not in lead
+
+            def it_returns_the_prose_once_somebody_writes_under_a_heading():
+                page = WikiPageFactory(body="<h2>What It Does</h2><p>Cuts sheet goods.</p>")
+                assert page.lead_text() == "Cuts sheet goods."
+
+            def it_skips_the_empty_sections_above_the_first_written_one():
+                page = WikiPageFactory(
+                    body="<h2>What It Does</h2><p></p><h2>What Goes Wrong</h2><p>The blade wanders.</p>"
+                )
+                assert page.lead_text() == "The blade wanders."
+
+            def it_is_empty_for_a_markdown_scaffold_too():
+                assert WikiPageFactory(body="## What It Does\n\n## How To Use It\n").lead_text() == ""
+
+            def it_returns_markdown_prose_under_a_heading():
+                page = WikiPageFactory(body="## What It Does\n\nCuts sheet goods.\n")
+                assert page.lead_text() == "Cuts sheet goods."
+
     def describe_dunder_str():
         def it_names_the_page_and_its_kind():
             page = WikiPageFactory(title="SawStop", kind=WikiPage.Kind.MACHINE)

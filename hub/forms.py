@@ -4416,7 +4416,12 @@ class WikiAttachmentForm(IgnorableRowFormMixin, forms.ModelForm):
     class Meta:
         model = WikiAttachment
         fields = ["label", "file", "url", "sort_order"]
-        widgets = {"sort_order": forms.HiddenInput()}
+        # FileInput, not the default ClearableFileInput: the row already has its own Delete
+        # button, so the clear checkbox is a second way to say the same thing — and it ships
+        # a <label for="…-clear">Clear</label> that lands *inside* the row's
+        # <label class="cls-image-upload-zone">. Nested labels are invalid, and the outer
+        # label's `for` swallows the click, so tapping Clear opened the file picker instead.
+        widgets = {"sort_order": forms.HiddenInput(), "file": forms.FileInput()}
         labels = {"label": "Name", "file": "File", "url": "Link"}
         help_texts = {
             "label": "One line. 'Blade change steps' beats 'scan_0034'.",
