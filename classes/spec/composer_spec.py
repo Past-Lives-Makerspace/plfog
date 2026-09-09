@@ -95,7 +95,9 @@ def describe_step_for_field():
     def it_finds_the_step():
         assert step_for_field("title") == 1
         assert step_for_field("card_focus") == 2
-        assert step_for_field("price_cents") == 3
+        assert step_for_field("price_cents") == 1
+        assert step_for_field("is_free") == 1
+        assert step_for_field("member_discount_pct") == 3
         assert step_for_field("age_minimum") == 4
 
     def it_raises_on_an_unknown_field():
@@ -160,11 +162,18 @@ def describe_error_steps():
         assert step.number == 1
         assert labels == ["Title"]
 
-    def it_lands_a_price_error_on_step_three():
+    def it_lands_a_price_error_on_step_one():
+        # The price is the one field a draft cannot be saved without, so it lives on the first step.
         form = TeachClassOfferingForm(data=_teach_data(price_cents=""))
-        assert error_steps(form, {"sessions": None, "faq": None}) == [3]
+        assert error_steps(form, {"sessions": None, "faq": None}) == [1]
         [(_step, labels)] = error_summary(form, {"sessions": None, "faq": None})
         assert labels == ["Price"]
+
+    def it_lands_a_capacity_error_on_step_three():
+        form = TeachClassOfferingForm(data=_teach_data(capacity=""))
+        assert error_steps(form, {"sessions": None, "faq": None}) == [3]
+        [(_step, labels)] = error_summary(form, {"sessions": None, "faq": None})
+        assert labels == ["Capacity"]
 
     def it_lands_a_card_focus_error_on_step_two():
         form = TeachClassOfferingForm(data=_teach_data(card_focus="{broken"))
@@ -217,7 +226,8 @@ def describe_error_steps():
         assert error_steps(form, {"sessions": None, "faq": None}) == [1, 3]
         summary = error_summary(form, {"sessions": None, "faq": None})
         assert [step.number for step, _labels in summary] == [1, 3]
-        assert summary[1][1] == ["Capacity", "Price"] or summary[1][1] == ["Price", "Capacity"]
+        assert sorted(summary[0][1]) == ["Price", "Title"]
+        assert summary[1][1] == ["Capacity"]
 
     def it_lands_the_admin_instructor_field_on_step_one():
         # instructor is optional on the model, so a blank passes; an unknown pk does not.

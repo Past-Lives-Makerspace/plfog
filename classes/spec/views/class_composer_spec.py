@@ -54,6 +54,67 @@ class _ComposerParser(HTMLParser):
             self.text.append(data)
 
 
+class _FormValuesParser(HTMLParser):
+    """What a browser would submit from the composer form as rendered: every control at its default."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.values: dict[str, str] = {}
+        self._in_form = False
+        self._select: str | None = None
+        self._select_first: str | None = None
+        self._select_chosen = False
+        self._textarea: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = dict(attrs)
+        if tag == "form" and a.get("id") == "composer-form":
+            self._in_form = True
+        if not self._in_form:
+            return
+        name = a.get("name")
+        if tag == "input" and name:
+            kind = a.get("type", "text")
+            if kind in {"file", "submit", "button"}:
+                return
+            if kind in {"checkbox", "radio"} and "checked" not in a:
+                return
+            self.values[name] = a.get("value") or ""
+        elif tag == "select" and name:
+            self._select, self._select_first, self._select_chosen = name, None, False
+        elif tag == "option" and self._select:
+            value = a.get("value") or ""
+            if self._select_first is None:
+                self._select_first = value
+            if "selected" in a:
+                self.values[self._select] = value
+                self._select_chosen = True
+        elif tag == "textarea" and name:
+            self._textarea = name
+            self.values[name] = ""
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "select" and self._select:
+            if not self._select_chosen:
+                self.values[self._select] = self._select_first or ""
+            self._select = None
+        elif tag == "textarea":
+            self._textarea = None
+        elif tag == "form" and self._in_form:
+            self._in_form = False
+
+    def handle_data(self, data: str) -> None:
+        if self._textarea:
+            self.values[self._textarea] += data
+
+
+def _untouched_form_values(html: str) -> dict[str, str]:
+    parser = _FormValuesParser()
+    parser.feed(html)
+    parser.values.pop("csrfmiddlewaretoken", None)
+    return parser.values
+
+
 def _composer_x_data(html: str) -> str:
     parser = _ComposerParser()
     parser.feed(html)
@@ -154,6 +215,26 @@ def describe_the_step_map_matches_the_payload():
 
 
 def describe_teach_composer_get():
+    def it_stamps_every_pane_and_listens_for_the_goto_event(instructor_fixture, client):
+        # The guided tour reveals a hidden pane through this contract (static/js/pl_tour.js).
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        for n in range(1, 6):
+            assert f'data-composer-step="{n}"' in html, n
+        assert html.count("data-composer-step=") == 5
+        assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
+
+    def it_puts_the_price_on_the_first_step(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        step_one = html[html.index('data-composer-step="1"') : html.index('data-composer-step="2"')]
+        assert "Free Or Paid" in step_one
+        assert 'name="price_cents"' in step_one and 'name="is_free"' in step_one
+        assert 'data-help-key="teach.class-pricing"' in step_one
+        step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
+        assert 'name="member_discount_pct"' in step_three and 'name="capacity"' in step_three
+        assert 'name="price_cents"' not in step_three
+
     def it_renders_the_five_tabs_and_lands_on_step_one(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
@@ -366,22 +447,95 @@ def describe_teach_composer_post():
         assert resp.status_code == 200
         html = resp.content.decode()
         assert "phase: 1," in html
-        assert "errorSteps: [1, 3]," in html
+        assert "errorSteps: [1]," in html
         assert "Some Things Need Fixing" in html
-        assert 'goTo(1)">The Basics: Title</button>' in html
-        assert 'goTo(3)">Dates, Seats And Price: Price</button>' in html
+        assert 'goTo(1)">The Basics: Title, Price</button>' in html
 
-    def it_lands_on_step_three_alone_for_a_price_error(instructor_fixture, client):
+    def it_lands_on_step_three_alone_for_a_capacity_error(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _full_payload(offering.category, price_cents="", step="1"),
+            _full_payload(offering.category, capacity="", step="1"),
         )
         html = resp.content.decode()
         assert "phase: 3," in html
         assert "errorSteps: [3]," in html
-        assert "Some Things Need Fixing" in html
+        assert 'goTo(3)">Dates, Seats And Price: Capacity</button>' in html
+
+    def it_saves_a_draft_from_step_one_alone(instructor_fixture, client):
+        # Title, guild type, description, and the free tick are the whole of step 1. Steps 2 to 4
+        # are untouched: the POST is exactly what a browser submits from the rendered page (every
+        # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model,
+        # and scheduling_type are required form fields with model defaults, so they ride along as
+        # the composer renders them; a literal four field POST is not what a browser sends.
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
+        assert untouched["capacity"] == "6"
+        assert untouched["scheduling_model"] == "fixed"
+        assert untouched["scheduling_type"] == "single_session"
+        assert untouched["price_cents"] == ""
+        assert "is_free" not in untouched
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                **untouched,
+                **_management(),
+                "title": "Step One Draft",
+                "category": cat.pk,
+                "description": "Just the pitch for now.",
+                "is_free": "on",
+                "action": "save",
+                "step": "1",
+            },
+        )
+        assert resp.status_code == 302, _visible_text(resp.content.decode())[:600]
+        created = ClassOffering.objects.get(title="Step One Draft")
+        assert created.status == Status.DRAFT
+        assert created.price_cents == 0
+        assert created.capacity == 6
+        assert created.scheduling_model == "fixed"
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": created.pk}) + "?step=1"
+        assert "Draft saved." in _messages(resp)
+
+    def it_saves_a_paid_draft_from_step_one_alone(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                **untouched,
+                **_management(),
+                "title": "Paid Step One Draft",
+                "category": cat.pk,
+                "description": "Just the pitch for now.",
+                "price_cents": "45.00",
+                "action": "save",
+                "step": "1",
+            },
+        )
+        assert resp.status_code == 302, _visible_text(resp.content.decode())[:600]
+        created = ClassOffering.objects.get(title="Paid Step One Draft")
+        assert created.status == Status.DRAFT
+        assert created.price_cents == 4500
+        assert created.capacity == 6
+
+    def it_bounces_a_step_one_save_with_no_price_and_no_free_tick_to_step_one(instructor_fixture, client):
+        # The price is the one thing a draft cannot be saved without, and it is on step 1.
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {**untouched, **_management(), "title": "No Price", "category": cat.pk, "action": "save", "step": "1"},
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "phase: 1," in html
+        assert "errorSteps: [1]," in html
+        assert not ClassOffering.objects.filter(title="No Price").exists()
 
     def it_lands_a_bad_card_focus_on_the_photos_step(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)

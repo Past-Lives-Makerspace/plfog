@@ -20,6 +20,10 @@ Context (from _composer_context in classes/views.py, plus the form context):
   pipeline, readiness, is_ready — only present once the class has a pk
   cancel_url, save_label
 
+Each step pane carries data-composer-step="N" and the root listens for a window event
+composer-goto-step {step: N}: that is how anything outside Alpine (the guided tour in
+static/js/pl_tour.js) reveals a pane before pointing at something inside it.
+
 The step tabs ("how much of the form have I filled in?") and the review pipeline card
 ("where is my class with the reviewers?") are two components with two meanings (§C.4).
 Do not merge them.
@@ -73,7 +77,8 @@ Do not merge them.
          this.$refs.previewFrame.contentWindow.location.reload();
        }
      }"
-     @card-focus.window="cardPosition = $event.detail.position">
+     @card-focus.window="cardPosition = $event.detail.position"
+     @composer-goto-step.window="goTo($event.detail.step)">
 
   <p class="pl-composer-count">Step <span x-text="phase"></span> of 5</p>
   <div class="pl-phase-tabs" role="tablist" aria-label="Class steps">
@@ -109,17 +114,24 @@ Do not merge them.
     {% endif %}
 
     {# ── Step 1 ── #}
-    <div class="pl-composer__step" x-show="phase === 1" data-help-key="teach.class-basics">
+    <div class="pl-composer__step" data-composer-step="1" x-show="phase === 1" data-help-key="teach.class-basics">
       <h2 class="pl-composer__heading">The Basics</h2>
       <p class="pl-compose-section__note">What the class is and which guild it belongs to. The description is the first thing a member reads.</p>
       {% include "components/form_field.html" with field=form.title %}
       {% include "components/form_field.html" with field=form.category %}
       {% if is_admin %}{% include "components/form_field.html" with field=form.instructor %}{% endif %}
       {% include "components/form_field.html" with field=form.description %}
+      {% comment %}The price lives here, not on step 3: it is the one field a draft row cannot be saved without, so a Save Draft from step 1 has to carry it.{% endcomment %}
+      <div class="pl-compose-section" data-help-key="teach.class-pricing">
+        <h3 class="pl-compose-section__title">Free Or Paid</h3>
+        <p class="pl-compose-section__note">Tick free for a no cost workshop. Otherwise set the full price. The member discount is on step 3.</p>
+        {% include "components/form_field.html" with field=form.is_free %}
+        {% include "components/form_field.html" with field=form.price_cents %}
+      </div>
     </div>
 
     {# ── Step 2 ── #}
-    <div class="pl-composer__step" x-show="phase === 2" x-cloak>
+    <div class="pl-composer__step" data-composer-step="2" x-show="phase === 2" x-cloak>
       <h2 class="pl-composer__heading">Photos And Video</h2>
       <div class="pl-compose-section">
         <h3 class="pl-compose-section__title">Your Photo, Two Shapes</h3>
@@ -150,7 +162,7 @@ Do not merge them.
     </div>
 
     {# ── Step 3 ── #}
-    <div class="pl-composer__step" x-show="phase === 3" x-cloak>
+    <div class="pl-composer__step" data-composer-step="3" x-show="phase === 3" x-cloak>
       <h2 class="pl-composer__heading">Dates, Seats And Price</h2>
       <div class="pl-compose-section" id="class-dates" data-help-key="teach.class-schedule">
         <h3 class="pl-compose-section__title">When It Meets</h3>
@@ -160,12 +172,10 @@ Do not merge them.
         {% include "classes/_components/session_calendar.html" %}
         {% include "classes/_components/collapsible_field.html" with field=form.flexible_note %}
       </div>
-      <div class="pl-compose-section" data-help-key="teach.class-pricing">
-        <h3 class="pl-compose-section__title">Seats And Price</h3>
-        <p class="pl-compose-section__note">Set the full price. Members can get a discount on top of it.</p>
+      <div class="pl-compose-section">
+        <h3 class="pl-compose-section__title">Seats And Member Discount</h3>
+        <p class="pl-compose-section__note">How many can attend, and the discount members get on top of the price from step 1.</p>
         {% include "components/form_field.html" with field=form.capacity %}
-        {% include "components/form_field.html" with field=form.is_free %}
-        {% include "components/form_field.html" with field=form.price_cents %}
         {% include "components/form_field.html" with field=form.member_discount_pct %}
         {% if is_admin %}
           {% include "components/form_field.html" with field=form.is_private %}
@@ -178,7 +188,7 @@ Do not merge them.
     </div>
 
     {# ── Step 4 ── #}
-    <div class="pl-composer__step" x-show="phase === 4" x-cloak>
+    <div class="pl-composer__step" data-composer-step="4" x-show="phase === 4" x-cloak>
       <h2 class="pl-composer__heading">What Students Need To Know</h2>
       <p class="pl-compose-section__note">All optional. Fill in what fits your class and leave the rest closed.</p>
       {% include "classes/_components/collapsible_field.html" with field=form.prerequisites %}
@@ -191,7 +201,7 @@ Do not merge them.
     </div>
 
     {# ── Step 5 ── #}
-    <div class="pl-composer__step" x-show="phase === 5" x-cloak>
+    <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak>
       <h2 class="pl-composer__heading">Review And Submit</h2>
       {% if readiness and offering.status == 'draft' %}
       {# The five things a class needs before it can be submitted; each hint jumps to its step and field. #}

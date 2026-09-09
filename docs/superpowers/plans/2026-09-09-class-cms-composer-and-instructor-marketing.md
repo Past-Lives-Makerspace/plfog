@@ -974,9 +974,9 @@ composer's phase 2 is preview and send.
 
 | # | Tab label | Step heading (`<h2>`) | Fields, in render order |
 |---|---|---|---|
-| 1 | `1. Basics` | `The Basics` | `title`, `category` (labelled Guild Type), `instructor` *(admin only)*, `description` |
+| 1 | `1. Basics` | `The Basics` | `title`, `category` (labelled Guild Type), `instructor` *(admin only)*, `description`, then a `Free Or Paid` section: `is_free`, `price_cents` |
 | 2 | `2. Photos` | `Photos And Video` | `image` + `hero_crop` (banner cropper), `card_focus` (card tool + live card preview), gallery formset, `video_url` |
-| 3 | `3. Dates & Price` | `Dates, Seats And Price` | `scheduling_model`, `scheduling_type`, sessions formset, `flexible_note`, `capacity`, `is_free`, `price_cents`, `member_discount_pct`, `is_private` + `private_for_name` *(admin only)*, discount codes editor *(flag gated, saved classes only)* |
+| 3 | `3. Dates & Price` | `Dates, Seats And Price` | `scheduling_model`, `scheduling_type`, sessions formset, `flexible_note`, `capacity`, `member_discount_pct`, `is_private` + `private_for_name` *(admin only)*, discount codes editor *(flag gated, saved classes only)* |
 | 4 | `4. Details` | `What Students Need To Know` | `prerequisites`, `materials_included`, `materials_to_bring`, `safety_requirements`, `age_minimum`, `age_guardian_note`, FAQ formset |
 | 5 | `5. Review` | `Review And Submit` | no fields; pipeline, readiness, previews, share card, submit |
 
@@ -991,6 +991,11 @@ composer's phase 2 is preview and send.
 - **Step 1 carries `description`.** It is the pitch and it is a readiness item. Today it sits below
   pricing and the sale block, roughly 1,800px down the page, which is why classes arrive at review
   with a two line description. Putting it beside the title makes writing it the second thing you do.
+- **Step 1 also carries `is_free` and `price_cents`.** `price_cents` is NOT NULL with no default and
+  the form demands a price unless free is ticked, so it is the one field a draft row cannot be saved
+  without; with it on step 3, Save Draft from step 1 would bounce the instructor to step 3, which
+  breaks "save a draft any time". Everything else on steps 2 to 4 is optional or defaulted, so a step
+  1 save always succeeds. The member discount stays on step 3 with seats and dates.
 - **Step 2 is media only.** The banner, the card focus, the gallery, and the video are one job:
   what the class looks like. Grouping them is also what makes §B's two pane comparison possible.
 - **Step 3 is the commercial and logistical shape of one run.** Dates, seats, and price answer
@@ -1267,9 +1272,11 @@ For an already published class the composer is not used at all: `class_form_publ
 | Gallery note | `Extra photos shown on your class page. Finished pieces, the studio, tool close ups. Images save the moment you drop them in. You need at least one before you can submit.` |
 | Video note | `Paste a YouTube link and it plays right on your class page. Optional.` |
 | Step 3 heading | `Dates, Seats And Price` |
-| Step 3 sub sections | `When It Meets` / `Seats And Price` |
+| Step 1 sub section | `Free Or Paid` |
+| Step 3 sub sections | `When It Meets` / `Seats And Member Discount` |
 | Dates note | `Add a single date for a one off class, or every date in the series. Students enroll once for all of them. You can add or remove dates here any time.` |
-| Price note | `Set the full price. Members can get a discount on top of it.` |
+| Free Or Paid note | `Tick free for a no cost workshop. Otherwise set the full price. The member discount is on step 3.` |
+| Seats note | `How many can attend, and the discount members get on top of the price from step 1.` |
 | Step 4 heading | `What Students Need To Know` |
 | Step 4 note | `All optional. Fill in what fits your class and leave the rest closed.` |
 | Step 5 heading | `Review And Submit` |

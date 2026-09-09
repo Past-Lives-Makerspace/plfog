@@ -38,7 +38,9 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
         key="basics",
         tab_label="1. Basics",
         heading="The Basics",
-        fields=("title", "category", "instructor", "description"),
+        # price_cents is NOT NULL with no default and the free/price check is mandatory, so
+        # the price must be on the first step for a Save Draft from step 1 to succeed.
+        fields=("title", "category", "instructor", "description", "is_free", "price_cents"),
         readiness_labels=("Description",),
     ),
     ComposerStep(
@@ -60,8 +62,6 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "scheduling_type",
             "flexible_note",
             "capacity",
-            "is_free",
-            "price_cents",
             "member_discount_pct",
             "is_private",
             "private_for_name",
