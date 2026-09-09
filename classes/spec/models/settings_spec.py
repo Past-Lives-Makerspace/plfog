@@ -14,9 +14,11 @@ from classes.models import (
     DEFAULT_TEACH_PAGE_FEATURES,
     DEFAULT_TEACH_PAGE_HOW_IT_WORKS,
     DEFAULT_TEACH_PAGE_LEAD,
+    DEFAULT_TEACH_PAGE_SPLIT_NOTE,
     DEFAULT_TEACH_PAGE_TITLE,
     TEACH_PAGE_FEATURE_ICONS,
     ClassSettings,
+    FaqItem,
     FeatureCard,
 )
 
@@ -70,12 +72,18 @@ def describe_ClassSettings():
             assert settings.teach_page_cta_line == DEFAULT_TEACH_PAGE_CTA_LINE
             assert settings.teach_page_cta_line == "Tell us what you have in mind and an admin will take it from there."
 
-        def it_carries_the_markdown_sections(db):
+        def it_carries_the_prose_sections(db):
+            """The three prose defaults are the HTML the rich editor would save, not Markdown."""
             settings = ClassSettings.load()
             assert settings.teach_page_features == DEFAULT_TEACH_PAGE_FEATURES
             assert settings.teach_page_how_it_works == DEFAULT_TEACH_PAGE_HOW_IT_WORKS
             assert settings.teach_page_expectations == DEFAULT_TEACH_PAGE_EXPECTATIONS
             assert settings.teach_page_faq == DEFAULT_TEACH_PAGE_FAQ
+            assert settings.teach_page_how_it_works.startswith("<ol><li><strong>")
+            assert settings.teach_page_expectations.startswith("<ul><li>")
+            assert settings.teach_page_faq.startswith("<h3>")
+            for value in (settings.teach_page_how_it_works, settings.teach_page_expectations, settings.teach_page_faq):
+                assert "**" not in value and "### " not in value and "\n- " not in value
 
         def it_parses_six_feature_cards(db):
             cards = ClassSettings.load().teach_page_feature_cards()
@@ -128,9 +136,87 @@ def describe_ClassSettings():
                 settings.teach_page_faq,
                 settings.teach_page_cta_title,
                 settings.teach_page_cta_line,
+                settings.teach_page_split_note,
             ):
                 assert "—" not in value
                 assert " - " not in value
+
+    def describe_money_split():
+        def it_defaults_to_seventy_twenty_ten_shown_with_the_note(db):
+            settings = ClassSettings.load()
+            assert settings.teach_page_split_enabled is True
+            assert settings.teach_page_split_instructor_pct == 70
+            assert settings.teach_page_split_space_pct == 20
+            assert settings.teach_page_split_guild_pct == 10
+            assert settings.teach_page_split_note == DEFAULT_TEACH_PAGE_SPLIT_NOTE
+            assert DEFAULT_TEACH_PAGE_SPLIT_NOTE == (
+                "Every paid class splits the same way. Run it free and there is nothing to split."
+            )
+
+    def describe_teach_page_faq_items():
+        """The accordion split runs over the SANITIZED HTML, never the raw field."""
+
+        def it_splits_the_default_into_four_items(db):
+            items = ClassSettings.load().teach_page_faq_items()
+            assert [item.question for item in items] == [
+                "Do I Need to Be an Expert?",
+                "How Long Until I Hear Back?",
+                "Can I Charge for It?",
+                "What If Nobody Signs Up?",
+            ]
+            assert items[3] == FaqItem(
+                question="What If Nobody Signs Up?",
+                answer_html=(
+                    "<p>You can cancel from your dashboard and everyone who signed up is told automatically. "
+                    "Nothing is stuck.</p>"
+                ),
+            )
+            assert isinstance(items[0].answer_html, SafeString)
+            assert ClassSettings.load().teach_page_faq_intro_html == ""
+
+        def it_keeps_what_comes_before_the_first_heading_as_the_intro():
+            settings = ClassSettings(teach_page_faq="<p>Ask away.</p><h3>Q1</h3><p>A1</p><h2>Q2</h2><p>A2</p>")
+            assert settings.teach_page_faq_intro_html == "<p>Ask away.</p>"
+            assert isinstance(settings.teach_page_faq_intro_html, SafeString)
+            assert [(i.question, str(i.answer_html)) for i in settings.teach_page_faq_items()] == [
+                ("Q1", "<p>A1</p>"),
+                ("Q2", "<p>A2</p>"),
+            ]
+
+        def it_yields_no_items_without_headings():
+            settings = ClassSettings(teach_page_faq="<p>Just one paragraph.</p>")
+            assert settings.teach_page_faq_items() == []
+            assert settings.teach_page_faq_intro_html == "<p>Just one paragraph.</p>"
+            assert ClassSettings(teach_page_faq="").teach_page_faq_items() == []
+
+        def it_splits_an_older_markdown_value_the_same_way():
+            items = ClassSettings(teach_page_faq="### Is It Free?\n\nYes.").teach_page_faq_items()
+            assert [(i.question, str(i.answer_html)) for i in items] == [("Is It Free?", "<p>Yes.</p>")]
+
+        def it_strips_a_script_from_a_heading_before_splitting():
+            settings = ClassSettings(teach_page_faq='<h3>Q <script>alert("x")</script></h3><p>A</p>')
+            items = settings.teach_page_faq_items()
+            assert len(items) == 1
+            assert "<script" not in items[0].question
+            assert items[0].question == 'Q alert("x")'
+
+        def it_unescapes_the_question_text_so_the_template_escapes_it_once():
+            items = ClassSettings(teach_page_faq="<h3>Tools &amp; Safety</h3><p>A</p>").teach_page_faq_items()
+            assert items[0].question == "Tools & Safety"
+
+        def it_skips_a_heading_with_no_text():
+            items = ClassSettings(teach_page_faq="<h3> </h3><p>Orphan</p><h3>Real</h3><p>A</p>").teach_page_faq_items()
+            assert [i.question for i in items] == ["Real"]
+
+        def it_skips_a_heading_with_nothing_under_it():
+            """Two headings in a row, or a heading bleach split out of another, never make an empty item."""
+            items = ClassSettings(
+                teach_page_faq=(
+                    "<h3>Empty</h3><h3>Enter</h3><p><br></p><h3>Space</h3><p>&nbsp;</p>"
+                    "<h3>Real</h3><p>A</p><h3>Trailing</h3>  "
+                )
+            ).teach_page_faq_items()
+            assert [(i.question, str(i.answer_html)) for i in items] == [("Real", "<p>A</p>")]
 
     def describe_teach_page_feature_cards():
         """Pure parsing over the field; no row needed."""
@@ -166,13 +252,20 @@ def describe_ClassSettings():
             assert ClassSettings(teach_page_features="").teach_page_feature_cards() == []
             assert ClassSettings(teach_page_features="  \n \n").teach_page_feature_cards() == []
 
-    def describe_teach_page_markdown_html():
-        """The three Markdown properties render through the member profile and come back safe."""
+    def describe_teach_page_prose_html():
+        """The three prose properties are dual mode: editor HTML is sanitized, older Markdown rendered."""
 
         def it_returns_a_safe_string():
             html = ClassSettings(teach_page_faq="### Q\n\nA").teach_page_faq_html
             assert isinstance(html, SafeString)
             assert html == "<h3>Q</h3>\n<p>A</p>"
+
+        def it_sanitizes_editor_html_and_drops_quill_classes():
+            html = ClassSettings(
+                teach_page_faq='<h3 class="ql-align-center">Q</h3><p>A</p><script>alert(1)</script>'
+            ).teach_page_faq_html
+            assert isinstance(html, SafeString)
+            assert html == "<h3>Q</h3><p>A</p>alert(1)"
 
         def it_strips_a_script_tag_and_keeps_the_text():
             html = ClassSettings(

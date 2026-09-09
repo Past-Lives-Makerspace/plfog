@@ -2,10 +2,12 @@
 Hero/banner image input — AJAX upload with instant preview and optional cropper.
 
 Params:
-  field          — bound ImageField form field
-  current_image  — model FileField attr (e.g. offering.image), may be falsy
-  crop_field     — bound hidden hero_crop CharField (optional; enables cropper)
-  offering       — the ClassOffering instance (needed for AJAX upload URL)
+  field              — bound ImageField form field
+  current_image_url  — the URL of the photo the class already has (offering.hero_image_url:
+                       the uploaded file, or an imported legacy photo through the same
+                       origin proxy), "" when it has none
+  crop_field         — bound hidden hero_crop CharField (optional; enables cropper)
+  offering           — the ClassOffering instance (needed for AJAX upload URL)
 {% endcomment %}
 <div class="pl-form-group" data-hero-image-field>
     <label class="pl-form-label" style="display:inline-flex;align-items:center;gap:0.4rem;">
@@ -26,16 +28,20 @@ Params:
          data-upload-url="{% if hero_upload_url %}{{ hero_upload_url }}{% else %}{% url 'classes:admin_class_hero_upload' pk=offering.pk %}{% endif %}"
          data-csrf="{{ csrf_token }}">
         <div id="hero-preview" style="margin-bottom:0.5rem;">
-            {% if current_image %}
-            <img src="{{ current_image.url }}"
+            {% if current_image_url %}
+            <img src="{{ current_image_url }}"
                  alt="Current hero image"
                  data-hero-cropper-preview
                  style="max-width:100%;max-height:320px;object-fit:contain;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">
             {% endif %}
         </div>
+        {% if offering.legacy_image_url and not offering.image %}
+        {# An imported photo is the class's own photo; the cropper mounts on it exactly as on an upload. #}
+        <p class="pl-field-hint" id="hero-legacy-note">This photo came over from the old class site. Everything here works the same. Upload a new one to replace it.</p>
+        {% endif %}
         <label class="cls-image-upload-zone" id="hero-upload-zone" style="margin-bottom:0.5rem;">
             <input type="file" accept="image/*" id="hero-file-input" style="display:none;">
-            <span class="cls-image-upload-label">{% if current_image %}Replace image{% else %}+ Upload hero image{% endif %}</span>
+            <span class="cls-image-upload-label">{% if current_image_url %}Replace image{% else %}+ Upload hero image{% endif %}</span>
             <span class="cls-image-upload-hint">Click or drag a file here — saves instantly</span>
         </label>
     </div>
@@ -74,6 +80,9 @@ Params:
                     if (data.error) { alert(data.error); return; }
                     preview.innerHTML = '<img src="' + data.url + '" alt="Hero image" data-hero-cropper-preview style="max-width:100%;max-height:320px;object-fit:contain;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">';
                     zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
+                    // The upload replaced an imported photo: its note no longer applies.
+                    const legacyNote = document.getElementById('hero-legacy-note');
+                    if (legacyNote) legacyNote.remove();
                     // Clear old crop data since image changed
                     const cropInput = document.querySelector('[data-hero-crop-input]');
                     if (cropInput) cropInput.value = '';

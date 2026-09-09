@@ -1,0 +1,62 @@
+{% extends "classes/admin/base.html" %}
+{% block title %}Teaching Marketing Page{% endblock %}
+{% block tab_content %}
+{% include "_components/rich_editor_assets.html" %}
+{% comment %}
+The Teaching Marketing Page: every word of /classes/teach/why/ (the page a member sees
+under Host a Workshop in the sidebar until an admin says yes to them), plus the money
+split. One form, the fields grouped under section titles in page order, one Save at
+the bottom (Rule 21). The three prose fields mount the rich editor
+(core.widgets.PageContentEditorWidget) and the form sanitizes what it saves; the
+percentages are validated to add up to 100 while the money section is shown.
+{% endcomment %}
+<div class="pl-teach-page-settings__head">
+    <h2 class="pl-teach-page-settings__title">
+        Teaching Marketing Page
+        <span class="pl-help">
+            <span class="pl-help__icon" tabindex="0" role="img" aria-label="Teaching Marketing Page: This is the page a member sees under Host a Workshop in the sidebar until an admin says yes to them.">?</span>
+            <span class="pl-help__bubble">This is the page a member sees under Host a Workshop in the sidebar until an admin says yes to them.</span>
+        </span>
+    </h2>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_why' %}" target="_blank" rel="noopener">View the Page</a>
+</div>
+<p class="pl-teach-page-settings__intro">Every field here is one section of the page. Blank a field to hide its section.</p>
+<form method="post">
+    {% csrf_token %}
+    <h3 class="pl-teach-page-settings__section">Top of the Page</h3>
+    {% include "components/form_field.html" with field=form.teach_page_title %}
+    {% include "components/form_field.html" with field=form.teach_page_lead %}
+
+    <h3 class="pl-teach-page-settings__section">What You Get</h3>
+    {% include "components/form_field.html" with field=form.teach_page_features %}
+
+    <h3 class="pl-teach-page-settings__section">How It Works</h3>
+    {% include "components/form_field.html" with field=form.teach_page_how_it_works %}
+
+    <h3 class="pl-teach-page-settings__section">Where the Money Goes</h3>
+    {% include "components/form_field.html" with field=form.teach_page_split_enabled %}
+    <div class="pl-teach-split-inputs">
+        {% include "components/form_field.html" with field=form.teach_page_split_instructor_pct %}
+        {% include "components/form_field.html" with field=form.teach_page_split_space_pct %}
+        {% include "components/form_field.html" with field=form.teach_page_split_guild_pct %}
+    </div>
+    {% include "components/form_field.html" with field=form.teach_page_split_note %}
+
+    <h3 class="pl-teach-page-settings__section">What We Ask Of You</h3>
+    {% include "components/form_field.html" with field=form.teach_page_expectations %}
+
+    <h3 class="pl-teach-page-settings__section">Common Questions</h3>
+    {% include "components/form_field.html" with field=form.teach_page_faq %}
+
+    <h3 class="pl-teach-page-settings__section">Bottom Card</h3>
+    {% include "components/form_field.html" with field=form.teach_page_cta_title %}
+    {% include "components/form_field.html" with field=form.teach_page_cta_line %}
+
+    <h3 class="pl-teach-page-settings__section">Example Workshop</h3>
+    {% include "components/form_field.html" with field=form.example_class %}
+
+    <div class="pl-teach-page-settings__actions">
+        <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+    </div>
+</form>
+{% endblock %}

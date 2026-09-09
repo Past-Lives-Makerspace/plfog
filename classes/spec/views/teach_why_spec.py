@@ -29,6 +29,10 @@ APPROVED_BANNER = "You Can Host Workshops"
 PLACEHOLDER = "The guide has not been loaded yet."
 BLANK_NOTE_ERROR = "Tell us a little about what you want to host."
 OPEN_MODAL = "$dispatch('open-modal', 'apply-to-teach')"
+# The heading itself: the release notes on every hub page also say "Where the Money Goes".
+MONEY_TITLE = '<h2 class="pl-teach-section__title">Where the Money Goes</h2>'
+FAQ_ITEM = '<details class="pl-disclosure pl-teach-faq__item"'
+GUIDE_ITEM = '<details class="pl-disclosure pl-teach-guide">'
 
 # One marker per admin-edited field: text that is on the page only while that field
 # is filled. Used to prove each blanked field hides exactly its own section.
@@ -152,16 +156,32 @@ def describe_teach_why():
             assert content.count('class="hub-card pl-feature-card"') == 6
             assert "A Page Worth Sharing" in content
             assert "Run It Again In One Click" in content
-            assert "<h3>Do I Need to Be an Expert?</h3>" in content
+            assert '<span class="pl-disclosure__title">Do I Need to Be an Expert?</span>' in content
             assert "Show up on time and leave the space the way you found it." in content
             assert "<strong>Build your page.</strong>" in content
             assert 'class="pl-md pl-teach-steps-md"' in content
-            assert 'class="pl-md pl-teach-faq-md"' in content
-            # The accordions are gone: questions are open headings now. The only
-            # disclosure left on the page is the guide's own.
-            faq_block = content.split('class="pl-md pl-teach-faq-md"')[1].split('<details class="pl-teach-guide">')[0]
-            assert "<details" not in faq_block
-            assert "<summary" not in faq_block
+            assert 'class="pl-md pl-teach-asks-md"' in content
+            # Common Questions is an accordion of the shared disclosure, split on the
+            # headings server side, the first one open so the section never looks empty.
+            assert content.count(FAQ_ITEM) == 4
+            assert content.count(FAQ_ITEM + " open>") == 1
+            assert content.index(FAQ_ITEM + " open>") == content.index(FAQ_ITEM)
+            assert content.count('<span class="pl-teach-faq__badge" aria-hidden="true">Q</span>') == 4
+            assert 'class="pl-md pl-teach-faq-md"' not in content
+            assert "pl-teach-faq__intro" not in content
+            # The guide sits on the same disclosure, with its hint and chevron.
+            assert GUIDE_ITEM in content
+            assert "Read the Hosting Guide" in content
+            assert "The full walkthrough, from your first draft to the day of the class. Tap to open." in content
+            assert content.count('<span class="pl-disclosure__chevron" aria-hidden="true"></span>') == 5
+            # Section order: steps, money, asks, questions, guide.
+            assert (
+                content.index("How It Works")
+                < content.index(MONEY_TITLE)
+                < content.index("What We Ask Of You")
+                < content.index("Common Questions")
+                < content.index(GUIDE_ITEM)
+            )
 
         def it_renders_what_an_admin_typed(db, client):
             settings_obj = ClassSettings.load()
@@ -176,7 +196,52 @@ def describe_teach_why():
             assert HERO_TITLE not in content
             assert content.count('class="hub-card pl-feature-card"') == 1
             assert "Only One Card" in content
-            assert "<h3>Is It Free?</h3>" in content
+            assert '<span class="pl-disclosure__title">Is It Free?</span>' in content
+            assert "<p>Yes.</p>" in content
+            assert content.count(FAQ_ITEM) == 1
+
+        def it_renders_an_older_markdown_value_in_a_prose_field(db, client):
+            """Dual mode: a value that does not start with < still renders as Markdown."""
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_how_it_works = "1. **Ask.** Say hi.\n2. **Build.** Make it."
+            settings_obj.teach_page_expectations = "- Be kind.\n- Be safe."
+            settings_obj.save()
+            user, _ = _active_member_user("markdown-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert "<strong>Ask.</strong>" in content
+            assert "<li>Be safe.</li>" in content
+
+        def it_renders_the_whole_field_when_the_questions_have_no_headings(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_faq = "<p>Ask an admin anything.</p>"
+            settings_obj.save()
+            user, _ = _active_member_user("noheadings-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert "Common Questions" in content
+            assert FAQ_ITEM not in content
+            assert '<div class="pl-md pl-teach-faq-md"><p>Ask an admin anything.</p></div>' in content
+
+        def it_renders_an_intro_above_the_first_question(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_faq = "<p>Ask away.</p><h3>Q1</h3><p>A1</p>"
+            settings_obj.save()
+            user, _ = _active_member_user("intro-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert '<div class="pl-md pl-teach-faq__intro"><p>Ask away.</p></div>' in content
+            assert content.index("pl-teach-faq__intro") < content.index(FAQ_ITEM)
+
+        def it_escapes_a_question_exactly_once(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_faq = "<h3>Tools &amp; Safety</h3><p>A</p>"
+            settings_obj.save()
+            user, _ = _active_member_user("amp-page@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert '<span class="pl-disclosure__title">Tools &amp; Safety</span>' in content
+            assert "&amp;amp;" not in content
 
         @pytest.mark.parametrize("field", sorted(SECTION_MARKERS))
         def it_hides_a_blanked_section_and_keeps_the_rest(db, client, field):
@@ -216,7 +281,57 @@ def describe_teach_why():
             assert '<script>alert("faq")</script>' not in content
             assert 'alert("faq")' in content
             assert 'style="color:red"' not in content
-            assert "<h3>Q</h3>" in content
+            assert '<span class="pl-disclosure__title">Q</span>' in content
+
+    def describe_the_money_section():
+        def it_renders_the_default_split_as_a_bar_and_three_tiles(db, client):
+            user, _ = _active_member_user("money-default@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert MONEY_TITLE in content
+            assert 'data-help-key="teach.money-split"' in content
+            assert "Every paid class splits the same way. Run it free and there is nothing to split." in content
+            assert 'aria-label="70 percent to you, 20 percent to Past Lives, 10 percent to the guild"' in content
+            assert 'class="pl-teach-split__seg pl-teach-split__seg--you" style="flex-basis: 70%">70%</span>' in content
+            assert (
+                'class="pl-teach-split__seg pl-teach-split__seg--space" style="flex-basis: 20%">20%</span>' in content
+            )
+            assert (
+                'class="pl-teach-split__seg pl-teach-split__seg--guild" style="flex-basis: 10%">10%</span>' in content
+            )
+            assert "pl-teach-split__seg--slim" not in content
+            assert content.count('class="pl-teach-split__tile ') == 3
+            assert "Your share of every seat sold." in content
+            assert "Keeps the shop open and the tools running." in content
+            assert "Funds the guild whose space and tools you use." in content
+
+        def it_takes_the_numbers_from_the_settings_and_slims_a_narrow_segment(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_split_instructor_pct = 80
+            settings_obj.teach_page_split_space_pct = 15
+            settings_obj.teach_page_split_guild_pct = 5
+            settings_obj.teach_page_split_note = ""
+            settings_obj.save()
+            user, _ = _active_member_user("money-custom@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert 'aria-label="80 percent to you, 15 percent to Past Lives, 5 percent to the guild"' in content
+            assert 'pl-teach-split__seg--guild pl-teach-split__seg--slim" style="flex-basis: 5%">5%</span>' in content
+            assert 'pl-teach-split__seg--you" style="flex-basis: 80%">80%</span>' in content
+            assert "pl-teach-split__note" not in content
+
+        def it_hides_the_section_when_disabled_and_keeps_the_rest(db, client):
+            settings_obj = ClassSettings.load()
+            settings_obj.teach_page_split_enabled = False
+            settings_obj.save()
+            user, _ = _active_member_user("money-off@example.com")
+            client.force_login(user)
+            content = client.get(reverse("classes:teach_why")).content.decode()
+            assert MONEY_TITLE not in content
+            assert 'class="hub-card pl-teach-split"' not in content
+            assert "percent to Past Lives" not in content
+            for marker in SECTION_MARKERS.values():
+                assert marker in content
 
     def describe_the_example_class():
         def it_renders_the_real_catalog_card_when_one_is_configured(db, client):
