@@ -1,0 +1,37 @@
+{% comment %}
+The amber "Needs review" banner, and the always-present container spec D's OOB swap
+targets. Rendered from WikiReport rows; the status pill, the needs_review() queryset and
+the search-result chip read the two denormalized columns mark_needs_review() maintains,
+so both consumers exist and neither is the other's copy.
+
+The page below is untouched. No blur, no collapse, no interstitial: a reported page stays
+fully readable, which is the whole thesis of reporting instead of deleting.
+
+Mark Reviewed is here and not only in the queue because the path a lead actually walks is
+banner, Edit, fix the sentence, Save. A plain member sees the banner with neither button,
+which is correct: it is information for readers, not an assignment.
+
+The reason is escaped plain text and is NEVER run through the renderer. It is member free
+text shown to every reader, and a renderer buys nothing but an XSS surface.
+{% endcomment %}
+<div id="wiki-review-banner"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if open_report %}
+<div class="pl-wp-mod__banner pl-wp-mod__banner--review" x-data="{ expanded: false }">
+    <p class="pl-wp-mod__banner-title">Needs review</p>
+    <blockquote class="pl-wp-mod__quote" :class="expanded ? 'pl-wp-mod__quote--open' : ''">{{ open_report.reason }}</blockquote>
+    <button type="button" class="pl-wp-mod__more" x-show="!expanded" @click="expanded = true">Show more</button>
+    <p class="hub-text-muted pl-wp-mod__banner-by">
+        Reported by {{ open_report.reporter_name }}, {{ open_report.created_at|timesince }} ago{% if other_open_reports %}
+        &middot; <a href="{% url 'hub_wiki_review' %}#report-{{ open_report.pk }}">and {{ other_open_reports }} more</a>{% endif %}
+    </p>
+    {% if can_moderate %}
+    <div class="pl-wp-mod__banner-actions">
+        <button type="button" class="pl-btn pl-btn--sm pl-btn--primary"
+                @click="$dispatch('open-modal', 'resolve-{{ open_report.pk }}')">Mark Reviewed</button>
+        <a href="{% url 'hub_wiki_review' %}#report-{{ open_report.pk }}" class="pl-btn pl-btn--sm pl-btn--ghost">Review</a>
+    </div>
+    {% include "hub/partials/_wiki_resolve_modal.html" with report=open_report source="banner" resolve_target="#wiki-review-banner" %}
+    {% endif %}
+</div>
+{% endif %}
+</div>

@@ -140,6 +140,10 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.EVERYONE_WITH_LOGIN: "Everyone with a login (members and past members).",
     Recipients.RELEASE_AUDIENCE: "Everyone with a login, plus all active members and admins.",
     Recipients.SINGLE_USER: "A single specific user.",
+    Recipients.WIKI_SCOPE_LEADERSHIP: (
+        "The page's guild lead and staff; for a space-wide page, or a guild with nobody on it, the FOG admins."
+    ),
+    Recipients.WIKI_PAGE_CONTRIBUTORS: "Everyone who has written a version of the page, except the verifier.",
 }
 
 
@@ -156,6 +160,97 @@ def audience_description(event: EventType) -> str:
 # this so unknown-variable markers never ship in the defaults).
 
 _CURATED: dict[str, EventCopy] = {
+    # --- Member wiki (spec D owns both) ---------------------------------------
+    #
+    # Neither declares a Discord broadcast channel. A report names a member's mistake and
+    # broadcasting it to a guild channel is a punishment nobody asked for; a verification
+    # is a private thank-you, not an announcement.
+    "wiki.page_reported": EventCopy(
+        placeholders=("page_title", "page_url", "reason", "reporter_name", "scope_label", "review_url"),
+        sample_context={
+            "page_title": "SawStop Table Saw",
+            "page_url": "https://pastlives.example/wiki/p/sawstop-table-saw/",
+            "reason": "The blade guard step is backwards. You lower it AFTER the fence.",
+            "reporter_name": "Dana Kim",
+            "scope_label": "Woodworking",
+            "review_url": "https://pastlives.example/wiki/review/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ reporter_name }} flagged {{ page_title }}",
+                body_text='"{{ reason }}"',
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject='Someone flagged "{{ page_title }}" on the wiki',
+                body_text=(
+                    "{{ reporter_name }} reported a problem on {{ page_title }} ({{ scope_label }}):\n\n"
+                    '"{{ reason }}"\n\n'
+                    "The page is still up and readable. Read it and fix the sentence, add an official "
+                    "note, or mark the report reviewed: {{ page_url }}\n\n"
+                    "Everything waiting on you is in the review queue: {{ review_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ reporter_name }}</strong> reported a problem on "
+                    '<strong><a href="{{ page_url }}">{{ page_title }}</a></strong> '
+                    "({{ scope_label }}):</p>"
+                    "<p><em>&ldquo;{{ reason }}&rdquo;</em></p>"
+                    "<p>The page is still up and readable. Read it and fix the sentence, add an official "
+                    "note, or mark the report reviewed.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ page_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read the page</a></p>"
+                    '<p style="text-align:center;"><a href="{{ review_url }}">Open the review queue</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    "wiki.page_verified": EventCopy(
+        # Exactly the keys spec D fixed for the emit call spec B makes, and no more: an
+        # extra documented placeholder B does not pass renders a "[missing: ...]" marker
+        # into a member's inbox, so the secondary nudge is prose rather than a link.
+        placeholders=("page_title", "page_url", "verifier_name", "verifier_role", "guild_name"),
+        sample_context={
+            "page_title": "SawStop Table Saw",
+            "page_url": "https://pastlives.example/wiki/p/sawstop-table-saw/",
+            "verifier_name": "Kate Mizuno",
+            "verifier_role": "Woodworking orienter",
+            "guild_name": "Woodworking",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ verifier_name }} verified {{ page_title }}",
+                body_text="{{ verifier_name }} ({{ verifier_role }}) read your page and stands behind it.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject='{{ verifier_name }} verified your page "{{ page_title }}"',
+                body_text=(
+                    "{{ verifier_name }}, {{ verifier_role }}, read {{ page_title }} and marked it verified.\n\n"
+                    "That means it now carries a green check for every member who opens it, with "
+                    "{{ verifier_name }}'s name on it. Thank you for writing it.\n\n"
+                    "See your page: {{ page_url }}\n\n"
+                    "There is a New Page button at the top of the wiki whenever you want to write "
+                    "another one for {{ guild_name }}.\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ verifier_name }}</strong>, {{ verifier_role }}, read "
+                    '<strong><a href="{{ page_url }}">{{ page_title }}</a></strong> and marked it verified.</p>'
+                    "<p>That means it now carries a green check for every member who opens it, with "
+                    "{{ verifier_name }}&rsquo;s name on it. Thank you for writing it.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ page_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See your page</a></p>"
+                    "<p>There is a New Page button at the top of the wiki whenever you want to write "
+                    "another one for {{ guild_name }}.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # Staff-side notices raised by an instructor's own actions on a live class. Both are
     # per-recipient (no broadcast channel) and addressed to a role, so the copy names the
     # instructor and the class rather than greeting a person.

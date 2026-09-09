@@ -1,0 +1,33 @@
+{% extends "hub/base.html" %}
+{% block title %}History of {{ page.title }}{% endblock %}
+
+{% block content %}
+{% comment %}
+Every saved version of one page. Readable by any member, because seeing that a page has
+been worked on is part of trusting it; Revert is staff only.
+
+What a row MEANS, said plainly: apply_edit stores the PRE-edit snapshot, so a row is what
+the page looked like just BEFORE that person's save, not what that person wrote. Labelling
+these "Edit" and "Reverted" quietly claimed the opposite, and a moderator reverting on that
+reading restores one version further back than they intend — the single most expensive
+misreading available on this screen.
+
+No diff viewer, deliberately. Staff need revert, not 40 highlighted words; clicking a
+timestamp opens that one version read-only, which answers "what did it used to say" at a
+fraction of the cost.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_wiki_home' %}">Wiki</a> / <a href="{{ page.get_absolute_url }}">{{ page.title }}</a>
+</nav>
+{% include "components/page_header.html" with title="History" description="Every version of this page is saved. Nothing here can be lost." %}
+<p class="hub-text-muted pl-wp-mod__explainer">Each row is what the page looked like just before that change.</p>
+
+<div class="hub-card pl-wp-group">
+    {% for revision in revisions_page %}
+    {% include "hub/partials/_wiki_history_row.html" with revision=revision %}
+    {% empty %}
+    <div class="pl-wp-mod__empty"><p>No history yet.</p></div>
+    {% endfor %}
+</div>
+{% include "components/table_pagination.html" with page=revisions_page %}
+{% endblock %}

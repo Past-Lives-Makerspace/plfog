@@ -1056,22 +1056,20 @@ def describe_the_fact_model_rows():
 def describe_the_cross_spec_seams():
     """A and B/D merge separately, so A's guarded calls need proof they still fire."""
 
-    def it_refreshes_spec_ds_edit_lock_once_the_model_exists(client: Client, monkeypatch):
-        import membership.models as models_module
+    def it_refreshes_spec_ds_edit_lock(client: Client):
+        # Spec D has landed, so this exercises the real row rather than a fake: the autosave
+        # POST is the ONLY thing keeping the advisory lock alive, which is why the feature
+        # needs no polling timer, no second endpoint and no JS.
+        from membership.models import WikiEditLock
 
-        calls: list[tuple[object, object]] = []
-
-        class FakeEditLock:
-            @staticmethod
-            def refresh(page: object, member: object) -> None:
-                calls.append((page, member))
-
-        monkeypatch.setattr(models_module, "WikiEditLock", FakeEditLock, raising=False)
         user = _login(client, "seam_lock")
         page = WikiPageFactory()
+        WikiEditLock.claim(page, user.member)
+        stale = timezone.now() - timezone.timedelta(hours=3)
+        WikiEditLock.objects.filter(page=page).update(refreshed_at=stale)
         response = client.post(reverse("hub_wiki_autosave", args=[page.slug]), {"field": "title", "value": "x"})
         assert response.status_code == 204
-        assert calls == [(page, user.member)]
+        assert WikiEditLock.objects.get(page=page).refreshed_at > stale
 
     def it_fulfils_spec_bs_wanted_page_once_the_model_exists(client: Client, monkeypatch):
         import membership.models as models_module

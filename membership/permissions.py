@@ -316,34 +316,72 @@ def can_edit_category(request: HttpRequest, category: Category) -> bool:
     return is_effective_staff(request)
 
 
-# --- Wiki (member wiki, spec A) --------------------------------------------------------
+# --- Wiki (member wiki, specs A and D) -------------------------------------------------
 #
-# ``can_moderate_wiki_page`` is spec D's, not A's (brief §9.1). A ships a private,
-# D-shaped stand-in — ``_can_moderate_wiki_page`` — because its own archived-page leg
-# needs one before D lands; D deletes this function and lands the public one in the
-# same PR. Naming it privately means the two can never both be public at once and
-# ``git grep`` finds the collision instantly.
+# ``can_moderate_wiki_page`` is spec D's (brief §9.1). A shipped a private, D-shaped
+# stand-in (``_can_moderate_wiki_page``) because its own archived-page leg needed one
+# before D landed; D deletes that and lands the public pair here, so there is exactly one
+# definition and every template affordance and every view gate in both specs reads it.
 
 
-def _can_moderate_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
-    """True for effective staff, or the page's own guild lead/staff.
+def can_moderate_wiki_scope(request: HttpRequest, guild: Guild | None) -> bool:
+    """True when this request may moderate wiki pages in ``guild`` (None = space wide).
 
-    Spec D's exact shape for ``can_moderate_wiki_page(request, page)``, kept private
-    here so a guild lead can archive a bad page in their own guild without finding an
-    officer, before spec D ships the public version. A space-wide page (``guild`` is
-    None) is moderatable by effective staff only.
+    The page-less twin of :func:`can_moderate_wiki_page`, for the one moment there is no
+    page yet: spec D's safety gate has to decide whether a member may publish an Official
+    page *before* it creates one. Both read the same two legs, so the gate and the
+    afterwards-affordance can never disagree.
     """
     if is_effective_staff(request):
         return True
-    guild = page.guild
     return guild is not None and can_edit_guild(request, guild)
+
+
+def can_moderate_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
+    """True for effective staff, or for the page's own guild lead or any staff role.
+
+    Page-scoped rather than request-scoped, and that is the whole point: a guild lead must
+    be able to archive a bad page in their own guild without pulling in an officer, and
+    :func:`is_effective_staff` alone cannot express that. ``can_edit_guild`` already covers
+    co-lead, secretary, treasurer and orienter. A space-wide page (``guild`` is None) is
+    moderatable by effective staff only.
+    """
+    return can_moderate_wiki_scope(request, page.guild)
+
+
+def moderatable_wiki_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
+    """The guilds whose wiki pages this request may moderate, plus space-wide access.
+
+    Reuses :func:`editable_meeting_scopes`'s cheap two-query guild list but deliberately
+    REPLACES its council boolean: that helper grants the council scope to anyone holding
+    lead or staff authority in ANY guild, which is right for meetings and would hand every
+    guild lead the whole site-wide wiki. Space-wide pages are effective-staff only.
+    """
+    guilds, _council = editable_meeting_scopes(request)
+    return guilds, is_effective_staff(request)
+
+
+def _is_own_unpublished_proposal(request: HttpRequest, page: WikiPage) -> bool:
+    """True when this request belongs to the author of a page still held for a read.
+
+    The carve-out spec D's decline loop needs (D21). Narrow on purpose: the page must be
+    unpublished, un-archived, and this request's own active member must be its
+    ``created_by``. An archived proposal is not included — restoring one is a moderator's
+    act, not the author's.
+    """
+    from membership.models import Member
+
+    if page.is_published or page.archived_at is not None or page.created_by_id is None:
+        return False
+    member = _editing_member(request)
+    return member is not None and member.pk == page.created_by_id and member.status == Member.Status.ACTIVE
 
 
 def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """True when this request may edit the page's title, body, facts, and attachments.
 
     ``OFFICIAL`` pages: effective staff only (admins/officers) — a member sees no edit
-    affordance at all, not a disabled one. An archived page: ``_can_moderate_wiki_page``
+    affordance at all, not a disabled one. An archived page: ``can_moderate_wiki_page``
     only — nothing about archiving requires a page to be locked to every plain member
     forever, but members cannot delete and cannot resurrect one either. Everything else:
     any ACTIVE member, live, with no approval queue (the locked "who may edit" rule).
@@ -353,13 +391,19 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     through ``apply_edit``, so gating it on membership alone would put two write
     affordances at the bottom of an Official page.
 
-    **A held-back page is invisible here too.** Spec D's safety gate saves a page
-    ``is_published=False`` for a lead to read; if that only filtered the listings, every
-    write route would still answer a crafted URL and the gate would be decoration. Note
-    where the leg actually bites: OFFICIAL returns above it, so a held Official page is
-    staff-only by the earlier rule and never reaches this check. What it gates is a held
-    COMMUNITY or guild-verified page, whose author and whose guild lead/staff keep their
-    edit right while everyone else gets False.
+    **An unpublished proposal is always editable by its own author** (spec D's D21),
+    whatever its status. Spec D's safety gate saves a member's Safety page
+    ``is_published=False`` with ``status=OFFICIAL`` for a lead to read, and declining it
+    asks the author to change something — so without this carve-out the author is locked
+    out of the very draft they were just asked to fix, which is a dead end wearing a
+    friendly note. Publishing is still gated on ``can_moderate_wiki_page``; only editing
+    is opened, and the moment it is published the ordinary Official rule applies again.
+
+    **A held-back page is invisible here too.** If the gate only filtered the listings,
+    every write route would still answer a crafted URL and it would be decoration. Note
+    where that leg actually bites: OFFICIAL returns above it, so a held Official page is
+    settled by the earlier rule. What it gates is a held COMMUNITY or guild-verified
+    page, whose author and whose guild lead/staff keep their edit right.
     The check lives HERE and not in each view for brief §3's named reason: v1.39.0 gated
     ``/register/<key>/`` while every register kept its own URL, so a member loading
     ``/finance/`` got a 200 and the full financials. Every alternate path to a page needs
@@ -368,13 +412,17 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """
     from membership.models import Member, WikiPage
 
-    # OFFICIAL is checked FIRST and unconditionally. Testing archived first let an
-    # archived Official page in a guild fall through to the moderator leg, handing that
-    # guild's lead an edit right the locked rule never grants on Official content.
+    # OFFICIAL is checked FIRST. Testing archived first let an archived Official page in a
+    # guild fall through to the moderator leg, handing that guild's lead an edit right the
+    # locked rule never grants on Official content — and the author carve-out below is
+    # deliberately inside this branch and after the archived guard, so an archived
+    # proposal stays moderators-only.
     if page.status == WikiPage.Status.OFFICIAL:
+        if _is_own_unpublished_proposal(request, page):
+            return True
         return is_effective_staff(request)
     if page.archived_at is not None:
-        return _can_moderate_wiki_page(request, page)
+        return can_moderate_wiki_page(request, page)
     member = _editing_member(request)
     if member is None or member.status != Member.Status.ACTIVE:
         return False

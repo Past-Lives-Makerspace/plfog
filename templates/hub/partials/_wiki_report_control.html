@@ -1,0 +1,23 @@
+{% comment %}
+The ONE Report control, rendered twice — the desktop header row and the phone's sticky
+bar — so the label and the modal id can never drift. Quiet by design: it is a safety
+valve, not a call to action.
+
+When the viewer already has an open report it renders a different thing entirely, not a
+disabled button and not the same button leading to a duplicate error they would only meet
+AFTER typing a second report. Two problems, one control.
+
+Parameters: control_id (unique per placement), oob (set on the OOB swap after a report).
+{% endcomment %}
+<div id="{{ control_id }}" class="pl-wp-mod__report"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if can_report %}
+    {% if my_open_report %}
+    <span class="hub-text-muted pl-wp-mod__reported">You reported this &middot; {{ my_open_report.created_at|timesince }} ago</span>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+            @click="$dispatch('open-confirm', 'wiki-report-withdraw')">Withdraw</button>
+    {% else %}
+    <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost pl-wp-mod__report-btn"
+            @click="$dispatch('open-modal', 'wiki-report')">Report a Problem</button>
+    {% endif %}
+    {% endif %}
+</div>

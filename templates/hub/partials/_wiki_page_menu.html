@@ -18,3 +18,9 @@ with gloves on.
 {% endif %}
 <button type="button" class="pl-row-menu__item" role="menuitem"
         @click="closeAndRefocus()" onclick="window.print()">Print / Save PDF</button>
+{% comment %}
+Spec D's staff actions go INTO this one menu rather than into a second kebab of their own.
+Two overflow menus on a 390px screen, both containing Edit, reads as a bug even when both
+work — so D's desktop header row is desktop-only and this is the phone's single menu.
+{% endcomment %}
+{% include "hub/partials/_wiki_moderation_menu.html" %}

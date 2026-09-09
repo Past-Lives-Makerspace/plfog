@@ -1,0 +1,58 @@
+{% extends "hub/base.html" %}
+{% block title %}Two People Edited This Page{% endblock %}
+
+{% block content %}
+{% load membership_md %}
+{% comment %}
+The reconcile screen. "Your text is saved. Nothing you wrote has been lost." is the entire
+job of this page and it is the first thing read.
+
+The right card renders page.body, the LIVE page, and never page.revisions.first(). Spec A
+stores the pre-edit snapshot, so the newest revision row is the version before the other
+person's save — the exact one this screen exists to reconcile away from. Only the name and
+the time come from the revision row, because that is the honest record of who saved last.
+
+There is no Save here and Rule 21 does not apply: this screen holds no fields, only three
+exits. The primary is first because a conflict is most often a stale tab rather than a
+genuine disagreement.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_wiki_home' %}">Wiki</a> / <a href="{{ page.get_absolute_url }}">{{ page.title }}</a>
+</nav>
+{% include "components/page_header.html" with title="Two People Edited This Page" description="Your text is saved. Nothing you wrote has been lost. Pick what should be on the page." %}
+
+{% if already_applied %}
+<div class="hub-card pl-wp-group">
+    <p>This has already been sorted out.</p>
+    <p><a href="{{ page.get_absolute_url }}">Back to the page</a></p>
+</div>
+{% else %}
+<div class="pl-wp-mod__conflict-grid">
+    <div class="hub-card pl-wp-group">
+        <h2 class="hub-detail-label pl-wp-section__title">Your Version</h2>
+        <p class="hub-text-muted">Saved {{ draft.created_at|timesince }} ago</p>
+        <div class="pl-md pl-wp-mod__conflict-body">{{ draft.body|wiki_content }}</div>
+    </div>
+    <div class="hub-card pl-wp-group">
+        <h2 class="hub-detail-label pl-wp-section__title">The Page Right Now</h2>
+        <p class="hub-text-muted">
+            {% if theirs and theirs.author %}Saved by {{ theirs.author.display_name }}, {{ theirs.created_at|timesince }} ago{% else %}The version currently on the page{% endif %}
+        </p>
+        <div class="pl-md pl-wp-mod__conflict-body">{{ page.body|wiki_content }}</div>
+    </div>
+</div>
+
+<div class="pl-wp-mod__conflict-actions">
+    <button type="button" class="pl-btn pl-btn--primary"
+            @click="$dispatch('open-confirm', 'conflict-keep')">Keep My Version</button>
+    <a href="{{ merge_url }}" class="pl-btn">Open the Editor With Both</a>
+    <a href="{{ page.get_absolute_url }}" class="pl-btn pl-btn--secondary">Keep Their Version</a>
+</div>
+<p class="hub-text-muted pl-wp-mod__conflict-note">
+    Your version stays in this page's history, and you can
+    <a href="{% url 'hub_wiki_history' page.slug %}?revision={{ draft.pk }}">open it</a> any time.
+</p>
+{% url 'hub_wiki_conflict_keep' page.slug draft.pk as keep_url %}
+{% include "components/confirm_modal.html" with confirm_id="conflict-keep" confirm_title="Put your version on the page?" confirm_message="The version currently on the page is replaced. It stays in the history and can be reverted to." confirm_button_text="Keep My Version" confirm_button_style="primary" confirm_action_url=keep_url %}
+{% endif %}
+{% endblock %}

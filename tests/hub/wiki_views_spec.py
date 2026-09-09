@@ -445,7 +445,9 @@ def describe_wiki_page_reading():
         WikiRevisionFactory(page=page, author=author)
         response = client.get(page.get_absolute_url())
         assert b"Started by Dana Reyes" in response.content
-        assert b"1 version saved." in response.content
+        # Spec D turned the count into the link to the page history, which is the one
+        # member-visible entry point to it.
+        assert b"1 version saved</a>." in response.content
 
     def it_exposes_spec_ds_action_slot(client: Client):
         _login(client, "read_slot")
@@ -501,7 +503,9 @@ def describe_wiki_page_reading():
             page = WikiPageFactory(archived=True, archived_by=archiver)
             response = client.get(page.get_absolute_url())
             assert response.status_code == 200
-            assert b"This page was archived by Kate Owens" in response.content
+            # Spec D replaced A's inline note with the tombstone, whose first line names the
+            # PERSON: a removal that reads as weather is the failure the brief names.
+            assert b"Removed by Kate Owens on" in response.content
             assert b"Replaced by the new guide." in response.content
 
         def it_hides_the_whole_action_row_including_still_accurate(client: Client):
@@ -550,11 +554,18 @@ def describe_wiki_page_reading():
             assert b"pl-wp-has-actionbar" in response.content
             assert b"pl-wp-actionbar" in response.content
 
-        def it_is_gone_with_the_bar_on_an_official_page(client: Client):
+        def it_offers_no_edit_affordance_on_an_official_page(client: Client):
+            # Spec D put Report in the bar's third slot, and any active member gets it — so
+            # the bar itself is present on an Official page while every EDIT affordance in
+            # it is absent, which is the locked rule ("no edit affordance at all, not a
+            # disabled one") rather than "no bar".
             _login(client, "read_bar_official")
             page = WikiPageFactory(official=True)
             response = client.get(page.get_absolute_url())
-            assert b"pl-wp-has-actionbar" not in response.content
+            assert b"Add Photo" not in response.content
+            assert b"Add Tip" not in response.content
+            assert reverse("hub_wiki_edit", args=[page.slug]).encode() not in response.content
+            assert b"Report a Problem" in response.content
 
     def it_shows_checked_today_instead_of_the_button_after_a_confirm(client: Client):
         user = _login(client, "read_checked")
@@ -644,5 +655,5 @@ def describe_the_review_round_fixes():
             WikiRevisionFactory(page=page)
             response = client.get(page.get_absolute_url())
             # Rendered twice (wide line + phone disclosure), counted once.
-            assert response.content.count(b"1 version saved.") == 2
+            assert response.content.count(b"1 version saved</a>.") == 2
             assert response.context["revision_count"] == 1

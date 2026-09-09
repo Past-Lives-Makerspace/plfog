@@ -1,0 +1,19 @@
+{% comment %}
+The same staff actions as menu items, appended into spec A's single phone overflow menu.
+Rendered inside components/row_actions.html, which supplies closeAndRefocus().
+{% endcomment %}
+{% if can_moderate and not is_archived %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-modal', 'wiki-official-note')">{% if page.official_note %}Edit official note{% else %}Add an official note{% endif %}</button>
+{% endif %}
+<a href="{% url 'hub_wiki_history' page.slug %}" class="pl-row-menu__item" role="menuitem"
+   @click="closeAndRefocus()">History</a>
+{% if can_moderate %}
+{% if is_archived %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-restore')">Restore</button>
+{% else %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-archive')">Archive</button>
+{% endif %}
+{% endif %}

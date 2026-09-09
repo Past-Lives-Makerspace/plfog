@@ -38,7 +38,9 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
     <input type="hidden" name="base_revision" value="{{ base_revision }}">
     {% if wanted_pk %}<input type="hidden" name="wanted" value="{{ wanted_pk }}">{% endif %}
 
-    {% block wiki_editor_banners %}{% endblock %}
+    {% block wiki_editor_banners %}
+    {% if lock_warning %}{% include "hub/partials/_wiki_lock_warning.html" %}{% endif %}
+    {% endblock %}
 
     {% if resume_draft %}
     <div class="pl-wp-resume">

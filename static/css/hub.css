@@ -8770,3 +8770,173 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-page .hub-text-muted { color: #333 !important; }
     .pl-wp-has-actionbar { padding-bottom: 0 !important; }
 }
+
+/* ── Member wiki: moderation (spec D) ───────────────────────────────────────────────
+   Prefix: pl-wp-mod__ (spec A owns bare pl-wp-*, spec B owns pl-wp-tab__*), so three
+   parallel PRs cannot silently collide on .pl-wp-empty or .pl-wp-row.
+
+   Amber is literal hex in both themes, copied from the shipped .pl-confirm-warn pair:
+   --hub-warn is not a token anywhere in static/css/ and background:var(--hub-warn) renders
+   transparent. Everything else here is a --hub-* token. */
+.pl-wp-mod__banner {
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    border-left: 4px solid var(--hub-border);
+    background: var(--hub-surface);
+    border-radius: 6px;
+}
+/* The rule carries the colour and the text carries the meaning: gold TEXT on --hub-surface
+   fails contrast on the light theme, so the heading stays --hub-text at 600. */
+.pl-wp-mod__banner--review { border-left-color: var(--color-tuscan-yellow); }
+.pl-wp-mod__banner--archived { border-left-color: var(--hub-border-strong); }
+.pl-wp-mod__banner--lock { border-left-color: var(--hub-blue); }
+.pl-wp-mod__banner-title { margin: 0 0 0.5rem; font-weight: 600; color: var(--hub-text); }
+.pl-wp-mod__banner-line { margin: 0 0 0.5rem; color: var(--hub-text); line-height: 1.6; }
+.pl-wp-mod__banner-by { margin: 0.5rem 0 0; font-size: 0.85rem; }
+.pl-wp-mod__banner-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+}
+
+.pl-wp-mod__quote {
+    margin: 0;
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--hub-border);
+    font-style: italic;
+    color: var(--hub-text);
+    line-height: 1.6;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.pl-wp-mod__quote--short { -webkit-line-clamp: 2; line-clamp: 2; }
+/* x-show only toggles display:none, so the expanded state is a class and never an inline
+   display (Rule 12). */
+.pl-wp-mod__quote--open { -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+.pl-wp-mod__more {
+    margin-top: 0.25rem;
+    padding: 0;
+    background: none;
+    border: 0;
+    color: var(--hub-blue);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.pl-wp-mod__note {
+    background: var(--hub-surface);
+    border-left: 4px solid var(--hub-blue);
+    border-radius: 6px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+}
+.pl-wp-mod__note-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+.pl-wp-mod__note-body { color: var(--hub-text); line-height: 1.6; }
+.pl-wp-mod__note-by { margin: 0.75rem 0 0; font-size: 0.85rem; }
+.pl-wp-mod__note-remove { margin-bottom: 1rem; }
+.pl-wp-mod__divider { border: 0; border-top: 1px solid var(--hub-border); margin: 0 0 1.25rem; }
+
+/* Quiet neutral attribute chip — no fill, because colour is reserved for status. */
+.pl-wp-mod__chip {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+}
+
+/* Rule 18: the danger button never butts against whatever follows the header row. */
+.pl-wp-mod__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.pl-wp-mod__report { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.pl-wp-mod__reported { font-size: 0.85rem; }
+.pl-wp-mod__modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    /* Rule 18: the submit never touches whatever sits under it. */
+    margin-top: 1.5rem;
+}
+
+.pl-wp-mod__review-card {
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--hub-border);
+}
+.pl-wp-mod__review-card:last-child { border-bottom: 0; margin-bottom: 0; }
+.pl-wp-mod__review-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+.pl-wp-mod__tabs { margin-bottom: 1.5rem; }
+.pl-wp-mod__explainer { margin: -0.75rem 0 1.5rem; }
+
+/* Written empty state. Never a blank region. */
+.pl-wp-mod__empty {
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--hub-text-muted);
+    max-width: 44ch;
+    margin: 0 auto;
+}
+
+.pl-wp-mod__conflict-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+.pl-wp-mod__conflict-body { max-height: 420px; overflow-y: auto; }
+.pl-wp-mod__conflict-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 1.5rem 0 0.75rem;
+}
+.pl-wp-mod__conflict-note { margin: 0 0 1.5rem; }
+
+.pl-wp-mod__history-card {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--hub-border);
+}
+.pl-wp-mod__history-card:last-child { border-bottom: 0; }
+.pl-wp-mod__history-when { color: var(--hub-text); font-weight: 600; }
+.pl-wp-mod__history-who { margin: 0.25rem 0 0; font-size: 0.85rem; }
+.pl-wp-mod__redirect { margin-top: 1rem; }
+
+@media (max-width: 900px) {
+    .pl-wp-mod__conflict-grid { grid-template-columns: 1fr; }
+}
+
+/* 390px, one thumb, gloves. Every control is a 48px tap target and nothing stacks
+   sideways; no hover affordance exists anywhere on these screens. */
+@media (max-width: 640px) {
+    .pl-wp-mod__conflict-body { max-height: 40vh; }
+    .pl-wp-mod__history-card { flex-direction: column; align-items: stretch; }
+    .pl-wp-mod__history-action .pl-btn { width: 100%; min-height: 48px; }
+    .pl-wp-mod__banner-actions { flex-direction: column; }
+    .pl-wp-mod__banner-actions .pl-btn { width: 100%; min-height: 48px; }
+    .pl-wp-mod__conflict-actions { flex-direction: column; }
+    .pl-wp-mod__conflict-actions .pl-btn { width: 100%; min-height: 48px; }
+    .pl-wp-mod__modal-actions { flex-direction: column-reverse; }
+    .pl-wp-mod__modal-actions .pl-btn { width: 100%; min-height: 48px; }
+    .pl-wp-mod__report .pl-btn { min-height: 48px; }
+    .pl-wp-mod__tabs .vote-tab { min-height: 48px; display: inline-flex; align-items: center; }
+}
+
+/* The desktop header row is desktop-only: on a phone these actions live inside spec A's
+   single overflow menu, because two kebabs both containing Edit reads as a bug. */
+@media (max-width: 768px) {
+    .pl-wp-mod__actions { display: none; }
+}

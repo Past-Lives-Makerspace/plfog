@@ -1,0 +1,18 @@
+{% comment %}
+One archived page in the moderator's scopes. Exactly one action, Open the Page, because
+Restore belongs on the tombstone where the reader can see what they are restoring — a
+one-click Restore from a list is how you restore the wrong page.
+{% endcomment %}
+<div class="hub-card pl-wp-mod__review-card">
+    <div class="pl-wp-mod__review-head">
+        <a href="{{ archived.get_absolute_url }}" class="pl-wp-card__title">{{ archived.title }}</a>
+        <span class="pl-wp-mod__chip">{% if archived.guild %}{{ archived.guild.name }}{% else %}Space-wide{% endif %}</span>
+    </div>
+    <p class="hub-text-muted pl-wp-mod__banner-by">
+        Removed by {% if archived.archived_by %}{{ archived.archived_by.display_name }}{% else %}a former member{% endif %} &middot; {{ archived.archived_at|date:"j F Y" }}
+    </p>
+    {% if archived.archive_reason %}<blockquote class="pl-wp-mod__quote pl-wp-mod__quote--short">{{ archived.archive_reason }}</blockquote>{% endif %}
+    <div class="pl-wp-mod__banner-actions">
+        <a href="{{ archived.get_absolute_url }}" class="pl-btn pl-btn--sm">Open the Page</a>
+    </div>
+</div>

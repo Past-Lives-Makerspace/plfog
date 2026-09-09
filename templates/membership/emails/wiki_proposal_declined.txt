@@ -1,0 +1,12 @@
+Hi {{ author_name }},
+
+{{ reviewer_name }} read "{{ page.title }}" and asked for a change before it goes live:
+
+{{ note }}
+
+Your draft is still yours and nothing was deleted. Make the change and it goes back for a read.
+
+Open your draft: {{ edit_url }}
+{% if reviewer_email %}Reply to {{ reviewer_name }}: {{ reviewer_email }}
+{% endif %}
+{% include "membership/emails/_footer.txt" %}

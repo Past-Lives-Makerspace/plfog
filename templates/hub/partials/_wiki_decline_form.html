@@ -1,0 +1,15 @@
+{% comment %}
+The decline modal's body. Send Back is the last element (Rule 21), and the note is a real
+textarea rather than the confirm modal's single-line input: this is the one message in the
+round whose whole job is to tell a member what to change.
+{% endcomment %}
+<form hx-post="{% url 'hub_wiki_decline_proposal' proposal.slug %}"
+      hx-target="#wiki-decline-{{ proposal.pk }}-body" hx-swap="innerHTML">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=decline_form.note %}
+    <div class="pl-wp-mod__modal-actions">
+        <button type="button" class="pl-btn pl-btn--secondary"
+                @click="$dispatch('close-modal', 'wiki-decline-{{ proposal.pk }}')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Send Back</button>
+    </div>
+</form>

@@ -1,0 +1,19 @@
+{% extends "hub/base.html" %}
+{% block title %}Thanks{% endblock %}
+
+{% block content %}
+{% comment %}
+A full-page answer and not a toast: the member expected their page to go live and it did
+not, so the screen has to say who has it and what happens next, with room to say it.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="Thanks" %}
+<div class="hub-card pl-wp-group">
+    <p>Safety pages get a second read before they go live. The {{ scope_label }} leads have it, and you will hear back.</p>
+    <p class="hub-text-muted">Nothing you wrote is lost. You can keep editing it while it waits.</p>
+    <div class="pl-wp-mod__banner-actions">
+        <a href="{% url 'hub_wiki_drafts' %}" class="pl-btn pl-btn--primary">View My Draft</a>
+        <a href="{% url 'hub_wiki_home' %}" class="pl-btn pl-btn--secondary">Back to the Wiki</a>
+    </div>
+</div>
+{% endblock %}

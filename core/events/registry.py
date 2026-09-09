@@ -111,6 +111,12 @@ class Recipients(str, Enum):
     # Equipment managers: per-equipment staff rows ∪ the owning guild's leadership ∪
     # EQUIPMENT capability holders, deduped (a union of the three manage tiers).
     EQUIPMENT_MANAGERS = "equipment_managers"
+    # Member wiki (spec D). Composed, never a union: a reported page routes to its own
+    # guild's leadership, and only a space-wide page (or a guild with nobody on it) falls
+    # through to the admins.
+    WIKI_SCOPE_LEADERSHIP = "wiki_scope_leadership"
+    # Everyone who has authored a revision of the verified page, minus the verifier.
+    WIKI_PAGE_CONTRIBUTORS = "wiki_page_contributors"
 
 
 @dataclass(frozen=True)
@@ -324,6 +330,9 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "new_member_joined": Recipients.FOG_ADMINS,
     # Spaces / leases
     "lease_expiring": Recipients.LEASE_TENANT,
+    # Member wiki (spec D)
+    "wiki.page_reported": Recipients.WIKI_SCOPE_LEADERSHIP,
+    "wiki.page_verified": Recipients.WIKI_PAGE_CONTRIBUTORS,
     # Admin broadcasts
     "site_announcement": Recipients.ALL_ACTIVE_MEMBERS,
 }
@@ -377,6 +386,12 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "invite_accepted": "invite_accepted",
     "new_member_joined": "member_signup",
     "lease_expiring": None,
+    # Both wiki events log NO SiteActivity via emit. emit() writes its activity row with
+    # actor and target only and no payload, and the payload is the useful half here (the
+    # reason, the reporter, the verifier's role) — so the model methods write those rows
+    # themselves, exactly as tab_entry_added does, and one row has one source.
+    "wiki.page_reported": None,
+    "wiki.page_verified": None,
     "site_announcement": "site_announcement",
 }
 

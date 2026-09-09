@@ -1,0 +1,14 @@
+{% comment %}
+What replaces a queue card once its report is marked reviewed. When the last one in scope
+goes, the written empty state comes back rather than an empty card — never a blank region.
+{% endcomment %}
+{% if remaining %}
+<div class="hub-card pl-wp-mod__review-card">
+    <p class="hub-text-muted">Marked reviewed.</p>
+</div>
+{% else %}
+<div class="pl-wp-mod__empty">
+    <p>Nothing to review. You are all caught up.</p>
+    <p class="hub-text-muted">{{ scope_line }}</p>
+</div>
+{% endif %}
