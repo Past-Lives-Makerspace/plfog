@@ -1949,6 +1949,13 @@ a:hover { color: var(--hub-link-hover); }
     left: auto;
     right: 0;
 }
+/* Lifted by static/js/pl_help.js on desktop: the bubble is re-anchored to the viewport
+   (inline position: fixed, top, left) so an overflow: hidden or overflow: auto ancestor
+   (.admin-table-wrap, every scrolling table) cannot clip it. Only the stacking order
+   lives here; the hover and focus reveal above is untouched. */
+.pl-help[data-help-lifted] .pl-help__bubble {
+    z-index: 1000;
+}
 
 /* Phone: the bubble is up to 320px and anchored to a tiny icon that can sit
    anywhere in a narrow column, so left/right:0 always pokes one edge off-screen
@@ -6663,9 +6670,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
    The page inviting members to host a workshop. One centered column of
    hub-cards: a state banner, a gradient hero, a feature grid, a live catalog
    card, the steps, the asks, the questions, the guide, and the interest card.
-   The steps, asks and questions are admin-edited Markdown rendered into
-   .pl-md; the modifiers below give each its shape.
-   Theme tokens only — verified on Obsidian + Slate. ── */
+   The steps, asks and questions are admin-edited rich text (or older Markdown)
+   rendered into .pl-md; the modifiers below give each its shape. The money split
+   is one figure (a bar over three tiles) and the questions and the guide sit on
+   the shared .pl-disclosure. Theme tokens only, both themes. ── */
 
 .pl-teach {
     max-width: 980px;
@@ -6877,6 +6885,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
     margin: 0.5rem 0 0;
 }
+/* The create mode skeleton card: the mirrored photo, the live title, and this one
+   muted line where the dates, price and spots will be after the first save. */
+.cp-page .pl-card-focus__skeleton-line {
+    font-size: 12px;
+    color: var(--hub-text-muted);
+}
 /* Empty state for the card preview: exactly the space the 150px card will occupy. */
 .pl-preview-empty {
     border: 1px dashed var(--hub-border-strong);
@@ -6956,18 +6970,94 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-size: 1rem;
 }
 
-/* "What We Ask Of You": a plain bullet list in the muted text color. */
+/* "What We Ask Of You": the editor's plain <ul> becomes a grid of cards, each with the
+   gold check circle that is the steps' numeral treatment. Paragraphs outside a list
+   render as ordinary .pl-md prose. Two-class selectors beat the generic .pl-md rules. */
 .pl-md.pl-teach-asks-md {
     color: var(--hub-text-muted);
 }
 
 .pl-md.pl-teach-asks-md ul {
-    margin: 0.5rem 0 0;
+    list-style: none;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
 }
 
-/* Common Questions: each `###` heading is a question and the paragraph under it the
-   answer. Open and readable; the <details> accordions went with the hand built markup
-   because plain Markdown is what an admin can edit. */
+.pl-md.pl-teach-asks-md ul > li {
+    position: relative;
+    margin: 0;
+    padding: 0.85rem 1rem 0.85rem 2.6rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    color: var(--hub-text);
+    font-size: 0.9375rem;
+    line-height: 1.45;
+}
+
+.pl-md.pl-teach-asks-md ul > li::before {
+    content: "\2713";
+    position: absolute;
+    left: 0.85rem;
+    top: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+@media (max-width: 640px) {
+    .pl-md.pl-teach-asks-md ul {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Common Questions: the sanitized HTML is split on its headings server side into
+   .pl-disclosure items (the first open). The intro is whatever the admin wrote above
+   the first question; the Q badge marks each summary. */
+.pl-teach-faq {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.pl-teach-faq__intro {
+    margin: 0.5rem 0 0;
+    color: var(--hub-text-muted);
+}
+
+.pl-teach-faq__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 6px;
+    background: var(--hub-blue-soft);
+    color: var(--hub-blue);
+    font-size: 0.8125rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.pl-teach-faq__answer {
+    color: var(--hub-text-muted);
+}
+
+/* The no headings fallback: the admin wrote the section without questions, so it
+   renders as one open block. */
 .pl-md.pl-teach-faq-md h3 {
     margin: 0;
     padding: 0.75rem 0 0.25rem;
@@ -6986,24 +7076,199 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0 0 0.5rem;
 }
 
-/* The collapsed hosting guide: the public class page's disclosure pattern,
-   restyled for the hub. */
-.pl-teach-guide {
-    padding-bottom: 0.75rem;
-}
-
-.pl-teach-guide summary {
+/* ── Disclosure (.pl-disclosure) ──────────────────────────────────────────
+   The hub's <details> pattern (FRONTEND.md, Component Library). A bordered
+   summary row with a title, an optional hint under it, and a chevron that
+   points down when closed and up when open; the body continues the same card.
+   Never hide the native marker without this chevron in its place. ── */
+.pl-disclosure__summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
     cursor: pointer;
-    font-weight: 600;
     list-style: none;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    transition: border-color 0.15s ease;
 }
 
-.pl-teach-guide summary::-webkit-details-marker {
+.pl-disclosure__summary::-webkit-details-marker {
     display: none;
 }
 
-.pl-teach-guide summary::marker {
+.pl-disclosure__summary::marker {
     content: "";
+}
+
+.pl-disclosure__summary:hover,
+.pl-disclosure__summary:focus-visible {
+    border-color: var(--color-tuscan-yellow);
+    outline: none;
+}
+
+.pl-disclosure__text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.pl-disclosure__title {
+    flex: 1;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+
+.pl-disclosure__text .pl-disclosure__title {
+    flex: 0 0 auto;
+}
+
+.pl-disclosure__hint {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    color: var(--hub-text-muted);
+}
+
+.pl-disclosure__chevron {
+    flex: 0 0 auto;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-right: 0.25rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    color: var(--hub-text-muted);
+    transform: rotate(45deg);
+    transition: transform 0.2s ease;
+}
+
+.pl-disclosure[open] > .pl-disclosure__summary .pl-disclosure__chevron {
+    transform: rotate(-135deg);
+}
+
+.pl-disclosure[open] > .pl-disclosure__summary {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.pl-disclosure__body {
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-top: 0;
+    border-radius: 0 0 10px 10px;
+}
+
+/* The hosting guide: the shared disclosure with the page icon in front of the title. */
+.pl-teach-guide__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.6rem;
+    background: rgba(238, 180, 75, 0.12);
+    color: var(--color-tuscan-yellow);
+}
+
+/* ── Where the Money Goes ─────────────────────────────────────────────────
+   A proportional bar over three tiles, each tile topped in its segment's color
+   so the bar and the tiles read as one figure. The flex-basis of each segment
+   is inline in the template because it is data. Cream on the two blues and
+   navy on gold: every pairing is a constant token, so both themes read. ── */
+.pl-teach-split__note {
+    margin: 0 0 1rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-teach-split__bar {
+    display: flex;
+    width: 100%;
+    height: 2.25rem;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.pl-teach-split__seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-width: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.pl-teach-split__seg--slim {
+    font-size: 0;
+}
+
+.pl-teach-split__seg--you {
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+
+.pl-teach-split__seg--space {
+    background: var(--hub-blue);
+    color: var(--color-cream);
+}
+
+.pl-teach-split__seg--guild {
+    background: var(--color-navy);
+    color: var(--color-cream);
+}
+
+.pl-teach-split__tiles {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.pl-teach-split__tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+    background: var(--hub-surface);
+    border: 1px solid var(--hub-border);
+    border-top: 4px solid var(--hub-border);
+    border-radius: 10px;
+}
+
+.pl-teach-split__tile--you { border-top-color: var(--color-tuscan-yellow); }
+.pl-teach-split__tile--space { border-top-color: var(--hub-blue); }
+.pl-teach-split__tile--guild { border-top-color: var(--color-navy); }
+
+.pl-teach-split__pct {
+    font-family: 'Lato', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 900;
+    line-height: 1.1;
+    color: var(--hub-text);
+}
+
+.pl-teach-split__who {
+    font-weight: 700;
+    color: var(--hub-text);
+}
+
+.pl-teach-split__what {
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--hub-text-muted);
+}
+
+@media (max-width: 640px) {
+    .pl-teach-split__tiles {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Apply card. Its button clears the paragraph above it (Rule 18). */
@@ -7029,29 +7294,57 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
-/* The Host a Workshop Page section on the classes Settings page: a ruled-off block
-   with its heading, "?" bubble and View the Page link on one row. */
-.pl-teach-settings {
-    margin-top: 2rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--hub-border);
-}
-
-.pl-teach-settings__head {
+/* The Teaching Marketing Page under Class Settings: the heading, its "?" bubble and
+   the View the Page link on one row, then the form's section titles and the three
+   percentage inputs side by side. */
+.pl-teach-page-settings__head {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
-    margin-bottom: 1rem;
+    margin-bottom: 0.25rem;
 }
 
-.pl-teach-settings__title {
+.pl-teach-page-settings__title {
     margin: 0;
-    font-size: 1.1rem;
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+}
+
+.pl-teach-page-settings__intro {
+    margin: 0 0 1.25rem;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
+.pl-teach-page-settings__section {
+    margin: 1.75rem 0 0.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--hub-border);
+    font-size: 1.05rem;
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-teach-page-settings__section:first-of-type {
+    margin-top: 0.5rem;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.pl-teach-page-settings__actions {
+    margin-top: 1.5rem;
+}
+
+.pl-teach-split-inputs {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.pl-teach-split-inputs > .pl-form-group {
+    flex: 1 1 8rem;
 }
 
 /* ========================================

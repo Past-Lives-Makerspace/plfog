@@ -18,7 +18,13 @@ Context (from _composer_context in classes/views.py, plus the form context):
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
   anchor_steps_json — DOM id -> step number, for goToField()
   pipeline, readiness, is_ready — only present once the class has a pk
+  card_group      — the genuine CatalogGroup for a saved class (None on create); the
+                    card preview frames on steps 2 and 5 render the REAL catalog card
+                    through it
   cancel_url, save_label
+
+`liveTitle` on the root x-data mirrors the title field as the host types, so every card
+frame (steps 2 and 5, and the create mode skeleton) shows the new title before the save.
 
 Each step pane carries data-composer-step="N" and the root listens for a window event
 composer-goto-step {step: N}: that is how anything outside Alpine (the guided tour in
@@ -60,6 +66,7 @@ Do not merge them.
        errorSteps: {{ error_steps_json }},
        anchorSteps: {{ anchor_steps_json }},
        cardPosition: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}',
+       liveTitle: '',
        previewLoaded: false,
        goTo(n) {
          this.phase = n;
@@ -78,6 +85,7 @@ Do not merge them.
        }
      }"
      @card-focus.window="cardPosition = $event.detail.position"
+     @input="if ($event.target.id === 'id_title') liveTitle = $event.target.value"
      @composer-goto-step.window="goTo($event.detail.step)">
 
   <p class="pl-composer-count">Step <span x-text="phase"></span> of 5</p>
@@ -140,11 +148,11 @@ Do not merge them.
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Class Page Banner</p>
             <p class="pl-crop-pane__hint">Drag the box. Everything outside it is cut off.</p>
-            {% include "classes/_components/hero_image_field.html" with field=form.image current_image=offering.image crop_field=form.hero_crop offering=offering %}
+            {% include "classes/_components/hero_image_field.html" with field=form.image current_image_url=offering.hero_image_url crop_field=form.hero_crop offering=offering %}
           </div>
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Catalog Card</p>
-            <p class="pl-crop-pane__hint">Drag the sliders. These are the exact sizes members see in the catalog.</p>
+            <p class="pl-crop-pane__hint">This is your whole card, at the two widths members see. Drag the sliders to choose which part of the photo shows.</p>
             {% include "classes/_components/card_focus_field.html" %}
           </div>
         </div>
@@ -226,16 +234,16 @@ Do not merge them.
       </div>
       <div class="pl-compose-section">
         <h3 class="pl-compose-section__title">How Your Card Looks</h3>
-        {% if offering.image %}
-        {# The phone frame only: it is the width where a photo gets cut the most, so it is the one to sign off on. #}
+        {% if card_group and offering.hero_image_url %}
+        {# The whole card at the phone width only: it is the width where a photo gets cut the most, so it is the one to sign off on. #}
         <div class="cp-page pl-card-focus">
           <div class="pl-card-focus__frame pl-card-focus__frame--phone">
             <span class="pl-card-focus__frame-label">On a Phone</span>
-            <div class="cls-card">{% include "classes/public/_class_card_media.html" with offering=offering preview=True live_position="cardPosition" %}</div>
+            {% include "classes/public/_class_card.html" with group=card_group preview=True live_position="cardPosition" live_title="liveTitle" %}
           </div>
         </div>
         {% else %}
-        <div class="pl-preview-empty">Upload a photo and your card shows up here.</div>
+        <div class="pl-preview-empty">Add a photo on step 2 and your card shows up here.</div>
         {% endif %}
       </div>
       <div class="pl-compose-section">

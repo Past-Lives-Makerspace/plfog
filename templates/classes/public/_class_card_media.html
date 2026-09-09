@@ -18,14 +18,16 @@ Parameters (pass via {% include ... with %}):
 Extracted from _class_card.html so every card, the composer's two preview frames, and the
 related classes strip read one markup and one object-position rule. The position is
 unconditional: card_object_position falls through hero_object_position to "50% 50%", so a
-focal point set by the detail page's Adjust sliders (w=0) reaches the card too.
+focal point set by the detail page's Adjust sliders (w=0) reaches the card too. One photo
+rule: offering.hero_image_url is the uploaded file or, failing that, a photo imported from
+the legacy class site served through the same origin proxy, so an imported photo gets the
+same position and live binding as an upload. The category hero and the logo placeholder
+are the fallbacks for a class with no photo of its own.
 {% endcomment %}
 {% if preview %}<span class="cls-media">{% else %}<a class="cls-media" href="{% url 'classes:public_class_detail' slug=offering.slug %}" aria-label="View {{ offering.title|strip_date_suffix }}">{% endif %}
-  {% if offering.image %}
-    <img class="cls-img" src="{{ offering.image.url }}" alt="" loading="lazy"
+  {% if offering.hero_image_url %}
+    <img class="cls-img" src="{{ offering.hero_image_url }}" alt="" loading="lazy"
          style="object-position: {{ offering.card_object_position }};"{% if live_position %} :style="'object-position: ' + {{ live_position }}"{% endif %}>
-  {% elif offering.legacy_image_url %}
-    <img class="cls-img" src="{% url 'classes:legacy_image' %}?url={{ offering.legacy_image_url|urlencode }}" alt="" loading="lazy">
   {% elif offering.category.hero_image %}
     <img class="cls-img" src="{{ offering.category.hero_image.url }}" alt="" loading="lazy">
   {% elif offering.category.logo_prefix %}

@@ -23,10 +23,13 @@ did the same.
 One column of cards, state-aware. `application_state` is Member.teaching_application_state,
 the single source of truth: none / pending / approved / declined. The words in the hero,
 the feature cards, How It Works, What We Ask Of You, Common Questions and the bottom card
-come from ClassSettings (`teach_page`), edited on the classes Settings page; a blanked
-field hides its section, so every one is guarded here. The Markdown sections arrive
-already sanitized (a SafeString from the model), so nothing on this page goes through
-|safe. The x-data below reopens the interest modal when a POST came back with a bound
+come from ClassSettings (`teach_page`), edited on the Teaching Marketing Page under
+Class Settings; a blanked field hides its section, so every one is guarded here, and
+the money section by its own toggle. The prose sections (rich editor HTML, or older
+Markdown) arrive already sanitized (a SafeString from the model), so nothing on this
+page goes through |safe; Common Questions is split on its headings server side
+(`faq_items`) into the accordion below. The x-data below reopens the interest modal
+when a POST came back with a bound
 (invalid) form so the error shows inside it; the dispatch waits a tick because the
 modal's @open-modal.window listener is not bound yet when this x-init runs.
 {% endcomment %}
@@ -148,6 +151,43 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
     </section>
     {% endif %}
 
+    {% if teach_page.teach_page_split_enabled %}
+    {% comment %}
+    Where the Money Goes: one figure, a proportional bar over three tiles, the numbers
+    straight from the three percentage fields. The flex-basis is the one inline style
+    allowed here because the value is data (the sale banner carries its width the same
+    way). A segment under 8% hides its inline label so "10%" never overflows on a phone.
+    {% endcomment %}
+    <section class="hub-card pl-teach-split" data-help-key="teach.money-split">
+        <h2 class="pl-teach-section__title">Where the Money Goes</h2>
+        {% if teach_page.teach_page_split_note %}<p class="pl-teach-split__note">{{ teach_page.teach_page_split_note }}</p>{% endif %}
+        {% with you=teach_page.teach_page_split_instructor_pct space=teach_page.teach_page_split_space_pct guild=teach_page.teach_page_split_guild_pct %}
+        <div class="pl-teach-split__bar" role="img" aria-label="{{ you }} percent to you, {{ space }} percent to Past Lives, {{ guild }} percent to the guild">
+            <span class="pl-teach-split__seg pl-teach-split__seg--you{% if you < 8 %} pl-teach-split__seg--slim{% endif %}" style="flex-basis: {{ you }}%">{{ you }}%</span>
+            <span class="pl-teach-split__seg pl-teach-split__seg--space{% if space < 8 %} pl-teach-split__seg--slim{% endif %}" style="flex-basis: {{ space }}%">{{ space }}%</span>
+            <span class="pl-teach-split__seg pl-teach-split__seg--guild{% if guild < 8 %} pl-teach-split__seg--slim{% endif %}" style="flex-basis: {{ guild }}%">{{ guild }}%</span>
+        </div>
+        <div class="pl-teach-split__tiles">
+            <div class="pl-teach-split__tile pl-teach-split__tile--you">
+                <span class="pl-teach-split__pct">{{ you }}%</span>
+                <span class="pl-teach-split__who">You</span>
+                <span class="pl-teach-split__what">Your share of every seat sold.</span>
+            </div>
+            <div class="pl-teach-split__tile pl-teach-split__tile--space">
+                <span class="pl-teach-split__pct">{{ space }}%</span>
+                <span class="pl-teach-split__who">Past Lives</span>
+                <span class="pl-teach-split__what">Keeps the shop open and the tools running.</span>
+            </div>
+            <div class="pl-teach-split__tile pl-teach-split__tile--guild">
+                <span class="pl-teach-split__pct">{{ guild }}%</span>
+                <span class="pl-teach-split__who">Your Guild</span>
+                <span class="pl-teach-split__what">Funds the guild whose space and tools you use.</span>
+            </div>
+        </div>
+        {% endwith %}
+    </section>
+    {% endif %}
+
     {% if teach_page.teach_page_expectations %}
     <section class="hub-card">
         <h2 class="pl-teach-section__title">What We Ask Of You</h2>
@@ -158,23 +198,49 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
     {% if teach_page.teach_page_faq %}
     <section class="hub-card">
         <h2 class="pl-teach-section__title">Common Questions</h2>
+        {% if faq_items %}
+        {% if faq_intro_html %}<div class="pl-md pl-teach-faq__intro">{{ faq_intro_html }}</div>{% endif %}
+        <div class="pl-teach-faq">
+            {% for item in faq_items %}
+            <details class="pl-disclosure pl-teach-faq__item"{% if forloop.first %} open{% endif %}>
+                <summary class="pl-disclosure__summary">
+                    <span class="pl-teach-faq__badge" aria-hidden="true">Q</span>
+                    <span class="pl-disclosure__title">{{ item.question }}</span>
+                    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="pl-disclosure__body pl-md pl-teach-faq__answer">{{ item.answer_html }}</div>
+            </details>
+            {% endfor %}
+        </div>
+        {% else %}
+        {# No headings in the field: nothing to split, so the whole section renders as one block. #}
         <div class="pl-md pl-teach-faq-md">{{ teach_page.teach_page_faq_html }}</div>
+        {% endif %}
     </section>
     {% endif %}
 
-    <section class="hub-card">
-        <details class="pl-teach-guide">
-            <summary>Read the Hosting Guide</summary>
-            {% if article %}
-            <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
-            {% else %}
-            <p class="hub-text-muted">The guide has not been loaded yet. Ask an admin to run the help center seed.</p>
-            {% endif %}
-            {% if guide %}
-            <p class="pl-orientation-guide-link">
-                Read the full guide: <a href="{{ guide.get_absolute_url }}"><strong>{{ guide.title }}</strong></a>
-            </p>
-            {% endif %}
+    <section class="hub-card pl-teach-guide-card">
+        <details class="pl-disclosure pl-teach-guide">
+            <summary class="pl-disclosure__summary">
+                <span class="pl-teach-guide__icon" aria-hidden="true">{% include "classes/teach/partials/_feature_icon.html" with icon="page" %}</span>
+                <span class="pl-disclosure__text">
+                    <span class="pl-disclosure__title">Read the Hosting Guide</span>
+                    <span class="pl-disclosure__hint">The full walkthrough, from your first draft to the day of the class. Tap to open.</span>
+                </span>
+                <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+            </summary>
+            <div class="pl-disclosure__body">
+                {% if article %}
+                <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
+                {% else %}
+                <p class="hub-text-muted">The guide has not been loaded yet. Ask an admin to run the help center seed.</p>
+                {% endif %}
+                {% if guide %}
+                <p class="pl-orientation-guide-link">
+                    Read the full guide: <a href="{{ guide.get_absolute_url }}"><strong>{{ guide.title }}</strong></a>
+                </p>
+                {% endif %}
+            </div>
         </details>
     </section>
 

@@ -145,6 +145,27 @@ The app-wide "?" hover bubble next to a title, label, or column header (e.g. the
 - Reveals on `:hover` and `:focus-within` — `tabindex="0"` on the icon makes it keyboard-reachable.
 - Anchored bottom-left by default. If the icon lives in the narrow right-hand aside, add `pl-help--right` to the wrapper so the 320px bubble does not overflow the viewport.
 - On phones the bubble auto-pins to the viewport gutters — do not re-position it.
+- Visibility stays CSS-only. On desktop, `static/js/pl_help.js` (loaded once from `hub/base.html`) lifts the shown bubble out of any clipping ancestor by re-anchoring it to the viewport (`position: fixed`, clamped to the viewport gutters), so `.pl-help` is safe inside `.admin-table-wrap` and every `overflow: auto` table wrapper. Nothing to bind per page.
+
+### Disclosure (`.pl-disclosure`)
+
+The hub's `<details>` pattern: a bordered summary row with a title, an optional hint under it, and a chevron that points down when closed and up when open; the body continues the same card. Use it for anything a member opens and closes on a hub page (the Host a Workshop questions and hosting guide). It is inline markup in `hub.css`, **not** a `components/` include. Never hide the native marker without replacing it with the chevron: a summary with no open indicator reads as plain text and nobody clicks it.
+
+```html
+<details class="pl-disclosure">
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__text">
+      <span class="pl-disclosure__title">Read the Hosting Guide</span>
+      <span class="pl-disclosure__hint">One line about what is inside. Tap to open.</span>
+    </span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="pl-disclosure__body">…</div>
+</details>
+```
+
+- Drop `.pl-disclosure__text` and put `.pl-disclosure__title` straight in the summary when there is no hint; a leading badge or icon span (`.pl-teach-faq__badge`, `.pl-teach-guide__icon`) goes first.
+- Add `open` to the first item of an accordion so the section never looks empty.
 
 ### Confirm Modal (`components/confirm_modal.html`)
 

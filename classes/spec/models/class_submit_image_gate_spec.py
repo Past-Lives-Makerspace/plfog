@@ -18,6 +18,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from classes.factories import CategoryFactory, ClassImageFactory, ClassOfferingFactory
 from classes.models import ClassOffering, CmsActivity
 
+LEGACY_URL = "https://classes.pastlives.space/sites/default/files/glen.jpg"
+
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
     # Minimal PNG signature — enough for ImageField without a validating PIL pass.
@@ -59,6 +61,12 @@ def describe_ClassOffering_photo_gate():
             category = CategoryFactory(hero_image=_image_file("cat.png"))
             offering = ClassOfferingFactory(image="", category=category)
             assert offering.has_submittable_image is False
+
+        def it_counts_a_photo_imported_from_the_legacy_site_as_the_hero(db):
+            offering = ClassOfferingFactory(image="", gallery=0, legacy_image_url=LEGACY_URL)
+            assert offering.has_submittable_image is False
+            _add_gallery(offering, 1)
+            assert offering.has_submittable_image is True
 
     def describe_needs_photo_nudge():
         def it_is_true_with_zero_gallery(db):
@@ -123,6 +131,14 @@ def describe_ClassOffering_photo_gate():
                 offering.submit_for_review()
             offering.refresh_from_db()
             assert offering.status == ClassOffering.Status.DRAFT
+
+        def it_succeeds_with_an_imported_hero_and_one_gallery(db):
+            offering = ClassOfferingFactory(
+                ready=True, image="", legacy_image_url=LEGACY_URL, status=ClassOffering.Status.DRAFT
+            )
+            offering.submit_for_review()
+            offering.refresh_from_db()
+            assert offering.status == ClassOffering.Status.PENDING
 
         def it_succeeds_with_own_hero_and_one_gallery(db):
             offering = ClassOfferingFactory(

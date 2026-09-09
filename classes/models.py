@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 import re
 import secrets
+from html import unescape
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type, datetime
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
 from django.utils import timezone
@@ -74,29 +76,42 @@ Everyone On One Screen: See who is coming, mark someone as paid, move a person t
 Free, Paid, Or On Sale: Run it free, set a price with a member discount, or put it on sale and the new price shows up everywhere on its own.
 Run It Again In One Click: Went well? Make a copy with new dates and keep everything else exactly as it was."""
 
-DEFAULT_TEACH_PAGE_HOW_IT_WORKS = """\
-1. **Say you're interested.** Tell us what you'd like to host. A sentence is plenty. An admin reads every note.
-2. **Build your page.** Once you're in, the editor walks you through it in five short steps. Save a draft any time and come back.
-3. **Open sign ups.** Send it for a quick look. Your guild lead and an admin check it over, then it goes into the catalog and out to members."""
+# The three prose sections are stored as the HTML the rich editor saves (what Quill
+# would write), rendered through membership.markdown.render_page_content, which also
+# still accepts the older Markdown a no JS textarea might carry.
+DEFAULT_TEACH_PAGE_HOW_IT_WORKS = (
+    "<ol>"
+    "<li><strong>Say you're interested.</strong> Tell us what you'd like to host. A sentence is plenty. "
+    "An admin reads every note.</li>"
+    "<li><strong>Build your page.</strong> Once you're in, the editor walks you through it in five short steps. "
+    "Save a draft any time and come back.</li>"
+    "<li><strong>Open sign ups.</strong> Send it for a quick look. Your guild lead and an admin check it over, "
+    "then it goes into the catalog and out to members.</li>"
+    "</ol>"
+)
 
-DEFAULT_TEACH_PAGE_EXPECTATIONS = """\
-- Know your material and know the tools you're using.
-- Show up on time and leave the space the way you found it.
-- Answer people when they message you through the app.
-- Tell an admin as early as you can if you need to move or cancel a date."""
+DEFAULT_TEACH_PAGE_EXPECTATIONS = (
+    "<ul>"
+    "<li>Know your material and know the tools you're using.</li>"
+    "<li>Show up on time and leave the space the way you found it.</li>"
+    "<li>Answer people when they message you through the app.</li>"
+    "<li>Tell an admin as early as you can if you need to move or cancel a date.</li>"
+    "</ul>"
+)
 
-DEFAULT_TEACH_PAGE_FAQ = """\
-### Do I Need to Be an Expert?
-No. You need to be safe and clear. Plenty of great workshops are run by people two steps ahead of everyone else in the room.
+DEFAULT_TEACH_PAGE_FAQ = (
+    "<h3>Do I Need to Be an Expert?</h3>"
+    "<p>No. You need to be safe and clear. Plenty of great workshops are run by people two steps ahead of "
+    "everyone else in the room.</p>"
+    "<h3>How Long Until I Hear Back?</h3>"
+    "<p>An admin usually gets to it within a week. You can check this page any time to see where things stand.</p>"
+    "<h3>Can I Charge for It?</h3>"
+    "<p>Yes. You set the price and an optional member discount when you build the page. You can also run it free.</p>"
+    "<h3>What If Nobody Signs Up?</h3>"
+    "<p>You can cancel from your dashboard and everyone who signed up is told automatically. Nothing is stuck.</p>"
+)
 
-### How Long Until I Hear Back?
-An admin usually gets to it within a week. You can check this page any time to see where things stand.
-
-### Can I Charge for It?
-Yes. You set the price and an optional member discount when you build the page. You can also run it free.
-
-### What If Nobody Signs Up?
-You can cancel from your dashboard and everyone who signed up is told automatically. Nothing is stuck."""
+DEFAULT_TEACH_PAGE_SPLIT_NOTE = "Every paid class splits the same way. Run it free and there is nothing to split."
 
 DEFAULT_TEACH_PAGE_CTA_TITLE = "Got Something to Share?"
 
@@ -1807,6 +1822,31 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.sale_banner_text.strip() or DEFAULT_SALE_BANNER_TEXT
 
     @property
+    def hero_image_url(self) -> str:
+        """The class's own hero photo as a URL, or "" when it has none.
+
+        The uploaded file wins; otherwise a photo imported from the legacy class site is
+        served through the ``classes:legacy_image`` proxy (same origin, so the cropper and
+        the card frames can use it). The category fallback is deliberately NOT here: this
+        is the photo the class itself owns, which is what the editor and the readiness
+        checklist ask about.
+        """
+        from urllib.parse import urlencode
+
+        from django.urls import reverse
+
+        if self.image:
+            return self.image.url
+        if self.legacy_image_url:
+            return f"{reverse('classes:legacy_image')}?{urlencode({'url': self.legacy_image_url})}"
+        return ""
+
+    @property
+    def has_hero_photo(self) -> bool:
+        """Whether the class carries its own hero, uploaded or imported."""
+        return bool(self.image) or bool(self.legacy_image_url)
+
+    @property
     def display_images(self) -> list[dict]:
         """Ordered image list for the public detail gallery.
 
@@ -1877,12 +1917,14 @@ class ClassOffering(HeroCropMixin, models.Model):
     def has_submittable_image(self) -> bool:
         """Whether this class carries the photos required to submit for review.
 
-        True when the offering has BOTH its own hero (``image``) AND at least
-        one gallery photo. The Category/Guild-Type hero fallback that
-        ``display_images`` leans on is deliberately excluded: a class must
-        supply its own photos before it can go to a reviewer.
+        True when the offering has BOTH its own hero AND at least one gallery photo.
+        An uploaded ``image`` or a photo imported from the legacy class site
+        (``legacy_image_url``) both count as the class's own photo; the
+        Category/Guild-Type hero fallback that ``display_images`` leans on is
+        deliberately excluded: a class must supply its own photos before it can go
+        to a reviewer.
         """
-        return bool(self.image) and self.gallery_images.exists()
+        return self.has_hero_photo and self.gallery_images.exists()
 
     @property
     def needs_photo_nudge(self) -> bool:
@@ -2002,7 +2044,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def readiness(self) -> list[ReadinessItem]:
         """The submit checklist: five things a class needs before a reviewer sees it."""
         return readiness_items(
-            has_hero=bool(self.image),
+            has_hero=self.has_hero_photo,
             has_gallery=self.gallery_images.exists(),
             description=self.description,
             scheduling_model=self.scheduling_model,
@@ -3699,6 +3741,19 @@ class FeatureCard:
     icon: str
 
 
+@dataclass(frozen=True)
+class FaqItem:
+    """One Common Questions accordion item on the Host a Workshop page.
+
+    Split out of the SANITIZED ``ClassSettings.teach_page_faq`` HTML by
+    :meth:`ClassSettings.teach_page_faq_items`: the heading text is the question and the
+    HTML up to the next heading is the answer, already safe to render.
+    """
+
+    question: str
+    answer_html: SafeString
+
+
 class ClassSettings(models.Model):
     liability_waiver_text = models.TextField(help_text="Full liability waiver text shown to all registrants.")
     model_release_waiver_text = models.TextField(
@@ -3756,23 +3811,24 @@ class ClassSettings(models.Model):
         default=DEFAULT_TEACH_PAGE_HOW_IT_WORKS,
         help_text=(
             "The How It Works steps, a numbered list. Each step shows a gold number. "
-            "Markdown works here: **bold**, lists, links. Leave blank to hide the section."
+            "Use the toolbar for bold, lists and links. Leave blank to hide the section."
         ),
     )
     teach_page_expectations = models.TextField(
         blank=True,
         default=DEFAULT_TEACH_PAGE_EXPECTATIONS,
         help_text=(
-            "The What We Ask Of You list, a bullet list. "
-            "Markdown works here: **bold**, lists, links. Leave blank to hide the section."
+            "The What We Ask Of You list, a bullet list. Each item shows as a card with a gold check. "
+            "Use the toolbar for bold, lists and links. Leave blank to hide the section."
         ),
     )
     teach_page_faq = models.TextField(
         blank=True,
         default=DEFAULT_TEACH_PAGE_FAQ,
         help_text=(
-            "The Common Questions section. Write each question as a ### heading with the answer under it. "
-            "Markdown works here: **bold**, lists, links. Leave blank to hide the section."
+            "The Common Questions section. Make each question a heading and write the answer under it: "
+            "every heading becomes one question that opens and closes. "
+            "Use the toolbar for bold, lists and links. Leave blank to hide the section."
         ),
     )
     teach_page_cta_title = models.CharField(
@@ -3788,6 +3844,30 @@ class ClassSettings(models.Model):
         blank=True,
         default=DEFAULT_TEACH_PAGE_CTA_LINE,
         help_text=("The line under that headline on the bottom card. Plain text. Leave blank to show no line."),
+    )
+    teach_page_split_enabled = models.BooleanField(
+        default=True,
+        help_text="Show the Where the Money Goes section on the Host a Workshop page.",
+    )
+    teach_page_split_instructor_pct = models.PositiveSmallIntegerField(
+        default=70,
+        validators=[MaxValueValidator(100)],
+        help_text="The host's share of a paid class, as a percentage.",
+    )
+    teach_page_split_space_pct = models.PositiveSmallIntegerField(
+        default=20,
+        validators=[MaxValueValidator(100)],
+        help_text="Past Lives' share, as a percentage.",
+    )
+    teach_page_split_guild_pct = models.PositiveSmallIntegerField(
+        default=10,
+        validators=[MaxValueValidator(100)],
+        help_text="The guild's share, as a percentage.",
+    )
+    teach_page_split_note = models.TextField(
+        blank=True,
+        default=DEFAULT_TEACH_PAGE_SPLIT_NOTE,
+        help_text="The line under the split. Plain text. Leave blank to show no line.",
     )
 
     class Meta:
@@ -3836,28 +3916,63 @@ class ClassSettings(models.Model):
         return cards
 
     @staticmethod
-    def _teach_page_markdown(source: str) -> SafeString:
-        """Render one of the page's Markdown fields through the member profile.
+    def _teach_page_html(source: str) -> SafeString:
+        """Render one of the page's prose fields, rich editor HTML or older Markdown, sanitized.
 
-        The member profile strips scripts, inline styles, event handlers and any tag
-        outside its allowlist, and hardens every link, so the result is safe to mark
-        safe here rather than with ``|safe`` on raw text in the template.
+        ``render_page_content`` sniffs the stored value: editor HTML goes through
+        ``sanitize_page_html`` and anything else through the member Markdown profile. Both
+        strip scripts, inline styles, event handlers and any tag outside their allowlist and
+        harden every link, so the result is safe to mark safe here rather than with ``|safe``
+        on raw text in the template.
         """
-        from membership.markdown import render_markdown
+        from membership.markdown import render_page_content
 
-        return mark_safe(render_markdown(source, profile="member"))
+        return mark_safe(render_page_content(source, profile="member"))
 
     @property
     def teach_page_how_it_works_html(self) -> SafeString:
         """How It Works, rendered; the template numbers the list with CSS counters."""
-        return self._teach_page_markdown(self.teach_page_how_it_works)
+        return self._teach_page_html(self.teach_page_how_it_works)
 
     @property
     def teach_page_expectations_html(self) -> SafeString:
         """What We Ask Of You, rendered."""
-        return self._teach_page_markdown(self.teach_page_expectations)
+        return self._teach_page_html(self.teach_page_expectations)
 
     @property
     def teach_page_faq_html(self) -> SafeString:
-        """Common Questions, rendered: each ``###`` heading is a question."""
-        return self._teach_page_markdown(self.teach_page_faq)
+        """Common Questions, rendered: each heading is a question."""
+        return self._teach_page_html(self.teach_page_faq)
+
+    def _teach_page_faq_parts(self) -> list[str]:
+        """The SANITIZED Common Questions HTML split on its h2/h3 headings.
+
+        Index 0 is whatever came before the first heading; after that the parts alternate
+        question text, answer HTML. Splitting the sanitized output (never the raw field) is
+        what keeps a script typed into a heading from ever reaching the page.
+        """
+        return re.split(r"<h[23]>(.*?)</h[23]>", str(self.teach_page_faq_html), flags=re.S)
+
+    def teach_page_faq_items(self) -> list[FaqItem]:
+        """Common Questions split into question and answer pairs for the accordion.
+
+        Splits the SANITIZED HTML on its h2/h3 headings: each heading is a question and
+        everything up to the next heading is its answer. Content before the first heading
+        is the section's intro (``teach_page_faq_intro_html``). No headings means no
+        items, and the template then renders the whole field as one block.
+        """
+        parts = self._teach_page_faq_parts()
+        items: list[FaqItem] = []
+        for question, answer in zip(parts[1::2], parts[2::2], strict=True):
+            # strip_tags leaves entities (``&amp;``) behind; unescape so the template's own
+            # autoescape is the only escaping the question text ever gets.
+            text = unescape(strip_tags(question)).strip()
+            if not text:
+                continue
+            items.append(FaqItem(question=text, answer_html=mark_safe(answer.strip())))
+        return items
+
+    @property
+    def teach_page_faq_intro_html(self) -> SafeString:
+        """Whatever the admin wrote above the first question, sanitized; empty when nothing."""
+        return mark_safe(self._teach_page_faq_parts()[0].strip())

@@ -15,6 +15,12 @@ from classes.models import ClassOffering
 
 pytestmark = pytest.mark.django_db
 
+LEGACY_URL = "https://classes.pastlives.space/sites/default/files/blacksmithing.jpg"
+
+
+def _proxy_src(offering: ClassOffering) -> str:
+    return f'src="{reverse("classes:legacy_image")}?url=https%3A%2F%2Fclasses.pastlives.space%2Fsites%2Fdefault%2Ffiles%2Fblacksmithing.jpg"'
+
 
 def _published(**kwargs) -> ClassOffering:
     offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, **kwargs)
@@ -77,6 +83,21 @@ def describe_class_card_media():
         assert "img/favicon.png" in html
         assert "object-position" not in html
 
+    def it_serves_an_imported_photo_through_the_proxy_with_the_position_and_live_binding():
+        """A legacy only class is the class's own photo: same position rule, same live binding."""
+        offering = _published(image="", legacy_image_url=LEGACY_URL, card_focus_x=10, card_focus_y=20)
+        html = _media(offering, preview=True, live_position="objectPosition")
+        assert _proxy_src(offering) in html
+        assert 'style="object-position: 10% 20%;"' in html
+        assert ":style=\"'object-position: ' + objectPosition\"" in html
+        assert "cls-img-ph" not in html
+
+    def it_prefers_the_uploaded_photo_over_an_imported_one():
+        offering = _published(legacy_image_url=LEGACY_URL)
+        html = _media(offering)
+        assert "_legacy-image" not in html
+        assert f'src="{offering.image.url}"' in html
+
 
 def describe_class_card():
     def it_renders_the_media_strip_with_the_card_position():
@@ -85,6 +106,45 @@ def describe_class_card():
         assert 'class="cls-card"' in html
         assert 'style="object-position: 5% 95%;"' in html
         assert f'href="{reverse("classes:public_class_detail", kwargs={"slug": "grouped-card"})}"' in html
+        assert '<a class="cls-title"' in html
+        assert 'class="cls-inst"' in html and "<a href=" in html.split('class="cls-inst"')[1]
+        assert "x-text=" not in html
+
+    def it_renders_nothing_that_navigates_in_preview_mode():
+        instructor = InstructorFactory(full_legal_name="Glen Smith", instructor_slug="glen-smith")
+        offering = _published(slug="preview-card", instructor=instructor, title="Blacksmithing 101")
+        html = render_to_string(
+            "classes/public/_class_card.html",
+            {"group": CatalogGroup(offering), "preview": True, "live_position": "objectPosition"},
+        )
+        assert "href=" not in html
+        assert "onclick=" not in html
+        assert '<span class="cls-media">' in html
+        assert '<span class="cls-title">' in html and "</a>" not in html
+        assert "with Glen Smith" in " ".join(html.split())
+        assert ":style=\"'object-position: ' + objectPosition\"" in html
+        # The body is the real one: instructor, dates, price, spots.
+        assert 'class="cls-body"' in html and "cls-price" in html and "cls-spots" in html
+
+    def it_drops_the_more_button_onclick_in_preview_mode():
+        offering = _published(slug="many-dates")
+        for day in range(6, 12):
+            start = timezone.now() + timedelta(days=day)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        live = render_to_string("classes/public/_class_card.html", {"group": CatalogGroup(offering)})
+        preview = render_to_string(
+            "classes/public/_class_card.html", {"group": CatalogGroup(offering), "preview": True}
+        )
+        assert 'class="cls-schedule__more"' in live and "onclick=" in live
+        assert 'class="cls-schedule__more"' in preview and "onclick=" not in preview
+
+    def it_binds_the_title_to_a_live_expression_when_asked():
+        offering = _published(slug="live-title", title="Glen's Forge")
+        html = render_to_string(
+            "classes/public/_class_card.html",
+            {"group": CatalogGroup(offering), "preview": True, "live_title": "liveTitle"},
+        )
+        assert "<span x-text=\"liveTitle || 'Glen\\u0027s Forge'\">Glen&#x27;s Forge</span>" in html
 
 
 def describe_catalog_and_detail_surfaces():
@@ -111,34 +171,85 @@ def describe_composer_preview_frames():
         user = UserFactory(username="frames-teacher@example.com")
         return InstructorFactory(user=user, full_legal_name="Teacher F", instructor_slug="teacher-f")
 
-    def it_renders_both_frames_from_the_real_media_partial(instructor_fixture, client):
-        offering = ClassOfferingFactory(instructor=instructor_fixture, card_focus_x=33, card_focus_y=66)
+    def _step_two(html: str) -> str:
+        return html[html.index("Your Photo, Two Shapes") : html.index("Dates, Seats And Price")]
+
+    def _frames(step_two: str) -> str:
+        """The card frames only: from the focus tool's root to its sliders (or the note when there are none)."""
+        pane = step_two.split('class="cp-page pl-card-focus"')[1]
+        return pane.split("pl-card-focus__sliders")[0]
+
+    def it_renders_both_frames_as_the_whole_card(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, card_focus_x=33, card_focus_y=66, title="Forge Night", price_cents=4500
+        )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        step_two = html[html.index("Your Photo, Two Shapes") : html.index("Dates, Seats And Price")]
+        step_two = _step_two(html)
         assert step_two.count('<span class="cls-media">') == 2
         assert step_two.count('style="object-position: 33% 66%;"') == 2
         assert step_two.count(":style=\"'object-position: ' + objectPosition\"") == 2
         assert "pl-card-focus__frame--laptop" in step_two and "pl-card-focus__frame--phone" in step_two
         assert "cardFocus({ initial: '33% 66%', banner: '50% 50%' })" in step_two
         assert 'name="card_focus"' in step_two and 'value="{&quot;x&quot;: 33, &quot;y&quot;: 66}"' in step_two
+        # The whole card, twice: body, title, instructor, dates, price, spots.
+        frames = _frames(step_two)
+        assert frames.count('class="cls-body"') == 2
+        assert frames.count("<span x-text=\"liveTitle || 'Forge Night'\">Forge Night</span>") == 2
+        assert frames.count("Teacher F") == 2
+        assert frames.count('class="cls-price"') == 2 and frames.count("$45") == 2
+        assert frames.count("cls-spots") == 2
+        assert frames.count("cls-schedule") >= 2
+        assert "href=" not in frames and "onclick=" not in frames
+        assert "This is your whole card, at the two widths members see." in step_two
+        assert "Your photo, title, dates, price and spots, exactly as members see them." in step_two
+        assert "photo only" not in html
+        assert "pl-card-focus__sliders" in step_two
 
-    def it_mirrors_the_position_onto_the_review_step_card(instructor_fixture, client):
-        offering = ClassOfferingFactory(instructor=instructor_fixture, card_focus_x=33, card_focus_y=66)
+    def it_mirrors_the_position_and_title_onto_the_review_step_card(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, card_focus_x=33, card_focus_y=66, title="Forge Night"
+        )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         review = html[html.index("How Your Card Looks") :]
         assert ":style=\"'object-position: ' + cardPosition\"" in review
         assert "cardPosition: '33% 66%'" in html
+        assert review.count('class="cls-body"') == 1
+        assert "<span x-text=\"liveTitle || 'Forge Night'\">Forge Night</span>" in review
+        assert "cls-price" in review
+        assert "href=" not in review.split("pl-card-focus__frame--phone")[1].split("</div>")[0]
+        assert "liveTitle: ''" in html
+        assert "@input=\"if ($event.target.id === 'id_title') liveTitle = $event.target.value\"" in html
 
-    def it_shows_the_empty_state_when_the_class_has_no_photo(instructor_fixture, client):
-        offering = ClassOfferingFactory(instructor=instructor_fixture, image="")
+    def it_renders_an_imported_photo_in_the_frames_through_the_proxy(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, image="", legacy_image_url=LEGACY_URL, card_focus_x=33, card_focus_y=66
+        )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert html.count("Upload a photo and your card shows up here.") == 2
-        assert (
-            ":style=\"'object-position: ' + objectPosition\""
-            not in html.split("How Your Card Looks")[0]
-            .split("Your Photo, Two Shapes")[1]
-            .split('<template x-if="localSrc">')[0]
+        step_two = _step_two(html)
+        assert step_two.count(_proxy_src(offering)) == 3  # the hero preview plus the two frames
+        assert step_two.count('style="object-position: 33% 66%;"') == 2
+        assert step_two.count(":style=\"'object-position: ' + objectPosition\"") == 2
+        assert "pl-card-focus__sliders" in step_two
+        review = html[html.index("How Your Card Looks") :]
+        assert _proxy_src(offering) in review
+        assert "Add a photo on step 2 and your card shows up here." not in html
+
+    def it_renders_the_placeholder_card_and_hides_the_sliders_when_the_class_has_no_photo(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, image="", category=CategoryFactory(name="No Logo Here")
         )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        step_two = _step_two(html)
+        frames = step_two.split('class="cp-page pl-card-focus"')[1]
+        assert frames.count("cls-img-ph--logo") == 2
+        assert frames.count('class="cls-body"') == 2
+        assert "pl-card-focus__sliders" not in step_two
+        assert "Match the Banner" not in step_two
+        assert "Add a photo above and the sliders appear." in step_two
+        assert "Upload a photo and your card shows up here." not in html
+        assert "Add a photo on step 2 and your card shows up here." in html[html.index("How Your Card Looks") :]
+        assert ":style=\"'object-position: ' + objectPosition\"" not in step_two

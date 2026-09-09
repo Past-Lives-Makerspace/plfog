@@ -35,6 +35,14 @@ def describe_readiness():
         assert _items(offering)["Hero photo"] is False
         assert [i.hint for i in offering.readiness() if not i.ok] == ["Add a hero photo."]
 
+    def it_ticks_the_hero_photo_for_a_photo_imported_from_the_legacy_site(db):
+        """An imported photo is the class's own photo, so the checklist and the tab mark tick."""
+        offering = ClassOfferingFactory(
+            ready=True, image="", legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg"
+        )
+        assert _items(offering)["Hero photo"] is True
+        assert offering.is_ready is True
+
     def it_fails_the_gallery_without_a_gallery_photo(db):
         offering = ClassOfferingFactory(ready=True, gallery=0)
         assert _items(offering)["Gallery photo"] is False
