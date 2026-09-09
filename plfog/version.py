@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-VERSION = "1.47.0"
+VERSION = "1.48.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.47.0",
+        "version": "1.48.0",
         "date": "2026-09-09",
         "title": "The whole card in the preview, where the money goes, and imported photos that count",
         "changes": [
@@ -21,6 +21,19 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Admins: the words on that page moved to their own Teaching Marketing Page under Class "
             "Settings, with the same formatting toolbar as announcements instead of Markdown.",
             "Status tooltips on the admin classes list no longer get cut off by the table.",
+        ],
+    },
+    {
+        "version": "1.47.0",
+        "date": "2026-09-09",
+        "title": "A wiki written by members",
+        "changes": [
+            "There is now a Wiki in the sidebar, and you can write in it. It is for how the space, "
+            "the machines and the materials actually work here, and right now it is empty, so the "
+            "first page is yours.",
+            "Start with the machine you know best. Add a photo from your phone in about thirty "
+            "seconds, drop in a tip, or write the whole thing.",
+            "Every edit is saved as its own version, so nothing you write gets overwritten.",
         ],
     },
     {

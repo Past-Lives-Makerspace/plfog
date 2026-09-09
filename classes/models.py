@@ -5,10 +5,10 @@ from __future__ import annotations
 import logging
 import re
 import secrets
-from html import unescape
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type, datetime
+from html import unescape
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
