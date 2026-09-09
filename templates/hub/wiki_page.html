@@ -90,10 +90,24 @@ cannot drift apart.
 </div>
 {% endif %}
 
+{% if can_edit and not is_archived %}
+{% comment %}
+Share This Page has a real desktop home: its own card between Related Pages and the byline,
+because the desktop is the only place anybody actually prints a sticker. On a phone it is
+the last block inside the Details disclosure — a member standing at the machine does not
+need a QR code for the page they are already reading.
+
+Rendered twice under the width swap, like the byline above, with a distinct field_id each
+time so the two copy inputs do not share one id.
+{% endcomment %}
+<div class="pl-wp-qrshare">{% include "hub/partials/_wiki_qr_share.html" with field_id="qr-share-url" %}</div>
+{% endif %}
+
 <div class="pl-wp-bylinewide">{% include "hub/partials/_wiki_byline.html" %}</div>
 <details class="pl-wp-details">
     <summary>Details</summary>
     {% include "hub/partials/_wiki_byline.html" %}
+    {% if can_edit and not is_archived %}{% include "hub/partials/_wiki_qr_share.html" with field_id="qr-share-url-phone" %}{% endif %}
 </details>
 
 {% if can_edit and not is_archived %}

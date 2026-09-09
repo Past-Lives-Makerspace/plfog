@@ -10,6 +10,7 @@ and footer fallback, the humanized duration, ``next_occurrence_start`` for a rec
 from __future__ import annotations
 
 import json
+import re
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -120,7 +121,10 @@ def describe_attendees_field():
             EventRSVPFactory(event=event)
         field = event.attendees_field()
         assert field["name"] == "Attendees (15)"
-        assert "more" not in field["value"]
+        # Assert the TAIL, not the substring "more": these are Faker names, and the
+        # surname Gilmore contains it, so `"more" not in value` failed about one run in a
+        # hundred on names that were never the point (it took main red on 2026-09-08).
+        assert not re.search(r", and \d+ more$", field["value"])
         assert field["value"].count(",") == 14
 
     def it_caps_at_fifteen_names_then_and_n_more():

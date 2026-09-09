@@ -783,6 +783,11 @@ class WikiPageFactory(factory.django.DjangoModelFactory):
     body = "How this part of the space works."
     created_by = factory.SubFactory(MemberFactory)
     updated_by = factory.LazyAttribute(lambda o: o.created_by)
+    # The factory page is member-written, so its body clock is stamped exactly as
+    # ``create_page`` stamps an authored page. Blank means "still what the equipment seeder
+    # wrote" — the reading page shows the invitation there rather than the prose, and the
+    # seeder treats it as its own to overwrite. Use the ``seeded`` trait for that state.
+    body_edited_at = factory.LazyFunction(timezone.now)
 
     class Params:
         # ``verified=True`` gives a green check dated now, by the page's own author;
@@ -793,6 +798,9 @@ class WikiPageFactory(factory.django.DjangoModelFactory):
             verified_at=factory.LazyFunction(timezone.now),
         )
         official = factory.Trait(status=WikiPage.Status.OFFICIAL)
+        # A page exactly as the equipment seeder leaves it: authorless, body clock blank,
+        # so it reads as a stub and the seeder still owns its content.
+        seeded = factory.Trait(created_by=None, updated_by=None, body_edited_at=None)
         archived = factory.Trait(
             archived_at=factory.LazyFunction(timezone.now),
             archive_reason="Replaced by the new guide.",

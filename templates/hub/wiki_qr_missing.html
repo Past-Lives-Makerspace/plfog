@@ -1,0 +1,23 @@
+{% extends "hub/base.html" %}
+{% block title %}No page for that sticker{% endblock %}
+
+{% block content %}
+{% comment %}
+The scan dead end. A printed sticker outlives the page it was made for, so an unknown or
+retired code gets a written explanation and a way onward rather than a bare 404.
+
+Its sibling is wiki_not_found.html, and the copy differs on purpose: a bad link and a
+sticker somebody is standing in front of are different failures. Rendered with
+render(..., status=404) — never get_object_or_404, which would serve the site-wide 404 and
+offer to "Browse Past Lives classes".
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="No Page For That Sticker" description="That sticker points at a page that has moved. The page may have been renamed, or the sticker may be an old one." %}
+<div class="hub-card pl-wp-searchbar">
+    {% url 'hub_wiki_search' as search_action %}
+    {% include "components/table_search.html" with action=search_action placeholder="Search the wiki" %}
+</div>
+<div class="hub-card pl-wp-group">
+    <p class="hub-text-muted">Search for the machine by name, or <a href="{% url 'hub_wiki_home' %}">go to the wiki</a>. If the sticker is wrong, tell a guild lead so it can be reprinted.</p>
+</div>
+{% endblock %}

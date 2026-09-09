@@ -1,0 +1,136 @@
+/* wiki-stickers.css — standalone printable sheet of wiki QR stickers.
+   Forced light palette (print is always light, so this reads no theme tokens): white
+   page, navy #092E4C text. Loaded only by templates/hub/wiki_sticker_sheet.html, which
+   carries no member chrome. The guild-flyer.css idiom. */
+
+@page {
+  size: letter;
+  margin: 0.5in;
+}
+
+.pl-stickers-body {
+  margin: 0;
+  background: #e9edf1;
+  color: #092e4c;
+  font-family: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* On-screen toolbar (hidden when printing). */
+.pl-stickers-toolbar {
+  max-width: 7.5in;
+  margin: 1.5rem auto 0;
+  padding: 0 0.5in;
+  text-align: center;
+}
+
+.pl-stickers-title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #092e4c;
+}
+
+.pl-stickers-print-btn {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: #eeb44b;
+  color: #092e4c;
+  font-family: "Lato", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pl-stickers-print-btn:hover {
+  background: #e0a63a;
+}
+
+.pl-stickers-toolbar__hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.8125rem;
+  color: #5b6675;
+}
+
+/* The sheet: three across, which gives a ~2.2in cell on letter paper — big enough for a
+   phone camera to lock onto from arm's length in bad shop light. */
+.pl-stickers-sheet {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25in;
+  max-width: 7.5in;
+  margin: 1.5rem auto;
+  padding: 0.5in;
+  background: #ffffff;
+  border: 1px solid #d5dbe2;
+}
+
+.pl-wp-sticker {
+  /* A dashed rule so whoever cuts them out can see where. */
+  border: 1px dashed #92a0b0;
+  border-radius: 6px;
+  padding: 0.35rem 0.35rem 0.5rem;
+  text-align: center;
+  /* Never split a sticker across a page break — half a QR code scans as nothing. */
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.pl-wp-sticker__qr {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+.pl-wp-sticker__qr svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pl-wp-sticker__name {
+  margin: 0.4rem 0 0.15rem;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.pl-wp-sticker__url {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: #5b6675;
+  overflow-wrap: anywhere;
+}
+
+.pl-stickers-empty {
+  max-width: 7.5in;
+  margin: 1.5rem auto;
+  padding: 2rem 0.5in;
+  background: #ffffff;
+  border: 1px solid #d5dbe2;
+  text-align: center;
+  color: #5b6675;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .pl-stickers-body {
+    background: #ffffff;
+  }
+  .pl-stickers-sheet,
+  .pl-stickers-empty {
+    margin: 0 auto;
+    max-width: none;
+    padding: 0;
+    border: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pl-stickers-sheet { grid-template-columns: repeat(2, 1fr); padding: 0.25in; }
+}

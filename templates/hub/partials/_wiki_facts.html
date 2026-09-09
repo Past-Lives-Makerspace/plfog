@@ -11,9 +11,20 @@ On a phone the two columns stack into label-above-value pairs at reading size.
     <dl class="pl-wp-facts">
         {% for fact in facts %}
         <dt class="pl-wp-facts__label">{{ fact.label }}</dt>
-        <dd class="pl-wp-facts__value">{{ fact.value }}</dd>
+        {% comment %}
+        The equipment seeder writes the starter prompts with no answer yet, so a freshly
+        seeded machine page has rows whose value is blank. Saying so is the invitation;
+        an empty cell just reads as broken.
+        {% endcomment %}
+        <dd class="pl-wp-facts__value">{% if fact.value %}{{ fact.value }}{% else %}<span class="pl-wp-facts__blank">Not filled in yet</span>{% endif %}</dd>
         {% endfor %}
     </dl>
+    {% if facts_all_blank %}
+    <p class="hub-text-muted pl-wp-factsblock__empty">
+        Nobody has answered these yet. These are the four or five things people actually came for.
+        {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}#wp-fact-rows">Fill them in</a>{% endif %}
+    </p>
+    {% endif %}
     {% else %}
     <p class="hub-text-muted pl-wp-factsblock__empty">
         No quick answers yet. These are the four or five things people actually came for.
