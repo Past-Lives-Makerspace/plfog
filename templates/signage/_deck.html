@@ -18,7 +18,7 @@ Carries the fresh deck hash into the swapped content; the player copies it up on
     {% if s.title %}<h1 class="pl-sign-slide__title">{{ s.title }}</h1>{% endif %}
     {% if s.meta %}<p class="pl-sign-slide__meta">{{ s.meta }}</p>{% endif %}
     {% if s.calendar_days %}
-      <div class="pl-sign-calendar">
+      <div class="pl-sign-calendar{% if s.calendar_weeks > 5 %} pl-sign-calendar--six-weeks{% endif %}">
         <span class="pl-sign-calendar__dow">Mon</span>
         <span class="pl-sign-calendar__dow">Tue</span>
         <span class="pl-sign-calendar__dow">Wed</span>

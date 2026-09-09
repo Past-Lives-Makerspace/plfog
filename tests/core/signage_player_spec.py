@@ -175,13 +175,44 @@ def describe_generated_slide_rendering():
         SlideshowZoneFactory(slug="woodshop")
         today = timezone.localdate()
         start = timezone.make_aware(datetime.combine(today, time(hour=13)))
-        CommunityEventFactory(community=True, starts_at=start, ends_at=start + timedelta(hours=1))
+        event = CommunityEventFactory(
+            community=True,
+            title="Potluck And Shop Tour",
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+        )
 
         body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
         assert "pl-sign-calendar" in body
         assert "pl-sign-calendar__dow" in body
         assert "pl-sign-calendar__day--today" in body
         assert "pl-sign-calendar__day--has-events" in body
-        assert "pl-sign-calendar__day--pad" in body or "pl-sign-calendar__dot" in body
-        # A dot, never a title — a busy day must not name what is on it.
-        assert "Community" not in body
+        assert "pl-sign-calendar__dot" in body
+        # Whole weeks: every row is seven cells, padding included.
+        cells = body.count('<span class="pl-sign-calendar__day')
+        assert cells >= 28 and cells % 7 == 0
+        # A dot, never a title — a busy day must not name what is on it. Asserted against
+        # the event's REAL title; a generic word here would pass no matter what rendered.
+        assert event.title not in body
+
+    def it_bounds_a_six_week_month_so_the_grid_cannot_overflow_the_stage(client, settings):
+        # Cells are square, so a sixth week is a whole extra row of height and the stage is
+        # overflow:hidden. Only six-week months get the vh cap; five-week months keep their
+        # full size. November 2026 is the next six-week month, September 2026 a five-week one.
+        import datetime as dt
+        from unittest.mock import patch
+
+        _no_generated_blocks(signage_show_calendar=True)
+        SlideshowZoneFactory(slug="woodshop")
+
+        def _body_in(moment):
+            with patch("django.utils.timezone.now", return_value=moment):
+                return client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+
+        six_week = _body_in(dt.datetime(2026, 11, 12, 20, 0, tzinfo=dt.UTC))
+        assert "pl-sign-calendar--six-weeks" in six_week
+        assert six_week.count('<span class="pl-sign-calendar__day') == 42
+
+        five_week = _body_in(dt.datetime(2026, 9, 12, 20, 0, tzinfo=dt.UTC))
+        assert "pl-sign-calendar--six-weeks" not in five_week
+        assert five_week.count('<span class="pl-sign-calendar__day') == 35

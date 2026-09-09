@@ -80,8 +80,8 @@ def _feature_pages() -> list[tuple[str, str, str]]:
 
 
 def _seed_signage() -> "object":
-    """Create an enabled zone + a couple of slides so the Slideshow tab and the kiosk
-    player both capture with real content. Returns the zone (reused by the player shot)."""
+    """Create an enabled zone + a couple of slides so the Slideshow admin page and the
+    kiosk player both capture with real content. Returns the zone (reused by the player shot)."""
     from tests.membership.factories import SlideshowSlideFactory, SlideshowZoneFactory
 
     zone = SlideshowZoneFactory(name="Woodshop wall", slug="woodshop", is_enabled=True)

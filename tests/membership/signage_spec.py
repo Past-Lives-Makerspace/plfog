@@ -7,7 +7,8 @@ meeting must never leak onto a wall monitor.
 from __future__ import annotations
 
 import calendar
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
+from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
@@ -72,6 +73,34 @@ def describe_build_deck():
             CommunityEventFactory(community=True)
             deck = build_deck(zone)
             assert not any(vm.kind == "event" for vm in deck)
+
+    def describe_evening_local_events():
+        def it_still_shows_a_site_wide_event_later_the_same_local_evening():
+            # 7pm Portland is 02:00Z the NEXT day. Bucketing the window on the UTC date
+            # rolled it forward at ~5pm local and dropped every event still to come that
+            # evening off the wall — precisely when the lobby has people standing in it.
+            _config(signage_show_events=True)
+            zone = SlideshowZoneFactory()
+            # Both instants are built in UTC on purpose: timezone.now() returns a
+            # UTC-aware datetime in production, and .date() on one of those yields the
+            # UTC date. Passing a LOCAL-aware datetime here would hide the very bug this
+            # pins, because .date() reads whatever tzinfo the object carries.
+            event_start = datetime(2026, 9, 16, 3, 0, tzinfo=UTC)  # 8pm Sep 15 Portland
+            CommunityEventFactory(
+                community=True,
+                title="Evening Potluck",
+                starts_at=event_start,
+                ends_at=event_start + timedelta(hours=2),
+            )
+
+            seven_pm_local = datetime(2026, 9, 16, 2, 0, tzinfo=UTC)  # 7pm Sep 15 Portland
+            assert seven_pm_local.date() != timezone.localtime(seven_pm_local).date(), (
+                "the fixture must straddle the UTC/local date boundary or it proves nothing"
+            )
+            with patch("django.utils.timezone.now", return_value=seven_pm_local):
+                deck = build_deck(zone)
+
+            assert "Evening Potluck" in [vm.title for vm in deck]
 
     def describe_event_qr_and_learn_more():
         def it_always_puts_a_qr_on_every_event_slide():

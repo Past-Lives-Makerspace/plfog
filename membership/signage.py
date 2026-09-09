@@ -74,6 +74,16 @@ class SignageSlideVM:
     url_display: str = ""  # a human-friendly "learn more" URL shown under the slide (paired with the QR)
     calendar_days: tuple[SignageCalendarDay, ...] = ()  # non-empty only on the month-calendar slide
 
+    @property
+    def calendar_weeks(self) -> int:
+        """How many week rows the month grid renders; 0 when this is not a calendar slide.
+
+        The template needs this to size the grid: cells are square, so six-week months are
+        a whole row taller and are the only ones that have to be bounded on viewport
+        height (see ``.pl-sign-calendar--six-weeks``).
+        """
+        return len(self.calendar_days) // 7
+
 
 def build_deck(zone: SlideshowZone) -> list[SignageSlideVM]:
     """Ordered slides for one zone: the admin's configured slides (by ``sort_order``) then
@@ -161,11 +171,17 @@ def _slide_vm(slide: SlideshowSlide, default: int) -> SignageSlideVM:
 def _event_slides(config: SiteConfiguration, default: int) -> list[SignageSlideVM]:
     """Generated slides for upcoming SITE-WIDE events (``guild__isnull=True`` — never a
     private-guild meeting), soonest first, capped. Mirrors the home feed's occurrence
-    expansion; never calls ``_get_calendar_context``."""
+    expansion; never calls ``_get_calendar_context``.
+
+    The window bounds are LOCAL dates. ``occurrences_in`` compares them against
+    ``timezone.localtime(...).date()``, so a UTC ``now().date()`` rolls the window
+    forward at 5pm Portland and drops every site-wide event still to come that evening
+    off the wall — exactly when the lobby has people in it.
+    """
     from membership.models import CommunityEvent
 
     now = timezone.now()
-    today = now.date()
+    today = timezone.localdate()
     horizon = today + timedelta(days=config.signage_event_days_ahead)
     dated: list[tuple[datetime_type, SignageSlideVM]] = []
     for event in CommunityEvent.objects.published().upcoming().filter(guild__isnull=True):

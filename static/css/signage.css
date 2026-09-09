@@ -259,6 +259,21 @@ body {
   width: min(88vw, 78vmin);
 }
 
+/* Six-week months (the next is November 2026) are the ONLY ones that overflow. Cells are
+   1:1, so grid height is width/7 per row and a sixth row is ~14% more height: measured in
+   headless Chromium, 78vmin put the slide 4px over 100vh at 1920x1080, 12px at 1600x900
+   and 1280x800, and 17px at 1366x768. The stage is overflow:hidden, so that clipped the
+   top of the title and the bottom of the Learn more URL. 60vh bounds the tall case and
+   measures 0px overflow at all four, plus both portrait sizes.
+
+   The cap is scoped to six-week months on purpose: five-week months never overflowed (0px
+   at 1366x768, the tightest), and applying 60vh to them shrank the grid from 842px to
+   648px at 1920x1080 for no reason. The grid IS the content of this slide, read from
+   across a room, so it keeps its full size the ten months a year it fits. */
+.pl-sign-calendar--six-weeks {
+  width: min(88vw, 78vmin, 60vh);
+}
+
 .pl-sign-calendar__dow {
   font-family: "Lato", sans-serif;
   font-weight: 700;

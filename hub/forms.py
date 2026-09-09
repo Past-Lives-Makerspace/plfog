@@ -1102,7 +1102,7 @@ class SlideshowSettingsForm(forms.ModelForm):
 
 
 class SlideshowZoneForm(forms.ModelForm):
-    """One row in the Slideshow tab's Zones editor — one physical screen location."""
+    """One row in the Slideshow page's Screens editor — one physical screen location."""
 
     class Meta:
         model = SlideshowZone
@@ -1138,11 +1138,11 @@ SlideshowZoneFormSet = forms.modelformset_factory(
 
 
 class SlideshowSlideForm(forms.ModelForm):
-    """One row in the Slideshow tab's Slides editor.
+    """One row in the Slideshow page's Slides editor.
 
     A row is a custom slide OR a mirror of a published guild announcement — the ``kind``
     select toggles which fields apply (Alpine ``x-model`` in the template). Because only
-    an admin reaches this tab, the announcement picker is the privacy-safe, admin-curated
+    an admin reaches this page, the announcement picker is the privacy-safe, admin-curated
     opt-in the design requires.
     """
 
