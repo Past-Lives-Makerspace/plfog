@@ -181,6 +181,40 @@ def describe_the_quote_expander():
         assert b"Show more" in body
         assert b"Show less" in body
 
+    def it_appears_at_the_phones_three_line_capacity_not_the_desktops(client: Client):
+        # THE case the old 180-character threshold missed: at 390px the 3-line clamp holds
+        # roughly 120 characters, so a 150-character report was clamped with no expander at
+        # all and its tail was unreachable on the device where reporting happens.
+        page = WikiPageFactory()
+        WikiReportFactory(page=page, reason="x" * 150)
+        page.mark_needs_review()
+        login(client, "quote_boundary")
+        assert b"Show more" in client.get(page.get_absolute_url()).content
+
+    def it_stays_absent_just_under_the_threshold(client: Client):
+        page = WikiPageFactory()
+        WikiReportFactory(page=page, reason="x" * 110)
+        page.mark_needs_review()
+        login(client, "quote_boundary2")
+        assert b"Show more" not in client.get(page.get_absolute_url()).content
+
+    def it_reaches_the_archived_cards_two_line_clamp_at_its_own_capacity(client: Client):
+        # archive_reason is a CharField(300) under a 2-line clamp, and this surface had no
+        # expander at all: a moderator decided whether to restore having read a third of why.
+        login(client, "quote_archived", fog_role=Member.FogRole.ADMIN)
+        page = WikiPageFactory(guild=None)
+        page.archive(by=MemberFactory(), reason="y" * 200)
+        body = client.get(reverse("hub_wiki_review"), {"archived": "1"}).content
+        assert b"pl-wp-mod__quote--short" in body
+        assert b"Show more" in body
+
+    def it_leaves_a_short_archive_reason_alone(client: Client):
+        login(client, "quote_archived2", fog_role=Member.FogRole.ADMIN)
+        page = WikiPageFactory(guild=None)
+        page.archive(by=MemberFactory(), reason="Replaced by the Bandsaw Safety page.")
+        body = client.get(reverse("hub_wiki_review"), {"archived": "1"}).content
+        assert b"Show more" not in body
+
     def it_reaches_the_queue_card_and_the_resolve_modal_too(client: Client):
         # A lead can otherwise mark a 500-character report reviewed having read three lines.
         login(client, "quote_queue", fog_role=Member.FogRole.ADMIN)

@@ -912,6 +912,13 @@
     border-color: var(--hub-text-muted);
 }
 
+/* A white wash over a light card is no wash at all. The house idiom for this is a
+   [data-theme="light"] override (see .pl-confirm-warn), not color-mix, which appears
+   nowhere in this stylesheet. */
+[data-theme="light"] .pl-btn--ghost:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
 .pl-btn--sm {
     padding: 0.3rem 0.7rem;
     font-size: 0.8125rem;

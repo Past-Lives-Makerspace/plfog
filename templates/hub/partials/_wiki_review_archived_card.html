@@ -11,7 +11,14 @@ one-click Restore from a list is how you restore the wrong page.
     <p class="hub-text-muted pl-wp-mod__banner-by">
         Removed by {% if archived.archived_by %}{{ archived.archived_by.display_name }}{% else %}a former member{% endif %} &middot; {{ archived.archived_at|date:"j F Y" }}
     </p>
-    {% if archived.archive_reason %}<blockquote class="pl-wp-mod__quote pl-wp-mod__quote--short">{{ archived.archive_reason }}</blockquote>{% endif %}
+    {% comment %}
+    archive_reason is a CharField(300) under a 2-line clamp, so without the expander a
+    moderator on this tab decides whether to restore a page having read about a third of
+    why it was removed.
+    {% endcomment %}
+    {% if archived.archive_reason %}
+    {% include "hub/partials/_wiki_quote.html" with reason=archived.archive_reason clamp_class="pl-wp-mod__quote--short" expand_over=80 %}
+    {% endif %}
     <div class="pl-wp-mod__banner-actions">
         <a href="{{ archived.get_absolute_url }}" class="pl-btn pl-btn--sm">Open the Page</a>
     </div>

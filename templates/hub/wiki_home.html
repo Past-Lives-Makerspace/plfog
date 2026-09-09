@@ -23,7 +23,7 @@ The review queue's entry point, gated exactly as the queue itself is. Same shape
 Print stickers link below: a moderator-only affordance in the page a moderator already
 opens, because the queue has no other route on a day when nobody has reported anything.
 {% endcomment %}
-<p class="pl-wp-home__reviewlink">
+<p class="pl-wp-mod__homelink">
     <a href="{% url 'hub_wiki_review' %}" class="pl-btn pl-btn--sm pl-btn--ghost">Review queue{% if open_review_count %} ({{ open_review_count }}){% endif %}</a>
 </p>
 {% endif %}

@@ -13032,7 +13032,7 @@ class WikiPage(models.Model):
             period=f"wiki_proposed:{self.pk}",
         )
 
-    def publish_proposal(self, *, by: Member, as_official: bool) -> None:
+    def publish_proposal(self, *, by: Member, as_official: bool, newly_created: bool = False) -> None:
         """Publish a held safety proposal at the publisher's OWN authority.
 
         A guild lead publishing lands it Guild verified; an admin publishing lands it
@@ -13045,6 +13045,11 @@ class WikiPage(models.Model):
         Args:
             by: The moderator publishing it.
             as_official: True for effective staff, False for a guild lead or staff role.
+            newly_created: True when this is the second half of creating the page, where
+                ``create_page`` already logged WIKI_PAGE_CREATED for the same act one
+                instruction earlier. The EDITED row is suppressed there because "Felix
+                edited Bandsaw Rules" a second after "Felix created Bandsaw Rules", for a
+                page nobody edited, is a permanent falsehood in the audit trail.
 
         Raises:
             WikiError: If the page is already live.
@@ -13063,12 +13068,13 @@ class WikiPage(models.Model):
             self.verified_at = timezone.now()
             fields = ["is_published", "status", "verified_by", "verified_at"]
         self.save(update_fields=fields)
-        SiteActivity.log(
-            SiteActivity.Kind.WIKI_PAGE_EDITED,
-            actor=by.user,
-            target=self,
-            payload={"slug": self.slug, "published_proposal": True, "status": self.status},
-        )
+        if not newly_created:
+            SiteActivity.log(
+                SiteActivity.Kind.WIKI_PAGE_EDITED,
+                actor=by.user,
+                target=self,
+                payload={"slug": self.slug, "published_proposal": True, "status": self.status},
+            )
         if not as_official:
             self.emit_verified(verifier=by)
 

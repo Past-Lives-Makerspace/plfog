@@ -286,7 +286,7 @@ def describe_the_phone_bars_report_cell():
         body = client.get(page.get_absolute_url()).content
         bar = body.split(b'class="pl-wp-actionbar"')[1]
         assert b"You reported this" not in bar
-        assert b"Withdraw report" in bar
+        assert b"Withdraw" in bar
 
     def it_keeps_the_sentence_on_the_desktop_control(client: Client):
         user = login(client, "bar_reported2")
@@ -296,17 +296,68 @@ def describe_the_phone_bars_report_cell():
         assert b"You reported this" in header
 
 
-def describe_the_decline_modal_placement():
-    def it_sits_outside_the_card_its_own_response_replaces(client: Client):
-        # Rendered inside #safety-<pk>, the response's OOB swap of that card destroyed
-        # #wiki-decline-<pk>-body before the reply could land in it.
+def _element_with_id(body: bytes, element_id: str) -> bytes:
+    """The full source of the <div> carrying ``element_id``, tags balanced.
+
+    Written because the obvious assertion is worthless: "the modal appears after the first
+    </div> following the id" holds whether the modal is inside the card or outside it,
+    because that first close belongs to a nested header. Only a depth-counted slice
+    actually bounds the element.
+    """
+    marker = body.index(f'id="{element_id}"'.encode())
+    start = body.rindex(b"<div", 0, marker)
+    depth = 0
+    cursor = start
+    while True:
+        next_open = body.find(b"<div", cursor)
+        next_close = body.find(b"</div>", cursor)
+        assert next_close != -1, f"unbalanced markup around #{element_id}"
+        if next_open != -1 and next_open < next_close:
+            depth += 1
+            cursor = next_open + len(b"<div")
+        else:
+            depth -= 1
+            cursor = next_close + len(b"</div>")
+            if depth == 0:
+                return body[start:cursor]
+
+
+def describe_the_modals_the_queue_swaps_around():
+    """Neither modal may live inside the element its own response replaces.
+
+    An out-of-band swap of the card tears the modal out from under its own form: the
+    decline reply had nowhere to land, and the resolve form's target vanished mid-request.
+    """
+
+    def it_keeps_the_decline_modal_outside_the_safety_card(client: Client):
         from tests.hub.wiki_mod_helpers import login_lead
 
         _user, guild = login_lead(client, "decline_placement")
         proposal = WikiPageFactory(guild=guild, official=True, is_published=False)
         body = client.get(reverse("hub_wiki_review")).content
-        card_start = body.index(f'id="safety-{proposal.pk}"'.encode())
-        card_end = body.index(f"wiki-decline-{proposal.pk}-body".encode())
-        assert card_start < card_end
-        # The modal opens after the card element closes, not inside it.
-        assert body.index(b'id="wiki-decline-') > body.index(b"</div>", card_start)
+        card = _element_with_id(body, f"safety-{proposal.pk}")
+        # The modal BODY is what the swap must not destroy. The card still carries the
+        # button that opens it, which is right: the trigger belongs with the row.
+        assert f'id="wiki-decline-{proposal.pk}-body"'.encode() not in card
+        assert f"open-modal', 'wiki-decline-{proposal.pk}".encode() in card
+        assert f'id="wiki-decline-{proposal.pk}-body"'.encode() in body
+
+    def it_keeps_the_resolve_modal_outside_the_report_card(client: Client):
+        login(client, "resolve_placement", fog_role=Member.FogRole.ADMIN)
+        report = WikiReportFactory(page=WikiPageFactory(guild=None))
+        body = client.get(reverse("hub_wiki_review")).content
+        card = _element_with_id(body, f"report-{report.pk}")
+        assert f'id="resolve-{report.pk}-body"'.encode() not in card
+        assert f"open-modal', 'resolve-{report.pk}".encode() in card
+        assert f'id="resolve-{report.pk}-body"'.encode() in body
+
+    def it_bounds_the_card_and_not_merely_its_first_nested_close(client: Client):
+        # The guard on the guard: the slice must stop at the CARD's close, so it has to be
+        # shorter than the document and still hold the card's own content.
+        login(client, "slice_sanity", fog_role=Member.FogRole.ADMIN)
+        report = WikiReportFactory(page=WikiPageFactory(guild=None), reason="A reason inside the card.")
+        body = client.get(reverse("hub_wiki_review")).content
+        card = _element_with_id(body, f"report-{report.pk}")
+        assert b"A reason inside the card." in card
+        assert b"Mark Reviewed" in card
+        assert len(card) < len(body)

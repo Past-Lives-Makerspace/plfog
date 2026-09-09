@@ -269,6 +269,15 @@ def describe_the_entry_point():
         login(client, "entry_member")
         assert reverse("hub_wiki_review").encode() not in client.get(reverse("hub_wiki_home")).content
 
+    def it_counts_held_safety_proposals_as_well_as_reports(client: Client):
+        # The badge counted reports only, so a lead with three proposals and no reports saw
+        # a bare "Review queue" on the screen added to make proposals discoverable.
+        _user, guild = login_lead(client, "entry_proposals")
+        WikiPageFactory(guild=guild, official=True, is_published=False)
+        WikiPageFactory(guild=guild, official=True, is_published=False)
+        WikiReportFactory(page=WikiPageFactory(guild=guild))
+        assert b"Review queue (3)" in client.get(reverse("hub_wiki_home")).content
+
     def it_drops_the_count_when_nothing_is_waiting(client: Client):
         login(client, "entry_quiet", fog_role=Member.FogRole.ADMIN)
         body = client.get(reverse("hub_wiki_home")).content

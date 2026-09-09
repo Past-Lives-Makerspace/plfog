@@ -711,34 +711,45 @@ def _create_page_from_form(
     """
     status = starter["status"]
     gated = bool(status)
+    # ONE transaction for the whole create. Held-then-publish is four write groups, and
+    # this project sets no ATOMIC_REQUESTS: without it, a failure in publish_proposal or
+    # its emit left the page committed unpublished, the author looking at a 500 instead of
+    # the held screen, nobody told, and their retry meeting "a page called that already
+    # exists". A rollback costs a retry that works.
     try:
-        page = WikiPage.objects.create_page(
-            title=form.cleaned_data["title"],
-            kind=form.cleaned_data["kind"],
-            author=member,
-            guild=form.cleaned_data["guild"],
-            body=form.cleaned_data["body"],
-            status=status,
-            facts=_submitted_facts(fact_formset),
-            is_published=not gated,
-        )
+        with transaction.atomic():
+            page = WikiPage.objects.create_page(
+                title=form.cleaned_data["title"],
+                kind=form.cleaned_data["kind"],
+                author=member,
+                guild=form.cleaned_data["guild"],
+                body=form.cleaned_data["body"],
+                status=status,
+                facts=_submitted_facts(fact_formset),
+                is_published=not gated,
+            )
+            _save_child_formsets(page, None, attachment_formset, member)
+            if draft is not None:
+                draft.delete()
+            # Whether the wanted row closes does NOT depend on the safety gate: the member
+            # wrote the page either way, and the credit is theirs. Held here rather than
+            # after the branch because a proposal is where it used to be silently skipped.
+            fulfilled = _fulfil_wanted_page(wanted_pk, page)
+            if gated and can_moderate_wiki_scope(request, page.guild):
+                page.publish_proposal(by=member, as_official=is_effective_staff(request), newly_created=True)
+                gated = False
+            elif gated:
+                page.notify_scope_of_proposal(by=member)
     except WikiError as exc:
+        # create_page is the only realistic raiser here: a duplicate title in this scope.
         form.add_error("title", str(exc))
         return None
-    _save_child_formsets(page, None, attachment_formset, member)
-    if draft is not None:
-        draft.delete()
-    if gated and can_moderate_wiki_scope(request, page.guild):
-        page.publish_proposal(by=member, as_official=is_effective_staff(request))
-        gated = False
     if gated:
         # A full-page answer, not a toast: this is a state change the member did not
         # expect, and it needs room to say who has it and what happens next.
-        page.notify_scope_of_proposal(by=member)
         context = _get_hub_context(request)
         context.update({"page": page, "scope_label": _scope_label(page.guild), "is_space_wide": page.guild is None})
         return render(request, "hub/wiki_proposal_held.html", context)
-    fulfilled = _fulfil_wanted_page(wanted_pk, page)
     messages.success(
         request,
         "Page created. That was on the Wanted list. Thanks for writing it."
@@ -1476,17 +1487,28 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
 
 
 def _review_link(request: HttpRequest) -> tuple[bool, int]:
-    """``(may open the queue, open reports waiting)`` for the wiki home's link.
+    """``(may open the queue, items waiting)`` for the wiki home's link.
 
-    One call, because both answers come off the same two-query scope lookup and the home
+    "Waiting" is BOTH lists the queue shows: open reports and held safety proposals. It
+    counted reports alone at first, so a lead with three proposals and no reports saw a
+    bare "Review queue" with no number — on the very screen added to make held proposals
+    discoverable, chased by the very event added to announce them.
+
+    One call, because every answer comes off the same two-query scope lookup and the home
     page's query count is budgeted: asking twice put four avoidable queries on the busiest
     screen in the feature.
     """
     guilds, space_wide = moderatable_wiki_scopes(request)
     if not guilds and not space_wide:
         return False, 0
-    waiting = WikiReport.objects.open().for_scopes([guild.pk for guild in guilds], include_space_wide=space_wide)
-    return True, waiting.count()
+    guild_ids = [guild.pk for guild in guilds]
+    reports = WikiReport.objects.open().for_scopes(guild_ids, include_space_wide=space_wide).count()
+    proposals = (
+        _scoped_pages(guild_ids, space_wide=space_wide)
+        .filter(archived_at__isnull=True, is_published=False, status=WikiPage.Status.OFFICIAL)
+        .count()
+    )
+    return True, reports + proposals
 
 
 def _scope_label(guild: Guild | None) -> str:

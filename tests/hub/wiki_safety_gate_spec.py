@@ -167,6 +167,66 @@ def describe_a_member_proposing_a_safety_page():
         _create(client, "safety", title="Straight Through Rules")
         assert not Notification.objects.filter(trigger="wiki.page_proposed").exists()
 
+    def it_writes_one_activity_row_for_one_act(client: Client):
+        # Creating a Safety page as a moderator is created-then-published in two calls, but
+        # it is ONE act: "Felix edited Bandsaw Rules" a second after "Felix created Bandsaw
+        # Rules", for a page nobody edited, is a permanent falsehood in the audit trail.
+        from core.models import SiteActivity
+
+        login(client, "gate_activity", fog_role=Member.FogRole.ADMIN)
+        _create(client, "safety", title="Activity Rules")
+        kinds = list(SiteActivity.objects.order_by("id").values_list("kind", flat=True))
+        assert kinds == [SiteActivity.Kind.WIKI_PAGE_CREATED]
+
+    def it_matches_what_an_ordinary_starter_writes(client: Client):
+        from core.models import SiteActivity
+
+        login(client, "gate_activity2", fog_role=Member.FogRole.ADMIN)
+        _create(client, "howto", title="Activity HowTo")
+        assert list(SiteActivity.objects.values_list("kind", flat=True)) == [SiteActivity.Kind.WIKI_PAGE_CREATED]
+
+    def it_still_logs_the_edit_when_a_held_page_is_published_later(client: Client):
+        # The suppression is scoped to the create path. Publishing from the queue days
+        # later IS a second act and keeps its row.
+        from core.models import SiteActivity
+
+        _user, guild = login_lead(client, "gate_activity3")
+        page = WikiPageFactory(guild=guild, official=True, is_published=False)
+        SiteActivity.objects.all().delete()
+        client.post(reverse("hub_wiki_publish_proposal", args=[page.slug]))
+        activity = SiteActivity.objects.get(kind=SiteActivity.Kind.WIKI_PAGE_EDITED)
+        assert activity.payload["published_proposal"] is True
+
+    def describe_when_the_second_half_of_the_create_fails():
+        def it_rolls_the_whole_page_back_so_a_retry_works(client: Client, monkeypatch):
+            # Four write groups with no ATOMIC_REQUESTS: without the transaction the page
+            # was committed unpublished, the author saw a 500 instead of the held screen,
+            # nobody was told, and the retry met "a page called that already exists".
+            import membership.models as models_module
+
+            def boom(self, **kwargs):
+                raise RuntimeError("the notification backend fell over")
+
+            monkeypatch.setattr(models_module.WikiPage, "notify_scope_of_proposal", boom)
+            user = login(client, "gate_atomic")
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=user.member)
+            with pytest.raises(RuntimeError):
+                _create(client, "safety", title="Rolled Back Rules", guild=guild)
+            assert not WikiPage.objects.filter(title="Rolled Back Rules").exists()
+
+        def it_rolls_back_a_failed_publish_too(client: Client, monkeypatch):
+            import membership.models as models_module
+
+            def boom(self, **kwargs):
+                raise RuntimeError("emit fell over")
+
+            monkeypatch.setattr(models_module.WikiPage, "publish_proposal", boom)
+            login(client, "gate_atomic2", fog_role=Member.FogRole.ADMIN)
+            with pytest.raises(RuntimeError):
+                _create(client, "safety", title="Rolled Back Admin Rules")
+            assert not WikiPage.objects.filter(title="Rolled Back Admin Rules").exists()
+
     def it_names_the_admins_rather_than_a_scope_chip_on_a_space_wide_proposal(client: Client):
         login(client, "gate_space_wide")
         response = _create(client, "safety", title="Space Wide Rules")

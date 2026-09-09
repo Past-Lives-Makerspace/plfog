@@ -1103,6 +1103,44 @@ def describe_the_cross_spec_seams():
         assert response.status_code == 302
         assert len(fulfilled) == 1
 
+    def it_fulfils_it_from_a_held_safety_proposal_too(client: Client, monkeypatch):
+        # Whether the wanted row closes must not depend on the safety gate: the member
+        # wrote the page either way. It used to be skipped on the held path, so a member
+        # answering a Wanted-list link with a Safety page never got the credit, even after
+        # a lead published it — exactly the half-loop shape brief §9.4 exists to catch.
+        import membership.models as models_module
+
+        fulfilled: list[object] = []
+
+        class FakeWanted:
+            pk = 7
+
+            def fulfil(self, page: object) -> bool:
+                fulfilled.append(page)
+                return True
+
+        class FakeManager:
+            def filter(self, **kwargs: object) -> "FakeManager":
+                self._match = kwargs.get("pk") == 7
+                return self
+
+            def first(self) -> object | None:
+                return FakeWanted() if self._match else None
+
+        class FakeWantedPage:
+            objects = FakeManager()
+
+        monkeypatch.setattr(models_module, "WikiWantedPage", FakeWantedPage, raising=False)
+        _login(client, "seam_wanted_held")
+        response = client.post(
+            reverse("hub_wiki_create", args=["safety"]),
+            {"title": "Held Fulfilled Page", "kind": "guild_info", "body": "", "wanted": "7", **_formset_data()},
+        )
+        # The held screen, not a redirect, and the wanted row is closed all the same.
+        assert response.status_code == 200
+        assert b"Safety pages get a second read" in response.content
+        assert len(fulfilled) == 1
+
     def it_ignores_a_wanted_pk_that_no_longer_exists(client: Client, monkeypatch):
         import membership.models as models_module
 

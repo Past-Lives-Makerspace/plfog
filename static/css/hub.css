@@ -8870,7 +8870,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-wp-mod__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__report { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__reported { font-size: 0.85rem; }
-.pl-wp-mod__report-btn { white-space: nowrap; }
+/* .pl-btn is already nowrap, so the risk is spilling past the border, not wrapping. At
+   360px the four-item bar overflows and this is where it lands. min-width:0 lets it
+   shrink below its content and overflow:hidden clips what is left rather than painting
+   text over the button's edge. No text-overflow: it does nothing on an inline-flex
+   element, and a declaration that does nothing is the bug this round already fixed twice. */
+.pl-wp-mod__report-btn { min-width: 0; overflow: hidden; }
 /* The chip is the page's ONE coloured pill; hub-pill--primary paints it, this only keeps
    it from being stretched by the flex header it sits in. */
 .pl-wp-mod__note-chip { flex: 0 0 auto; }
@@ -8895,7 +8900,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-bottom: 0.5rem;
 }
 .pl-wp-mod__tabs { margin-bottom: 1.5rem; }
-.pl-wp-home__reviewlink { margin: 0 0 1rem; }
+.pl-wp-mod__homelink { margin: 0 0 1rem; }
 .pl-wp-mod__explainer { margin: -0.75rem 0 1.5rem; }
 
 /* Written empty state. Never a blank region. */

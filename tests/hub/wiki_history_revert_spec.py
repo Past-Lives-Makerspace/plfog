@@ -250,20 +250,30 @@ def describe_reverting():
             # A revert rewrites title, body and facts wholesale, so it follows the CONTENT
             # gate too. Without that a guild treasurer refused the Edit button on a safety
             # policy could rewrite it from History with the Official chip still on it.
-            user, guild = login_lead(client, "rev_official_lead")
+            _user, guild = login_lead(client, "rev_official_lead")
             page, original, _author = _page_with_two_versions()
             WikiPage.objects.filter(pk=page.pk).update(guild=guild, status=WikiPage.Status.OFFICIAL)
             page.refresh_from_db()
             assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 403
             page.refresh_from_db()
             assert page.body == "<p>Two.</p>"
-            assert user.member is not None or True
 
         def it_hides_the_control_from_that_moderator(client: Client):
             _user, guild = login_lead(client, "rev_official_lead2")
             page, _original, _author = _page_with_two_versions()
             WikiPage.objects.filter(pk=page.pk).update(guild=guild, status=WikiPage.Status.OFFICIAL)
             assert b"Revert to This" not in client.get(_history_url(page)).content
+
+        def it_refuses_an_officer_whose_membership_has_lapsed(client: Client):
+            # The quiet half of the conjunction: can_edit_wiki_page's active-member check
+            # runs before its moderator legs, so a FORMER officer is refused even on a
+            # plain Community page. Intended — a lapsed member writes nothing — but it is
+            # a silent consequence of adding the second gate, so it is pinned either way.
+            login(client, "rev_lapsed_officer", fog_role=Member.FogRole.ADMIN, status=Member.Status.FORMER)
+            page, original, _author = _page_with_two_versions()
+            assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 403
+            page.refresh_from_db()
+            assert page.body == "<p>Two.</p>"
 
         def it_still_allows_an_officer_on_an_official_page(client: Client):
             login(client, "rev_official_admin", fog_role=Member.FogRole.ADMIN)
