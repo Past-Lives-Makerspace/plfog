@@ -3963,6 +3963,8 @@ class ClassSettings(models.Model):
         no text, or one with nothing under it (two headings in a row, or bleach repairing
         a heading nested in another), is skipped rather than shown as an empty item.
         """
+        from core.html_sanitize import rich_html_to_text
+
         parts = self._teach_page_faq_parts()
         items: list[FaqItem] = []
         for question, answer in zip(parts[1::2], parts[2::2], strict=True):
@@ -3970,7 +3972,9 @@ class ClassSettings(models.Model):
             # autoescape is the only escaping the question text ever gets.
             text = unescape(strip_tags(question)).strip()
             body = answer.strip()
-            if not text or not body:
+            # Quill writes an empty line as <p><br></p>, which survives the sanitizer but
+            # says nothing; judge emptiness by the text left, the sanitizer's own test.
+            if not text or not rich_html_to_text(body):
                 continue
             items.append(FaqItem(question=text, answer_html=mark_safe(body)))
         return items
