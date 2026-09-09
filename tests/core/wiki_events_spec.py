@@ -1,9 +1,11 @@
-"""BDD specs for the two wiki event types spec D owns.
+"""BDD specs for the three wiki event types spec D owns.
 
-``wiki.page_reported`` routes a member's complaint to the people who know the machine;
-``wiki.page_verified`` tells the people who wrote a page that somebody with authority
-stands behind it — the round's stated retention mechanism, and the reason spec B calls
-into a registration D owns rather than shipping a fallback of its own.
+``wiki.page_reported`` routes a member's complaint to the people who know the machine, and
+``wiki.page_proposed`` does the same for a safety page waiting on a second read — without
+it the held screen's "you will hear back" is true of nothing. ``wiki.page_verified`` tells
+the people who wrote a page that somebody with authority stands behind it: the round's
+stated retention mechanism, and the reason spec B calls into a registration D owns rather
+than shipping a fallback of its own.
 """
 
 from __future__ import annotations
@@ -228,18 +230,40 @@ def describe_the_curated_copy():
 
 
 def describe_the_verified_period():
-    """THE one definition of the period, so spec B cannot drift from spec D's spec text."""
+    """THE one definition of the period, so spec B cannot drift from spec D's spec text.
 
-    def it_changes_when_the_page_is_re_verified(db):
+    The bucket is the DAY: long enough that a lead re-verifying after every staff edit
+    does not mail every contributor once per edit, short enough that a page verified again
+    months later still delivers.
+    """
+
+    def it_changes_when_the_page_is_re_verified_later(db):
         from django.utils import timezone
 
         page = WikiPageFactory(verified=True)
         first = page.verified_event_period()
         page.verified_at = timezone.now() + timezone.timedelta(days=90)
-        # A page edited and re-verified months later must deliver again; a page-only
-        # period would silence it forever after the first verification.
+        # A page-only period would silence this forever after the first verification.
         assert page.verified_event_period() != first
         assert page.verified_event_period().startswith(f"wiki_verified:{page.pk}:")
+
+    def it_buckets_two_verifications_on_the_same_day_together(db):
+        from django.utils import timezone
+
+        # THE spam vector this granularity exists to close: a lead re-verifying after each
+        # staff edit, and two leads verifying the same page in sequence, both fan out once.
+        page = WikiPageFactory(verified=True)
+        page.verified_at = timezone.localtime(page.verified_at).replace(hour=9, minute=0, second=0)
+        morning = page.verified_event_period()
+        page.verified_at = timezone.localtime(page.verified_at).replace(hour=16, minute=30, second=45)
+        assert page.verified_event_period() == morning
+
+    def it_keys_on_the_local_day(db):
+        from django.utils import timezone
+
+        page = WikiPageFactory(verified=True)
+        expected = timezone.localtime(page.verified_at).strftime("%Y%m%d")
+        assert page.verified_event_period() == f"wiki_verified:{page.pk}:{expected}"
 
     def it_is_stable_for_one_verification(db):
         page = WikiPageFactory(verified=True)

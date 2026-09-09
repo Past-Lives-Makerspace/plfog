@@ -12962,11 +12962,18 @@ class WikiPage(models.Model):
         as a line in a plan document both PRs hand-copy. Import it as
         ``page.verified_event_period()``.
 
-        The timestamp is deliberate: a page edited and re-verified months later delivers
-        again, because that second message is worth as much as the first. A page-only
-        period would silence it forever after the first verification.
+        **The bucket is the DAY, and both halves of that matter.** A page-only period would
+        silence the event forever after the first verification, and a page edited and
+        re-verified months later deserves to deliver again — that second message is worth
+        as much as the first. But a per-second bucket dedupes essentially nothing: a lead
+        who re-verifies after each staff edit would mail every contributor once per edit,
+        forever, and two leads verifying the same page in sequence would fan out twice.
+        ``%Y%m%d`` is also the shape the rest of this repo uses for a period.
+
+        The one thing the day loses is verify, member edit, re-verify all inside the same
+        day, which sends once instead of twice. That is the right trade against the spam.
         """
-        stamp = timezone.localtime(self.verified_at).strftime("%Y%m%d%H%M%S") if self.verified_at else "never"
+        stamp = timezone.localtime(self.verified_at).strftime("%Y%m%d") if self.verified_at else "never"
         return f"wiki_verified:{self.pk}:{stamp}"
 
     def emit_verified(self, *, verifier: Member, role_label: str = "") -> None:
