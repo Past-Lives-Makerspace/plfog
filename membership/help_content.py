@@ -776,7 +776,7 @@ The guided tour points at the real buttons, right on the teaching portal, in abo
 
 **Create and publish:**
 
-- **Create a class** — a private draft with your title, description, dates, price, and photos. See [Become an Instructor](/help/teaching/become-an-instructor/).
+- **Create a class** — a private draft with your title, description, dates, price, and photos. See [Host a Workshop](/help/teaching/become-an-instructor/).
 - **Submit it for review** — a guild lead (when your category has one) and an admin check it before it goes live. Same guide.
 - **Preview as a student** — see the public page exactly as a student will, at any point while you work.
 - **Offer it again on new dates** — one click copies a class into a new draft so you can run it again; the two link to each other on the public page. See [Run Your Class](/help/teaching/run-your-class/).
@@ -799,7 +799,7 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 - Nobody self-publishes. Every class — including every new run of an old one — goes through review first.
 - Draft and pending classes are all yours to edit. Once a class publishes, only an admin can change it.
-- The one-time [portal orientation for instructors](/help/more/instructor-orientation/) is what unlocks the portal, and the quality bar lives there.
+- An admin saying yes to your [note about hosting](/classes/teach/why/) is what opens the portal, and the quality bar lives in the [hosting guide](/help/more/instructor-orientation/).
 
 ![The teaching portal: overview, your classes, and registrations.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
 """,
@@ -816,19 +816,21 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
     {
         "slug": "become-an-instructor",
         "category": "teaching",
-        "title": "Become an Instructor",
+        "title": "Host a Workshop",
         "sort_order": 20,
         "related": ["run-your-class", "taking-a-class"],
         "body": """\
-Are you an experienced instructor? Past Lives instructors come from our membership base. If you have a vision for a class you'd like to teach at Past Lives, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
+Got something to share? Past Lives instructors come from our membership base. If you have a workshop or a class in mind, the first step is to talk to your guild lead or email [lee@pastlives.space](mailto:lee@pastlives.space).
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-### Complete the Orientation {#teach-become-instructor}
+### Say You're Interested {#teach-become-instructor}
 
-The first time you head for the teaching portal, you land on the [portal orientation for instructors](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — you only ever do it once. (This is about using the portal; it's separate from any guild equipment or tool orientations.)
+Click **Host a Workshop** in the left menu and you land on [Host a Workshop](/classes/teach/why/). It shows what you get, links a real example workshop page, and carries the **I'm Interested** button. Tell us what you would like to host, in a sentence or two, and send it.
 
-One note on the word "instructor": an admin can also set your role to Instructor. The role adds extras — a public instructor page in the class catalog and the class Announcements tool. You don't need the role to create or teach a class; completing the portal orientation is what opens the teaching portal.
+An admin reads every note and usually gets to them within a week. You get an email either way, and you can open that page any time to see where things stand. If the answer is no, the admin leaves a note saying why, and you are welcome to say you're interested again whenever you like.
+
+Once an admin says yes the teaching portal opens, the menu entry reads **Teaching**, and you get a public instructor page in the class catalog. (This is about using the portal; it is separate from any guild equipment or tool orientations.)
 
 ### Open the Teaching Portal
 
@@ -843,10 +845,11 @@ Three ways in:
 ### Create Your Draft {#teach-create-class}
 
 1. In the portal, open the **Classes** tab and click **+ New Class** (your first time, the button says **+ Create your first class**).
-2. Fill in the basics: title, guild category, description, price, and how many spots.
-3. Add your dates. A class can be one session or a series; add one row per session. You can also pick flexible scheduling if the dates are arranged later.
-4. Add at least two photos: a hero image and at least one gallery photo. A class needs both before it can be submitted.
-5. Click **Save Draft** to keep working, or **Save & Submit for Review** when it is ready.
+2. The form is five steps. Step 1 is the basics: title, guild type, and description.
+3. Step 2 is photos. Add a hero image and at least one gallery photo; a class needs both before it can be submitted. Pick the important part of the photo for the class page banner and again for the catalog card.
+4. Step 3 is dates, seats, and price. A class can be one session or a series; add every date. You can also pick flexible scheduling if the dates are arranged later.
+5. Step 4 holds the optional details students read to prepare. Step 5 is the review: a checklist, a preview of your page and card, and the **Submit for Review** button.
+6. Click **Save Draft** on any step to keep working.
 
 ![The new class form: describe it, price it, and add your session dates.](/static/help/become-an-instructor/02-new-class-form.png)
 
@@ -856,14 +859,14 @@ Not sure what "done" looks like? Study the permanent example class, [Shaker Side
 
 ### Submit It for Review {#teach-submit-for-review}
 
-Click **Save & Submit for Review** on the form, or **Submit for review** on the class page. Review happens in order:
+Click **Submit for Review** on the last step of the form, or **Submit for review** on the class page. Review happens in order:
 
 - If your class's category belongs to a guild that has a lead, that guild lead reviews it first.
 - Then an admin gives the final yes. No guild lead involved? The admin reviews it directly.
 
-Reviewers see your class exactly as a student would, in a full preview of the public page. Each reviewer picks **Approve**, **Request changes**, or **Decline**, and has to leave a note when requesting changes or declining, so you always know what to fix. You get an email as each decision lands.
+Reviewers see your class exactly as a student would, in a full preview of the public page. Each reviewer picks **Approve**, **Ask for changes**, or **Decline**, and has to leave a note when asking for changes or declining, so you always know what to work on. You get an email as each response lands. Going round more than once is normal.
 
-**Request changes** and **Decline** send the class back to Draft with the reviewer's notes. Fix it up and submit again; a fresh submission restarts the review from the first gate.
+**Ask for changes** and **Decline** send the class back to Draft with the reviewer's notes. Fix it up and submit again; a fresh submission restarts the review from the first gate.
 
 ### What the Statuses Mean
 
@@ -871,7 +874,7 @@ Reviewers see your class exactly as a student would, in a full preview of the pu
 - **Pending**: submitted, waiting on review. You can still edit it.
 - **Published**: live in the catalog and open for sign-ups.
 
-Once a class is published (or archived), only an admin can edit it. Need a change to a live class? Ask an admin.""",
+Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note and the video are all still editable from the manage page, and so is putting the class on sale. The title, guild type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Archived classes are read only.""",
         "screenshots": [
             {
                 "file": "01-teaching-portal.png",
@@ -890,16 +893,16 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
         ],
     },
     {
-        # UNLISTED (§10.6 / Spec D): renders on the orientation page at
-        # /classes/teach/orientation/ and resolves at its own /help/ URL, but
-        # never appears on the landing, category pages, or search.
+        # UNLISTED (§10.6): renders inside the "Read the Hosting Guide" disclosure
+        # on the Host a Workshop page (/classes/teach/why/) and resolves at its own
+        # /help/ URL, but never appears on the landing, category pages, or search.
         "slug": "instructor-orientation",
         "category": None,
         "title": "Portal Orientation for Instructors",
         "sort_order": 0,
         "related": [],
         "body": """\
-Past Lives instructors come from our membership base. This page is the one-time portal orientation for instructors: read it, tick the box at the bottom, and the teaching portal unlocks right away. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
+Past Lives instructors come from our membership base. This is what we expect from an instructor, how class review works, and the bar a class has to clear. Read it before you say you're interested. (Have a workshop in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
 
 ## What We Expect From Instructors {#what-we-expect}
 
@@ -980,13 +983,12 @@ When a class fills up, new sign-ups join a waitlist. You do not manage it by han
 
 You do not need to rebuild a class to run it on new dates.
 
-1. While the class is a draft or pending, open its **Edit** page.
-2. At the bottom, click **+ Offer on another set of dates**.
-3. You get a draft copy with no dates. Add the new dates, then submit it for review.
+1. While the class is a draft or pending, open its **Edit** page and click **+ Offer on another set of dates** at the bottom. Once the class is live, finished, or cancelled, open it from the **Classes** tab of the teaching portal and click **Run it again** instead.
+2. Either way you get a draft copy with no dates. Add the new dates, then submit it for review.
 
 On the public class page, the original and the new class link to each other under **Other Dates for This Class**, so students always see every date the class is offered. And like any class, the new one goes through review before it publishes.
 
-The caveat: once a class is published, only an admin can edit it, and that edit page is where the button lives. To add a new date-set to a live class, ask an admin; they have the same one-click tool.""",
+You never need an admin for this. An admin has the same one-click tool on their side, so if they add a date set for you it shows up in your list the same way.""",
         "screenshots": [
             {
                 "file": "01-your-classes.png",
@@ -1086,9 +1088,9 @@ The classes admin lives at `/classes/admin/`. Reach it from **Class Catalog** in
 The Overview's "Needs your attention" panel lists every class waiting on review. Each row has two buttons:
 
 - **Approve** records your admin approval on the spot.
-- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a decision form with **Approve**, **Request changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit decision** records it and emails the instructor.
+- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Send Response** records it and emails the instructor.
 
-When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Request changes** and **Decline** send it back to the instructor as a draft, with your notes.
+When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
 Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
 
@@ -1753,7 +1755,7 @@ Two doors lead to the same review page.
 2. On the Overview, find the **Waiting on your review** panel at the top. You only see this panel if you lead or staff a guild.
 3. Click **Review** next to the waiting class.
 
-One caveat: the teaching area itself sits behind the one-time portal orientation for instructors. If you've never unlocked teaching, use the email link instead — it works without it.
+One caveat: the teaching area itself only opens once an admin has given you teaching access. If you have never been granted it, use the email link instead. It works without it.
 
 ![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 
@@ -1763,13 +1765,13 @@ The review page shows everything the class will publish with: description, sessi
 
 ### Make the Call
 
-Pick one of three decisions and click **Submit decision**:
+Pick one of three responses and click **Send Response**:
 
 - **Approve.** You're vouching for the class; it moves on to the admin gate.
-- **Request changes.** Notes are required so the instructor knows what to fix. The class goes back to draft; they edit and resubmit, and a fresh review round starts with you.
+- **Ask for changes.** Notes are required so the instructor knows what to work on. The class goes back to draft; they edit and resubmit, and a fresh review round starts with you.
 - **Decline.** Notes are required here too. The class also returns to draft; declining isn't permanent, and the instructor can rework and resubmit.
 
-Each review link accepts exactly one decision. If you open it again afterwards, or a co-reviewer beat you to it, the page shows what was already decided.
+Each review link accepts exactly one response. If you open it again afterwards, or a co-reviewer beat you to it, the page shows what was already decided.
 
 ### What Happens After You Approve
 

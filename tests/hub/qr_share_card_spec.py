@@ -87,13 +87,13 @@ def describe_class_side_invisible_refactor():
                 offenders.append(str(path.relative_to(REPO)))
         assert offenders == []
 
-    def it_kept_a_themed_placeholder_in_both_class_portals():
-        # Catches the missed teach-portal file: renaming the CSS without updating this
-        # template would silently strip its placeholder styling.
-        admin_tpl = (REPO / "templates/classes/admin/class_form.html").read_text()
-        teach_tpl = (REPO / "templates/classes/teach/class_form.html").read_text()
-        assert "pl-qr-share__title" in admin_tpl
-        assert "pl-qr-share__title" in teach_tpl
+    def it_ships_the_share_card_through_the_shared_composer_in_both_class_portals():
+        # Both class form twins are one shared composer now; the Share & Print card renders
+        # on its review step through class_qr_share.html, so neither twin can drop it alone.
+        composer = (REPO / "templates/classes/_components/class_composer.html").read_text()
+        assert "classes/_components/class_qr_share.html" in composer
+        for twin in ["templates/classes/admin/class_form.html", "templates/classes/teach/class_form.html"]:
+            assert "classes/_components/class_composer.html" in (REPO / twin).read_text()
 
     def it_ships_the_shared_component():
         shared = (REPO / "templates/components/qr_share_card.html").read_text()

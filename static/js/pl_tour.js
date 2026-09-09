@@ -187,6 +187,33 @@
                 return !!(el && el.offsetParent !== null);
             }
 
+            // ── stepped pages ───────────────────────────────────────────────
+            // A page that shows one step pane at a time (the class composer) stamps
+            // each pane with data-composer-step="N" and its root listens for a
+            // window event `composer-goto-step` {step: N}. A target inside a hidden
+            // pane is therefore reachable: ask the page for that step, then give it
+            // one frame to paint before anything measures the element. Generic on
+            // purpose: any future stepped page that honours the same two hooks gets
+            // this for free, and nothing here knows which tour is running.
+            function stepPaneOf(el) {
+                return el && el.closest ? el.closest("[data-composer-step]") : null;
+            }
+
+            function revealStep(selector) {
+                return new Promise(function (resolve) {
+                    var pane = selector ? stepPaneOf(document.querySelector(selector)) : null;
+                    if (!pane || isVisible(pane)) {
+                        resolve();
+                        return;
+                    }
+                    var step = parseInt(pane.getAttribute("data-composer-step"), 10);
+                    window.dispatchEvent(new CustomEvent("composer-goto-step", { detail: { step: step } }));
+                    requestAnimationFrame(function () {
+                        resolve();
+                    });
+                });
+            }
+
             function waitFor(step) {
                 return new Promise(function (resolve) {
                     var selector = step.wait_for || step.target;
@@ -195,7 +222,10 @@
                         return;
                     }
                     var startedAt = Date.now();
-                    (function poll() {
+                    revealStep(selector).then(function () {
+                        poll();
+                    });
+                    function poll() {
                         if (isVisible(document.querySelector(selector))) {
                             resolve(true);
                             return;
@@ -205,7 +235,7 @@
                             return;
                         }
                         requestAnimationFrame(poll);
-                    })();
+                    }
                 });
             }
 
@@ -327,7 +357,11 @@
                 var driverSteps = [];
                 for (var i = bounds.start; i <= bounds.end; i++) {
                     var s = current.steps[i];
-                    if (s.target && isVisible(document.querySelector(s.target))) {
+                    var targetEl = s.target ? document.querySelector(s.target) : null;
+                    // A selector string is resolved by Driver at highlight time, so a target
+                    // on a not-yet-shown step pane can stay an element target: revealStep()
+                    // runs before every highlight (drive, next, previous, hop, resume).
+                    if (s.target && (isVisible(targetEl) || stepPaneOf(targetEl))) {
                         driverSteps.push({ element: s.target, popover: popoverFor(s) });
                     } else {
                         driverSteps.push({ popover: popoverFor(s) }); // missing target -> centered, never a hang
@@ -379,7 +413,9 @@
                     onDestroyed: onSegmentDestroyed,
                 });
                 active = { driverObj: driverObj, segStart: bounds.start, segEnd: bounds.end };
-                driverObj.drive(localOffset);
+                revealStep(current.steps[clampIndex(globalIndex)].target).then(function () {
+                    if (active && active.driverObj === driverObj) driverObj.drive(localOffset);
+                });
             }
 
             function globalIndexNow() {
@@ -457,11 +493,13 @@
                 if (!active || !active.driverObj) return;
                 var local = active.driverObj.getActiveIndex() || 0;
                 var segLen = active.segEnd - active.segStart + 1;
+                var gi = active.segStart + local;
                 if (local < segLen - 1) {
-                    active.driverObj.moveNext(); // within the segment
+                    revealStep(current.steps[gi + 1].target).then(function () {
+                        if (active && active.driverObj) active.driverObj.moveNext(); // within the segment
+                    });
                     return;
                 }
-                var gi = active.segStart + local;
                 if (gi >= current.steps.length - 1) {
                     finish("completed");
                 } else {
@@ -472,11 +510,13 @@
             function handlePrev() {
                 if (!active || !active.driverObj) return;
                 var local = active.driverObj.getActiveIndex() || 0;
+                var gi = active.segStart + local;
                 if (local > 0) {
-                    active.driverObj.movePrevious(); // within the segment
+                    revealStep(current.steps[gi - 1].target).then(function () {
+                        if (active && active.driverObj) active.driverObj.movePrevious(); // within the segment
+                    });
                     return;
                 }
-                var gi = active.segStart + local;
                 if (gi <= 0) return; // already at the very first step
                 hopTo(gi - 1);
             }

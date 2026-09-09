@@ -41,33 +41,41 @@ def _sidebar(client) -> str:
     return html[start : html.index("</nav>", start)]
 
 
-def describe_teach_entry():
-    def it_is_absent_for_a_member_who_cannot_teach(plain_user, client):
-        """No recruiting entry: the sidebar offers Teaching exactly when it opens something.
+def _teach_label(nav: str) -> str:
+    """The Teaching entry's rendered anchor, whitespace-squeezed for substring matching."""
+    squeezed = nav.replace("\n", "").replace(" ", "")
+    return squeezed[squeezed.index('data-nav="teach"') :]
 
-        It used to show every active member "Teach a Class" pointing at the orientation
-        explainer, which put a teaching link in front of the whole membership.
+
+def describe_teach_entry():
+    def it_reads_host_a_workshop_for_a_plain_active_member_who_cannot_teach_yet(plain_user, client):
+        """Teaching is recruited for now, so every active member sees the door.
+
+        It used to be gated on ``can_create_classes``, which meant the only people who
+        could find the teaching pages were the people who already had them. A member
+        who cannot teach yet reads the invitation, not the portal's name.
         """
         client.force_login(plain_user)
         nav = _sidebar(client)
-        assert 'data-nav="teach"' not in nav
-        assert "Teach a Class" not in nav
-        assert reverse("classes:teach_orientation") not in nav
+        assert 'data-nav="teach"' in nav
+        label = _teach_label(nav)
+        assert ">HostaWorkshop" in label  # whitespace-squeezed "Host a Workshop"
+        assert ">Teaching" not in label
+        assert reverse("classes:teach_overview") in nav
 
-    def it_is_absent_for_an_admin_who_has_not_been_set_up_to_teach(admin_user, client):
+    def it_is_present_for_an_admin_who_has_not_been_set_up_to_teach(admin_user, client):
         client.force_login(admin_user)
-        assert 'data-nav="teach"' not in _sidebar(client)
+        nav = _sidebar(client)
+        assert 'data-nav="teach"' in nav
+        assert ">HostaWorkshop" in _teach_label(nav)
 
     def it_reads_teaching_and_opens_the_portal_once_unlocked(plain_user, client):
         _unlock(plain_user)
         client.force_login(plain_user)
         nav = _sidebar(client)
-        assert (
-            ">Teaching"
-            in nav.replace("\n", "").replace(" ", "")[
-                nav.replace("\n", "").replace(" ", "").index('data-nav="teach"') :
-            ]
-        )
+        label = _teach_label(nav)
+        assert ">Teaching" in label
+        assert ">HostaWorkshop" not in label
         assert reverse("classes:teach_overview") in nav
         assert "Teach a Class" not in nav
 
@@ -143,15 +151,17 @@ def describe_active_states():
         catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
         assert "active" not in catalog
 
-    def it_lights_class_catalog_for_a_locked_member_on_the_orientation(plain_user, client):
-        # No Teaching entry to light, so the catalog reclaims the teaching portal rather
-        # than leaving the whole sidebar dark.
+    def it_lights_teach_not_class_catalog_for_a_locked_member_on_the_marketing_page(plain_user, client):
+        # A locked member has a Teaching entry now, so the marketing page lights it and
+        # the catalog stays dark, exactly as the portal does for an instructor.
         client.force_login(plain_user)
-        html = client.get(reverse("classes:teach_orientation")).content.decode()
+        html = client.get(reverse("classes:teach_why")).content.decode()
         start = html.index('aria-label="Hub navigation"')
         nav = html[start : html.index("</nav>", start)]
+        teach = nav[nav.index('data-nav="teach"') - 200 : nav.index('data-nav="teach"')]
+        assert "active" in teach
         catalog = nav[nav.index(reverse("classes:public_list")) : nav.index("Class Catalog")]
-        assert "active" in catalog
+        assert "active" not in catalog
 
     def it_leaves_class_catalog_dark_for_an_instructor_on_the_portal(plain_user, client):
         _unlock(plain_user)
@@ -186,7 +196,13 @@ def describe_context_processor():
         request.user = plain_user
         ctx = hub_sidebar(request)
         assert ctx["can_create_classes"] is False
-        assert ctx["teach_nav"] is None
+        # The entry is present before the grant; the grant flips ``can_create_classes``
+        # and the label with it.
+        assert ctx["teach_nav"] == {
+            "label": "Host a Workshop",
+            "url": reverse("classes:teach_overview"),
+            "is_active": True,
+        }
         _unlock(plain_user)
         request.user = type(plain_user).objects.get(pk=plain_user.pk)
         ctx = hub_sidebar(request)
@@ -205,3 +221,16 @@ def describe_context_processor():
         ctx = hub_sidebar(request)
         assert ctx["teach_nav"] is None
         assert ctx["can_create_classes"] is False
+
+    def it_gives_an_inactive_member_no_teach_entry(plain_user, rf):
+        member = Member.objects.get(user=plain_user)
+        member.status = Member.Status.FORMER
+        member.save(update_fields=["status"])
+        request = rf.get("/classes/teach/")
+        request.user = type(plain_user).objects.get(pk=plain_user.pk)
+        assert hub_sidebar(request)["teach_nav"] is None
+
+    def it_marks_the_entry_inactive_off_the_teaching_paths(plain_user, rf):
+        request = rf.get("/classes/")
+        request.user = plain_user
+        assert hub_sidebar(request)["teach_nav"]["is_active"] is False

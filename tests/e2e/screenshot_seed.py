@@ -45,7 +45,7 @@ def _seed() -> dict[str, object]:
             "status": Member.Status.ACTIVE,
             "fog_role": Member.FogRole.ADMIN,
             "instructor_slug": "robin-maker",
-            # Spec D: the teach portal is gated on the orientation unlock.
+            # The teach portal is gated on an admin granting teaching; this stamp is that grant.
             "instructor_oriented_at": timezone.now(),
             "about_me": "Longtime metalsmith and studio lead. Teaches casting and fabrication.",
         },

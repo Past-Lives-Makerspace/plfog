@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
-from core.models import Notification, SiteActivity
+from core.models import EventDelivery, Notification, SiteActivity
 
 Status = ClassOffering.Status
 
@@ -155,6 +155,74 @@ def describe_restore():
             ClassOfferingFactory(status=Status.DRAFT).restore()
 
 
+def describe_unpublish():
+    """Taking a live class back to draft: the exact reverse of publish, and completely quiet."""
+
+    def it_returns_a_published_class_to_draft_with_approvals_cleared(db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, published_at=timezone.now())
+        _future(offering)
+        actor = UserFactory()
+        offering.approved_by = actor
+        offering.save(update_fields=["approved_by"])
+        ClassApproval.objects.create(
+            class_offering=offering, role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED
+        )
+        offering.unpublish(actor=actor)
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        assert offering.approvals.count() == 0
+        assert offering.approved_by is None
+        assert offering.published_at is None
+        assert offering.lifecycle == ClassOffering.Lifecycle.DRAFT
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_UNPUBLISHED, class_offering=offering).exists()
+
+    def it_refuses_any_status_but_published(db):
+        for status in (Status.DRAFT, Status.PENDING, Status.CANCELLED, Status.ARCHIVED):
+            with pytest.raises(ValueError):
+                ClassOfferingFactory(status=status).unpublish()
+
+    def it_tells_nobody(db):
+        """Unlike cancel, this is housekeeping: no email, no bell, no site activity mirror."""
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, published_at=timezone.now())
+        _future(offering)
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        mail.outbox = []
+        before = SiteActivity.objects.count()
+        offering.unpublish()
+        assert mail.outbox == []
+        assert Notification.objects.count() == 0
+        assert SiteActivity.objects.count() == before
+
+    def it_leaves_registrations_exactly_as_they_were(db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, published_at=timezone.now())
+        _future(offering)
+        reg = RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        offering.unpublish()
+        reg.refresh_from_db()
+        assert reg.status == Registration.Status.CONFIRMED
+        assert reg.class_offering_id == offering.pk
+
+    def it_drops_the_class_out_of_the_catalog_at_once(db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, published_at=timezone.now())
+        _future(offering)
+        assert offering in ClassOffering.objects.public()
+        offering.unpublish()
+        assert offering not in ClassOffering.objects.public()
+        assert offering not in ClassOffering.objects.bookable()
+
+    def it_sends_the_class_back_to_the_first_gate_of_the_pipeline(db):
+        offering = ClassOfferingFactory(ready=True, status=Status.PUBLISHED, published_at=timezone.now())
+        _future(offering)
+        ClassApproval.objects.create(
+            class_offering=offering, role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED
+        )
+        offering.unpublish()
+        offering.refresh_from_db()
+        pipeline = offering.review_pipeline()
+        assert not pipeline.is_live
+        assert pipeline.steps[0].state == "current"
+
+
 def describe_publish():
     def it_refuses_an_unready_class_naming_the_items(db, admin_user):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
@@ -175,6 +243,27 @@ def describe_publish():
         assert offering.published_at is not None
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED, class_offering=offering).count() == 1
         assert Notification.objects.filter(trigger="class_published", user=member).count() == 1
+
+    def it_announces_again_after_an_unpublish(db, admin_user):
+        # The delivery ledger dedupes on the emit period, so the period carries the publish
+        # moment: a class taken back to draft and published again is news again.
+        member = UserFactory(last_login=timezone.now())
+        offering = ClassOfferingFactory(ready=True, status=Status.PENDING)
+        offering.publish(admin_user)
+        first_period = (
+            EventDelivery.objects.filter(event_key="class_published").values_list("period", flat=True).first()
+        )
+        assert first_period is not None
+        assert first_period.startswith(f"offering:{offering.pk}:published:")
+        rows_after_first = EventDelivery.objects.filter(event_key="class_published").count()
+        assert rows_after_first >= 1
+        offering.unpublish(admin_user)
+        offering.publish(admin_user)
+        rows = EventDelivery.objects.filter(event_key="class_published")
+        assert rows.count() == 2 * rows_after_first
+        assert rows.values_list("period", flat=True).distinct().count() == 2
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED, class_offering=offering).count() == 2
+        assert Notification.objects.filter(trigger="class_published", user=member).count() == 2
 
     def it_refuses_the_admin_decision_on_an_unready_class_before_saving_the_row(db, admin_user):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")

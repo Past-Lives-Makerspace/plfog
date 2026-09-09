@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from django.utils import timezone
 
 from classes.emails import build_class_reminder_occurrence
-from classes.models import ClassSession, ClassSettings, Registration
+from classes.models import ClassOffering, ClassSession, ClassSettings, Registration
 from core.events.scheduler import run_due
 
 if TYPE_CHECKING:
@@ -33,9 +33,13 @@ def class_reminder_occurrences(now: datetime) -> Iterable[ScheduledOccurrence]:
     # is_due() applies the exact half-open tick window. The band is [fire, fire+1h)
     # in anchor space, comfortably covering any reasonable tick width.
     target_start = now + timedelta(hours=hours_before)
+    # Live classes only: a class an admin took back to draft (or that was cancelled or
+    # archived) keeps its registrations on record, but its page is gone until it is
+    # live again, so a reminder would point people at a dead link.
     sessions = ClassSession.objects.filter(
         starts_at__gte=target_start,
         starts_at__lt=target_start + timedelta(hours=1),
+        class_offering__status=ClassOffering.Status.PUBLISHED,
     ).select_related("class_offering")
     for session in sessions:
         registrations = Registration.objects.filter(

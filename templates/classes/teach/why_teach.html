@@ -1,0 +1,213 @@
+{% extends "hub/base.html" %}
+{% load membership_md static %}
+{% block title %}Host a Workshop{% endblock %}
+
+{% block extra_head %}
+{% comment %}
+The "See It For Yourself" section renders the REAL catalog card through
+classes/public/_class_card.html, whose styles live in cms-public.css. The .cp-page
+token block is self-contained and sources from the hub tokens, so the card is correct
+in both themes with no extra work.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/cms-public.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Host a Workshop (design spec §A; retoned and made admin editable by the
+2026-09-09-host-a-workshop-page spec). Extends hub/base.html directly, NOT
+classes/teach/base.html, whose tab bar links five gated pages; showing locked tabs
+here would be a wall of dead ends, which is exactly why the retired orientation page
+did the same.
+
+One column of cards, state-aware. `application_state` is Member.teaching_application_state,
+the single source of truth: none / pending / approved / declined. The words in the hero,
+the feature cards, How It Works, What We Ask Of You, Common Questions and the bottom card
+come from ClassSettings (`teach_page`), edited on the classes Settings page; a blanked
+field hides its section, so every one is guarded here. The Markdown sections arrive
+already sanitized (a SafeString from the model), so nothing on this page goes through
+|safe. The x-data below reopens the interest modal when a POST came back with a bound
+(invalid) form so the error shows inside it; the dispatch waits a tick because the
+modal's @open-modal.window listener is not bound yet when this x-init runs.
+{% endcomment %}
+<div class="pl-teach" x-data{% if apply_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'apply-to-teach'))"{% endif %} data-help-key="teach.become-instructor">
+
+    {% if application_state == 'pending' %}
+    <div class="hub-card pl-orientation-banner">
+        <h2 class="pl-orientation-banner__title">Thanks, We Got Your Note</h2>
+        <p class="pl-orientation-banner__body">
+            An admin will get back to you. You will get an email either way, and you can check this page any time.
+        </p>
+        {% if member.teaching_applied_at %}
+        <p class="pl-teach-meta">Sent on {{ member.teaching_applied_at|date }}.</p>
+        {% endif %}
+    </div>
+    {% elif application_state == 'declined' %}
+    <div class="hub-card pl-orientation-banner">
+        <h2 class="pl-orientation-banner__title">Not Right Now</h2>
+        <p class="pl-orientation-banner__body">
+            An admin had a look and it is not the right time yet. Here is what they said.
+        </p>
+        <div class="pl-review-note">
+            <span class="pl-review-note__label">Note from the admin</span>{% if member.teaching_decline_reason %}{{ member.teaching_decline_reason }}{% else %}The admin left no note.{% endif %}
+        </div>
+        <p class="pl-teach-meta">You are welcome to say you're interested again whenever you like.</p>
+    </div>
+    {% elif application_state == 'approved' %}
+    <div class="hub-card pl-orientation-done">
+        <h2 class="pl-orientation-done__title">You Can Host Workshops</h2>
+        {% if member.teaching_decided_at %}
+        <p class="pl-orientation-done__meta">Since {{ member.teaching_decided_at|date }}.</p>
+        {% endif %}
+        <div class="pl-orientation-done__actions">
+            <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the Teaching Portal</a>
+            <a class="pl-btn pl-btn--secondary" href="{% url 'classes:teach_class_create' %}">Create a Workshop</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="pl-guild-hero pl-guild-hero--noimg pl-teach-hero">
+        <div class="pl-guild-hero__content">
+            {% if teach_page.teach_page_title %}
+            <h1 class="pl-guild-hero__title">{{ teach_page.teach_page_title }}</h1>
+            {% endif %}
+            {% if teach_page.teach_page_lead %}
+            <p class="pl-guild-hero__lead">{{ teach_page.teach_page_lead }}</p>
+            {% endif %}
+            <div class="pl-teach-hero__actions">
+                {% if application_state == 'pending' %}
+                    <span class="pl-lifecycle-badge pl-lifecycle-badge--awaiting_admin">Note Sent</span>
+                    {% if example_url %}
+                    <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+                    {% endif %}
+                {% elif application_state == 'approved' %}
+                    <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the Teaching Portal</a>
+                    {% if example_url %}
+                    <a class="pl-btn pl-btn--secondary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+                    {% endif %}
+                {% else %}
+                    <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">
+                        {% if application_state == 'declined' %}I'm Still Interested{% else %}I'm Interested{% endif %}
+                    </button>
+                    {% if example_url %}
+                    <a class="pl-btn pl-btn--secondary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% if feature_cards %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">What You Get</h2>
+        <div class="pl-feature-grid">
+            {% for card in feature_cards %}
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">{% include "classes/teach/partials/_feature_icon.html" with icon=card.icon %}</span>
+                <span class="pl-feature-card__title">{{ card.title }}</span>
+                {% if card.description %}
+                <span class="pl-feature-card__desc">{{ card.description }}</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if example_url %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">See It For Yourself</h2>
+        <div class="pl-teach-showcase">
+            <div>
+                <p class="pl-teach-showcase__body">This is a real workshop page, built with the same editor you would use. Open it and scroll the whole thing.</p>
+                <p class="pl-teach-showcase__body">The card on the right is exactly how it looks in the catalog. Everything on it comes from what the host typed in.</p>
+                <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">Open the Example Page</a>
+            </div>
+            <div>
+                <div class="cp-page">
+                    <div class="cls-grid pl-teach-showcase__grid">
+                        {% include "classes/public/_class_card.html" with group=example_group %}
+                    </div>
+                </div>
+                <p class="pl-teach-showcase__caption">This is a live catalog card, not a picture of one.</p>
+            </div>
+        </div>
+    </section>
+    {% else %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">See It For Yourself</h2>
+        <p class="pl-teach-showcase__body">Browse the workshops and classes members are taking right now.</p>
+        <a class="pl-btn pl-btn--primary" href="{{ catalog_url }}" target="_blank" rel="noopener">Have a Look at the Catalog</a>
+    </section>
+    {% endif %}
+
+    {% if teach_page.teach_page_how_it_works %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">How It Works</h2>
+        <div class="pl-md pl-teach-steps-md">{{ teach_page.teach_page_how_it_works_html }}</div>
+    </section>
+    {% endif %}
+
+    {% if teach_page.teach_page_expectations %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">What We Ask Of You</h2>
+        <div class="pl-md pl-teach-asks-md">{{ teach_page.teach_page_expectations_html }}</div>
+    </section>
+    {% endif %}
+
+    {% if teach_page.teach_page_faq %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">Common Questions</h2>
+        <div class="pl-md pl-teach-faq-md">{{ teach_page.teach_page_faq_html }}</div>
+    </section>
+    {% endif %}
+
+    <section class="hub-card">
+        <details class="pl-teach-guide">
+            <summary>Read the Hosting Guide</summary>
+            {% if article %}
+            <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
+            {% else %}
+            <p class="hub-text-muted">The guide has not been loaded yet. Ask an admin to run the help center seed.</p>
+            {% endif %}
+            {% if guide %}
+            <p class="pl-orientation-guide-link">
+                Read the full guide: <a href="{{ guide.get_absolute_url }}"><strong>{{ guide.title }}</strong></a>
+            </p>
+            {% endif %}
+        </details>
+    </section>
+
+    <section class="hub-card pl-teach-apply">
+        {% if application_state == 'pending' %}
+            <h2 class="pl-teach-section__title">Waiting to Hear Back</h2>
+            <p class="hub-text-muted">Nothing else to do right now. Have a look around the example page while you wait.</p>
+            {% if example_url %}
+            <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+            {% else %}
+            <a class="pl-btn pl-btn--primary" href="{{ catalog_url }}" target="_blank" rel="noopener">Have a Look at the Catalog</a>
+            {% endif %}
+            <p class="pl-teach-apply__footnote">Want to add something to your note? Ask an admin and they can update it for you.</p>
+        {% elif application_state == 'approved' %}
+            <h2 class="pl-teach-section__title">You Are Already In</h2>
+            <p class="hub-text-muted">The teaching portal is open. Start a workshop whenever you are ready.</p>
+            <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the Teaching Portal</a>
+        {% else %}
+            {% if teach_page.teach_page_cta_title %}
+            <h2 class="pl-teach-section__title">{{ teach_page.teach_page_cta_title }}</h2>
+            {% endif %}
+            {% if teach_page.teach_page_cta_line %}
+            <p class="hub-text-muted">{{ teach_page.teach_page_cta_line }}</p>
+            {% endif %}
+            <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">
+                {% if application_state == 'declined' %}I'm Still Interested{% else %}I'm Interested{% endif %}
+            </button>
+        {% endif %}
+    </section>
+
+    {% if application_state == 'none' or application_state == 'declined' %}
+    {% include "components/modal.html" with modal_id="apply-to-teach" modal_title="What Would You Host?" modal_size="sm" modal_body_include="classes/teach/partials/apply_form.html" %}
+    {% endif %}
+
+</div>
+{% endblock %}

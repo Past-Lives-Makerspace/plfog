@@ -1395,6 +1395,8 @@ class SiteActivity(models.Model):
         ORIENTATION_CANCELLED = "orientation_cancelled", "Orientation cancelled"
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
         INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
+        TEACHING_APPLIED = "teaching_applied", "Applied to teach"
+        TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"
         TEACHING_GRANTED = "teaching_granted", "Teaching access granted"
         TEACHING_REVOKED = "teaching_revoked", "Teaching access revoked"
         GUILD_JOINED = "guild_joined", "Joined a guild"

@@ -1,0 +1,60 @@
+{% comment %}
+The catalog card focal point tool (design spec §B.3): the right hand pane of the composer's
+"Your Photo, Two Shapes" section. Renders the REAL card image strip
+(classes/public/_class_card_media.html) inside two card shaped frames, one at the width the
+catalog packs on a laptop and one at the width it packs on a phone, both driven live by two
+sliders. Only the media block renders, on purpose: the editor has no CatalogGroup, and a
+class offered on several date sets would get a confidently wrong single date body.
+
+Expects `form` (with the hidden card_focus field from _CardFocusMixin) and `offering`, which
+may be unsaved or have no photo yet. Both card frames sit inside .cp-page, so the .cls-card
+picks up the catalog's real border, radius, and overflow, and .cls-media supplies the 150px
+height. The two widths are derived in the CSS comment above .pl-card-focus__frame--laptop.
+{% endcomment %}
+<div class="cp-page pl-card-focus"
+     x-data="cardFocus({ initial: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}', banner: '{{ offering.hero_object_position|default:'50% 50%'|escapejs }}' })">
+  {{ form.card_focus }}
+  {% if form.card_focus.errors %}
+  <ul class="pl-field-errors">{% for error in form.card_focus.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if offering and offering.image %}
+    <div class="pl-card-focus__frame pl-card-focus__frame--laptop">
+      <span class="pl-card-focus__frame-label">On a Laptop</span>
+      <div class="cls-card">{% include "classes/public/_class_card_media.html" with offering=offering preview=True live_position="objectPosition" %}</div>
+    </div>
+    <div class="pl-card-focus__frame pl-card-focus__frame--phone">
+      <span class="pl-card-focus__frame-label">On a Phone</span>
+      <div class="cls-card">{% include "classes/public/_class_card_media.html" with offering=offering preview=True live_position="objectPosition" %}</div>
+    </div>
+  {% else %}
+    <div class="pl-preview-empty" x-show="!localSrc">Upload a photo and your card shows up here.</div>
+    {# A photo picked before the first save exists only as the hero field's local preview; mirror it. #}
+    <template x-if="localSrc">
+      <div class="pl-card-focus__frames">
+        <div class="pl-card-focus__frame pl-card-focus__frame--laptop">
+          <span class="pl-card-focus__frame-label">On a Laptop</span>
+          <div class="cls-card"><span class="cls-media"><img class="cls-img" :src="localSrc" alt="" :style="'object-position: ' + objectPosition"></span></div>
+        </div>
+        <div class="pl-card-focus__frame pl-card-focus__frame--phone">
+          <span class="pl-card-focus__frame-label">On a Phone</span>
+          <div class="cls-card"><span class="cls-media"><img class="cls-img" :src="localSrc" alt="" :style="'object-position: ' + objectPosition"></span></div>
+        </div>
+      </div>
+    </template>
+  {% endif %}
+  <p class="pl-card-focus__note">This is the photo only, at the two widths members actually see. Your title and dates sit underneath it.</p>
+  <div class="pl-card-focus__sliders">
+    <label class="pl-card-focus__slider-row">
+      <span class="pl-card-focus__slider-label">Up and down</span>
+      <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posY" @input="update()">
+    </label>
+    <label class="pl-card-focus__slider-row">
+      <span class="pl-card-focus__slider-label">Left and right</span>
+      <input type="range" min="0" max="100" class="pl-card-focus__range" x-model.number="posX" @input="update()">
+    </label>
+    <div class="pl-card-focus__reset">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="matchBanner()">Match the Banner</button>
+      <span class="pl-card-focus__note" x-show="following">Following the banner.</span>
+    </div>
+  </div>
+</div>

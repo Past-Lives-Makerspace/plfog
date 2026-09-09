@@ -213,9 +213,11 @@ def describe_edit_page_cards():
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, image="", gallery=0)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert 'href="#hero-preview">Add a hero photo.</a>' in html
-        assert 'href="#gallery-manager">Add one gallery photo.</a>' in html
-        assert 'href="#class-dates">Add at least one date.</a>' in html
+        # On the five step composer a hash link would scroll to a hidden step, so each hint
+        # is a button that jumps to the field's step first (readiness_list.html jump=True).
+        assert "goToField('hero-preview')\">Add a hero photo.</button>" in html
+        assert "goToField('gallery-manager')\">Add one gallery photo.</button>" in html
+        assert "goToField('class-dates')\">Add at least one date.</button>" in html
         assert 'id="class-dates"' in html
 
     def it_names_the_stage_on_a_pending_class(instructor_fixture, client):

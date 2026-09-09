@@ -7,9 +7,29 @@
 </p>
 <form method="post">
     {% csrf_token %}
-    {% for field in form %}{% include "components/form_field.html" with field=field %}{% endfor %}
+    {% for field in form.general_fields %}{% include "components/form_field.html" with field=field %}{% endfor %}
+
+    {% comment %}
+    The Host a Workshop page's words. Every field is admin prose feeding one section of
+    /classes/teach/why/; the model help text on each says which. The section sits above
+    the one Save button (Rule 21) because it saves with the rest of the form.
+    {% endcomment %}
+    <section class="pl-teach-settings">
+        <div class="pl-teach-settings__head">
+            <h3 class="pl-teach-settings__title">
+                Host a Workshop Page
+                <span class="pl-help">
+                    <span class="pl-help__icon" tabindex="0" role="img" aria-label="Host a Workshop Page: This is the page a member sees under Host a Workshop in the sidebar until an admin says yes to them.">?</span>
+                    <span class="pl-help__bubble">This is the page a member sees under Host a Workshop in the sidebar until an admin says yes to them.</span>
+                </span>
+            </h3>
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_why' %}" target="_blank" rel="noopener">View the Page</a>
+        </div>
+        {% for field in form.teach_page_fields %}{% include "components/form_field.html" with field=field %}{% endfor %}
+    </section>
+
     <div style="margin-top:1.5rem;">
-        <button type="submit" class="hub-btn hub-btn--primary">Save Settings</button>
+        <button type="submit" class="hub-btn hub-btn--primary">Save</button>
     </div>
 </form>
 {% endblock %}

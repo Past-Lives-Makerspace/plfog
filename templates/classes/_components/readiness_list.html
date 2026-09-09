@@ -6,6 +6,11 @@ Readiness checklist: the five things a class needs before it can be submitted.
 link_hints=True links each failing hint to its field anchor on the edit page; leave it
 off on the review page, where the anchors do not exist.
 
+jump=True (with link_hints) renders each hint as a button calling the composer's
+goToField(anchor) instead of an <a href="#anchor">: on the five step composer the anchors
+live on steps that are x-show'n false, so a bare hash link would scroll to a hidden element
+and appear to do nothing.
+
 grid=True lays the items out in columns from 720px up. Use it in a full width card (the
 review page); leave it off in a narrow column, where one item per row already reads well.
 {% endcomment %}
@@ -13,7 +18,7 @@ review page); leave it off in a narrow column, where one item per row already re
   {% for item in readiness %}
     <li class="pl-readiness__item pl-readiness__item--{% if item.ok %}ok{% else %}todo{% endif %}">
       <span class="pl-readiness__mark" aria-hidden="true">{% if item.ok %}&#10003;{% else %}&#9675;{% endif %}</span>
-      <span><span class="pl-readiness__label">{{ item.label }}</span>{% if not item.ok %} <span class="pl-readiness__hint">{% if link_hints %}<a href="#{{ item.anchor }}">{{ item.hint }}</a>{% else %}{{ item.hint }}{% endif %}</span>{% endif %}</span>
+      <span><span class="pl-readiness__label">{{ item.label }}</span>{% if not item.ok %} <span class="pl-readiness__hint">{% if link_hints and jump %}<button type="button" class="pl-readiness__jump" @click="goToField('{{ item.anchor }}')">{{ item.hint }}</button>{% elif link_hints %}<a href="#{{ item.anchor }}">{{ item.hint }}</a>{% else %}{{ item.hint }}{% endif %}</span>{% endif %}</span>
     </li>
   {% endfor %}
 </ul>
