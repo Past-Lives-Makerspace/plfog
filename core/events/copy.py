@@ -340,25 +340,25 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="{{ member_name }} wants to teach",
+                subject="{{ member_name }} is interested in becoming an instructor",
                 body_text="{{ application_note }}",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="New teaching application from {{ member_name }}",
+                subject="{{ member_name }} is interested in becoming an instructor",
                 body_text=(
-                    "{{ member_name }} asked for teaching access.\n\n"
+                    "{{ member_name }} is interested in becoming an instructor.\n\n"
                     'They wrote: "{{ application_note }}"\n\n'
-                    "Approve or decline it in the Teaching Applications queue: {{ review_url }}\n\n"
+                    "Have a look on the classes overview: {{ review_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
                     '<p><strong><a href="{{ review_url }}">{{ member_name }}</a></strong> '
-                    "asked for teaching access.</p>"
+                    "is interested in becoming an instructor.</p>"
                     "<p>They wrote: &ldquo;{{ application_note }}&rdquo;</p>"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ review_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
-                    "Open the Teaching Applications queue</a></p>"
+                    "See who is interested in teaching</a></p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

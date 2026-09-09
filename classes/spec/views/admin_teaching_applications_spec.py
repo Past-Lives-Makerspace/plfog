@@ -31,39 +31,40 @@ def describe_teaching_applications_card():
         member = _applicant("queued@example.com", note="I would like to run a two hour intro.")
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "Teaching Applications" in content
+        assert "Interested in Teaching" in content
+        assert "is interested in becoming an instructor." in content
         assert member.display_name in content
         assert "I would like to run a two hour intro." in content
         assert reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}) in content
         assert reverse("classes:admin_teaching_decline", kwargs={"pk": member.pk}) in content
 
-    def it_says_applied_today_for_a_same_day_application(admin_user, client, db):
-        """A zero day wait must not read as 'waiting 0 days'."""
+    def it_says_asked_today_for_a_same_day_ask(admin_user, client, db):
+        """A zero day wait must not read as 'asked 0 days ago'."""
         member = _applicant("today@example.com", note="Intro to wheel throwing.")
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "applied today" in content
-        assert "waiting 0 day" not in content
+        assert "asked today" in content
+        assert "asked 0 day" not in content
         assert member.display_name in content
 
     def it_shows_the_empty_state_with_nobody_waiting(admin_user, client, db):
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "No applications waiting." in content
+        assert "Nobody is waiting to hear back." in content
 
     def it_drops_an_applicant_once_they_are_approved(admin_user, client, db):
         member = _applicant("approved-out@example.com")
         member.grant_teaching(granted_by=None)
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "No applications waiting." in content
+        assert "Nobody is waiting to hear back." in content
 
     def it_drops_an_applicant_once_they_are_declined(admin_user, client, db):
         member = _applicant("declined-out@example.com")
         member.decline_teaching(decided_by=None, reason="Not yet.")
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "No applications waiting." in content
+        assert "Nobody is waiting to hear back." in content
 
     def it_drops_an_applicant_who_stopped_being_active(admin_user, client, db):
         member = _applicant("former-out@example.com")
@@ -71,7 +72,7 @@ def describe_teaching_applications_card():
         member.save(update_fields=["status"])
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "No applications waiting." in content
+        assert "Nobody is waiting to hear back." in content
 
 
 def describe_admin_teaching_approve():
