@@ -40,6 +40,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Drop the preinstalled Google Chrome apt source
+        # The runner image ships Google's chrome-stable repo, which we never install from
+        # (Playwright brings its own chromium). Its metadata has taken this job red twice
+        # on an apt hash sum mismatch, so the source comes out before --with-deps runs apt.
+        run: grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ | xargs -r sudo rm -f || true
+
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
 

@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
-VERSION = "1.45.5"
+VERSION = "1.47.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.47.0",
+        "date": "2026-09-09",
+        "title": "A wiki written by members",
+        "changes": [
+            "There is now a Wiki in the sidebar, and you can write in it. Every machine already "
+            "has a page waiting for what you know.",
+            "Add a photo from your phone in about thirty seconds, drop in a tip, or write the whole thing.",
+            "Scan the sticker on a machine to jump straight to its page.",
+            "Every version is saved, so nothing you write can be lost.",
+        ],
+    },
     {
         "version": "1.45.1",
         "date": "2026-09-07",
