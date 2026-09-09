@@ -1,0 +1,492 @@
+{% extends "hub/base.html" %}
+
+{% block title %}Slideshow — Past Lives{% endblock %}
+
+{% block content %}
+{% comment %}
+The root x-data is LOAD-BEARING, not decoration. Alpine only evaluates directives inside an
+x-data tree, and the zone row's @click Copy URL button carries no x-data of its own — without
+this wrapper the button renders, clicks, and silently does nothing. .pl-slideshow-page also
+supplies the inter-card spacing, since .hub-card carries no margin of its own.
+{% endcomment %}
+<div class="pl-slideshow-page" x-data="{}">
+  <div>
+    <h1 class="hub-page-title" style="margin:0 0 0.25rem;">Slideshow</h1>
+    <p style="color:var(--hub-text-muted);margin:0;">
+      The wall monitors around the space. Point a screen at its URL once; it keeps itself current.
+    </p>
+  </div>
+
+  {% comment %}
+  Screens and Slides are each their OWN <form> (you can't nest forms; that would orphan
+  these Save buttons). Mirrors the FAQ/Links editors on the guild edit page.
+  {% endcomment %}
+  {# ---- Screens (zones) ---- #}
+  <form method="post" id="slideshow-zones-form" action="{% url 'hub_admin_slideshow_zones_save' %}">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Screens</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+        Each screen (woodshop, lobby, classroom) gets its own set-and-forget URL — point a monitor at it once.
+        A screen re-checks for new slides every five minutes and restarts itself at 4am. Once a monitor is on
+        this URL it needs nothing else.
+      </p>
+      {{ zone_formset.management_form }}
+      <div id="zone-rows" class="pl-slideshow-rows">
+        {% for f in zone_formset %}
+          <div class="hub-card pl-slideshow-row">
+            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {% include "components/form_field.html" with field=f.name %}
+            {% include "components/form_field.html" with field=f.slug %}
+            {% include "components/form_field.html" with field=f.is_enabled %}
+            {% include "components/form_field.html" with field=f.sort_order %}
+            {% if f.instance.pk %}
+              <div class="pl-slideshow-zone__setup">
+                <div class="pl-slideshow-zone__url">{{ SIGNAGE_BASE_URL }}/{{ f.instance.slug }}/</div>
+                <p class="pl-field-hint" style="margin:0;">Save first — the URL and QR use the <em>saved</em> slug.</p>
+                <div class="pl-slideshow-zone__actions">
+                  <button type="button" class="hub-btn hub-btn--sm"
+                          @click="navigator.clipboard.writeText('{{ f.instance.player_url }}'); $dispatch('show-toast', {message:'URL copied', type:'info'})">Copy URL</button>
+                  <a class="hub-btn hub-btn--sm" href="{{ f.instance.player_url }}" target="_blank" rel="noopener">Preview</a>
+                </div>
+                <div class="pl-slideshow-zone__qr">{{ f.instance.qr_svg|safe }}</div>
+                <p class="pl-field-hint" style="margin:0;">Preview and the QR point at slideshow.pastlives.space — they won't resolve until the signage host goes live.</p>
+              </div>
+              <div style="display:none;">{{ f.DELETE }}</div>
+              {% comment %}
+              Confirmed: SlideshowSlide.zone cascades, so deleting a screen destroys every slide
+              pinned to it. The confirm modal is a SIBLING of this form (rendered after </form>);
+              its confirm_js runs the same two statements this button used to run inline.
+              {% endcomment %}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                      @click="$dispatch('open-confirm', 'delete-zone-{{ f.instance.pk }}')">
+                Delete this screen
+              </button>
+            {% endif %}
+            {{ f.id }}
+          </div>
+        {% empty %}
+          <p class="pl-slideshow-empty">No screens yet. Add your first zone to get a URL for a monitor.</p>
+        {% endfor %}
+      </div>
+
+      <template id="zone-empty-template">
+        <div class="hub-card pl-slideshow-row">
+          {% with zone_formset.empty_form as ef %}
+            {% include "components/form_field.html" with field=ef.name %}
+            {% include "components/form_field.html" with field=ef.slug %}
+            {% include "components/form_field.html" with field=ef.is_enabled %}
+            {% include "components/form_field.html" with field=ef.sort_order %}
+            {{ ef.id }}
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.pl-slideshow-row').remove();">Remove</button>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('zone-empty-template');
+                const total = document.getElementById('id_zones-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                document.getElementById('zone-rows').appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+              ">
+        + Add a screen
+      </button>
+
+      <div style="margin-top:1.5rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      </div>
+    </div>
+  </form>
+
+  {% comment %}
+  One delete-screen confirm per saved zone, rendered AFTER the zones </form> — the modal
+  teleports to <body> and must never be nested inside the form it submits.
+  {% endcomment %}
+  {% for f in zone_formset %}
+    {% if f.instance.pk %}
+      {% with zone_pk=f.instance.pk|stringformat:"s" %}
+      {% include "components/confirm_modal.html" with confirm_id="delete-zone-"|add:zone_pk confirm_title="Delete this screen?" confirm_message="Every slide pinned to this screen is deleted too. Slides set to show on every screen are not affected." confirm_button_text="Delete Screen" confirm_js="document.getElementById('"|add:f.DELETE.id_for_label|add:"').checked = true; document.getElementById('slideshow-zones-form').requestSubmit();" %}
+      {% endwith %}
+    {% endif %}
+  {% endfor %}
+
+  {# ---- Slides ---- #}
+  <form method="post" action="{% url 'hub_admin_slideshow_slides_save' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Slides</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+        A custom slide (your own title / body / image / flyer) or a mirror of a published guild announcement.
+        Leave a slide's screen blank to show it on every screen.
+      </p>
+      {{ slide_formset.management_form }}
+      <div id="slide-rows" class="pl-slideshow-rows">
+        {% for f in slide_formset %}
+          <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: '{{ f.kind.value|default:'custom' }}', expanded: false }">
+            {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+            {# Hidden order value — reorder JS rewrites it to the row's visual index; Save persists it. #}
+            {{ f.sort_order }}
+
+            {# Compact summary — a read-only glance + reorder + Edit + Delete. No fields until Edit. #}
+            <div class="pl-slide-summary">
+              <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
+              <span class="pl-slide-summary__thumb{% if not f.instance.image %} pl-slide-summary__thumb--placeholder{% endif %}">
+                {% if f.instance.image %}
+                  <img src="{{ f.instance.image.url }}" alt="">
+                {% else %}
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+                {% endif %}
+              </span>
+              <span class="pl-slide-summary__main">
+                <span class="pl-slide-summary__title">{% if f.instance.kind == 'announcement' %}{{ f.instance.announcement.title|default:"Announcement slide" }}{% else %}{{ f.instance.title|default:"Untitled slide" }}{% endif %}</span>
+                <span class="pl-slide-summary__meta">
+                  <span class="pl-slide-badge">{{ f.instance.get_kind_display|default:"Custom slide" }}</span>
+                  <span class="pl-slide-summary__screen">{% if f.instance.zone %}{{ f.instance.zone.name }}{% else %}All screens{% endif %}</span>
+                  {% if f.instance.is_enabled %}<span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>{% else %}<span class="pl-slide-summary__state pl-slide-summary__state--off">Off</span>{% endif %}
+                </span>
+              </span>
+              <span class="pl-slide-summary__actions">
+                <span class="pl-slide-move" role="group" aria-label="Reorder slide">
+                  <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move slide up">↑</button>
+                  <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move slide down">↓</button>
+                </span>
+                <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+                {% if f.instance.pk %}
+                  <div style="display:none;">{{ f.DELETE }}</div>
+                  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
+                          onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                    Delete
+                  </button>
+                {% endif %}
+              </span>
+            </div>
+
+            <div x-show="expanded" class="pl-slide-editor">
+              {% include "components/form_field.html" with field=f.kind %}
+
+              <div x-show="kind === 'custom'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=f.title %}
+                {% include "components/form_field.html" with field=f.body %}
+                <div class="pl-form-group" data-slide-image>
+                  <label class="pl-form-label pl-slide-image__label" for="{{ f.image.id_for_label }}">
+                    {{ f.image.label }}
+                    <span class="pl-help" tabindex="0" aria-label="Recommended image size">
+                      <span class="pl-help__icon" aria-hidden="true">?</span>
+                      <span class="pl-help__bubble" role="tooltip">1920×1080 (16:9), JPG or PNG. Up to ~2400px wide.</span>
+                    </span>
+                  </label>
+                  <div class="pl-slide-image-preview"{% if not f.instance.image %} hidden{% endif %}>
+                    {% if f.instance.image %}<img src="{{ f.instance.image.url }}" alt="">{% endif %}
+                  </div>
+                  <label class="cls-image-upload-zone">
+                    <input type="file" name="{{ f.image.html_name }}" id="{{ f.image.id_for_label }}" accept="image/*" style="display:none;">
+                    <span class="cls-image-upload-label">{% if f.instance.image %}Replace image{% else %}+ Upload image{% endif %}</span>
+                    <span class="cls-image-upload-hint">Click or drag a file here · 1920×1080 (16:9)</span>
+                  </label>
+                  {{ f.remove_image }}
+                  <p class="pl-field-hint">Choosing a new file replaces the current image. If the form bounces on a validation error, re-attach the file — it isn't kept across a failed submit.</p>
+                  {% if f.instance.pk and f.instance.image %}
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                            onclick="document.getElementById('{{ f.remove_image.id_for_label }}').value = '1'; this.form.requestSubmit();">
+                      Remove image
+                    </button>
+                  {% endif %}
+                  {% for error in f.image.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+                </div>
+                {% include "components/form_field.html" with field=f.link_url %}
+                {% include "components/form_field.html" with field=f.show_qr %}
+              </div>
+
+              <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=f.announcement %}
+              </div>
+
+              {% include "components/form_field.html" with field=f.zone %}
+              <div class="pl-slideshow-daterow">
+                {% include "components/form_field.html" with field=f.starts_on %}
+                {% include "components/form_field.html" with field=f.ends_on %}
+              </div>
+              {% include "components/form_field.html" with field=f.is_enabled %}
+              {{ f.id }}
+            </div>
+          </div>
+        {% empty %}
+          <p class="pl-slideshow-empty">No slides yet. Add a custom slide or pull in a published announcement.</p>
+        {% endfor %}
+      </div>
+
+      <template id="slide-empty-template">
+        <div class="hub-card pl-slideshow-row pl-slide-card" x-data="{ kind: 'custom', expanded: true }">
+          {% with slide_formset.empty_form as ef %}
+            {{ ef.sort_order }}
+            <div class="pl-slide-summary">
+              <span class="pl-slide-grip" draggable="true" title="Drag to reorder" aria-label="Drag to reorder">⠿</span>
+              <span class="pl-slide-summary__thumb pl-slide-summary__thumb--placeholder">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="7" y1="9" x2="17" y2="9"></line><line x1="7" y1="13" x2="17" y2="13"></line><line x1="7" y1="17" x2="13" y2="17"></line></svg>
+              </span>
+              <span class="pl-slide-summary__main">
+                <span class="pl-slide-summary__title">Untitled slide</span>
+                <span class="pl-slide-summary__meta">
+                  <span class="pl-slide-badge">Custom slide</span>
+                  <span class="pl-slide-summary__screen">All screens</span>
+                  <span class="pl-slide-summary__state pl-slide-summary__state--on">On</span>
+                </span>
+              </span>
+              <span class="pl-slide-summary__actions">
+                <span class="pl-slide-move" role="group" aria-label="Reorder slide">
+                  <button type="button" class="pl-slide-move__btn" data-move="up" title="Move up" aria-label="Move slide up">↑</button>
+                  <button type="button" class="pl-slide-move__btn" data-move="down" title="Move down" aria-label="Move slide down">↓</button>
+                </span>
+                <button type="button" class="hub-btn hub-btn--sm" @click="expanded = !expanded" :aria-expanded="expanded" x-text="expanded ? 'Done' : 'Edit'">Edit</button>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" onclick="this.closest('.pl-slide-card').remove();">Remove</button>
+              </span>
+            </div>
+
+            <div x-show="expanded" class="pl-slide-editor">
+              {% include "components/form_field.html" with field=ef.kind %}
+              <div x-show="kind === 'custom'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=ef.title %}
+                {% include "components/form_field.html" with field=ef.body %}
+                <div class="pl-form-group" data-slide-image>
+                  <label class="pl-form-label pl-slide-image__label" for="{{ ef.image.id_for_label }}">
+                    {{ ef.image.label }}
+                    <span class="pl-help" tabindex="0" aria-label="Recommended image size">
+                      <span class="pl-help__icon" aria-hidden="true">?</span>
+                      <span class="pl-help__bubble" role="tooltip">1920×1080 (16:9), JPG or PNG. Up to ~2400px wide.</span>
+                    </span>
+                  </label>
+                  <div class="pl-slide-image-preview" hidden></div>
+                  <label class="cls-image-upload-zone">
+                    <input type="file" name="{{ ef.image.html_name }}" id="{{ ef.image.id_for_label }}" accept="image/*" style="display:none;">
+                    <span class="cls-image-upload-label">+ Upload image</span>
+                    <span class="cls-image-upload-hint">Click or drag a file here · 1920×1080 (16:9)</span>
+                  </label>
+                  {{ ef.remove_image }}
+                  <p class="pl-field-hint">Add a full-bleed image or flyer (JPG/PNG).</p>
+                </div>
+                {% include "components/form_field.html" with field=ef.link_url %}
+                {% include "components/form_field.html" with field=ef.show_qr %}
+              </div>
+              <div x-show="kind === 'announcement'" class="pl-slide-fields">
+                {% include "components/form_field.html" with field=ef.announcement %}
+              </div>
+              {% include "components/form_field.html" with field=ef.zone %}
+              <div class="pl-slideshow-daterow">
+                {% include "components/form_field.html" with field=ef.starts_on %}
+                {% include "components/form_field.html" with field=ef.ends_on %}
+              </div>
+              {% include "components/form_field.html" with field=ef.is_enabled %}
+              {{ ef.id }}
+            </div>
+          {% endwith %}
+        </div>
+      </template>
+
+      <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+              onclick="
+                const tpl = document.getElementById('slide-empty-template');
+                const total = document.getElementById('id_slides-TOTAL_FORMS');
+                const idx = parseInt(total.value, 10);
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                const rows = document.getElementById('slide-rows');
+                rows.appendChild(wrap.firstElementChild);
+                total.value = idx + 1;
+                rows.dispatchEvent(new CustomEvent('slides:reindex'));
+              ">
+        + Add a slide
+      </button>
+
+      <div style="margin-top:1.5rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      </div>
+    </div>
+  </form>
+
+  {# ---- Automatic Slides ---- #}
+  <form method="post" action="{% url 'hub_admin_slideshow' %}">
+    {% csrf_token %}
+    <div class="hub-card" style="padding:1.5rem;">
+      <h2 class="hub-detail-label" style="margin-top:0;margin-bottom:0.25rem;">Automatic Slides</h2>
+      <p class="hub-text-muted" style="font-size:0.8125rem;margin:0 0 1rem;">
+        Slides the screens build themselves from what is already in the app, so a wall stays current
+        with nothing to maintain. These apply to every screen.
+      </p>
+      {% include "components/form_field.html" with field=settings_form.signage_show_events %}
+      {% include "components/form_field.html" with field=settings_form.signage_show_classes %}
+      {% include "components/form_field.html" with field=settings_form.signage_show_guilds %}
+      {% include "components/form_field.html" with field=settings_form.signage_show_calendar %}
+      {% include "components/form_field.html" with field=settings_form.signage_show_voting %}
+      {% include "components/form_field.html" with field=settings_form.signage_show_directory %}
+      {% include "components/form_field.html" with field=settings_form.signage_show_teach %}
+
+      <h3 class="hub-detail-label" style="margin-top:1.5rem;margin-bottom:0.25rem;">Timing</h3>
+      {% include "components/form_field.html" with field=settings_form.signage_default_slide_seconds %}
+      {% include "components/form_field.html" with field=settings_form.signage_event_days_ahead %}
+
+      <div style="margin-top:1.5rem;">
+        <button type="submit" class="pl-btn pl-btn--primary">Save</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Slide image upload zones — ONE delegated handler on #slide-rows so drag/drop + preview
+  // work for rows added later by "+ Add a slide". (A per-field inline <script> inside the
+  // cloned #slide-empty-template innerHTML would never execute, leaving new rows dead.)
+  (function () {
+    var container = document.getElementById('slide-rows');
+    if (!container) return;
+
+    function zoneOf(el) { return el && el.closest ? el.closest('.cls-image-upload-zone') : null; }
+
+    // Only react to genuine FILE drags. A row-reorder drag (from the ⠿ grip) carries no files,
+    // so it must not light up the image drop-zone.
+    function hasFiles(dt) {
+      if (!dt || !dt.types) return false;
+      for (var i = 0; i < dt.types.length; i++) { if (dt.types[i] === 'Files') return true; }
+      return false;
+    }
+
+    function showPreview(zone, dataUrl) {
+      var group = zone.closest('[data-slide-image]');
+      if (group) {
+        var preview = group.querySelector('.pl-slide-image-preview');
+        if (preview) { preview.innerHTML = '<img src="' + dataUrl + '" alt="">'; preview.hidden = false; }
+      }
+      var label = zone.querySelector('.cls-image-upload-label');
+      if (label) label.textContent = 'Replace image';
+      // Keep the collapsed summary thumbnail in sync before the row is even saved.
+      var card = zone.closest('.pl-slide-card');
+      if (card) {
+        var thumb = card.querySelector('.pl-slide-summary__thumb');
+        if (thumb) { thumb.innerHTML = '<img src="' + dataUrl + '" alt="">'; thumb.classList.remove('pl-slide-summary__thumb--placeholder'); }
+      }
+    }
+
+    container.addEventListener('change', function (e) {
+      var input = e.target;
+      if (!input.matches || !input.matches('.cls-image-upload-zone input[type="file"]')) return;
+      if (!input.files || !input.files.length) return;
+      var zone = zoneOf(input);
+      if (!zone) return;
+      var reader = new FileReader();
+      reader.onload = function (ev) { showPreview(zone, ev.target.result); };
+      reader.readAsDataURL(input.files[0]);
+    });
+
+    container.addEventListener('dragover', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      var zone = zoneOf(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.add('drag-hover');
+    });
+    container.addEventListener('dragleave', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      var zone = zoneOf(e.target);
+      if (zone) zone.classList.remove('drag-hover');
+    });
+    container.addEventListener('drop', function (e) {
+      if (!hasFiles(e.dataTransfer)) return;
+      var zone = zoneOf(e.target);
+      if (!zone) return;
+      e.preventDefault();
+      zone.classList.remove('drag-hover');
+      var input = zone.querySelector('input[type="file"]');
+      var f = e.dataTransfer.files[0];
+      if (input && f && f.type.indexOf('image/') === 0) {
+        input.files = e.dataTransfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    });
+  })();
+</script>
+<script>
+  // Slide reorder — ONE delegated handler on #slide-rows (clone-safe for "+ Add a slide").
+  // Desktop: native HTML5 drag from the ⠿ grip. Touch: the up/down buttons (native DnD is
+  // unreliable on touch, and the grip is hidden there via @media (hover: none)). Either path
+  // rewrites every row's hidden slides-N-sort_order to its new visual index (0,1,2…); Save
+  // persists it and Meta.ordering = ["sort_order", "id"] re-renders that order on reload.
+  (function () {
+    var container = document.getElementById('slide-rows');
+    if (!container) return;
+
+    function rows() {
+      return Array.prototype.filter.call(container.children, function (el) {
+        return el.classList && el.classList.contains('pl-slide-card');
+      });
+    }
+
+    function reindex() {
+      rows().forEach(function (row, idx) {
+        var input = row.querySelector('input[name$="-sort_order"]');
+        if (input) input.value = idx;
+      });
+    }
+
+    // A freshly-added row (appended at the bottom by "+ Add a slide") slots its order in.
+    container.addEventListener('slides:reindex', reindex);
+
+    // Up / down move buttons — the touch-friendly path, handy on desktop too.
+    container.addEventListener('click', function (e) {
+      var btn = e.target.closest && e.target.closest('[data-move]');
+      if (!btn || !container.contains(btn)) return;
+      var row = btn.closest('.pl-slide-card');
+      if (!row) return;
+      if (btn.getAttribute('data-move') === 'up') {
+        var prev = row.previousElementSibling;
+        if (prev && prev.classList.contains('pl-slide-card')) container.insertBefore(row, prev);
+      } else {
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('pl-slide-card')) container.insertBefore(next, row);
+      }
+      reindex();
+    });
+
+    // Native drag-and-drop from the grip handle (desktop).
+    var dragRow = null;
+    container.addEventListener('dragstart', function (e) {
+      var grip = e.target.closest && e.target.closest('.pl-slide-grip');
+      if (!grip) return;  // not a grip drag → leave file-drop zones to their own handler
+      dragRow = grip.closest('.pl-slide-card');
+      if (!dragRow) return;
+      dragRow.classList.add('pl-slide-card--dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('application/x-slide-reorder', '1'); } catch (err) {}
+    });
+    container.addEventListener('dragend', function () {
+      if (dragRow) dragRow.classList.remove('pl-slide-card--dragging');
+      rows().forEach(function (r) { r.classList.remove('pl-slide-card--drag-over'); });
+      dragRow = null;
+    });
+    container.addEventListener('dragover', function (e) {
+      if (!dragRow) return;  // only during a grip-initiated row drag
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      rows().forEach(function (r) { if (r !== row) r.classList.remove('pl-slide-card--drag-over'); });
+      row.classList.add('pl-slide-card--drag-over');
+    });
+    container.addEventListener('drop', function (e) {
+      if (!dragRow) return;
+      var row = e.target.closest && e.target.closest('.pl-slide-card');
+      if (!row || row === dragRow) return;
+      e.preventDefault();
+      row.classList.remove('pl-slide-card--drag-over');
+      var list = rows();
+      if (list.indexOf(dragRow) < list.indexOf(row)) {
+        container.insertBefore(dragRow, row.nextElementSibling);
+      } else {
+        container.insertBefore(dragRow, row);
+      }
+      reindex();
+    });
+  })();
+</script>
+{% endblock %}

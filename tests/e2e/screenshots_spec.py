@@ -94,7 +94,7 @@ def _member_hub_pages() -> list[tuple[str, str]]:
     """(label, path) for the 0.21 member-hub feature pages on the members surface."""
     return [
         ("Member hub — notifications", reverse("notification_list")),
-        ("Member hub — slideshow settings", reverse("hub_admin_site_settings") + "?tab=slideshow"),
+        ("Member hub — slideshow settings", reverse("hub_admin_slideshow")),
     ]
 
 

@@ -53,6 +53,7 @@ from hub.forms import (
     ScheduledJobStateFormSet,
     SiteSettingsForm,
     SkillSuggestionForm,
+    SlideshowSettingsForm,
     SlideshowSlideFormSet,
     SlideshowZoneFormSet,
     TourSettingsForm,
@@ -3845,6 +3846,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "tool_activity": is_admin,
             "tool_notifications": is_admin,
             "tool_site_settings": is_admin,
+            "tool_slideshow": is_admin,
             "tool_push_test": is_admin,
         },
     )
@@ -7136,6 +7138,39 @@ def _save_site_settings(
     return None, form, feed_formset, emoji_formset, role_formset, jobstate_formset
 
 
+_SITE_SETTINGS_TABS = frozenset(
+    {
+        "brand",
+        "general",
+        "calendar",
+        "legacy-cms",
+        "automations",
+        "announcements",
+        "features",
+        "discord",
+        "emails",
+    }
+)
+
+
+def _resolve_site_settings_tab(request: HttpRequest) -> tuple[str, HttpResponse | None]:
+    """The Site Settings tab to render, plus a redirect that pre-empts rendering at all.
+
+    ``?tab=slideshow`` is an old bookmark: the Slideshow admin is its own page now, so it
+    302s there rather than silently landing on General.
+
+    Args:
+        request: The current request.
+
+    Returns:
+        ``(tab, None)`` to render that tab, or ``(tab, redirect)`` to send the admin elsewhere.
+    """
+    tab = request.GET.get("tab", "general")
+    if tab == "slideshow":
+        return tab, redirect("hub_admin_slideshow")
+    return (tab if tab in _SITE_SETTINGS_TABS else "general"), None
+
+
 @fog_admin_required
 def admin_site_settings(request: HttpRequest) -> HttpResponse:
     """Admin site settings — edit the SiteConfiguration singleton and its calendar feeds.
@@ -7150,21 +7185,9 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     from core.models import CalendarFeed, SiteConfiguration
 
     config = SiteConfiguration.load()
-    active_tab = request.GET.get("tab", "general")
-    allowed_tabs = {
-        "brand",
-        "general",
-        "calendar",
-        "legacy-cms",
-        "automations",
-        "announcements",
-        "features",
-        "discord",
-        "slideshow",
-        "emails",
-    }
-    if active_tab not in allowed_tabs:
-        active_tab = "general"
+    active_tab, moved = _resolve_site_settings_tab(request)
+    if moved is not None:
+        return moved
 
     feed_queryset = CalendarFeed.objects.all()
     release_mode = False
@@ -7226,10 +7249,6 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             active_tab = "announcements"
 
     instructor_sync_rows, legacy_cms_unmatched = _legacy_instructor_sync_status()
-    from membership.models import SlideshowSlide, SlideshowZone
-
-    zone_formset = SlideshowZoneFormSet(queryset=SlideshowZone.objects.all(), prefix="zones")
-    slide_formset = SlideshowSlideFormSet(queryset=SlideshowSlide.objects.all(), prefix="slides")
 
     # Automations tab: reuse the bound formset from a failed save (preserves typed toggle state),
     # else build a fresh one over the synced rows. Rows pair each registry job with its form + last run.
@@ -7248,8 +7267,6 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "feed_formset": feed_formset,
             "emoji_formset": emoji_formset,
             "role_formset": role_formset,
-            "zone_formset": zone_formset,
-            "slide_formset": slide_formset,
             "active_tab": active_tab,
             "classes_color_field": form["classes_calendar_color"],
             "sync_classes_field": form["sync_classes_enabled"],
@@ -7280,48 +7297,107 @@ def admin_brand_logo_delete(request: HttpRequest) -> HttpResponse:
     return redirect(f"{reverse('hub_admin_site_settings')}?tab=brand")
 
 
+def _render_slideshow_page(
+    request: HttpRequest,
+    *,
+    settings_form: SlideshowSettingsForm | None = None,
+    zone_formset: Any = None,
+    slide_formset: Any = None,
+) -> HttpResponse:
+    """Render ``/manage/slideshow/``, reusing any BOUND form/formset passed in.
+
+    One render path for the page view and both editor save views, so a failed save
+    re-renders with the admin's typed values and field errors instead of redirecting and
+    discarding every row they just added.
+
+    Args:
+        request: The current request.
+        settings_form: A bound Automatic Slides form to re-render, or ``None`` for a fresh one.
+        zone_formset: A bound zones formset to re-render, or ``None`` for a fresh one.
+        slide_formset: A bound slides formset to re-render, or ``None`` for a fresh one.
+
+    Returns:
+        The rendered Slideshow admin page.
+    """
+    from core.models import SiteConfiguration
+    from membership.models import SlideshowSlide, SlideshowZone
+
+    ctx = _get_hub_context(request)
+    return render(
+        request,
+        "hub/admin/slideshow.html",
+        {
+            **ctx,
+            "settings_form": settings_form or SlideshowSettingsForm(instance=SiteConfiguration.load()),
+            "zone_formset": zone_formset or SlideshowZoneFormSet(queryset=SlideshowZone.objects.all(), prefix="zones"),
+            "slide_formset": slide_formset
+            or SlideshowSlideFormSet(queryset=SlideshowSlide.objects.all(), prefix="slides"),
+        },
+    )
+
+
+@fog_admin_required
+def hub_admin_slideshow(request: HttpRequest) -> HttpResponse:
+    """The Slideshow admin: screens, slides, and what builds itself.
+
+    Its own page (and its own Admin Tools tile) rather than a Site Settings tab — it is the
+    only tab that managed its own models through two sibling forms, and it outgrew a tab.
+    """
+    from core.models import SiteConfiguration
+
+    if request.method == "POST":
+        form = SlideshowSettingsForm(request.POST, instance=SiteConfiguration.load())
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Slideshow settings saved.")
+            return redirect("hub_admin_slideshow")
+        messages.error(request, "Couldn't save the slideshow settings — check the highlighted fields.")
+        return _render_slideshow_page(request, settings_form=form)
+    return _render_slideshow_page(request)
+
+
 @fog_admin_required
 @require_POST
 def admin_slideshow_zones_save(request: HttpRequest) -> HttpResponse:
-    """Save the Slideshow tab's Zones editor (its own form, outside the settings form)."""
+    """Save the Slideshow page's Zones editor (its own form, a sibling of the others)."""
     from membership.models import SlideshowZone
 
     formset = SlideshowZoneFormSet(request.POST, queryset=SlideshowZone.objects.all(), prefix="zones")
-    if formset.is_valid():
-        instances = formset.save(commit=False)
-        for obj in formset.deleted_objects:
-            obj.delete()
-        for inst in instances:
-            # Skip a blank "+ Add" row the user never filled in.
-            if not inst.name:
-                continue
-            inst.save()
-        messages.success(request, "Zones saved.")
-    else:
+    if not formset.is_valid():
         messages.error(request, "Couldn't save the zones — check the highlighted fields.")
-    return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")
+        return _render_slideshow_page(request, zone_formset=formset)
+    instances = formset.save(commit=False)
+    for obj in formset.deleted_objects:
+        obj.delete()
+    for inst in instances:
+        # Skip a blank "+ Add" row the user never filled in.
+        if not inst.name:
+            continue
+        inst.save()
+    messages.success(request, "Zones saved.")
+    return redirect("hub_admin_slideshow")
 
 
 @fog_admin_required
 @require_POST
 def admin_slideshow_slides_save(request: HttpRequest) -> HttpResponse:
-    """Save the Slideshow tab's Slides editor (its own multipart form, outside the settings form)."""
+    """Save the Slideshow page's Slides editor (its own multipart form, a sibling of the others)."""
     from membership.models import SlideshowSlide
 
     formset = SlideshowSlideFormSet(request.POST, request.FILES, queryset=SlideshowSlide.objects.all(), prefix="slides")
-    if formset.is_valid():
-        instances = formset.save(commit=False)
-        for obj in formset.deleted_objects:
-            obj.delete()
-        for inst in instances:
-            # Skip a blank "+ Add" row (no title, image, or announcement).
-            if not (inst.title or inst.image or inst.announcement_id):
-                continue
-            inst.save()
-        messages.success(request, "Slides saved.")
-    else:
+    if not formset.is_valid():
         messages.error(request, "Couldn't save the slides — check the highlighted fields.")
-    return redirect(f"{reverse('hub_admin_site_settings')}?tab=slideshow")
+        return _render_slideshow_page(request, slide_formset=formset)
+    instances = formset.save(commit=False)
+    for obj in formset.deleted_objects:
+        obj.delete()
+    for inst in instances:
+        # Skip a blank "+ Add" row (no title, image, or announcement).
+        if not (inst.title or inst.image or inst.announcement_id):
+            continue
+        inst.save()
+    messages.success(request, "Slides saved.")
+    return redirect("hub_admin_slideshow")
 
 
 # ── Interactive space map ────────────────────────────────────────────────────

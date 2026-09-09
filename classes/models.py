@@ -2604,6 +2604,23 @@ class ClassFaq(models.Model):
 
 
 class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
+    def public(self) -> "ClassSessionQuerySet":
+        """Sessions whose offering is publicly visible (published + non-private + demo gate).
+
+        The date-free half of :meth:`upcoming_public`, extracted so a caller that needs a
+        *window* rather than the future (the signage month calendar dots elapsed days too)
+        reuses the same visibility gate instead of duplicating it.
+        """
+        from core.models import SiteConfiguration
+
+        qs = self.filter(
+            class_offering__status="published",
+            class_offering__is_private=False,
+        )
+        if not SiteConfiguration.load().display_demo_classes:
+            qs = qs.exclude(class_offering__slug__startswith="demo-")
+        return qs
+
     def upcoming_public(self) -> "ClassSessionQuerySet":
         """Future sessions whose offering is publicly visible (published + non-private).
 
@@ -2615,18 +2632,22 @@ class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
         The ``display_demo_classes`` gate is mirrored here too — this is a second
         member-facing choke-point (the Discord ``/whats-on`` digest reads it), so demo
         (``demo-`` slug) sessions stay hidden unless that site setting is on, exactly
-        like ``public()``.
+        like ``ClassOfferingQuerySet.public()``. That whole gate now lives in
+        :meth:`public`; this is only the future-only half.
         """
-        from core.models import SiteConfiguration
+        return self.public().filter(starts_at__gte=timezone.now())
 
-        qs = self.filter(
-            starts_at__gte=timezone.now(),
-            class_offering__status="published",
-            class_offering__is_private=False,
-        )
-        if not SiteConfiguration.load().display_demo_classes:
-            qs = qs.exclude(class_offering__slug__startswith="demo-")
-        return qs
+    def public_between(self, start: datetime, end: datetime) -> "ClassSessionQuerySet":
+        """Public sessions starting inside ``[start, end]`` — past ones included.
+
+        Args:
+            start: Inclusive lower bound on ``starts_at`` (timezone-aware).
+            end: Inclusive upper bound on ``starts_at`` (timezone-aware).
+
+        Returns:
+            The publicly visible sessions in that window, elapsed ones and all.
+        """
+        return self.public().filter(starts_at__gte=start, starts_at__lte=end)
 
     def upcoming_public_count(self) -> int:
         """How many purchasable, dated sessions are live in the public catalog."""

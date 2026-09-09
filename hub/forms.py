@@ -952,9 +952,6 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_info_channel_id",
             "discord_info_message_id",
             "discord_info_links_content",
-            "signage_default_slide_seconds",
-            "signage_show_events",
-            "signage_event_days_ahead",
         ]
         widgets = {
             "org_primary_color": forms.TextInput(attrs={"type": "color"}),
@@ -1080,6 +1077,28 @@ GuildRoleFormSet = forms.modelformset_factory(
     extra=0,
     can_delete=False,
 )
+
+
+class SlideshowSettingsForm(forms.ModelForm):
+    """The Slideshow page's own slice of SiteConfiguration: timing + which blocks self-build.
+
+    These fields left ``SiteSettingsForm`` when the Slideshow admin became its own page; they
+    are not duplicated across the two forms.
+    """
+
+    class Meta:
+        model = SiteConfiguration
+        fields = [
+            "signage_default_slide_seconds",
+            "signage_event_days_ahead",
+            "signage_show_events",
+            "signage_show_classes",
+            "signage_show_guilds",
+            "signage_show_calendar",
+            "signage_show_voting",
+            "signage_show_directory",
+            "signage_show_teach",
+        ]
 
 
 class SlideshowZoneForm(forms.ModelForm):

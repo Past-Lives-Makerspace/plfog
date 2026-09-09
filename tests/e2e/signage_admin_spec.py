@@ -1,10 +1,9 @@
-"""End-to-end: an admin adds a Slideshow slide from Site Settings, in a real browser.
+"""End-to-end: an admin adds a Slideshow slide from /manage/slideshow/, in a real browser.
 
-The Slideshow tab holds TWO stacked ``<form>``s (the settings form, then the zones
-and slides editors as separate forms after it — you can't nest forms). Our unit tests
-guard that structure by parsing the HTML; only a real browser proves the whole thing
-works: the tab reveals, the "+ Add" clone-empty_form JS builds a live row, and the
-row's own Save button persists it. Run with ``pytest -m e2e``.
+The page stacks THREE sibling ``<form>``s (screens, slides, then the automatic-slide
+settings — you can't nest forms). Our unit tests guard that structure by parsing the
+HTML; only a real browser proves the whole thing works: the "+ Add" clone-empty_form JS
+builds a live row and that card's own Save button persists it. Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
@@ -33,9 +32,8 @@ def describe_signage_admin_editor():
         user.is_superuser = True
         user.save(update_fields=["is_staff", "is_superuser"])
 
-        # Open Site Settings and switch to the Slideshow tab (Alpine reveals Block B).
-        page.goto(f"{live_server.url}{reverse('hub_admin_site_settings')}")
-        page.get_by_role("button", name="Slideshow", exact=True).click()
+        # Open the Slideshow admin page.
+        page.goto(f"{live_server.url}{reverse('hub_admin_slideshow')}")
 
         # Add a slide row (clones #slide-empty-template, bumps TOTAL_FORMS to index 0).
         page.get_by_role("button", name="+ Add a slide", exact=True).click()
@@ -45,12 +43,15 @@ def describe_signage_admin_editor():
         page.fill('input[name="slides-0-title"]', "Wall welcome")
         page.fill('textarea[name="slides-0-body"]', "Ask the front desk for a tour.")
 
-        # Save the slides editor form (its own form, not the settings form).
-        page.get_by_role("button", name="Save slides", exact=True).click()
+        # Save the slides editor form (its own form, not the settings form). Every Save on
+        # this page now reads just "Save" (Rule 21), so scope the lookup to the slides card
+        # or Playwright's strict mode matches three buttons.
+        slides_form = page.locator(f'form[action="{reverse("hub_admin_slideshow_slides_save")}"]')
+        slides_form.get_by_role("button", name="Save", exact=True).click()
 
-        # The save redirects back to the Slideshow tab; the persisted row now renders with
+        # The save redirects back to the Slideshow page; the persisted row now renders with
         # our title in its editable field.
-        expect(page).to_have_url(re.compile(r"tab=slideshow"))
+        expect(page).to_have_url(re.compile(re.escape(reverse("hub_admin_slideshow")) + r"$"))
         expect(page.locator('input[name="slides-0-title"]')).to_have_value("Wall welcome")
 
         # And it really landed in the database.

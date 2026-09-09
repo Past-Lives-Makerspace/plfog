@@ -9,10 +9,35 @@ Carries the fresh deck hash into the swapped content; the player copies it up on
 {% endcomment %}
 <span id="pl-sign-hash" data-deck-hash="{{ deck_hash }}" hidden></span>
 {% for s in deck %}
-  <section class="pl-sign-slide{% if forloop.first %} is-active{% endif %}{% if s.kind == 'event' %} pl-sign-slide--event{% endif %}{% if s.kind == 'holding' %} pl-sign-slide--holding{% endif %}" data-duration="{{ s.duration_seconds }}">
+  {% comment %}
+  Every slide emits its kind class, so any block can be styled per kind. --event and
+  --holding keep working exactly as before; the generated blocks become addressable.
+  {% endcomment %}
+  <section class="pl-sign-slide pl-sign-slide--{{ s.kind }}{% if forloop.first %} is-active{% endif %}" data-duration="{{ s.duration_seconds }}">
     {% if s.image_url %}<img class="pl-sign-slide__img" src="{{ s.image_url }}" alt="">{% endif %}
     {% if s.title %}<h1 class="pl-sign-slide__title">{{ s.title }}</h1>{% endif %}
     {% if s.meta %}<p class="pl-sign-slide__meta">{{ s.meta }}</p>{% endif %}
+    {% if s.calendar_days %}
+      <div class="pl-sign-calendar">
+        <span class="pl-sign-calendar__dow">Mon</span>
+        <span class="pl-sign-calendar__dow">Tue</span>
+        <span class="pl-sign-calendar__dow">Wed</span>
+        <span class="pl-sign-calendar__dow">Thu</span>
+        <span class="pl-sign-calendar__dow">Fri</span>
+        <span class="pl-sign-calendar__dow">Sat</span>
+        <span class="pl-sign-calendar__dow">Sun</span>
+        {% for d in s.calendar_days %}
+          {% if d.day %}
+            <span class="pl-sign-calendar__day{% if d.is_today %} pl-sign-calendar__day--today{% endif %}{% if d.event_count %} pl-sign-calendar__day--has-events{% endif %}">
+              <span class="pl-sign-calendar__num">{{ d.day }}</span>
+              {% if d.event_count > 1 %}<span class="pl-sign-calendar__count">{{ d.event_count }}</span>{% elif d.event_count %}<span class="pl-sign-calendar__dot"></span>{% endif %}
+            </span>
+          {% else %}
+            <span class="pl-sign-calendar__day pl-sign-calendar__day--pad"></span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    {% endif %}
     {% if s.body %}<div class="pl-sign-slide__body">{{ s.body|linebreaksbr }}</div>{% endif %}
     {% if s.qr_svg or s.url_display %}
       <div class="pl-sign-slide__more">

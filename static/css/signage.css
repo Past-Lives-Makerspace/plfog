@@ -227,3 +227,102 @@ body {
   background: linear-gradient(160deg, var(--sign-navy), var(--sign-bg));
 }
 
+
+/* ---- Self-building slide variants -----------------------------------------------
+   The generated blocks (classes / guilds / calendar / voting / directory / teach) get
+   their kind class from _deck.html. Everything below sizes in clamp()/vmin so the stage
+   stays 100vw × 100vh with no scrollbar, on a 1080p TV and on a portrait tablet alike. */
+
+/* A class slide reads as a headline over a big gold day-and-time, like an event. */
+.pl-sign-slide--class .pl-sign-slide__title {
+  font-size: clamp(2rem, 6vw, 5.5rem);
+}
+
+/* A dozen guild names will not fit the 24ch body default — let the list run wide. */
+.pl-sign-slide--guilds .pl-sign-slide__body {
+  max-width: 32ch;
+  font-size: clamp(1.1rem, 2.6vw, 2.25rem);
+}
+
+@media (min-aspect-ratio: 1 / 1) {
+  .pl-sign-slide--guilds .pl-sign-slide__body {
+    max-width: 60ch;
+  }
+}
+
+/* The month grid. Seven columns of squares; the whole block is capped so the title,
+   the grid and the QR all share one 100vh stage. */
+.pl-sign-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: clamp(0.2rem, 0.8vmin, 0.6rem);
+  width: min(88vw, 78vmin);
+}
+
+.pl-sign-calendar__dow {
+  font-family: "Lato", sans-serif;
+  font-weight: 700;
+  font-size: clamp(0.6rem, 1.6vmin, 1.1rem);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sign-muted);
+  padding-bottom: 0.2em;
+}
+
+.pl-sign-calendar__day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15em;
+  aspect-ratio: 1 / 1;
+  border-radius: clamp(4px, 1vmin, 10px);
+  background: rgba(244, 239, 221, 0.05);
+  font-size: clamp(0.7rem, 2vmin, 1.5rem);
+  line-height: 1;
+  color: var(--sign-text);
+}
+
+.pl-sign-calendar__day--pad {
+  background: none;
+}
+
+.pl-sign-calendar__day--has-events {
+  background: rgba(238, 180, 75, 0.16);
+}
+
+.pl-sign-calendar__day--today {
+  outline: clamp(2px, 0.35vmin, 4px) solid var(--sign-gold);
+  outline-offset: calc(-1 * clamp(2px, 0.35vmin, 4px));
+  font-weight: 700;
+}
+
+.pl-sign-calendar__dot {
+  width: clamp(4px, 0.9vmin, 10px);
+  height: clamp(4px, 0.9vmin, 10px);
+  border-radius: 50%;
+  background: var(--sign-gold);
+}
+
+.pl-sign-calendar__count {
+  font-family: "Lato", sans-serif;
+  font-weight: 900;
+  font-size: 0.62em;
+  color: var(--sign-gold);
+}
+
+/* The grid is the point of the calendar slide — shrink the headline and the QR so the
+   month always fits above them. */
+.pl-sign-slide--calendar {
+  gap: clamp(0.5rem, 2vmin, 1.5rem);
+}
+
+.pl-sign-slide--calendar .pl-sign-slide__title {
+  font-size: clamp(1.75rem, 4.5vw, 4rem);
+}
+
+.pl-sign-slide--calendar .pl-sign-slide__qr {
+  width: clamp(90px, 14vmin, 200px);
+  height: clamp(90px, 14vmin, 200px);
+}
