@@ -40,6 +40,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Google's Chrome apt index intermittently serves a bad hash to the runners, and
+      # `playwright install --with-deps` runs apt-get update across every source on the
+      # image. Playwright ships its own Chromium, so that source is never needed.
+      - name: Drop the Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome*.list
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
 
