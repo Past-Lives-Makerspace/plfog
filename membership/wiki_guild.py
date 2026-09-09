@@ -91,11 +91,12 @@ def guild_wiki_tab_context(request: HttpRequest, guild: Guild) -> dict[str, Any]
     Returns:
         The template context block, ready to merge into ``guild_detail``'s dict.
     """
-    # can_edit_guild is exactly can_verify_wiki_page's guild-scoped leg, asked ONCE for the
-    # whole tab instead of once per row. The per-row flag below re-adds the Official guard
-    # (an Official page is never verifiable). It cannot over-grant: the only leg it misses
-    # is A's Equipment-orienter case, which can only ADD rights, and an orienter who is not
-    # guild staff still verifies from the page itself.
+    # can_edit_guild is now the WHOLE of can_verify_wiki_page's guild-scoped leg, asked
+    # once for the tab instead of once per row, so the two can no longer disagree about who
+    # may verify. The per-row flag below re-adds the guards that are about the page rather
+    # than the person: Official is never verifiable, and neither is a page carrying an open
+    # report. This used to miss the Equipment-orienter leg; brief section 9.1 defers that
+    # case and can_verify_wiki_page no longer admits it either.
     can_verify = can_edit_guild(request, guild)
 
     # not_archived() on purpose: visible_for() hands effective staff EVERYTHING, archived

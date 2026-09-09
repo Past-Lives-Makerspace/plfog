@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from unittest import mock
+
 import pytest
 from django.utils import timezone
 
-from membership.models import WANTED_MAX_PER_MEMBER_PER_DAY, WikiError, WikiWantedPage
+from membership.models import (
+    WANTED_MAX_PER_MEMBER_PER_DAY,
+    WikiError,
+    WikiWantedPage,
+    WikiWantedPageQuerySet,
+)
 from tests.membership.factories import (
     GuildFactory,
     MemberFactory,
@@ -59,6 +66,32 @@ def describe_request():
         WikiWantedPage.objects.request(title="Finishing walnut", guild=first, member=MemberFactory())
         _row, created = WikiWantedPage.objects.request(title="Finishing walnut", guild=second, member=MemberFactory())
         assert created is True
+
+    def it_recovers_from_a_lost_race_inside_a_transaction(db):
+        """The create is wrapped in its own savepoint. Without it, Postgres marks the
+        transaction needs_rollback on the failed INSERT and the recovery SELECT raises
+        TransactionManagementError instead of returning the winner -- and every test using
+        the db fixture runs inside exactly such a block, which is what made this branch
+        untestable before."""
+        guild = GuildFactory()
+        winner = WikiWantedPageFactory(guild=guild, title="Sharpening jigs")
+        # Blind the FIRST lookup only, which is what losing the race looks like: the
+        # pre-check misses, the INSERT hits the constraint, and the recovery lookup still
+        # has to be able to read. Patched on the QUERYSET class, because the manager method
+        # calls QuerySet.first and not the manager's own.
+        calls = {"n": 0}
+        real_first = WikiWantedPageQuerySet.first
+
+        def blind_once(self):
+            calls["n"] += 1
+            return None if calls["n"] == 1 else real_first(self)
+
+        with mock.patch.object(WikiWantedPageQuerySet, "first", blind_once):
+            row, created = WikiWantedPage.objects.request(title="Sharpening jigs", guild=guild, member=MemberFactory())
+        assert calls["n"] >= 2, "the create never raised, so the recovery branch was not exercised"
+        assert created is False
+        assert row.pk == winner.pk
+        assert WikiWantedPage.objects.count() == 1
 
     def it_dedupes_space_wide_rows_too(db):
         """The partial unique constraint cannot: Postgres NULLs never collide, so the
@@ -209,6 +242,28 @@ def describe_reopen():
         assert row.request_count == 4
         assert row.title == "Sharpening jigs"
         assert row.claimed_by_id is None
+
+    def it_refuses_a_row_that_is_already_open(db):
+        """A lead POSTing reopen at an open row used to silently clear a live claim,
+        walking past the Release confirm modal and the line naming whose claim it is."""
+        holder = MemberFactory()
+        row = WikiWantedPageFactory(claimed_by=holder, claimed_at=timezone.now())
+        with pytest.raises(ValueError):
+            row.reopen()
+        row.refresh_from_db()
+        assert row.claimed_by_id == holder.pk
+
+    def it_refuses_when_the_same_ask_has_been_filed_again(db):
+        """fulfilled_page = None moves the row INTO the partial unique index, so a
+        duplicate opened while it sat closed would surface as an uncaught IntegrityError."""
+        guild = GuildFactory()
+        row = WikiWantedPageFactory(guild=guild, title="Sharpening jigs")
+        row.fulfil(WikiPageFactory(guild=guild))
+        WikiWantedPageFactory(guild=guild, title="sharpening JIGS")
+        with pytest.raises(ValueError):
+            row.reopen()
+        row.refresh_from_db()
+        assert row.state == "done"
 
 
 def describe_the_daily_caps():

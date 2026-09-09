@@ -7,6 +7,7 @@ consumes that helper and never redefines it. Everything else is ``WikiPage.verif
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest import mock
 
 import pytest
@@ -216,9 +217,11 @@ def describe_WikiPage_verify():
 
     def it_truncates_a_role_label_that_would_overflow_its_column(db, stub_page_verified_event):
         """verified_role_label is 80 chars; Guild.name is 255 and a custom staff title is
-        60, so the two together cross it. Postgres raises DataError and the Verify tap
-        500s with the page left unverified; SQLite accepts the oversize string silently,
-        which is why CI cannot see this. Run this spec on Postgres."""
+        60, so the two together cross it. The BUG is backend-dependent -- Postgres raises
+        DataError and the Verify tap 500s with the page left unverified, while SQLite
+        stores the oversize string silently -- but this TEST is not: the fixture builds a
+        112-character label and asserts the stored length is exactly 80, so unfixed code
+        fails it on SQLite too. CI enforces it."""
         tech = _member("label_overflow")
         guild = GuildFactory(name="Fiber Arts and Textiles and Bookbinding and Papermaking Guild")
         GuildStaffMembershipFactory(
@@ -250,7 +253,11 @@ def describe_WikiPage_verify():
         assert kwargs["context"]["verifier_role"] == "Woodworking lead"
         assert kwargs["context"]["actor_member_pk"] == lead.pk
         assert kwargs["context"]["guild_name"] == "Woodworking"
-        assert kwargs["period"] == f"wiki_verified:{page.pk}:{page.verified_at:%Y%m%d}"
+        # Computed through localtime, which is spec D's verified_event_period() contract.
+        # Formatting page.verified_at directly would re-derive B's implementation and pass
+        # against a UTC bucket that silently disagrees with D's local one.
+        expected_day = timezone.localtime(page.verified_at).strftime("%Y%m%d")
+        assert kwargs["period"] == f"wiki_verified:{page.pk}:{expected_day}"
         # Spec D's copy renders page_url as the ONLY link, in the text body and as the CTA
         # button's href. A bare path dead ends in a mail client, and this notification is
         # the round's whole retention mechanism.
@@ -269,7 +276,23 @@ def describe_WikiPage_verify():
             "guild_name",
         }
 
-    def it_buckets_the_dedupe_period_by_the_day(db, guild_and_lead, stub_page_verified_event):
+    def it_buckets_the_period_by_the_LOCAL_day(db, guild_and_lead):
+        """Spec D's verified_event_period() uses timezone.localtime. Formatting the aware
+        datetime directly renders UTC, which is a different day for every verification
+        between about 4pm and midnight Portland time -- so D's publish path and B's Verify
+        would emit on two different periods on the same evening and mail every contributor
+        twice, which is the exact duplicate the day bucket exists to prevent."""
+        guild, lead = guild_and_lead
+        page = WikiPageFactory(guild=guild)
+        # 01:30 UTC is the previous day in Portland. A UTC bucket says the 4th; D says 3rd.
+        evening = datetime(2026, 3, 4, 1, 30, tzinfo=UTC)
+        with mock.patch("core.events.emit.emit") as emit, mock.patch.object(timezone, "now", return_value=evening):
+            page.verify(lead)
+        local_day = timezone.localtime(evening).strftime("%Y%m%d")
+        assert local_day == "20260303"
+        assert emit.call_args.kwargs["period"] == f"wiki_verified:{page.pk}:{local_day}"
+
+    def it_delivers_once_per_day(db, guild_and_lead, stub_page_verified_event):
         """Bucketing by the second mailed the contributors once per staff edit forever."""
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild)

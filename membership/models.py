@@ -18,7 +18,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelatio
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
-from django.db import IntegrityError, models
+from django.db import IntegrityError, models, transaction
 from django.db.models import (
     BooleanField,
     Case,
@@ -12340,13 +12340,18 @@ class WikiPage(models.Model):
                 "verifier_role": self.verified_role_label,
                 "guild_name": self.guild.name if self.guild is not None else "the makerspace",
             },
-            # OWNED BY SPEC D: WikiPage.verified_event_period(), which D's fix round makes
-            # date-granular. Spelled out here only because D has not merged yet; the string
-            # is matched exactly, so the rebase deletes this line rather than merging it.
-            # Do not re-derive the shape. One delivery per page per DAY: bucketing by the
-            # second meant two leads verifying in sequence fanned out twice, and a lead
-            # re-verifying after each staff edit mailed the contributors once per edit.
-            period=f"wiki_verified:{self.pk}:{self.verified_at:%Y%m%d}",
+            # OWNED BY SPEC D: WikiPage.verified_event_period(). Spelled out here only
+            # because D has not merged yet; it must match D's string BYTE FOR BYTE, so the
+            # rebase deletes this line rather than merging it. Do not re-derive the shape.
+            #
+            # localtime() is the load-bearing half. Formatting the aware datetime directly
+            # renders UTC, which is a DIFFERENT day from Portland's for every verification
+            # between about 4pm and midnight -- exactly when the space is busy. Once D is on
+            # main its publish path emits on the local-date period while this one emitted on
+            # the UTC date, so an evening publish and a verification twenty minutes later
+            # would send two emails to every contributor: the precise duplicate the day
+            # bucket exists to prevent.
+            period=f"wiki_verified:{self.pk}:{timezone.localtime(self.verified_at):%Y%m%d}",
         )
 
     def unverify(self, by: Member) -> None:
@@ -13201,7 +13206,13 @@ class WikiWantedPageQuerySet(models.QuerySet["WikiWantedPage"]):
         if member is not None and self._filed_today(member) >= WANTED_MAX_PER_MEMBER_PER_DAY:
             raise WikiError("That is a lot of requests for one day. Try again tomorrow.")
         try:
-            return self.create(title=title.strip()[:200], guild=guild, created_by=member), True
+            # The savepoint is what makes the recovery below possible at all: inside any
+            # atomic block (every test using the db fixture, and any caller wrapped in one)
+            # Postgres marks the transaction needs_rollback on the failed INSERT, and the
+            # recovery SELECT would raise TransactionManagementError instead of returning
+            # the winner. Both other IntegrityError catches in this file do the same.
+            with transaction.atomic():
+                return self.create(title=title.strip()[:200], guild=guild, created_by=member), True
         except IntegrityError:
             # Two people asking the same thing at the same instant race the partial unique
             # constraint. The loser re-reads the winner's row rather than 500ing, which is
@@ -13212,8 +13223,14 @@ class WikiWantedPageQuerySet(models.QuerySet["WikiWantedPage"]):
             return winner, False
 
     def _filed_today(self, member: Member) -> int:
-        """How many rows this member has opened today, across every scope."""
-        return self.filter(created_by=member, created_at__date=timezone.localdate()).count()
+        """How many rows this member has opened today, across EVERY scope.
+
+        Deliberately ``WikiWantedPage.objects`` and not ``self``: the cap is per person per
+        day, so narrowing it to whatever scope the caller happened to chain would multiply
+        the real ceiling by the number of guilds. The dedupe lookup above is scoped on
+        purpose; this one must not be.
+        """
+        return WikiWantedPage.objects.filter(created_by=member, created_at__date=timezone.localdate()).count()
 
     def open_titles_for_guild(self, guild: Guild | None) -> set[str]:
         """The normalized titles of this scope's open rows, for the failed-search panel.
@@ -13379,7 +13396,27 @@ class WikiWantedPage(models.Model):
         close is the editor's Delete, which throws away the title, the note and the
         ``request_count`` that says how many people asked. The claim goes with it, because
         whoever was credited did not in fact write it.
+
+        Raises:
+            ValueError: If the row is already open — reopening one would silently clear a
+                live claim, walking straight past the Release confirm modal and the "Sam
+                claimed this 5 weeks ago" line that exists so a lead knows whose work they
+                are taking. Or if an open row in this scope already asks for the same
+                thing: ``fulfilled_page = None`` moves this row INTO
+                ``uq_wikiwanted_guild_title``'s partial index, so a duplicate ask filed in
+                the meantime would surface as an uncaught IntegrityError on the lead's tap.
         """
+        if self.fulfilled_page_id is None:
+            raise ValueError("That request is already on the list.")
+        clash = (
+            type(self)
+            .objects.for_guild(self.guild)
+            .open()
+            .filter(title_normalized=self.title_normalized)
+            .exclude(pk=self.pk)
+        )
+        if clash.exists():
+            raise ValueError(f"Somebody has already asked for '{self.title}' again.")
         self.fulfilled_page = None
         self.claimed_by = None
         self.claimed_at = None

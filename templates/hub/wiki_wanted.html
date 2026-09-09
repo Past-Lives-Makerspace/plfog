@@ -17,7 +17,8 @@ with nothing under it.
     {% if wanted_guild %} / <a href="{% url 'hub_wiki_search' %}?guild={{ wanted_guild.slug|urlencode }}">{{ wanted_guild.name }}</a>{% endif %}
 </nav>
 {% if wanted_guild %}
-{% include "components/page_header.html" with title="Wanted Pages" description="Pages the "|add:wanted_guild.name|add:" guild wants written. A specific ask gets written; an open invitation doesn't." %}
+{% comment %}The name alone, never "the <name> guild": the seeded example guild is called Cartographers Guild, which read as "the Cartographers Guild guild".{% endcomment %}
+{% include "components/page_header.html" with title="Wanted Pages" description="Pages "|add:wanted_guild.name|add:" wants written. A specific ask gets written; an open invitation doesn't." %}
 {% else %}
 {% include "components/page_header.html" with title="Wanted Pages" description="Pages the whole makerspace wants written. A specific ask gets written; an open invitation doesn't." %}
 {% endif %}

@@ -549,6 +549,31 @@ def describe_putting_a_row_back_on_the_list():
         assert row.state == "open"
         assert row.title == "Sharpening jigs"
 
+    def it_answers_400_when_the_same_ask_was_filed_again(db, client):
+        """Reopening moves the row back INTO the partial unique index, so a duplicate
+        opened while it sat closed would otherwise be an uncaught IntegrityError."""
+        user = _login(client, "wanted_reopen_clash")
+        guild = GuildFactory(guild_lead=user.member)
+        row = WikiWantedPageFactory(guild=guild, title="Sharpening jigs")
+        row.fulfil(WikiPageFactory(guild=guild))
+        WikiWantedPageFactory(guild=guild, title="sharpening JIGS")
+        response = client.post(reverse("hub_wiki_wanted_fulfil", args=[row.pk]), {"reopen": "1"}, **_HTMX)
+        assert response.status_code == 400
+        assert "already asked for" in _toast(response)["message"]
+        row.refresh_from_db()
+        assert row.state == "done"
+
+    def it_answers_400_on_a_row_that_is_already_open(db, client):
+        """Otherwise it silently clears a live claim, walking past the Release confirm."""
+        user = _login(client, "wanted_reopen_open")
+        guild = GuildFactory(guild_lead=user.member)
+        holder = MemberFactory()
+        row = WikiWantedPageFactory(guild=guild, claimed_by=holder, claimed_at=timezone.now())
+        response = client.post(reverse("hub_wiki_wanted_fulfil", args=[row.pk]), {"reopen": "1"}, **_HTMX)
+        assert response.status_code == 400
+        row.refresh_from_db()
+        assert row.claimed_by_id == holder.pk
+
     def it_is_not_offered_to_a_plain_member(db, client):
         guild = GuildFactory()
         row = WikiWantedPageFactory(guild=guild)

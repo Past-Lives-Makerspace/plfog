@@ -1571,7 +1571,15 @@ def hub_wiki_wanted_fulfil(request: HttpRequest, pk: int) -> HttpResponse:
         # The other direction of the same transition on the same object. Without it, the
         # only way back from a wrong close is the editor's Delete, which throws away the
         # ask, the note and the count of how many people asked for it.
-        row.reopen()
+        try:
+            row.reopen()
+        except ValueError as exc:
+            # An already-open row, or a duplicate ask filed while this one sat closed --
+            # the latter would otherwise surface as an uncaught IntegrityError against the
+            # partial unique index the reopen puts this row back into.
+            response = HttpResponse(str(exc), status=400)
+            trigger_toast(response, str(exc), "error")
+            return response
         row.refresh_from_db()
         response = render(
             request,
