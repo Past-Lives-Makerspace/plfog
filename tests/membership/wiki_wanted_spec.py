@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from membership.models import WikiError, WikiWantedPage
+from membership.models import WANTED_MAX_PER_MEMBER_PER_DAY, WikiError, WikiWantedPage
 from tests.membership.factories import (
     GuildFactory,
     MemberFactory,
@@ -103,6 +103,24 @@ def describe_claim():
             with pytest.raises(ValueError):
                 row.claim(MemberFactory())
 
+    def describe_on_a_row_somebody_else_holds():
+        def it_refuses_to_steal_it(db):
+            """The template never offers Claim on a claimed row; the model used to allow
+            it anyway, so a crafted POST took somebody's work off them."""
+            holder = MemberFactory()
+            row = WikiWantedPageFactory(claimed_by=holder, claimed_at=timezone.now())
+            with pytest.raises(ValueError):
+                row.claim(MemberFactory())
+            row.refresh_from_db()
+            assert row.claimed_by_id == holder.pk
+
+        def it_lets_the_holder_re_claim_their_own(db):
+            holder = MemberFactory()
+            row = WikiWantedPageFactory(claimed_by=holder, claimed_at=timezone.now())
+            row.claim(holder)
+            row.refresh_from_db()
+            assert row.claimed_by_id == holder.pk
+
 
 def describe_release():
     def it_clears_the_claim_and_leaves_the_row_open(db):
@@ -158,11 +176,59 @@ def describe_fulfil():
             row.refresh_from_db()
             assert row.fulfilled_page_id == first.pk
 
+    def describe_with_a_page_from_another_scope():
+        def it_answers_False_and_leaves_the_row_open(db):
+            """Spec A's ?wanted=<pk> path takes the pk straight off the query string with
+            no scope check, so a member could read one guild's pk out of a Start This Page
+            href and close its row against an unrelated space-wide page. Refused here, so
+            the guard covers every caller, and silently, so A's create view never becomes
+            an error screen."""
+            row = WikiWantedPageFactory(guild=GuildFactory())
+            assert row.fulfil(WikiPageFactory(guild=None)) is False
+            row.refresh_from_db()
+            assert row.fulfilled_page_id is None
+
     def describe_with_an_archived_page():
         def it_raises(db):
-            row = WikiWantedPageFactory()
+            row = WikiWantedPageFactory(guild=None)
             with pytest.raises(WikiError):
-                row.fulfil(WikiPageFactory(archived=True))
+                row.fulfil(WikiPageFactory(guild=None, archived=True))
+
+
+def describe_reopen():
+    def it_puts_a_wrongly_closed_row_back_with_its_count_intact(db):
+        """Delete was the only exit, and it threw away the ask and how many people asked."""
+        guild = GuildFactory()
+        row = WikiWantedPageFactory(guild=guild, title="Sharpening jigs")
+        WikiWantedPage.objects.filter(pk=row.pk).update(request_count=4)
+        row.refresh_from_db()
+        row.fulfil(WikiPageFactory(guild=guild))
+        row.reopen()
+        row.refresh_from_db()
+        assert row.state == "open"
+        assert row.request_count == 4
+        assert row.title == "Sharpening jigs"
+        assert row.claimed_by_id is None
+
+
+def describe_the_daily_caps():
+    def it_refuses_a_member_opening_too_many_rows_in_one_day(db):
+        """Nothing capped DISTINCT asks, so a script wrote one row per request."""
+        member = MemberFactory()
+        for index in range(WANTED_MAX_PER_MEMBER_PER_DAY):
+            WikiWantedPage.objects.request(title=f"Ask number {index}", guild=None, member=member)
+        with pytest.raises(WikiError):
+            WikiWantedPage.objects.request(title="One too many", guild=None, member=member)
+
+    def it_still_lets_them_bump_an_existing_row(db):
+        """The cap is on creation; joining an ask somebody already filed is not creation."""
+        member = MemberFactory()
+        WikiWantedPage.objects.request(title="Popular ask", guild=None, member=MemberFactory())
+        for index in range(WANTED_MAX_PER_MEMBER_PER_DAY):
+            WikiWantedPage.objects.request(title=f"Ask number {index}", guild=None, member=member)
+        row, created = WikiWantedPage.objects.request(title="Popular ask", guild=None, member=member)
+        assert created is False
+        assert row.request_count == 2
 
 
 def describe_is_claim_stale():

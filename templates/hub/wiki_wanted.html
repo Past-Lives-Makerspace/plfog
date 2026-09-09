@@ -16,7 +16,11 @@ with nothing under it.
     <a href="{% url 'hub_wiki_home' %}">Wiki</a>
     {% if wanted_guild %} / <a href="{% url 'hub_wiki_search' %}?guild={{ wanted_guild.slug|urlencode }}">{{ wanted_guild.name }}</a>{% endif %}
 </nav>
-{% include "components/page_header.html" with title="Wanted Pages" description="Pages this guild wants written. A specific ask gets written; an open invitation doesn't." %}
+{% if wanted_guild %}
+{% include "components/page_header.html" with title="Wanted Pages" description="Pages the "|add:wanted_guild.name|add:" guild wants written. A specific ask gets written; an open invitation doesn't." %}
+{% else %}
+{% include "components/page_header.html" with title="Wanted Pages" description="Pages the whole makerspace wants written. A specific ask gets written; an open invitation doesn't." %}
+{% endif %}
 
 <div class="hub-card pl-wp-tab__wanted-scope">
     <p class="hub-text-muted">Showing: <strong>{{ wanted_scope_label }}</strong></p>

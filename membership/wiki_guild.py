@@ -114,7 +114,15 @@ def guild_wiki_tab_context(request: HttpRequest, guild: Guild) -> dict[str, Any]
         # control is one-tap Verify and nothing else, so it shows only on a page that is
         # still Community: Official is never verifiable and re-verify / remove live on the
         # page itself, where there is room to explain them.
-        page.tab_show_verify = can_verify and page.status == WikiPage.Status.COMMUNITY  # type: ignore[attr-defined]
+        #
+        # And never on a page carrying an open report. verify() clears the denormalized
+        # needs-review pair, so a one-tap Verify sitting beside an amber "Needs review"
+        # pill would let a lead make the banner disappear from a list, without ever opening
+        # the page or reading what somebody said was wrong. A reported page is spec D's
+        # surface: the lead follows the title, reads the report, and verifies from there.
+        page.tab_show_verify = (  # type: ignore[attr-defined]
+            can_verify and page.status == WikiPage.Status.COMMUNITY and page.needs_review_since is None
+        )
 
     groups: list[dict[str, Any]] = []
     for kind, label in GROUP_ORDER:

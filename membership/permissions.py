@@ -390,10 +390,18 @@ def can_verify_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
 
     An OFFICIAL page is never verifiable, by anyone — this guard runs first, before any
     authority test. Otherwise: a guild-scoped page defers to :func:`can_edit_guild`
-    (lead, every staff role, orienters included via the staff-role fold-in). A
-    space-wide page takes :func:`is_effective_staff`. A page linked to Equipment
-    additionally admits that tool's own orienters via ``Equipment.is_run_by`` — the
-    people who teach the machine — even when the tool belongs to no guild.
+    (lead, every staff role, orienters included via the staff-role fold-in), and a
+    space-wide page takes :func:`is_effective_staff`.
+
+    **A tool's own ``EquipmentStaffMembership`` orienters are deliberately NOT admitted
+    here.** Brief section 9.1 rules that "equipment orienters who are not guild staff stay
+    deferred", and spec B section 10 records the same. An earlier revision of this helper
+    shipped that leg anyway, which had two costs: it disagreed with spec B's tab-level
+    bulk shortcut (``can_edit_guild`` only), so the guild tab hid a Verify button the page
+    would have honored; and ``_wiki_role_label`` recognized neither guild role for such a
+    verifier, freezing the page's permanent credit line to "Admin" for somebody who is
+    not one. Restoring it is one ``or`` clause, and section 10 says what has to be true
+    first.
     """
     from membership.models import WikiPage
 
@@ -401,16 +409,8 @@ def can_verify_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
         return False
     guild = page.guild
     if guild is not None:
-        if can_edit_guild(request, guild):
-            return True
-    elif is_effective_staff(request):
-        return True
-    equipment = page.equipment
-    if equipment is not None:
-        member = _editing_member(request)
-        if member is not None and equipment.is_run_by(member):
-            return True
-    return False
+        return can_edit_guild(request, guild)
+    return is_effective_staff(request)
 
 
 def visible_wiki_pages(request: HttpRequest) -> WikiPageQuerySet:

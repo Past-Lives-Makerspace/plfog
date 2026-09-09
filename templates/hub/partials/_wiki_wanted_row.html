@@ -20,6 +20,14 @@ Every mutating control posts and swaps THIS ROW back by outerHTML — a 200 with
 never a 204, because a toast over a row still reading "unclaimed" is exactly the "did that
 work?" failure these one-tap controls exist to avoid.
 
+Both modals live inside the node these controls swap, which is safe HERE and is worth
+saying because it is not safe in general: every response that replaces this row is a plain
+main swap carrying no out-of-band fragment, so nothing can destroy the triggering form
+before the swap lands, and the row comes back with its modals re-rendered. The one response
+that DOES replace these rows out of band (_wiki_miss_row_swap.html, after a lead files from
+the failed-search panel) is triggered from the miss row, which sits outside them. Move
+either modal, or add an OOB fragment to one of these responses, and re-check that.
+
 Claim and Start This Page render for any active member on a space-wide row exactly as on a
 guild row: a space-wide wanted page is the makerspace asking, and anyone may answer. Only
 the lead controls narrow.
@@ -36,6 +44,16 @@ the lead controls narrow.
     <p class="pl-wp-tab__wanted-done">
         &rarr; <a href="{{ wanted.row.fulfilled_page.get_absolute_url }}">{{ wanted.row.fulfilled_page.title }}</a>{% if wanted.row.claimed_by %} &middot; written by {{ wanted.row.claimed_by.display_name }}{% endif %}
     </p>
+    {% if wanted.can_manage %}
+    {% comment %}Closed by mistake? Delete would throw away the ask and the count of how many people asked for it, so a lead gets the row back instead.{% endcomment %}
+    <div class="pl-wp-tab__wanted-actions">
+        <form hx-post="{% url 'hub_wiki_wanted_fulfil' wanted.row.pk %}" hx-target="{{ wanted.target }}" hx-swap="outerHTML">
+            {% csrf_token %}
+            <input type="hidden" name="reopen" value="1">
+            <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Put Back On The List</button>
+        </form>
+    </div>
+    {% endif %}
     {% else %}
     {% if wanted.row.claimed_by and not wanted.is_claimer %}
     <p class="hub-text-muted pl-wp-tab__wanted-claim">Claimed by {{ wanted.row.claimed_by.display_name }}, {{ wanted.row.claimed_at|timesince }} ago{% if wanted.row.is_claim_stale %} &middot; still open to anyone{% endif %}</p>
@@ -65,7 +83,10 @@ the lead controls narrow.
     {% if wanted.can_manage and wanted.row.claimed_by and not wanted.is_claimer %}
     {% comment %}A stale claim used to be a label describing a problem nobody could fix. release() always said "the claimer (or a lead)"; this is the lever.{% endcomment %}
     {% url 'hub_wiki_wanted_claim' wanted.row.pk as release_url %}
-    {% include "components/confirm_modal.html" with confirm_id=wanted.release_confirm_id confirm_title="Release this claim?" confirm_message="Releasing it lets someone else pick it up. Nothing is deleted." confirm_button_text="Release the claim" confirm_button_style="danger" confirm_hx_post=release_url confirm_hx_target=wanted.target confirm_hx_vals='{"release": "1"}' %}
+    {% comment %}The modal teleports to <body> and covers the row, so it repeats whose claim this is and how old it is. A lead deciding whose work to take away cannot read a line the dialog is sitting on top of.{% endcomment %}
+    {% with release_message=wanted.row.claimed_by.display_name|add:" claimed this "|add:wanted.claimed_ago|add:" ago. Releasing it lets someone else pick it up. Nothing is deleted." %}
+    {% include "components/confirm_modal.html" with confirm_id=wanted.release_confirm_id confirm_title="Release this claim?" confirm_message=release_message confirm_button_text="Release the claim" confirm_button_style="danger" confirm_hx_post=release_url confirm_hx_target=wanted.target confirm_hx_vals='{"release": "1"}' %}
+    {% endwith %}
     {% endif %}
     {% if wanted.fulfil_form %}
     {% include "components/modal.html" with modal_id=wanted.fulfil_modal_id modal_title="Mark As Written" modal_size="sm" modal_body_include="hub/partials/_wiki_wanted_fulfil_form.html" %}

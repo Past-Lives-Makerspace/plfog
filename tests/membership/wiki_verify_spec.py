@@ -14,8 +14,10 @@ from django.contrib.auth.models import User
 from django.test import RequestFactory
 from django.utils import timezone
 
-from core.models import SiteActivity
-from membership.models import Member, WikiPage, WikiVerificationError
+from django.conf import settings
+
+from core.models import EventDelivery, SiteActivity
+from membership.models import Member, WikiPage, WikiVerificationError, _wiki_role_label
 from membership.permissions import can_verify_wiki_page
 from tests.membership.factories import (
     GuildFactory,
@@ -212,6 +214,21 @@ def describe_WikiPage_verify():
         assert row.payload["guild"] == guild.pk
         assert row.payload["note"] is False
 
+    def it_truncates_a_role_label_that_would_overflow_its_column(db, stub_page_verified_event):
+        """verified_role_label is 80 chars; Guild.name is 255 and a custom staff title is
+        60, so the two together cross it. Postgres raises DataError and the Verify tap
+        500s with the page left unverified; SQLite accepts the oversize string silently,
+        which is why CI cannot see this. Run this spec on Postgres."""
+        tech = _member("label_overflow")
+        guild = GuildFactory(name="Fiber Arts and Textiles and Bookbinding and Papermaking Guild")
+        GuildStaffMembershipFactory(
+            guild=guild, member=tech, role="", custom_title="Assistant Studio Technician and Safety Coordinator"
+        )
+        page = WikiPageFactory(guild=guild)
+        page.verify(tech)
+        page.refresh_from_db()
+        assert len(page.verified_role_label) == 80
+
     def it_truncates_a_long_note(db, guild_and_lead, stub_page_verified_event):
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild)
@@ -233,7 +250,35 @@ def describe_WikiPage_verify():
         assert kwargs["context"]["verifier_role"] == "Woodworking lead"
         assert kwargs["context"]["actor_member_pk"] == lead.pk
         assert kwargs["context"]["guild_name"] == "Woodworking"
-        assert kwargs["period"].startswith(f"wiki_verified:{page.pk}:")
+        assert kwargs["period"] == f"wiki_verified:{page.pk}:{page.verified_at:%Y%m%d}"
+        # Spec D's copy renders page_url as the ONLY link, in the text body and as the CTA
+        # button's href. A bare path dead ends in a mail client, and this notification is
+        # the round's whole retention mechanism.
+        assert kwargs["context"]["page_url"].startswith(settings.MEMBER_BASE_URL)
+        assert kwargs["context"]["page_url"].endswith(page.get_absolute_url())
+        # Every placeholder spec D documents for this event has to be present, so B's dict
+        # and D's copy cannot drift into a "[missing: ...]" marker in a live email.
+        assert set(kwargs["context"]) >= {
+            "page",
+            "actor_member_pk",
+            "member_name",
+            "page_title",
+            "page_url",
+            "verifier_name",
+            "verifier_role",
+            "guild_name",
+        }
+
+    def it_buckets_the_dedupe_period_by_the_day(db, guild_and_lead, stub_page_verified_event):
+        """Bucketing by the second mailed the contributors once per staff edit forever."""
+        guild, lead = guild_and_lead
+        page = WikiPageFactory(guild=guild)
+        page.verify(lead)
+        first = EventDelivery.objects.filter(event_key="wiki.page_verified").count()
+        WikiPage.objects.filter(pk=page.pk).update(verified_at=page.verified_at + timezone.timedelta(minutes=5))
+        page.refresh_from_db()
+        page.verify(lead)
+        assert EventDelivery.objects.filter(event_key="wiki.page_verified").count() == first
 
     def it_names_the_makerspace_for_a_space_wide_page(db, guild_and_lead):
         _guild, lead = guild_and_lead
@@ -312,6 +357,20 @@ def describe_the_frozen_role_label():
         page.verify(admin)
         assert page.verified_role_label == "Admin"
 
+    def it_stays_empty_rather_than_claiming_Admin_for_an_unrecognized_verifier(db):
+        """The fallthrough used to be the literal "Admin", so anybody reaching a guild page
+        by some authority other than lead-or-staff was frozen into the page as an
+        administrator forever, in the one string this feature exists to make trustworthy."""
+        plain = _member("label_plain")
+        guild = GuildFactory(name="Woodworking")
+        assert _wiki_role_label(plain, guild) == ""
+        assert _wiki_role_label(plain, None) == ""
+
+    def it_still_says_Admin_for_a_real_admin_or_officer(db):
+        assert _wiki_role_label(_member("label_real_admin", fog_role=Member.FogRole.ADMIN), None) == "Admin"
+        officer = _member("label_real_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        assert _wiki_role_label(officer, GuildFactory(name="Woodworking")) == "Admin"
+
     def it_survives_the_verifiers_staff_row_being_deleted(db, stub_page_verified_event):
         """The whole point of denormalizing: the credit is a statement about the past."""
         orienter = _member("label_departing")
@@ -362,10 +421,32 @@ def describe_WikiPage_unverify():
         row = SiteActivity.objects.filter(kind=SiteActivity.Kind.WIKI_PAGE_VERIFIED).get()
         assert row.payload["removed"] is True
 
-    def it_records_a_reason_when_one_is_given(db):
-        lead = _member("unverify_reason")
+    def it_never_wipes_spec_As_edited_since_warning(db):
+        """unverified_reason is A's "edited since it was verified" signal, the only mark
+        that unreviewed text is sitting on the page. A remove=1 on a page that was never
+        verified used to blank it."""
+        lead = _member("unverify_keeps_reason")
         guild = GuildFactory(guild_lead=lead)
-        page = WikiPageFactory(guild=guild, status=WikiPage.Status.GUILD_VERIFIED)
-        page.unverify(lead, reason="The fence spec changed.")
+        page = WikiPageFactory(guild=guild, unverified_reason="Edited since it was verified.")
+        page.unverify(lead)
         page.refresh_from_db()
-        assert page.unverified_reason == "The fence spec changed."
+        assert page.unverified_reason == "Edited since it was verified."
+
+    def it_is_a_quiet_no_op_on_a_page_that_was_never_verified(db):
+        lead = _member("unverify_never")
+        guild = GuildFactory(guild_lead=lead)
+        page = WikiPageFactory(guild=guild)
+        page.unverify(lead)
+        page.refresh_from_db()
+        assert page.status == WikiPage.Status.COMMUNITY
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.WIKI_PAGE_VERIFIED).count() == 0
+
+    def it_refuses_an_archived_page_just_as_verify_does(db):
+        """The pair has to be symmetric; verify() 400s here and unverify() used to mutate."""
+        lead = _member("unverify_archived")
+        guild = GuildFactory(guild_lead=lead)
+        page = WikiPageFactory(guild=guild, status=WikiPage.Status.GUILD_VERIFIED, archived=True)
+        with pytest.raises(WikiVerificationError):
+            page.unverify(lead)
+        page.refresh_from_db()
+        assert page.status == WikiPage.Status.GUILD_VERIFIED

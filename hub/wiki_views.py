@@ -30,6 +30,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import urlencode
+from django.utils.timesince import timesince
 from django.views.decorators.http import require_POST
 
 from core.models import SiteConfiguration
@@ -1343,6 +1344,9 @@ def _wanted_row_context(
     manage = _can_manage_wanted_scope(request, row.guild) if can_manage is None else can_manage
     context: dict[str, Any] = {
         "row": row,
+        # Rendered into the Release confirm modal, which teleports over the row and hides
+        # the "Claimed by Sam, 5 weeks ago" line the lead would otherwise be reading.
+        "claimed_ago": timesince(row.claimed_at) if row.claimed_at is not None else "",
         "target": f"#wiki-wanted-row-{row.pk}",
         "release_confirm_id": f"wiki-wanted-release-{row.pk}",
         "fulfil_modal_id": f"wiki-wanted-fulfil-{row.pk}",
@@ -1430,7 +1434,9 @@ def _verify_fragment(request: HttpRequest, page: WikiPage) -> tuple[str, dict[st
     neither surface needs to know where the other's markup lives.
     """
     if request.POST.get("surface") == "tab":
-        page.tab_show_verify = page.status == WikiPage.Status.COMMUNITY  # type: ignore[attr-defined]
+        page.tab_show_verify = (  # type: ignore[attr-defined]
+            page.status == WikiPage.Status.COMMUNITY and page.needs_review_since is None
+        )
         return "hub/partials/_wiki_tab_row_oob.html", {"page": page}
     return "hub/partials/_wiki_verify_oob.html", {
         "page": page,
@@ -1477,7 +1483,12 @@ def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
     paginator = Paginator(open_rows, _WANTED_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get("page"))
     scopes, _may_space_wide = editable_meeting_scopes(request)
-    fulfil_pages = _fulfilable_pages(request, guild) if can_manage else []
+    open_page = list(page_obj.object_list)
+    done_rows = list(WikiWantedPage.objects.for_guild(guild).done().with_people()[:_WANTED_PAGE_SIZE])
+    # Only the open rows carry a Mark As Written modal, so an empty list must not pay for
+    # every published page in the guild. At launch the wiki ships empty and that is the
+    # common case on every lead's guild page.
+    fulfil_pages = _fulfilable_pages(request, guild) if (can_manage and open_page) else []
 
     context = _get_hub_context(request)
     context.update(
@@ -1485,12 +1496,10 @@ def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
             "wanted_guild": guild,
             "wanted_scope_label": guild.name if guild is not None else "Space-wide",
             "wanted_rows": [
-                _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages)
-                for row in page_obj.object_list
+                _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages) for row in open_page
             ],
             "wanted_done": [
-                _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages)
-                for row in WikiWantedPage.objects.for_guild(guild).done().with_people()[:_WANTED_PAGE_SIZE]
+                _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages) for row in done_rows
             ],
             "wanted_formset": formset,
             "can_manage_wanted": can_manage,
@@ -1558,6 +1567,19 @@ def hub_wiki_wanted_fulfil(request: HttpRequest, pk: int) -> HttpResponse:
         raise Http404("No such request.")
     if _active_member(request) is None or not _can_manage_wanted_scope(request, row.guild):
         return _forbidden()
+    if request.POST.get("reopen") == "1":
+        # The other direction of the same transition on the same object. Without it, the
+        # only way back from a wrong close is the editor's Delete, which throws away the
+        # ask, the note and the count of how many people asked for it.
+        row.reopen()
+        row.refresh_from_db()
+        response = render(
+            request,
+            "hub/partials/_wiki_wanted_row.html",
+            {"wanted": _wanted_row_context(request, row)},
+        )
+        trigger_toast(response, "Back on the list.")
+        return response
     form = WikiWantedFulfilForm(request.POST, pages=_fulfilable_pages(request, row.guild), prefix=f"fulfil{row.pk}")
     if not form.is_valid():
         message = str(next(iter(form.errors["page"])))
@@ -1608,10 +1630,20 @@ def hub_wiki_wanted_request(request: HttpRequest) -> HttpResponse:
     if slug and guild is None:
         raise Http404("No such guild.")
     bump = request.POST.get("bump") != "0"
-    if not bump and not _can_manage_wanted_scope(request, guild):
+    # Asked ONCE, and used both as the gate and as what the swapped-back rows render. The
+    # earlier version gated only the bump=0 path and then hardcoded can_manage=True on the
+    # fragment, so a plain member POSTing surface=panel with no bump got Mark As Written,
+    # the fulfil picker for every open row, and Release modals swapped into their own tab.
+    can_manage = _can_manage_wanted_scope(request, guild)
+    if not bump and not can_manage:
         return _forbidden()
 
-    row, created = WikiWantedPage.objects.request(title=title, guild=guild, member=member, bump=bump)
+    try:
+        row, created = WikiWantedPage.objects.request(title=title, guild=guild, member=member, bump=bump)
+    except WikiError as exc:
+        response = HttpResponse(str(exc), status=429)
+        trigger_toast(response, str(exc), "error")
+        return response
     if not bump:
         # The lead's own "Add To Wanted": they ARE the guild's leads, so telling them the
         # leads will see it is noise, and they were never a person asking.
@@ -1625,10 +1657,10 @@ def hub_wiki_wanted_request(request: HttpRequest) -> HttpResponse:
     template = _WANTED_REQUEST_TEMPLATES[surface if surface in _WANTED_REQUEST_TEMPLATES else "empty"]
     context: dict[str, Any] = {"row": row, "guild": guild, "wanted_url": _wanted_url_for(guild)}
     if surface == "panel":
-        fulfil_pages = _fulfilable_pages(request, guild)
+        rows = list(WikiWantedPage.objects.for_guild(guild).open().with_people()[:WANTED_CARD_LIMIT])
+        fulfil_pages = _fulfilable_pages(request, guild) if (can_manage and rows) else []
         context["wanted_rows"] = [
-            _wanted_row_context(request, item, can_manage=True, fulfil_pages=fulfil_pages)
-            for item in WikiWantedPage.objects.for_guild(guild).open().with_people()[:WANTED_CARD_LIMIT]
+            _wanted_row_context(request, item, can_manage=can_manage, fulfil_pages=fulfil_pages) for item in rows
         ]
     response = render(request, template, context)
     trigger_toast(response, message)
@@ -1659,7 +1691,8 @@ def guild_wiki_tab_block(request: HttpRequest, guild: Guild) -> dict[str, Any]:
     """
     context = guild_wiki_tab_context(request, guild)
     can_manage = context["wiki_tab_can_verify"]
-    fulfil_pages = _fulfilable_pages(request, guild) if can_manage else []
+    # Skipped entirely when there is nothing to close, which at launch is every guild.
+    fulfil_pages = _fulfilable_pages(request, guild) if (can_manage and context["wiki_tab_wanted"]) else []
     context["wiki_tab_wanted"] = [
         _wanted_row_context(request, row, can_manage=can_manage, fulfil_pages=fulfil_pages)
         for row in context["wiki_tab_wanted"]

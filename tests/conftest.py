@@ -14,6 +14,10 @@ fixture becomes a no-op that can be deleted along with its imports.
 
 The stand-in deliberately routes to ``FOG_ADMINS`` rather than guessing at D's resolver:
 B has no business asserting D's audience, only that its own call reaches the spine intact.
+It DOES declare the EMAIL channel, because the one thing B can get wrong on its own is the
+context dict D's copy renders — a relative ``page_url`` is a dead link in a mail client,
+and an in-app-only stub would never have rendered it at all. The verify spec asserts the
+context shape against D's documented placeholders for the same reason.
 """
 
 from __future__ import annotations
@@ -40,7 +44,10 @@ def stub_page_verified_event() -> Iterator[None]:
         description="Someone with authority read a page you contributed to and stood behind it.",
         category="Guilds",
         recipient=registry.Recipients.FOG_ADMINS,
-        channels=(registry.ChannelSpec(registry.Channel.IN_APP, registry.ChannelDefault.ON),),
+        channels=(
+            registry.ChannelSpec(registry.Channel.IN_APP, registry.ChannelDefault.ON),
+            registry.ChannelSpec(registry.Channel.EMAIL, registry.ChannelDefault.ON),
+        ),
         activity_kind=None,
     )
     registry.EVENTS.append(stub)

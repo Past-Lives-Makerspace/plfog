@@ -8908,10 +8908,18 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-tab__grid--lead .pl-wp-tab__col--panels { order: 1; }
     .pl-wp-tab__grid--lead .pl-wp-tab__col--list { order: 2; }
     .pl-wp-tab__search { align-items: stretch; }
-    /* Gloves, dust, bad light: every tap target on this tab clears 48px on a phone. */
-    .pl-wp-tab__row-actions .pl-btn,
-    .pl-wp-tab__wanted-actions .pl-btn,
-    .pl-wp-tab__miss-actions .pl-btn,
-    .pl-wp-tab__verify-actions .pl-btn,
-    .pl-wp-tab__scope-chip { min-height: 48px; }
+    /* Gloves, dust, bad light. .pl-btn--sm sets min-height:0 (about 27px), so every
+       control on these surfaces is raised by CONTAINER ROOT rather than by action-row
+       class. Enumerating the action rows missed the three controls that matter most: the
+       compact Verify button lands in spec A's .pl-wp-card__actions slot and never in one
+       of B's own rows; the zero-result screen and the wanted editor live outside the tab
+       entirely; and the tab's own Search button sat at 27px beside a 48px scope chip. */
+    .pl-wp-tab .pl-btn,
+    .pl-wp-tab .hub-btn,
+    .pl-wp-tab__scope-chip,
+    .pl-wp-tab__wanted-row .pl-btn,
+    .pl-wp-tab__editor .pl-btn,
+    .pl-wp-tab__editor .hub-btn,
+    .pl-wp-tab__switcher .pl-btn,
+    .pl-wp-search__empty .pl-btn { min-height: 48px; }
 }

@@ -14,6 +14,8 @@ import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
+from datetime import timedelta
+
 from django.utils import timezone
 
 from core.models import SiteConfiguration
@@ -355,8 +357,9 @@ def describe_claim_and_release():
 
     def it_answers_400_on_a_row_already_written(db, client):
         _login(client, "wanted_claim_closed")
-        row = WikiWantedPageFactory(guild=GuildFactory())
-        row.fulfil(WikiPageFactory())
+        guild = GuildFactory()
+        row = WikiWantedPageFactory(guild=guild)
+        assert row.fulfil(WikiPageFactory(guild=guild)) is True
         response = client.post(reverse("hub_wiki_wanted_claim", args=[row.pk]), **_HTMX)
         assert response.status_code == 400
         assert _toast(response)["type"] == "error"
@@ -528,6 +531,45 @@ def describe_mark_as_written():
         html = client.get(_wanted_url(guild)).content.decode()
         modal = html.split("Mark As Written", 1)[1]
         assert re.search(r'<input[^>]*name="fulfil\d+-page"', modal)
+
+
+def describe_putting_a_row_back_on_the_list():
+    def it_reopens_for_a_lead_and_keeps_the_ask(db, client):
+        """Before this, a wrongly closed row could only be removed by Delete, which throws
+        away the title, the note and the count of how many people asked."""
+        user = _login(client, "wanted_reopen_lead")
+        guild = GuildFactory(guild_lead=user.member)
+        row = WikiWantedPageFactory(guild=guild, title="Sharpening jigs")
+        row.fulfil(WikiPageFactory(guild=guild))
+        assert "Put Back On The List" in client.get(_wanted_url(guild)).content.decode()
+        response = client.post(reverse("hub_wiki_wanted_fulfil", args=[row.pk]), {"reopen": "1"}, **_HTMX)
+        assert response.status_code == 200
+        assert _toast(response)["message"] == "Back on the list."
+        row.refresh_from_db()
+        assert row.state == "open"
+        assert row.title == "Sharpening jigs"
+
+    def it_is_not_offered_to_a_plain_member(db, client):
+        guild = GuildFactory()
+        row = WikiWantedPageFactory(guild=guild)
+        row.fulfil(WikiPageFactory(guild=guild))
+        _login(client, "wanted_reopen_member")
+        assert "Put Back On The List" not in client.get(_wanted_url(guild)).content.decode()
+        response = client.post(reverse("hub_wiki_wanted_fulfil", args=[row.pk]), {"reopen": "1"}, **_HTMX)
+        assert response.status_code == 403
+
+
+def describe_the_release_copy():
+    def it_names_who_claimed_it_and_when(db, client):
+        """The modal teleports to <body> and covers the row, so the "Claimed by Sam" line
+        the lead would be reading is underneath the dialog."""
+        user = _login(client, "wanted_release_copy")
+        guild = GuildFactory(guild_lead=user.member)
+        holder = MemberFactory(full_legal_name="Sam Holder")
+        WikiWantedPageFactory(guild=guild, claimed_by=holder, claimed_at=timezone.now() - timedelta(days=35))
+        html = client.get(_wanted_url(guild)).content.decode()
+        assert "Sam Holder claimed this" in html
+        assert "Nothing is deleted." in html
 
 
 def describe_start_this_page():

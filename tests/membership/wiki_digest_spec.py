@@ -8,6 +8,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.core import mail
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db.models.signals import post_save
 from django.utils import timezone
 from factory.django import mute_signals
@@ -16,6 +17,7 @@ from core.events.registry import get_event
 from core.events.settings_matrix import STAFF_SECTION, _section_for
 from core.models import EventDelivery
 from membership.models import WikiPage, WikiSearchMiss
+from membership import wiki_guild
 from membership.wiki_guild import (
     digest_in_app_body,
     digest_subject,
@@ -247,6 +249,40 @@ def describe_send_wiki_guild_digest():
         by_address = {address: message for message in mail.outbox for address in message.to}
         assert "Bandsaw basics" not in by_address["print_lead@example.com"].body
         assert "Screen exposure times" in by_address["print_lead@example.com"].body
+
+    def it_skips_a_retired_guild(db, window):
+        """A guild nobody tends must not mail its former leadership a monthly report."""
+        start, _end = window
+        guild = GuildFactory(name="Retired", guild_lead=_linked_member("retired_lead"), is_active=False)
+        page = WikiPageFactory(guild=guild, title="Old news")
+        _created_in(page, start + timedelta(days=2))
+        call_command("send_wiki_guild_digest", "--force")
+        assert mail.outbox == []
+
+    def it_keeps_going_when_one_guild_blows_up(db, guild_with_news, window, monkeypatch):
+        """Rendering, absolute URLs and the resolvers all sit outside the email adapter's
+        best-effort net, so one bad guild used to abort every guild after it — and the
+        command self-gates on the 1st, which makes the next attempt 30 days away."""
+        start, _end = window
+        healthy = GuildFactory(name="Zzz Healthy", guild_lead=_linked_member("healthy_lead"))
+        page = WikiPageFactory(guild=healthy, title="Still fine")
+        _created_in(page, start + timedelta(days=2))
+
+        real_payload = wiki_guild.guild_digest_payload
+
+        def _explode(guild, **kwargs):
+            if guild.name == "Woodworking":
+                raise RuntimeError("boom")
+            return real_payload(guild, **kwargs)
+
+        # Patched where the COMMAND looks it up, not on the source module: the command does
+        # "from membership.wiki_guild import guild_digest_payload", so the name is bound at
+        # import time and patching wiki_guild is a no-op once anything has imported it.
+        monkeypatch.setattr("membership.management.commands.send_wiki_guild_digest.guild_digest_payload", _explode)
+        with pytest.raises(CommandError):
+            call_command("send_wiki_guild_digest", "--force")
+        addressed = {address for message in mail.outbox for address in message.to}
+        assert "healthy_lead@example.com" in addressed
 
     def it_writes_both_bodies_with_the_same_links(db, guild_with_news):
         call_command("send_wiki_guild_digest", "--force")

@@ -207,6 +207,27 @@ def describe_the_lead_panels():
         assert "No failed searches in the last 30 days." in html
 
 
+def describe_the_compact_verify_button():
+    def it_is_absent_on_a_page_carrying_an_open_report(db, client):
+        """verify() clears the denormalized needs-review pair, so a one-tap Verify beside
+        an amber pill would let a lead make the banner vanish from a list without ever
+        opening the page or reading what somebody said was wrong. A reported page is spec
+        D's surface; the lead follows the title and verifies from there."""
+        user = _login(client, "tab_verify_reported")
+        guild = GuildFactory(guild_lead=user.member)
+        page = WikiPageFactory(guild=guild, title="Reported Saw")
+        WikiPage.objects.filter(pk=page.pk).update(needs_review_since=timezone.now())
+        html = _guild_page(client, guild)
+        assert "Reported Saw" in html
+        assert 'name="surface" value="tab"' not in html
+
+    def it_is_present_on_the_same_page_once_nothing_is_reported(db, client):
+        user = _login(client, "tab_verify_unreported")
+        guild = GuildFactory(guild_lead=user.member)
+        WikiPageFactory(guild=guild, title="Quiet Saw")
+        assert 'name="surface" value="tab"' in _guild_page(client, guild)
+
+
 def describe_the_mobile_ordering():
     def it_comes_from_a_class_and_never_an_inline_style(db, client):
         """Rule 12: Alpine strips an inline display when x-show reveals an element, which

@@ -139,6 +139,25 @@ def describe_add_to_wanted():
         )
         assert response.status_code == 403
 
+    def it_never_swaps_lead_controls_into_a_plain_members_tab(db, client):
+        """The fragment hardcoded can_manage=True and the scope gate only ran on bump=0, so
+        a member POSTing surface=panel with no bump got Mark As Written, the fulfil picker
+        for every open row, and Release modals swapped into their own live tab."""
+        _login(client, "miss_add_member_fragment")
+        guild = GuildFactory()
+        WikiWantedPageFactory(guild=guild, title="Sharpening jigs")
+        WikiPageFactory(guild=guild)
+        response = client.post(
+            reverse("hub_wiki_wanted_request"),
+            {"title": "epoxy cure time", "guild": guild.slug, "surface": "panel"},
+            **_HTMX,
+        )
+        assert response.status_code == 200
+        body = response.content.decode()
+        assert "Mark As Written" not in body
+        assert "Release the claim" not in body
+        assert "wiki-wanted-fulfil-" not in body
+
     def it_refuses_a_title_that_is_not_really_an_ask(db, client):
         user = _login(client, "miss_add_short")
         guild = GuildFactory(guild_lead=user.member)

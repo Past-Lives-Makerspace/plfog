@@ -194,15 +194,20 @@ def describe_can_verify_wiki_page():
             assert can_verify_wiki_page(request, WikiPageFactory()) is False
 
     def describe_an_equipment_page():
-        def it_allows_the_tools_own_orienter_on_a_guildless_machine():
-            # They teach the machine, so they know what is true about it, even when the
-            # tool belongs to no guild at all.
+        def it_defers_the_tools_own_orienter():
+            # Brief section 9.1: "equipment orienters who are not guild staff stay
+            # deferred", and spec B section 10 records the same. This helper shipped the
+            # leg anyway; spec B removed it, because it disagreed with the guild tab's
+            # bulk permission shortcut AND because _wiki_role_label recognized no guild
+            # role for such a verifier, freezing the page's credit line to "Admin" for
+            # somebody who is not one. Restoring it is one clause; section 10 says what has
+            # to be true first.
             user = UserFactory(username="orienter@example.com")
             tool = EquipmentFactory(guild=None)
             EquipmentStaffMembershipFactory(equipment=tool, member=user.member)
             page = WikiPageFactory(kind=WikiPage.Kind.MACHINE, equipment=tool)
             request = _request(user, roles={ROLE_MEMBER})
-            assert can_verify_wiki_page(request, page) is True
+            assert can_verify_wiki_page(request, page) is False
 
         def it_denies_a_member_with_no_role_on_the_tool():
             user = UserFactory(username="notorienter@example.com")
