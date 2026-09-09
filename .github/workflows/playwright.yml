@@ -44,9 +44,24 @@ jobs:
       # runner image, and mirrors flake: Google's Chrome index in particular has served a
       # bad hash for hours at a time. Playwright ships its own Chromium, so that source is
       # never needed; drop it, then give the install three attempts with a pause between.
+      - name: Drop the preinstalled Google Chrome apt source
+        # This reports which files it removed, and it matches on content rather than on a
+        # filename glob. The earlier form removed google-chrome*.list and matched nothing:
+        # the runner image ships a deb822 /etc/apt/sources.list.d/google-chrome.sources,
+        # so the source stayed configured and the step passed silently either way. A CI run
+        # on this branch confirmed the .sources path is the one that actually exists.
+        run: |
+          found=$(grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ 2>/dev/null || true)
+          if [ -n "$found" ]; then
+            echo "Removing Google Chrome apt source(s):"
+            echo "$found"
+            echo "$found" | xargs -r sudo rm -f
+          else
+            echo "No Google Chrome apt source present; nothing to remove."
+          fi
+
       - name: Install Playwright browser
         run: |
-          sudo rm -f /etc/apt/sources.list.d/google-chrome*.list
           for attempt in 1 2 3; do
             if python -m playwright install --with-deps chromium; then
               exit 0
