@@ -1415,6 +1415,7 @@ def _composer_context(
         "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
         "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
         "error_steps": error_step_numbers,
+        "error_steps_json": json.dumps(error_step_numbers),
         "error_summary": summary,
         "anchor_steps_json": json.dumps(anchor_steps()),
         "pipeline": saved.review_pipeline() if saved is not None else None,
@@ -2764,6 +2765,12 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         session_formset.save()
         faq_formset.save()
         if request.POST.get("action") == "publish":
+            # publish() checks readiness, not status: a crafted publish on a live class would
+            # re-stamp published_at and announce again, and one on a class still in review
+            # would strand the open guild lead row. Only a draft publishes from here.
+            if offering.status != ClassOffering.Status.DRAFT:
+                messages.error(request, "Only a draft can be published from here.")
+                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
             try:
                 offering.publish(cast("User", request.user))
             except ValidationError as exc:

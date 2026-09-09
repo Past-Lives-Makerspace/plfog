@@ -36,7 +36,7 @@ which the composer's card preview frames include on their own.
     <div class="cls-schedule">
       {% if group.is_multi %}
         {% comment %}
-           Same class offered on several date-sets — each option keeps its own seats.
+           Same class offered on several date sets: each option keeps its own seats.
            A series option covers all its sessions; a single option is one date.
         {% endcomment %}
         <div class="cls-schedule__pick">{% if offering.scheduling_type == 'series_package' %}Pick a session set:{% else %}Pick a date:{% endif %}</div>
@@ -52,7 +52,7 @@ which the composer's card preview frames include on their own.
           <button class="cls-schedule__more" style="background:none;border:none;padding:0;cursor:pointer;text-align:left;" onclick="this.previousElementSibling.style.display='';this.remove();">+{{ group.date_count|add:"-4" }} more {% if offering.scheduling_type == 'series_package' %}option{{ group.date_count|add:"-4"|pluralize }}{% else %}date{{ group.date_count|add:"-4"|pluralize }}{% endif %}</button>
         {% endif %}
       {% elif offering.scheduling_model == 'flexible' %}
-        <div class="cls-schedule__flex">Flexible — schedule with instructor</div>
+        <div class="cls-schedule__flex">Flexible: schedule with the instructor</div>
       {% else %}
         {% with sessions=offering.sessions.all|upcoming_sessions %}
           {% if sessions %}

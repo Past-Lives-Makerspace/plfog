@@ -329,6 +329,52 @@ class _SaleMixin:
         return max(0, price - amt) if amt else None
 
 
+class _LiveSaleGuardMixin:
+    """Refuses a price edit that would break a sale already stored on the class.
+
+    The six ``sale_*`` fields live in the sale modal now, so the composer never sees them;
+    without this, a class on a fixed $80 sale could be re-priced to $50 and sell for $0
+    (or a 99% sale re-priced to $1.00 and land under Stripe's floor). The check re-runs
+    :class:`_SaleMixin`'s amount and Stripe floor rules against the STORED sale and the
+    NEW price, and refuses the price change rather than touching the sale: the sale is
+    the instructor's decision, made on the manage page, and only that page ends it.
+    """
+
+    def clean_price_against_live_sale(self) -> None:
+        instance = self.instance  # type: ignore[attr-defined]
+        if not instance.pk or not instance.sale_is_active:
+            return
+        if self.errors.get("price_cents"):  # type: ignore[attr-defined]
+            return  # the price is already refused for a reason of its own
+        cleaned = self.cleaned_data  # type: ignore[attr-defined]
+        savings = instance.sale_savings_display
+        if cleaned.get("is_free"):
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents",
+                f"This class is on sale for {savings}. Turn the sale off from the manage page before making it free.",
+            )
+            return
+        price = cleaned.get("price_cents")
+        if not price:
+            return  # clean_is_free_pricing already refused an empty price
+        stored = {
+            "sale_kind": instance.sale_kind,
+            "sale_percent": instance.sale_percent,
+            "sale_amount_cents": instance.sale_amount_cents,
+        }
+        fixed_too_deep = (
+            instance.sale_kind == ClassOffering.SaleKind.FIXED and (instance.sale_amount_cents or 0) >= price
+        )
+        resulting = _SaleMixin._resulting_sale_price_cents(stored, price)
+        under_floor = resulting is not None and 0 < resulting < STRIPE_MIN_CHARGE_CENTS
+        if fixed_too_deep or under_floor:
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents",
+                f"This class is on sale for {savings}. Turn the sale off or change it from the manage page "
+                "before setting a price this low.",
+            )
+
+
 class _SchedulingTypeMixin:
     """Renders ``scheduling_type`` as a guided two-option radio choice.
 
@@ -348,7 +394,9 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
-class ClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
+class ClassOfferingForm(
+    _HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
@@ -393,6 +441,7 @@ class ClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _Sched
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
+        self.clean_price_against_live_sale()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -407,7 +456,9 @@ class ClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _Sched
         return offering
 
 
-class TeachClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _SchedulingTypeMixin, forms.ModelForm):
+class TeachClassOfferingForm(
+    _HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
 
     The six ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
@@ -453,6 +504,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
+        self.clean_price_against_live_sale()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -640,9 +692,11 @@ class TeachPublishedClassForm(forms.ModelForm):
 
     Only fields that do not change what registrants booked on: description, prep notes,
     materials, safety, guardian note, the flexible-scheduling note, and the video. Title,
-    guild type, price, sale, capacity, dates, and scheduling model stay admin-only after
-    publish (the instructor asks through :class:`ClassChangeRequestForm`). A crafted POST
-    carrying those fields is simply ignored: a ModelForm saves only its declared fields.
+    guild type, price, capacity, dates, and scheduling model stay admin-only after publish
+    (the instructor asks through :class:`ClassChangeRequestForm`). A sale is not one of
+    those: the instructor sets, changes, or ends one on a live class from the manage page's
+    sale modal (:class:`ClassSaleForm`). A crafted POST carrying locked fields is simply
+    ignored: a ModelForm saves only its declared fields.
     """
 
     class Meta:

@@ -18,7 +18,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
-from classes.models import ClassApproval, ClassOffering
+from classes.models import ClassApproval, ClassOffering, CmsActivity
 
 Status = ClassOffering.Status
 
@@ -667,3 +667,142 @@ def describe_admin_composer():
         assert "phase: 1," in html
         assert "errorSteps: [1, 3]," in html
         assert "The Basics: Instructor" in html
+
+    def it_refuses_a_crafted_publish_on_a_live_class(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, ready=True, published_at=timezone.now())
+        stamped = offering.published_at
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(
+                offering.category,
+                offering.instructor,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="publish",
+                step="5",
+            ),
+        )
+        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=5"
+        assert "Only a draft can be published from here." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.status == Status.PUBLISHED
+        assert offering.published_at == stamped
+        assert not CmsActivity.objects.filter(class_offering=offering, kind=CmsActivity.Kind.CLASS_PUBLISHED).exists()
+
+    def it_refuses_a_crafted_publish_on_a_class_still_in_review(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.PENDING, ready=True)
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(
+                offering.category,
+                offering.instructor,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="publish",
+                step="5",
+            ),
+        )
+        assert resp.status_code == 302
+        assert "Only a draft can be published from here." in _messages(resp)
+        offering.refresh_from_db()
+        row.refresh_from_db()
+        assert offering.status == Status.PENDING
+        assert offering.published_at is None
+        assert row.decision == ""
+        assert not CmsActivity.objects.filter(class_offering=offering, kind=CmsActivity.Kind.CLASS_PUBLISHED).exists()
+
+
+def describe_live_sale_guard_through_the_composers():
+    TOO_LOW = "Turn the sale off or change it from the manage page before setting a price this low."
+
+    def _on_fixed_sale(**kwargs) -> ClassOffering:
+        return ClassOfferingFactory(
+            status=Status.DRAFT,
+            price_cents=10000,
+            sale_enabled=True,
+            sale_kind=ClassOffering.SaleKind.FIXED,
+            sale_amount_cents=8000,
+            **kwargs,
+        )
+
+    def it_refuses_a_too_low_price_on_the_teach_composer(instructor_fixture, client):
+        offering = _on_fixed_sale(instructor=instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, price_cents="50.00", step="3"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "phase: 1," in html and "errorSteps: [1]," in html
+        assert "This class is on sale for $80 off." in html and TOO_LOW in html
+        offering.refresh_from_db()
+        assert offering.price_cents == 10000 and offering.sale_is_active is True
+
+    def it_refuses_the_free_tick_on_the_teach_composer(instructor_fixture, client):
+        offering = _on_fixed_sale(instructor=instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, is_free="on", price_cents=""),
+        )
+        assert resp.status_code == 200
+        assert "before making it free." in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.price_cents == 10000 and offering.sale_is_active is True
+
+    def it_saves_a_raised_price_on_the_teach_composer(instructor_fixture, client):
+        offering = _on_fixed_sale(instructor=instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, price_cents="150.00"),
+        )
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.price_cents == 15000
+        assert offering.sale_is_active is True and offering.sale_price_cents == 7000
+
+    def it_refuses_a_too_low_price_on_the_admin_composer(admin_user, client, db):
+        offering = _on_fixed_sale()
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(offering.category, offering.instructor, price_cents="50.00"),
+        )
+        assert resp.status_code == 200
+        assert TOO_LOW in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.price_cents == 10000 and offering.sale_is_active is True
+
+    def it_refuses_a_percent_sale_under_the_floor_on_the_admin_composer(admin_user, client, db):
+        offering = ClassOfferingFactory(
+            status=Status.PUBLISHED,
+            price_cents=10000,
+            sale_enabled=True,
+            sale_kind=ClassOffering.SaleKind.PERCENT,
+            sale_percent=99,
+        )
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(offering.category, offering.instructor, price_cents="1.00"),
+        )
+        assert resp.status_code == 200
+        assert "This class is on sale for 99% off." in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.price_cents == 10000 and offering.sale_price_cents == 100
+
+    def it_saves_a_raised_price_on_the_admin_composer(admin_user, client, db):
+        offering = _on_fixed_sale()
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(offering.category, offering.instructor, price_cents="150.00"),
+        )
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.price_cents == 15000 and offering.sale_price_cents == 7000

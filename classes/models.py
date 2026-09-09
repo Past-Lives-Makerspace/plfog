@@ -1251,7 +1251,11 @@ class ClassOffering(HeroCropMixin, models.Model):
                 "class_image_html": self.email_hero_image_html,
             },
             url=class_url,
-            period=f"offering:{self.pk}:published",
+            # The publish moment is part of the period on purpose: the delivery ledger
+            # dedupes on it, so a class taken back to draft and published again announces
+            # again (Discord, bell, email) instead of matching the first publish's slot.
+            # Microseconds, because a test (or a hasty admin) can do both inside a second.
+            period=f"offering:{self.pk}:published:{self.published_at:%Y%m%d%H%M%S%f}",
         )
 
     def cancel(self, actor: "User | None", reason: str) -> None:

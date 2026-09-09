@@ -15,7 +15,7 @@ Context (from _composer_context in classes/views.py, plus the form context):
                     URL names, and the step 5 action (Publish instead of Submit for Review)
   composer_tabs   — [{step: ComposerStep, done: bool}], the tab bar with completion marks
   initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
-  error_steps / error_summary — the broken steps and their failing field labels
+  error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
   anchor_steps_json — DOM id -> step number, for goToField()
   pipeline, readiness, is_ready — only present once the class has a pk
   cancel_url, save_label
@@ -57,7 +57,7 @@ Do not merge them.
 <div class="hub-card pl-composer"
      x-data="{
        phase: {{ initial_phase }},
-       errorSteps: {{ error_steps }},
+       errorSteps: {{ error_steps_json }},
        anchorSteps: {{ anchor_steps_json }},
        cardPosition: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}',
        previewLoaded: false,
