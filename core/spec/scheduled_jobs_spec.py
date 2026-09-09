@@ -43,6 +43,7 @@ _DISPATCHER_DAILY = {
     "generate_orientation_slots",
     "sweep_stale_refunds",
     "welcome_new_members",
+    "send_wiki_guild_digest",
 }
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 

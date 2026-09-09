@@ -1,0 +1,15 @@
+{% comment %}
+Verify with a note — one field, so a modal and a toast, and quiet enough that the one-tap
+Verify beside it stays the common path.
+
+hx-swap="none": the 200 answer carries the status pill and the verify control as
+out-of-band swaps, so this form has nothing of its own to replace.
+{% endcomment %}
+<form hx-post="{% url 'hub_wiki_verify' page.slug %}" hx-swap="none"
+      @htmx:after-request="if ($event.detail.successful) $dispatch('close-modal', 'wiki-verify-note')" class="hub-form">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=verify_note_form.note %}
+    <div style="margin-top:1.5rem;">
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Save</button>
+    </div>
+</form>

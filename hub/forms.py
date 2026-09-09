@@ -67,6 +67,8 @@ from membership.models import (
     WikiAttachment,
     WikiPage,
     WikiPageFact,
+    WikiWantedPage,
+    normalize_wiki_ask,
 )
 
 
@@ -4597,3 +4599,145 @@ class WikiRedirectForm(forms.Form):
         choices = WikiPage.objects.published().not_archived().exclude(pk=page.pk)
         choices = choices.for_guild(page.guild) if page.guild is not None else choices.space_wide()
         cast(forms.ModelChoiceField, self.fields["target"]).queryset = choices.order_by("title")
+
+
+class WikiVerifyNoteForm(forms.Form):
+    """The optional line a verifier leaves for the next reader.
+
+    One field, so it lives in a modal behind a quiet "with a note…" button. The common
+    path is one tap with no form at all — a note must never tax it.
+    """
+
+    note = forms.CharField(
+        max_length=280,
+        required=False,
+        label="Note",
+        help_text="Anything the next reader should know. Optional.",
+        error_messages={"max_length": "Keep the note to 280 characters."},
+    )
+
+
+class WikiWantedPageForm(forms.ModelForm):
+    """One row of the Wanted Pages editor.
+
+    A clone from "+ Add A Wanted Page" that nobody typed in is discarded rather than
+    blocking Save — Django's ``empty_permitted`` on an extra form does that, and ``extra=0``
+    means there is no perpetual blank row in the first place. Both are the FRONTEND.md
+    Rule 11 protection; neither needs a hand-rolled ignore path on top.
+    """
+
+    class Meta:
+        model = WikiWantedPage
+        fields = ["title", "note"]
+        labels = {"title": "Title", "note": "Note"}
+        help_texts = {
+            "title": "What should the page be called? Plain words are fine.",
+            "note": "Anything the writer should cover.",
+        }
+        widgets = {"note": forms.Textarea(attrs={"rows": 2})}
+
+    def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._scope_guild = guild
+        self.fields["note"].required = False
+
+    def clean_title(self) -> str:
+        """Trim, enforce a real ask, and refuse a second open row with the same words."""
+        title = cast(str, self.cleaned_data["title"]).strip()
+        if len(title) < 3:
+            raise forms.ValidationError("Give the page a name of at least three characters.")
+        normalized = normalize_wiki_ask(title)
+        clash = (
+            WikiWantedPage.objects.for_guild(self._scope_guild)
+            .open()
+            .filter(title_normalized=normalized)
+            .exclude(pk=self.instance.pk)
+        )
+        if clash.exists():
+            raise forms.ValidationError(f"You already have a request called '{title}'.")
+        return title
+
+
+class BaseWikiWantedPageFormSet(forms.BaseModelFormSet):
+    """Catches two rows in one submission asking for the same page.
+
+    The DB's partial unique constraint would raise ``IntegrityError`` here, which reaches
+    the member as a 500. Caught up front and rendered through ``non_form_errors``.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        if any(self.errors):
+            return
+        seen: set[str] = set()
+        for form in self.forms:
+            if form.cleaned_data.get("DELETE"):
+                continue
+            title = (form.cleaned_data.get("title") or "").strip()
+            if not title:
+                continue
+            normalized = normalize_wiki_ask(title)
+            if normalized in seen:
+                raise forms.ValidationError(f"You listed '{title}' twice. Keep one of them.")
+            seen.add(normalized)
+
+
+def build_wiki_wanted_formset(*, data: Any = None, guild: Guild | None) -> Any:
+    """The Wanted Pages editor's formset: ``extra=0``, real Delete, scoped validation.
+
+    ``extra=0`` because a perpetual blank row with a required title blocks Save; rows are
+    added on demand by the "+ Add A Wanted Page" button cloning ``empty_form``.
+    """
+    factory = forms.modelformset_factory(
+        WikiWantedPage,
+        form=WikiWantedPageForm,
+        formset=BaseWikiWantedPageFormSet,
+        extra=0,
+        can_delete=True,
+    )
+    return factory(
+        data,
+        queryset=WikiWantedPage.objects.for_guild(guild).open().order_by("-created_at"),
+        prefix="wanted",
+        form_kwargs={"guild": guild},
+    )
+
+
+class WikiWantedFulfilForm(forms.Form):
+    """Mark As Written: one field naming the page that answered the ask.
+
+    Takes an already-materialized **list** of candidate pages, not a queryset: the list is
+    fetched once for the whole screen and shared by every row's modal, so a lead looking at
+    25 open requests costs one query rather than 25. Both branches resolve by slug, so
+    there is one validation path and not two.
+
+    A scope with more than :attr:`CHOICE_LIMIT` pages degrades to a slug text input rather
+    than becoming a thousand-option ``<select>`` on a phone.
+    """
+
+    CHOICE_LIMIT = 100
+
+    def __init__(self, *args: Any, pages: list[WikiPage], **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._pages = pages
+        if len(pages) > self.CHOICE_LIMIT:
+            self.fields["page"] = forms.CharField(
+                label="Which page?",
+                help_text="The page's web address ending, e.g. sawstop-table-saw.",
+                error_messages={"required": "Name the page that answers this."},
+            )
+        else:
+            self.fields["page"] = forms.ChoiceField(
+                choices=[("", "Pick a page")] + [(page.slug, page.title) for page in pages],
+                label="Which page?",
+                help_text="The page that answers this request.",
+                error_messages={"required": "Pick the page that answers this."},
+            )
+
+    def clean_page(self) -> WikiPage:
+        """Resolve the slug to one of the candidate pages, or say why it is not one."""
+        slug = cast(str, self.cleaned_data["page"]).strip()
+        page = next((candidate for candidate in self._pages if candidate.slug == slug), None)
+        if page is None:
+            raise forms.ValidationError("That page is not in this guild.")
+        return page

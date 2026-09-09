@@ -1,0 +1,26 @@
+{{ guild.name }} wiki: what happened last month
+{{ guild_url }}
+
+Three things you can work through in an afternoon. Nothing here is urgent, and nothing
+here needs a meeting.
+
+Open the {{ guild.name }} wiki: {{ tab_url }}
+{% if new_pages %}
+New this month
+{% for item in new_pages %}-> {{ item.title }}{% if item.author %} by {{ item.author }}{% endif %} ({{ item.kind }})
+   {{ item.url }}
+{% endfor %}{% endif %}{% if overdue %}
+Overdue for review
+One tap on the page says it's still right.
+{% for item in overdue %}-> {{ item.title }} ({{ item.kind }}){% if item.last_checked %}, last checked {{ item.last_checked }}{% else %}, never checked{% endif %}
+   {{ item.url }}
+{% endfor %}{% endif %}{% if misses %}
+Searches that found nothing
+Members looked for these and came up empty. This is your writing list.
+{% for item in misses %}-> {{ item.query }} - {{ item.people }} {% if item.people == 1 %}person{% else %}people{% endif %}
+   Start this page: {{ item.start_url }}
+{% endfor %}{% endif %}
+Wanted pages ({{ wanted_open_count }} open): {{ wanted_url }}
+Start a page: {{ new_url }}
+
+{% include "membership/emails/_footer.txt" %}

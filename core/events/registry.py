@@ -475,6 +475,10 @@ ORIENTATION_COMPLETED = "orientation.completed"  # dotted, matches the new-event
 MEETING_ITEM_PROPOSED = "meeting.item_proposed"
 MEETING_ITEM_DECIDED = "meeting.item_decided"
 MEETING_MINUTES_APPROVED = "meeting.minutes_approved"
+
+# The member wiki's monthly digest to a guild's leadership (spec B). Spec D owns
+# wiki.page_reported and wiki.page_verified; B registers this one key and nothing else.
+WIKI_GUILD_DIGEST_MONTHLY = "wiki.guild_digest_monthly"
 MEETING_COUNCIL_MINUTES_APPROVED = "meeting.council_minutes_approved"
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
@@ -1104,6 +1108,32 @@ _NEW_EVENTS: list[EventType] = [
         description="An instructor asked an admin to change a live class's title, dates, price, or capacity.",
         category="Classes",
         recipient=Recipients.CLASS_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # wiki.guild_digest_monthly — one email per guild, on the 1st, to that guild's
+    # leadership (lead + every staff role, orienters included). It carries the three things
+    # a lead can act on in an afternoon: pages that went up, pages due a check, and what
+    # members searched for and did not find. A guild with nothing to report gets NO email,
+    # so this is never a monthly reminder that nothing happened.
+    #
+    # It renders under "Staff & leadership" on the settings page, not under Guilds: the
+    # category drives the email's X-Category header, while GUILD_LEADERSHIP being in
+    # settings_matrix.STAFF_RECIPIENTS is what picks the section. That is the right home
+    # (only leadership receives it) — do not "fix" the category to move a row that is
+    # already where it belongs.
+    #
+    # Push is offered but stays off by default (the key is absent from _PUSH_ON_BY_DEFAULT):
+    # a monthly summary should not buzz a phone.
+    EventType(
+        key=WIKI_GUILD_DIGEST_MONTHLY,
+        label="Monthly guild wiki digest",
+        description=(
+            "A monthly summary of your guild's wiki: new pages, pages due a check, and what "
+            "members searched for and didn't find."
+        ),
+        category="Guilds",
+        recipient=Recipients.GUILD_LEADERSHIP,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

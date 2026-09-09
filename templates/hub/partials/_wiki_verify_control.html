@@ -1,0 +1,57 @@
+{% comment %}
+The Verify control. ONE partial, two homes (spec B §6.2).
+
+Parameters:
+  page     — required. The WikiPage.
+  compact  — optional. True inside a guild-tab row: the one-tap Verify button and nothing
+             else. Re-verify, the note, and Remove verification live on the page itself,
+             where there is room to explain them.
+  can_verify        — required in the page-header home. The result of can_verify_wiki_page.
+                      The page-header home renders its content into the caller's
+                      <div id="wiki-verify"> wrapper; this partial owns no id of its own, so
+                      the out-of-band fragment and the page cannot both declare it.
+  page.tab_show_verify — the compact home's own flag, set by guild_wiki_tab_context: the
+             guild-scoped leg of can_verify_wiki_page asked once for the whole tab, AND the
+             page still being Community.
+
+On an Official page, or for a viewer who may not verify, this renders NOTHING AT ALL — not
+a disabled button, not a greyed control. Official is set by admins and outranks Guild
+verified, so a Verify button here would be a trap; and the locked rule is that members get
+no edit affordance on an Official page rather than a dead one.
+
+Every form posts with hx-swap="none" and the view answers 200 with an out-of-band fragment.
+Never 204: a 204 carries no body, so it could not carry the swap, and the toast would fire
+while a stale pill sat there until the next reload.
+{% endcomment %}
+{% if compact %}
+    {% if page.tab_show_verify %}
+    <form method="post" action="{% url 'hub_wiki_verify' page.slug %}"
+          hx-post="{% url 'hub_wiki_verify' page.slug %}" hx-swap="none">
+        {% csrf_token %}
+        <input type="hidden" name="surface" value="tab">
+        <button type="submit" class="pl-btn pl-btn--sm" hx-disabled-elt="this">Verify</button>
+    </form>
+    {% endif %}
+{% else %}
+    {% if page.verified_at %}
+    <p class="pl-wp-tab__verify-credit hub-text-muted">
+        Verified by {{ page.verified_by.display_name|default:"a guild lead" }}{% if page.verified_role_label %} ({{ page.verified_role_label }}){% endif %},
+        {% if page.verification_is_aged %}{{ page.verified_at|date:"M Y" }}{% else %}{{ page.verified_at|date:"j M" }}{% endif %}
+    </p>
+    {% if page.verified_note %}<p class="pl-wp-tab__verify-note hub-text-muted">&ldquo;{{ page.verified_note }}&rdquo;</p>{% endif %}
+    {% endif %}
+    {% if can_verify %}
+    <div class="pl-wp-tab__verify-actions">
+        <form method="post" action="{% url 'hub_wiki_verify' page.slug %}"
+              hx-post="{% url 'hub_wiki_verify' page.slug %}" hx-swap="none">
+            {% csrf_token %}
+            <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" hx-disabled-elt="this">{% if page.verified_at %}Re-verify{% else %}Verify{% endif %}</button>
+        </form>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-modal', 'wiki-verify-note')">with a note&hellip;</button>
+        {% if page.verified_at %}
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'wiki-unverify')">Remove verification</button>
+        {% endif %}
+    </div>
+    <p class="hub-text-muted pl-wp-tab__verify-hint">Verifying says you read it and stand behind it. It resets the review clock too.</p>
+    {% endif %}
+{% endif %}

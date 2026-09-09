@@ -18,8 +18,22 @@ from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelatio
 from django.contrib.contenttypes.models import ContentType
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
-from django.db import models
-from django.db.models import BooleanField, Case, CharField, Count, DecimalField, Exists, OuterRef, Q, Sum, Value, When
+from django.db import IntegrityError, models, transaction
+from django.db.models import (
+    BooleanField,
+    Case,
+    CharField,
+    Count,
+    DecimalField,
+    Exists,
+    F,
+    Max,
+    OuterRef,
+    Q,
+    Sum,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils import timezone
@@ -11693,6 +11707,14 @@ class WikiSaveConflict(Exception):
         self.theirs = theirs
 
 
+class WikiVerificationError(WikiError):
+    """A green check that cannot be given or taken, carrying the sentence to show.
+
+    Raised by :meth:`WikiPage.verify` on an Official or archived page. A subclass of
+    :class:`WikiError` so a view that already catches the base class keeps working.
+    """
+
+
 # Slugs a page may never claim: every fixed segment under /wiki/ plus the QR prefix.
 # The brief's list plus every fixed segment this spec adds. Follows the
 # RESERVED_HELP_SLUGS precedent in hub/forms.py — the model's dedupe loop treats a
@@ -12074,6 +12096,20 @@ class WikiPage(models.Model):
         help_text="Who stood behind this page with a green check.",
     )
     verified_at = models.DateTimeField(null=True, blank=True, help_text="When it was verified.")
+    verified_role_label = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        help_text="The verifier's role at the moment they verified, e.g. 'Woodworking orienter'. Frozen on "
+        "purpose: 'Verified by Kate (Woodworking orienter), 3 Mar' is a historical statement and must not "
+        "silently rewrite itself when Kate leaves the guild.",
+    )
+    verified_note = models.CharField(
+        max_length=280,
+        blank=True,
+        default="",
+        help_text="An optional line the verifier left for the next reader. Shown under the credit.",
+    )
     unverified_reason = models.CharField(
         max_length=200,
         blank=True,
@@ -12273,6 +12309,151 @@ class WikiPage(models.Model):
         self.last_checked_by = member
         self.save(update_fields=["last_checked_at", "last_checked_by"])
 
+    # --- Verification (spec B) -------------------------------------------------------
+
+    def verify(self, by: Member, *, note: str = "") -> None:
+        """Mark this page Guild verified, crediting ``by`` with their role at this moment.
+
+        Verifying **is** a confirmation, so it stamps the freshness clock too — a lead
+        should never have to tap both. It clears ``unverified_reason`` (a green check
+        directly above "Edited since it was verified." contradicts itself) and the
+        denormalized needs-review pair (:attr:`status_pill`'s precedence puts Needs review
+        *above* Guild verified, so leaving it set would make the button appear to do
+        nothing). Clearing the pair is also the right semantics: a lead who read the page
+        and stands behind it is the resolution spec D's queue is asking for. D's open
+        ``WikiReport`` rows are deliberately NOT auto-resolved — that stays a human act,
+        exactly as D's ``archive()`` already behaves.
+
+        It writes **no** :class:`WikiRevision`. Spec D's ``wiki_page_contributors``
+        resolver is ``Member.objects.filter(wiki_revisions__page=page)``, so a verification
+        revision would enrol every verifier as a permanent "contributor" of every page they
+        verify and they would receive other people's verification emails forever. That
+        notification is the round's retention mechanism; do not "reconcile" this by adding
+        the revision.
+
+        Authorization is the CALLER's: ``membership.permissions.can_verify_wiki_page``.
+
+        Args:
+            by: The member standing behind the page.
+            note: An optional line for the next reader; truncated to the column width.
+
+        Raises:
+            WikiVerificationError: On an Official page or an archived one.
+        """
+        from core.events.emit import emit
+        from core.models import SiteActivity
+        from membership.orientations import _absolute_url
+
+        if self.status == self.Status.OFFICIAL:
+            raise WikiVerificationError("Official pages are set by admins, not verified.")
+        if self.archived_at is not None:
+            raise WikiVerificationError("This page is archived.")
+        now = timezone.now()
+        # A double tap on a phone must not emit twice. Same page, same person, inside a
+        # minute is the same intent, so it returns quietly rather than raising.
+        if (
+            self.status == self.Status.GUILD_VERIFIED
+            and self.verified_by_id == by.pk
+            and self.verified_at is not None
+            and (now - self.verified_at).total_seconds() < _WIKI_REVERIFY_QUIET_SECONDS
+        ):
+            return
+        self.status = self.Status.GUILD_VERIFIED
+        self.verified_by = by
+        self.verified_at = now
+        self.verified_note = note.strip()[:280]
+        # Truncated like the note above it. A guild name is 255 and a custom staff title is
+        # 60, so "<guild> <title>" can cross this 80-char column and raise DataError on
+        # Postgres. SQLite accepts the oversize string silently, so CI cannot see it.
+        self.verified_role_label = _wiki_role_label(by, self.guild)[:_WIKI_ROLE_LABEL_MAX]
+        self.last_checked_at = now
+        self.last_checked_by = by
+        self.unverified_reason = ""
+        self.needs_review_since = None
+        self.needs_review_reason = ""
+        self.save()
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_VERIFIED,
+            actor=by.user,
+            target=self,
+            payload={"guild": self.guild_id, "note": bool(self.verified_note)},
+        )
+        # Spec D owns this event: the Trigger, the wiki_page_contributors resolver, the
+        # copy, and the period shape. B only CALLS it, and registers no fallback — B and D
+        # build in parallel, so a second registration of one key is a collision, not a
+        # safety net. D's PR merges before B's.
+        #
+        # D's fix round exported WikiPage.emit_verified(verifier=…, role_label=…), which
+        # builds this whole context itself. It is not importable until D merges, so this
+        # stays a hand-built call; at the rebase it collapses to one line:
+        #     self.emit_verified(verifier=by, role_label=self.verified_role_label)
+        emit(
+            "wiki.page_verified",
+            actor=by.user,
+            target=self,
+            context={
+                "page": self,
+                "actor_member_pk": by.pk,
+                "member_name": "there",
+                "page_title": self.title,
+                # Absolute, not a bare path: this is the ONLY link in spec D's copy, in the
+                # text body and as the CTA button's href, and a relative href in a mail
+                # client dead ends. The same helper the digest uses, and the one a dozen
+                # other callers in this repo import.
+                "page_url": _absolute_url(self.get_absolute_url()),
+                "verifier_name": by.display_name,
+                "verifier_role": self.verified_role_label,
+                "guild_name": self.guild.name if self.guild is not None else "the makerspace",
+            },
+            # Spec D owns this period (brief 9.1) and now ships it as a method, so there is
+            # exactly one definition of the string and B cannot drift from D's publish path.
+            period=self.verified_event_period(),
+        )
+
+    def unverify(self, by: Member) -> None:
+        """Drop back to Community and clear the credit. The review clock is NOT reset.
+
+        A feature you can turn on but not off is half built, so a verifier who tapped by
+        mistake — or who no longer stands behind the page — gets this. It emits nothing:
+        nobody needs an alert that their green check went away, that is a conversation.
+        It also does not set ``needs_review_since``; removing a verification is not a
+        report, and raising D's amber banner from B's control would put a page into D's
+        queue with no ``WikiReport`` behind it.
+
+        Guarded the same way :meth:`verify` is, because the pair has to be symmetric: an
+        archived page refuses, and a page carrying no verification returns quietly rather
+        than writing over state that belongs to something else.
+
+        It deliberately does NOT touch ``unverified_reason``. That column is spec A's
+        record of "edited since it was verified", the only signal that unreviewed text is
+        sitting on the page; blanking it here would delete a warning this method has no
+        business having an opinion about.
+
+        Args:
+            by: The member removing the verification, for the audit row.
+
+        Raises:
+            WikiVerificationError: If the page is archived.
+        """
+        from core.models import SiteActivity
+
+        if self.archived_at is not None:
+            raise WikiVerificationError("This page is archived.")
+        if self.status != self.Status.GUILD_VERIFIED and self.verified_at is None:
+            return  # nothing to remove; a no-op beats mutating a page that was never verified
+        self.status = self.Status.COMMUNITY
+        self.verified_by = None
+        self.verified_at = None
+        self.verified_note = ""
+        self.verified_role_label = ""
+        self.save()
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_VERIFIED,
+            actor=by.user,
+            target=self,
+            payload={"guild": self.guild_id, "removed": True},
+        )
+
     # --- Editing -------------------------------------------------------------------
 
     def fact_snapshot(self) -> list[dict[str, str]]:
@@ -12343,6 +12524,12 @@ class WikiPage(models.Model):
             self.status = self.Status.COMMUNITY
             self.verified_by = None
             self.verified_at = None
+            # Spec B's two denormalized credit columns go with the rest of the
+            # verification. Both render sites gate on verified_at, so leaving them set is
+            # invisible today, but a stale authority string with no verification behind it
+            # is exactly the kind of thing a later consumer inherits and trusts.
+            self.verified_role_label = ""
+            self.verified_note = ""
             self.unverified_reason = "Edited since it was verified."
         self.save()
         SiteActivity.log(SiteActivity.Kind.WIKI_PAGE_EDITED, actor=editor.user, target=self)
@@ -13157,6 +13344,52 @@ _WIKI_ACCESS_LINES: dict[str, str] = {
 }
 
 
+# A second Verify tap by the same person inside this window is the same intent — a phone
+# double tap — and is swallowed rather than re-stamping the date and re-emitting the email.
+_WIKI_REVERIFY_QUIET_SECONDS = 60
+
+# The width of WikiPage.verified_role_label. Named so the truncation at the write site and
+# the column cannot drift apart.
+_WIKI_ROLE_LABEL_MAX = 80
+
+
+def _wiki_role_label(member: Member, guild: Guild | None) -> str:
+    """The frozen credit string stored in ``WikiPage.verified_role_label``.
+
+    "Verified by Kate (Woodworking orienter), 3 Mar" is a statement about the past, so the
+    role is denormalized at verify time and never recomputed: Kate can leave the guild
+    without the page claiming she is still its orienter.
+
+    Args:
+        member: The verifier.
+        guild: The page's scope, or None for a space-wide page.
+
+    "Admin" is claimed ONLY for a member who actually holds the admin or guild-officer FOG
+    role. It used to be the fallthrough for anybody the guild branches did not recognize,
+    which meant a verifier reaching the page by some other authority was frozen into the
+    page as an administrator forever. A credit that can invent authority is worse than no
+    credit, so an unrecognized verifier gets an empty label and the templates drop the
+    parentheses around it, which they already do.
+
+    Args:
+        member: The verifier.
+        guild: The page's scope, or None for a space-wide page.
+
+    Returns:
+        "Woodworking lead", "Woodworking orienter", "Admin", or "" when none of those is
+        true of this member. Callers truncate to :data:`_WIKI_ROLE_LABEL_MAX`.
+    """
+    if guild is not None:
+        if guild.guild_lead_id == member.pk:
+            return f"{guild.name} lead"
+        staff = guild.staff_memberships.filter(member=member).first()
+        if staff is not None:
+            return f"{guild.name} {staff.display_title.lower()}"
+    if member.is_fog_admin or member.is_guild_officer:
+        return "Admin"
+    return ""
+
+
 # How long each kind stays fresh before the Out of date chip appears, in months.
 # None means the kind never goes stale: a project write-up is a record of what someone did
 # once, and asking them to re-confirm it every year would be asking them to re-do it.
@@ -13804,3 +14037,477 @@ class WikiEditLock(models.Model):
         button never fires anything, so expiry is the real release either way.
         """
         cls.objects.filter(page=page, holder=member).delete()
+
+
+# How long a claim on a wanted page sits before the row says so and a lead gets a Release
+# control. Nothing clears it automatically: a job that silently un-assigns a member's work
+# reads as a rebuke.
+WANTED_CLAIM_STALE_DAYS = 30
+
+# The failed-search log's write gates. Two characters is a typo; 120+ is a paste.
+MISS_MIN_QUERY_LENGTH = 3
+MISS_MAX_QUERY_LENGTH = 120
+
+# Per-member daily ceilings on the two member-writable tables. The per-query dedupe caps
+# repeats of one ask; these cap the number of DISTINCT asks, which is what a script writes.
+MISS_MAX_PER_MEMBER_PER_DAY = 25
+WANTED_MAX_PER_MEMBER_PER_DAY = 10
+
+# How long a failed search is kept. The panel window is a rolling 30 days and the digest
+# reads last calendar month, so 90 is generous and bounds the table at roughly
+# (members x distinct failed queries x 90) rows.
+MISS_RETENTION_DAYS = 90
+
+
+def normalize_wiki_ask(text: str) -> str:
+    """The grouping key for a wanted-page title and a failed search query.
+
+    Runs of whitespace collapse to one space and case folds away, so "Sharpening  Jigs"
+    and "sharpening jigs" are one ask. Used by both :class:`WikiWantedPage` and
+    :class:`WikiSearchMiss` so the failed-search panel can test one against the other.
+    """
+    # Truncated after folding, not before: casefold can EXPAND a string (the German sharp
+    # s becomes "ss"), so a 200-character title can normalize past the 200-character column
+    # it is stored in and raise DataError on Postgres.
+    return " ".join(text.split()).casefold()[:200]
+
+
+class WikiWantedPageQuerySet(models.QuerySet["WikiWantedPage"]):
+    """Filters for the wanted list — the specific ask that beats an open invitation."""
+
+    def open(self) -> Self:
+        """Rows nobody has written yet. ``fulfilled_page`` is the done flag."""
+        return self.filter(fulfilled_page__isnull=True)
+
+    def done(self) -> Self:
+        """Rows that have a page behind them — the "Already Written" section."""
+        return self.filter(fulfilled_page__isnull=False)
+
+    def for_guild(self, guild: Guild | None) -> Self:
+        """Rows in one scope. ``None`` is the space-wide scope, not "every scope"."""
+        return self.filter(guild=guild)
+
+    def with_people(self) -> Self:
+        """The N+1 guard for the list: every FK a row renders."""
+        return self.select_related("created_by", "claimed_by", "fulfilled_page", "guild")
+
+    def request(
+        self,
+        *,
+        title: str,
+        guild: Guild | None,
+        member: Member | None,
+        bump: bool = True,
+    ) -> tuple[WikiWantedPage, bool]:
+        """Record one ask, folding a repeat into the existing row.
+
+        The single entry point for both "Request this page" (a member asking, ``bump``
+        left True) and a lead's "Add To Wanted" (``bump=False``). ``request_count`` is the
+        panel's headline number and it counts **people who asked**; a lead filing the row
+        is not a fourth person asking, and without the flag a lead tapping twice would
+        manufacture that number.
+
+        The partial unique constraint cannot dedupe space-wide rows (Postgres NULLs never
+        collide), so the lookup here is the real dedupe and runs on every path.
+
+        Args:
+            title: The ask in the requester's own words — from a failed search, the exact
+                query they typed.
+            guild: The scope, or None for space-wide.
+            member: Who asked, or None when nobody is attributable.
+            bump: Whether a repeat ask increments ``request_count``.
+
+        Returns:
+            ``(row, created)`` — ``created`` False when an existing open row was found.
+        """
+        normalized = normalize_wiki_ask(title)
+        existing = self.for_guild(guild).open().filter(title_normalized=normalized).first()
+        if existing is not None:
+            if bump:
+                # F() and not read-modify-write: two members tapping at once must both count.
+                type(existing).objects.filter(pk=existing.pk).update(request_count=F("request_count") + 1)
+                existing.refresh_from_db(fields=["request_count"])
+            return existing, False
+        if member is not None and self._filed_today(member) >= WANTED_MAX_PER_MEMBER_PER_DAY:
+            raise WikiError("That is a lot of requests for one day. Try again tomorrow.")
+        try:
+            # The savepoint is what makes the recovery below possible at all: inside any
+            # atomic block (every test using the db fixture, and any caller wrapped in one)
+            # Postgres marks the transaction needs_rollback on the failed INSERT, and the
+            # recovery SELECT would raise TransactionManagementError instead of returning
+            # the winner. Both other IntegrityError catches in this file do the same.
+            with transaction.atomic():
+                return self.create(title=title.strip()[:200], guild=guild, created_by=member), True
+        except IntegrityError:
+            # Two people asking the same thing at the same instant race the partial unique
+            # constraint. The loser re-reads the winner's row rather than 500ing, which is
+            # the same answer they would have got a millisecond earlier.
+            winner = self.for_guild(guild).open().filter(title_normalized=normalized).first()
+            if winner is None:
+                raise
+            return winner, False
+
+    def _filed_today(self, member: Member) -> int:
+        """How many rows this member has opened today, across EVERY scope.
+
+        Deliberately ``WikiWantedPage.objects`` and not ``self``: the cap is per person per
+        day, so narrowing it to whatever scope the caller happened to chain would multiply
+        the real ceiling by the number of guilds. The dedupe lookup above is scoped on
+        purpose; this one must not be.
+        """
+        return WikiWantedPage.objects.filter(created_by=member, created_at__date=timezone.localdate()).count()
+
+    def open_titles_for_guild(self, guild: Guild | None) -> set[str]:
+        """The normalized titles of this scope's open rows, for the failed-search panel.
+
+        One ``values_list``. The panel tests each miss's normalized query against this set
+        so an already-filed row renders "On the wanted list" instead of a button that lies.
+        """
+        return set(self.for_guild(guild).open().values_list("title_normalized", flat=True))
+
+
+class WikiWantedPage(models.Model):
+    """A page this guild wants written, and who is on it.
+
+    A specific ask beats an open invitation, which makes this the best single answer to
+    "one person writes everything". Rows are chronological: no ``sort_order``, no
+    drag-to-reorder (drag fails with gloves), and a wanted list that needs manual ordering
+    is already too long to be useful.
+    """
+
+    guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="wanted_wiki_pages",
+        help_text="The guild asking. Leave blank for a page the whole space wants.",
+    )
+    title = models.CharField(
+        max_length=200,
+        help_text="What the page should be called, in the asker's own words.",
+    )
+    title_normalized = models.CharField(
+        max_length=200,
+        db_index=True,
+        blank=True,
+        default="",
+        help_text="Case-folded, whitespace-collapsed title. Filled on save; powers the duplicate bump.",
+    )
+    note = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional: what the page should cover, or who to ask.",
+    )
+    created_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_pages_wanted",
+        help_text="Who asked. Blank survives a member deletion; the row is still useful.",
+    )
+    claimed_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_pages_claimed",
+        help_text="Who said they would write it. A claim is a signal, never a lock.",
+    )
+    claimed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When it was claimed. Drives the 'claimed 5 weeks ago' staleness line.",
+    )
+    fulfilled_page = models.ForeignKey(
+        WikiPage,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="fulfilled_wants",
+        help_text="The page that answered the ask. Non-blank means this row is done.",
+    )
+    request_count = models.PositiveIntegerField(
+        default=1,
+        help_text="How many PEOPLE asked for this. '4 people asked for this' is the most useful "
+        "number on the panel; a lead filing a row does not increment it.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the ask was first recorded.")
+
+    objects = WikiWantedPageQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "title_normalized"],
+                condition=Q(fulfilled_page__isnull=True),
+                name="uq_wikiwanted_guild_title",
+            ),
+        ]
+        indexes = [models.Index(fields=["guild", "fulfilled_page"], name="idx_wikiwanted_guild_open")]
+
+    def __str__(self) -> str:
+        return f"{self.title} ({self.guild.name if self.guild is not None else 'Space-wide'})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Keep ``title_normalized`` in step with ``title`` on every write."""
+        self.title_normalized = normalize_wiki_ask(self.title)
+        super().save(*args, **kwargs)
+
+    @property
+    def state(self) -> str:
+        """``'done'``, ``'claimed'`` or ``'open'`` — the row's whole lifecycle."""
+        if self.fulfilled_page_id is not None:
+            return "done"
+        if self.claimed_by_id is not None:
+            return "claimed"
+        return "open"
+
+    @property
+    def is_claim_stale(self) -> bool:
+        """True when a claim has sat unwritten past the staleness window.
+
+        Nothing clears it automatically: a background job that silently un-assigns a
+        member's work reads as a rebuke. The row stays **startable** by anyone (a claim is
+        a signal, not a lock, so Start This Page never disappears), but it is not
+        re-claimable out from under the holder: a lead uses the Release control beside this
+        line and the row goes back to open. A staleness hint with no lever is half a
+        feature; a hint whose lever silently reassigns somebody's work is worse.
+        """
+        if self.claimed_at is None or self.fulfilled_page_id is not None:
+            return False
+        return self.claimed_at < timezone.now() - timedelta(days=WANTED_CLAIM_STALE_DAYS)
+
+    def claim(self, member: Member) -> None:
+        """Put ``member``'s name against this row.
+
+        Refuses a row somebody else already holds. The list template only ever offers
+        Claim on an unclaimed row, so this closes the crafted-POST path and stops the
+        model and the template disagreeing about whether a claim can be taken.
+
+        Raises:
+            ValueError: If the row is already written, or already claimed by someone else.
+        """
+        if self.fulfilled_page_id is not None:
+            raise ValueError("That request has already been written.")
+        if self.claimed_by_id is not None and self.claimed_by_id != member.pk:
+            raise ValueError("Somebody else has already claimed that one.")
+        self.claimed_by = member
+        self.claimed_at = timezone.now()
+        self.save(update_fields=["claimed_by", "claimed_at", "title_normalized"])
+
+    def release(self) -> None:
+        """Hand the row back to the list. The claimer, or a lead, may do this.
+
+        Authorization is the CALLER's, because the two callers differ: the claimer's own
+        Release is one tap, a lead releasing somebody else's stale claim goes behind a
+        confirm modal. Nothing is deleted; the row goes back to open.
+
+        Raises:
+            ValueError: If the row is already written.
+        """
+        if self.fulfilled_page_id is not None:
+            raise ValueError("That request has already been written.")
+        self.claimed_by = None
+        self.claimed_at = None
+        self.save(update_fields=["claimed_by", "claimed_at", "title_normalized"])
+
+    def reopen(self) -> None:
+        """Put a wrongly-closed row back on the list, keeping the ask and its count.
+
+        The other half of :meth:`fulfil`. Without it the only way back from a mistaken
+        close is the editor's Delete, which throws away the title, the note and the
+        ``request_count`` that says how many people asked. The claim goes with it, because
+        whoever was credited did not in fact write it.
+
+        Raises:
+            ValueError: If the row is already open — reopening one would silently clear a
+                live claim, walking straight past the Release confirm modal and the "Sam
+                claimed this 5 weeks ago" line that exists so a lead knows whose work they
+                are taking. Or if an open row in this scope already asks for the same
+                thing: ``fulfilled_page = None`` moves this row INTO
+                ``uq_wikiwanted_guild_title``'s partial index, so a duplicate ask filed in
+                the meantime would surface as an uncaught IntegrityError on the lead's tap.
+        """
+        if self.fulfilled_page_id is None:
+            raise ValueError("That request is already on the list.")
+        clash = (
+            type(self)
+            .objects.for_guild(self.guild)
+            .open()
+            .filter(title_normalized=self.title_normalized)
+            .exclude(pk=self.pk)
+        )
+        if clash.exists():
+            raise ValueError(f"Somebody has already asked for '{self.title}' again.")
+        self.fulfilled_page = None
+        self.claimed_by = None
+        self.claimed_at = None
+        self.save(update_fields=["fulfilled_page", "claimed_by", "claimed_at", "title_normalized"])
+
+    def fulfil(self, page: WikiPage) -> bool:
+        """Close this row against the page that answered it.
+
+        Credits ``page.created_by`` as the claimer when nobody had claimed it, so the
+        "Already Written" section reads "written by Sam" without anyone having pressed
+        Claim first.
+
+        Returns ``False`` rather than raising on a row that is already closed, or on a page
+        from a different scope: one caller is spec A's create view following a month-old
+        ``?wanted=<pk>`` link taken straight off the query string with no scope check of
+        its own, where neither case may become an error screen. Refusing the mismatch HERE
+        closes that path for every caller — otherwise a member could read one guild's pk out
+        of a "Start This Page" href and close its row against an unrelated space-wide page.
+        B's Mark As Written view turns the False into a 400 with the "already closed" toast;
+        its own picker is scoped, so it never sees the mismatch.
+
+        Args:
+            page: The page that answers the ask.
+
+        Returns:
+            True when this call closed the row, False when it was already closed or the
+            page belongs to a different scope.
+
+        Raises:
+            WikiError: If ``page`` is archived — an archived page answers nothing.
+        """
+        if self.fulfilled_page_id is not None:
+            return False
+        if page.guild_id != self.guild_id:
+            return False
+        if page.archived_at is not None:
+            raise WikiError("That page is archived, so it cannot close a request.")
+        self.fulfilled_page = page
+        if self.claimed_by_id is None and page.created_by_id is not None:
+            self.claimed_by = page.created_by
+            self.claimed_at = timezone.now()
+        self.save(update_fields=["fulfilled_page", "claimed_by", "claimed_at", "title_normalized"])
+        return True
+
+
+class WikiSearchMissQuerySet(models.QuerySet["WikiSearchMiss"]):
+    """The failed-search log: a free content roadmap, bounded by a retention rule."""
+
+    def record(self, *, query: str, guild: Guild | None, member: Member | None) -> WikiSearchMiss | None:
+        """Log one zero-result search, or decline and return ``None``.
+
+        The whole "does not grow without bound" policy, stated once:
+
+        1. The CALLER only calls this on a submitted search that returned nothing.
+        2. Signed-out means no row — the wiki is login-required, so this is a no-op path.
+        3. Length gate: two characters is a typo, 120+ is a paste.
+        4. One row per member, per normalized query, per calendar day, so the panel counts
+           **people** and one frustrated member retyping six times cannot fake a roadmap.
+        5. Retention is 90 days, purged by the daily digest command.
+
+        Args:
+            query: Exactly what the member typed.
+            guild: The scope the search ran in, or None for "everything".
+            member: Who searched, or None when nobody is signed in.
+
+        Returns:
+            The new row, or None when a rule declined it.
+        """
+        if member is None:
+            return None
+        normalized = normalize_wiki_ask(query)
+        if not (MISS_MIN_QUERY_LENGTH <= len(normalized) <= MISS_MAX_QUERY_LENGTH):
+            return None
+        today = timezone.localdate()
+        mine_today = self.filter(member=member, created_at__date=today)
+        if mine_today.filter(query_normalized=normalized).exists():
+            return None
+        if mine_today.count() >= MISS_MAX_PER_MEMBER_PER_DAY:
+            # Rule 4 caps repeats of ONE query; without this a signed-in member scripting
+            # /wiki/search/?q=<random> writes an unbounded row per request, kept 90 days.
+            # Somebody who genuinely failed this many distinct searches in a day has a
+            # problem the panel cannot help with anyway.
+            return None
+        return self.create(query=query.strip()[:200], query_normalized=normalized, guild=guild, member=member)
+
+    def top_for_guild(
+        self,
+        guild: Guild | None,
+        since: datetime_type,
+        *,
+        until: datetime_type | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """The most-wanted misses in one scope in a window, grouped by normalized query.
+
+        One aggregate query. Rows are already one per person per day, so ``Count`` is a
+        count of people. ``Max("query")`` picks a display spelling from the members' own
+        words, which is the human-written content on this panel and in the digest.
+
+        Args:
+            guild: The scope, or None for searches that ran across everything.
+            since: Inclusive start of the window.
+            until: Exclusive end. The on-tab panel leaves it open (a rolling window with no
+                future); the digest passes the month boundary so a --force run mid-month
+                still reports last month rather than this one.
+            limit: How many rows at most.
+
+        Returns:
+            Up to ``limit`` dicts of ``{query, query_normalized, people, last_seen}``,
+            most-asked first and most-recent as the tie-break.
+        """
+        rows = (
+            self.filter(guild=guild, created_at__gte=since)
+            .values("query_normalized")
+            .annotate(people=Count("pk"), last_seen=Max("created_at"), query=Max("query"))
+            .order_by("-people", "-last_seen")
+        )
+        if until is not None:
+            rows = rows.filter(created_at__lt=until)
+        rows = rows[:limit]
+        return [dict(row) for row in rows]
+
+    def purge_before(self, cutoff: datetime_type) -> int:
+        """Delete misses older than ``cutoff``. Returns how many went."""
+        deleted, _by_model = self.filter(created_at__lt=cutoff).delete()
+        return deleted
+
+
+class WikiSearchMiss(models.Model):
+    """One member, one day, one wiki search that found nothing.
+
+    Search failing quietly is how a wiki loses to Discord. Logging the misses turns the
+    failure into a content roadmap the guild's leads can actually work.
+    """
+
+    query = models.CharField(max_length=200, help_text="Exactly what the member typed, kept for display.")
+    query_normalized = models.CharField(
+        max_length=200,
+        help_text="Case-folded, whitespace-collapsed query. The grouping key.",
+    )
+    guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="wiki_search_misses",
+        help_text="The scope the search ran in. Blank means they searched everything.",
+    )
+    member = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_search_misses",
+        help_text="Who searched. Blank after a member is deleted; the miss still counts.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, help_text="When they searched.")
+
+    objects = WikiSearchMissQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["guild", "created_at"], name="idx_wikimiss_guild_created"),
+            models.Index(fields=["query_normalized"], name="idx_wikimiss_norm"),
+        ]
+
+    def __str__(self) -> str:
+        return f"'{self.query}' found nothing ({self.created_at:%b %d})"
