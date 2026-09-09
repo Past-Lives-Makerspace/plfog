@@ -44,7 +44,17 @@ jobs:
         # The runner image ships Google's chrome-stable repo, which we never install from
         # (Playwright brings its own chromium). Its metadata has taken this job red twice
         # on an apt hash sum mismatch, so the source comes out before --with-deps runs apt.
-        run: grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ | xargs -r sudo rm -f || true
+        # It says which files it removed: a silent version that quietly matched nothing
+        # would look identical to a working fix right up until the flake came back.
+        run: |
+          found=$(grep -rl 'dl\.google\.com' /etc/apt/sources.list.d/ 2>/dev/null || true)
+          if [ -n "$found" ]; then
+            echo "Removing Google Chrome apt source(s):"
+            echo "$found"
+            echo "$found" | xargs -r sudo rm -f
+          else
+            echo "No Google Chrome apt source present; nothing to remove."
+          fi
 
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
