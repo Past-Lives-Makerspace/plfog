@@ -6541,6 +6541,233 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
+/* ── Teach at Past Lives (.pl-teach-*) ─────────────────────────────────
+   The instructor marketing page. One centered column of hub-cards: a
+   state banner, a gradient hero, a feature grid, a live catalog card, the
+   steps, the asks, an FAQ, the guide, and the apply card.
+   Theme tokens only — verified on Obsidian + Slate. ── */
+
+.pl-teach {
+    max-width: 980px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* The column gap owns the vertical rhythm here, so kill the children's own margins. */
+.pl-teach > .hub-card,
+.pl-teach > .pl-guild-hero {
+    margin: 0;
+}
+
+.pl-teach-meta {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
+.pl-teach-section__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
+}
+
+/* Hero: a variant over .pl-guild-hero, exactly as .pl-help-hero composes over it.
+   --noimg paints the brand gradient; there is deliberately no photo (a stock shot
+   here would be a lie about the space, and the real photo belongs to the example
+   class card below). Centered, and shorter than a guild hero. */
+.pl-teach-hero {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: clamp(200px, 26vw, 300px);
+}
+
+/* Cap the copy so the centered lead does not run the full 980px column. Same
+   recipe as .pl-help-hero's content block. */
+.pl-teach-hero .pl-guild-hero__content {
+    width: 100%;
+    max-width: 680px;
+    padding: 2rem 1.5rem;
+}
+
+.pl-teach-hero__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+/* Feature grid. Declarations are copied from .pl-tools-grid / .pl-tool-card so the
+   two grids stay visually identical, but the names are new on purpose: those say
+   "admin tools", they are built for links, and their hover lift is wrong on a card
+   that does not go anywhere. */
+.pl-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.pl-feature-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    margin: 0;
+}
+
+.pl-feature-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.6rem;
+    background: rgba(238, 180, 75, 0.12);
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-feature-card__title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--hub-text);
+}
+
+.pl-feature-card__desc {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+/* "See It For Yourself": copy left, a real catalog card right. Stacks at the same
+   800px breakpoint .pl-edit-split uses, copy first (source order, no `order`). */
+.pl-teach-showcase {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.pl-teach-showcase__body {
+    color: var(--hub-text-muted);
+    margin: 0 0 0.75rem;
+}
+
+.pl-teach-showcase__caption {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    margin-top: 0.5rem;
+}
+
+/* Pin the embedded grid to one column so the card does not stretch to the pane.
+   Written as a two-class descendant because cms-public.css is linked in the
+   template and therefore loads AFTER hub.css: a bare class would lose the cascade
+   to `.cp-page .cls-grid`, and a template <style> block is not allowed (Rule 9). */
+.cp-page .cls-grid.pl-teach-showcase__grid {
+    grid-template-columns: minmax(0, 320px);
+}
+
+@media (max-width: 800px) {
+    .pl-teach-showcase {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* "How It Works": three numbered steps. Deliberately NOT .pl-pipeline markup —
+   that strip means "where your class is in review", which this is not. */
+.pl-teach-steps {
+    list-style: none;
+    margin: 1rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.pl-teach-steps__item {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+}
+
+/* The gold numeral circle, copied from .pl-wizard-nav__n's active state. */
+.pl-teach-steps__n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.pl-teach-steps__title {
+    display: block;
+    font-weight: 700;
+}
+
+.pl-teach-steps__desc {
+    display: block;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
+/* FAQ + the collapsed instructor guide: the public class page's disclosure
+   pattern, restyled for the hub in two rules. */
+.pl-teach-faq__item {
+    border-bottom: 1px solid var(--hub-border);
+    padding: 0.75rem 0;
+}
+
+.pl-teach-faq__item summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+}
+
+.pl-teach-faq__item summary::-webkit-details-marker {
+    display: none;
+}
+
+.pl-teach-faq__item summary::marker {
+    content: "";
+}
+
+.pl-teach-guide {
+    border-bottom: none;
+    padding-top: 0;
+}
+
+/* Apply card. Its button clears the paragraph above it (Rule 18). */
+.pl-teach-apply {
+    text-align: center;
+}
+
+.pl-teach-apply .pl-btn {
+    margin-top: 1rem;
+}
+
+.pl-teach-apply__footnote {
+    margin: 1.5rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 480px) {
+    .pl-teach-hero__actions .pl-btn,
+    .pl-teach-apply .pl-btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
 /* ========================================
    Meetings workspace (.pl-meeting-*)
    Spec: docs/superpowers/plans/2026-08-11-meetings.md §6.3

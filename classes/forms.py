@@ -436,19 +436,27 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
         return offering
 
 
-class InstructorOrientationCompleteForm(forms.Form):
-    """The orientation page's single acknowledge toggle (Spec D §5).
+class TeachingApplicationForm(forms.Form):
+    """The Apply to Teach modal's single note field.
 
-    Validation lives here, not the view: ``required=True`` means a JS-less
-    submit gets the field error, never a bypass. The Alpine ``x-model`` attr
-    only drives the page's disabled-button affordance.
+    Validation lives here, not the view: the note is what an admin reads when they
+    decide, so a blank submit gets the field error rather than filing an empty ask.
+    ``strip`` is Django's default, so a note of only whitespace fails ``required``.
     """
 
-    acknowledge = forms.BooleanField(
+    note = forms.CharField(
         required=True,
-        label="I've read the expectations above and I'm ready to teach.",
-        widget=forms.CheckboxInput(attrs={"x-model": "ok"}),
-        error_messages={"required": "Please confirm you've read the orientation before unlocking teaching."},
+        max_length=2000,
+        label="What Would You Like to Teach?",
+        help_text=(
+            "A sentence or two is plenty. Tell us the subject, roughly how long a class would run, "
+            "and anything you have taught before."
+        ),
+        widget=forms.Textarea(attrs={"rows": 5}),
+        error_messages={
+            "required": "Tell us a little about what you want to teach.",
+            "max_length": "That is longer than we can store. Trim it to 2000 characters or fewer.",
+        },
     )
 
 
@@ -1045,6 +1053,7 @@ class ClassSettingsForm(forms.ModelForm):
             "default_member_discount_pct",
             "reminder_hours_before",
             "instructor_approval_required",
+            "example_class",
             "confirmation_email_footer",
         ]
         widgets = {

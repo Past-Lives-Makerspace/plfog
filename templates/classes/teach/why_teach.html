@@ -1,0 +1,280 @@
+{% extends "hub/base.html" %}
+{% load membership_md static %}
+{% block title %}Teach at Past Lives{% endblock %}
+
+{% block extra_head %}
+{% comment %}
+The "See It For Yourself" section renders the REAL catalog card through
+classes/public/_class_card.html, whose styles live in cms-public.css. The .cp-page
+token block is self-contained and sources from the hub tokens, so the card is correct
+in both themes with no extra work.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'css/cms-public.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Teach at Past Lives (design spec §A). Extends hub/base.html directly, NOT
+classes/teach/base.html, whose tab bar links five gated pages — showing locked tabs
+here would be a wall of dead ends, which is exactly why the retired orientation page
+did the same.
+
+One column of cards, state-aware. `application_state` is Member.teaching_application_state,
+the single source of truth: none / pending / approved / declined. The x-data below
+reopens the apply modal when a POST came back with a bound (invalid) form so the error
+shows inside it; the dispatch waits a tick because the modal's @open-modal.window
+listener is not bound yet when this x-init runs.
+{% endcomment %}
+<div class="pl-teach" x-data{% if apply_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'apply-to-teach'))"{% endif %} data-help-key="teach.become-instructor">
+
+    {% if application_state == 'pending' %}
+    <div class="hub-card pl-orientation-banner">
+        <h2 class="pl-orientation-banner__title">Your Application Is In</h2>
+        <p class="pl-orientation-banner__body">
+            An admin is reading it. You will get an email when they decide, and you can check this page any time to see where it stands.
+        </p>
+        {% if member.teaching_applied_at %}
+        <p class="pl-teach-meta">Applied on {{ member.teaching_applied_at|date }}.</p>
+        {% endif %}
+    </div>
+    {% elif application_state == 'declined' %}
+    <div class="hub-card pl-orientation-banner">
+        <h2 class="pl-orientation-banner__title">Not This Time</h2>
+        <p class="pl-orientation-banner__body">
+            An admin looked at your application and is not able to approve it yet. Here is what they said.
+        </p>
+        <div class="pl-review-note">
+            <span class="pl-review-note__label">Note from the admin</span>{% if member.teaching_decline_reason %}{{ member.teaching_decline_reason }}{% else %}The admin left no note.{% endif %}
+        </div>
+        <p class="pl-teach-meta">You can apply again whenever you like.</p>
+    </div>
+    {% elif application_state == 'approved' %}
+    <div class="hub-card pl-orientation-done">
+        <h2 class="pl-orientation-done__title">You Can Teach</h2>
+        {% if member.teaching_decided_at %}
+        <p class="pl-orientation-done__meta">Approved on {{ member.teaching_decided_at|date }}.</p>
+        {% endif %}
+        <div class="pl-orientation-done__actions">
+            <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the Teaching Portal</a>
+            <a class="pl-btn pl-btn--secondary" href="{% url 'classes:teach_class_create' %}">Create a Class</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="pl-guild-hero pl-guild-hero--noimg pl-teach-hero">
+        <div class="pl-guild-hero__content">
+            <h1 class="pl-guild-hero__title">Teach at Past Lives</h1>
+            <p class="pl-guild-hero__lead">
+                Share what you know with the people already in the shop. You get a full class page, a roster, and the tools to run it.
+            </p>
+            <div class="pl-teach-hero__actions">
+                {% if application_state == 'pending' %}
+                    <span class="pl-lifecycle-badge pl-lifecycle-badge--awaiting_admin">Application sent</span>
+                    {% if example_url %}
+                    <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+                    {% endif %}
+                {% elif application_state == 'approved' %}
+                    <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the Teaching Portal</a>
+                    {% if example_url %}
+                    <a class="pl-btn pl-btn--secondary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+                    {% endif %}
+                {% else %}
+                    <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">
+                        {% if application_state == 'declined' %}Apply Again{% else %}Apply to Teach{% endif %}
+                    </button>
+                    {% if example_url %}
+                    <a class="pl-btn pl-btn--secondary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">What You Get</h2>
+        <div class="pl-feature-grid">
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+                </span>
+                <span class="pl-feature-card__title">A Class Page Worth Sharing</span>
+                <span class="pl-feature-card__desc">Your class gets its own page with a wide banner photo, a photo gallery, your schedule, your bio, and a booking panel that follows the reader down the page.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+                </span>
+                <span class="pl-feature-card__title">Copy In Your Own Voice</span>
+                <span class="pl-feature-card__desc">Write the description, the prerequisites, what is included, what to bring, safety notes, and an age note. Fill in what fits your class and leave the rest blank.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                </span>
+                <span class="pl-feature-card__title">Photos And A Banner</span>
+                <span class="pl-feature-card__desc">Upload a banner photo and as many gallery shots as you like. You pick which part of the photo shows on the banner and which part shows on the catalog card.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </span>
+                <span class="pl-feature-card__title">Waitlists That Run Themselves</span>
+                <span class="pl-feature-card__desc">When your class fills up, students join a waitlist. The moment a seat opens, the next person is offered it and held for three days.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+                </span>
+                <span class="pl-feature-card__title">Your Roster On One Screen</span>
+                <span class="pl-feature-card__desc">See who is coming, mark someone as paid, move a student to another date, and email everyone at once without leaving the page.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+                </span>
+                <span class="pl-feature-card__title">Sales And Discount Codes</span>
+                <span class="pl-feature-card__desc">Put a class on sale and the banner, the crossed out price, and the new price appear everywhere on their own. Or hand out a code to a group.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </span>
+                <span class="pl-feature-card__title">Run It Again In One Click</span>
+                <span class="pl-feature-card__desc">Taught it once and want to teach it again? Make a copy with new dates and keep everything else exactly as it was.</span>
+            </div>
+        </div>
+    </section>
+
+    {% if example_url %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">See It For Yourself</h2>
+        <div class="pl-teach-showcase">
+            <div>
+                <p class="pl-teach-showcase__body">This is a real class page, built with the same editor you would use. Open it and scroll the whole thing.</p>
+                <p class="pl-teach-showcase__body">The card on the right is exactly how a class looks in the catalog. Everything on it comes from what the instructor typed in.</p>
+                <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">Open the Example Class</a>
+            </div>
+            <div>
+                <div class="cp-page">
+                    <div class="cls-grid pl-teach-showcase__grid">
+                        {% include "classes/public/_class_card.html" with group=example_group %}
+                    </div>
+                </div>
+                <p class="pl-teach-showcase__caption">This is a live catalog card, not a picture of one.</p>
+            </div>
+        </div>
+    </section>
+    {% else %}
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">See It For Yourself</h2>
+        <p class="pl-teach-showcase__body">Browse the classes members are taking right now.</p>
+        <a class="pl-btn pl-btn--primary" href="{{ catalog_url }}" target="_blank" rel="noopener">Have a Look at the Catalog</a>
+    </section>
+    {% endif %}
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">How It Works</h2>
+        <ol class="pl-teach-steps">
+            <li class="pl-teach-steps__item">
+                <span class="pl-teach-steps__n">1</span>
+                <span>
+                    <span class="pl-teach-steps__title">Apply</span>
+                    <span class="pl-teach-steps__desc">Tell us what you want to teach. It takes a minute. An admin reads every application.</span>
+                </span>
+            </li>
+            <li class="pl-teach-steps__item">
+                <span class="pl-teach-steps__n">2</span>
+                <span>
+                    <span class="pl-teach-steps__title">Build Your Class</span>
+                    <span class="pl-teach-steps__desc">Once you are approved, the class editor walks you through it in five steps. Save a draft any time and come back.</span>
+                </span>
+            </li>
+            <li class="pl-teach-steps__item">
+                <span class="pl-teach-steps__n">3</span>
+                <span>
+                    <span class="pl-teach-steps__title">Go Live</span>
+                    <span class="pl-teach-steps__desc">Submit it for review. Your guild lead and an admin take a look, and then it goes into the catalog and out to members.</span>
+                </span>
+            </li>
+        </ol>
+    </section>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">What We Ask Of You</h2>
+        <ul class="hub-text-muted">
+            <li>Know your material and know the tools you are teaching on.</li>
+            <li>Show up on time and leave the space the way you found it.</li>
+            <li>Answer your students when they message you through the app.</li>
+            <li>Tell an admin as early as you can if you need to cancel a date.</li>
+        </ul>
+    </section>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">Common Questions</h2>
+        <div class="pl-teach-faq">
+            <details class="pl-teach-faq__item">
+                <summary>Do I Need to Be an Expert?</summary>
+                <p>No. You need to be safe and clear. Plenty of good classes are taught by people two steps ahead of their students.</p>
+            </details>
+            <details class="pl-teach-faq__item">
+                <summary>How Long Does Approval Take?</summary>
+                <p>An admin usually gets to applications within a week. You can check this page any time to see where yours stands.</p>
+            </details>
+            <details class="pl-teach-faq__item">
+                <summary>Can I Charge for My Class?</summary>
+                <p>Yes. You set the price and an optional member discount when you build the class. You can also run it free.</p>
+            </details>
+            <details class="pl-teach-faq__item">
+                <summary>What If Nobody Signs Up?</summary>
+                <p>You can cancel a class from your dashboard and everyone registered is told automatically. Nothing is stuck.</p>
+            </details>
+        </div>
+    </section>
+
+    <section class="hub-card">
+        <details class="pl-teach-faq__item pl-teach-guide">
+            <summary>Read the Instructor Guide</summary>
+            {% if article %}
+            <div class="pl-md pl-md--help">{{ article.body|page_content }}</div>
+            {% else %}
+            <p class="hub-text-muted">The guide has not been loaded yet. Ask an admin to run the help center seed.</p>
+            {% endif %}
+            {% if guide %}
+            <p class="pl-orientation-guide-link">
+                Read the full guide: <a href="{{ guide.get_absolute_url }}"><strong>{{ guide.title }}</strong></a>
+            </p>
+            {% endif %}
+        </details>
+    </section>
+
+    <section class="hub-card pl-teach-apply">
+        {% if application_state == 'pending' %}
+            <h2 class="pl-teach-section__title">Waiting on an Admin</h2>
+            <p class="hub-text-muted">Nothing else to do right now. Have a look around the example class while you wait.</p>
+            {% if example_url %}
+            <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>
+            {% else %}
+            <a class="pl-btn pl-btn--primary" href="{{ catalog_url }}" target="_blank" rel="noopener">Have a Look at the Catalog</a>
+            {% endif %}
+            <p class="pl-teach-apply__footnote">Want to add something to your application? Ask an admin and they can update it for you.</p>
+        {% elif application_state == 'approved' %}
+            <h2 class="pl-teach-section__title">You Are Already In</h2>
+            <p class="hub-text-muted">The teaching portal is open. Start a class whenever you are ready.</p>
+            <a class="pl-btn pl-btn--primary" href="{% url 'classes:teach_overview' %}">Go to the Teaching Portal</a>
+        {% elif application_state == 'declined' %}
+            <h2 class="pl-teach-section__title">Ready to Teach?</h2>
+            <p class="hub-text-muted">Tell us what you have in mind and an admin will take it from there.</p>
+            <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">Apply Again</button>
+        {% else %}
+            <h2 class="pl-teach-section__title">Ready to Teach?</h2>
+            <p class="hub-text-muted">Tell us what you have in mind and an admin will take it from there.</p>
+            <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'apply-to-teach')">Apply to Teach</button>
+        {% endif %}
+    </section>
+
+    {% if application_state == 'none' or application_state == 'declined' %}
+    {% include "components/modal.html" with modal_id="apply-to-teach" modal_title="Apply to Teach" modal_size="sm" modal_body_include="classes/teach/partials/apply_form.html" %}
+    {% endif %}
+
+</div>
+{% endblock %}

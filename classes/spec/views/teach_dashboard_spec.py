@@ -544,12 +544,12 @@ def describe_instructor_discount_code_instructor_crud():
 
 
 def describe_instructor_required_admin_without_instructor():
-    def it_sends_a_locked_admin_to_the_orientation_like_any_member(admin_user, client):
-        """The teaching unlock applies to admins too — no instructor_oriented_at means the orientation gate."""
+    def it_sends_a_locked_admin_to_the_marketing_page_like_any_member(admin_user, client):
+        """The teaching grant applies to admins too — no instructor_oriented_at means the gate."""
         client.force_login(admin_user)
         response = client.get(reverse("classes:teach_dashboard"))
         assert response.status_code == 302
-        assert response.url == reverse("classes:teach_orientation")
+        assert response.url == reverse("classes:teach_overview")
 
     def it_admits_an_admin_once_unlocked(admin_user, client):
         member = Member.objects.get(user=admin_user)

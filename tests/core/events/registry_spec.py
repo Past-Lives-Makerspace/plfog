@@ -58,6 +58,9 @@ _BRAND_NEW_KEYS = {
     "equipment.reservation_made",
     "class_cancelled_admin_notice",
     "class_change_requested",
+    "instructor_application_received",
+    "instructor_application_approved",
+    "instructor_application_declined",
 }
 
 

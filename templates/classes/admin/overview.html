@@ -57,7 +57,32 @@
     {% endfor %}
   </section>
 
-  {# ② Upcoming classes this week — full width #}
+  {# ③ Teaching applications: members waiting on an admin to open the teaching portal. #}
+  <section id="teaching-applications" class="hub-card" style="margin:0;scroll-margin-top:1rem;">
+    <h2 class="overview-title">Teaching Applications <span class="overview-title__count">({{ teaching_applications|length }})</span></h2>
+    {% for item in teaching_applications %}
+      {% concat "approve-teaching-" item.member.pk as approve_modal_id %}
+      {% concat "decline-teaching-" item.member.pk as decline_modal_id %}
+      {% concat "Let " item.member.display_name " teach?" as approve_title %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+        <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+          <a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a>
+          <span style="color:var(--hub-text-muted);font-size:0.85rem;">{% if item.days_waiting == 0 %}applied today{% else %}waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}{% endif %}</span>
+          <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ item.member.teaching_application_note|truncatechars:140 }}</span>
+        </span>
+        <span class="pl-row-actions">
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', '{{ approve_modal_id }}')">Approve</button>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ decline_modal_id }}')">Decline</button>
+          {% include "components/confirm_modal.html" with confirm_id=approve_modal_id confirm_title=approve_title confirm_message="They get the teaching portal and can start building a class. They will be emailed." confirm_action_url=item.approve_url confirm_button_text="Approve" confirm_button_style="primary" %}
+          {% include "components/confirm_modal.html" with confirm_id=decline_modal_id confirm_title="Decline this application?" confirm_message="" confirm_action_url=item.decline_url confirm_button_text="Decline" confirm_note_name="reason" confirm_note_label="Why? (the applicant sees this)" confirm_note_hint="Say what would change your answer, so they know whether to apply again." %}
+        </span>
+      </div>
+    {% empty %}
+      <p style="color:var(--hub-text-muted);">No applications waiting.</p>
+    {% endfor %}
+  </section>
+
+  {# ④ Upcoming classes this week — full width #}
   <section class="hub-card" style="margin:0;">
     <h2 class="overview-title">Upcoming Classes This Week</h2>
     {% for c in upcoming_classes %}
@@ -73,7 +98,7 @@
     </div>
   </section>
 
-  {# ③ Waitlist pressure — compact strip #}
+  {# ⑤ Waitlist pressure — compact strip #}
   <section class="hub-card" style="margin:0;padding:0.75rem 1rem;">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <h2 class="overview-title" style="margin:0;">Waitlists</h2>
@@ -85,7 +110,7 @@
     </div>
   </section>
 
-  {# ④ At a glance — scoped by the range filter #}
+  {# ⑥ At a glance — scoped by the range filter #}
   <section id="at-a-glance" class="hub-card" style="margin:0;scroll-margin-top:1rem;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.9rem;">
       <h2 class="overview-title" style="margin:0;">At a Glance</h2>
@@ -149,7 +174,7 @@
     </div>
   </section>
 
-  {# ⑥ Activity #}
+  {# ⑦ Activity #}
   <section class="hub-card" style="margin:0;">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <h2 class="overview-title" style="margin:0;">Activity</h2>

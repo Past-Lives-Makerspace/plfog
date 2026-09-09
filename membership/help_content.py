@@ -799,7 +799,7 @@ All four are covered in [Run Your Class](/help/teaching/run-your-class/).
 
 - Nobody self-publishes. Every class — including every new run of an old one — goes through review first.
 - Draft and pending classes are all yours to edit. Once a class publishes, only an admin can change it.
-- The one-time [portal orientation for instructors](/help/more/instructor-orientation/) is what unlocks the portal, and the quality bar lives there.
+- An admin approving your [application to teach](/classes/teach/why/) is what opens the portal, and the quality bar lives in the [instructor guide](/help/more/instructor-orientation/).
 
 ![The teaching portal: overview, your classes, and registrations.](/static/help/instructor-quickstart/01-the-teaching-portal.png)
 """,
@@ -824,11 +824,13 @@ Are you an experienced instructor? Past Lives instructors come from our membersh
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-### Complete the Orientation {#teach-become-instructor}
+### Apply to Teach {#teach-become-instructor}
 
-The first time you head for the teaching portal, you land on the [portal orientation for instructors](/classes/teach/orientation/). It's one page: what we expect from instructors, how class review works, and the quality bar. Read it, tick the box, and the portal unlocks right away — you only ever do it once. (This is about using the portal; it's separate from any guild equipment or tool orientations.)
+Click **Teaching** in the left menu and you land on [Teach at Past Lives](/classes/teach/why/). It shows what instructors get, links a real example class page, and carries the **Apply to Teach** button. Tell us what you would like to teach, in a sentence or two, and send it.
 
-One note on the word "instructor": an admin can also set your role to Instructor. The role adds extras — a public instructor page in the class catalog and the class Announcements tool. You don't need the role to create or teach a class; completing the portal orientation is what opens the teaching portal.
+An admin reads every application and usually gets to them within a week. You get an email either way, and you can open that page any time to see where yours stands. If the answer is no, the admin leaves a note saying why, and you can apply again whenever you like.
+
+Once you are approved the teaching portal opens and you get a public instructor page in the class catalog. (This is about using the portal; it is separate from any guild equipment or tool orientations.)
 
 ### Open the Teaching Portal
 
@@ -890,16 +892,16 @@ Once a class is published (or archived), only an admin can edit it. Need a chang
         ],
     },
     {
-        # UNLISTED (§10.6 / Spec D): renders on the orientation page at
-        # /classes/teach/orientation/ and resolves at its own /help/ URL, but
-        # never appears on the landing, category pages, or search.
+        # UNLISTED (§10.6): renders inside the "Read the Instructor Guide" disclosure
+        # on the Teach at Past Lives page (/classes/teach/why/) and resolves at its own
+        # /help/ URL, but never appears on the landing, category pages, or search.
         "slug": "instructor-orientation",
         "category": None,
         "title": "Portal Orientation for Instructors",
         "sort_order": 0,
         "related": [],
         "body": """\
-Past Lives instructors come from our membership base. This page is the one-time portal orientation for instructors: read it, tick the box at the bottom, and the teaching portal unlocks right away. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
+Past Lives instructors come from our membership base. This is what we expect from an instructor, how class review works, and the bar a class has to clear. Read it before you apply to teach. (Have a class in mind but haven't talked to anyone yet? Start with your guild lead, or email lee@pastlives.space.)
 
 ## What We Expect From Instructors {#what-we-expect}
 
@@ -1753,7 +1755,7 @@ Two doors lead to the same review page.
 2. On the Overview, find the **Waiting on your review** panel at the top. You only see this panel if you lead or staff a guild.
 3. Click **Review** next to the waiting class.
 
-One caveat: the teaching area itself sits behind the one-time portal orientation for instructors. If you've never unlocked teaching, use the email link instead — it works without it.
+One caveat: the teaching area itself only opens once an admin has given you teaching access. If you have never been granted it, use the email link instead. It works without it.
 
 ![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 

@@ -220,9 +220,12 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "voting.closing_soon",
         "voting.vote_soon",
         "voting.results_published",
-        # Teaching — your class's review outcome (instructor)
+        # Teaching — your class's review outcome (instructor), and the answer to your
+        # own ask to teach (a decision the member is waiting on).
         "instructor_class_approved",
         "instructor_changes_requested",
+        "instructor_application_approved",
+        "instructor_application_declined",
         # Membership — someone accepted the invite you sent
         "invite_accepted",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
@@ -457,6 +460,10 @@ GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
 # Instructor-raised staff notices on a live class (class-lifecycle spec PR 2).
 CLASS_CANCELLED_ADMIN_NOTICE = "class_cancelled_admin_notice"
 CLASS_CHANGE_REQUESTED = "class_change_requested"
+# Teaching applications: a member asks to teach, an admin answers (ask 2).
+INSTRUCTOR_APPLICATION_RECEIVED = "instructor_application_received"
+INSTRUCTOR_APPLICATION_APPROVED = "instructor_application_approved"
+INSTRUCTOR_APPLICATION_DECLINED = "instructor_application_declined"
 GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
 GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
 GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
@@ -1104,6 +1111,45 @@ _NEW_EVENTS: list[EventType] = [
         description="An instructor asked an admin to change a live class's title, dates, price, or capacity.",
         category="Classes",
         recipient=Recipients.CLASS_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # instructor_application_received — a member asked to teach. Deliberately FOG_ADMINS
+    # and NOT CLASS_APPROVERS: the capability resolver returns only members holding an
+    # explicitly granted capability, so on a site where nobody holds it the application
+    # would notify nobody and the queue would pile up unseen. Teaching access is an admin
+    # decision, so the admins are the right inbox. Per-recipient only, no broadcast; the
+    # application timestamp makes each ask its own dedupe period, so re-applying after a
+    # decline notifies again.
+    EventType(
+        key=INSTRUCTOR_APPLICATION_RECEIVED,
+        label="Someone applied to teach",
+        description="A member asked for teaching access and is waiting on an admin.",
+        category="Classes",
+        recipient=Recipients.FOG_ADMINS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # instructor_application_approved — the member hears yes and gets the portal. Emitted
+    # by grant_teaching ONLY when an application exists, so an admin handing access to
+    # someone who never asked sends nothing.
+    EventType(
+        key=INSTRUCTOR_APPLICATION_APPROVED,
+        label="Your teaching application was approved",
+        description="An admin approved a member's ask to teach and opened the teaching portal.",
+        category="Classes",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # instructor_application_declined — the member hears no, in the admin's own words,
+    # with a way back to the page that explains teaching and lets them apply again.
+    EventType(
+        key=INSTRUCTOR_APPLICATION_DECLINED,
+        label="Update on your teaching application",
+        description="An admin declined a member's ask to teach, with a reason.",
+        category="Classes",
+        recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

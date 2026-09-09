@@ -1,9 +1,12 @@
-"""BDD specs for the rewritten teaching-portal gate (Spec D §5).
+"""BDD specs for the teaching-portal gate.
 
-``teaching_member_required`` now admits only active members who completed the
-instructor orientation: non-members/inactive keep the 403, locked active
-members are 302'd to the orientation page (never a dead end), unlocked and
-grandfathered members pass. Public and registrant routes are untouched.
+``teaching_member_required`` admits only active members who have been granted
+teaching access: non-members/inactive keep the 403, locked active members are 302'd
+to ``teach_overview`` (which renders the Teach at Past Lives marketing page for them,
+never a dead end), granted and grandfathered members pass. ``teach_overview`` itself
+is deliberately NOT behind the decorator — it is the redirect target — so it is
+excluded from the parametrized route list and covered in ``teach_why_spec``. Public
+and registrant routes are untouched.
 """
 
 from __future__ import annotations
@@ -16,10 +19,11 @@ from classes.factories import ClassOfferingFactory, InstructorFactory, UserFacto
 from classes.models import ClassOffering
 from membership.models import Member
 
-# A representative slice of the 21 teach_* routes — overview, create,
-# registrations, dashboard, and profile all sit behind the same decorator.
+# A representative slice of the 20 gated teach_* routes — create, registrations,
+# dashboard, and profile all sit behind the same decorator. ``teach_overview`` is NOT
+# in the list: it is the decorator's own redirect target and carries the lighter
+# ``active_member_required`` instead.
 TEACH_ROUTES = [
-    "classes:teach_overview",
     "classes:teach_class_create",
     "classes:teach_registrations",
     "classes:teach_dashboard",
@@ -53,12 +57,12 @@ def describe_teaching_member_required():
         assert client.get(reverse(route)).status_code == 403
 
     @pytest.mark.parametrize("route", TEACH_ROUTES)
-    def it_302s_a_locked_active_member_to_the_orientation_page(db, client, route):
+    def it_302s_a_locked_active_member_to_the_marketing_page(db, client, route):
         user, _ = _locked_member_user(f"locked-{route.split(':')[1]}@example.com")
         client.force_login(user)
         response = client.get(reverse(route))
         assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_orientation")
+        assert response["Location"] == reverse("classes:teach_overview")
 
     @pytest.mark.parametrize("route", TEACH_ROUTES)
     def it_200s_an_unlocked_active_member(db, client, route):

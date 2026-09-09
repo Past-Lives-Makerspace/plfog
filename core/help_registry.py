@@ -48,7 +48,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.create-class": {
         "title": "Create a class",
         "short_text": (
-            "Draft a class and submit it — the portal opens after the one-time portal orientation for instructors. "
+            "Draft a class and submit it. The portal opens once an admin approves your application to teach. "
             "A guild lead or admin reviews every class before it goes live."
         ),
         "article_slug": "become-an-instructor",
@@ -57,8 +57,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.become-instructor": {
         "title": "Become an instructor",
         "short_text": (
-            "Complete the short portal orientation for instructors once and the teaching portal "
-            "unlocks. Every class is still reviewed before it publishes."
+            "Tell us what you would like to teach and an admin reads every application. "
+            "Once you are approved the teaching portal opens; every class is still reviewed before it publishes."
         ),
         "article_slug": "become-an-instructor",
         "anchor": "teach-become-instructor",

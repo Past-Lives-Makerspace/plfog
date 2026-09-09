@@ -16,9 +16,17 @@ urlpatterns = [
     path("my/<str:token>/pay/", views.my_registration_pay, name="my_registration_pay"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
-    # Instructor orientation — reachable by any active member (it IS the unlock).
-    path("teach/orientation/", views.teach_orientation, name="teach_orientation"),
-    path("teach/orientation/complete/", views.teach_orientation_complete, name="teach_orientation_complete"),
+    # Teach at Past Lives — the marketing page and apply-to-teach front door. Open to
+    # any active member, so a locked deep link and an approved instructor both land here.
+    path("teach/why/", views.teach_why, name="teach_why"),
+    path("teach/apply/", views.teach_apply, name="teach_apply"),
+    # The retired self-serve orientation. Teaching is admin-approved now, so its old
+    # URL (linked from the Help Center and from old emails) permanently redirects.
+    path(
+        "teach/orientation/",
+        RedirectView.as_view(pattern_name="classes:teach_why", permanent=True),
+        name="teach_orientation",
+    ),
     path("teach/classes/", views.teach_dashboard, name="teach_dashboard"),
     path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
     path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),
@@ -94,6 +102,17 @@ urlpatterns = [
     # Admin — /classes/admin/ is the Overview dashboard; the classes list moves to /admin/classes/.
     path("admin/", views.admin_overview, name="admin_overview"),
     path("admin/classes/", views.admin_classes, name="admin_classes"),
+    # Teaching applications queue actions (the overview card).
+    path(
+        "admin/teaching-applications/<int:pk>/approve/",
+        views.admin_teaching_approve,
+        name="admin_teaching_approve",
+    ),
+    path(
+        "admin/teaching-applications/<int:pk>/decline/",
+        views.admin_teaching_decline,
+        name="admin_teaching_decline",
+    ),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
     path("admin/<int:pk>/registrations/", views.admin_class_registrations, name="admin_class_registrations"),

@@ -51,6 +51,7 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
+from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
 from classes.table import prepare_table
@@ -64,12 +65,12 @@ from classes.forms import (
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
-    InstructorOrientationCompleteForm,
     TeachClassOfferingForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
+    TeachingApplicationForm,
     build_class_faq_formset,
 )
 from classes.models import (
@@ -87,6 +88,7 @@ from classes.models import (
     readiness_items,
 )
 from core.models import SiteConfiguration
+from core.urls_util import book_absolute_url
 
 _ViewFunc = Callable[..., HttpResponse]
 
@@ -129,44 +131,6 @@ def _bookable_run_options(offering: Any) -> list[Any]:
     for run in runs:
         run.spots_left = run_spots.get(run.pk, run.capacity)
     return runs
-
-
-class _CatalogGroup:
-    """One public catalog card: a class plus every date it is offered on.
-
-    ``representative`` supplies the shared display chrome (title, image, price,
-    instructor); ``members`` are the individual dated offerings, each still its
-    own bookable unit with its own capacity. Built from offerings already sorted
-    by soonest upcoming session, so the first member seen is the representative
-    and members stay date-ordered.
-    """
-
-    def __init__(self, representative: Any) -> None:
-        self.representative = representative
-        self.members = [representative]
-
-    @property
-    def date_count(self) -> int:
-        return len(self.members)
-
-    @property
-    def is_multi(self) -> bool:
-        return len(self.members) > 1
-
-
-def _grouped_catalog(offerings: Any) -> list[_CatalogGroup]:
-    """Collapse offerings sharing a grouping key into one card, preserving order."""
-    groups: dict[str, _CatalogGroup] = {}
-    order: list[str] = []
-    for offering in offerings:
-        key = offering.grouping_key or f"solo:{offering.pk}"
-        group = groups.get(key)
-        if group is None:
-            groups[key] = _CatalogGroup(offering)
-            order.append(key)
-        else:
-            group.members.append(offering)
-    return [groups[key] for key in order]
 
 
 def _coerce_dollars_to_cents(raw: str | None) -> int:
@@ -246,7 +210,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
     selected_within_days = WITHIN_DAYS.get(selected_within)
 
     classes_qs = _apply_browse_filters(_browsable_classes(), request)
-    catalog_groups = _grouped_catalog(classes_qs)
+    catalog_groups = grouped_catalog(classes_qs)
 
     # Category chips and per-category counts always reflect the unfiltered
     # universe of browsable classes so users can see what else is out there.
@@ -976,12 +940,12 @@ def admin_required(view_func: _ViewFunc) -> _ViewFunc:
 
 
 def active_member_required(view_func: _ViewFunc) -> _ViewFunc:
-    """Decorator: any active logged-in member — guards the orientation pages.
+    """Decorator: any active logged-in member — guards the teaching front door.
 
-    Exactly the pre-unlock teaching gate: login → active Member or 403 → set
-    ``request.teaching_member``. The orientation views use this (not
-    ``teaching_member_required``) so a *locked* member can still reach the page
-    that unlocks them.
+    Exactly the pre-grant teaching gate: login → active Member or 403 → set
+    ``request.teaching_member``. ``teach_overview``, ``teach_why`` and ``teach_apply``
+    use this (not ``teaching_member_required``) so a member who cannot teach yet can
+    still reach the page that explains teaching and the form that applies for it.
     """
 
     @wraps(view_func)
@@ -1000,15 +964,14 @@ def active_member_required(view_func: _ViewFunc) -> _ViewFunc:
 
 
 def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
-    """Decorator: Teaching portal access — active members who completed the instructor orientation.
+    """Decorator: Teaching portal access — active members an admin has granted teaching to.
 
-    Non-members and inactive members keep the 403 (orientation can't fix an
-    inactive account). An *active* member who hasn't unlocked teaching is 302'd
-    to the orientation page instead, so a locked click lands on the explainer and
-    never a dead end (Spec D §5). This redirect is now the main way in: the sidebar
-    stopped carrying a recruiting entry, so the remaining entry points (the Class
-    Catalog's Manage My Classes, the guild pages' Teach a Class) all arrive here
-    locked and rely on it.
+    Non-members and inactive members keep the 403 (applying can't fix an inactive
+    account). An *active* member who has not been granted teaching access is 302'd to
+    ``teach_overview``, which renders the Teach at Past Lives marketing page for them,
+    so a locked deep link (``teach/classes/new/``) lands on the explainer and the
+    Apply to Teach button rather than a dead end. ``teach_overview`` itself is NOT
+    behind this decorator, so the redirect can never loop.
     """
 
     @wraps(view_func)
@@ -1021,7 +984,7 @@ def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
         if member is None:
             return HttpResponseForbidden("An active member account is required to access the teaching portal.")
         if not member.can_create_classes:
-            return redirect("classes:teach_orientation")
+            return redirect("classes:teach_overview")
         request.teaching_member = member  # type: ignore[attr-defined]
         return view_func(request, *args, **kwargs)
 
@@ -1139,11 +1102,16 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
     return qs
 
 
-def _orientation_context(member: Member, form: InstructorOrientationCompleteForm) -> dict[str, Any]:
-    """Context for the orientation page — the seeded article, the guide link, the form.
+def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> dict[str, Any]:
+    """Context for the Teach at Past Lives page — state, the example class, the guide.
 
-    A missing seed must fail soft on the page (placeholder copy; the completion
-    card still works so the gate is never un-passable) but loudly in the logs.
+    A missing help-center seed must fail soft on the page (a placeholder line) but
+    loudly in the logs: the page is the whole recruiting surface and must never 500
+    or render an empty guide section with no explanation.
+
+    ``example_url`` is None whenever the configured example class is missing,
+    unpublished, or was never set. That is a real state the template renders around
+    (no hero link, a catalog link instead of the showcase), not an oversight.
     """
     import logging
 
@@ -1155,42 +1123,71 @@ def _orientation_context(member: Member, form: InstructorOrientationCompleteForm
             "Instructor-orientation article is not seeded — run `manage.py seed_help_center`."
         )
     guide = WikiArticle.objects.published().filter(slug="become-an-instructor").select_related("category").first()
-    return {"member": member, "article": article, "guide": guide, "form": form}
+    example = ClassSettings.load().example_class
+    if example is not None and example.status != ClassOffering.Status.PUBLISHED:
+        example = None
+    return {
+        "member": member,
+        "article": article,
+        "guide": guide,
+        "apply_form": apply_form,
+        "application_state": member.teaching_application_state,
+        "example_url": example.public_url if example is not None else None,
+        "example_group": CatalogGroup(example) if example is not None else None,
+        "catalog_url": book_absolute_url(reverse("classes:public_list")),
+    }
 
 
 @active_member_required
-def teach_orientation(request: HttpRequest) -> HttpResponse:
-    """The instructor orientation page — the teaching gate's landing (Spec D §6).
+def teach_why(request: HttpRequest) -> HttpResponse:
+    """The Teach at Past Lives page: the marketing surface and apply-to-teach front door.
 
-    Locked members see the explainer banner + content + the acknowledge/unlock
-    card; unlocked members get the completed state with the content still
-    readable (it stays the reference page).
+    Open to every active member, instructors included, so an admin can link it and an
+    approved instructor can still read the guide. Locked members reach it through
+    ``teach_overview``; this permanent route is what links point at.
     """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return render(
-        request, "classes/teach/orientation.html", _orientation_context(member, InstructorOrientationCompleteForm())
-    )
+    return render(request, "classes/teach/why_teach.html", _why_teach_context(member, TeachingApplicationForm()))
 
 
 @active_member_required
 @require_POST
-def teach_orientation_complete(request: HttpRequest) -> HttpResponse:
-    """Handle the "Unlock teaching" submit — form-enforced acknowledge, then unlock."""
+def teach_apply(request: HttpRequest) -> HttpResponse:
+    """Handle the Apply to Teach submit: file the ask, tell the admins, say so.
+
+    A full-page POST, so success is a Django message and not a toast (FRONTEND.md
+    rule 6). An invalid note re-renders the page with the bound form, which reopens
+    the modal with the error inside it. A guard the UI never offers (applying twice,
+    an inactive account) comes back from the model as ``ValueError`` and becomes a
+    plain error message rather than a 500.
+    """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
-    form = InstructorOrientationCompleteForm(request.POST)
+    form = TeachingApplicationForm(request.POST)
     if not form.is_valid():
-        return render(request, "classes/teach/orientation.html", _orientation_context(member, form))
-    member.complete_instructor_orientation()
-    messages.success(request, "Teaching unlocked — welcome, instructor.")
+        return render(request, "classes/teach/why_teach.html", _why_teach_context(member, form))
+    try:
+        member.apply_to_teach(form.cleaned_data["note"])
+    except ValueError:
+        messages.error(request, "We could not file that application. Refresh the page and check where yours stands.")
+        return redirect("classes:teach_why")
+    messages.success(request, "Your application is in. An admin will get back to you.")
     return redirect("classes:teach_overview")
 
 
-@teaching_member_required
+@active_member_required
 def teach_overview(request: HttpRequest) -> HttpResponse:
-    """Teaching dashboard: the teaching member's drafts, classes awaiting review,
-    recent sign-ups, and active waitlists. No money, no approvals — they submit
-    classes, they don't approve them. Empty state nudges a first class."""
+    """Teaching dashboard, or the marketing page for a member who cannot teach yet.
+
+    The Teaching sidebar entry is universal now, so this route is the front door for
+    the whole membership: a member who can teach gets their dashboard (drafts, classes
+    awaiting review, recent sign-ups, waitlists), and everyone else gets the Teach at
+    Past Lives page instead of a 403 or a redirect loop.
+    """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    if not teaching_member.can_create_classes:
+        return render(
+            request, "classes/teach/why_teach.html", _why_teach_context(teaching_member, TeachingApplicationForm())
+        )
     my_classes = ClassOffering.objects.for_instructor(teaching_member)
     now = timezone.now()
 
@@ -2215,6 +2212,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         ClassOffering.objects.awaiting_admin().select_related("instructor", "category").order_by("created_at")
     )
     with_guild_leads = _with_guild_leads_queue(now)
+    teaching_applications = _teaching_application_queue(now)
 
     week_end = now + timedelta(days=7)
     upcoming_classes = (
@@ -2283,6 +2281,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
             "active_tab": "overview",
             "waiting_on_you": waiting_on_you,
             "with_guild_leads": with_guild_leads,
+            "teaching_applications": teaching_applications,
             "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
@@ -2294,6 +2293,35 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
             "selected_range": selected_range,
         },
     )
+
+
+class _TeachingApplicationRow(TypedDict):
+    """One "Teaching Applications" row on the admin overview."""
+
+    member: Any
+    days_waiting: int
+    approve_url: str
+    decline_url: str
+
+
+def _teaching_application_queue(now: Any) -> list[_TeachingApplicationRow]:
+    """Every teaching application still waiting on an admin, oldest ask first.
+
+    ``days_waiting`` and the two action URLs are precomputed here rather than in the
+    template: the row is inside a loop that feeds two confirm modals, and a reversed
+    URL per modal is the sort of thing that belongs in the view.
+    """
+    from membership.models import Member as MemberModel
+
+    return [
+        {
+            "member": member,
+            "days_waiting": (now - member.teaching_applied_at).days,
+            "approve_url": reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}),
+            "decline_url": reverse("classes:admin_teaching_decline", kwargs={"pk": member.pk}),
+        }
+        for member in MemberModel.objects.awaiting_teaching_decision().select_related("user")
+    ]
 
 
 class _GuildLeadQueueRow(TypedDict):
@@ -2778,6 +2806,52 @@ def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         trigger_toast(response, "Already reminded today.", "info")
     return response
+
+
+@classes_admin_access_required
+@require_POST
+def admin_teaching_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve a teaching application from the admin overview queue.
+
+    Goes through ``grant_instructor`` — the same call the member edit Permissions tab
+    makes — so the applicant gets the public instructor page and the portal together,
+    and the approval email rides along on ``grant_teaching``. Idempotent by the model,
+    so a double click is harmless.
+    """
+    from membership.models import Member as MemberModel
+
+    member = get_object_or_404(MemberModel, pk=pk)
+    assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
+    # None = a superuser acting without a linked Member (emergency access).
+    admin_member = MemberModel.objects.filter(user=request.user).first()
+    member.grant_instructor(granted_by=admin_member)
+    messages.success(request, f"{member.display_name} can teach now. We let them know.")
+    return redirect("classes:admin_overview")
+
+
+@classes_admin_access_required
+@require_POST
+def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
+    """Decline a teaching application, with the reason the applicant will read.
+
+    The reason is required by ``decline_teaching``; a blank one comes back as an error
+    message rather than an exception, because the confirm modal's note input is
+    optional by construction and cannot enforce it. Declining someone with no
+    application waiting (a crafted POST, or a second click after the queue moved on)
+    raises the same way and lands on the same message.
+    """
+    from membership.models import Member as MemberModel
+
+    member = get_object_or_404(MemberModel, pk=pk)
+    assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
+    admin_member = MemberModel.objects.filter(user=request.user).first()
+    try:
+        member.decline_teaching(decided_by=admin_member, reason=request.POST.get("reason", ""))
+    except ValueError:
+        messages.error(request, "That did not go through. Give a reason, and check they are still waiting.")
+        return redirect("classes:admin_overview")
+    messages.success(request, f"Declined {member.display_name}. We sent them your note.")
+    return redirect("classes:admin_overview")
 
 
 @classes_admin_access_required

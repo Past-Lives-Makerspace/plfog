@@ -329,6 +329,116 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # instructor_application_received — a member asked to teach. The subject noun (their
+    # name) links to the queue where an admin acts, and the body names the one action.
+    "instructor_application_received": EventCopy(
+        placeholders=("member_name", "application_note", "review_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "application_note": "I would like to run a two hour intro to wheel throwing.",
+            "review_url": "https://pastlives.example/classes/admin/#teaching-applications",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} wants to teach",
+                body_text="{{ application_note }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="New teaching application from {{ member_name }}",
+                body_text=(
+                    "{{ member_name }} asked for teaching access.\n\n"
+                    'They wrote: "{{ application_note }}"\n\n'
+                    "Approve or decline it in the Teaching Applications queue: {{ review_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    '<p><strong><a href="{{ review_url }}">{{ member_name }}</a></strong> '
+                    "asked for teaching access.</p>"
+                    "<p>They wrote: &ldquo;{{ application_note }}&rdquo;</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ review_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Open the Teaching Applications queue</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # instructor_application_approved — the member hears yes. One CTA: go build a class.
+    "instructor_application_approved": EventCopy(
+        placeholders=("member_name", "portal_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "portal_url": "https://pastlives.example/classes/teach/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="You can now teach at Past Lives",
+                body_text="Your teaching application was approved. The teaching portal is open.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="You can now teach at Past Lives",
+                body_text=(
+                    "Good news. An admin approved your teaching application.\n\n"
+                    "The teaching portal is open: {{ portal_url }}\n\n"
+                    "Start a class whenever you are ready. You can save a draft and come back to it, "
+                    "and an admin reviews it before it goes live.\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Good news. An admin approved your teaching application.</p>"
+                    '<p>The <a href="{{ portal_url }}">teaching portal</a> is open. Start a class '
+                    "whenever you are ready. You can save a draft and come back to it, and an admin "
+                    "reviews it before it goes live.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ portal_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Create Your First Class</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # instructor_application_declined — the member hears no, in the admin's own words,
+    # and lands back on the page that explains teaching and lets them apply again.
+    "instructor_application_declined": EventCopy(
+        placeholders=("member_name", "decline_reason", "teach_url"),
+        sample_context={
+            "member_name": "Robin Vale",
+            "decline_reason": "Finish the wheel orientation first and then ask again.",
+            "teach_url": "https://pastlives.example/classes/teach/why/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Update on your teaching application",
+                body_text="{{ decline_reason }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="About your teaching application",
+                body_text=(
+                    "Thanks for asking about teaching at Past Lives. An admin is not able to "
+                    "approve it yet.\n\n"
+                    "Here is what they said:\n\n{{ decline_reason }}\n\n"
+                    "You can apply again whenever you like. Read the instructor guide "
+                    "here: {{ teach_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Thanks for asking about "
+                    '<a href="{{ teach_url }}">teaching at Past Lives</a>. '
+                    "An admin is not able to approve it yet.</p>"
+                    "<p>Here is what they said:</p>"
+                    "<p>&ldquo;{{ decline_reason }}&rdquo;</p>"
+                    "<p>You can apply again whenever you like.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ teach_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read the Instructor Guide</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "class_change_requested": EventCopy(
         placeholders=("instructor_name", "class_title", "note", "edit_url"),
         sample_context={

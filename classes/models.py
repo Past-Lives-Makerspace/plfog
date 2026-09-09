@@ -3604,6 +3604,16 @@ class ClassSettings(models.Model):
         ),
     )
     confirmation_email_footer = models.TextField(blank=True, help_text="Custom footer appended to confirmation emails.")
+    example_class = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "The class page shown as the worked example on the Teach at Past Lives page. Leave blank to hide that link."
+        ),
+    )
 
     class Meta:
         verbose_name = "Class Settings"

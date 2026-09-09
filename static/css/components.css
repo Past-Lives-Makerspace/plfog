@@ -73,6 +73,30 @@
     margin-top: 1.5rem;
 }
 
+/* Text input inside a modal (the confirm modal's note and typed-confirm fields). Mirrors
+   .hub-form-group's control styling on the theme's input tokens so it never renders as the
+   browser-default white box on the dark theme (FRONTEND.md Rule 13). */
+.pl-input {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    font-family: var(--font-body);
+    font-size: 0.9375rem;
+    font-weight: 300;
+    color: var(--hub-text);
+    background-color: var(--hub-input-bg);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.pl-input:focus {
+    outline: none;
+    border-color: var(--hub-blue);
+    box-shadow: 0 0 0 3px rgba(61, 139, 212, 0.25);
+}
+.pl-input::placeholder {
+    color: var(--hub-text-muted);
+}
+
 /* Opt-in: action buttons share the row's width equally (inline-form modals). */
 .pl-modal__actions--fill .pl-btn {
     flex: 1;

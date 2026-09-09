@@ -178,6 +178,23 @@ class MemberQuerySet(models.QuerySet):
         """Only standard members count as paying."""
         return self.filter(member_type=Member.MemberType.STANDARD)
 
+    def awaiting_teaching_decision(self) -> MemberQuerySet:
+        """Active members whose teaching application is still waiting on an admin.
+
+        The DB-level mirror of :attr:`Member.teaching_application_state` == PENDING:
+        applied, not yet granted teaching access, and not sitting on a decline. Ordered
+        oldest first so the admin queue answers the longest wait before the newest ask.
+        """
+        return (
+            self.filter(
+                status=Member.Status.ACTIVE,
+                instructor_oriented_at__isnull=True,
+                teaching_applied_at__isnull=False,
+            )
+            .exclude(teaching_decided_at__isnull=False, teaching_decline_reason__gt="")
+            .order_by("teaching_applied_at")
+        )
+
     def awaiting_welcome_email(self) -> MemberQuerySet:
         """Paying (Standard), active members imported from Airtable who have not yet been sent the
         automated welcome email — the candidate set for the ``welcome_new_members`` automation.
@@ -382,6 +399,19 @@ class Member(models.Model):
         MEMBER = "member", "Member"
         GUILD_OFFICER = "guild_officer", "Guild Officer"
         ADMIN = "admin", "Admin"
+
+    class TeachingApplicationState(models.TextChoices):
+        """Where a member stands with the teaching portal (labels only; no field stores this).
+
+        Derived from the four ``teaching_*`` fields plus the teaching unlock by
+        :attr:`Member.teaching_application_state` — the single source the marketing
+        page, the sidebar copy, and the admin queue all read.
+        """
+
+        NONE = "none", "Not applied"
+        PENDING = "pending", "Waiting on an admin"
+        APPROVED = "approved", "Approved"
+        DECLINED = "declined", "Declined"
 
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
@@ -599,9 +629,30 @@ class Member(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "When the member completed the instructor orientation (or an admin granted teaching "
-            "access); null = teaching portal locked. Cleared when an admin revokes access."
+            "When an admin granted this member teaching access; null = teaching portal locked. "
+            "Cleared when an admin revokes access."
         ),
+    )
+    teaching_applied_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member applied to teach. Null means they have never applied.",
+    )
+    teaching_application_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="What the member said they want to teach, in their own words.",
+    )
+    teaching_decided_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an admin approved or declined the teaching application.",
+    )
+    teaching_decline_reason = models.CharField(
+        max_length=300,
+        blank=True,
+        default="",
+        help_text="Why the application was declined. Shown to the member. Blank when approved.",
     )
     welcome_email_sent_at = models.DateTimeField(
         null=True,
@@ -1217,26 +1268,143 @@ class Member(models.Model):
         """
         return self.instructor_oriented_at is not None
 
-    def complete_instructor_orientation(self) -> None:
-        """Member-facing completion of the instructor orientation — unlocks the teaching portal.
+    @property
+    def teaching_application_state(self) -> "Member.TeachingApplicationState":
+        """Where this member stands with the teaching portal — the single source of truth.
 
-        Idempotent: an already-unlocked member returns without side effects, so a
-        double-submit never logs a second activity row. Writes no ``TourState``
-        (``instructor_oriented_at`` is the entire record — Spec D §4).
+        Resolution order matters. ``can_create_classes`` wins first, so every
+        grandfathered instructor (granted long before applications existed, with no
+        application row at all) reads APPROVED rather than "never applied". A decline
+        needs BOTH a reason and a decision stamp, so a half-written row can never mask
+        a live application. Otherwise an application stamp means PENDING, and a member
+        who never asked reads NONE.
+        """
+        states = self.TeachingApplicationState
+        if self.can_create_classes:
+            return states.APPROVED
+        if self.teaching_decline_reason and self.teaching_decided_at is not None:
+            return states.DECLINED
+        if self.teaching_applied_at is not None:
+            return states.PENDING
+        return states.NONE
+
+    def apply_to_teach(self, note: str) -> None:
+        """Record this member's ask to teach and put it in front of the admins.
+
+        Teaching is not self-service: this only files the request. An admin turns the
+        Instructor permission on (``grant_teaching``) to actually open the portal.
+        Re-applying after a decline is deliberate and clears the old decline, so the
+        member is back in the queue with a clean slate rather than reading a stale no.
+
+        Args:
+            note: What they want to teach, in their own words. Required.
 
         Raises:
-            ValueError: If the member is not ACTIVE — orientation can't fix an
-                inactive account (those keep their 403 at the portal door).
+            ValueError: If the member is not ACTIVE, if ``note`` is blank, or if they
+                already have an application waiting on an admin.
         """
+        from core.events.emit import emit
         from core.models import SiteActivity
 
         if self.status != self.Status.ACTIVE:
-            raise ValueError(f"Member {self.pk} is not active — cannot complete the instructor orientation")
-        if self.instructor_oriented_at is not None:
-            return
-        self.instructor_oriented_at = timezone.now()
-        self.save(update_fields=["instructor_oriented_at"])
-        SiteActivity.log(SiteActivity.Kind.INSTRUCTOR_ORIENTED, actor=self.user, target=self)
+            raise ValueError(f"Member {self.pk} is not active and cannot apply to teach")
+        note = note.strip()
+        if not note:
+            raise ValueError("A teaching application needs a note saying what they want to teach")
+        if self.teaching_application_state == self.TeachingApplicationState.PENDING:
+            raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
+        self.teaching_applied_at = timezone.now()
+        self.teaching_application_note = note
+        self.teaching_decided_at = None
+        self.teaching_decline_reason = ""
+        self.save(
+            update_fields=[
+                "teaching_applied_at",
+                "teaching_application_note",
+                "teaching_decided_at",
+                "teaching_decline_reason",
+            ]
+        )
+        SiteActivity.log(SiteActivity.Kind.TEACHING_APPLIED, actor=self.user, target=self)
+        review_url = self._teaching_review_url()
+        emit(
+            "instructor_application_received",
+            actor=self.user,
+            target=self,
+            context={
+                "member_name": self.display_name,
+                "application_note": note,
+                "review_url": review_url,
+            },
+            url=review_url,
+            period=f"member:{self.pk}:teaching_application:{self.teaching_applied_at.isoformat()}",
+        )
+
+    def decline_teaching(self, *, decided_by: "Member | None", reason: str) -> None:
+        """Turn down a teaching application, with a reason the member will read.
+
+        Leaves ``teaching_applied_at`` in place as the historical record of when they
+        asked; the reason plus the decision stamp are what move them to DECLINED. They
+        may apply again whenever they like.
+
+        Only a PENDING application can be declined. Declining anyone else is nonsense
+        the UI never offers: an instructor would stay APPROVED (``can_create_classes``
+        resolves first) and a member who never asked would be emailed a reply to a
+        question they never posed. A crafted POST gets the ``ValueError`` instead.
+
+        Args:
+            decided_by: The admin deciding, or ``None`` for a superuser with no linked
+                Member (the activity row is then system-attributed).
+            reason: Why. Required, and shown to the member verbatim.
+
+        Raises:
+            ValueError: If ``reason`` is blank, or if there is no application waiting.
+        """
+        from core.events.emit import emit
+        from core.models import SiteActivity
+
+        reason = reason.strip()
+        if not reason:
+            raise ValueError("A declined teaching application needs a reason the member can read")
+        if self.teaching_application_state != self.TeachingApplicationState.PENDING:
+            raise ValueError(f"Member {self.pk} has no teaching application waiting on a decision")
+        self.teaching_decided_at = timezone.now()
+        self.teaching_decline_reason = reason[:300]
+        self.save(update_fields=["teaching_decided_at", "teaching_decline_reason"])
+        SiteActivity.log(
+            SiteActivity.Kind.TEACHING_APPLICATION_DECLINED,
+            actor=decided_by.user if decided_by is not None else None,
+            target=self,
+        )
+        why_url = self._teaching_why_url()
+        emit(
+            "instructor_application_declined",
+            actor=decided_by.user if decided_by is not None else None,
+            target=self,
+            context={
+                "user": self.user,
+                "member_name": self.display_name,
+                "decline_reason": self.teaching_decline_reason,
+                "teach_url": why_url,
+            },
+            url=why_url,
+            period=f"member:{self.pk}:teaching_declined:{self.teaching_decided_at.isoformat()}",
+        )
+
+    def _teaching_review_url(self) -> str:
+        """Absolute URL of the admin queue where a teaching application is decided."""
+        base = settings.MEMBER_BASE_URL.rstrip("/")
+        return f"{base}{reverse('classes:admin_overview')}#teaching-applications"
+
+    def _teaching_why_url(self) -> str:
+        """Absolute URL of the Teach at Past Lives page — where the member reads their state."""
+        base = settings.MEMBER_BASE_URL.rstrip("/")
+        return f"{base}{reverse('classes:teach_why')}"
+
+    def _teaching_portal_url(self) -> str:
+        """Absolute URL of the teaching portal, the approved member's next step."""
+        base = settings.MEMBER_BASE_URL.rstrip("/")
+        return f"{base}{reverse('classes:teach_overview')}"
 
     def grant_teaching(self, *, granted_by: "Member | None") -> None:
         """Admin override: unlock the teaching portal for this member.
@@ -1245,17 +1413,41 @@ class Member(models.Model):
         activity row, original timestamp kept). ``granted_by=None`` covers a
         superuser acting without a linked Member (emergency access) — the
         activity row is then system-attributed.
+
+        Closes out any teaching application at the same time: the decision is stamped
+        and a previous decline is cleared. The "you can teach now" email goes out ONLY
+        when there is an application to answer, so an admin handing access to someone
+        who never asked does not send them a reply to a question they never posed.
         """
+        from core.events.emit import emit
         from core.models import SiteActivity
 
         if self.instructor_oriented_at is not None:
             return
+        answering_an_application = self.teaching_applied_at is not None
         self.instructor_oriented_at = timezone.now()
-        self.save(update_fields=["instructor_oriented_at"])
+        self.teaching_decided_at = timezone.now()
+        self.teaching_decline_reason = ""
+        self.save(update_fields=["instructor_oriented_at", "teaching_decided_at", "teaching_decline_reason"])
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_GRANTED,
             actor=granted_by.user if granted_by is not None else None,
             target=self,
+        )
+        if not answering_an_application:
+            return
+        portal_url = self._teaching_portal_url()
+        emit(
+            "instructor_application_approved",
+            actor=granted_by.user if granted_by is not None else None,
+            target=self,
+            context={
+                "user": self.user,
+                "member_name": self.display_name,
+                "portal_url": portal_url,
+            },
+            url=portal_url,
+            period=f"member:{self.pk}:teaching_approved:{self.instructor_oriented_at.isoformat()}",
         )
 
     def revoke_teaching(self, *, revoked_by: "Member | None") -> None:
@@ -1263,16 +1455,21 @@ class Member(models.Model):
 
         Existing classes are untouched — drafts, pending, and published offerings
         keep their status, registrations, and emails; the member simply can't enter
-        the teach portal or create new classes until re-unlocked. Two roads back:
-        an admin grant, or completing the orientation again. Idempotent — revoking
-        an already-locked member is a no-op (no log).
+        the teach portal or create new classes until re-unlocked. The one road back is
+        an admin grant. Idempotent — revoking an already-locked member is a no-op (no log).
+
+        Clears ``teaching_applied_at`` so the member reads "not applied" and can ask
+        again; without that they would sit forever on a "your application is in" page
+        for an application that was already answered. The note is deliberately kept as
+        the historical record of what they once asked for.
         """
         from core.models import SiteActivity
 
         if self.instructor_oriented_at is None:
             return
         self.instructor_oriented_at = None
-        self.save(update_fields=["instructor_oriented_at"])
+        self.teaching_applied_at = None
+        self.save(update_fields=["instructor_oriented_at", "teaching_applied_at"])
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_REVOKED,
             actor=revoked_by.user if revoked_by is not None else None,
