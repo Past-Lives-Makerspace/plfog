@@ -105,8 +105,27 @@ def describe_the_history_list():
 
     def it_offers_staff_the_revert_control(client: Client):
         login(client, "hist_staff", fog_role=Member.FogRole.ADMIN)
-        page = WikiPageFactory()
-        WikiRevisionFactory(page=page)
+        page = WikiPageFactory(body="<p>Now.</p>")
+        # A revision that actually differs from the page; WikiRevisionFactory mirrors the
+        # page by default, and a row equal to the page is deliberately not revertible.
+        WikiRevisionFactory(page=page, body="<p>Then.</p>")
+        assert b"Revert to This" in client.get(_history_url(page)).content
+
+    def it_offers_no_revert_on_a_row_that_already_equals_the_page(client: Client):
+        # create_page writes version one from the page itself, so every seeded Equipment
+        # stub and every brand-new page carried a Revert button that could only ever
+        # answer "That is already the current version." Those stubs are the launch content.
+        login(client, "hist_noop", fog_role=Member.FogRole.ADMIN)
+        page = WikiPage.objects.create_page(
+            title="Fresh Page", kind=WikiPage.Kind.HOWTO, author=MemberFactory(), body="<p>One.</p>"
+        )
+        body = client.get(_history_url(page)).content
+        assert page.revisions.count() == 1
+        assert b"Revert to This" not in body
+
+    def it_offers_revert_once_the_page_has_moved_on(client: Client):
+        login(client, "hist_noop2", fog_role=Member.FogRole.ADMIN)
+        page, _original, _author = _page_with_two_versions()
         assert b"Revert to This" in client.get(_history_url(page)).content
 
     def it_never_renders_a_blank_box(client: Client):
@@ -226,6 +245,33 @@ def describe_reverting():
             page, original, _author = _page_with_two_versions()
             WikiPage.objects.filter(pk=page.pk).update(guild=guild)
             assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 302
+
+        def it_refuses_a_guild_moderator_on_an_official_page(client: Client):
+            # A revert rewrites title, body and facts wholesale, so it follows the CONTENT
+            # gate too. Without that a guild treasurer refused the Edit button on a safety
+            # policy could rewrite it from History with the Official chip still on it.
+            user, guild = login_lead(client, "rev_official_lead")
+            page, original, _author = _page_with_two_versions()
+            WikiPage.objects.filter(pk=page.pk).update(guild=guild, status=WikiPage.Status.OFFICIAL)
+            page.refresh_from_db()
+            assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 403
+            page.refresh_from_db()
+            assert page.body == "<p>Two.</p>"
+            assert user.member is not None or True
+
+        def it_hides_the_control_from_that_moderator(client: Client):
+            _user, guild = login_lead(client, "rev_official_lead2")
+            page, _original, _author = _page_with_two_versions()
+            WikiPage.objects.filter(pk=page.pk).update(guild=guild, status=WikiPage.Status.OFFICIAL)
+            assert b"Revert to This" not in client.get(_history_url(page)).content
+
+        def it_still_allows_an_officer_on_an_official_page(client: Client):
+            login(client, "rev_official_admin", fog_role=Member.FogRole.ADMIN)
+            page, original, _author = _page_with_two_versions()
+            WikiPage.objects.filter(pk=page.pk).update(status=WikiPage.Status.OFFICIAL)
+            assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 302
+            page.refresh_from_db()
+            assert page.body == "<p>One.</p>"
 
         def it_refuses_a_plain_member(client: Client):
             login(client, "rev_member")

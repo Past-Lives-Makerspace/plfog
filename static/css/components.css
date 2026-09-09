@@ -895,6 +895,23 @@
     background: #37a259;
 }
 
+/* Low-emphasis inline action, the pl-btn twin of .hub-btn--ghost. Nine wiki-moderation
+   controls claimed this modifier while nothing defined it, so every "ghost" control
+   rendered as a bare .pl-btn: no background, no colour, indistinguishable from the solid
+   buttons beside it, and the graduated escalation the markup describes did not render.
+   Same species as the .pl-input bug above, fixed the same way. */
+.pl-btn--ghost {
+    background: transparent;
+    color: var(--hub-text-muted);
+    border: 1px solid var(--hub-border-strong);
+}
+
+.pl-btn--ghost:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--hub-text);
+    border-color: var(--hub-text-muted);
+}
+
 .pl-btn--sm {
     padding: 0.3rem 0.7rem;
     font-size: 0.8125rem;

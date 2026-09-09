@@ -261,6 +261,30 @@ def describe_the_redirect():
         with pytest.raises(WikiError):
             WikiPageFactory().set_archive_redirect(target=WikiPageFactory())
 
+    def it_is_cleared_from_every_page_pointing_at_a_newly_archived_one(client: Client):
+        # _check_redirect refuses an archived target when a redirect is SET, but a page can
+        # be archived after others already point at it.
+        guild = GuildFactory()
+        replacement = WikiPageFactory(guild=guild)
+        first = WikiPageFactory(guild=guild)
+        second = WikiPageFactory(guild=guild)
+        for page in (first, second):
+            page.archive(by=MemberFactory(), reason=REASON, redirect=replacement)
+        replacement.archive(by=MemberFactory(), reason="This one went too.")
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert first.archive_redirect is None
+        assert second.archive_redirect is None
+
+    def it_leaves_other_pages_redirects_alone(client: Client):
+        guild = GuildFactory()
+        keeper = WikiPageFactory(guild=guild)
+        pointing = WikiPageFactory(guild=guild)
+        pointing.archive(by=MemberFactory(), reason=REASON, redirect=keeper)
+        WikiPageFactory(guild=guild).archive(by=MemberFactory(), reason=REASON)
+        pointing.refresh_from_db()
+        assert pointing.archive_redirect == keeper
+
     def it_refuses_a_target_outside_the_scope(client: Client):
         _user, guild = login_lead(client, "arc_redirect_scope")
         page = WikiPageFactory(guild=guild, archived=True)

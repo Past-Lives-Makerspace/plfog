@@ -15,13 +15,17 @@ laptop will not happen.
         <a href="{{ report.page.get_absolute_url }}" class="pl-wp-card__title">{{ report.page.title }}</a>
         <span class="pl-wp-mod__chip">{% if report.page.guild %}{{ report.page.guild.name }}{% else %}Space-wide{% endif %}</span>
     </div>
-    <blockquote class="pl-wp-mod__quote">{{ report.reason }}</blockquote>
+    {% include "hub/partials/_wiki_quote.html" with reason=report.reason %}
     <p class="hub-text-muted pl-wp-mod__banner-by">Reported by {{ report.reporter_name }} &middot; {{ report.created_at|timesince }} ago</p>
     <div class="pl-wp-mod__banner-actions">
         <a href="{{ report.page.get_absolute_url }}" class="pl-btn pl-btn--sm">Open the Page</a>
         <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
                 @click="$dispatch('open-modal', 'resolve-{{ report.pk }}')">Mark Reviewed</button>
     </div>
-    {% include "hub/partials/_wiki_resolve_modal.html" with report=report source="queue" resolve_target="#report-"|add:report_pk %}
 </div>
+{% comment %}
+Outside the card on purpose: the resolve response replaces #report-<pk>, and a modal
+rendered inside it would be torn out from under its own form.
+{% endcomment %}
+{% include "hub/partials/_wiki_resolve_modal.html" with report=report source="queue" resolve_target="#report-"|add:report_pk %}
 {% endwith %}

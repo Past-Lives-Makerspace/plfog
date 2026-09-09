@@ -13,9 +13,16 @@ from django.core import mail
 from django.test import Client
 from django.urls import reverse
 
-from membership.models import Member, WikiError, WikiPage, WikiRevision
+from membership.models import GuildStaffMembership, Member, WikiError, WikiPage
 from tests.hub.wiki_mod_helpers import enable_wiki, login, login_lead, member_user
-from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory, WikiPageFactory
+from tests.membership.factories import (
+    GuildFactory,
+    GuildMembershipFactory,
+    GuildStaffMembershipFactory,
+    MemberFactory,
+    WikiPageFactory,
+    WikiRevisionFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -94,13 +101,77 @@ def describe_a_member_proposing_a_safety_page():
         login_lead(client, "gate_other_lead")
         assert b"Scoped Rules" not in client.get(reverse("hub_wiki_review")).content
 
-    def it_publishes_immediately_for_a_moderator(client: Client):
+    def it_publishes_official_for_effective_staff(client: Client):
         login(client, "gate_admin_create", fog_role=Member.FogRole.ADMIN)
         response = _create(client, "safety", title="Admin Written Rules")
         assert response.status_code == 302
         page = WikiPage.objects.get(title="Admin Written Rules")
         assert page.is_published is True
         assert page.status == WikiPage.Status.OFFICIAL
+
+    def describe_a_guild_moderator_who_is_not_an_officer():
+        def it_publishes_guild_verified_and_never_official(client: Client):
+            # can_moderate_wiki_scope is true for ANY GuildStaffMembership row, so deciding
+            # published-or-not on it alone let an orienter, secretary or treasurer create a
+            # page wearing the Official chip. Brief §4 and §5.2 lock Official to admins and
+            # officers, so the create path lands exactly where the queue's Publish does.
+            user = login(client, "gate_orienter")
+            guild = GuildFactory()
+            # A guild's orienter is a member of it; the New-page scope picker offers the
+            # guilds you have JOINED, so the join is what puts it on the form.
+            GuildMembershipFactory(guild=guild, member=user.member)
+            GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
+            response = _create(client, "safety", title="Orienter Written Rules", guild=guild)
+            assert response.status_code == 302
+            page = WikiPage.objects.get(title="Orienter Written Rules")
+            assert page.is_published is True
+            assert page.status == WikiPage.Status.GUILD_VERIFIED
+            assert page.verified_by == user.member
+
+        def it_leaves_the_page_editable_by_its_own_author(client: Client):
+            # The secondary bug the old arrangement had: an Official page answers
+            # can_edit_wiki_page with is_effective_staff, so the orienter who wrote it was
+            # locked out of it the instant it was created.
+            user = login(client, "gate_orienter2")
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=user.member)
+            GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.TREASURER)
+            _create(client, "safety", title="Treasurer Written Rules", guild=guild)
+            page = WikiPage.objects.get(title="Treasurer Written Rules")
+            assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
+
+        def it_still_lands_official_when_they_are_also_an_officer(client: Client):
+            user = login(client, "gate_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=user.member)
+            GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
+            _create(client, "safety", title="Officer Written Rules", guild=guild)
+            assert WikiPage.objects.get(title="Officer Written Rules").status == WikiPage.Status.OFFICIAL
+
+    def it_tells_the_scopes_moderators_that_a_proposal_is_waiting(client: Client):
+        # The held screen promises "the leads have it, and you will hear back", so somebody
+        # has to actually be told.
+        from core.models import Notification
+
+        lead = member_user("gate_notify_lead", email="gate_notify_lead@example.com")
+        guild = GuildFactory(guild_lead=lead.member)
+        user = login(client, "gate_notify_author")
+        GuildMembershipFactory(guild=guild, member=user.member)
+        _create(client, "safety", title="Notified Rules", guild=guild)
+        assert Notification.objects.filter(trigger="wiki.page_proposed", user=lead).exists()
+
+    def it_tells_nobody_when_the_page_publishes_straight_through(client: Client):
+        from core.models import Notification
+
+        login(client, "gate_no_notify", fog_role=Member.FogRole.ADMIN)
+        _create(client, "safety", title="Straight Through Rules")
+        assert not Notification.objects.filter(trigger="wiki.page_proposed").exists()
+
+    def it_names_the_admins_rather_than_a_scope_chip_on_a_space_wide_proposal(client: Client):
+        login(client, "gate_space_wide")
+        response = _create(client, "safety", title="Space Wide Rules")
+        assert b"The makerspace admins have it, and you will hear back." in response.content
+        assert b"The Space-wide leads have it" not in response.content
 
     def it_leaves_every_other_starter_publishing_live(client: Client):
         login(client, "gate_normal")
@@ -121,6 +192,30 @@ def describe_publishing_a_proposal():
         assert page.is_published is True
         assert page.status == WikiPage.Status.GUILD_VERIFIED
         assert page.verified_by == user.member
+
+    def it_tells_the_pages_writers_that_it_was_verified(client: Client):
+        # The brief calls this the round's retention mechanism, and this is the one path
+        # where a member's own proposal becomes verified — it must not be the silent one
+        # while declining emails them.
+        from core.models import Notification
+
+        author = member_user("pub_verified_author", email="pub_verified_author@example.com").member
+        _user, guild = login_lead(client, "pub_verified_lead")
+        page = WikiPageFactory(guild=guild, official=True, is_published=False, created_by=author)
+        WikiRevisionFactory(page=page, author=author)
+        client.post(reverse("hub_wiki_publish_proposal", args=[page.slug]))
+        assert Notification.objects.filter(trigger="wiki.page_verified", user=author.user).exists()
+
+    def it_stays_silent_when_an_admin_lands_it_official(client: Client):
+        # Official is not a verification; nobody is told they were verified.
+        from core.models import Notification
+
+        author = member_user("pub_official_author", email="pub_official_author@example.com").member
+        login(client, "pub_official_admin", fog_role=Member.FogRole.ADMIN)
+        page = WikiPageFactory(guild=None, official=True, is_published=False, created_by=author)
+        WikiRevisionFactory(page=page, author=author)
+        client.post(reverse("hub_wiki_publish_proposal", args=[page.slug]))
+        assert not Notification.objects.filter(trigger="wiki.page_verified").exists()
 
     def it_lands_official_for_an_admin(client: Client):
         login(client, "pub_admin", fog_role=Member.FogRole.ADMIN)
@@ -329,4 +424,3 @@ def describe_the_drafts_page():
 
         draft = WikiDraft.objects.create(author=MemberFactory(), kind="safety", title="Rules draft")
         assert draft.kind_label == "Safety and rules"
-        assert WikiRevision is not None

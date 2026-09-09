@@ -176,6 +176,15 @@ TRIGGERS: list[Trigger] = [
         email_default=True,
     ),
     Trigger(
+        "wiki.page_proposed",
+        "Wiki safety page proposed",
+        "A member proposed a safety page in a guild you lead, and it is waiting for a read.",
+        "Wiki",
+        audience=Audience.STAFF_ONLY,
+        # The member has been told "you will hear back". Somebody has to be told too.
+        email_default=True,
+    ),
+    Trigger(
         "wiki.page_verified",
         "Your wiki page was verified",
         "A guild lead or orienter read a page you wrote and marked it verified.",

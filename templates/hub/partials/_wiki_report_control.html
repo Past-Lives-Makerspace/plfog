@@ -7,17 +7,29 @@ When the viewer already has an open report it renders a different thing entirely
 disabled button and not the same button leading to a duplicate error they would only meet
 AFTER typing a second report. Two problems, one control.
 
-Parameters: control_id (unique per placement), oob (set on the OOB swap after a report).
+``compact`` is the phone bar's variant and it is load-bearing, not cosmetic.
+.pl-wp-actionbar is a fixed, no-wrap flex row whose height is reserved by
+.pl-wp-has-actionbar's 5.5rem padding, and only .pl-btn children get flex:1 there. The
+muted "You reported this - 2 hours ago" line is an unshrinkable sentence inside a
+flex-wrap container, so in the bar it wrapped the cell to two lines, pushed the bar past
+its reserve, and a fixed element covers content with no warning. In the bar the state is
+therefore one self-describing 48px button; the sentence stays on the desktop control,
+where there is room for it and where nothing is covered.
+
+Parameters: control_id (unique per placement), compact (the phone bar), oob (the OOB swap
+after a report is filed).
 {% endcomment %}
 <div id="{{ control_id }}" class="pl-wp-mod__report"{% if oob %} hx-swap-oob="true"{% endif %}>
     {% if can_report %}
     {% if my_open_report %}
+    {% if not compact %}
     <span class="hub-text-muted pl-wp-mod__reported">You reported this &middot; {{ my_open_report.created_at|timesince }} ago</span>
-    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
-            @click="$dispatch('open-confirm', 'wiki-report-withdraw')">Withdraw</button>
+    {% endif %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-wp-mod__report-btn"
+            @click="$dispatch('open-confirm', 'wiki-report-withdraw')">{% if compact %}Withdraw report{% else %}Withdraw{% endif %}</button>
     {% else %}
     <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost pl-wp-mod__report-btn"
-            @click="$dispatch('open-modal', 'wiki-report')">Report a Problem</button>
+            @click="$dispatch('open-modal', 'wiki-report')">{% if compact %}Report{% else %}Report a Problem{% endif %}</button>
     {% endif %}
     {% endif %}
 </div>

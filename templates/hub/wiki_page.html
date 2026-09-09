@@ -121,7 +121,7 @@ time so the two copy inputs do not share one id.
     <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">Add Photo</button>
     <button type="button" class="pl-btn pl-btn--sm" @click="$dispatch('open-modal', 'wiki-tip')">Add Tip</button>
     {% endif %}
-    {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control-bar" %}
+    {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control-bar" compact=1 %}
     {% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_menu.html" menu_label="More actions for this page" %}
 </div>
 {% endif %}

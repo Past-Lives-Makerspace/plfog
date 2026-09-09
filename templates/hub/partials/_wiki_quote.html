@@ -1,0 +1,22 @@
+{% comment %}
+One member's reported reason, quoted and escaped, with an expander when there is actually
+something to expand.
+
+NEVER run through the renderer. It is member free text shown to every reader, and a
+renderer buys nothing here but an XSS surface.
+
+The expander is gated on length because the clamp is a CSS fact the server cannot measure:
+an unconditional button meant a one-sentence report rendered a control that visibly did
+nothing. The threshold is deliberately conservative, so the button can appear on a reason
+that only just fits, but never on one that plainly does.
+
+Parameters: reason (required), clamp_class (optional, e.g. pl-wp-mod__quote--short).
+{% endcomment %}
+<div class="pl-wp-mod__quotewrap" x-data="{ expanded: false }">
+    <blockquote class="pl-wp-mod__quote {{ clamp_class }}"
+                :class="expanded ? 'pl-wp-mod__quote--open' : ''">{{ reason }}</blockquote>
+    {% if reason|length > 180 %}
+    <button type="button" class="pl-wp-mod__more" @click="expanded = !expanded"
+            x-text="expanded ? 'Show less' : 'Show more'">Show more</button>
+    {% endif %}
+</div>

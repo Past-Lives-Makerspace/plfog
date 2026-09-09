@@ -68,7 +68,9 @@ def _preview_as(client: Client, role: str) -> None:
 
 # The home page's query budget. Fixed rather than proportional to the row count: that is
 # the whole point of with_fact_prefetch(), and a regression would blow straight past it.
-_HOME_QUERY_BUDGET = 32
+# 33 since spec D added the moderator-only Review queue link, whose "may I, and how many
+# are waiting" comes off ONE scope lookup (_review_link) rather than two.
+_HOME_QUERY_BUDGET = 33
 
 
 def describe_the_feature_flag():

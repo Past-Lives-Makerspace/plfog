@@ -21,12 +21,18 @@ entire job is to explain what a member should do next.
         <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
                 @click="$dispatch('open-modal', 'wiki-decline-{{ proposal.pk }}')">Decline</button>
     </div>
-    {% url 'hub_wiki_publish_proposal' proposal.slug as publish_url %}
-    {% if publishes_as_official %}
-    {% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="This publishes as an Official page. Members will not be able to edit it." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
-    {% else %}
-    {% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="Publishing as the guild's lead marks this Guild Verified. An officer can make it Official." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
-    {% endif %}
-    {% include "components/modal.html" with modal_id="wiki-decline-"|add:proposal_pk modal_title="Send This Back" modal_size="md" modal_body_include="hub/partials/_wiki_decline_form.html" %}
 </div>
+{% comment %}
+Both modals sit OUTSIDE the card. The publish confirm teleports to <body> anyway, but the
+decline modal does not: rendered inside #safety-<pk>, the response's out-of-band swap of
+that card would destroy #wiki-decline-<pk>-body before the reply could land in it, so the
+"Sent back to the author." line was never seen and the modal was yanked mid-transition.
+{% endcomment %}
+{% url 'hub_wiki_publish_proposal' proposal.slug as publish_url %}
+{% if publishes_as_official %}
+{% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="This publishes as an Official page. Members will not be able to edit it." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
+{% else %}
+{% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="Publishing as the guild's lead marks this Guild Verified. An officer can make it Official." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
+{% endif %}
+{% include "components/modal.html" with modal_id="wiki-decline-"|add:proposal_pk modal_title="Send This Back" modal_size="md" modal_body_include="hub/partials/_wiki_decline_form.html" %}
 {% endwith %}

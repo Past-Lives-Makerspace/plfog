@@ -12731,6 +12731,10 @@ class WikiPage(models.Model):
         self.archive_reason = cleaned
         self.archive_redirect = redirect
         self.save(update_fields=["archived_at", "archived_by", "archive_reason", "archive_redirect"])
+        # Nobody may be signposted at a tombstone. _check_redirect refuses an archived
+        # target when a redirect is SET, but a page can be archived after others already
+        # point at it, which would walk a reader tombstone to tombstone.
+        WikiPage.objects.filter(archive_redirect=self).update(archive_redirect=None)
         author = self.created_by
         SiteActivity.log(
             SiteActivity.Kind.WIKI_PAGE_ARCHIVED,
@@ -12907,7 +12911,7 @@ class WikiPage(models.Model):
         # snapshot, so the newest row is usually the version before the last save and
         # reverting to it is the commonest legitimate undo there is. What is genuinely a
         # no-op is a revision whose snapshot already equals the page.
-        if (revision.title, revision.body, revision.facts) == (self.title, self.body, self.fact_snapshot()):
+        if revision.matches(title=self.title, body=self.body, facts=self.fact_snapshot()):
             raise NothingToRevert("That is already the current version.")
         target_author = revision.author
         with transaction.atomic():
@@ -12950,11 +12954,86 @@ class WikiPage(models.Model):
         """True while the safety gate is holding this page for a lead's second read."""
         return not self.is_published and self.archived_at is None
 
+    def verified_event_period(self) -> str:
+        """The idempotency period for ``wiki.page_verified``. THE one definition of it.
+
+        Spec D owns this event's trigger, resolver, copy **and period**, and spec B calls
+        the event from its one-tap Verify — so the string lives here as code rather than
+        as a line in a plan document both PRs hand-copy. Import it as
+        ``page.verified_event_period()``.
+
+        The timestamp is deliberate: a page edited and re-verified months later delivers
+        again, because that second message is worth as much as the first. A page-only
+        period would silence it forever after the first verification.
+        """
+        stamp = timezone.localtime(self.verified_at).strftime("%Y%m%d%H%M%S") if self.verified_at else "never"
+        return f"wiki_verified:{self.pk}:{stamp}"
+
+    def emit_verified(self, *, verifier: Member, role_label: str = "") -> None:
+        """Tell everyone who wrote this page that somebody stands behind it.
+
+        The brief calls this the round's retention mechanism: the message that a lead read
+        your page is the single strongest reason a member writes a second one. Spec D owns
+        the event; spec B calls this from one-tap Verify and this method calls it from
+        :meth:`publish_proposal`, so the payload shape has exactly one definition.
+        """
+        from core.events.discord_replies import hub_url
+        from core.events.emit import emit
+
+        emit(
+            "wiki.page_verified",
+            actor=verifier.user,
+            target=self,
+            context={
+                "page": self,
+                "actor_member_pk": verifier.pk,
+                "member_name": "there",
+                "page_title": self.title,
+                "page_url": hub_url("hub_wiki_page", self.slug),
+                "verifier_name": verifier.display_name,
+                # Spec B's verified_role_label column lands in a parallel PR; until then
+                # the honest fallback names the authority rather than inventing a title.
+                "verifier_role": role_label or getattr(self, "verified_role_label", "") or "a guild lead",
+                "guild_name": self.guild.name if self.guild is not None else "the makerspace",
+            },
+            period=self.verified_event_period(),
+        )
+
+    def notify_scope_of_proposal(self, *, by: Member) -> None:
+        """Tell whoever moderates this page's scope that a safety page is waiting.
+
+        Without this the held screen's promise — "the leads have it, and you will hear
+        back" — is not true of anything: nothing was emitted, and ``/wiki/review/`` has no
+        entry point a lead passes on an ordinary day.
+        """
+        from core.events.discord_replies import hub_url
+        from core.events.emit import emit
+
+        emit(
+            "wiki.page_proposed",
+            actor=by.user,
+            target=self,
+            context={
+                "guild": self.guild,
+                "member_name": "there",
+                "page_title": self.title,
+                "page_url": hub_url("hub_wiki_page", self.slug),
+                "author_name": by.display_name,
+                "scope_label": self.guild.name if self.guild is not None else "Space-wide",
+                "review_url": hub_url("hub_wiki_review"),
+            },
+            period=f"wiki_proposed:{self.pk}",
+        )
+
     def publish_proposal(self, *, by: Member, as_official: bool) -> None:
         """Publish a held safety proposal at the publisher's OWN authority.
 
         A guild lead publishing lands it Guild verified; an admin publishing lands it
         Official. One button, an honest outcome, and no escalation ladder to build.
+
+        The Guild verified leg emits ``wiki.page_verified``, because that leg IS a
+        verification: without it the one path where a member's own proposal becomes
+        verified was the silent one, while declining emailed them.
 
         Args:
             by: The moderator publishing it.
@@ -12983,6 +13062,8 @@ class WikiPage(models.Model):
             target=self,
             payload={"slug": self.slug, "published_proposal": True, "status": self.status},
         )
+        if not as_official:
+            self.emit_verified(verifier=by)
 
     def decline_proposal(self, *, by: Member, note: str) -> WikiRevision:
         """Send a held safety proposal back to its author with something to act on.
@@ -13159,12 +13240,28 @@ class WikiRevision(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this version was saved.")
 
+    # Set by the history view on each row it renders, never stored: whether reverting to
+    # this snapshot would actually change anything. An annotation with no value, so Django
+    # does not read it as a field.
+    is_revertible: bool
+
     class Meta:
         ordering = ["-created_at", "-pk"]
         indexes = [models.Index(fields=["page", "-created_at"], name="idx_wikirevision_page")]
 
     def __str__(self) -> str:
         return f"{self.page.title} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+    def matches(self, *, title: str, body: str, facts: list[dict[str, str]]) -> bool:
+        """True when this snapshot already equals the page state described by the arguments.
+
+        THE one definition of "reverting to this would change nothing", used by
+        :meth:`WikiPage.revert_to`'s guard and by the history list's decision to render a
+        Revert button at all. The caller passes the page state rather than the page,
+        because the history list compares every row against one page and must not re-query
+        its facts per row.
+        """
+        return (self.title, self.body, self.facts) == (title, body, facts)
 
 
 class WikiAttachment(models.Model):

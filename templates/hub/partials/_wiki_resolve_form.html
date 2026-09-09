@@ -2,11 +2,16 @@
 The resolve modal's body. Quotes the reason again so the reviewer confirms which report
 they are closing, then one optional field. Mark Reviewed is the last element (Rule 21).
 {% endcomment %}
-<blockquote class="pl-wp-mod__quote">{{ report.reason }}</blockquote>
+{% include "hub/partials/_wiki_quote.html" with reason=report.reason %}
 <p class="hub-text-muted pl-wp-mod__banner-by">Reported by {{ report.reporter_name }}, {{ report.created_at|timesince }} ago</p>
 <form hx-post="{% url 'hub_wiki_report_resolve' report.pk %}" hx-target="{{ resolve_target }}" hx-swap="outerHTML">
     {% csrf_token %}
     <input type="hidden" name="source" value="{{ source }}">
+    {% comment %}
+    Carried so an invalid note can re-render this same form with the text still in it: the
+    error response retargets itself at the modal body and needs the success target back.
+    {% endcomment %}
+    <input type="hidden" name="resolve_target" value="{{ resolve_target }}">
     {% include "components/form_field.html" with field=resolve_form.resolution field_label="What you did (optional)" field_hint="Recorded for the audit trail. The reporter is not emailed." %}
     <div class="pl-wp-mod__modal-actions">
         <button type="button" class="pl-btn pl-btn--secondary"

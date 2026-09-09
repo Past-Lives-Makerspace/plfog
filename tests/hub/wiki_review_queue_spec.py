@@ -168,10 +168,15 @@ def describe_marking_a_report_reviewed():
         assert report.resolution == "Already handled."
 
     def it_returns_the_written_empty_state_when_the_last_one_goes(client: Client):
+        # It is swapped in INSIDE the Reported Pages card, so it speaks for that card:
+        # claiming "nothing to review" with safety proposals still on screen below, and
+        # reprinting the scope line, were both wrong.
         login(client, "q_last", fog_role=Member.FogRole.ADMIN)
         report = WikiReportFactory(page=WikiPageFactory(guild=None))
         response = client.post(reverse("hub_wiki_report_resolve", args=[report.pk]), {"source": "queue"})
-        assert b"Nothing to review. You are all caught up." in response.content
+        assert b"Nothing reported. You are all caught up." in response.content
+        assert b"Nothing to review." not in response.content
+        assert b"Showing every scope." not in response.content
 
     def it_refuses_a_member_who_cannot_moderate_that_page(client: Client):
         login(client, "q_not_mine")
@@ -245,7 +250,58 @@ def describe_marking_reviewed_from_the_banner():
         assert b"still has a report open" in response.content
         report.refresh_from_db()
         assert report.resolved_at is None
-        assert user.member is not None
+        # The save itself landed, so the prompt is not a rejection.
+        assert page.revisions.filter(author=user.member).exists()
+
+
+def describe_the_entry_point():
+    def it_offers_a_moderator_the_queue_from_the_wiki_home(client: Client):
+        # Without this the queue is reachable only from a report banner on a page you
+        # happen to be reading, so a held safety proposal and the ?archived=1 view both
+        # sit behind a screen nobody arrives at.
+        _user, guild = login_lead(client, "entry_lead")
+        WikiReportFactory(page=WikiPageFactory(guild=guild))
+        body = client.get(reverse("hub_wiki_home")).content
+        assert reverse("hub_wiki_review").encode() in body
+        assert b"Review queue (1)" in body
+
+    def it_hides_it_from_a_plain_member(client: Client):
+        login(client, "entry_member")
+        assert reverse("hub_wiki_review").encode() not in client.get(reverse("hub_wiki_home")).content
+
+    def it_drops_the_count_when_nothing_is_waiting(client: Client):
+        login(client, "entry_quiet", fog_role=Member.FogRole.ADMIN)
+        body = client.get(reverse("hub_wiki_home")).content
+        assert b"Review queue<" in body or b"Review queue</a>" in body
+        assert b"Review queue (" not in body
+
+
+def describe_an_over_long_resolution_note():
+    def it_is_never_dropped_behind_a_green_toast(client: Client):
+        login(client, "resolve_long", fog_role=Member.FogRole.ADMIN)
+        report = WikiReportFactory(page=WikiPageFactory(guild=None))
+        response = client.post(
+            reverse("hub_wiki_report_resolve", args=[report.pk]),
+            {"source": "queue", "resolve_target": f"#report-{report.pk}", "resolution": "x" * 301},
+        )
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.resolved_at is None
+        # Retargeted at the modal body it was typed into, with the text still in it.
+        assert response["HX-Retarget"] == f"#resolve-{report.pk}-body"
+        assert response["HX-Reswap"] == "innerHTML"
+        assert b"x" * 301 in response.content
+        assert "HX-Trigger" not in response
+
+    def it_keeps_the_success_target_through_the_error(client: Client):
+        login(client, "resolve_long2", fog_role=Member.FogRole.ADMIN)
+        report = WikiReportFactory(page=WikiPageFactory(guild=None))
+        response = client.post(
+            reverse("hub_wiki_report_resolve", args=[report.pk]),
+            {"source": "banner", "resolve_target": "#wiki-review-banner", "resolution": "x" * 301},
+        )
+        assert b'value="#wiki-review-banner"' in response.content
+        assert b'value="banner"' in response.content
 
 
 def describe_the_archived_view():

@@ -26,6 +26,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import redirect_to_login
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -249,6 +250,7 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
     recent_pages = list(cards.order_by("-updated_at")[:_HOME_RECENT_LIMIT])
     machine_pages = list(cards.filter(kind=WikiPage.Kind.MACHINE).order_by("title")[:_HOME_MACHINE_LIMIT])
     drafts = list(WikiDraft.objects.for_member(member)[:_HOME_DRAFT_LIMIT]) if member is not None else []
+    can_review, open_review_count = _review_link(request)
 
     context = _get_hub_context(request)
     context.update(
@@ -264,6 +266,12 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
             "drafts": drafts,
             "starters": [{"kind": key, **value} for key, value in STARTERS.items()],
             "can_write": _active_member(request) is not None,
+            # The review queue's only entry point on an ordinary day. Without it the queue
+            # is reachable only from a report banner on a page you happen to be reading,
+            # which means a held safety proposal and the ?archived=1 view both sit behind
+            # a screen nobody arrives at.
+            "can_review": can_review,
+            "open_review_count": open_review_count,
             # The printable sticker sheet's only entry point. Without it /wiki/stickers/
             # is a URL you have to already know, which is the same as not shipping it.
             "can_print_stickers": is_effective_staff(request),
@@ -684,12 +692,25 @@ def _create_page_from_form(
 
     This is where THE safety gate lives, and it is the only one in the round. Safety
     content *is* Official content (the brief's Official is "policy, safety, membership
-    terms"), so there is no separate field and no box on any form for a member to untick:
-    a non-moderator saving the Safety starter lands the page unpublished for a second
-    read, and every other starter publishes live exactly as before.
+    terms"), so there is no separate field and no box on any form for a member to untick.
+
+    **A Safety page is ALWAYS created held and then published through
+    ``publish_proposal``**, which is the round's one authority rule for safety content
+    rather than a second one written out here. It matters: ``can_moderate_wiki_scope`` is
+    true for any ``GuildStaffMembership`` row, so deciding "published or not" on that
+    alone let a guild orienter, secretary or treasurer create a page wearing the Official
+    chip — which brief §4 and §5.2 lock to admins and officers. Routing through
+    ``publish_proposal`` gives the create path exactly the outcomes the queue already
+    gives: effective staff land Official, a guild lead or staff land Guild verified, and
+    everyone else stays a held proposal for a second read.
+
+    It also closes the secondary bug that arrangement had: a guild orienter who created an
+    Official page was instantly locked out of it, because ``can_edit_wiki_page`` answers
+    ``is_effective_staff`` on a published Official page and ``can_verify_wiki_page``
+    refuses Official outright. Landing Guild verified leaves it theirs to edit.
     """
     status = starter["status"]
-    held = bool(status) and not can_moderate_wiki_scope(request, form.cleaned_data["guild"])
+    gated = bool(status)
     try:
         page = WikiPage.objects.create_page(
             title=form.cleaned_data["title"],
@@ -699,7 +720,7 @@ def _create_page_from_form(
             body=form.cleaned_data["body"],
             status=status,
             facts=_submitted_facts(fact_formset),
-            is_published=not held,
+            is_published=not gated,
         )
     except WikiError as exc:
         form.add_error("title", str(exc))
@@ -707,11 +728,15 @@ def _create_page_from_form(
     _save_child_formsets(page, None, attachment_formset, member)
     if draft is not None:
         draft.delete()
-    if held:
+    if gated and can_moderate_wiki_scope(request, page.guild):
+        page.publish_proposal(by=member, as_official=is_effective_staff(request))
+        gated = False
+    if gated:
         # A full-page answer, not a toast: this is a state change the member did not
         # expect, and it needs room to say who has it and what happens next.
+        page.notify_scope_of_proposal(by=member)
         context = _get_hub_context(request)
-        context.update({"page": page, "scope_label": _scope_label(page.guild)})
+        context.update({"page": page, "scope_label": _scope_label(page.guild), "is_space_wide": page.guild is None})
         return render(request, "hub/wiki_proposal_held.html", context)
     fulfilled = _fulfil_wanted_page(wanted_pk, page)
     messages.success(
@@ -1450,6 +1475,20 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
 # --- Moderation: report, withdraw, resolve (spec D §6.1-6.5) --------------------------
 
 
+def _review_link(request: HttpRequest) -> tuple[bool, int]:
+    """``(may open the queue, open reports waiting)`` for the wiki home's link.
+
+    One call, because both answers come off the same two-query scope lookup and the home
+    page's query count is budgeted: asking twice put four avoidable queries on the busiest
+    screen in the feature.
+    """
+    guilds, space_wide = moderatable_wiki_scopes(request)
+    if not guilds and not space_wide:
+        return False, 0
+    waiting = WikiReport.objects.open().for_scopes([guild.pk for guild in guilds], include_space_wide=space_wide)
+    return True, waiting.count()
+
+
 def _scope_label(guild: Guild | None) -> str:
     """The quiet neutral attribute chip a queue row carries. Never a coloured pill."""
     return guild.name if guild is not None else "Space-wide"
@@ -1551,8 +1590,26 @@ def hub_wiki_report_resolve(request: HttpRequest, pk: int) -> HttpResponse:
     if member is None:
         return _forbidden()
     form = WikiResolveForm(request.POST)
-    note = form.cleaned_data["resolution"] if form.is_valid() else ""
     from_banner = request.POST.get("source") == "banner"
+    if not form.is_valid():
+        # Never resolve on invalid input, and never drop what they typed behind a green
+        # toast. The success swap targets the card or the banner, so the error response is
+        # retargeted at the modal body it was typed into — htmx's documented mechanism for
+        # exactly this split.
+        context = _get_hub_context(request)
+        context.update(
+            {
+                "report": report,
+                "resolve_form": form,
+                "source": request.POST.get("source", ""),
+                "resolve_target": request.POST.get("resolve_target", ""),
+            }
+        )
+        response = render(request, "hub/partials/_wiki_resolve_form.html", context)
+        response["HX-Retarget"] = f"#resolve-{report.pk}-body"
+        response["HX-Reswap"] = "innerHTML"
+        return response
+    note = form.cleaned_data["resolution"]
     try:
         report.resolve(by=member, note=note)
     except AlreadyResolved as exc:
@@ -1571,7 +1628,7 @@ def hub_wiki_report_resolve(request: HttpRequest, pk: int) -> HttpResponse:
             WikiReport.objects.open().for_scopes([guild.pk for guild in guilds], include_space_wide=space_wide).exists()
         )
         context = _get_hub_context(request)
-        context.update({"scope_line": _queue_scope_line(guilds, space_wide), "remaining": remaining})
+        context.update({"remaining": remaining})
         response = render(request, "hub/partials/_wiki_review_resolved.html", context)
     trigger_toast(response, message, tone)
     trigger_client_event(response, "close-modal", f"resolve-{report.pk}")
@@ -1827,7 +1884,7 @@ def hub_wiki_history(request: HttpRequest, slug: str) -> HttpResponse:
         return _not_found(request)
     can_moderate = can_moderate_wiki_page(request, page)
     context = _get_hub_context(request)
-    context.update({"page": page, "can_moderate": can_moderate})
+    context.update({"page": page, "can_moderate": can_moderate, "can_edit": can_edit_wiki_page(request, page)})
 
     requested = request.GET.get("revision", "")
     if requested.isdigit():
@@ -1844,7 +1901,15 @@ def hub_wiki_history(request: HttpRequest, slug: str) -> HttpResponse:
         return render(request, "hub/wiki_revision.html", context)
 
     revisions = page.revisions.select_related("author")
-    context["revisions_page"] = Paginator(revisions, _HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+    revisions_page = Paginator(revisions, _HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+    # create_page writes version one with the page's OWN title, body and facts, so every
+    # seeded Equipment stub and every brand-new page has a row whose Revert could only
+    # ever answer "That is already the current version." Those stubs are the launch
+    # content, so the button is not rendered on a row that already equals the page.
+    facts = page.fact_snapshot()
+    for revision in revisions_page:
+        revision.is_revertible = not revision.matches(title=page.title, body=page.body, facts=facts)
+    context["revisions_page"] = revisions_page
     return render(request, "hub/wiki_history.html", context)
 
 
@@ -1852,12 +1917,20 @@ def hub_wiki_history(request: HttpRequest, slug: str) -> HttpResponse:
 @wiki_feature_required
 @require_POST
 def hub_wiki_revert(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
-    """``/wiki/p/<slug>/revert/<pk>/`` — put an older version back, on top, staff only."""
+    """``/wiki/p/<slug>/revert/<pk>/`` — put an older version back, on top, staff only.
+
+    Gated on ``can_edit_wiki_page`` AS WELL AS ``can_moderate_wiki_page``, because a
+    revert rewrites the page's title, body and facts wholesale — it is an edit, and the
+    edit gate is the one that keeps Official content away from a guild's staff. Without
+    it a guild treasurer refused the Edit button on a safety policy could open History and
+    rewrite the whole thing with the Official chip still on it, no officer involved.
+    ``revert_to`` deliberately does not touch ``status``, so nothing downstream catches it.
+    """
     page = _page_or_none(slug)
     if page is None:
         return _not_found(request)
     member = _editing_member(request)
-    if member is None or not can_moderate_wiki_page(request, page):
+    if member is None or not (can_moderate_wiki_page(request, page) and can_edit_wiki_page(request, page)):
         return _forbidden()
     revision = page.revisions.filter(pk=pk).first()
     if revision is None:
@@ -1951,9 +2024,13 @@ def hub_wiki_conflict_keep(request: HttpRequest, slug: str, pk: int) -> HttpResp
     # apply_edit owns title and body; the facts come from the draft's own snapshot, which
     # is why A snapshots them at all — restoring the prose and not the Quick Answers leaves
     # a page whose summary contradicts its text.
-    page.restore_facts(draft.facts)
-    page.rebuild_search_text()
-    page.save(update_fields=["search_text"])
+    # Atomic for the same reason revert_to's identical delete-then-create is: a failure
+    # between the two would leave the winner's prose with no Quick Answers at all,
+    # permanently, and this project sets no ATOMIC_REQUESTS.
+    with transaction.atomic():
+        page.restore_facts(draft.facts)
+        page.rebuild_search_text()
+        page.save(update_fields=["search_text"])
     WikiEditLock.release(page, member)
     messages.success(request, "Your version is on the page. The other one is still in the history.")
     return redirect(page.get_absolute_url())

@@ -272,3 +272,41 @@ def describe_the_withdraw_route_without_a_member():
         session["view_as_role"] = "guest"
         session.save()
         assert client.post(reverse("hub_wiki_report_withdraw", args=[page.slug])).status_code == 403
+
+
+def describe_the_phone_bars_report_cell():
+    def it_drops_the_muted_sentence_so_the_fixed_bar_keeps_its_one_row(client: Client):
+        # .pl-wp-actionbar is a fixed, no-wrap flex row whose height is reserved by
+        # .pl-wp-has-actionbar's 5.5rem. The desktop control's unshrinkable sentence wrapped
+        # that cell to two lines and pushed the bar past its reserve, and a fixed element
+        # covers content with no warning.
+        user = login(client, "bar_reported")
+        page = WikiPageFactory()
+        WikiReportFactory(page=page, reporter=user.member)
+        body = client.get(page.get_absolute_url()).content
+        bar = body.split(b'class="pl-wp-actionbar"')[1]
+        assert b"You reported this" not in bar
+        assert b"Withdraw report" in bar
+
+    def it_keeps_the_sentence_on_the_desktop_control(client: Client):
+        user = login(client, "bar_reported2")
+        page = WikiPageFactory()
+        WikiReportFactory(page=page, reporter=user.member)
+        header = client.get(page.get_absolute_url()).content.split(b'class="pl-wp-actionbar"')[0]
+        assert b"You reported this" in header
+
+
+def describe_the_decline_modal_placement():
+    def it_sits_outside_the_card_its_own_response_replaces(client: Client):
+        # Rendered inside #safety-<pk>, the response's OOB swap of that card destroyed
+        # #wiki-decline-<pk>-body before the reply could land in it.
+        from tests.hub.wiki_mod_helpers import login_lead
+
+        _user, guild = login_lead(client, "decline_placement")
+        proposal = WikiPageFactory(guild=guild, official=True, is_published=False)
+        body = client.get(reverse("hub_wiki_review")).content
+        card_start = body.index(f'id="safety-{proposal.pk}"'.encode())
+        card_end = body.index(f"wiki-decline-{proposal.pk}-body".encode())
+        assert card_start < card_end
+        # The modal opens after the card element closes, not inside it.
+        assert body.index(b'id="wiki-decline-') > body.index(b"</div>", card_start)

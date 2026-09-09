@@ -16,7 +16,13 @@ post-edit snapshot in the table because it is text that was submitted and never 
             {% if revision.note %}<span class="hub-text-muted"> &middot; {{ revision.note }}</span>{% endif %}
         </p>
     </div>
-    {% if can_moderate and revision.kind != "conflict_draft" %}
+    {% comment %}
+    can_edit as well as can_moderate: a revert rewrites the page's own title, body and
+    facts, so it follows the content gate, not just the moderation one. And never on a row
+    whose snapshot already equals the page (every seeded stub has exactly one), because
+    that button can only ever answer "That is already the current version."
+    {% endcomment %}
+    {% if can_moderate and can_edit and revision.is_revertible and revision.kind != "conflict_draft" %}
     <div class="pl-wp-mod__history-action">
         <button type="button" class="pl-btn pl-btn--sm pl-btn--ghost"
                 @click="$dispatch('open-confirm', 'revert-{{ revision.pk }}')">Revert to This</button>

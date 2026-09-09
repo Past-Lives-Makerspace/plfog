@@ -207,6 +207,45 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    "wiki.page_proposed": EventCopy(
+        placeholders=("page_title", "page_url", "author_name", "scope_label", "review_url"),
+        sample_context={
+            "page_title": "Bandsaw Rules",
+            "page_url": "https://pastlives.example/wiki/p/bandsaw-rules/",
+            "author_name": "Rowan Ellis",
+            "scope_label": "Woodworking",
+            "review_url": "https://pastlives.example/wiki/review/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ author_name }} proposed {{ page_title }}",
+                body_text="A safety page for {{ scope_label }} is waiting for a read.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject='A safety page is waiting for a read: "{{ page_title }}"',
+                body_text=(
+                    "{{ author_name }} wrote {{ page_title }} for {{ scope_label }}. Safety pages "
+                    "get a second read before they go live, so it is held until somebody publishes "
+                    "it or sends it back.\n\n"
+                    "Read the draft: {{ page_url }}\n\n"
+                    "Everything waiting on you is in the review queue: {{ review_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p><strong>{{ author_name }}</strong> wrote "
+                    '<strong><a href="{{ page_url }}">{{ page_title }}</a></strong> for '
+                    "{{ scope_label }}. Safety pages get a second read before they go live, so it "
+                    "is held until somebody publishes it or sends it back.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ page_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Read the draft</a></p>"
+                    '<p style="text-align:center;"><a href="{{ review_url }}">Open the review queue</a></p>'
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "wiki.page_verified": EventCopy(
         # Exactly the keys spec D fixed for the emit call spec B makes, and no more: an
         # extra documented placeholder B does not pass renders a "[missing: ...]" marker

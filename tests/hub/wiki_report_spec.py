@@ -141,6 +141,56 @@ def describe_the_banner_with_several_reports():
         assert b"and 2 more" in response.content
 
 
+def describe_the_banners_moderator_affordances():
+    def it_gives_a_plain_member_no_link_to_a_queue_that_403s(client: Client):
+        # hub_wiki_review answers a plain member with a bare 403 body, which the body-wide
+        # hx-boost cannot swap — so the link did literally nothing when tapped.
+        page = WikiPageFactory(guild=GuildFactory())
+        WikiReportFactory(page=page, reason="The first complaint.")
+        WikiReportFactory(page=page, reason="The second complaint.")
+        page.mark_needs_review()
+        login(client, "banner_member_link")
+        body = client.get(page.get_absolute_url()).content
+        assert b"and 1 more" in body
+        assert reverse("hub_wiki_review").encode() not in body
+
+    def it_links_it_for_a_moderator(client: Client):
+        login(client, "banner_mod_link", fog_role=Member.FogRole.ADMIN)
+        page = WikiPageFactory(guild=None)
+        WikiReportFactory(page=page, reason="The first complaint.")
+        WikiReportFactory(page=page, reason="The second complaint.")
+        page.mark_needs_review()
+        body = client.get(page.get_absolute_url()).content
+        assert reverse("hub_wiki_review").encode() in body
+
+
+def describe_the_quote_expander():
+    def it_is_absent_on_a_short_reason(client: Client):
+        page = WikiPageFactory()
+        WikiReportFactory(page=page, reason="The guard is backwards.")
+        page.mark_needs_review()
+        login(client, "quote_short")
+        assert b"Show more" not in client.get(page.get_absolute_url()).content
+
+    def it_appears_on_a_reason_the_clamp_would_cut(client: Client):
+        page = WikiPageFactory()
+        WikiReportFactory(page=page, reason="The blade guard step is backwards. " * 8)
+        page.mark_needs_review()
+        login(client, "quote_long")
+        body = client.get(page.get_absolute_url()).content
+        assert b"Show more" in body
+        assert b"Show less" in body
+
+    def it_reaches_the_queue_card_and_the_resolve_modal_too(client: Client):
+        # A lead can otherwise mark a 500-character report reviewed having read three lines.
+        login(client, "quote_queue", fog_role=Member.FogRole.ADMIN)
+        WikiReportFactory(page=WikiPageFactory(guild=None), reason="The blade guard step is backwards. " * 8)
+        body = client.get(reverse("hub_wiki_review")).content
+        # Once in the card and once in the resolve modal beside it.
+        assert body.count(b"pl-wp-mod__quotewrap") == 2
+        assert b"Show more" in body
+
+
 def describe_the_denormalized_review_columns():
     def it_stamps_them_on_file(db):
         page = WikiPageFactory()
@@ -231,8 +281,9 @@ def describe_withdrawing_a_report():
         assert b"You reported this" in response.content
         assert b"Withdraw" in response.content
         # The control is replaced, not disabled. (Both modals stay on the page so the
-        # Withdraw confirmation still works after an HTMX report swaps the control in.)
-        assert b"pl-wp-mod__report-btn" not in response.content
+        # Withdraw confirmation still works after an HTMX report swaps the control in,
+        # which is why the modal TITLE is still present and the button is not.)
+        assert b"Report a Problem</button>" not in response.content
 
     def it_resolves_the_row_without_deleting_it(client: Client):
         user = login(client, "wd_resolve")

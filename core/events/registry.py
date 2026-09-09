@@ -332,6 +332,7 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "lease_expiring": Recipients.LEASE_TENANT,
     # Member wiki (spec D)
     "wiki.page_reported": Recipients.WIKI_SCOPE_LEADERSHIP,
+    "wiki.page_proposed": Recipients.WIKI_SCOPE_LEADERSHIP,
     "wiki.page_verified": Recipients.WIKI_PAGE_CONTRIBUTORS,
     # Admin broadcasts
     "site_announcement": Recipients.ALL_ACTIVE_MEMBERS,
@@ -391,6 +392,7 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     # reason, the reporter, the verifier's role) — so the model methods write those rows
     # themselves, exactly as tab_entry_added does, and one row has one source.
     "wiki.page_reported": None,
+    "wiki.page_proposed": None,
     "wiki.page_verified": None,
     "site_announcement": "site_announcement",
 }

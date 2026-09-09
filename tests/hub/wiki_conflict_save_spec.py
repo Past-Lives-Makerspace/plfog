@@ -164,7 +164,7 @@ def describe_keeping_my_version():
         assert page.revisions.count() == before + 1
         assert page.revisions.filter(pk=draft.pk).exists()
         assert page.revisions.filter(note="Resolved an edit conflict").exists()
-        assert user.member is not None
+        assert page.revisions.get(note="Resolved an edit conflict").author == user.member
 
     def it_restores_the_drafts_facts_too(client: Client):
         user = login(client, "conf_keep_facts")

@@ -8674,6 +8674,10 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         background: var(--hub-card-bg);
     }
     .pl-wp-actionbar .pl-btn { flex: 1; min-height: 48px; }
+    /* Spec D's Report cell is a wrapper div, so it gets none of the rule above. Without
+       these two it sizes to its content and shoves the bar past its 5.5rem reserve. */
+    .pl-wp-actionbar .pl-wp-mod__report { flex: 1; min-width: 0; flex-wrap: nowrap; }
+    .pl-wp-actionbar .pl-wp-mod__report .pl-btn { width: 100%; }
     /* Without this the fixed bar covers the last lines of the byline, and a fixed element
        gives no warning that it is doing so. */
     .pl-wp-has-actionbar { padding-bottom: 5.5rem; }
@@ -8817,8 +8821,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 /* x-show only toggles display:none, so the expanded state is a class and never an inline
    display (Rule 12). */
 .pl-wp-mod__quote--open { -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+.pl-wp-mod__quotewrap { display: flex; flex-direction: column; align-items: flex-start; }
 .pl-wp-mod__more {
-    margin-top: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     padding: 0;
     background: none;
     border: 0;
@@ -8856,10 +8863,17 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text-muted);
 }
 
-/* Rule 18: the danger button never butts against whatever follows the header row. */
-.pl-wp-mod__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+/* No margin-bottom: this renders as a flex ITEM inside A's .pl-wp-actions, which centres
+   on align-items:center, so a bottom margin lifts these three controls ~12px above Edit /
+   Still accurate / Report / Print in the same row and grows the row by 24px. Rule 18's
+   clearance is A's row's job; nothing follows this inside it. */
+.pl-wp-mod__actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__report { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .pl-wp-mod__reported { font-size: 0.85rem; }
+.pl-wp-mod__report-btn { white-space: nowrap; }
+/* The chip is the page's ONE coloured pill; hub-pill--primary paints it, this only keeps
+   it from being stretched by the flex header it sits in. */
+.pl-wp-mod__note-chip { flex: 0 0 auto; }
 .pl-wp-mod__modal-actions {
     display: flex;
     gap: 0.75rem;
@@ -8881,6 +8895,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-bottom: 0.5rem;
 }
 .pl-wp-mod__tabs { margin-bottom: 1.5rem; }
+.pl-wp-home__reviewlink { margin: 0 0 1rem; }
 .pl-wp-mod__explainer { margin: -0.75rem 0 1.5rem; }
 
 /* Written empty state. Never a blank region. */
@@ -8911,6 +8926,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     border-bottom: 1px solid var(--hub-border);
 }
 .pl-wp-mod__history-card:last-child { border-bottom: 0; }
+/* min-width:0 so a long note can ellipsize instead of shoving the Revert button off. */
+.pl-wp-mod__history-main { flex: 1; min-width: 0; }
 .pl-wp-mod__history-when { color: var(--hub-text); font-weight: 600; }
 .pl-wp-mod__history-who { margin: 0.25rem 0 0; font-size: 0.85rem; }
 .pl-wp-mod__redirect { margin-top: 1rem; }
@@ -8925,6 +8942,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-mod__conflict-body { max-height: 40vh; }
     .pl-wp-mod__history-card { flex-direction: column; align-items: stretch; }
     .pl-wp-mod__history-action .pl-btn { width: 100%; min-height: 48px; }
+    .pl-wp-mod__history-when { display: inline-flex; align-items: center; min-height: 48px; }
     .pl-wp-mod__banner-actions { flex-direction: column; }
     .pl-wp-mod__banner-actions .pl-btn { width: 100%; min-height: 48px; }
     .pl-wp-mod__conflict-actions { flex-direction: column; }
@@ -8932,6 +8950,7 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-mod__modal-actions { flex-direction: column-reverse; }
     .pl-wp-mod__modal-actions .pl-btn { width: 100%; min-height: 48px; }
     .pl-wp-mod__report .pl-btn { min-height: 48px; }
+    .pl-wp-mod__more { min-height: 48px; }
     .pl-wp-mod__tabs .vote-tab { min-height: 48px; display: inline-flex; align-items: center; }
 }
 
