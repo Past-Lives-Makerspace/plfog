@@ -55,6 +55,26 @@ def describe_send_due_class_reminders():
         assert sent == 0
         assert mail.outbox == []
 
+    def it_skips_a_class_that_is_no_longer_live(db, settings):
+        """A class taken back to draft keeps its registrations, but its page is gone until
+        it is live again, so a reminder would send people to a dead link."""
+        settings.DEFAULT_FROM_EMAIL = "noreply@pastlives.space"
+        cfg = ClassSettings.load()
+        cfg.reminder_hours_before = 24
+        cfg.save()
+        start = timezone.now() + timedelta(hours=24, minutes=1)
+        live = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(class_offering=live, starts_at=start, ends_at=start + timedelta(hours=2))
+        kept = RegistrationFactory(class_offering=live, status=Registration.Status.CONFIRMED)
+        pulled = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, published_at=timezone.now())
+        ClassSessionFactory(class_offering=pulled, starts_at=start, ends_at=start + timedelta(hours=2))
+        RegistrationFactory(class_offering=pulled, status=Registration.Status.CONFIRMED)
+        pulled.unpublish()
+        sent = send_due_class_reminders(window_minutes=30)
+        assert sent == 1
+        assert len(mail.outbox) == 1
+        assert kept.email in mail.outbox[0].to
+
     def it_does_not_resend_reminders(db, settings):
         settings.DEFAULT_FROM_EMAIL = "noreply@pastlives.space"
         cfg = ClassSettings.load()

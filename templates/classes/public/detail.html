@@ -438,13 +438,8 @@
       <div class="cls-grid">
         {% for related in related_offerings %}
           <a class="cls-card" href="{% url 'classes:public_class_detail' slug=related.slug %}">
-            <div class="cls-media">
-              {% if related.image %}
-                <img class="cls-img" src="{{ related.image.url }}" alt="{{ related.title }}">
-              {% else %}
-                <div class="cls-img-ph">{{ related.title|slice:":1" }}</div>
-              {% endif %}
-            </div>
+            {# The whole card is the link, so the media strip renders as a span (preview=True) rather than a nested anchor. #}
+            {% include "classes/public/_class_card_media.html" with offering=related preview=True %}
             <div class="cls-body">
               <div class="cls-title">{{ related.title }}</div>
               <div class="cls-inst">with {{ related.instructor.display_name }}</div>

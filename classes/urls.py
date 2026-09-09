@@ -16,9 +16,17 @@ urlpatterns = [
     path("my/<str:token>/pay/", views.my_registration_pay, name="my_registration_pay"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
-    # Instructor orientation — reachable by any active member (it IS the unlock).
-    path("teach/orientation/", views.teach_orientation, name="teach_orientation"),
-    path("teach/orientation/complete/", views.teach_orientation_complete, name="teach_orientation_complete"),
+    # Teach at Past Lives — the marketing page and apply-to-teach front door. Open to
+    # any active member, so a locked deep link and an approved instructor both land here.
+    path("teach/why/", views.teach_why, name="teach_why"),
+    path("teach/apply/", views.teach_apply, name="teach_apply"),
+    # The retired self-serve orientation. Teaching is admin-approved now, so its old
+    # URL (linked from the Help Center and from old emails) permanently redirects.
+    path(
+        "teach/orientation/",
+        RedirectView.as_view(pattern_name="classes:teach_why", permanent=True),
+        name="teach_orientation",
+    ),
     path("teach/classes/", views.teach_dashboard, name="teach_dashboard"),
     path("teach/classes/new/", views.teach_class_create, name="teach_class_create"),
     path("teach/classes/<int:pk>/edit/", views.teach_class_edit, name="teach_class_edit"),
@@ -37,6 +45,7 @@ urlpatterns = [
     path("teach/images/<int:pk>/alt/", views.teach_class_image_alt, name="teach_class_image_alt"),
     path("teach/classes/<int:pk>/withdraw/", views.teach_class_withdraw, name="teach_class_withdraw"),
     path("teach/classes/<int:pk>/cancel/", views.teach_class_cancel, name="teach_class_cancel"),
+    path("teach/classes/<int:pk>/sale/", views.teach_class_sale, name="teach_class_sale"),
     path(
         "teach/classes/<int:pk>/request-change/",
         views.teach_class_request_change,
@@ -94,6 +103,17 @@ urlpatterns = [
     # Admin — /classes/admin/ is the Overview dashboard; the classes list moves to /admin/classes/.
     path("admin/", views.admin_overview, name="admin_overview"),
     path("admin/classes/", views.admin_classes, name="admin_classes"),
+    # Teaching applications queue actions (the overview card).
+    path(
+        "admin/teaching-applications/<int:pk>/approve/",
+        views.admin_teaching_approve,
+        name="admin_teaching_approve",
+    ),
+    path(
+        "admin/teaching-applications/<int:pk>/decline/",
+        views.admin_teaching_decline,
+        name="admin_teaching_decline",
+    ),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
     path("admin/<int:pk>/registrations/", views.admin_class_registrations, name="admin_class_registrations"),
@@ -115,7 +135,9 @@ urlpatterns = [
     path("review/<str:token>/preview/", views.class_review_preview, name="class_review_preview"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/cancel/", views.admin_class_cancel, name="admin_class_cancel"),
+    path("admin/<int:pk>/sale/", views.admin_class_sale, name="admin_class_sale"),
     path("admin/<int:pk>/restore/", views.admin_class_restore, name="admin_class_restore"),
+    path("admin/<int:pk>/unpublish/", views.admin_class_unpublish, name="admin_class_unpublish"),
     path("admin/<int:pk>/remind-lead/", views.admin_class_remind_lead, name="admin_class_remind_lead"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
     path("admin/<int:pk>/another-date-set/", views.admin_class_duplicate_run, name="admin_class_duplicate_run"),

@@ -2,9 +2,37 @@
 
 from __future__ import annotations
 
-VERSION = "1.45.5"
+VERSION = "1.46.0"
 
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.46.0",
+        "date": "2026-09-09",
+        "title": "Host a workshop, a five step class editor, and card photos that fit",
+        "changes": [
+            "Host a Workshop is now in the sidebar for every member. If you do not teach yet, it "
+            "opens a page about running a workshop or a class for the shop, with a real workshop "
+            "page you can open and look at. Tap the interested button, tell us what you have in mind, "
+            "and the page tells you when an admin has answered. Admins can edit every word of that page "
+            "from Class Settings.",
+            "Becoming an instructor now goes through an admin instead of a self serve unlock. Anyone "
+            "interested shows up on the classes overview for admins to say yes or not right now, and "
+            "you get an email either way.",
+            "Creating or editing a class is five short steps instead of one long page: the basics, "
+            "photos, dates and seats, what students need to know, and a final review. Save a draft "
+            "on any step and come back later.",
+            "Your class photo is cropped twice, once for the wide banner on the class page and once "
+            "for the short strip on the catalog card, and you now position both. The editor shows "
+            "the card exactly as it looks on a laptop and on a phone, plus a preview of the full "
+            "class page, before you submit.",
+            "Sales moved out of the class form. Put a class on sale from the manage class page, "
+            "switch it on or off any time, and a Sale pill shows while one is live.",
+            "Reviewers now send a response instead of a decision. Asking for changes is normal, and "
+            "a class can go round as many times as it needs.",
+            "Admins can take a live class back to draft in one step. It leaves the catalog right "
+            "away, nobody is emailed, and everyone already registered keeps their spot.",
+        ],
+    },
     {
         "version": "1.45.1",
         "date": "2026-09-07",

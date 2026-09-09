@@ -6,7 +6,7 @@ import pytest
 from django.urls import reverse
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
-from classes.models import Registration
+from classes.models import ClassOffering, Registration
 
 pytestmark = pytest.mark.django_db
 
@@ -55,7 +55,7 @@ def describe_registration_detail_scope():
 def describe_admin_registration_move():
     def it_moves_a_registration_to_another_class(admin_user, client):
         src = ClassOfferingFactory(slug="mvv-src")
-        dst = ClassOfferingFactory(slug="mvv-dst")
+        dst = ClassOfferingFactory(slug="mvv-dst", status=ClassOffering.Status.PUBLISHED)
         reg = RegistrationFactory(class_offering=src, status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
         response = client.post(reverse("classes:admin_registration_move", kwargs={"pk": reg.pk}), {"target": dst.pk})

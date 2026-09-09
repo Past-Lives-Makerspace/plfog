@@ -55,18 +55,16 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
 
 
 def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
-    """The sidebar's Teaching entry, or ``None`` for anyone who is not set up to teach.
+    """The sidebar's Teaching entry, or ``None`` for anyone who is not an active member.
 
-    Gated on ``can_create_classes`` — the single source of truth for the teaching portal,
-    the same flag ``teaching_member_required`` reads — so the sidebar offers the entry
-    exactly when it opens something. It used to show every active member a "Teach a Class"
-    recruiting entry pointing at the orientation explainer, which put a teaching link in
-    front of the whole membership. Someone who wants to start still gets there: the Help
-    Center's Teaching guide links ``/classes/teach/orientation/`` directly, and the Class
-    Catalog's classes button and the guild pages' Teach a Class button both land on the
-    orientation through ``teaching_member_required``. (That catalog button reads "Manage My
-    Classes" for a member and "Manage classes" for an admin, so member-facing copy should
-    not name it.) It is just no longer permanent sidebar furniture.
+    Every ACTIVE member gets the entry now. Teaching is something we recruit for, and a
+    member who cannot see the door cannot knock on it — the entry used to be gated on
+    ``can_create_classes``, which meant the only people who could find the teaching
+    pages were the people who already had them. ``classes:teach_overview`` is the one
+    destination and it branches by itself, showing the teaching dashboard to a member
+    who can teach and the "Host a Workshop" page (with I'm Interested) to everyone else.
+    The label follows the same split: an instructor reads "Teaching", everyone else
+    reads "Host a Workshop", the invitation rather than the portal.
 
     Deliberately NOT gated on ``is_instructor`` (the public profile slug): that is the
     Instructor *role*, and someone can hold the portal unlock without a slug, which would
@@ -75,10 +73,10 @@ def _teach_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
     """
     from django.urls import reverse
 
-    if member is None or member.status != Member.Status.ACTIVE or not member.can_create_classes:
+    if member is None or member.status != Member.Status.ACTIVE:
         return None
     return {
-        "label": "Teaching",
+        "label": "Teaching" if member.can_create_classes else "Host a Workshop",
         "url": reverse("classes:teach_overview"),
         "is_active": request.path.startswith("/classes/teach/"),
     }

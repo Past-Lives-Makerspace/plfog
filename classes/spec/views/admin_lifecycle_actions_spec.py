@@ -432,6 +432,59 @@ def describe_admin_class_restore():
         assert any("Only archived classes can be restored" in m for m in _messages(resp))
 
 
+def describe_admin_class_unpublish():
+    def it_takes_a_live_class_back_to_draft(admin_user, client, db):
+        offering = _upcoming_published()
+        ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_unpublish", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 302
+        assert any("back to draft" in m for m in _messages(resp))
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        assert offering.approvals.count() == 0
+        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_UNPUBLISHED, class_offering=offering).exists()
+
+    def it_emails_nobody_even_with_registrations_on_the_books(admin_user, client, db):
+        offering = _upcoming_published()
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        client.force_login(admin_user)
+        mail.outbox = []
+        client.post(reverse("classes:admin_class_unpublish", kwargs={"pk": offering.pk}))
+        assert mail.outbox == []
+        assert Notification.objects.count() == 0
+
+    def it_refuses_a_class_that_is_not_published(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_unpublish", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 302
+        assert any("Only a published class" in m for m in _messages(resp))
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+
+    def it_rejects_a_get(admin_user, client, db):
+        offering = _upcoming_published()
+        client.force_login(admin_user)
+        assert client.get(reverse("classes:admin_class_unpublish", kwargs={"pk": offering.pk})).status_code == 405
+
+    def it_offers_the_button_on_a_live_class_only(admin_user, client, db):
+        live = _upcoming_published()
+        draft = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        live_html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": live.pk})).content.decode()
+        draft_html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": draft.pk})).content.decode()
+        assert "Take back to draft" in live_html
+        assert "Take back to draft" not in draft_html
+
+    def it_names_the_registration_count_in_the_confirm(admin_user, client, db):
+        offering = _upcoming_published()
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert "The 1 people already registered keep their spots" in html
+
+
 def describe_readiness_guard_on_approve():
     def it_quick_approve_shows_an_error_and_redirects_on_an_unready_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
@@ -703,7 +756,12 @@ def describe_permission_edges():
     def it_forbids_a_plain_member_from_cancel_restore_and_remind(member_user, client, db):
         offering = _upcoming_published()
         client.force_login(member_user)
-        for name in ("classes:admin_class_cancel", "classes:admin_class_restore", "classes:admin_class_remind_lead"):
+        for name in (
+            "classes:admin_class_cancel",
+            "classes:admin_class_restore",
+            "classes:admin_class_remind_lead",
+            "classes:admin_class_unpublish",
+        ):
             resp = client.post(reverse(name, kwargs={"pk": offering.pk}), {"reason": "x"})
             assert resp.status_code == 403, name
         offering.refresh_from_db()
@@ -714,6 +772,7 @@ def describe_permission_edges():
         live = _upcoming_published()
         client.force_login(cms_admin_user)
         assert client.post(reverse("classes:admin_class_restore", kwargs={"pk": archived.pk})).status_code == 403
+        assert client.post(reverse("classes:admin_class_unpublish", kwargs={"pk": live.pk})).status_code == 403
         assert (
             client.post(reverse("classes:admin_class_cancel", kwargs={"pk": live.pk}), {"reason": "x"}).status_code
             == 403

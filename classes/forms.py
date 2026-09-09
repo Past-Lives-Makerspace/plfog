@@ -152,6 +152,51 @@ class _HeroCropMixin:
         offering.hero_crop_h = crop["h"]
 
 
+class _CardFocusMixin:
+    """Adds a hidden ``card_focus`` JSON field bound to ``card_focus_x`` / ``card_focus_y``.
+
+    The card focus tool in ``static/js/card_focus.js`` writes ``{"x": int, "y": int}``
+    (percentages, 0 to 100) on every slider move, and an empty string when the
+    instructor chooses Match the Banner. Empty clears both columns to null, which the
+    model reads as "follow the banner". Saves with the form, exactly like ``hero_crop``,
+    so the Photos step has one save rule rather than two.
+    """
+
+    def add_card_focus_field(self) -> None:
+        instance = getattr(self, "instance", None)
+        initial = ""
+        if instance and instance.pk and instance.card_focus_x is not None and instance.card_focus_y is not None:
+            initial = json.dumps({"x": instance.card_focus_x, "y": instance.card_focus_y})
+        self.fields["card_focus"] = forms.CharField(  # type: ignore[attr-defined]
+            required=False,
+            initial=initial,
+            widget=forms.HiddenInput(attrs={"data-card-focus-input": ""}),
+        )
+
+    def clean_card_focus(self) -> dict[str, int] | None:
+        raw = (self.cleaned_data.get("card_focus") or "").strip()  # type: ignore[attr-defined]
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            x = int(data["x"])
+            y = int(data["y"])
+        except (ValueError, KeyError, TypeError):
+            raise forms.ValidationError("Focal point is malformed; clear it and try again.") from None
+        if not (0 <= x <= 100 and 0 <= y <= 100):
+            raise forms.ValidationError("Focal point must be between 0 and 100.")
+        return {"x": x, "y": y}
+
+    def apply_card_focus_to_instance(self, offering: ClassOffering) -> None:
+        focus = self.cleaned_data.get("card_focus")  # type: ignore[attr-defined]
+        if focus is None:
+            offering.card_focus_x = None
+            offering.card_focus_y = None
+            return
+        offering.card_focus_x = focus["x"]
+        offering.card_focus_y = focus["y"]
+
+
 class _FreeClassMixin:
     """Adds an `is_free` checkbox that, when checked, forces price/discount to 0.
 
@@ -284,6 +329,52 @@ class _SaleMixin:
         return max(0, price - amt) if amt else None
 
 
+class _LiveSaleGuardMixin:
+    """Refuses a price edit that would break a sale already stored on the class.
+
+    The six ``sale_*`` fields live in the sale modal now, so the composer never sees them;
+    without this, a class on a fixed $80 sale could be re-priced to $50 and sell for $0
+    (or a 99% sale re-priced to $1.00 and land under Stripe's floor). The check re-runs
+    :class:`_SaleMixin`'s amount and Stripe floor rules against the STORED sale and the
+    NEW price, and refuses the price change rather than touching the sale: the sale is
+    the instructor's decision, made on the manage page, and only that page ends it.
+    """
+
+    def clean_price_against_live_sale(self) -> None:
+        instance = self.instance  # type: ignore[attr-defined]
+        if not instance.pk or not instance.sale_is_active:
+            return
+        if self.errors.get("price_cents"):  # type: ignore[attr-defined]
+            return  # the price is already refused for a reason of its own
+        cleaned = self.cleaned_data  # type: ignore[attr-defined]
+        savings = instance.sale_savings_display
+        if cleaned.get("is_free"):
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents",
+                f"This class is on sale for {savings}. Turn the sale off from the manage page before making it free.",
+            )
+            return
+        price = cleaned.get("price_cents")
+        if not price:
+            return  # clean_is_free_pricing already refused an empty price
+        stored = {
+            "sale_kind": instance.sale_kind,
+            "sale_percent": instance.sale_percent,
+            "sale_amount_cents": instance.sale_amount_cents,
+        }
+        fixed_too_deep = (
+            instance.sale_kind == ClassOffering.SaleKind.FIXED and (instance.sale_amount_cents or 0) >= price
+        )
+        resulting = _SaleMixin._resulting_sale_price_cents(stored, price)
+        under_floor = resulting is not None and 0 < resulting < STRIPE_MIN_CHARGE_CENTS
+        if fixed_too_deep or under_floor:
+            self.add_error(  # type: ignore[attr-defined]
+                "price_cents",
+                f"This class is on sale for {savings}. Turn the sale off or change it from the manage page "
+                "before setting a price this low.",
+            )
+
+
 class _SchedulingTypeMixin:
     """Renders ``scheduling_type`` as a guided two-option radio choice.
 
@@ -303,11 +394,12 @@ class _SchedulingTypeMixin:
         field.label = "How does this class run?"
 
 
-class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _SchedulingTypeMixin, forms.ModelForm):
+class ClassOfferingForm(
+    _HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+):
+    """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
+
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
-    sale_amount_cents = CentsAsDollarsField(
-        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
-    )
 
     class Meta:
         model = ClassOffering
@@ -324,12 +416,6 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
             "age_guardian_note",
             "price_cents",
             "member_discount_pct",
-            "sale_enabled",
-            "sale_kind",
-            "sale_percent",
-            "sale_amount_cents",
-            "sale_banner_text",
-            "sale_allow_discount_codes",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -346,6 +432,7 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
         self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.add_card_focus_field()
         self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
@@ -354,13 +441,14 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
-        self.clean_sale_fields()
+        self.clean_price_against_live_sale()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
+        self.apply_card_focus_to_instance(offering)
         _assign_provisional_slug(offering)
         if commit:
             offering.save()
@@ -368,13 +456,15 @@ class ClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Scheduling
         return offering
 
 
-class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _SchedulingTypeMixin, forms.ModelForm):
-    """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated."""
+class TeachClassOfferingForm(
+    _HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+):
+    """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
+
+    The six ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
+    """
 
     price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
-    sale_amount_cents = CentsAsDollarsField(
-        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
-    )
 
     class Meta:
         model = ClassOffering
@@ -390,12 +480,6 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
             "age_guardian_note",
             "price_cents",
             "member_discount_pct",
-            "sale_enabled",
-            "sale_kind",
-            "sale_percent",
-            "sale_amount_cents",
-            "sale_banner_text",
-            "sale_allow_discount_codes",
             "capacity",
             "scheduling_model",
             "scheduling_type",
@@ -411,6 +495,7 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
         self.fields["category"].label = "Guild Type"
         self.add_is_free_field()
         self.add_hero_crop_field()
+        self.add_card_focus_field()
         self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
@@ -419,13 +504,14 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_is_free_pricing()
-        self.clean_sale_fields()
+        self.clean_price_against_live_sale()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
         self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
+        self.apply_card_focus_to_instance(offering)
         if self.teaching_member is not None and not offering.instructor_id:
             offering.instructor = self.teaching_member
             if not offering.created_by_id:
@@ -436,19 +522,80 @@ class TeachClassOfferingForm(_HeroCropMixin, _FreeClassMixin, _SaleMixin, _Sched
         return offering
 
 
-class InstructorOrientationCompleteForm(forms.Form):
-    """The orientation page's single acknowledge toggle (Spec D §5).
+class ClassSaleForm(_SaleMixin, forms.ModelForm):
+    """The Put This Class On Sale modal on the Manage Class page (teach and admin).
 
-    Validation lives here, not the view: ``required=True`` means a JS-less
-    submit gets the field error, never a bypass. The Alpine ``x-model`` attr
-    only drives the page's disabled-button affordance.
+    Carries the five sale amount fields alone. ``sale_enabled`` is not a field: the modal's
+    buttons carry it. Turning a sale on or saving its changes validates through
+    :meth:`_SaleMixin.clean_sale_fields` unchanged (the Stripe floor and free class checks
+    are the reason that validation exists), fed the price and free flag from the saved
+    class since the modal has no price field of its own. Turning a sale off never goes
+    through this form: :meth:`ClassOffering.turn_sale_off` skips validation on purpose.
     """
 
-    acknowledge = forms.BooleanField(
+    sale_amount_cents = CentsAsDollarsField(
+        required=False, label="Amount off ($)", help_text="Flat dollars off, e.g. 15.00 for $15 off."
+    )
+
+    class Meta:
+        model = ClassOffering
+        fields = ["sale_kind", "sale_percent", "sale_amount_cents", "sale_banner_text", "sale_allow_discount_codes"]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["sale_kind"].label = "How Much Off?"
+        self.fields["sale_percent"].label = "Percent off"
+        self.fields["sale_percent"].help_text = ""
+        self.fields["sale_banner_text"].label = "Banner text"
+        self.fields["sale_banner_text"].help_text = "Leave it blank to use the standard sale banner."
+        self.fields["sale_allow_discount_codes"].label = "Allow discount codes on top"
+        self.fields[
+            "sale_allow_discount_codes"
+        ].help_text = "Off by default, so a sale price cannot be stacked with another offer."
+
+    def add_error(self, field: str | None, error: Any) -> None:
+        """Route the mixin's ``price_cents`` errors to the form level: this form has no price field."""
+        super().add_error(None if field == "price_cents" else field, error)
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        # The mixin reads the switch, the price, and the free flag from cleaned_data; the
+        # modal has none of those fields, so they come from the class being edited.
+        data["sale_enabled"] = True
+        data["price_cents"] = self.instance.price_cents
+        data["is_free"] = self.instance.price_cents == 0
+        self.clean_sale_fields()
+        return data
+
+    def save(self, commit: bool = True) -> ClassOffering:
+        offering = super().save(commit=False)
+        offering.sale_enabled = True
+        if commit:
+            offering.save()
+        return offering
+
+
+class TeachingApplicationForm(forms.Form):
+    """The I'm Interested modal's single note field.
+
+    Validation lives here, not the view: the note is what an admin reads when they
+    decide, so a blank submit gets the field error rather than filing an empty ask.
+    ``strip`` is Django's default, so a note of only whitespace fails ``required``.
+    """
+
+    note = forms.CharField(
         required=True,
-        label="I've read the expectations above and I'm ready to teach.",
-        widget=forms.CheckboxInput(attrs={"x-model": "ok"}),
-        error_messages={"required": "Please confirm you've read the orientation before unlocking teaching."},
+        max_length=2000,
+        label="What Would You Like to Host?",
+        help_text=(
+            "A sentence or two is plenty. Tell us the subject, roughly how long it would run, "
+            "and anything you have taught before."
+        ),
+        widget=forms.Textarea(attrs={"rows": 5}),
+        error_messages={
+            "required": "Tell us a little about what you want to host.",
+            "max_length": "That is longer than we can store. Trim it to 2000 characters or fewer.",
+        },
     )
 
 
@@ -545,9 +692,11 @@ class TeachPublishedClassForm(forms.ModelForm):
 
     Only fields that do not change what registrants booked on: description, prep notes,
     materials, safety, guardian note, the flexible-scheduling note, and the video. Title,
-    guild type, price, sale, capacity, dates, and scheduling model stay admin-only after
-    publish (the instructor asks through :class:`ClassChangeRequestForm`). A crafted POST
-    carrying those fields is simply ignored: a ModelForm saves only its declared fields.
+    guild type, price, capacity, dates, and scheduling model stay admin-only after publish
+    (the instructor asks through :class:`ClassChangeRequestForm`). A sale is not one of
+    those: the instructor sets, changes, or ends one on a live class from the manage page's
+    sale modal (:class:`ClassSaleForm`). A crafted POST carrying locked fields is simply
+    ignored: a ModelForm saves only its declared fields.
     """
 
     class Meta:
@@ -615,7 +764,7 @@ class ClassReviewDecisionForm(forms.Form):
     decision = forms.ChoiceField(
         choices=[
             ("approved", "Approve"),
-            ("changes_requested", "Request changes"),
+            ("changes_requested", "Ask for changes"),
             ("denied", "Decline"),
         ],
         widget=forms.RadioSelect,
@@ -623,12 +772,12 @@ class ClassReviewDecisionForm(forms.Form):
     )
     notes = forms.CharField(
         widget=forms.Textarea(
-            attrs={"rows": 4, "placeholder": "Optional on approve; required on request-changes and decline."}
+            attrs={"rows": 4, "placeholder": "Optional when you approve. Required when you ask for changes or decline."}
         ),
         required=False,
         label="Notes for the instructor",
-        help_text="Optional when you approve. Required when you request changes or decline, "
-        "so the instructor knows what to fix.",
+        help_text="Optional when you approve. Required when you ask for changes or decline, "
+        "so the instructor knows what to work on.",
     )
 
     def clean(self) -> dict:
@@ -1037,6 +1186,33 @@ class RegistrationForm(forms.ModelForm):
 
 
 class ClassSettingsForm(forms.ModelForm):
+    """The classes Settings page: the general fields plus the Host a Workshop page's copy.
+
+    The template renders the two groups as separate sections (``GENERAL_FIELDS`` and
+    ``TEACH_PAGE_FIELDS``), so the field lists live here where the form is the one
+    place that knows which fields exist.
+    """
+
+    GENERAL_FIELDS = (
+        "liability_waiver_text",
+        "model_release_waiver_text",
+        "default_member_discount_pct",
+        "reminder_hours_before",
+        "instructor_approval_required",
+        "confirmation_email_footer",
+    )
+    TEACH_PAGE_FIELDS = (
+        "teach_page_title",
+        "teach_page_lead",
+        "teach_page_features",
+        "teach_page_how_it_works",
+        "teach_page_expectations",
+        "teach_page_faq",
+        "teach_page_cta_title",
+        "teach_page_cta_line",
+        "example_class",
+    )
+
     class Meta:
         model = ClassSettings
         fields = [
@@ -1046,12 +1222,55 @@ class ClassSettingsForm(forms.ModelForm):
             "reminder_hours_before",
             "instructor_approval_required",
             "confirmation_email_footer",
+            "teach_page_title",
+            "teach_page_lead",
+            "teach_page_features",
+            "teach_page_how_it_works",
+            "teach_page_expectations",
+            "teach_page_faq",
+            "teach_page_cta_title",
+            "teach_page_cta_line",
+            "example_class",
         ]
+        labels = {
+            "teach_page_title": "Headline",
+            "teach_page_lead": "Lead Paragraph",
+            "teach_page_features": "What You Get",
+            "teach_page_how_it_works": "How It Works",
+            "teach_page_expectations": "What We Ask Of You",
+            "teach_page_faq": "Common Questions",
+            "teach_page_cta_title": "Bottom Card Headline",
+            "teach_page_cta_line": "Bottom Card Line",
+            "example_class": "Example Workshop Page",
+        }
         widgets = {
             "liability_waiver_text": forms.Textarea(attrs={"rows": 10}),
             "model_release_waiver_text": forms.Textarea(attrs={"rows": 10}),
             "confirmation_email_footer": forms.Textarea(attrs={"rows": 3}),
+            "teach_page_lead": forms.Textarea(attrs={"rows": 4}),
+            "teach_page_features": forms.Textarea(attrs={"rows": 8}),
+            "teach_page_how_it_works": forms.Textarea(attrs={"rows": 6}),
+            "teach_page_expectations": forms.Textarea(attrs={"rows": 6}),
+            "teach_page_faq": forms.Textarea(attrs={"rows": 12}),
+            "teach_page_cta_line": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Only a published class can be the worked example: the page hides any other
+        # pick, so offering drafts and archived classes here would be offering choices
+        # that silently do nothing.
+        example_field = self.fields["example_class"]
+        assert isinstance(example_field, forms.ModelChoiceField)
+        example_field.queryset = ClassOffering.objects.filter(status=ClassOffering.Status.PUBLISHED).order_by("title")
+
+    def general_fields(self) -> list[forms.BoundField]:
+        """The bound fields of the general section, in display order."""
+        return [self[name] for name in self.GENERAL_FIELDS]
+
+    def teach_page_fields(self) -> list[forms.BoundField]:
+        """The bound fields of the Host a Workshop Page section, in display order."""
+        return [self[name] for name in self.TEACH_PAGE_FIELDS]
 
 
 class TeachEmailForm(forms.Form):
@@ -1210,9 +1429,10 @@ class RegistrationMoveForm(forms.Form):
     same-class move can't be selected (or POSTed) at all — no extra clean needed.
     The two audiences are deliberately asymmetric:
 
-    - **Admins** (no ``instructor``) may pick any ``upcoming()`` class — drafts,
-      private, and not-yet-scheduled classes included (they previously had every
-      class and sometimes stage a move deliberately) — and may overfill a class.
+    - **Admins** (no ``instructor``) may pick any *published* ``upcoming()`` class,
+      private ones included — parking a student in a private class is a real
+      staff move, but parking one in a draft is not, because the student's class
+      page would point at something that is not live. Admins may still overfill.
     - **Instructors** (``instructor=`` given) only see their own ``bookable()``
       classes — published, non-private, flexible or not yet started — so the
       moved student's class page link can never 404. A full class is rejected
@@ -1242,7 +1462,8 @@ class RegistrationMoveForm(forms.Form):
         if instructor is not None:
             offerings = ClassOffering.objects.bookable().filter(instructor=instructor)
         else:
-            offerings = ClassOffering.objects.upcoming()
+            # Published only: private classes stay available to admins, drafts do not.
+            offerings = ClassOffering.objects.upcoming().filter(status=ClassOffering.Status.PUBLISHED)
         if current is not None:
             offerings = offerings.exclude(pk=current.pk)
         offerings = offerings.order_by("title")

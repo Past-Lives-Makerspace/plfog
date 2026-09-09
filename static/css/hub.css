@@ -4216,26 +4216,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin-top: 0.75rem;
 }
 
-/* "Sale" fieldset on the class edit forms (teach + admin twins). Layout only —
-   the .hub-card base and .pl-form-group controls supply every theme color, so
-   the section reads correctly on both Obsidian (dark) and Slate (light). The
-   1.75rem top margin matches the "Dates & sessions" / "Gallery images" headings
-   so the card clears the Member-discount field above it. */
-.pl-sale-fields {
-    margin-top: 1.75rem;
-    margin-bottom: 1rem;
-    padding: 1.25rem 1.5rem 1.5rem;
-}
-
-.pl-sale-fields__title {
-    margin: 0 0 0.25rem;
-}
-
-.pl-sale-fields__hint {
-    font-size: 0.85rem;
-    margin: 0 0 1rem;
-}
-
 /* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,
    the Share & Print card on the right. Stacks on narrow screens with the QR card on top. */
 .pl-edit-split {
@@ -4926,6 +4906,143 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-phase-tab--active {
     color: var(--hub-text);
     border-bottom-color: var(--color-tuscan-yellow);
+}
+/* Composer additions to the phase tabs: a completion mark, a done state, an error state.
+   The announcement composer never sets these, so it is unchanged. */
+.pl-phase-tab__mark {
+    margin-left: 0.35rem;
+    font-size: 0.8em;
+}
+.pl-phase-tab--done {
+    color: var(--hub-text);
+}
+.pl-phase-tab--done .pl-phase-tab__mark {
+    color: var(--pl-lifecycle-live);
+}
+.pl-phase-tab--error {
+    color: var(--pl-lifecycle-cancelled);
+    border-bottom-color: var(--pl-lifecycle-cancelled);
+}
+.pl-phase-tab--error .pl-phase-tab__mark {
+    color: var(--pl-lifecycle-cancelled);
+}
+@media (max-width: 640px) {
+    /* One scrolling row on phones; the composer's goTo() scrolls the active tab into view. */
+    .pl-phase-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        scroll-snap-type: x proximity;
+    }
+    .pl-phase-tabs::-webkit-scrollbar { display: none; }
+    .pl-phase-tab {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+    }
+}
+
+/* ── Class composer (teach + admin class form) ──────────────────────────────
+   Five Alpine steps in one form (classes/_components/class_composer.html). Every step
+   gets its display from a class, never inline on an x-show element (Rule 12); every
+   colour is a theme token. Mirrors .pl-wizard. */
+.pl-composer { display: flex; flex-direction: column; gap: 1.5rem; }
+.pl-composer__title { margin: 0 0 0.5rem; }
+.pl-composer__step { display: block; }
+.pl-composer__heading {
+    margin: 0 0 0.5rem;
+    font-size: 1.35rem;
+}
+.pl-composer__pipeline { margin: 1rem 0; }
+.pl-composer__card { margin: 0 0 1rem; }
+.pl-composer__card-title { margin: 0; }
+.pl-composer__footnote {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+}
+/* "Step 3 of 5", phones only: the tab bar alone does not say where you are when half of it is off screen. */
+.pl-composer-count {
+    display: none;
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--hub-text-muted);
+}
+@media (max-width: 640px) {
+    .pl-composer-count { display: block; }
+}
+/* Server rendered summary of every broken step, above the tabs; each row jumps to its step. */
+.pl-composer-errors {
+    border: 1px solid var(--pl-lifecycle-cancelled);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 1.25rem;
+}
+.pl-composer-errors__title {
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+}
+.pl-composer-errors__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+.pl-composer-errors__jump {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: var(--pl-lifecycle-cancelled);
+    text-align: left;
+    text-decoration: underline;
+    font-family: var(--font-body);
+    font-size: inherit;
+}
+/* The one action bar, outside every step, sticky. Opaque so page content never shows through. */
+.pl-composer-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 1.5rem;
+    padding: 1rem 0;
+    border-top: 1px solid var(--hub-border);
+    background: var(--hub-card-bg);
+}
+.pl-composer-bar__spacer { flex: 1; }
+@media (max-width: 480px) {
+    .pl-composer-bar__primary { flex: 1 1 100%; }
+    .pl-composer-bar__primary .hub-btn { width: 100%; }
+}
+/* Step 5 readiness hints jump to their step instead of a hash link to a hidden field. */
+.pl-readiness__jump {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    text-decoration: underline;
+}
+/* The sale modal body (classes/_components/sale_form.html). */
+.pl-sale-form__intro { margin: 0 0 1rem; }
+.pl-sale-form__field { display: block; }
+.pl-sale-form__price {
+    margin: 0.5rem 0 1.25rem;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+.pl-sale-note {
+    font-size: 0.8rem;
+    color: var(--hub-text-muted);
 }
 .pl-recipient-add {
     margin-top: 1.25rem;
@@ -6542,6 +6659,401 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
+/* ── Host a Workshop (.pl-teach-*) ──────────────────────────────────────
+   The page inviting members to host a workshop. One centered column of
+   hub-cards: a state banner, a gradient hero, a feature grid, a live catalog
+   card, the steps, the asks, the questions, the guide, and the interest card.
+   The steps, asks and questions are admin-edited Markdown rendered into
+   .pl-md; the modifiers below give each its shape.
+   Theme tokens only — verified on Obsidian + Slate. ── */
+
+.pl-teach {
+    max-width: 980px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* The column gap owns the vertical rhythm here, so kill the children's own margins. */
+.pl-teach > .hub-card,
+.pl-teach > .pl-guild-hero {
+    margin: 0;
+}
+
+.pl-teach-meta {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
+.pl-teach-section__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
+}
+
+/* Hero: a variant over .pl-guild-hero, exactly as .pl-help-hero composes over it.
+   --noimg paints the brand gradient; there is deliberately no photo (a stock shot
+   here would be a lie about the space, and the real photo belongs to the example
+   class card below). Centered, and shorter than a guild hero. */
+.pl-teach-hero {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: clamp(200px, 26vw, 300px);
+}
+
+/* Cap the copy so the centered lead does not run the full 980px column. Same
+   recipe as .pl-help-hero's content block. */
+.pl-teach-hero .pl-guild-hero__content {
+    width: 100%;
+    max-width: 680px;
+    padding: 2rem 1.5rem;
+}
+
+.pl-teach-hero__actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+/* Feature grid. Declarations are copied from .pl-tools-grid / .pl-tool-card so the
+   two grids stay visually identical, but the names are new on purpose: those say
+   "admin tools", they are built for links, and their hover lift is wrong on a card
+   that does not go anywhere. */
+.pl-feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.pl-feature-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    margin: 0;
+}
+
+.pl-feature-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.6rem;
+    background: rgba(238, 180, 75, 0.12);
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-feature-card__title {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--hub-text);
+}
+
+.pl-feature-card__desc {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.45;
+}
+
+/* "See It For Yourself": copy left, a real catalog card right. Stacks at the same
+   800px breakpoint .pl-edit-split uses, copy first (source order, no `order`). */
+.pl-teach-showcase {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.pl-teach-showcase__body {
+    color: var(--hub-text-muted);
+    margin: 0 0 0.75rem;
+}
+
+.pl-teach-showcase__caption {
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+    margin-top: 0.5rem;
+}
+
+/* Pin the embedded grid to one column so the card does not stretch to the pane.
+   Written as a two-class descendant because cms-public.css is linked in the
+   template and therefore loads AFTER hub.css: a bare class would lose the cascade
+   to `.cp-page .cls-grid`, and a template <style> block is not allowed (Rule 9). */
+/* ── "Your Photo, Two Shapes" (composer step 2) ────────────────────────────
+   Left pane: the 16:9 banner cropper. Right pane: the catalog card focal point tool,
+   rendering the REAL .cls-media strip inside two card shaped frames. */
+.pl-crop-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+.pl-crop-pane { min-width: 0; }
+.pl-crop-pane__label {
+    margin: 0 0 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--hub-text-muted);
+}
+.pl-crop-pane__hint {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 0.35rem 0 0.75rem;
+}
+@media (max-width: 800px) {
+    .pl-crop-pair { grid-template-columns: 1fr; }
+}
+.pl-card-focus {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.pl-card-focus__frames {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.pl-card-focus__frame {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-width: 100%;
+}
+/* Frame widths, derived from the live catalog (cms-public.css), not guessed:
+   .cp-page .cp-container is max-width 1100px with padding 0 24px and NO border-box
+   reset anywhere in cms-public.css or hub.css, so the grid is the full 1100px on a
+   wide screen. .cls-grid is repeat(auto-fill, minmax(min(260px, 100%), 1fr)) with a
+   16px gap: four columns of (1100 - 3 * 16) / 4 = 263px. On a 390px phone the same
+   padding leaves 390 - 48 = 342px, which packs one column of 342px. Redo this sum if
+   --max, the container padding, or the grid gap ever move. */
+.pl-card-focus__frame--laptop { width: 263px; }
+.pl-card-focus__frame--phone { width: 342px; }
+.pl-card-focus__frame-label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--hub-text-muted);
+}
+.pl-card-focus__sliders {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+.pl-card-focus__slider-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2.75rem;
+}
+.pl-card-focus__slider-label {
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    min-width: 6.5rem;
+}
+.pl-card-focus__range {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--color-tuscan-yellow);
+}
+.pl-card-focus__reset {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+.pl-card-focus__note {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    margin: 0.5rem 0 0;
+}
+/* Empty state for the card preview: exactly the space the 150px card will occupy. */
+.pl-preview-empty {
+    border: 1px dashed var(--hub-border-strong);
+    border-radius: 8px;
+    height: 150px;
+    display: grid;
+    place-items: center;
+    padding: 0 1rem;
+    text-align: center;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
+.cp-page .cls-grid.pl-teach-showcase__grid {
+    grid-template-columns: minmax(0, 320px);
+}
+
+@media (max-width: 800px) {
+    .pl-teach-showcase {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* "How It Works": the admin's plain Markdown `1. 2. 3.` list, numbered here with
+   CSS counters so every step keeps the gold circle the hand built list used to
+   carry. Deliberately NOT .pl-pipeline markup — that strip means "where your class
+   is in review", which this is not. Two-class selectors so these beat the generic
+   .pl-md list rules regardless of source order. */
+.pl-md.pl-teach-steps-md ol {
+    list-style: none;
+    counter-reset: pl-teach-step;
+    margin: 1rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Block flow, not flex: Markdown gives us <li><strong>title</strong> description</li>, and a
+   flex li would make the title and the bare description text sibling columns (the title then
+   wraps mid phrase). The numeral is absolutely positioned in the left gutter instead. */
+.pl-md.pl-teach-steps-md ol > li {
+    counter-increment: pl-teach-step;
+    position: relative;
+    display: block;
+    margin: 0;
+    padding-left: 2.2rem;
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+/* The gold numeral circle, copied from .pl-wizard-nav__n's active state. */
+.pl-md.pl-teach-steps-md ol > li::before {
+    content: counter(pl-teach-step);
+    position: absolute;
+    left: 0;
+    top: 0.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+/* The bold lead of each step reads as its title, in the full text color. */
+.pl-md.pl-teach-steps-md ol > li strong {
+    display: block;
+    margin-bottom: 0.15rem;
+    color: var(--hub-text);
+    font-size: 1rem;
+}
+
+/* "What We Ask Of You": a plain bullet list in the muted text color. */
+.pl-md.pl-teach-asks-md {
+    color: var(--hub-text-muted);
+}
+
+.pl-md.pl-teach-asks-md ul {
+    margin: 0.5rem 0 0;
+}
+
+/* Common Questions: each `###` heading is a question and the paragraph under it the
+   answer. Open and readable; the <details> accordions went with the hand built markup
+   because plain Markdown is what an admin can edit. */
+.pl-md.pl-teach-faq-md h3 {
+    margin: 0;
+    padding: 0.75rem 0 0.25rem;
+    border-top: 1px solid var(--hub-border);
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.pl-md.pl-teach-faq-md h3:first-child {
+    border-top: none;
+    padding-top: 0.25rem;
+}
+
+.pl-md.pl-teach-faq-md p {
+    color: var(--hub-text-muted);
+    margin: 0 0 0.5rem;
+}
+
+/* The collapsed hosting guide: the public class page's disclosure pattern,
+   restyled for the hub. */
+.pl-teach-guide {
+    padding-bottom: 0.75rem;
+}
+
+.pl-teach-guide summary {
+    cursor: pointer;
+    font-weight: 600;
+    list-style: none;
+}
+
+.pl-teach-guide summary::-webkit-details-marker {
+    display: none;
+}
+
+.pl-teach-guide summary::marker {
+    content: "";
+}
+
+/* Apply card. Its button clears the paragraph above it (Rule 18). */
+.pl-teach-apply {
+    text-align: center;
+}
+
+.pl-teach-apply .pl-btn {
+    margin-top: 1rem;
+}
+
+.pl-teach-apply__footnote {
+    margin: 1.5rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 480px) {
+    .pl-teach-hero__actions .pl-btn,
+    .pl-teach-apply .pl-btn {
+        width: 100%;
+        text-align: center;
+    }
+}
+
+/* The Host a Workshop Page section on the classes Settings page: a ruled-off block
+   with its heading, "?" bubble and View the Page link on one row. */
+.pl-teach-settings {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-teach-settings__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+}
+
+.pl-teach-settings__title {
+    margin: 0;
+    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
 /* ========================================
    Meetings workspace (.pl-meeting-*)
    Spec: docs/superpowers/plans/2026-08-11-meetings.md §6.3
@@ -8108,6 +8620,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     background: var(--color-error-bg);
     color: var(--pl-lifecycle-cancelled);
 }
+/* "Sale: 20% off" on the manage class header, composed onto the badge beside it. */
+.pl-sale-pill {
+    background: var(--color-error-bg);
+    color: var(--pl-lifecycle-cancelled);
+}
 .pl-lifecycle-badge .pl-help {
     text-transform: none;
     letter-spacing: 0;
@@ -9114,4 +9631,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-tab__editor .hub-btn,
     .pl-wp-tab__switcher .pl-btn,
     .pl-wp-search__empty .pl-btn { min-height: 48px; }
+}
+
+/* Reviewer reassurance line above the class review decision radios. */
+.pl-review-reassure {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--hub-text-muted);
 }

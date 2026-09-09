@@ -51,6 +51,8 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
+from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, step_marks
+from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
 from classes.table import prepare_table
@@ -61,15 +63,16 @@ from classes.forms import (
     ClassChangeRequestForm,
     ClassOfferingForm,
     ClassReviewDecisionForm,
+    ClassSaleForm,
     ClassSessionFormSet,
     ClassSettingsForm,
     DiscountCodeForm,
-    InstructorOrientationCompleteForm,
     TeachClassOfferingForm,
     TeachPublishedClassForm,
     TeachWelcomeEmailForm,
     RegistrationForm,
     RegistrationQuestionForm,
+    TeachingApplicationForm,
     build_class_faq_formset,
 )
 from classes.models import (
@@ -87,6 +90,7 @@ from classes.models import (
     readiness_items,
 )
 from core.models import SiteConfiguration
+from core.urls_util import book_absolute_url
 
 _ViewFunc = Callable[..., HttpResponse]
 
@@ -129,44 +133,6 @@ def _bookable_run_options(offering: Any) -> list[Any]:
     for run in runs:
         run.spots_left = run_spots.get(run.pk, run.capacity)
     return runs
-
-
-class _CatalogGroup:
-    """One public catalog card: a class plus every date it is offered on.
-
-    ``representative`` supplies the shared display chrome (title, image, price,
-    instructor); ``members`` are the individual dated offerings, each still its
-    own bookable unit with its own capacity. Built from offerings already sorted
-    by soonest upcoming session, so the first member seen is the representative
-    and members stay date-ordered.
-    """
-
-    def __init__(self, representative: Any) -> None:
-        self.representative = representative
-        self.members = [representative]
-
-    @property
-    def date_count(self) -> int:
-        return len(self.members)
-
-    @property
-    def is_multi(self) -> bool:
-        return len(self.members) > 1
-
-
-def _grouped_catalog(offerings: Any) -> list[_CatalogGroup]:
-    """Collapse offerings sharing a grouping key into one card, preserving order."""
-    groups: dict[str, _CatalogGroup] = {}
-    order: list[str] = []
-    for offering in offerings:
-        key = offering.grouping_key or f"solo:{offering.pk}"
-        group = groups.get(key)
-        if group is None:
-            groups[key] = _CatalogGroup(offering)
-            order.append(key)
-        else:
-            group.members.append(offering)
-    return [groups[key] for key in order]
 
 
 def _coerce_dollars_to_cents(raw: str | None) -> int:
@@ -246,7 +212,7 @@ def public_list(request: HttpRequest) -> HttpResponse:
     selected_within_days = WITHIN_DAYS.get(selected_within)
 
     classes_qs = _apply_browse_filters(_browsable_classes(), request)
-    catalog_groups = _grouped_catalog(classes_qs)
+    catalog_groups = grouped_catalog(classes_qs)
 
     # Category chips and per-category counts always reflect the unfiltered
     # universe of browsable classes so users can see what else is out there.
@@ -976,12 +942,12 @@ def admin_required(view_func: _ViewFunc) -> _ViewFunc:
 
 
 def active_member_required(view_func: _ViewFunc) -> _ViewFunc:
-    """Decorator: any active logged-in member — guards the orientation pages.
+    """Decorator: any active logged-in member — guards the teaching front door.
 
-    Exactly the pre-unlock teaching gate: login → active Member or 403 → set
-    ``request.teaching_member``. The orientation views use this (not
-    ``teaching_member_required``) so a *locked* member can still reach the page
-    that unlocks them.
+    Exactly the pre-grant teaching gate: login → active Member or 403 → set
+    ``request.teaching_member``. ``teach_overview``, ``teach_why`` and ``teach_apply``
+    use this (not ``teaching_member_required``) so a member who cannot teach yet can
+    still reach the page that explains teaching and the form that applies for it.
     """
 
     @wraps(view_func)
@@ -1000,15 +966,14 @@ def active_member_required(view_func: _ViewFunc) -> _ViewFunc:
 
 
 def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
-    """Decorator: Teaching portal access — active members who completed the instructor orientation.
+    """Decorator: Teaching portal access — active members an admin has granted teaching to.
 
-    Non-members and inactive members keep the 403 (orientation can't fix an
-    inactive account). An *active* member who hasn't unlocked teaching is 302'd
-    to the orientation page instead, so a locked click lands on the explainer and
-    never a dead end (Spec D §5). This redirect is now the main way in: the sidebar
-    stopped carrying a recruiting entry, so the remaining entry points (the Class
-    Catalog's Manage My Classes, the guild pages' Teach a Class) all arrive here
-    locked and rely on it.
+    Non-members and inactive members keep the 403 (applying can't fix an inactive
+    account). An *active* member who has not been granted teaching access is 302'd to
+    ``teach_overview``, which renders the Teach at Past Lives marketing page for them,
+    so a locked deep link (``teach/classes/new/``) lands on the explainer and the
+    Apply to Teach button rather than a dead end. ``teach_overview`` itself is NOT
+    behind this decorator, so the redirect can never loop.
     """
 
     @wraps(view_func)
@@ -1021,7 +986,7 @@ def teaching_member_required(view_func: _ViewFunc) -> _ViewFunc:
         if member is None:
             return HttpResponseForbidden("An active member account is required to access the teaching portal.")
         if not member.can_create_classes:
-            return redirect("classes:teach_orientation")
+            return redirect("classes:teach_overview")
         request.teaching_member = member  # type: ignore[attr-defined]
         return view_func(request, *args, **kwargs)
 
@@ -1139,11 +1104,16 @@ def _filter_registrations(request: HttpRequest, qs: QuerySet[Registration]) -> Q
     return qs
 
 
-def _orientation_context(member: Member, form: InstructorOrientationCompleteForm) -> dict[str, Any]:
-    """Context for the orientation page — the seeded article, the guide link, the form.
+def _why_teach_context(member: Member, apply_form: TeachingApplicationForm) -> dict[str, Any]:
+    """Context for the Host a Workshop page: state, the admin-edited copy, the example, the guide.
 
-    A missing seed must fail soft on the page (placeholder copy; the completion
-    card still works so the gate is never un-passable) but loudly in the logs.
+    A missing help-center seed must fail soft on the page (a placeholder line) but
+    loudly in the logs: the page is the whole recruiting surface and must never 500
+    or render an empty guide section with no explanation.
+
+    ``example_url`` is None whenever the configured example class is missing,
+    unpublished, or was never set. That is a real state the template renders around
+    (no hero link, a catalog link instead of the showcase), not an oversight.
     """
     import logging
 
@@ -1155,42 +1125,88 @@ def _orientation_context(member: Member, form: InstructorOrientationCompleteForm
             "Instructor-orientation article is not seeded — run `manage.py seed_help_center`."
         )
     guide = WikiArticle.objects.published().filter(slug="become-an-instructor").select_related("category").first()
-    return {"member": member, "article": article, "guide": guide, "form": form}
+    settings_obj = ClassSettings.load()
+    # One lookup carries everything the catalog card reads (category, instructor,
+    # sessions), so rendering it costs no per-field queries. Filtering on status here
+    # is what turns a draft or archived pick into "no example".
+    example = None
+    if settings_obj.example_class_id is not None:
+        example = (
+            ClassOffering.objects.filter(pk=settings_obj.example_class_id, status=ClassOffering.Status.PUBLISHED)
+            .select_related("category", "instructor")
+            .prefetch_related("sessions")
+            .first()
+        )
+    return {
+        "member": member,
+        "article": article,
+        "guide": guide,
+        "apply_form": apply_form,
+        "application_state": member.teaching_application_state,
+        # The page's words, edited on the classes Settings page. A blanked field hides
+        # its section, so the template guards every one.
+        "teach_page": settings_obj,
+        "feature_cards": settings_obj.teach_page_feature_cards(),
+        "example_url": example.public_url if example is not None else None,
+        "example_group": CatalogGroup(example) if example is not None else None,
+        "catalog_url": book_absolute_url(reverse("classes:public_list")),
+    }
 
 
 @active_member_required
-def teach_orientation(request: HttpRequest) -> HttpResponse:
-    """The instructor orientation page — the teaching gate's landing (Spec D §6).
+def teach_why(request: HttpRequest) -> HttpResponse:
+    """The Host a Workshop page: the marketing surface and the I'm Interested front door.
 
-    Locked members see the explainer banner + content + the acknowledge/unlock
-    card; unlocked members get the completed state with the content still
-    readable (it stays the reference page).
+    Open to every active member, instructors included, so an admin can link it and an
+    approved instructor can still read the guide. Locked members reach it through
+    ``teach_overview``; this permanent route is what links point at.
     """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return render(
-        request, "classes/teach/orientation.html", _orientation_context(member, InstructorOrientationCompleteForm())
-    )
+    return render(request, "classes/teach/why_teach.html", _why_teach_context(member, TeachingApplicationForm()))
 
 
 @active_member_required
 @require_POST
-def teach_orientation_complete(request: HttpRequest) -> HttpResponse:
-    """Handle the "Unlock teaching" submit — form-enforced acknowledge, then unlock."""
+def teach_apply(request: HttpRequest) -> HttpResponse:
+    """Handle the I'm Interested submit: file the note, tell the admins, say so.
+
+    A full-page POST, so success is a Django message and not a toast (FRONTEND.md
+    rule 6). An invalid note re-renders the page with the bound form, which reopens
+    the modal with the error inside it. The one guard the UI never offers that can
+    still reach here (a second note while the first waits on an admin, say from two
+    tabs) comes back from the model as ``ValueError`` and becomes a plain message
+    rather than a 500; the decorator already keeps inactive accounts out.
+    """
     member: Member = request.teaching_member  # type: ignore[attr-defined]
-    form = InstructorOrientationCompleteForm(request.POST)
+    form = TeachingApplicationForm(request.POST)
     if not form.is_valid():
-        return render(request, "classes/teach/orientation.html", _orientation_context(member, form))
-    member.complete_instructor_orientation()
-    messages.success(request, "Teaching unlocked — welcome, instructor.")
+        return render(request, "classes/teach/why_teach.html", _why_teach_context(member, form))
+    try:
+        member.apply_to_teach(form.cleaned_data["note"])
+    except ValueError:
+        if member.can_create_classes:
+            messages.error(request, "You can already host workshops. The teaching portal is open.")
+        else:
+            messages.error(request, "We already have your note. Refresh the page and check where things stand.")
+        return redirect("classes:teach_why")
+    messages.success(request, "Thanks. An admin will get back to you.")
     return redirect("classes:teach_overview")
 
 
-@teaching_member_required
+@active_member_required
 def teach_overview(request: HttpRequest) -> HttpResponse:
-    """Teaching dashboard: the teaching member's drafts, classes awaiting review,
-    recent sign-ups, and active waitlists. No money, no approvals — they submit
-    classes, they don't approve them. Empty state nudges a first class."""
+    """Teaching dashboard, or the marketing page for a member who cannot teach yet.
+
+    The Teaching sidebar entry is universal now, so this route is the front door for
+    the whole membership: a member who can teach gets their dashboard (drafts, classes
+    awaiting review, recent sign-ups, waitlists), and everyone else gets the Host a
+    Workshop page instead of a 403 or a redirect loop.
+    """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    if not teaching_member.can_create_classes:
+        return render(
+            request, "classes/teach/why_teach.html", _why_teach_context(teaching_member, TeachingApplicationForm())
+        )
     my_classes = ClassOffering.objects.for_instructor(teaching_member)
     now = timezone.now()
 
@@ -1338,6 +1354,86 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
     )
 
 
+def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering | None) -> str:
+    """The session rows the inline scheduler starts from: the POST when re-rendering, else the saved rows."""
+    sessions_data: list[dict] = []
+    if formset.is_bound:
+        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
+            starts = request.POST.get(f"sessions-{i}-starts_at", "")
+            ends = request.POST.get(f"sessions-{i}-ends_at", "")
+            pk = request.POST.get(f"sessions-{i}-id", "")
+            delete = request.POST.get(f"sessions-{i}-DELETE", "")
+            if starts and ends:
+                sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+    elif offering is not None and offering.pk:
+        for s in offering.sessions.order_by("starts_at"):
+            sessions_data.append(
+                {
+                    "id": s.pk,
+                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
+                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
+                }
+            )
+    return json.dumps(sessions_data)
+
+
+def _composer_step(request: HttpRequest) -> int:
+    """The step the composer asked to land on: ``?step=`` on GET, the hidden ``step`` input on POST."""
+    source = request.POST if request.method == "POST" else request.GET
+    return clamp_step(source.get("step"))
+
+
+def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResponse:
+    """Back to the composer on the step the user was looking at, when the POST said which one."""
+    url = reverse(url_name, kwargs={"pk": pk})
+    if request.POST.get("step"):
+        url = f"{url}?step={_composer_step(request)}"
+    return redirect(url)
+
+
+def _composer_context(
+    request: HttpRequest,
+    *,
+    form: Any,
+    formsets: dict[str, Any],
+    offering: ClassOffering | None,
+    is_admin: bool,
+) -> dict[str, Any]:
+    """Everything ``classes/_components/class_composer.html`` reads beyond the forms themselves.
+
+    ``readiness()`` and ``review_pipeline()`` need a saved row, so the pipeline card, the tab
+    marks, and the step 5 checklist are absent until the class has a pk; the template guards
+    on these context keys, never on ``offering``. A failed POST lands on the first step with
+    an error; otherwise the step comes from the request.
+    """
+    saved = offering if offering is not None and offering.pk else None
+    summary = error_summary(form, formsets)
+    error_step_numbers = [step.number for step, _labels in summary]
+    readiness = saved.readiness() if saved is not None else None
+    if saved is not None:
+        cancel_name = "classes:admin_class_detail" if is_admin else "classes:teach_class_detail"
+        cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
+    else:
+        cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
+    is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
+    marks = step_marks(readiness) if readiness is not None else {}
+    return {
+        "is_admin": is_admin,
+        "offering": offering,
+        "composer_tabs": [{"step": step, "done": marks.get(step.number, False)} for step in COMPOSER_STEPS],
+        "initial_phase": min(error_step_numbers) if error_step_numbers else _composer_step(request),
+        "error_steps": error_step_numbers,
+        "error_steps_json": json.dumps(error_step_numbers),
+        "error_summary": summary,
+        "anchor_steps_json": json.dumps(anchor_steps()),
+        "pipeline": saved.review_pipeline() if saved is not None else None,
+        "readiness": readiness,
+        "is_ready": readiness is not None and all(item.ok for item in readiness),
+        "cancel_url": cancel_url,
+        "save_label": "Save" if is_published else "Save Draft",
+    }
+
+
 def _render_teach_class_form(
     request: HttpRequest,
     *,
@@ -1348,27 +1444,6 @@ def _render_teach_class_form(
     offering: ClassOffering | None = None,
     faq_formset: Any = None,
 ) -> HttpResponse:
-    sessions_data: list[dict] = []
-    if formset.is_bound:
-        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
-            starts = request.POST.get(f"sessions-{i}-starts_at", "")
-            ends = request.POST.get(f"sessions-{i}-ends_at", "")
-            pk = request.POST.get(f"sessions-{i}-id", "")
-            delete = request.POST.get(f"sessions-{i}-DELETE", "")
-            if starts and ends:
-                sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
-    elif offering and offering.pk:
-        for s in offering.sessions.order_by("starts_at"):
-            sessions_data.append(
-                {
-                    "id": s.pk,
-                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
-                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
-                }
-            )
-
-    # The pipeline card ("Where Your Class Is") and the readiness card ("Ready to
-    # Submit?") need a saved class; the create form shows neither.
     saved = offering if offering is not None and offering.pk else None
     return render(
         request,
@@ -1378,13 +1453,17 @@ def _render_teach_class_form(
             "instructor": teaching_member,
             "form": form,
             "formset": formset,
-            "sessions_json": json.dumps(sessions_data),
+            "sessions_json": _sessions_json(request, formset, offering),
             "initial_forms": formset.initial_form_count() if hasattr(formset, "initial_form_count") else 0,
             "mode": mode,
-            "offering": offering,
             "faq_formset": faq_formset,
-            "pipeline": saved.review_pipeline() if saved is not None else None,
-            "readiness": saved.readiness() if saved is not None else None,
+            **_composer_context(
+                request,
+                form=form,
+                formsets={"sessions": formset, "faq": faq_formset},
+                offering=offering,
+                is_admin=False,
+            ),
             **(_teach_gallery_context(saved) if saved is not None else {}),
         },
     )
@@ -1417,8 +1496,8 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
                     if offering.needs_photo_nudge:
                         messages.info(request, _PHOTO_NUDGE_MESSAGE)
             else:
-                messages.success(request, f"Saved draft ‘{offering.title}’.")
-            return redirect("classes:teach_class_edit", pk=offering.pk)
+                messages.success(request, "Draft saved.")
+            return _composer_redirect("classes:teach_class_edit", offering.pk, request)
     return _render_teach_class_form(
         request,
         form=form,
@@ -1460,9 +1539,11 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 messages.success(request, _submitted_message(offering))
                 if offering.needs_photo_nudge:
                     messages.info(request, _PHOTO_NUDGE_MESSAGE)
+        elif offering.status == ClassOffering.Status.DRAFT:
+            messages.success(request, "Draft saved.")
         else:
             messages.success(request, "Class updated.")
-        return redirect("classes:teach_class_edit", pk=offering.pk)
+        return _composer_redirect("classes:teach_class_edit", offering.pk, request)
     return _render_teach_class_form(
         request,
         form=form,
@@ -1723,10 +1804,11 @@ def _render_teach_class_overview(
     *,
     cancel_form: ClassCancelForm | None = None,
     change_form: ClassChangeRequestForm | None = None,
+    sale_form: ClassSaleForm | None = None,
 ) -> HttpResponse:
     """The instructor workspace Overview: pipeline card, summary, and the action row by state.
 
-    The Cancel class and Request a change modals are server-rendered inline; a bound,
+    The Cancel class, Request a change, and sale modals are server-rendered inline; a bound,
     invalid form re-renders the page with that modal open and the error inside it.
     """
     return render(
@@ -1741,10 +1823,42 @@ def _render_teach_class_overview(
             "pipeline": offering.review_pipeline(),
             "cancel_form": cancel_form or ClassCancelForm(),
             "change_form": change_form or ClassChangeRequestForm(),
+            "sale_form": sale_form or ClassSaleForm(instance=offering),
             "paid_registration_count": offering.paid_registration_count,
             **_class_workspace_counts(offering),
         },
     )
+
+
+def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm | None:
+    """Apply the sale modal's POST: ``action=off`` ends the sale without validation; anything
+    else validates through :class:`ClassSaleForm` and switches the sale on.
+
+    Returns the bound, invalid form when the caller must re-render the page with the modal
+    open, and ``None`` once the change is applied and its message queued.
+    """
+    if request.POST.get("action") == "off":
+        offering.turn_sale_off()
+        messages.success(request, "Sale is off.")
+        return None
+    was_active = offering.sale_is_active
+    form = ClassSaleForm(request.POST, instance=offering)
+    if not form.is_valid():
+        return form
+    form.save()
+    messages.success(request, "Sale updated." if was_active else "Sale is on. Members see it now.")
+    return None
+
+
+@teaching_member_required
+@require_POST
+def teach_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
+    """The Put This Class On Sale modal on my own class: turn a sale on, change it, or turn it off."""
+    offering = _teach_class_or_404(request, pk)
+    form = _save_sale(request, offering)
+    if form is not None:
+        return _render_teach_class_overview(request, offering, sale_form=form)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
 @teaching_member_required
@@ -2215,6 +2329,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         ClassOffering.objects.awaiting_admin().select_related("instructor", "category").order_by("created_at")
     )
     with_guild_leads = _with_guild_leads_queue(now)
+    teaching_applications = _teaching_application_queue(now)
 
     week_end = now + timedelta(days=7)
     upcoming_classes = (
@@ -2283,6 +2398,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
             "active_tab": "overview",
             "waiting_on_you": waiting_on_you,
             "with_guild_leads": with_guild_leads,
+            "teaching_applications": teaching_applications,
             "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
@@ -2294,6 +2410,35 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
             "selected_range": selected_range,
         },
     )
+
+
+class _TeachingApplicationRow(TypedDict):
+    """One "Teaching Applications" row on the admin overview."""
+
+    member: Any
+    days_waiting: int
+    approve_url: str
+    decline_url: str
+
+
+def _teaching_application_queue(now: Any) -> list[_TeachingApplicationRow]:
+    """Every teaching application still waiting on an admin, oldest ask first.
+
+    ``days_waiting`` and the two action URLs are precomputed here rather than in the
+    template: the row is inside a loop that feeds two confirm modals, and a reversed
+    URL per modal is the sort of thing that belongs in the view.
+    """
+    from membership.models import Member as MemberModel
+
+    return [
+        {
+            "member": member,
+            "days_waiting": (now - member.teaching_applied_at).days,
+            "approve_url": reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}),
+            "decline_url": reverse("classes:admin_teaching_decline", kwargs={"pk": member.pk}),
+        }
+        for member in MemberModel.objects.awaiting_teaching_decision().select_related("user")
+    ]
 
 
 class _GuildLeadQueueRow(TypedDict):
@@ -2514,15 +2659,20 @@ def _discard_half_created_offering(offering: ClassOffering) -> None:
 
 @classes_admin_access_required
 def admin_class_create(request: HttpRequest) -> HttpResponse:
+    """The admin composer, create mode.
+
+    ``action=save`` keeps the class as a draft (the composer's Save Draft). Any other POST is
+    the direct publish path: readiness is checked from the validated form BEFORE anything
+    is written, so an unready class is refused without a hero file, gallery files, or
+    activity rows ever landing. Only the gallery cap (checked inside ``add_gallery_images``)
+    can still refuse after the save; that path rolls everything back.
+    """
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
     if request.method == "POST" and form.is_valid() and session_formset.is_valid():
         gallery_files = request.FILES.getlist("gallery_images")
-        # Readiness is checked from the validated form BEFORE anything is written, so an
-        # unready class is refused without a hero file, gallery files, or activity rows
-        # ever landing. Only the gallery cap (checked inside ``add_gallery_images``) can
-        # still refuse after the save; that path rolls everything back.
-        preflight = _create_form_readiness(form, session_formset, gallery_files)
+        publish_now = request.POST.get("action") != "save"
+        preflight = _create_form_readiness(form, session_formset, gallery_files) if publish_now else []
         if not all(item.ok for item in preflight):
             form.add_error(None, readiness_error_text(preflight, "publish"))
         else:
@@ -2534,23 +2684,14 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             offering.finalize_recurring_slug()
             try:
                 offering.add_gallery_images(gallery_files)
-                offering.publish(cast("User", request.user))  # the admin decorator guarantees a logged-in user
+                if publish_now:
+                    offering.publish(cast("User", request.user))  # the admin decorator guarantees a logged-in user
             except ValidationError as exc:
                 _discard_half_created_offering(offering)
                 form.add_error(None, exc.messages[0])
             else:
-                messages.success(request, f"{offering.title} is published.")
-                return redirect("classes:admin_class_edit", pk=offering.pk)
-
-    sessions_data: list[dict] = []
-    if session_formset.is_bound:
-        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
-            starts = request.POST.get(f"sessions-{i}-starts_at", "")
-            ends = request.POST.get(f"sessions-{i}-ends_at", "")
-            pk_val = request.POST.get(f"sessions-{i}-id", "")
-            delete = request.POST.get(f"sessions-{i}-DELETE", "")
-            if starts and ends:
-                sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+                messages.success(request, f"{offering.title} is published." if publish_now else "Draft saved.")
+                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
 
     return render(
         request,
@@ -2558,9 +2699,12 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
         {
             "active_tab": "classes",
             "form": form,
-            "sessions_json": json.dumps(sessions_data),
+            "sessions_json": _sessions_json(request, session_formset, None),
             "initial_forms": session_formset.initial_form_count(),
             "mode": "create",
+            **_composer_context(
+                request, form=form, formsets={"sessions": session_formset, "faq": None}, offering=None, is_admin=True
+            ),
         },
     )
 
@@ -2613,6 +2757,13 @@ def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
+    """The admin composer, edit mode.
+
+    ``action=publish`` saves and then publishes a draft straight from the composer (the
+    admin's step 5 action); an unready class stays a draft and the reason is shown. Every
+    other POST saves and returns to the composer when it said which step it was on, else to
+    the class page, which is where the old single page form always landed.
+    """
     offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
     session_formset = ClassSessionFormSet(request.POST or None, instance=offering, prefix="sessions")
@@ -2621,27 +2772,24 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         form.save()
         session_formset.save()
         faq_formset.save()
+        if request.POST.get("action") == "publish":
+            # publish() checks readiness, not status: a crafted publish on a live class would
+            # re-stamp published_at and announce again, and one on a class still in review
+            # would strand the open guild lead row. Only a draft publishes from here.
+            if offering.status != ClassOffering.Status.DRAFT:
+                messages.error(request, "Only a draft can be published from here.")
+                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+            try:
+                offering.publish(cast("User", request.user))
+            except ValidationError as exc:
+                messages.error(request, exc.messages[0])
+                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+            messages.success(request, f"{offering.title} is published.")
+            return redirect("classes:admin_class_detail", pk=offering.pk)
         messages.success(request, "Class updated.")
+        if request.POST.get("step"):
+            return _composer_redirect("classes:admin_class_edit", offering.pk, request)
         return redirect("classes:admin_class_detail", pk=offering.pk)
-
-    sessions_data: list[dict] = []
-    if session_formset.is_bound:
-        for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
-            starts = request.POST.get(f"sessions-{i}-starts_at", "")
-            ends = request.POST.get(f"sessions-{i}-ends_at", "")
-            pk_val = request.POST.get(f"sessions-{i}-id", "")
-            delete = request.POST.get(f"sessions-{i}-DELETE", "")
-            if starts and ends:
-                sessions_data.append({"id": pk_val, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
-    else:
-        for s in offering.sessions.order_by("starts_at"):
-            sessions_data.append(
-                {
-                    "id": s.pk,
-                    "starts_at": s.starts_at.strftime("%Y-%m-%dT%H:%M"),
-                    "ends_at": s.ends_at.strftime("%Y-%m-%dT%H:%M"),
-                }
-            )
 
     return render(
         request,
@@ -2649,11 +2797,17 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         {
             "active_tab": "classes",
             "form": form,
-            "offering": offering,
-            "sessions_json": json.dumps(sessions_data),
+            "sessions_json": _sessions_json(request, session_formset, offering),
             "initial_forms": session_formset.initial_form_count(),
             "mode": "edit",
             "faq_formset": faq_formset,
+            **_composer_context(
+                request,
+                form=form,
+                formsets={"sessions": session_formset, "faq": faq_formset},
+                offering=offering,
+                is_admin=True,
+            ),
         },
     )
 
@@ -2679,12 +2833,15 @@ def _admin_class_detail_offering(pk: int) -> ClassOffering:
 
 
 def _render_admin_class_detail(
-    request: HttpRequest, offering: ClassOffering, cancel_form: ClassCancelForm
+    request: HttpRequest,
+    offering: ClassOffering,
+    cancel_form: ClassCancelForm,
+    sale_form: ClassSaleForm | None = None,
 ) -> HttpResponse:
     """The admin workspace Overview: pipeline strip, summary, and the action row by state.
 
-    A bound, invalid ``cancel_form`` re-renders the page with the Cancel class modal open
-    and the error inside it (the modal is server-rendered inline, never fetched).
+    A bound, invalid ``cancel_form`` or ``sale_form`` re-renders the page with that modal
+    open and the error inside it (the modals are server-rendered inline, never fetched).
     """
     return render(
         request,
@@ -2696,6 +2853,7 @@ def _render_admin_class_detail(
             "lifecycle": offering.lifecycle,
             "pipeline": offering.review_pipeline(),
             "cancel_form": cancel_form,
+            "sale_form": sale_form or ClassSaleForm(instance=offering),
             "archive_blocker": offering.archive_blocker,
             "paid_registration_count": offering.paid_registration_count,
             **_class_workspace_counts(offering),
@@ -2728,6 +2886,17 @@ def admin_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 @require_POST
+def admin_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
+    """The Put This Class On Sale modal on the admin class page: turn a sale on, change it, or turn it off."""
+    offering = _admin_class_detail_offering(pk)
+    form = _save_sale(request, offering)
+    if form is not None:
+        return _render_admin_class_detail(request, offering, ClassCancelForm(), sale_form=form)
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+@require_POST
 def admin_class_restore(request: HttpRequest, pk: int) -> HttpResponse:
     """Restore an archived class to a draft. It needs review again before it goes live."""
     offering = get_object_or_404(ClassOffering, pk=pk)
@@ -2737,6 +2906,24 @@ def admin_class_restore(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, str(exc))
         return redirect("classes:admin_class_detail", pk=offering.pk)
     messages.success(request, f"{offering.title} restored to draft. It needs review again before it goes live.")
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+@require_POST
+def admin_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
+    """Take a live class back to draft. Quiet: registrations stand and nobody is emailed."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    try:
+        offering.unpublish(actor=request.user)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:admin_class_detail", pk=offering.pk)
+    messages.success(
+        request,
+        f"{offering.title} is back to draft and out of the catalog. "
+        "Nobody was emailed. It needs review again before it goes live.",
+    )
     return redirect("classes:admin_class_detail", pk=offering.pk)
 
 
@@ -2760,6 +2947,59 @@ def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         trigger_toast(response, "Already reminded today.", "info")
     return response
+
+
+@classes_admin_access_required
+@require_POST
+def admin_teaching_approve(request: HttpRequest, pk: int) -> HttpResponse:
+    """Approve a teaching application from the admin overview queue.
+
+    Goes through ``grant_instructor`` — the same call the member edit Permissions tab
+    makes — so the applicant gets the public instructor page and the portal together,
+    and the approval email rides along on ``grant_teaching``. Idempotent by the model,
+    so a double click is harmless.
+    """
+    from membership.models import Member as MemberModel
+
+    member = get_object_or_404(MemberModel, pk=pk)
+    assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
+    # None = a superuser acting without a linked Member (emergency access).
+    admin_member = MemberModel.objects.filter(user=request.user).first()
+    # grant_teaching emails the member only when it answers a note they sent and the
+    # portal was still locked; read that before the grant so the message never claims
+    # an email that did not go out (a grant to someone who never asked sends nothing).
+    will_notify = member.teaching_applied_at is not None and not member.can_create_classes
+    member.grant_instructor(granted_by=admin_member)
+    message = f"Teaching is on for {member.display_name}."
+    if will_notify:
+        message += " We let them know."
+    messages.success(request, message)
+    return redirect("classes:admin_overview")
+
+
+@classes_admin_access_required
+@require_POST
+def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
+    """Decline a teaching application, with the reason the applicant will read.
+
+    The reason is required by ``decline_teaching``; a blank one comes back as an error
+    message rather than an exception, because the confirm modal's note input is
+    optional by construction and cannot enforce it. Declining someone with no
+    application waiting (a crafted POST, or a second click after the queue moved on)
+    raises the same way and lands on the same message.
+    """
+    from membership.models import Member as MemberModel
+
+    member = get_object_or_404(MemberModel, pk=pk)
+    assert request.user.is_authenticated  # classes_admin_access_required guarantees a real User
+    admin_member = MemberModel.objects.filter(user=request.user).first()
+    try:
+        member.decline_teaching(decided_by=admin_member, reason=request.POST.get("reason", ""))
+    except ValueError:
+        messages.error(request, "That did not go through. Give a reason, and check they are still waiting.")
+        return redirect("classes:admin_overview")
+    messages.success(request, f"Declined {member.display_name}. We sent them your note.")
+    return redirect("classes:admin_overview")
 
 
 @classes_admin_access_required

@@ -1,0 +1,67 @@
+{% comment %}
+Body of the Put This Class On Sale modal on the Manage Class page (design spec §C.13),
+shared by the teach overview and the admin class detail. Rendered inline through
+components/modal.html's modal_body_include, so a bound, invalid form re-renders its errors
+inside the reopened modal. The including template sets `sale_action_url` (the teach or
+admin sale endpoint) before the include.
+
+sale_enabled is not a field: the buttons carry it. "Turn the Sale On" and "Save Sale
+Changes" post action=on; "Turn the Sale Off" posts action=off and skips validation of the
+amount fields entirely, so a sale can always be ended even when its stored amounts have
+gone stale. Every field goes through form_field.html (Rule 13). The live price line is a
+preview only: salePrice() mirrors ClassOffering.sale_price_cents, and the server remains
+the authority (the Stripe floor and free class checks live in _SaleMixin).
+
+The amount fields live in wrappers with a class, never an inline display (Rule 12).
+{% endcomment %}
+<form method="post" action="{{ sale_action_url }}" class="pl-sale-form" hx-boost="false"
+      x-data="{
+        kind: '{{ sale_form.sale_kind.value|default:'percent'|escapejs }}',
+        pct: '{{ sale_form.sale_percent.value|default:''|escapejs }}',
+        off: '{{ sale_form.sale_amount_cents.value|default:''|escapejs }}',
+        full: {{ offering.price_cents }},
+        salePrice() {
+          if (this.kind === 'percent') {
+            const pct = Number(this.pct);
+            if (this.pct === '' || !Number.isFinite(pct) || pct < 1 || pct > 99) { return null; }
+            return Math.floor(this.full * (100 - pct) / 100);
+          }
+          const off = Number(this.off);
+          if (this.off === '' || !Number.isFinite(off) || off <= 0 || Math.round(off * 100) >= this.full) { return null; }
+          return Math.max(0, this.full - Math.round(off * 100));
+        },
+        money(cents) {
+          const dollars = cents / 100;
+          return '$' + (Number.isInteger(dollars) ? dollars : dollars.toFixed(2));
+        },
+        priceLine() {
+          const price = this.salePrice();
+          if (price === null) { return 'Enter how much off and we will show the new price.'; }
+          return 'Students will pay ' + this.money(price) + ' instead of ' + this.money(this.full) + '.';
+        }
+      }">
+  {% csrf_token %}
+  <p class="pl-field-hint pl-sale-form__intro">A sale banner and the new price show up on your class page and on the catalog card automatically.</p>
+  {% if sale_form.non_field_errors %}
+  <ul class="pl-field-errors">{% for error in sale_form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% include "components/form_field.html" with field=sale_form.sale_kind %}
+  <div class="pl-sale-form__field" x-show="kind === 'percent'">
+    {% include "components/form_field.html" with field=sale_form.sale_percent %}
+  </div>
+  <div class="pl-sale-form__field" x-show="kind === 'fixed'">
+    {% include "components/form_field.html" with field=sale_form.sale_amount_cents %}
+  </div>
+  {% include "components/form_field.html" with field=sale_form.sale_banner_text %}
+  {% include "components/form_field.html" with field=sale_form.sale_allow_discount_codes %}
+  <p class="pl-sale-form__price" x-text="priceLine()"></p>
+  <div class="pl-modal__actions pl-modal__actions--fill">
+    {% if offering.sale_is_active %}
+      <button type="submit" name="action" value="on" class="pl-btn pl-btn--primary">Save Sale Changes</button>
+      <button type="submit" name="action" value="off" class="pl-btn pl-btn--danger" formnovalidate>Turn the Sale Off</button>
+    {% else %}
+      <button type="submit" name="action" value="on" class="pl-btn pl-btn--primary">Turn the Sale On</button>
+    {% endif %}
+    <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'class-sale')">Cancel</button>
+  </div>
+</form>

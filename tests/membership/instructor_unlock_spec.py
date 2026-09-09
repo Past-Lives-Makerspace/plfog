@@ -1,6 +1,8 @@
-"""BDD specs for the instructor-orientation teaching unlock (Spec D §5/§4).
+"""BDD specs for the teaching unlock and the apply-to-teach application.
 
-Covers the ``Member`` unlock field/property/methods, the scoped
+Covers the ``Member`` unlock field/property, the derived
+``teaching_application_state`` in every branch, ``apply_to_teach`` /
+``decline_teaching`` / ``grant_teaching`` / ``revoke_teaching``, the scoped
 ``apply_admin_role`` promotion hook (including the revoked-instructor loophole),
 and the 0110 backfill migration's forward/reverse querysets — exercised through
 the migration module's own functions via ``apps.get_model``.
@@ -17,7 +19,7 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
 from classes.models import ClassOffering, Registration
-from core.models import SiteActivity, TourState
+from core.models import Notification, SiteActivity
 from membership.models import Member
 from tests.membership.factories import MemberFactory
 
@@ -32,6 +34,14 @@ def _linked_member(username: str) -> Member:
     return Member.objects.get(user=user)
 
 
+def _fog_admin(username: str) -> Member:
+    """A linked ADMIN member — the audience instructor_application_received resolves to."""
+    member = _linked_member(username)
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["fog_role"])
+    return member
+
+
 def describe_Member_can_create_classes():
     def it_is_false_while_the_field_is_null():
         member = MemberFactory()
@@ -42,35 +52,161 @@ def describe_Member_can_create_classes():
         assert member.can_create_classes is True
 
 
-def describe_complete_instructor_orientation():
-    def it_sets_the_timestamp_and_logs_the_activity():
-        member = _linked_member("orient-done")
-        member.complete_instructor_orientation()
+def describe_teaching_application_state():
+    def it_reads_none_for_a_member_who_never_asked():
+        member = MemberFactory()
+        assert member.teaching_application_state == Member.TeachingApplicationState.NONE
+
+    def it_reads_pending_once_they_apply():
+        member = _linked_member("state-pending")
+        member.apply_to_teach("Wheel throwing.")
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+    def it_reads_declined_once_an_admin_says_no():
+        member = _linked_member("state-declined")
+        member.apply_to_teach("Wheel throwing.")
+        member.decline_teaching(decided_by=None, reason="Do the orientation first.")
+        assert member.teaching_application_state == Member.TeachingApplicationState.DECLINED
+
+    def it_reads_approved_once_teaching_is_granted():
+        member = _linked_member("state-approved")
+        member.apply_to_teach("Wheel throwing.")
+        member.grant_teaching(granted_by=None)
+        assert member.teaching_application_state == Member.TeachingApplicationState.APPROVED
+
+    def it_reads_approved_for_a_grandfathered_instructor_who_never_applied():
+        # The whole reason can_create_classes resolves first: every instructor granted
+        # before applications existed carries no application row at all.
+        member = MemberFactory(instructor_oriented_at=timezone.now())
+        assert member.teaching_applied_at is None
+        assert member.teaching_application_state == Member.TeachingApplicationState.APPROVED
+
+    def it_stays_pending_when_a_decision_stamp_carries_no_reason():
+        # A half-written decline (stamp, no reason) must never mask a live application.
+        member = _linked_member("state-halfdecline")
+        member.apply_to_teach("Wheel throwing.")
+        member.teaching_decided_at = timezone.now()
+        member.save(update_fields=["teaching_decided_at"])
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+    def it_stays_pending_when_a_reason_carries_no_decision_stamp():
+        member = _linked_member("state-halfreason")
+        member.apply_to_teach("Wheel throwing.")
+        member.teaching_decline_reason = "Not yet."
+        member.save(update_fields=["teaching_decline_reason"])
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+
+def describe_apply_to_teach():
+    def it_stamps_the_note_logs_the_activity_and_notifies_the_admins():
+        _fog_admin("apply-admin")
+        member = _linked_member("apply-ok")
+        member.apply_to_teach("  Intro to wheel throwing.  ")
         member.refresh_from_db()
-        assert member.instructor_oriented_at is not None
-        row = SiteActivity.objects.get(kind=SiteActivity.Kind.INSTRUCTOR_ORIENTED)
+        assert member.teaching_applied_at is not None
+        assert member.teaching_application_note == "Intro to wheel throwing."
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.TEACHING_APPLIED)
         assert row.actor == member.user
+        assert Notification.objects.filter(trigger="instructor_application_received").count() == 1
 
-    def it_writes_no_tour_state_row():
-        member = _linked_member("orient-notour")
-        member.complete_instructor_orientation()
-        assert TourState.objects.count() == 0
-
-    def it_is_idempotent_on_a_double_submit():
-        member = _linked_member("orient-twice")
-        member.complete_instructor_orientation()
-        first_stamp = Member.objects.get(pk=member.pk).instructor_oriented_at
-        member.complete_instructor_orientation()
+    def it_raises_on_a_blank_note():
+        member = _linked_member("apply-blank")
+        with pytest.raises(ValueError):
+            member.apply_to_teach("   ")
         member.refresh_from_db()
-        assert member.instructor_oriented_at == first_stamp
-        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.INSTRUCTOR_ORIENTED).count() == 1
+        assert member.teaching_applied_at is None
 
     def it_raises_for_an_inactive_member():
         member = MemberFactory(status=Member.Status.FORMER)
         with pytest.raises(ValueError):
-            member.complete_instructor_orientation()
+            member.apply_to_teach("Let me in.")
         member.refresh_from_db()
-        assert member.instructor_oriented_at is None
+        assert member.teaching_applied_at is None
+
+    def it_raises_for_a_member_who_can_already_teach():
+        """The page hides the button from instructors; this is the crafted POST backstop."""
+        _fog_admin("apply-admin-instructor")
+        member = _linked_member("apply-instructor")
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["instructor_oriented_at"])
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Let me apply again.")
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
+        assert Notification.objects.filter(trigger="instructor_application_received").count() == 0
+
+    def it_raises_rather_than_overwriting_a_pending_application():
+        member = _linked_member("apply-twice")
+        member.apply_to_teach("First ask.")
+        first_stamp = Member.objects.get(pk=member.pk).teaching_applied_at
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Second ask.")
+        member.refresh_from_db()
+        assert member.teaching_applied_at == first_stamp
+        assert member.teaching_application_note == "First ask."
+
+    def it_clears_a_previous_decline_so_a_re_application_is_clean():
+        member = _linked_member("apply-again")
+        member.apply_to_teach("First ask.")
+        member.decline_teaching(decided_by=None, reason="Not yet.")
+        member.apply_to_teach("Second ask, with the orientation done.")
+        member.refresh_from_db()
+        assert member.teaching_decline_reason == ""
+        assert member.teaching_decided_at is None
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+
+def describe_decline_teaching():
+    def it_stamps_the_reason_logs_the_activity_and_emails_the_member():
+        admin = _linked_member("decline-admin")
+        member = _linked_member("decline-ok")
+        member.apply_to_teach("Wheel throwing.")
+        member.decline_teaching(decided_by=admin, reason="  Do the wheel orientation first.  ")
+        member.refresh_from_db()
+        assert member.teaching_decline_reason == "Do the wheel orientation first."
+        assert member.teaching_decided_at is not None
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.TEACHING_APPLICATION_DECLINED)
+        assert row.actor == admin.user
+        assert Notification.objects.filter(trigger="instructor_application_declined", user=member.user).count() == 1
+
+    def it_raises_on_a_blank_reason():
+        member = _linked_member("decline-blank")
+        member.apply_to_teach("Wheel throwing.")
+        with pytest.raises(ValueError):
+            member.decline_teaching(decided_by=None, reason="   ")
+        member.refresh_from_db()
+        assert member.teaching_decided_at is None
+        assert member.teaching_application_state == Member.TeachingApplicationState.PENDING
+
+    def it_attributes_the_activity_to_the_system_for_a_superuser_with_no_member():
+        member = _linked_member("decline-system")
+        member.apply_to_teach("Wheel throwing.")
+        member.decline_teaching(decided_by=None, reason="Not yet.")
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.TEACHING_APPLICATION_DECLINED)
+        assert row.actor is None
+
+    def it_raises_when_nobody_applied():
+        member = _linked_member("decline-unasked")
+        with pytest.raises(ValueError):
+            member.decline_teaching(decided_by=None, reason="No.")
+        member.refresh_from_db()
+        assert member.teaching_decided_at is None
+        assert Notification.objects.filter(trigger="instructor_application_declined").count() == 0
+
+    def it_raises_for_a_member_who_can_already_teach():
+        member = _linked_member("decline-instructor")
+        member.apply_to_teach("Wheel throwing.")
+        member.grant_teaching(granted_by=None)
+        with pytest.raises(ValueError):
+            member.decline_teaching(decided_by=None, reason="Changed my mind.")
+
+    def it_truncates_an_over_long_reason_to_the_field_width():
+        member = _linked_member("decline-long")
+        member.apply_to_teach("Wheel throwing.")
+        member.decline_teaching(decided_by=None, reason="x" * 400)
+        member.refresh_from_db()
+        assert len(member.teaching_decline_reason) == 300
 
 
 def describe_grant_teaching():
@@ -92,6 +228,28 @@ def describe_grant_teaching():
         assert member.instructor_oriented_at == original
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_GRANTED).count() == 0
 
+    def it_emails_the_applicant_when_answering_a_real_application():
+        member = _linked_member("grant-applied")
+        member.apply_to_teach("Wheel throwing.")
+        member.grant_teaching(granted_by=None)
+        member.refresh_from_db()
+        assert member.teaching_decided_at is not None
+        assert Notification.objects.filter(trigger="instructor_application_approved", user=member.user).count() == 1
+
+    def it_sends_nothing_to_someone_who_never_applied():
+        member = _linked_member("grant-unasked")
+        member.grant_teaching(granted_by=None)
+        assert Notification.objects.filter(trigger="instructor_application_approved").count() == 0
+
+    def it_clears_a_previous_decline():
+        member = _linked_member("grant-after-decline")
+        member.apply_to_teach("Wheel throwing.")
+        member.decline_teaching(decided_by=None, reason="Not yet.")
+        member.grant_teaching(granted_by=None)
+        member.refresh_from_db()
+        assert member.teaching_decline_reason == ""
+        assert member.teaching_application_state == Member.TeachingApplicationState.APPROVED
+
 
 def describe_revoke_teaching():
     def it_clears_the_timestamp_and_logs_with_the_admin_actor():
@@ -108,6 +266,19 @@ def describe_revoke_teaching():
         member = MemberFactory()
         member.revoke_teaching(revoked_by=admin)
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_REVOKED).count() == 0
+
+    def it_clears_the_application_stamp_so_they_can_ask_again():
+        # Without this they would sit forever on "your application is in" for an
+        # application that was already answered.
+        admin = _linked_member("revoke-applicant")
+        member = _linked_member("revoke-applied")
+        member.apply_to_teach("Wheel throwing.")
+        member.grant_teaching(granted_by=admin)
+        member.revoke_teaching(revoked_by=admin)
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert member.teaching_application_note == "Wheel throwing."  # kept as history
+        assert member.teaching_application_state == Member.TeachingApplicationState.NONE
 
     def it_leaves_the_members_existing_classes_untouched():
         admin = _linked_member("revoke-admin3")

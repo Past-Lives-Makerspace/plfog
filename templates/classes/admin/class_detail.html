@@ -6,7 +6,7 @@ re-renders this page with the bound form, and the x-init below reopens the modal
 error shows inside it (components/modal.html only opens on the open-modal event). The
 dispatch waits a tick: the child modal's @open-modal.window listener is not bound yet when
 the parent's x-init runs, so a synchronous dispatch would fire into the void.{% endcomment %}
-<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% endif %}>
+<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% elif sale_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'class-sale'))"{% endif %}>
 {% if offering.status == 'pending' or pipeline.is_bounced %}
   {# The review pipeline strip, no card chrome, while the class is in review or bounced. #}
   <div style="margin-bottom:1rem;">
@@ -83,6 +83,25 @@ the parent's x-init runs, so a synchronous dispatch would fire into the void.{% 
             <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'run-again')">Run it again</button>
             {% include "components/confirm_modal.html" with confirm_id="run-again" confirm_title="Run this class again?" confirm_message="We make a draft copy with no dates. Add the new dates, then publish it when ready." confirm_action_url=run_again_url confirm_button_text="Make a Draft Copy" confirm_button_style="primary" %}
         {% endif %}{% endif %}
+        {% if request.view_as.actual_is_admin and lifecycle == 'upcoming' %}
+            {% url 'classes:admin_class_unpublish' pk=offering.pk as unpublish_url %}
+            {% if offering.active_registration_count %}
+                {% concat "It comes out of the catalog straight away. The " offering.active_registration_count " people already registered keep their spots and are not emailed, but their class page and the links in their emails stop working until it is live again. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
+            {% else %}
+                {% concat "It comes out of the catalog straight away. Nobody is emailed. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
+            {% endif %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'unpublish-class')">Take back to draft</button>
+            {% include "components/confirm_modal.html" with confirm_id="unpublish-class" confirm_title="Take this class back to draft?" confirm_message=unpublish_message confirm_action_url=unpublish_url confirm_button_text="Take Back to Draft" confirm_button_style="primary" %}
+        {% endif %}
+        {% if request.view_as.actual_is_admin and lifecycle != 'cancelled' and lifecycle != 'archived' and lifecycle != 'completed' %}
+            {% if offering.price_cents == 0 %}
+                <span class="pl-sale-note">A free class cannot go on sale.</span>
+            {% elif offering.sale_is_active %}
+                <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'class-sale')">Edit the Sale</button>
+            {% else %}
+                <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'class-sale')">Set Up a Sale</button>
+            {% endif %}
+        {% endif %}
         {% if request.view_as.actual_is_admin and offering.status == 'archived' %}
             {% url 'classes:admin_class_restore' pk=offering.pk as restore_url %}
             <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-confirm', 'restore-class')">Restore to draft</button>
@@ -126,6 +145,11 @@ the parent's x-init runs, so a synchronous dispatch would fire into the void.{% 
 {% if request.view_as.actual_is_admin and lifecycle == 'upcoming' %}
 {# Cancel class: reason required, emailed to everyone registered. Server-rendered inline (see the x-init above). #}
 {% include "components/modal.html" with modal_id="cancel-class" modal_title="Cancel this class?" modal_size="sm" modal_body_include="classes/admin/partials/cancel_class_form.html" %}
+{% endif %}
+{% if request.view_as.actual_is_admin and lifecycle != 'cancelled' and lifecycle != 'archived' and lifecycle != 'completed' and offering.price_cents %}
+{# Put this class on sale: the six sale fields, out of the composer and into one modal (design spec §C.13). #}
+{% url 'classes:admin_class_sale' pk=offering.pk as sale_action_url %}
+{% include "components/modal.html" with modal_id="class-sale" modal_title="Put This Class On Sale" modal_size="md" modal_body_include="classes/_components/sale_form.html" %}
 {% endif %}
 </div>
 {% endblock %}

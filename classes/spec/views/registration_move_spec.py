@@ -169,10 +169,11 @@ def describe_instructor_move():
 
 
 def describe_admin_move():
-    def it_moves_any_registration_into_any_upcoming_class(admin_user, client):
+    def it_moves_any_registration_into_any_published_upcoming_class(admin_user, client):
         client.force_login(admin_user)
         source = ClassOfferingFactory(slug="mv-adm-src")
-        target = ClassOfferingFactory(slug="mv-adm-dst")  # a draft, undated class — admin breadth
+        # Published and undated, plus private: the breadth an admin keeps after the draft exclusion.
+        target = ClassOfferingFactory(slug="mv-adm-dst", status=ClassOffering.Status.PUBLISHED, is_private=True)
         reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
         response = client.post(_move_url(reg), {"target": target.pk})
         assert response.status_code == 302
@@ -183,7 +184,7 @@ def describe_admin_move():
     def it_can_move_into_a_full_class(admin_user, client):
         client.force_login(admin_user)
         source = ClassOfferingFactory(slug="mv-adm-f-src")
-        full = ClassOfferingFactory(slug="mv-adm-f-dst", capacity=1)
+        full = ClassOfferingFactory(slug="mv-adm-f-dst", capacity=1, status=ClassOffering.Status.PUBLISHED)
         RegistrationFactory(class_offering=full, status=Registration.Status.CONFIRMED)
         reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
         response = client.post(_move_url(reg), {"target": full.pk})
@@ -191,10 +192,21 @@ def describe_admin_move():
         reg.refresh_from_db()
         assert reg.class_offering_id == full.pk
 
+    def it_rejects_a_draft_target(admin_user, client):
+        """Drafts left the admin picker: a moved student's class page must point at something live."""
+        client.force_login(admin_user)
+        source = ClassOfferingFactory(slug="mv-adm-d-src")
+        draft = ClassOfferingFactory(slug="mv-adm-d-dst", status=ClassOffering.Status.DRAFT)
+        reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
+        response = client.post(_move_url(reg), {"target": draft.pk})
+        assert response.status_code == 302
+        reg.refresh_from_db()
+        assert reg.class_offering_id == source.pk
+
     def it_rejects_a_past_target(admin_user, client):
         client.force_login(admin_user)
         source = ClassOfferingFactory(slug="mv-adm-p-src")
-        past = ClassOfferingFactory(slug="mv-adm-p-dst")
+        past = ClassOfferingFactory(slug="mv-adm-p-dst", status=ClassOffering.Status.PUBLISHED)
         ClassSessionFactory(class_offering=past, starts_at=timezone.now() - timedelta(days=1))
         reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
         response = client.post(_move_url(reg), {"target": past.pk})
