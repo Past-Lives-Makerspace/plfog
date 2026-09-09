@@ -137,7 +137,7 @@ def describe_the_review_page_layout():
         html = _review_html(client, db)
         pipeline = html.index("Review Pipeline")
         details = html.index("Class Details")
-        decision = html.index("Submit decision")
+        decision = html.index("Send Response")
         preview = html.index("Student Preview")
         assert pipeline < details < decision < preview
 

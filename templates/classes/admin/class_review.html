@@ -108,8 +108,9 @@
           {% for error in form.decision.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
         </ul>
       {% endif %}
+      <p class="pl-review-reassure">Most classes go through a round or two of notes before they go live. Asking for changes is normal, and the instructor can resubmit as many times as they need.</p>
       <fieldset style="border:none;padding:0;margin:0 0 1rem;">
-        <legend style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:8px;">Decision</legend>
+        <legend style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:8px;">Your Response</legend>
         <div style="display:flex;flex-direction:column;gap:8px;">
           {% for radio in form.decision %}
             <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--hub-card-border);border-radius:8px;cursor:pointer;">
@@ -122,7 +123,7 @@
       </fieldset>
       {% include "components/form_field.html" with field=form.notes %}
       <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-        <button class="hub-btn hub-btn--primary" type="submit">Submit decision</button>
+        <button class="hub-btn hub-btn--primary" type="submit">Send Response</button>
         <a class="hub-btn hub-btn--ghost" href="{% if is_tokenized %}{% url 'classes:public_class_detail' slug=offering.slug %}{% else %}{% url 'classes:admin_class_detail' pk=offering.pk %}{% endif %}">Cancel</a>
       </div>
     </form>

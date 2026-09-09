@@ -1375,6 +1375,32 @@ class ClassOffering(HeroCropMixin, models.Model):
         )
         activity.log(CmsActivity.Kind.CLASS_RESTORED, class_offering=self)
 
+    def unpublish(self, actor: "User | None" = None) -> None:
+        """Take a live class back to draft so it can be reworked and submitted again.
+
+        The exact reverse of :meth:`publish`: status, ``approved_by`` and
+        ``published_at`` are unwound together, and every approval row is dropped so
+        the class re-enters review from the first gate.
+
+        This is deliberately quiet. Unlike :meth:`cancel` it emits nothing and emails
+        nobody: registrations stay exactly as they are, and the people holding them
+        keep their spots. The class simply leaves the catalog. Use :meth:`cancel` when
+        the class is genuinely not happening and registrants need to hear about it.
+
+        Raises:
+            ValueError: If the class is not currently PUBLISHED.
+        """
+        if self.status != self.Status.PUBLISHED:
+            raise ValueError(f"Only a published class can be taken back to draft; got {self.status}.")
+        from classes import activity
+
+        self.approvals.all().delete()
+        self.status = self.Status.DRAFT
+        self.approved_by = None
+        self.published_at = None
+        self.save(update_fields=["status", "approved_by", "published_at", "updated_at"])
+        activity.log(CmsActivity.Kind.CLASS_UNPUBLISHED, class_offering=self, actor=actor)
+
     @property
     def active_registration_count(self) -> int:
         """Registrations still on the books: confirmed, pending payment, or waitlisted."""
@@ -3489,6 +3515,7 @@ class CmsActivity(models.Model):
         CLASS_CANCELLED = "class_cancelled", "Class cancelled"
         CLASS_WITHDRAWN = "class_withdrawn", "Submission withdrawn"
         CLASS_RESTORED = "class_restored", "Restored to draft"
+        CLASS_UNPUBLISHED = "class_unpublished", "Taken back to draft"
         CLASS_CHANGE_REQUESTED = "class_change_requested", "Change requested by instructor"
         REGISTRATION_CREATED = "registration_created", "Registered"
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"

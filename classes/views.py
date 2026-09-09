@@ -2742,6 +2742,24 @@ def admin_class_restore(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 @require_POST
+def admin_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
+    """Take a live class back to draft. Quiet: registrations stand and nobody is emailed."""
+    offering = get_object_or_404(ClassOffering, pk=pk)
+    try:
+        offering.unpublish(actor=request.user)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("classes:admin_class_detail", pk=offering.pk)
+    messages.success(
+        request,
+        f"{offering.title} is back to draft and out of the catalog. "
+        "Nobody was emailed. It needs review again before it goes live.",
+    )
+    return redirect("classes:admin_class_detail", pk=offering.pk)
+
+
+@classes_admin_access_required
+@require_POST
 def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome."""
     offering = get_object_or_404(ClassOffering, pk=pk)

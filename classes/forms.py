@@ -615,7 +615,7 @@ class ClassReviewDecisionForm(forms.Form):
     decision = forms.ChoiceField(
         choices=[
             ("approved", "Approve"),
-            ("changes_requested", "Request changes"),
+            ("changes_requested", "Ask for changes"),
             ("denied", "Decline"),
         ],
         widget=forms.RadioSelect,
@@ -623,12 +623,12 @@ class ClassReviewDecisionForm(forms.Form):
     )
     notes = forms.CharField(
         widget=forms.Textarea(
-            attrs={"rows": 4, "placeholder": "Optional on approve; required on request-changes and decline."}
+            attrs={"rows": 4, "placeholder": "Optional when you approve. Required when you ask for changes or decline."}
         ),
         required=False,
         label="Notes for the instructor",
-        help_text="Optional when you approve. Required when you request changes or decline, "
-        "so the instructor knows what to fix.",
+        help_text="Optional when you approve. Required when you ask for changes or decline, "
+        "so the instructor knows what to work on.",
     )
 
     def clean(self) -> dict:
@@ -1210,9 +1210,10 @@ class RegistrationMoveForm(forms.Form):
     same-class move can't be selected (or POSTed) at all — no extra clean needed.
     The two audiences are deliberately asymmetric:
 
-    - **Admins** (no ``instructor``) may pick any ``upcoming()`` class — drafts,
-      private, and not-yet-scheduled classes included (they previously had every
-      class and sometimes stage a move deliberately) — and may overfill a class.
+    - **Admins** (no ``instructor``) may pick any *published* ``upcoming()`` class,
+      private ones included — parking a student in a private class is a real
+      staff move, but parking one in a draft is not, because the student's class
+      page would point at something that is not live. Admins may still overfill.
     - **Instructors** (``instructor=`` given) only see their own ``bookable()``
       classes — published, non-private, flexible or not yet started — so the
       moved student's class page link can never 404. A full class is rejected
@@ -1242,7 +1243,8 @@ class RegistrationMoveForm(forms.Form):
         if instructor is not None:
             offerings = ClassOffering.objects.bookable().filter(instructor=instructor)
         else:
-            offerings = ClassOffering.objects.upcoming()
+            # Published only: private classes stay available to admins, drafts do not.
+            offerings = ClassOffering.objects.upcoming().filter(status=ClassOffering.Status.PUBLISHED)
         if current is not None:
             offerings = offerings.exclude(pk=current.pk)
         offerings = offerings.order_by("title")

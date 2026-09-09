@@ -8964,3 +8964,11 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 @media (max-width: 768px) {
     .pl-wp-mod__actions { display: none; }
 }
+
+/* Reviewer reassurance line above the class review decision radios. */
+.pl-review-reassure {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--hub-text-muted);
+}

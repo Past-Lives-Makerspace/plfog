@@ -21,10 +21,16 @@ def _bookable_for(instructor, slug: str, **kwargs) -> ClassOffering:
     return offering
 
 
+def _published(slug: str, **kwargs) -> ClassOffering:
+    """A published class — the only kind an admin may move a student into."""
+    kwargs.setdefault("status", ClassOffering.Status.PUBLISHED)
+    return ClassOfferingFactory(slug=slug, **kwargs)
+
+
 def describe_RegistrationMoveForm():
     def it_excludes_the_current_class_from_choices():
         current = ClassOfferingFactory(slug="cur")
-        other = ClassOfferingFactory(slug="oth")
+        other = _published("oth")
         form = RegistrationMoveForm(current=current)
         choices = list(form.fields["target"].queryset)
         assert other in choices
@@ -32,7 +38,7 @@ def describe_RegistrationMoveForm():
 
     def it_is_valid_with_a_different_class():
         current = ClassOfferingFactory(slug="cur2")
-        other = ClassOfferingFactory(slug="oth2")
+        other = _published("oth2")
         form = RegistrationMoveForm({"target": other.pk}, current=current)
         assert form.is_valid()
 
@@ -41,64 +47,79 @@ def describe_RegistrationMoveForm():
         form = RegistrationMoveForm({"target": current.pk}, current=current)
         assert not form.is_valid()
 
-    def it_lists_all_classes_when_no_current_is_given():
-        offering = ClassOfferingFactory(slug="all-a")
+    def it_lists_published_classes_when_no_current_is_given():
+        offering = _published("all-a")
         form = RegistrationMoveForm()
         assert offering in list(form.fields["target"].queryset)
 
     def describe_upcoming_scoping():
         def it_excludes_a_class_whose_first_session_has_passed():
-            past = ClassOfferingFactory(slug="up-past")
+            past = _published("up-past")
             ClassSessionFactory(class_offering=past, starts_at=timezone.now() - timedelta(days=1))
             form = RegistrationMoveForm()
             assert past not in list(form.fields["target"].queryset)
 
         def it_excludes_a_started_series_even_with_a_later_future_session():
-            started = ClassOfferingFactory(slug="up-started")
+            started = _published("up-started")
             ClassSessionFactory(class_offering=started, starts_at=timezone.now() - timedelta(days=2))
             ClassSessionFactory(class_offering=started, starts_at=timezone.now() + timedelta(days=5))
             form = RegistrationMoveForm()
             assert started not in list(form.fields["target"].queryset)
 
         def it_includes_a_class_with_a_future_first_session():
-            future = ClassOfferingFactory(slug="up-future")
+            future = _published("up-future")
             ClassSessionFactory(class_offering=future, starts_at=timezone.now() + timedelta(days=3))
             form = RegistrationMoveForm()
             assert future in list(form.fields["target"].queryset)
 
         def it_includes_a_flexible_class_regardless_of_past_sessions():
-            flexible = ClassOfferingFactory(slug="up-flex", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
+            flexible = _published("up-flex", scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
             ClassSessionFactory(class_offering=flexible, starts_at=timezone.now() - timedelta(days=1))
             form = RegistrationMoveForm()
             assert flexible in list(form.fields["target"].queryset)
 
         def it_includes_an_undated_class():
-            undated = ClassOfferingFactory(slug="up-undated")
+            undated = _published("up-undated")
             form = RegistrationMoveForm()
             assert undated in list(form.fields["target"].queryset)
 
         def it_rejects_a_crafted_post_at_a_past_class():
             current = ClassOfferingFactory(slug="up-cur")
-            past = ClassOfferingFactory(slug="up-past-post")
+            past = _published("up-past-post")
             ClassSessionFactory(class_offering=past, starts_at=timezone.now() - timedelta(days=1))
             form = RegistrationMoveForm({"target": past.pk}, current=current)
             assert not form.is_valid()
 
     def describe_admin_scope():
-        def it_includes_draft_and_private_upcoming_classes():
-            draft = ClassOfferingFactory(slug="adm-draft", status=ClassOffering.Status.DRAFT)
-            private = ClassOfferingFactory(slug="adm-priv", status=ClassOffering.Status.PUBLISHED, is_private=True)
+        def it_includes_a_private_published_class():
+            """Parking a student in a private class is a real staff move."""
+            private = _published("adm-priv", is_private=True)
             form = RegistrationMoveForm()
-            choices = list(form.fields["target"].queryset)
-            assert draft in choices
-            assert private in choices
+            assert private in list(form.fields["target"].queryset)
+
+        def it_excludes_a_draft_class():
+            """A draft destination would leave the student's class page pointing at nothing live."""
+            draft = ClassOfferingFactory(slug="adm-draft", status=ClassOffering.Status.DRAFT)
+            form = RegistrationMoveForm()
+            assert draft not in list(form.fields["target"].queryset)
+
+        def it_excludes_a_pending_class():
+            pending = ClassOfferingFactory(slug="adm-pending", status=ClassOffering.Status.PENDING)
+            form = RegistrationMoveForm()
+            assert pending not in list(form.fields["target"].queryset)
+
+        def it_rejects_a_crafted_post_at_a_draft_class():
+            current = _published("adm-craft-cur")
+            draft = ClassOfferingFactory(slug="adm-craft-draft", status=ClassOffering.Status.DRAFT)
+            form = RegistrationMoveForm({"target": draft.pk}, current=current)
+            assert not form.is_valid()
 
         def it_allows_moving_into_a_full_class():
             from classes.factories import RegistrationFactory
             from classes.models import Registration
 
             current = ClassOfferingFactory(slug="adm-full-cur")
-            full = ClassOfferingFactory(slug="adm-full", capacity=1)
+            full = _published("adm-full", capacity=1)
             RegistrationFactory(class_offering=full, status=Registration.Status.CONFIRMED)
             form = RegistrationMoveForm({"target": full.pk}, current=current)
             assert form.is_valid()
@@ -174,7 +195,7 @@ def describe_RegistrationMoveForm():
     def describe_query_count():
         def it_builds_admin_choices_in_one_query_and_renders_without_more(django_assert_num_queries):
             for i in range(3):
-                ClassOfferingFactory(slug=f"nq-adm-{i}")
+                _published(f"nq-adm-{i}")
             with django_assert_num_queries(1):
                 form = RegistrationMoveForm()
                 assert form.has_targets
@@ -200,7 +221,7 @@ def describe_RegistrationMoveForm():
 
     def describe_has_targets():
         def it_is_true_when_a_class_can_be_picked():
-            ClassOfferingFactory(slug="ht-yes")
+            _published("ht-yes")
             form = RegistrationMoveForm()
             assert form.has_targets is True
 

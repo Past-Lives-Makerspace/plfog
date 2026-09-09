@@ -116,6 +116,7 @@ urlpatterns = [
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
     path("admin/<int:pk>/cancel/", views.admin_class_cancel, name="admin_class_cancel"),
     path("admin/<int:pk>/restore/", views.admin_class_restore, name="admin_class_restore"),
+    path("admin/<int:pk>/unpublish/", views.admin_class_unpublish, name="admin_class_unpublish"),
     path("admin/<int:pk>/remind-lead/", views.admin_class_remind_lead, name="admin_class_remind_lead"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
     path("admin/<int:pk>/another-date-set/", views.admin_class_duplicate_run, name="admin_class_duplicate_run"),
