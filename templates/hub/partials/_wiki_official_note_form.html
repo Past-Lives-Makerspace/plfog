@@ -1,0 +1,21 @@
+{% comment %}
+The official-note editor's body. Rule 21 exactly: the immediate-effect control (Remove
+Note) comes FIRST, the save form comes last, so Save is the final element with nothing
+beneath it.
+{% endcomment %}
+{% if page.official_note %}
+{% url 'hub_wiki_official_note_remove' page.slug as remove_url %}
+<button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-wp-mod__note-remove"
+        @click="$dispatch('open-confirm', 'wiki-note-remove')">Remove Note</button>
+{% include "components/confirm_modal.html" with confirm_id="wiki-note-remove" confirm_title="Remove this official note?" confirm_message="Members will stop seeing it immediately. The page's own text is not changed." confirm_button_text="Remove Note" confirm_hx_post=remove_url confirm_hx_target="#wiki-official-note" %}
+<hr class="pl-wp-mod__divider">
+{% endif %}
+<form hx-post="{% url 'hub_wiki_official_note' page.slug %}" hx-target="#wiki-official-note-body" hx-swap="innerHTML">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=note_form.note field_hint="Members cannot edit or remove this. Keep it to what is true right now." %}
+    <div class="pl-wp-mod__modal-actions">
+        <button type="button" class="pl-btn pl-btn--secondary"
+                @click="$dispatch('close-modal', 'wiki-official-note')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Save</button>
+    </div>
+</form>

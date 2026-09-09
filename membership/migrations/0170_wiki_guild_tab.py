@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0168_member_welcome_email_sent_at"),
+        ("membership", "0169_wiki_moderation"),
     ]
 
     operations = [

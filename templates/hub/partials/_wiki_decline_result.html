@@ -1,0 +1,8 @@
+{% comment %}
+A declined proposal: the modal body says what happened, and the queue card is replaced out
+of band with the same line so the reviewer sees the list actually change.
+{% endcomment %}
+<p class="hub-text-muted">{{ line }}</p>
+<div class="hub-card pl-wp-mod__review-card" id="safety-{{ proposal.pk }}" hx-swap-oob="true">
+    <p class="hub-text-muted">{{ line }} Nothing was deleted, and the draft is still on their Drafts page.</p>
+</div>

@@ -1,0 +1,12 @@
+{% comment %}
+What a successful (or duplicate) report POST returns: a fresh modal body into
+#wiki-report-body, plus out-of-band swaps for the amber banner and BOTH Report controls.
+
+A 204 cannot carry an hx-swap-oob swap, so a "204 plus toast plus OOB" would toast success
+and leave the screen stale. This is a 200 that actually updates what the member is
+looking at.
+{% endcomment %}
+{% include "hub/partials/_wiki_report_form.html" %}
+{% include "hub/partials/_wiki_review_banner.html" %}
+{% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control" %}
+{% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control-bar" compact=1 %}

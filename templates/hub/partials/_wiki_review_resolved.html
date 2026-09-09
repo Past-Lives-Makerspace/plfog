@@ -1,0 +1,15 @@
+{% comment %}
+What replaces a queue card once its report is marked reviewed. It is swapped in INSIDE the
+Reported Pages card, so when the last report goes it carries that card's own written empty
+line and not the whole-page empty state — which would have claimed "nothing to review"
+with safety proposals still on screen below it, and printed the scope line a second time.
+{% endcomment %}
+{% if remaining %}
+<div class="hub-card pl-wp-mod__review-card">
+    <p class="hub-text-muted">Marked reviewed.</p>
+</div>
+{% else %}
+<div class="pl-wp-mod__empty">
+    <p>Nothing reported. You are all caught up.</p>
+</div>
+{% endif %}

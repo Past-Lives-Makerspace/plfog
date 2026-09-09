@@ -1,0 +1,26 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+{% comment %}
+Declining a safety proposal is a real loop, not a shrug: the reviewer's words reach the
+author, the draft is still theirs, and the CTA opens the editor on it. Nothing is deleted.
+{% endcomment %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ author_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Your safety page needs one change</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">
+    {{ reviewer_name }} read <strong><a href="{{ page_url }}" style="color: #0d4876; text-decoration: none;">{{ page.title }}</a></strong> and asked for a change before it goes live:
+</p>
+<div style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px;">
+    <p style="margin: 0; font-size: 14px; color: #33424f; line-height: 1.6;">{{ note }}</p>
+</div>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">
+    Your draft is still yours and nothing was deleted. Make the change and it goes back for a read.
+</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ edit_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Open your draft</a>
+</div>
+{% if reviewer_email %}
+<p style="margin: 16px 0 0; font-size: 14px; color: #33424f; line-height: 1.6; text-align: center;">
+    <a href="mailto:{{ reviewer_email }}" style="color: #0d4876;">Reply to {{ reviewer_name }}</a>
+</p>
+{% endif %}
+{% endblock %}

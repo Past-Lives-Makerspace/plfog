@@ -53,7 +53,7 @@ def _toast(response) -> dict:
 
 
 def describe_the_one_tap_verify():
-    def it_answers_200_with_a_body_carrying_the_oob_swap(db, client, stub_page_verified_event):
+    def it_answers_200_with_a_body_carrying_the_oob_swap(db, client):
         """Not 204: a 204 has no body, so it could not carry the swap and the toast would
         fire while a stale Community pill sat there until the next reload."""
         user = _login(client, "verify_view_lead")
@@ -72,7 +72,7 @@ def describe_the_one_tap_verify():
         page.refresh_from_db()
         assert page.status == WikiPage.Status.GUILD_VERIFIED
 
-    def it_redirects_with_a_message_for_a_plain_post(db, client, stub_page_verified_event):
+    def it_redirects_with_a_message_for_a_plain_post(db, client):
         user = _login(client, "verify_view_plainpost")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
@@ -80,7 +80,7 @@ def describe_the_one_tap_verify():
         assert response.status_code == 302
         assert response["Location"] == page.get_absolute_url()
 
-    def it_treats_a_boosted_post_as_a_full_page_post(db, client, stub_page_verified_event):
+    def it_treats_a_boosted_post_as_a_full_page_post(db, client):
         """hub/base.html boosts the whole body, so a plain form arrives carrying
         HX-Request too. Answering that with a fragment swaps a bare div in for the page."""
         user = _login(client, "verify_view_boosted")
@@ -93,7 +93,7 @@ def describe_the_one_tap_verify():
         )
         assert response.status_code == 302
 
-    def it_stores_the_note_from_the_modal(db, client, stub_page_verified_event):
+    def it_stores_the_note_from_the_modal(db, client):
         user = _login(client, "verify_view_note")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
@@ -113,7 +113,7 @@ def describe_the_one_tap_verify():
 
 
 def describe_removing_a_verification():
-    def it_drops_the_page_back_to_community(db, client, stub_page_verified_event):
+    def it_drops_the_page_back_to_community(db, client):
         user = _login(client, "verify_view_remove")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
@@ -200,7 +200,7 @@ def describe_the_control_on_the_reading_page():
         assert ">Verify</button>" not in html
         assert "Remove verification" not in html
 
-    def it_shows_the_credit_line_to_everyone(db, client, stub_page_verified_event):
+    def it_shows_the_credit_line_to_everyone(db, client):
         """The brief wants a member to read "Verified by Kate (Woodworking orienter)"."""
         orienter = _member_user("verify_ctl_orienter")
         guild = GuildFactory(name="Woodworking")
@@ -213,7 +213,7 @@ def describe_the_control_on_the_reading_page():
         assert "Blade guard checked." in html
         assert ">Verify</button>" not in html
 
-    def it_offers_remove_only_once_the_page_is_verified(db, client, stub_page_verified_event):
+    def it_offers_remove_only_once_the_page_is_verified(db, client):
         user = _login(client, "verify_ctl_remove")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
@@ -260,7 +260,7 @@ def describe_the_compact_control_in_a_tab_row():
         WikiPageFactory(guild=guild, official=True)
         assert 'name="surface" value="tab"' not in _tab_html(client, guild)
 
-    def it_swaps_the_whole_row_back(db, client, stub_page_verified_event):
+    def it_swaps_the_whole_row_back(db, client):
         user = _login(client, "verify_tab_swap")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)

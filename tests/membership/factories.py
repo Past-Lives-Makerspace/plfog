@@ -62,8 +62,10 @@ from membership.models import (
     WikiArticle,
     WikiAttachment,
     WikiDraft,
+    WikiEditLock,
     WikiPage,
     WikiPageFact,
+    WikiReport,
     WikiRevision,
     WikiSearchMiss,
     WikiWantedPage,
@@ -865,6 +867,35 @@ class WikiDraftFactory(factory.django.DjangoModelFactory):
     kind = WikiPage.Kind.HOWTO
     title = "Half typed title"
     body = "<p>Half typed body.</p>"
+
+
+class WikiReportFactory(factory.django.DjangoModelFactory):
+    """An open report by default. Pass ``resolved=True`` for one somebody already closed."""
+
+    class Meta:
+        model = WikiReport
+
+    page = factory.SubFactory(WikiPageFactory)
+    reporter = factory.SubFactory(MemberFactory)
+    reason = factory.Sequence(lambda n: f"Step {n} is backwards. You lower the guard after the fence.")
+
+    class Params:
+        resolved = factory.Trait(
+            resolved_at=factory.LazyFunction(timezone.now),
+            resolved_by=factory.SelfAttribute("reporter"),
+            resolution="Fixed the sentence.",
+        )
+
+
+class WikiEditLockFactory(factory.django.DjangoModelFactory):
+    """A live lock. Age ``refreshed_at`` with ``queryset.update`` to make it stale —
+    the field is ``auto_now``, so a plain save would bump it right back."""
+
+    class Meta:
+        model = WikiEditLock
+
+    page = factory.SubFactory(WikiPageFactory)
+    holder = factory.SubFactory(MemberFactory)
 
 
 class WikiWantedPageFactory(factory.django.DjangoModelFactory):

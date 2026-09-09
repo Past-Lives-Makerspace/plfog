@@ -1,0 +1,13 @@
+Hi {{ author_name }},
+
+{{ archiver_name }} archived "{{ page.title }}" on the member wiki and wrote:
+
+{{ reason }}
+
+The link still works, so you can read what was there. Nothing was deleted.
+{% if redirect_page %}The current page on this subject is "{{ redirect_page.title }}": {{ redirect_url }}
+{% endif %}
+Read what was there: {{ page_url }}
+{% if archiver_email %}Reply to {{ archiver_name }}: {{ archiver_email }}
+{% endif %}
+{% include "membership/emails/_footer.txt" %}

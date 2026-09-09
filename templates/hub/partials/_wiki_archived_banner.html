@@ -1,0 +1,36 @@
+{% comment %}
+The tombstone. The URL keeps working, and the page explains itself — line one names the
+PERSON, not just the date, because a page that says only "removed on 3 September" makes
+the removal look like weather and the author never learns who to ask.
+
+Calm, not red: a left rule in the strong border token. Red says "danger" when the message
+is "moved on".
+
+A member sees this and nothing else. A moderator sees it and then the whole page below,
+because the only way to fix an over-archive is to read what was archived.
+{% endcomment %}
+<div class="pl-wp-mod__banner pl-wp-mod__banner--archived">
+    <p class="pl-wp-mod__banner-title">
+        {% if page.archived_by %}Removed by {{ page.archived_by.display_name }} on {{ page.archived_at|date:"j F Y" }}{% else %}Removed on {{ page.archived_at|date:"j F Y" }}{% endif %}
+    </p>
+    {% if page.archive_reason %}<p class="pl-wp-mod__banner-line">Reason: {{ page.archive_reason }}</p>{% endif %}
+    {% if page.archive_redirect %}
+    <p class="pl-wp-mod__banner-line">
+        <a href="{{ page.archive_redirect.get_absolute_url }}">Go to {{ page.archive_redirect.title }}</a>
+    </p>
+    {% endif %}
+    {% if can_moderate %}
+    <div class="pl-wp-mod__banner-actions">
+        <button type="button" class="pl-btn pl-btn--sm"
+                @click="$dispatch('open-confirm', 'wiki-restore')">Restore</button>
+        <a href="{% url 'hub_wiki_history' page.slug %}" class="pl-btn pl-btn--sm pl-btn--ghost">History</a>
+    </div>
+    {% url 'hub_wiki_restore' page.slug as restore_url %}
+    {% include "components/confirm_modal.html" with confirm_id="wiki-restore" confirm_title="Restore this page?" confirm_message="The page becomes visible to every member again, and this removal note disappears." confirm_button_text="Restore" confirm_button_style="primary" confirm_action_url=restore_url %}
+    <form method="post" action="{% url 'hub_wiki_set_redirect' page.slug %}" class="pl-wp-mod__redirect">
+        {% csrf_token %}
+        {% include "components/form_field.html" with field=redirect_form.target %}
+        <button type="submit" class="pl-btn pl-btn--sm">Save</button>
+    </form>
+    {% endif %}
+</div>

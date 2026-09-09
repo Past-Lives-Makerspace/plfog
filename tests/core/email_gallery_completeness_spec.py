@@ -46,6 +46,8 @@ EXPECTED_PAIRS = {
     "orientation_thankyou",
     "guild_welcome",
     "wiki_guild_digest",
+    "wiki_page_archived",
+    "wiki_proposal_declined",
     # billing
     "charge_failed_admin",
     "receipt",
@@ -66,10 +68,10 @@ def describe_email_gallery_completeness():
             "on copy-review.pastlives.space."
         )
 
-    def it_discovers_the_expected_27_pairs():
+    def it_discovers_the_expected_29_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 27
+        assert len(EXPECTED_PAIRS) == 29
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()
@@ -101,6 +103,8 @@ def describe_email_gallery_completeness():
             "release_email.test",
             "announcement.test",
             "hub.beta_feedback",
+            "wiki.page_archived",
+            "wiki.proposal_declined",
         }
         assert set(dynamic_sites) == {"plfog/adapters.py"}
 

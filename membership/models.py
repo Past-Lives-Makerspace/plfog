@@ -11669,6 +11669,44 @@ class WikiError(Exception):
     """
 
 
+# --- Moderation domain exceptions (spec D §5.7) ----------------------------------------
+#
+# ValueError subclasses, because each is a bad input a view answers with a friendly line
+# rather than a 500. Withdrawing somebody else's report is deliberately NOT one of these:
+# that is an authorization failure with an existing 403 path, so it raises Django's own
+# PermissionDenied.
+
+
+class DuplicateWikiReport(ValueError):
+    """This member already has an open report on this page (one per member, per page)."""
+
+
+class AlreadyResolved(ValueError):
+    """Somebody already marked this report reviewed — usually a stale tab."""
+
+
+class AlreadyArchived(ValueError):
+    """The page is archived already."""
+
+
+class NothingToRevert(ValueError):
+    """The page already reads exactly like the revision somebody asked to revert to."""
+
+
+class WikiSaveConflict(Exception):
+    """Two people saved the same page and the loser's text was parked, not applied.
+
+    Control flow rather than a bad input, hence ``Exception`` and not ``ValueError``: the
+    save was well formed and nothing the member did was wrong. Carries the stored draft
+    and the page as it now stands so the view can send them to the reconcile screen.
+    """
+
+    def __init__(self, *, draft: WikiRevision, theirs: WikiPage) -> None:
+        super().__init__("Someone else saved this page first.")
+        self.draft = draft
+        self.theirs = theirs
+
+
 class WikiVerificationError(WikiError):
     """A green check that cannot be given or taken, carrying the sentence to show.
 
@@ -12116,6 +12154,33 @@ class WikiPage(models.Model):
         default="",
         help_text="Why it was archived. Shown to the author by name on the archived page.",
     )
+    archive_redirect = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The page readers should go to instead, if there is one. Set from the archived page "
+        "itself, because you rarely know the replacement at the moment you archive.",
+    )
+    official_note = models.TextField(
+        blank=True,
+        default="",
+        help_text="A locked staff note pinned above member content. Members cannot edit or remove it.",
+    )
+    official_note_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who wrote the official note. Named in its byline.",
+    )
+    official_note_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the official note was last written. Drives its byline date.",
+    )
     search_text = models.TextField(
         blank=True,
         default="",
@@ -12340,18 +12405,9 @@ class WikiPage(models.Model):
                 "verifier_role": self.verified_role_label,
                 "guild_name": self.guild.name if self.guild is not None else "the makerspace",
             },
-            # OWNED BY SPEC D: WikiPage.verified_event_period(). Spelled out here only
-            # because D has not merged yet; it must match D's string BYTE FOR BYTE, so the
-            # rebase deletes this line rather than merging it. Do not re-derive the shape.
-            #
-            # localtime() is the load-bearing half. Formatting the aware datetime directly
-            # renders UTC, which is a DIFFERENT day from Portland's for every verification
-            # between about 4pm and midnight -- exactly when the space is busy. Once D is on
-            # main its publish path emits on the local-date period while this one emitted on
-            # the UTC date, so an evening publish and a verification twenty minutes later
-            # would send two emails to every contributor: the precise duplicate the day
-            # bucket exists to prevent.
-            period=f"wiki_verified:{self.pk}:{timezone.localtime(self.verified_at):%Y%m%d}",
+            # Spec D owns this period (brief 9.1) and now ships it as a method, so there is
+            # exactly one definition of the string and B cannot drift from D's publish path.
+            period=self.verified_event_period(),
         )
 
     def unverify(self, by: Member) -> None:
@@ -12753,6 +12809,521 @@ class WikiPage(models.Model):
             .order_by("-updated_at")[:limit]
         )
 
+    # --- Moderation (spec D) --------------------------------------------------------
+
+    def mark_needs_review(self) -> None:
+        """Keep the denormalized review columns in step with this page's open reports.
+
+        The amber banner reads :class:`WikiReport` rows; the status pill, the
+        :meth:`WikiPageQuerySet.needs_review` queryset and the search-result chip read
+        these two columns. :meth:`WikiReport.file`, :meth:`WikiReport.resolve` and
+        :meth:`WikiReport.withdraw` all call this, so the two can never disagree —
+        without it the chip would never fire anywhere except the page itself, which is
+        the one place the banner already covers.
+
+        Writes only the two columns, so it never moves ``updated_at`` or the freshness
+        clock: somebody complaining about a page does not make it freshly checked.
+        """
+        oldest = self.reports.filter(resolved_at__isnull=True).order_by("created_at").first()
+        if oldest is None:
+            self.needs_review_since = None
+            self.needs_review_reason = ""
+        else:
+            self.needs_review_since = oldest.created_at
+            # The column is CharField(300) and the form lets a reporter write 500. The
+            # truncation is deliberate and one-directional: the banner and the queue quote
+            # the report row in full, and only this summary copy is clipped.
+            self.needs_review_reason = oldest.reason[:300]
+        self.save(update_fields=["needs_review_since", "needs_review_reason"])
+
+    def set_official_note(self, *, text: str, by: Member) -> None:
+        """Pin a locked staff note above the member content.
+
+        Writes **no** :class:`WikiRevision` on purpose: the note is not member content and
+        must survive every revert. If it lived in the body a revert would silently destroy
+        staff copy; if it lived in a child model it would invite a second, and a stack of
+        official notes is a comment thread wearing a hat.
+        """
+        from core.models import SiteActivity
+
+        self.official_note = text.strip()
+        self.official_note_by = by
+        self.official_note_at = timezone.now()
+        self.save(update_fields=["official_note", "official_note_by", "official_note_at"])
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_EDITED,
+            actor=by.user,
+            target=self,
+            payload={"slug": self.slug, "official_note": "set"},
+        )
+
+    def clear_official_note(self, *, by: Member) -> None:
+        """Take the official note off. The page's own text is not touched.
+
+        Takes ``by`` even though the fields it blanks record nobody, because the activity
+        row still has to name who removed it — an audit trail with an actorless removal in
+        it is the thing archives exist to avoid.
+
+        Raises:
+            WikiError: If there is no note to clear.
+        """
+        from core.models import SiteActivity
+
+        if not self.official_note:
+            raise WikiError("There is no official note on this page.")
+        self.official_note = ""
+        self.official_note_by = None
+        self.official_note_at = None
+        self.save(update_fields=["official_note", "official_note_by", "official_note_at"])
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_EDITED,
+            actor=by.user,
+            target=self,
+            payload={"slug": self.slug, "official_note": "cleared"},
+        )
+
+    def archive(self, *, by: Member, reason: str, redirect: WikiPage | None = None) -> None:
+        """Take the page out of every list, keep its URL working, and tell the author why.
+
+        Members cannot delete and hard delete is not in the UI, so this is the strongest
+        action in the wiki — hence a required reason that the author reads, addressed by
+        name, and a tombstone that names the archiver rather than making the removal look
+        like weather.
+
+        Deliberately resolves nothing: open reports on an archived page stay open until a
+        human marks them reviewed, because archiving answers *some* reports and not others.
+
+        Args:
+            by: The moderator archiving it.
+            reason: One sentence, shown on the tombstone and emailed to the author.
+            redirect: An optional live page readers should go to instead.
+
+        Raises:
+            AlreadyArchived: If it is archived already (a stale tab).
+            WikiError: If the reason is blank or too long, or the redirect is this page
+                or is itself archived.
+        """
+        from core.models import SiteActivity
+
+        if self.archived_at is not None:
+            raise AlreadyArchived("This page is already archived.")
+        cleaned = reason.strip()
+        if not cleaned:
+            raise WikiError("Add a reason. The author will read it.")
+        if len(cleaned) > 300:
+            raise WikiError("Keep the reason to one sentence, under 300 characters.")
+        self._check_redirect(redirect)
+        self.archived_at = timezone.now()
+        self.archived_by = by
+        self.archive_reason = cleaned
+        self.archive_redirect = redirect
+        self.save(update_fields=["archived_at", "archived_by", "archive_reason", "archive_redirect"])
+        # Nobody may be signposted at a tombstone. _check_redirect refuses an archived
+        # target when a redirect is SET, but a page can be archived after others already
+        # point at it, which would walk a reader tombstone to tombstone.
+        WikiPage.objects.filter(archive_redirect=self).update(archive_redirect=None)
+        author = self.created_by
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_ARCHIVED,
+            actor=by.user,
+            target=self,
+            payload={
+                "slug": self.slug,
+                "reason": self.archive_reason,
+                # Every seeded Equipment stub has created_by=None, and the FK is SET_NULL,
+                # so "there is no author" is an ordinary state and not an error.
+                "author": author.display_name if author is not None else "",
+                "redirect_slug": redirect.slug if redirect is not None else "",
+            },
+        )
+        self.send_archive_notice(by=by)
+
+    def _check_redirect(self, redirect: WikiPage | None) -> None:
+        """Refuse a signpost that points at itself or at another tombstone."""
+        if redirect is None:
+            return
+        if redirect.pk == self.pk:
+            raise WikiError("A page cannot point readers at itself.")
+        if redirect.archived_at is not None:
+            raise WikiError("That page is archived too. Point readers somewhere they can read.")
+
+    def send_archive_notice(self, *, by: Member) -> None:
+        """Email the page's author their removal reason, when there is an author to tell.
+
+        Silent removal is what ends a contributor's participation permanently, so this is
+        transactional rather than an event: there is no preference to hold (nobody may opt
+        out of hearing their work came down), no bell row, and no digest.
+
+        The page's *other* revision authors are deliberately not told. A page's main writer
+        is often not its creator, but emailing six contributors about somebody else's page
+        is the "nudge authors" failure the brief rules out; the rule is that the person
+        whose name is on the page gets told.
+        """
+        from django.template.loader import render_to_string
+
+        from core.email import send as send_email
+
+        author = self.created_by
+        if author is None:
+            return
+        address = (author.primary_email or "").strip()
+        if not address:
+            return
+        context = {
+            "page": self,
+            "author_name": author.display_name,
+            "archiver": by,
+            "archiver_name": by.display_name,
+            "archiver_email": (by.primary_email or "").strip(),
+            "reason": self.archive_reason,
+            "page_url": f"{settings.MEMBER_BASE_URL}{self.get_absolute_url()}",
+            "redirect_page": self.archive_redirect,
+            "redirect_url": (
+                f"{settings.MEMBER_BASE_URL}{self.archive_redirect.get_absolute_url()}"
+                if self.archive_redirect is not None
+                else ""
+            ),
+        }
+        send_email(
+            to=address,
+            subject=f'Your wiki page "{self.title}" was archived',
+            trigger_kind="wiki.page_archived",
+            text_body=render_to_string("membership/emails/wiki_page_archived.txt", context),
+            html_body=render_to_string("membership/emails/wiki_page_archived.html", context),
+            # A bounced address must never roll back the archive.
+            best_effort=True,
+        )
+
+    def restore(self, *, by: Member) -> None:
+        """Put an archived page back, clearing all four archive fields.
+
+        Restoring clears the attribution so the page never claims a stale actor, and the
+        redirect goes with it — a live page pointing readers elsewhere is a signpost with
+        nothing behind it.
+
+        Raises:
+            WikiError: If the page is not archived.
+        """
+        from core.models import SiteActivity
+
+        if self.archived_at is None:
+            raise WikiError("This page is not archived.")
+        self.archived_at = None
+        self.archived_by = None
+        self.archive_reason = ""
+        self.archive_redirect = None
+        self.save(update_fields=["archived_at", "archived_by", "archive_reason", "archive_redirect"])
+        # No seventh activity kind for the rare inverse of an existing one: a restore is
+        # findable as "Wiki page edited" and then by reading the payload. The cost is that
+        # /manage/activity/'s kind filter reads Kind.choices only and never looks inside a
+        # payload, so a restore is not filterable on its own. Accepted.
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_EDITED,
+            actor=by.user,
+            target=self,
+            payload={"slug": self.slug, "restored_from_archive": True},
+        )
+
+    def set_archive_redirect(self, *, target: WikiPage | None) -> None:
+        """Point an archived page's readers at a live replacement, or clear the signpost.
+
+        Set from the tombstone rather than from the archive modal, because you usually do
+        not know the right replacement at the instant you archive. No activity row: a
+        redirect is a signpost, not an event.
+
+        Raises:
+            WikiError: If the page is not archived, or the target is this page or archived.
+        """
+        if self.archived_at is None:
+            raise WikiError("Only an archived page points readers somewhere else.")
+        self._check_redirect(target)
+        self.archive_redirect = target
+        self.save(update_fields=["archive_redirect"])
+
+    def restore_facts(self, snapshot: list[dict[str, str]]) -> None:
+        """Replace the Quick Answers rows wholesale from a revision snapshot.
+
+        Delete-then-create rather than a diff: the snapshot is the whole truth about what
+        the rows were, and matching them up by label would silently keep a row somebody
+        added after the snapshot. ``sort_order`` comes from the snapshot's own order.
+        """
+        self.facts.all().delete()
+        WikiPageFact.objects.bulk_create(
+            [
+                WikiPageFact(page=self, label=row["label"], value=row["value"], sort_order=index)
+                for index, row in enumerate(snapshot)
+            ]
+        )
+
+    def revert_to(self, *, revision: WikiRevision, by: Member) -> WikiRevision:
+        """Put the page back to an older version, appending rather than rewinding.
+
+        Restores the revision's **whole** snapshot — title, body **and** the Quick Answers
+        — because a revert that put back the prose and left the two-column summary alone
+        resurrects a half-old page whose summary contradicts its text, which is worse than
+        either version on its own.
+
+        It does **not** restore ``status``. Reverting text is not a verification decision:
+        rewinding a page that was verified last March must not silently re-apply a green
+        check a human took off, and rewinding a page that has since been verified must not
+        strip it. ``apply_edit`` owns ``status`` end to end.
+
+        Args:
+            revision: The version to put back.
+            by: The moderator reverting.
+
+        Returns:
+            The new revision holding the pre-revert snapshot. History is append-only.
+
+        Raises:
+            WikiError: If the page is archived, or the revision belongs to another page,
+                or is an unmerged conflict draft (those are used from the conflict screen,
+                not reverted to).
+            NothingToRevert: If the page already reads exactly like that revision.
+        """
+        from django.db import transaction
+
+        from core.models import SiteActivity
+
+        # The same rule apply_edit states, and for the same reason: a revert IS an edit,
+        # and rewriting the body of a page whose tombstone is the only thing members can
+        # see is a change nobody can read. Restore it first.
+        if self.archived_at is not None:
+            raise WikiError("This page is archived. Restore it before putting an older version back.")
+        if revision.page_id != self.pk:
+            raise WikiError("That version belongs to a different page.")
+        if revision.kind == WikiRevision.Kind.CONFLICT_DRAFT:
+            raise WikiError("That version was never applied. Open it from the history instead.")
+        # "Already the current version" and not "is the newest row": A stores the PRE-edit
+        # snapshot, so the newest row is usually the version before the last save and
+        # reverting to it is the commonest legitimate undo there is. What is genuinely a
+        # no-op is a revision whose snapshot already equals the page.
+        if revision.matches(title=self.title, body=self.body, facts=self.fact_snapshot()):
+            raise NothingToRevert("That is already the current version.")
+        target_author = revision.author
+        with transaction.atomic():
+            new_revision = WikiRevision.objects.create(
+                page=self,
+                title=self.title,
+                body=self.body,
+                facts=self.fact_snapshot(),
+                status=self.status,
+                kind=WikiRevision.Kind.REVERT,
+                author=by,
+                note=f"Reverted to {timezone.localtime(revision.created_at):%-d %b %Y}",
+            )
+            self.title = revision.title
+            self.body = revision.body
+            self.updated_by = by
+            self.body_edited_at = timezone.now()
+            self.restore_facts(revision.facts)
+            # Facts feed search_text, and they were rewritten after the page last saved, so
+            # the flatten has to happen here rather than be trusted to save().
+            self.rebuild_search_text()
+            self.save()
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_REVERTED,
+            actor=by.user,
+            target=self,
+            payload={
+                "slug": self.slug,
+                "reverted_to_revision": revision.pk,
+                "reverted_to_author": target_author.display_name if target_author is not None else "",
+                "new_revision": new_revision.pk,
+            },
+        )
+        return new_revision
+
+    # --- The safety gate (spec D §5.6) -----------------------------------------------
+
+    @property
+    def is_held_proposal(self) -> bool:
+        """True while the safety gate is holding this page for a lead's second read."""
+        return not self.is_published and self.archived_at is None
+
+    def verified_event_period(self) -> str:
+        """The idempotency period for ``wiki.page_verified``. THE one definition of it.
+
+        Spec D owns this event's trigger, resolver, copy **and period**, and spec B calls
+        the event from its one-tap Verify — so the string lives here as code rather than
+        as a line in a plan document both PRs hand-copy. Import it as
+        ``page.verified_event_period()``.
+
+        **The bucket is the DAY, and both halves of that matter.** A page-only period would
+        silence the event forever after the first verification, and a page edited and
+        re-verified months later deserves to deliver again — that second message is worth
+        as much as the first. But a per-second bucket dedupes essentially nothing: a lead
+        who re-verifies after each staff edit would mail every contributor once per edit,
+        forever, and two leads verifying the same page in sequence would fan out twice.
+        ``%Y%m%d`` is also the shape the rest of this repo uses for a period.
+
+        The one thing the day loses is verify, member edit, re-verify all inside the same
+        day, which sends once instead of twice. That is the right trade against the spam.
+        """
+        stamp = timezone.localtime(self.verified_at).strftime("%Y%m%d") if self.verified_at else "never"
+        return f"wiki_verified:{self.pk}:{stamp}"
+
+    def emit_verified(self, *, verifier: Member, role_label: str = "") -> None:
+        """Tell everyone who wrote this page that somebody stands behind it.
+
+        The brief calls this the round's retention mechanism: the message that a lead read
+        your page is the single strongest reason a member writes a second one. Spec D owns
+        the event; spec B calls this from one-tap Verify and this method calls it from
+        :meth:`publish_proposal`, so the payload shape has exactly one definition.
+        """
+        from core.events.discord_replies import hub_url
+        from core.events.emit import emit
+
+        emit(
+            "wiki.page_verified",
+            actor=verifier.user,
+            target=self,
+            context={
+                "page": self,
+                "actor_member_pk": verifier.pk,
+                "member_name": "there",
+                "page_title": self.title,
+                "page_url": hub_url("hub_wiki_page", self.slug),
+                "verifier_name": verifier.display_name,
+                # Spec B's verified_role_label column lands in a parallel PR; until then
+                # the honest fallback names the authority rather than inventing a title.
+                "verifier_role": role_label or getattr(self, "verified_role_label", "") or "a guild lead",
+                "guild_name": self.guild.name if self.guild is not None else "the makerspace",
+            },
+            period=self.verified_event_period(),
+        )
+
+    def notify_scope_of_proposal(self, *, by: Member) -> None:
+        """Tell whoever moderates this page's scope that a safety page is waiting.
+
+        Without this the held screen's promise — "the leads have it, and you will hear
+        back" — is not true of anything: nothing was emitted, and ``/wiki/review/`` has no
+        entry point a lead passes on an ordinary day.
+        """
+        from core.events.discord_replies import hub_url
+        from core.events.emit import emit
+
+        emit(
+            "wiki.page_proposed",
+            actor=by.user,
+            target=self,
+            context={
+                "guild": self.guild,
+                "member_name": "there",
+                "page_title": self.title,
+                "page_url": hub_url("hub_wiki_page", self.slug),
+                "author_name": by.display_name,
+                "scope_label": self.guild.name if self.guild is not None else "Space-wide",
+                "review_url": hub_url("hub_wiki_review"),
+            },
+            period=f"wiki_proposed:{self.pk}",
+        )
+
+    def publish_proposal(self, *, by: Member, as_official: bool, newly_created: bool = False) -> None:
+        """Publish a held safety proposal at the publisher's OWN authority.
+
+        A guild lead publishing lands it Guild verified; an admin publishing lands it
+        Official. One button, an honest outcome, and no escalation ladder to build.
+
+        The Guild verified leg emits ``wiki.page_verified``, because that leg IS a
+        verification: without it the one path where a member's own proposal becomes
+        verified was the silent one, while declining emailed them.
+
+        Args:
+            by: The moderator publishing it.
+            as_official: True for effective staff, False for a guild lead or staff role.
+            newly_created: True when this is the second half of creating the page, where
+                ``create_page`` already logged WIKI_PAGE_CREATED for the same act one
+                instruction earlier. The EDITED row is suppressed there because "Felix
+                edited Bandsaw Rules" a second after "Felix created Bandsaw Rules", for a
+                page nobody edited, is a permanent falsehood in the audit trail.
+
+        Raises:
+            WikiError: If the page is already live.
+        """
+        from core.models import SiteActivity
+
+        if self.is_published:
+            raise WikiError("That page is already live.")
+        self.is_published = True
+        if as_official:
+            self.status = self.Status.OFFICIAL
+            fields = ["is_published", "status"]
+        else:
+            self.status = self.Status.GUILD_VERIFIED
+            self.verified_by = by
+            self.verified_at = timezone.now()
+            fields = ["is_published", "status", "verified_by", "verified_at"]
+        self.save(update_fields=fields)
+        if not newly_created:
+            SiteActivity.log(
+                SiteActivity.Kind.WIKI_PAGE_EDITED,
+                actor=by.user,
+                target=self,
+                payload={"slug": self.slug, "published_proposal": True, "status": self.status},
+            )
+        if not as_official:
+            self.emit_verified(verifier=by)
+
+    def decline_proposal(self, *, by: Member, note: str) -> WikiRevision:
+        """Send a held safety proposal back to its author with something to act on.
+
+        Nothing is deleted and the page stays a draft. The reviewer's words land in two
+        places the author already looks: the page's own history, and their inbox. The
+        author may then edit their own unpublished proposal — ``can_edit_wiki_page``
+        carries that carve-out, without which they would be locked out of the very draft
+        they were asked to change.
+
+        Args:
+            by: The moderator sending it back.
+            note: What should change. Reaches the author verbatim.
+
+        Returns:
+            The revision carrying the reviewer's note.
+
+        Raises:
+            WikiError: If the page is already live.
+        """
+        from django.template.loader import render_to_string
+
+        from core.email import send as send_email
+
+        if self.is_published:
+            raise WikiError("That page is already live.")
+        revision = WikiRevision.objects.create(
+            page=self,
+            title=self.title,
+            body=self.body,
+            facts=self.fact_snapshot(),
+            status=self.status,
+            kind=WikiRevision.Kind.SAVE,
+            author=by,
+            # The column is 200 characters and the form allows more; the full note goes to
+            # the author by email, and this line is the history's summary of it.
+            note=f"Sent back: {note.strip()}"[:200],
+        )
+        author = self.created_by
+        address = (author.primary_email or "").strip() if author is not None else ""
+        if address:
+            context = {
+                "page": self,
+                "author_name": author.display_name if author is not None else "",
+                "reviewer_name": by.display_name,
+                "reviewer_email": (by.primary_email or "").strip(),
+                "note": note.strip(),
+                "edit_url": f"{settings.MEMBER_BASE_URL}{reverse('hub_wiki_edit', args=[self.slug])}",
+                "page_url": f"{settings.MEMBER_BASE_URL}{self.get_absolute_url()}",
+            }
+            send_email(
+                to=address,
+                subject=f'Your safety page "{self.title}" needs one change',
+                trigger_kind="wiki.proposal_declined",
+                text_body=render_to_string("membership/emails/wiki_proposal_declined.txt", context),
+                html_body=render_to_string("membership/emails/wiki_proposal_declined.html", context),
+                best_effort=True,
+            )
+        return revision
+
 
 # The tips section a quick tip appends under, created on first use. A literal heading and
 # not a marker comment: the member sees it, the sanitizer keeps it, and a later full edit
@@ -12915,12 +13486,28 @@ class WikiRevision(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this version was saved.")
 
+    # Set by the history view on each row it renders, never stored: whether reverting to
+    # this snapshot would actually change anything. An annotation with no value, so Django
+    # does not read it as a field.
+    is_revertible: bool
+
     class Meta:
         ordering = ["-created_at", "-pk"]
         indexes = [models.Index(fields=["page", "-created_at"], name="idx_wikirevision_page")]
 
     def __str__(self) -> str:
         return f"{self.page.title} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+    def matches(self, *, title: str, body: str, facts: list[dict[str, str]]) -> bool:
+        """True when this snapshot already equals the page state described by the arguments.
+
+        THE one definition of "reverting to this would change nothing", used by
+        :meth:`WikiPage.revert_to`'s guard and by the history list's decision to render a
+        Revert button at all. The caller passes the page state rather than the page,
+        because the history list compares every row against one page and must not re-query
+        its facts per row.
+        """
+        return (self.title, self.body, self.facts) == (title, body, facts)
 
 
 class WikiAttachment(models.Model):
@@ -13029,8 +13616,24 @@ class WikiDraftManager(models.Manager["WikiDraft"]):
     """The resume list behind the editor's "you were writing this" banner."""
 
     def for_member(self, member: Member) -> models.QuerySet[WikiDraft]:
-        """This member's unfinished drafts, newest first."""
+        """This member's unfinished drafts, newest first — the raw store."""
         return self.filter(author=member).select_related("page", "guild").order_by("-updated_at")
+
+    def openable_for(self, request: HttpRequest, member: Member) -> list[WikiDraft]:
+        """This member's drafts they can actually still open, newest first.
+
+        Once spec D can hold a page back for a second read, archive it, or publish it
+        Official, a member can be left holding a draft against a page whose editor now
+        refuses them — and the drafts page would list the title and then 403 on "Keep
+        Writing". Filtered through ``can_edit_wiki_page`` itself rather than through a
+        parallel queryset, so the list and the gate can never drift. A member holds a
+        handful of drafts, not a page of them, so the per-row check is cheap.
+        """
+        from membership.permissions import can_edit_wiki_page
+
+        return [
+            draft for draft in self.for_member(member) if draft.page is None or can_edit_wiki_page(request, draft.page)
+        ]
 
 
 class WikiDraft(models.Model):
@@ -13112,6 +13715,328 @@ class WikiDraft(models.Model):
     def __str__(self) -> str:
         target = self.page.title if self.page is not None else (self.title or "New page")
         return f"Draft of {target} by {self.author}"
+
+    @property
+    def kind_label(self) -> str:
+        """The human label for this draft's starter.
+
+        ``kind`` holds the starter segment from the URL, which is a
+        :class:`WikiPage.Kind` value for the six content starters and ``"safety"`` for
+        spec D's Safety & Rules one — so ``get_kind_display`` would print the raw slug
+        there. The starter catalogue is the one place that knows every segment's label.
+        """
+        from membership.wiki_starters import STARTERS
+
+        return STARTERS[self.kind]["label"]
+
+
+class WikiReportQuerySet(models.QuerySet["WikiReport"]):
+    """The queue's filters. Scoping is expressed as a filter, never as a per-row check."""
+
+    def open(self) -> Self:
+        """Reports nobody has marked reviewed yet — the queue and the amber banner."""
+        return self.filter(resolved_at__isnull=True)
+
+    def resolved(self) -> Self:
+        """Reports somebody has already answered. Kept forever; never deleted."""
+        return self.filter(resolved_at__isnull=False)
+
+    def for_page(self, page: WikiPage) -> Self:
+        """Every report on one page. The reading view evaluates this once and reuses it."""
+        return self.filter(page=page)
+
+    def for_scopes(self, guild_ids: Iterable[int], *, include_space_wide: bool) -> Self:
+        """The reports one moderator may act on, in ONE query rather than a loop.
+
+        A guild lead sees their own guilds' pages; only effective staff get the
+        space-wide leg. That divergence from ``editable_meeting_scopes``'s council
+        boolean is deliberate — see :func:`membership.permissions.moderatable_wiki_scopes`.
+        """
+        condition = Q(page__guild_id__in=list(guild_ids))
+        if include_space_wide:
+            condition |= Q(page__guild__isnull=True)
+        return self.filter(condition)
+
+
+class WikiReport(models.Model):
+    """One member's "this page is wrong" — the pressure valve that makes open editing safe.
+
+    Filing one raises an amber banner on the page quoting the reporter's own words, **and
+    the page stays fully readable**, then routes the report to the people who actually
+    know the shop. It is the alternative to a comment thread (where the correct answer
+    hides while the page stays wrong) and to deletion (after which the author never writes
+    a second page).
+
+    Reports are resolved, never deleted — by a moderator's Mark Reviewed or by the
+    reporter's own Withdraw. A withdrawn misfire still records that somebody looked.
+    """
+
+    page = models.ForeignKey(
+        WikiPage,
+        on_delete=models.CASCADE,
+        related_name="reports",
+        help_text="The page being reported.",
+    )
+    reporter = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_reports",
+        help_text="Who reported it. Nulled if the account is deleted; the banner then reads 'a member'.",
+    )
+    reason = models.TextField(
+        help_text="What the member says is wrong. Shown on the page, in their own words.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, help_text="When it was reported.")
+    resolved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when a lead or admin marked it reviewed, or the reporter withdrew it. Null means open.",
+    )
+    resolved_by = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wiki_reports_resolved",
+        help_text="Who closed it out. The reporter themselves, for a withdrawal.",
+    )
+    resolution = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional note from the reviewer, for the audit trail. The reporter is not emailed it.",
+    )
+
+    objects = WikiReportQuerySet.as_manager()
+
+    class Meta:
+        # Oldest first: the thing rotting longest is at the top, the list does not reshuffle
+        # under a reviewer working down it, and the banner quotes the same one the queue does.
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["resolved_at", "created_at"], name="idx_wikireport_open_age"),
+            models.Index(fields=["page", "resolved_at"], name="idx_wikireport_page_open"),
+        ]
+        constraints = [
+            # One OPEN report per (page, reporter). A second attempt gets a friendly line
+            # rather than a flood or a 500; different members may each file one, and a
+            # withdrawn report frees the slot again.
+            models.UniqueConstraint(
+                fields=["page", "reporter"],
+                condition=Q(resolved_at__isnull=True),
+                name="uq_wikireport_open_reporter",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        who = self.reporter.display_name if self.reporter is not None else "a member"
+        state = "resolved" if self.resolved_at is not None else "open"
+        return f"Report on {self.page.slug} by {who} ({state})"
+
+    @property
+    def reporter_name(self) -> str:
+        """The reporter's name, or "a member" once their account is gone."""
+        return self.reporter.display_name if self.reporter is not None else "a member"
+
+    @classmethod
+    def file(cls, *, page: WikiPage, reporter: Member, reason: str) -> WikiReport:
+        """Record a report, raise the banner, and tell whoever moderates that page's scope.
+
+        Args:
+            page: The page being reported. Must not be archived.
+            reporter: The member filing it.
+            reason: Their own words, already length-checked by ``WikiReportForm``.
+
+        Returns:
+            The saved report, so the view can swap the banner in with it.
+
+        Raises:
+            WikiError: If the page is archived — there is nothing to fix on a tombstone.
+            DuplicateWikiReport: If this member already has one open on this page.
+        """
+        from django.db import IntegrityError, transaction
+
+        from core.events.discord_replies import hub_url
+        from core.events.emit import emit
+        from core.models import SiteActivity
+
+        if page.archived_at is not None:
+            raise WikiError("This page is already archived.")
+        try:
+            # The partial unique constraint is the check, not a pre-query: an .exists()
+            # first would still lose a double submit to the race it exists to prevent.
+            with transaction.atomic():
+                report = cls.objects.create(page=page, reporter=reporter, reason=reason.strip())
+        except IntegrityError as exc:
+            raise DuplicateWikiReport("You already reported this page. A guild lead has it.") from exc
+        page.mark_needs_review()
+        SiteActivity.log(
+            SiteActivity.Kind.WIKI_PAGE_REPORTED,
+            actor=reporter.user,
+            target=page,
+            payload={
+                "slug": page.slug,
+                "report_id": report.pk,
+                "reason": report.reason,
+                "reporter": reporter.display_name,
+            },
+        )
+        emit(
+            "wiki.page_reported",
+            actor=reporter.user,
+            target=page,
+            context={
+                "guild": page.guild,
+                "member_name": "there",
+                "page_title": page.title,
+                "page_url": hub_url("hub_wiki_page", page.slug),
+                "reason": report.reason,
+                "reporter_name": reporter.display_name,
+                "scope_label": page.guild.name if page.guild is not None else "Space-wide",
+                "review_url": hub_url("hub_wiki_review"),
+            },
+            # Unique per report, so a second report on the same page still delivers.
+            period=f"wiki_report:{report.pk}",
+        )
+        return report
+
+    def resolve(self, *, by: Member, note: str = "") -> None:
+        """Mark this report reviewed and bring the banner down (or move it to the next).
+
+        Writes no activity row and sends no notification: the reporter is not told "your
+        report was reviewed" because the page itself is the answer, and a "reviewed" ping
+        with nothing visibly changed reads worse than silence.
+
+        Raises:
+            AlreadyResolved: If somebody already closed it — the queue's row swap means a
+                stale tab is a real possibility.
+        """
+        if self.resolved_at is not None:
+            raise AlreadyResolved("Someone already reviewed this one.")
+        self.resolved_at = timezone.now()
+        self.resolved_by = by
+        self.resolution = note.strip()
+        self.save(update_fields=["resolved_at", "resolved_by", "resolution"])
+        self.page.mark_needs_review()
+
+    def withdraw(self, *, by: Member) -> None:
+        """The reporter takes their own misfire back. Nothing is deleted.
+
+        The same resolve, attributed to the reporter, so the audit trail still records
+        that somebody looked and changed their mind — and the partial unique constraint
+        frees up, so the same member may report the page again about something else.
+
+        Raises:
+            PermissionDenied: If somebody other than the reporter tries it. A moderator
+                who wants it gone uses Mark Reviewed, which is the honest label.
+            AlreadyResolved: If it is already closed.
+        """
+        from django.core.exceptions import PermissionDenied
+
+        if self.reporter_id != by.pk:
+            raise PermissionDenied("Only the person who reported this can withdraw it.")
+        if self.resolved_at is not None:
+            raise AlreadyResolved("This report is already closed.")
+        self.resolved_at = timezone.now()
+        self.resolved_by = self.reporter
+        self.resolution = "Withdrawn by the reporter."
+        self.save(update_fields=["resolved_at", "resolved_by", "resolution"])
+        self.page.mark_needs_review()
+
+
+class WikiEditLock(models.Model):
+    """A soft advisory lock: who opened this page's editor most recently, and when.
+
+    Advisory ONLY — it never blocks a save. It exists so the second person sees "Dana Kim
+    started editing this 3 minutes ago" *before* they spend twenty minutes on text that
+    will collide. With the non-destructive conflict save beside it, this covers essentially
+    every real collision at 200 members for roughly 2% of the cost of real-time
+    collaborative editing.
+
+    A row and not the Django cache: ``CACHES`` is a ``DatabaseCache`` in production and a
+    ``LocMemCache`` under pytest, a cache is *allowed* to evict, and one ``cache.clear()``
+    from any admin path would silently drop every lock — a lock that vanishes is precisely
+    the failure it exists to prevent.
+    """
+
+    # Ten minutes from the last autosave. Short enough that an abandoned tab stops warning
+    # people quickly; long enough that somebody actually typing never loses it.
+    TTL = timedelta(minutes=10)
+
+    page = models.OneToOneField(
+        WikiPage,
+        on_delete=models.CASCADE,
+        related_name="edit_lock",
+        help_text="The page being edited. One holder at a time; claiming overwrites a stale row.",
+    )
+    holder = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="wiki_edit_locks",
+        help_text="Who has the editor open.",
+    )
+    started_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="When this holder opened the editor. What the warning's '3 minutes ago' counts from.",
+    )
+    refreshed_at = models.DateTimeField(
+        auto_now=True,
+        help_text="Bumped by every autosave. Expiry is measured from here, not from the start.",
+    )
+
+    def __str__(self) -> str:
+        return f"{self.holder.display_name} editing {self.page.slug}"
+
+    @property
+    def is_live(self) -> bool:
+        """True while the lock is still inside its TTL."""
+        return self.refreshed_at > timezone.now() - self.TTL
+
+    @classmethod
+    def claim(cls, page: WikiPage, member: Member) -> WikiEditLock | None:
+        """Take or refresh the lock, returning the PREVIOUS live holder's row to warn about.
+
+        Never blocks: a lock is a message, not a gate. A live lock held by somebody else is
+        returned **and left alone**, so the second editor does not steal it and a third
+        person still sees the warning about the person most likely still typing.
+
+        ``started_at`` is reset on every claim, and the field is ``default=timezone.now``
+        rather than ``auto_now_add`` for exactly that reason: ``auto_now_add`` is
+        write-once-on-insert, so re-using a stale row would keep the previous holder's
+        start time under the new holder's name and print "Sam started editing this three
+        hours ago" about somebody who opened the editor a minute ago.
+
+        Returns:
+            The other person's live lock, or None when there is nobody to warn about.
+        """
+        now = timezone.now()
+        existing = cls.objects.filter(page=page).select_related("holder").first()
+        if existing is not None and existing.holder_id != member.pk and existing.is_live:
+            return existing
+        cls.objects.update_or_create(page=page, defaults={"holder": member, "started_at": now})
+        return None
+
+    @classmethod
+    def refresh(cls, page: WikiPage, member: Member) -> None:
+        """Keep this member's own lock warm. A no-op when they do not hold it.
+
+        Called from spec A's autosave POST, which is the whole reason there is no polling
+        timer, no heartbeat endpoint, and no JavaScript behind this feature.
+        """
+        lock = cls.objects.filter(page=page, holder=member).first()
+        if lock is None:
+            return
+        lock.save(update_fields=["refreshed_at"])
+
+    @classmethod
+    def release(cls, page: WikiPage, member: Member) -> None:
+        """Drop this member's own lock after a successful save.
+
+        Cancel deliberately does not release: somebody who backs out with the browser
+        button never fires anything, so expiry is the real release either way.
+        """
+        cls.objects.filter(page=page, holder=member).delete()
 
 
 # How long a claim on a wanted page sits before the row says so and a lead gets a Release

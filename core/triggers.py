@@ -162,6 +162,38 @@ TRIGGERS: list[Trigger] = [
         "Spaces & Equipment",
         force_email=True,
     ),
+    # Member wiki (spec D owns both rows; spec B calls page_verified in this shape).
+    # Every flag below is passed BY KEYWORD: several calls above pass ``audience``
+    # positionally at index 4, so a positional flag here would land on the wrong field.
+    Trigger(
+        "wiki.page_reported",
+        "Wiki page reported",
+        "A member flagged a problem on a wiki page in a guild you lead.",
+        "Wiki",
+        audience=Audience.STAFF_ONLY,
+        # The one moderation signal, a handful a month at 200 members. A lead who only
+        # ever sees it on the bell sees it next Thursday, and the page stays wrong.
+        email_default=True,
+    ),
+    Trigger(
+        "wiki.page_proposed",
+        "Wiki safety page proposed",
+        "A member proposed a safety page in a guild you lead, and it is waiting for a read.",
+        "Wiki",
+        audience=Audience.STAFF_ONLY,
+        # The member has been told "you will hear back". Somebody has to be told too.
+        email_default=True,
+    ),
+    Trigger(
+        "wiki.page_verified",
+        "Your wiki page was verified",
+        "A guild lead or orienter read a page you wrote and marked it verified.",
+        "Wiki",
+        # The load-bearing notification of the whole wiki round: the message that somebody
+        # with authority read your page and stands behind it is the single strongest
+        # reason a member writes a second one. Member audience, and email as well as bell.
+        email_default=True,
+    ),
     # Admin broadcasts
     Trigger("site_announcement", "Makerspace-wide announcement", "Staff posted a site-wide notice.", "Announcements"),
 ]
@@ -174,6 +206,8 @@ CATEGORY_ORDER = [
     "Teaching",
     "Voting",
     "Guilds",
+    # Without this row ``by_category`` silently drops both wiki triggers.
+    "Wiki",
     "Billing",
     "Membership",
     "Spaces & Equipment",

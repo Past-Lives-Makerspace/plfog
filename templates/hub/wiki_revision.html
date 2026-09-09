@@ -1,0 +1,51 @@
+{% extends "hub/base.html" %}
+{% block title %}An old version of {{ page.title }}{% endblock %}
+
+{% block content %}
+{% load membership_md %}
+{% comment %}
+One old version, read only. This is the cheap answer to "what did it used to say" that
+replaces a word-level diff viewer.
+
+It works for an unmerged conflict draft too, and that is what makes a draft row more than
+an inert line in a list: without it the conflict screen's reassurance that "your version
+stays in this page's history" would be technically true and practically useless.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb">
+    <a href="{% url 'hub_wiki_home' %}">Wiki</a> / <a href="{{ page.get_absolute_url }}">{{ page.title }}</a> /
+    <a href="{% url 'hub_wiki_history' page.slug %}">History</a>
+</nav>
+
+<div class="pl-wp-mod__banner pl-wp-mod__banner--lock">
+    {% if is_draft %}
+    <p class="pl-wp-mod__banner-title">
+        This version was written by {% if revision.author %}{{ revision.author.display_name }}{% else %}a former member{% endif %} and never applied — someone else saved first.
+    </p>
+    {% if can_use_draft %}
+    <div class="pl-wp-mod__banner-actions">
+        <button type="button" class="pl-btn pl-btn--sm pl-btn--primary"
+                @click="$dispatch('open-confirm', 'use-version')">Use This Version</button>
+    </div>
+    {% url 'hub_wiki_conflict_keep' page.slug revision.pk as keep_url %}
+    {% include "components/confirm_modal.html" with confirm_id="use-version" confirm_title="Put this version on the page?" confirm_message="The current version is replaced. It stays in the history and can be reverted to." confirm_button_text="Use This Version" confirm_button_style="primary" confirm_action_url=keep_url %}
+    {% endif %}
+    {% else %}
+    <p class="pl-wp-mod__banner-title">You are looking at an old version, saved {{ revision.created_at|date:"j M Y, g:i A" }}.</p>
+    <p class="pl-wp-mod__banner-line"><a href="{{ page.get_absolute_url }}">Read the current page</a></p>
+    {% endif %}
+</div>
+
+<h1 class="hub-page-title">{{ revision.title }}</h1>
+{% if revision.facts %}
+<div class="hub-card pl-wp-group">
+    <h2 class="hub-detail-label pl-wp-section__title">Quick Answers</h2>
+    <dl class="pl-wp-facts">
+        {% for fact in revision.facts %}
+        <dt class="pl-wp-facts__label">{{ fact.label }}</dt>
+        <dd class="pl-wp-facts__value">{{ fact.value }}</dd>
+        {% endfor %}
+    </dl>
+</div>
+{% endif %}
+<div class="pl-md pl-wp-body">{{ revision.body|wiki_content }}</div>
+{% endblock %}

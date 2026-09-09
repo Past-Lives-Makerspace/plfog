@@ -398,6 +398,36 @@ urlpatterns = [
     path("wiki/p/<slug:slug>/tip/", wiki_views.hub_wiki_quick_tip, name="hub_wiki_quick_tip"),
     path("wiki/p/<slug:slug>/image/", wiki_views.hub_wiki_image_upload, name="hub_wiki_image_upload"),
     path("wiki/p/<slug:slug>/qr/", wiki_views.hub_wiki_qr_download, name="hub_wiki_qr_download"),
+    # --- Moderation (spec D). Everything hangs off the fixed ``p/`` segment except the
+    # queue and the two report actions, whose top-level segments are already in
+    # RESERVED_WIKI_SLUGS, so no page slug can ever shadow one.
+    path("wiki/review/", wiki_views.hub_wiki_review, name="hub_wiki_review"),
+    path("wiki/report/<int:pk>/resolve/", wiki_views.hub_wiki_report_resolve, name="hub_wiki_report_resolve"),
+    path("wiki/p/<slug:slug>/report/", wiki_views.hub_wiki_report, name="hub_wiki_report"),
+    path(
+        "wiki/p/<slug:slug>/report/withdraw/",
+        wiki_views.hub_wiki_report_withdraw,
+        name="hub_wiki_report_withdraw",
+    ),
+    path("wiki/p/<slug:slug>/note/", wiki_views.hub_wiki_official_note, name="hub_wiki_official_note"),
+    path(
+        "wiki/p/<slug:slug>/note/remove/",
+        wiki_views.hub_wiki_official_note_remove,
+        name="hub_wiki_official_note_remove",
+    ),
+    path("wiki/p/<slug:slug>/archive/", wiki_views.hub_wiki_archive, name="hub_wiki_archive"),
+    path("wiki/p/<slug:slug>/restore/", wiki_views.hub_wiki_restore, name="hub_wiki_restore"),
+    path("wiki/p/<slug:slug>/redirect/", wiki_views.hub_wiki_set_redirect, name="hub_wiki_set_redirect"),
+    path("wiki/p/<slug:slug>/history/", wiki_views.hub_wiki_history, name="hub_wiki_history"),
+    path("wiki/p/<slug:slug>/revert/<int:pk>/", wiki_views.hub_wiki_revert, name="hub_wiki_revert"),
+    path("wiki/p/<slug:slug>/conflict/<int:pk>/", wiki_views.hub_wiki_conflict, name="hub_wiki_conflict"),
+    path(
+        "wiki/p/<slug:slug>/conflict/<int:pk>/keep/",
+        wiki_views.hub_wiki_conflict_keep,
+        name="hub_wiki_conflict_keep",
+    ),
+    path("wiki/p/<slug:slug>/publish/", wiki_views.hub_wiki_publish_proposal, name="hub_wiki_publish_proposal"),
+    path("wiki/p/<slug:slug>/decline/", wiki_views.hub_wiki_decline_proposal, name="hub_wiki_decline_proposal"),
     path("wiki/stickers/", wiki_views.hub_wiki_stickers, name="hub_wiki_stickers"),
     # The sticker link itself is top level and deliberately short: it is read off a dusty
     # label in bad light and sometimes typed by hand. core.urls carries slug catch-alls at

@@ -1,0 +1,14 @@
+{% comment %}
+The advisory lock warning, at the very top of the editor before the title field.
+
+Informational, not a warning: a blue left rule, no action, nothing to tap. It is not a gate
+and must not read as one.
+
+The relative time counts from started_at ("started editing" is the honest verb), and
+started_at is reset on every re-claim, so the sentence is true about the person it names
+rather than about whoever last held the row.
+{% endcomment %}
+<div class="pl-wp-mod__banner pl-wp-mod__banner--lock">
+    <p class="pl-wp-mod__banner-title">{{ lock_warning.holder.display_name }} started editing this {{ lock_warning.started_at|timesince }} ago</p>
+    <p class="pl-wp-mod__banner-line">You can still edit. If you both save, nothing is lost: we keep both versions and show you them side by side.</p>
+</div>

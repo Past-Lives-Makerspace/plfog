@@ -9,10 +9,11 @@ Every view is thin per CLAUDE.md: parse the request, ask a permission *filter* f
 may show, call a model method, then toast / redirect / render. Permissions are filters and
 not checks — a view that forgets to gate shows too little, never too much.
 
-Three seams here belong to later specs in the round and are deliberately left open:
-spec B's ``_wiki_search_empty.html`` (included, not written here), spec B's
-``WikiWantedPage.fulfil``, and spec D's ``WikiEditLock.refresh`` — all three are lazy,
-guarded imports until those specs merge.
+Spec D appends its moderation surfaces here (``docs/superpowers/plans/2026-09-07-member-wiki-moderation.md``):
+Report and Withdraw, the review queue and its archived view, the official note, archive /
+tombstone / restore, history and revert, the advisory lock and the conflict save, and the
+safety gate. Two seams still belong to spec B and stay lazily imported until it merges:
+``_wiki_search_empty.html`` and ``WikiWantedPage.fulfil``.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import redirect_to_login
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -35,11 +37,17 @@ from django.views.decorators.http import require_POST
 
 from core.models import SiteConfiguration
 from hub.forms import (
+    WikiArchiveForm,
     WikiAttachmentFormSet,
+    WikiDeclineForm,
+    WikiOfficialNoteForm,
     WikiPageCreateForm,
     WikiPageForm,
     WikiQuickPhotoForm,
     WikiQuickTipForm,
+    WikiRedirectForm,
+    WikiReportForm,
+    WikiResolveForm,
     WikiVerifyNoteForm,
     WikiWantedFulfilForm,
     build_wiki_wanted_formset,
@@ -49,27 +57,37 @@ from hub.toast import trigger_client_event, trigger_toast
 from hub.views import _get_hub_context
 from membership.markdown import sanitize_wiki_submission
 from membership.models import (
+    AlreadyArchived,
+    AlreadyResolved,
+    DuplicateWikiReport,
     MISS_MIN_QUERY_LENGTH,
     Guild,
     Member,
+    NothingToRevert,
     WikiArticle,
     WikiAttachment,
     WikiDraft,
+    WikiEditLock,
     WikiError,
     WikiPage,
     WikiPageFact,
+    WikiReport,
+    WikiRevision,
+    WikiSaveConflict,
     WikiSearchMiss,
     WikiWantedPage,
 )
 from membership.permissions import (
-    _can_moderate_wiki_page,
     _editing_member,
     can_edit_guild,
     can_edit_wiki_page,
+    can_moderate_wiki_page,
+    can_moderate_wiki_scope,
     can_verify_wiki_page,
     editable_meeting_scopes,
     editable_wiki_scopes,
     is_effective_staff,
+    moderatable_wiki_scopes,
     visible_wiki_pages,
 )
 from membership.wiki_guild import WANTED_CARD_LIMIT, guild_wiki_tab_context
@@ -177,17 +195,12 @@ def _hidden_from(request: HttpRequest, page: WikiPage) -> bool:
 
 
 def _refresh_edit_lock(page: WikiPage, member: Member) -> None:
-    """Keep spec D's advisory edit lock warm from A's autosave, when D has landed.
+    """Keep the advisory edit lock warm from the autosave POST.
 
     Every accepted autosave refreshes the caller's own lock row, which is the entire
-    reason spec D needs no polling timer, no second endpoint and no JS. The guard comes
-    off when D lands ``WikiEditLock``; until then A must not import a model that does not
-    exist yet.
+    reason the lock needs no polling timer, no second endpoint and no JS of its own. A
+    no-op for somebody who does not hold it.
     """
-    try:
-        from membership.models import WikiEditLock  # type: ignore[attr-defined]
-    except ImportError:
-        return
     WikiEditLock.refresh(page, member)
 
 
@@ -263,6 +276,7 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
     recent_pages = list(cards.order_by("-updated_at")[:_HOME_RECENT_LIMIT])
     machine_pages = list(cards.filter(kind=WikiPage.Kind.MACHINE).order_by("title")[:_HOME_MACHINE_LIMIT])
     drafts = list(WikiDraft.objects.for_member(member)[:_HOME_DRAFT_LIMIT]) if member is not None else []
+    can_review, open_review_count = _review_link(request)
 
     context = _get_hub_context(request)
     context.update(
@@ -278,6 +292,12 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
             "drafts": drafts,
             "starters": [{"kind": key, **value} for key, value in STARTERS.items()],
             "can_write": _active_member(request) is not None,
+            # The review queue's only entry point on an ordinary day. Without it the queue
+            # is reachable only from a report banner on a page you happen to be reading,
+            # which means a held safety proposal and the ?archived=1 view both sit behind
+            # a screen nobody arrives at.
+            "can_review": can_review,
+            "open_review_count": open_review_count,
             # The printable sticker sheet's only entry point. Without it /wiki/stickers/
             # is a URL you have to already know, which is the same as not shipping it.
             "can_print_stickers": is_effective_staff(request),
@@ -478,6 +498,7 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
 
     member = _editing_member(request)
     can_edit = can_edit_wiki_page(request, page)
+    can_moderate = can_moderate_wiki_page(request, page)
     is_archived = page.archived_at is not None
     attachments = list(page.attachments.select_related("uploaded_by"))
     facts = list(page.facts.all())
@@ -525,7 +546,69 @@ def hub_wiki_page(request: HttpRequest, slug: str) -> HttpResponse:
             ),
         }
     )
+    context.update(_review_banner_context(request, page))
+    context.update(
+        {
+            "can_moderate": can_moderate,
+            # A member sees the tombstone and nothing else; a moderator sees it and then
+            # the whole page below, because the only way to fix an over-archive is to read
+            # what was archived.
+            "show_body": not is_archived or can_moderate,
+            "archive_form": WikiArchiveForm() if can_moderate and not is_archived else None,
+            "archive_confirm_message": _archive_confirm_message(page),
+            # The bar renders when there is something on it: an editor's photo/tip, or the
+            # Report anyone active gets. Hidden entirely on an archived page — there is
+            # nothing to add to, keep accurate, or report on a tombstone.
+            "show_actionbar": not is_archived and (can_edit or _active_member(request) is not None),
+            "redirect_form": WikiRedirectForm(page=page) if can_moderate and is_archived else None,
+            "note_form": WikiOfficialNoteForm(initial={"note": page.official_note}) if can_moderate else None,
+        }
+    )
     return render(request, "hub/wiki_page.html", context)
+
+
+# --- Moderation: shared context (spec D) ----------------------------------------------
+
+
+def _review_banner_context(request: HttpRequest, page: WikiPage) -> dict[str, Any]:
+    """The amber banner and the Report control's two states, from ONE queryset evaluation.
+
+    The banner reads :class:`WikiReport` rows; the status pill, the ``needs_review()``
+    queryset and the search-result chip read the two denormalized columns
+    ``mark_needs_review`` maintains. Both consumers exist, and this is the row-reading one.
+    """
+    member = _editing_member(request)
+    open_reports = list(WikiReport.objects.open().for_page(page).select_related("reporter"))
+    mine = next((report for report in open_reports if member is not None and report.reporter_id == member.pk), None)
+    return {
+        "open_report": open_reports[0] if open_reports else None,
+        "other_open_reports": max(len(open_reports) - 1, 0),
+        "my_open_report": mine,
+        "resolve_form": WikiResolveForm(),
+        "report_form": WikiReportForm(),
+        # Nothing to report on a tombstone, and reporting takes an active membership.
+        "can_report": _active_member(request) is not None and page.archived_at is None,
+    }
+
+
+def _archive_confirm_message(page: WikiPage) -> str:
+    """The archive confirmation's copy, which depends on there being an author to email.
+
+    Every seeded Equipment stub has ``created_by=None`` and the FK is ``SET_NULL``, so a
+    fixed "Rowan Ellis wrote this page and will be emailed your reason" would be a lie
+    told at the moment a moderator is about to do the most consequential thing in the wiki.
+    """
+    shared = (
+        "The link keeps working, and anyone who opens it sees when it was removed and why. "
+        "Members stop finding it in search. "
+    )
+    author = page.created_by
+    if author is None:
+        return (
+            f"{shared}Nobody is listed as the author of this page, so no one will be emailed "
+            "— the reason still shows on the page."
+        )
+    return f"{shared}{author.display_name} wrote this page and will be emailed your reason, by name."
 
 
 # --- Writing (PR A3) ------------------------------------------------------------------
@@ -650,6 +733,88 @@ def _save_fact_formset(page: WikiPage, fact_formset: Any) -> None:
         deleted.delete()
 
 
+def _create_page_from_form(
+    request: HttpRequest,
+    *,
+    starter: Any,
+    form: WikiPageCreateForm,
+    member: Member,
+    fact_formset: Any,
+    attachment_formset: Any,
+    draft: WikiDraft | None,
+    wanted_pk: str,
+) -> HttpResponse | None:
+    """Create one page, or return None so the view re-renders with a form error.
+
+    This is where THE safety gate lives, and it is the only one in the round. Safety
+    content *is* Official content (the brief's Official is "policy, safety, membership
+    terms"), so there is no separate field and no box on any form for a member to untick.
+
+    **A Safety page is ALWAYS created held and then published through
+    ``publish_proposal``**, which is the round's one authority rule for safety content
+    rather than a second one written out here. It matters: ``can_moderate_wiki_scope`` is
+    true for any ``GuildStaffMembership`` row, so deciding "published or not" on that
+    alone let a guild orienter, secretary or treasurer create a page wearing the Official
+    chip — which brief §4 and §5.2 lock to admins and officers. Routing through
+    ``publish_proposal`` gives the create path exactly the outcomes the queue already
+    gives: effective staff land Official, a guild lead or staff land Guild verified, and
+    everyone else stays a held proposal for a second read.
+
+    It also closes the secondary bug that arrangement had: a guild orienter who created an
+    Official page was instantly locked out of it, because ``can_edit_wiki_page`` answers
+    ``is_effective_staff`` on a published Official page and ``can_verify_wiki_page``
+    refuses Official outright. Landing Guild verified leaves it theirs to edit.
+    """
+    status = starter["status"]
+    gated = bool(status)
+    # ONE transaction for the whole create. Held-then-publish is four write groups, and
+    # this project sets no ATOMIC_REQUESTS: without it, a failure in publish_proposal or
+    # its emit left the page committed unpublished, the author looking at a 500 instead of
+    # the held screen, nobody told, and their retry meeting "a page called that already
+    # exists". A rollback costs a retry that works.
+    try:
+        with transaction.atomic():
+            page = WikiPage.objects.create_page(
+                title=form.cleaned_data["title"],
+                kind=form.cleaned_data["kind"],
+                author=member,
+                guild=form.cleaned_data["guild"],
+                body=form.cleaned_data["body"],
+                status=status,
+                facts=_submitted_facts(fact_formset),
+                is_published=not gated,
+            )
+            _save_child_formsets(page, None, attachment_formset, member)
+            if draft is not None:
+                draft.delete()
+            # Whether the wanted row closes does NOT depend on the safety gate: the member
+            # wrote the page either way, and the credit is theirs. Held here rather than
+            # after the branch because a proposal is where it used to be silently skipped.
+            fulfilled = _fulfil_wanted_page(wanted_pk, page)
+            if gated and can_moderate_wiki_scope(request, page.guild):
+                page.publish_proposal(by=member, as_official=is_effective_staff(request), newly_created=True)
+                gated = False
+            elif gated:
+                page.notify_scope_of_proposal(by=member)
+    except WikiError as exc:
+        # create_page is the only realistic raiser here: a duplicate title in this scope.
+        form.add_error("title", str(exc))
+        return None
+    if gated:
+        # A full-page answer, not a toast: this is a state change the member did not
+        # expect, and it needs room to say who has it and what happens next.
+        context = _get_hub_context(request)
+        context.update({"page": page, "scope_label": _scope_label(page.guild), "is_space_wide": page.guild is None})
+        return render(request, "hub/wiki_proposal_held.html", context)
+    messages.success(
+        request,
+        "Page created. That was on the Wanted list. Thanks for writing it."
+        if fulfilled
+        else "Page created. Thanks for writing it.",
+    )
+    return redirect(page.get_absolute_url())
+
+
 @login_required
 @wiki_feature_required
 def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
@@ -676,44 +841,41 @@ def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
         fact_formset = _fact_formset(data=request.POST, page=None, prompts=starter["fact_prompts"])
         attachment_formset = _attachment_formset(data=request.POST, files=request.FILES, page=None)
         if form.is_valid() and fact_formset.is_valid() and attachment_formset.is_valid():
-            try:
-                page = WikiPage.objects.create_page(
-                    title=form.cleaned_data["title"],
-                    kind=form.cleaned_data["kind"],
-                    author=member,
-                    guild=form.cleaned_data["guild"],
-                    body=form.cleaned_data["body"],
-                    facts=_submitted_facts(fact_formset),
-                )
-            except WikiError as exc:
-                form.add_error("title", str(exc))
-            else:
-                _save_child_formsets(page, None, attachment_formset, member)
-                if draft is not None:
-                    draft.delete()
-                fulfilled = _fulfil_wanted_page(wanted_pk, page)
-                messages.success(
-                    request,
-                    "Page created. That was on the Wanted list. Thanks for writing it."
-                    if fulfilled
-                    else "Page created. Thanks for writing it.",
-                )
-                return redirect(page.get_absolute_url())
+            created = _create_page_from_form(
+                request,
+                starter=starter,
+                form=form,
+                member=member,
+                fact_formset=fact_formset,
+                attachment_formset=attachment_formset,
+                draft=draft,
+                wanted_pk=wanted_pk,
+            )
+            if created is not None:
+                return created
     else:
         if draft_mode == "fresh" and draft is not None:
             draft.delete()
             return redirect(f"{reverse('hub_wiki_create', args=[kind])}?{_carry_params(request)}")
         if draft_mode == "use" and draft is not None:
             form = WikiPageCreateForm(
-                initial={"title": draft.title, "kind": kind, "guild": draft.guild, "body": draft.body},
+                initial={
+                    "title": draft.title,
+                    "kind": starter["page_kind"],
+                    "guild": draft.guild,
+                    "body": draft.body,
+                },
                 scope_guilds=scope_guilds,
             )
             fact_formset = _fact_formset(page=None, prompts=starter["fact_prompts"], initial_facts=draft.facts)
         else:
             form = WikiPageCreateForm(
                 initial={
+                    # The starter's own kind, which is the URL segment for the six content
+                    # starters and a real kind the Safety starter picks (its segment is not
+                    # one — the brief locks the six kinds).
                     "title": request.GET.get("title", ""),
-                    "kind": kind,
+                    "kind": starter["page_kind"],
                     "guild": _prefilled_guild(request, scope_guilds),
                     "body": starter["body"],
                 },
@@ -774,24 +936,84 @@ def _draft_is_offerable(draft: WikiDraft | None, page: WikiPage | None) -> bool:
     return True
 
 
+# The marker "Open the Editor With Both" puts between the live page and the parked draft.
+# Plain text and not styled markup: it has to survive the sanitizer, read as a divider in
+# the editor, and be easy to delete once the member has merged the two by hand.
+_MERGE_MARKER = "<p>--- your version ---</p>"
+
+
+def _merge_body(page: WikiPage, draft: WikiRevision) -> str:
+    """The current page, the marker, then the parked draft — for a human to reconcile.
+
+    The one tool that can actually merge two versions is a person in an editor, so this
+    screen hands them both and gets out of the way.
+    """
+    return f"{page.body}{_MERGE_MARKER}{draft.body}"
+
+
 def _edit_forms_from(
     page: WikiPage,
     draft: WikiDraft | None,
     draft_mode: str,
     can_moderate: bool,
+    merge_draft: WikiRevision | None = None,
 ) -> tuple[WikiPageForm, Any]:
     """The unbound edit form and fact formset, populated from the page or from the draft.
 
     The saved page is the default even while the resume card is on screen: a member who
     ignores the card entirely edits the live page, which is the safe outcome. Only an
-    explicit ``?draft=use`` loads what they typed.
+    explicit ``?draft=use`` loads what they typed, and only an explicit ``?merge=<pk>``
+    from the conflict screen loads both versions stacked.
     """
+    if merge_draft is not None:
+        return (
+            WikiPageForm(
+                page=page,
+                can_moderate=can_moderate,
+                initial={"title": page.title, "body": _merge_body(page, merge_draft)},
+            ),
+            _fact_formset(page=page),
+        )
     if draft_mode == "use" and draft is not None:
         return (
             WikiPageForm(page=page, can_moderate=can_moderate, initial={"title": draft.title, "body": draft.body}),
             _fact_formset(page=page, initial_facts=draft.facts),
         )
     return WikiPageForm(page=page, can_moderate=can_moderate), _fact_formset(page=page)
+
+
+def _guard_conflict(request: HttpRequest, page: WikiPage, member: Member, form: WikiPageForm) -> None:
+    """Park the submitted text as a draft revision when somebody else saved first.
+
+    The check lives here, around ``apply_edit``, and not inside a new page method: spec A
+    owns the one save path in the round and this wraps it, so there is still exactly one
+    writer of page content.
+
+    Nothing the member typed exists anywhere but in a durable database row before they see
+    a single pixel of the conflict screen. That ordering is the entire feature.
+
+    Raises:
+        WikiSaveConflict: When the form's ``base_revision`` is older than the page's
+            newest revision. The page itself is not modified.
+    """
+    submitted = request.POST.get("base_revision", "")
+    newest = page.revisions.first()
+    if not submitted.isdigit() or newest is None or newest.pk == int(submitted):
+        return
+    draft = WikiRevision.objects.create(
+        page=page,
+        author=member,
+        kind=WikiRevision.Kind.CONFLICT_DRAFT,
+        title=form.cleaned_data["title"],
+        body=form.cleaned_data["body"],
+        # The page's CURRENT facts, because the fact formset is saved after apply_edit and
+        # has not been committed at this point. The prose is what collides; the rows the
+        # member reordered are recoverable from the live page either way.
+        facts=page.fact_snapshot(),
+        status=page.status,
+        note="Unmerged: someone else saved first",
+    )
+    raise WikiSaveConflict(draft=draft, theirs=page)
 
 
 def _apply_page_edit(
@@ -812,12 +1034,15 @@ def _apply_page_edit(
     to be saved after it and never before, or the "before" it records is already the after.
     """
     try:
+        _guard_conflict(request, page, member, form)
         page.apply_edit(
             editor=member,
             editor_may_verify=may_verify,
             title=form.cleaned_data["title"],
             body=form.cleaned_data["body"],
         )
+    except WikiSaveConflict as conflict:
+        return redirect("hub_wiki_conflict", slug=page.slug, pk=conflict.draft.pk)
     except WikiError as exc:
         form.add_error(None, str(exc))
         return None
@@ -827,8 +1052,23 @@ def _apply_page_edit(
     _save_child_formsets(page, fact_formset, attachment_formset, member)
     if draft is not None:
         draft.delete()
-    messages.success(request, "Saved. Thanks for keeping it right.")
+    WikiEditLock.release(page, member)
+    messages.success(request, _saved_message(request, page, can_moderate))
     return redirect(page.get_absolute_url())
+
+
+def _saved_message(request: HttpRequest, page: WikiPage, can_moderate: bool) -> str:
+    """The Save confirmation, which for a moderator carries the action the page still needs.
+
+    The path a lead actually walks is banner, Edit, fix the sentence, Save — and nothing on
+    it resolved anything, so the page kept quoting a complaint about a sentence that no
+    longer existed. Deliberately a prompt and not an automatic resolve: a staff edit is
+    often unrelated to the report, and silently closing somebody's report because a typo
+    got fixed is exactly the "nobody looked at this" failure the queue exists to prevent.
+    """
+    if can_moderate and page.reports.filter(resolved_at__isnull=True).exists():
+        return "Saved. This page still has a report open, waiting to be marked reviewed."
+    return "Saved. Thanks for keeping it right."
 
 
 @login_required
@@ -848,10 +1088,13 @@ def hub_wiki_edit(request: HttpRequest, slug: str) -> HttpResponse:
     if member is None or not can_edit_wiki_page(request, page):
         return _forbidden()
 
-    can_moderate = _can_moderate_wiki_page(request, page)
+    can_moderate = can_moderate_wiki_page(request, page)
     may_verify = can_verify_wiki_page(request, page)
     draft = WikiDraft.objects.filter(page=page, author=member).first()
     draft_mode = request.GET.get("draft", "")
+    # Claimed on the GET only. A POST is the save, and claiming there would hand the lock
+    # to whoever just finished rather than to whoever is still typing.
+    lock_warning = WikiEditLock.claim(page, member) if request.method == "GET" else None
 
     if request.method == "POST":
         form = WikiPageForm(request.POST, page=page, can_moderate=can_moderate)
@@ -875,7 +1118,9 @@ def hub_wiki_edit(request: HttpRequest, slug: str) -> HttpResponse:
         if draft_mode == "fresh" and draft is not None:
             draft.delete()
             return redirect(reverse("hub_wiki_edit", args=[page.slug]))
-        form, fact_formset = _edit_forms_from(page, draft, draft_mode, can_moderate)
+        merge_pk = request.GET.get("merge", "")
+        merge_draft = _conflict_or_none(page, int(merge_pk)) if merge_pk.isdigit() else None
+        form, fact_formset = _edit_forms_from(page, draft, draft_mode, can_moderate, merge_draft)
         attachment_formset = _attachment_formset(page=page)
 
     newest_revision = page.revisions.first()
@@ -896,6 +1141,7 @@ def hub_wiki_edit(request: HttpRequest, slug: str) -> HttpResponse:
             "autosave_url": reverse("hub_wiki_autosave", args=[page.slug]),
             "cancel_url": page.get_absolute_url(),
             "base_revision": base_revision or (newest_revision.pk if newest_revision is not None else ""),
+            "lock_warning": lock_warning,
         }
     )
     return render(request, "hub/wiki_edit.html", context)
@@ -1165,7 +1411,16 @@ def hub_wiki_drafts(request: HttpRequest) -> HttpResponse:
         WikiPage.objects.filter(is_published=False, created_by=member).not_archived().select_related("guild")
     )
     context = _get_hub_context(request)
-    context.update({"drafts": list(WikiDraft.objects.for_member(member)), "held_pages": held_pages})
+    context.update(
+        {
+            # openable_for and not for_member: once the safety gate can hold a page back,
+            # archiving can lock it, and publishing can make it Official, a member can be
+            # left holding a draft whose editor now refuses them — and this page would list
+            # the title and then 403 on "Keep Writing".
+            "drafts": WikiDraft.objects.openable_for(request, member),
+            "held_pages": held_pages,
+        }
+    )
     return render(request, "hub/wiki_drafts.html", context)
 
 
@@ -1284,6 +1539,53 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
     )
 
 
+# --- Moderation: report, withdraw, resolve (spec D §6.1-6.5) --------------------------
+
+
+def _review_link(request: HttpRequest) -> tuple[bool, int]:
+    """``(may open the queue, items waiting)`` for the wiki home's link.
+
+    "Waiting" is BOTH lists the queue shows: open reports and held safety proposals. It
+    counted reports alone at first, so a lead with three proposals and no reports saw a
+    bare "Review queue" with no number — on the very screen added to make held proposals
+    discoverable, chased by the very event added to announce them.
+
+    One call, because every answer comes off the same two-query scope lookup and the home
+    page's query count is budgeted: asking twice put four avoidable queries on the busiest
+    screen in the feature.
+    """
+    guilds, space_wide = moderatable_wiki_scopes(request)
+    if not guilds and not space_wide:
+        return False, 0
+    guild_ids = [guild.pk for guild in guilds]
+    reports = WikiReport.objects.open().for_scopes(guild_ids, include_space_wide=space_wide).count()
+    proposals = (
+        _scoped_pages(guild_ids, space_wide=space_wide)
+        .filter(archived_at__isnull=True, is_published=False, status=WikiPage.Status.OFFICIAL)
+        .count()
+    )
+    return True, reports + proposals
+
+
+def _scope_label(guild: Guild | None) -> str:
+    """The quiet neutral attribute chip a queue row carries. Never a coloured pill."""
+    return guild.name if guild is not None else "Space-wide"
+
+
+def _report_response(request: HttpRequest, page: WikiPage, *, status: int = 200) -> HttpResponse:
+    """The report modal's body, plus OOB swaps for the banner and both Report controls.
+
+    A 204 cannot carry an ``hx-swap-oob`` swap, so a "204 plus a toast plus an OOB" would
+    toast success over a stale screen. This is a 200 whose body resets the modal and whose
+    out-of-band fragments update the two things the member is looking at.
+    """
+    context = _get_hub_context(request)
+    context.update({"page": page, "oob": True})
+    context.update(_review_banner_context(request, page))
+    context["can_moderate"] = can_moderate_wiki_page(request, page)
+    return render(request, "hub/partials/_wiki_report_result.html", context, status=status)
+
+
 # --- The guild Wiki tab: verification and wanted pages (spec B) ------------------------
 
 # How many wanted rows one page of the dedicated list shows before the pager takes over.
@@ -1361,6 +1663,149 @@ def _wanted_row_context(
         # would point at the first one.
         context["fulfil_form"] = WikiWantedFulfilForm(pages=pages, prefix=f"fulfil{row.pk}")
     return context
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_report(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/report/`` — say this page is wrong, in two taps.
+
+    The reporter sees the amber banner appear with their own words in it, on the page they
+    were reading. That is the answer to "what happens next": the toast says who was told,
+    the banner shows the effect.
+    """
+    page = _page_or_none(slug)
+    if page is None or _hidden_from(request, page) or page.archived_at is not None:
+        return _not_found(request)
+    member = _active_member(request)
+    if member is None:
+        return _forbidden()
+    form = WikiReportForm(request.POST)
+    if not form.is_valid():
+        context = _get_hub_context(request)
+        context.update({"page": page, "report_form": form})
+        return render(request, "hub/partials/_wiki_report_form.html", context, status=200)
+    try:
+        WikiReport.file(page=page, reporter=member, reason=form.cleaned_data["reason"])
+    except DuplicateWikiReport as exc:
+        # Not an error page: they did nothing wrong, and the state they are in is exactly
+        # the one the "You reported this" control describes.
+        response = _report_response(request, page)
+        trigger_toast(response, str(exc), "info")
+        trigger_client_event(response, "close-modal", "wiki-report")
+        return response
+    response = _report_response(request, page)
+    # Order matters: trigger_toast OVERWRITES HX-Trigger and trigger_client_event merges
+    # into it, so a toast set second is silently dropped.
+    trigger_toast(response, "Thanks. A guild lead has been notified.", "success")
+    trigger_client_event(response, "close-modal", "wiki-report")
+    return response
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_report_withdraw(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/report/withdraw/`` — take back my own misfire.
+
+    Keyed on the page and the requester rather than on a report id, so the confirmation
+    rendered with the page never goes stale against a report filed after it loaded.
+    """
+    page = _page_or_none(slug)
+    if page is None or _hidden_from(request, page):
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None:
+        return _forbidden()
+    report = WikiReport.objects.open().for_page(page).filter(reporter=member).first()
+    if report is None:
+        messages.info(request, "You do not have a report open on this page.")
+        return redirect(page.get_absolute_url())
+    report.withdraw(by=member)
+    messages.success(request, "Report withdrawn.")
+    return redirect(page.get_absolute_url())
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_report_resolve(request: HttpRequest, pk: int) -> HttpResponse:
+    """``/wiki/report/<pk>/resolve/`` — one view for both places a lead can close a report.
+
+    The queue card and the amber banner open the same modal and post here; only the swap
+    differs, and the caller says which with a ``source`` field. Marking a report reviewed
+    from the banner is the fix for the round's worst half-built loop: the path a lead walks
+    is banner, Edit, fix the sentence, and nothing on it used to resolve anything.
+    """
+    report = WikiReport.objects.select_related("page", "page__guild", "reporter").filter(pk=pk).first()
+    if report is None:
+        raise Http404("No such report.")
+    if not can_moderate_wiki_page(request, report.page):
+        return _forbidden()
+    member = _editing_member(request)
+    if member is None:
+        return _forbidden()
+    form = WikiResolveForm(request.POST)
+    from_banner = request.POST.get("source") == "banner"
+    if not form.is_valid():
+        # Never resolve on invalid input, and never drop what they typed behind a green
+        # toast. The success swap targets the card or the banner, so the error response is
+        # retargeted at the modal body it was typed into — htmx's documented mechanism for
+        # exactly this split.
+        context = _get_hub_context(request)
+        context.update(
+            {
+                "report": report,
+                "resolve_form": form,
+                "source": request.POST.get("source", ""),
+                "resolve_target": request.POST.get("resolve_target", ""),
+            }
+        )
+        response = render(request, "hub/partials/_wiki_resolve_form.html", context)
+        response["HX-Retarget"] = f"#resolve-{report.pk}-body"
+        response["HX-Reswap"] = "innerHTML"
+        return response
+    note = form.cleaned_data["resolution"]
+    try:
+        report.resolve(by=member, note=note)
+    except AlreadyResolved as exc:
+        message, tone = str(exc), "info"
+    else:
+        message, tone = "Marked reviewed.", "success"
+    if from_banner:
+        page = report.page
+        context = _get_hub_context(request)
+        context.update({"page": page, "can_moderate": True})
+        context.update(_review_banner_context(request, page))
+        response = render(request, "hub/partials/_wiki_review_banner.html", context)
+    else:
+        guilds, space_wide = moderatable_wiki_scopes(request)
+        remaining = (
+            WikiReport.objects.open().for_scopes([guild.pk for guild in guilds], include_space_wide=space_wide).exists()
+        )
+        context = _get_hub_context(request)
+        context.update({"remaining": remaining})
+        response = render(request, "hub/partials/_wiki_review_resolved.html", context)
+    trigger_toast(response, message, tone)
+    trigger_client_event(response, "close-modal", f"resolve-{report.pk}")
+    return response
+
+
+def _queue_scope_line(guilds: list[Guild], space_wide: bool) -> str:
+    """What this reviewer is being shown, said out loud. A queue that silently filters is
+    a queue people stop trusting."""
+    if space_wide:
+        return "Showing every scope."
+    names = [guild.name for guild in guilds]
+    if not names:
+        return "You do not lead or staff a guild yet."
+    if len(names) == 1:
+        return f"Showing reports for {names[0]}."
+    return f"Showing reports for {', '.join(names[:-1])} and {names[-1]}."
+
+
+_REVIEW_PAGE_SIZE = 25
 
 
 @login_required
@@ -1447,6 +1892,94 @@ def _verify_fragment(request: HttpRequest, page: WikiPage) -> tuple[str, dict[st
 
 @login_required
 @wiki_feature_required
+def hub_wiki_review(request: HttpRequest) -> HttpResponse:
+    """``/wiki/review/`` — what is waiting on this moderator, oldest first.
+
+    Two lists on the open view (reported pages, and safety pages waiting on a second read)
+    and a third on ``?archived=1``, which exists because Restore used to live only on the
+    tombstone — reachable only by somebody who already knew the slug, so an over-archive,
+    the exact failure that ends a contributor's participation, was unfixable in practice.
+
+    Only ONE list is ever paginated: ``table_pagination.html`` hard-codes ``?page=`` in
+    every link it builds, so two paginators on one screen would drive each other.
+    """
+    guilds, space_wide = moderatable_wiki_scopes(request)
+    if not guilds and not space_wide:
+        return _forbidden()
+    guild_ids = [guild.pk for guild in guilds]
+    archived_view = request.GET.get("archived") == "1"
+
+    context = _get_hub_context(request)
+    context.update(
+        {
+            "archived_view": archived_view,
+            "scope_line": _queue_scope_line(guilds, space_wide),
+            "is_admin_scope": space_wide,
+            "open_url": reverse("hub_wiki_review"),
+            "archived_url": f"{reverse('hub_wiki_review')}?archived=1",
+        }
+    )
+    if archived_view:
+        archived = _scoped_pages(guild_ids, space_wide=space_wide).filter(archived_at__isnull=False)
+        context["archived_page"] = Paginator(
+            archived.select_related("guild", "archived_by").order_by("-archived_at"), _REVIEW_PAGE_SIZE
+        ).get_page(request.GET.get("page"))
+        context["base_params"] = "archived=1"
+        return render(request, "hub/wiki_review.html", context)
+
+    reports = (
+        WikiReport.objects.open()
+        .for_scopes(guild_ids, include_space_wide=space_wide)
+        .select_related("page", "page__guild", "reporter")
+    )
+    proposals = (
+        _scoped_pages(guild_ids, space_wide=space_wide)
+        .filter(archived_at__isnull=True, is_published=False, status=WikiPage.Status.OFFICIAL)
+        .select_related("guild", "created_by")
+        .order_by("created_at")
+    )
+    context.update(
+        {
+            "reports_page": Paginator(reports, _REVIEW_PAGE_SIZE).get_page(request.GET.get("page")),
+            "proposals": list(proposals),
+            "resolve_form": WikiResolveForm(),
+            "decline_form": WikiDeclineForm(),
+            "publishes_as_official": space_wide,
+            "base_params": "",
+        }
+    )
+    return render(request, "hub/wiki_review.html", context)
+
+
+def _scoped_pages(guild_ids: list[int], *, space_wide: bool) -> Any:
+    """Wiki pages inside one moderator's scopes, as a filter and not a per-row check."""
+    from django.db.models import Q
+
+    condition = Q(guild_id__in=guild_ids)
+    if space_wide:
+        condition |= Q(guild__isnull=True)
+    return WikiPage.objects.filter(condition)
+
+
+# --- Moderation: the official note (spec D §6.6) --------------------------------------
+
+
+def _note_response(request: HttpRequest, page: WikiPage) -> HttpResponse:
+    """The note modal's body reset, plus an OOB swap of the rendered note region."""
+    context = _get_hub_context(request)
+    context.update(
+        {
+            "page": page,
+            "can_moderate": True,
+            "note_form": WikiOfficialNoteForm(initial={"note": page.official_note}),
+            "oob": True,
+        }
+    )
+    return render(request, "hub/partials/_wiki_official_note_result.html", context)
+
+
+@login_required
+@wiki_feature_required
 def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
     """``/wiki/wanted/`` — the list every member can work, and the editor leads curate.
 
@@ -1509,6 +2042,86 @@ def hub_wiki_wanted(request: HttpRequest) -> HttpResponse:
         }
     )
     return render(request, "hub/wiki_wanted.html", context)
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_official_note(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/note/`` — write the locked staff callout above the member content."""
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    form = WikiOfficialNoteForm(request.POST)
+    if not form.is_valid():
+        context = _get_hub_context(request)
+        context.update({"page": page, "note_form": form})
+        return render(request, "hub/partials/_wiki_official_note_form.html", context)
+    page.set_official_note(text=form.cleaned_data["note"], by=member)
+    response = _note_response(request, page)
+    trigger_toast(response, "Official note saved.", "success")
+    trigger_client_event(response, "close-modal", "wiki-official-note")
+    return response
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_official_note_remove(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/note/remove/`` — take the note off. The page's text is untouched."""
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    try:
+        page.clear_official_note(by=member)
+    except WikiError as exc:
+        message, tone = str(exc), "info"
+    else:
+        message, tone = "Official note removed.", "success"
+    context = _get_hub_context(request)
+    context.update({"page": page, "can_moderate": True})
+    response = render(request, "hub/partials/_wiki_official_note.html", context)
+    trigger_toast(response, message, tone)
+    return response
+
+
+# --- Moderation: archive, tombstone, restore (spec D §6.7) ----------------------------
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_archive(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/archive/`` — remove the page, keep the URL, tell the author why."""
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    form = WikiArchiveForm(request.POST)
+    if not form.is_valid():
+        # A blank reason still POSTs with JavaScript off; the flag on the confirm modal is
+        # a courtesy and this is the gate.
+        messages.error(request, "Add a reason. The author will read it.")
+        return redirect(page.get_absolute_url())
+    try:
+        page.archive(by=member, reason=form.cleaned_data["reason"])
+    except (AlreadyArchived, WikiError) as exc:
+        messages.error(request, str(exc))
+        return redirect(page.get_absolute_url())
+    author = page.created_by
+    messages.success(
+        request,
+        f"Page archived. {author.display_name} has been emailed." if author is not None else "Page archived.",
+    )
+    return redirect(page.get_absolute_url())
 
 
 @login_required
@@ -1610,6 +2223,291 @@ def hub_wiki_wanted_fulfil(request: HttpRequest, pk: int) -> HttpResponse:
     )
     trigger_toast(response, "Marked as written. Nice.")
     trigger_client_event(response, "close-modal", f"wiki-wanted-fulfil-{row.pk}")
+    return response
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_restore(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/restore/`` — put an archived page back for every member."""
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    try:
+        page.restore(by=member)
+    except WikiError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, "Page restored.")
+    return redirect(page.get_absolute_url())
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_set_redirect(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/redirect/`` — point a tombstone's readers at a live replacement."""
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    # The form's own queryset is the rule — live pages in this page's scope, never this
+    # page and never another tombstone — so a crafted pk fails validation here rather than
+    # reaching the model. ``set_archive_redirect`` re-checks it for programmatic callers.
+    form = WikiRedirectForm(request.POST, page=page)
+    if not form.is_valid():
+        messages.error(request, "Pick a live page in the same scope.")
+        return redirect(page.get_absolute_url())
+    page.set_archive_redirect(target=form.cleaned_data["target"])
+    messages.success(request, "Readers will be pointed there.")
+    return redirect(page.get_absolute_url())
+
+
+# --- Moderation: history and revert (spec D §6.8) -------------------------------------
+
+
+_HISTORY_PAGE_SIZE = 50
+
+
+@login_required
+@wiki_feature_required
+def hub_wiki_history(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/history/`` — every saved version, and a staff-only Revert.
+
+    Any member may read it: seeing that a page has been worked on is part of trusting it.
+    ``?revision=<pk>`` renders one old version read-only, which answers "what did it used
+    to say" at a hundredth of the cost of a word-level diff viewer — including for an
+    unmerged conflict draft, without which the conflict screen's promise that "your
+    version stays in this page's history" would be true and unreachable.
+    """
+    page = _page_or_none(slug)
+    if page is None or _hidden_from(request, page):
+        return _not_found(request)
+    can_moderate = can_moderate_wiki_page(request, page)
+    context = _get_hub_context(request)
+    context.update({"page": page, "can_moderate": can_moderate, "can_edit": can_edit_wiki_page(request, page)})
+
+    requested = request.GET.get("revision", "")
+    if requested.isdigit():
+        revision = page.revisions.select_related("author").filter(pk=int(requested)).first()
+        if revision is None:
+            return _not_found(request)
+        context.update(
+            {
+                "revision": revision,
+                "is_draft": revision.kind == WikiRevision.Kind.CONFLICT_DRAFT,
+                "can_use_draft": can_edit_wiki_page(request, page),
+            }
+        )
+        return render(request, "hub/wiki_revision.html", context)
+
+    revisions = page.revisions.select_related("author")
+    revisions_page = Paginator(revisions, _HISTORY_PAGE_SIZE).get_page(request.GET.get("page"))
+    # create_page writes version one with the page's OWN title, body and facts, so every
+    # seeded Equipment stub and every brand-new page has a row whose Revert could only
+    # ever answer "That is already the current version." Those stubs are the launch
+    # content, so the button is not rendered on a row that already equals the page.
+    facts = page.fact_snapshot()
+    for revision in revisions_page:
+        revision.is_revertible = not revision.matches(title=page.title, body=page.body, facts=facts)
+    context["revisions_page"] = revisions_page
+    return render(request, "hub/wiki_history.html", context)
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_revert(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """``/wiki/p/<slug>/revert/<pk>/`` — put an older version back, on top, staff only.
+
+    Gated on ``can_edit_wiki_page`` AS WELL AS ``can_moderate_wiki_page``, because a
+    revert rewrites the page's title, body and facts wholesale — it is an edit, and the
+    edit gate is the one that keeps Official content away from a guild's staff. Without
+    it a guild treasurer refused the Edit button on a safety policy could open History and
+    rewrite the whole thing with the Official chip still on it, no officer involved.
+    ``revert_to`` deliberately does not touch ``status``, so nothing downstream catches it.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not (can_moderate_wiki_page(request, page) and can_edit_wiki_page(request, page)):
+        return _forbidden()
+    revision = page.revisions.filter(pk=pk).first()
+    if revision is None:
+        raise Http404("No such version.")
+    try:
+        page.revert_to(revision=revision, by=member)
+    except NothingToRevert as exc:
+        messages.error(request, str(exc))
+    except WikiError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"Reverted to the {timezone.localtime(revision.created_at):%-d %B} version.")
+    return redirect(page.get_absolute_url())
+
+
+# --- Moderation: the conflict save (spec D §6.10) -------------------------------------
+
+
+def _conflict_or_none(page: WikiPage, pk: int) -> WikiRevision | None:
+    """The parked draft revision for this page, or None."""
+    return page.revisions.select_related("author").filter(pk=pk, kind=WikiRevision.Kind.CONFLICT_DRAFT).first()
+
+
+@login_required
+@wiki_feature_required
+def hub_wiki_conflict(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """``/wiki/p/<slug>/conflict/<pk>/`` — pick what should be on the page. Nothing is lost.
+
+    The right card renders ``page.body``, the live page, and never
+    ``page.revisions.first()``: spec A stores the PRE-edit snapshot, so the newest revision
+    row is the version before the other person's save — the exact one this screen exists to
+    reconcile away from. Only the name and the time come from the revision row.
+    """
+    page = _page_or_none(slug)
+    if page is None or _hidden_from(request, page):
+        return _not_found(request)
+    member = _editing_member(request)
+    draft = _conflict_or_none(page, pk)
+    if draft is None:
+        raise Http404("No such conflict.")
+    mine = member is not None and draft.author_id == member.pk
+    if not mine and not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    theirs = page.revisions.select_related("author").exclude(kind=WikiRevision.Kind.CONFLICT_DRAFT).first()
+    context = _get_hub_context(request)
+    context.update(
+        {
+            "page": page,
+            "draft": draft,
+            "theirs": theirs,
+            "already_applied": page.body == draft.body and page.title == draft.title,
+            "merge_url": f"{reverse('hub_wiki_edit', args=[page.slug])}?merge={draft.pk}",
+        }
+    )
+    return render(request, "hub/wiki_conflict.html", context)
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_conflict_keep(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
+    """``/wiki/p/<slug>/conflict/<pk>/keep/`` — apply a parked draft as an ordinary edit.
+
+    There is no ``apply_conflict_draft``: promoting a draft is an ordinary save whose text
+    happens to come from a stored row, and routing it through the one save method keeps the
+    verified-drop rule, the search-text rebuild and the activity row identical to every
+    other save. The ``CONFLICT_DRAFT`` row stays in place forever as the record.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_edit_wiki_page(request, page):
+        return _forbidden()
+    draft = _conflict_or_none(page, pk)
+    if draft is None:
+        raise Http404("No such conflict.")
+    if draft.author_id != member.pk and not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    try:
+        page.apply_edit(
+            editor=member,
+            editor_may_verify=can_verify_wiki_page(request, page),
+            title=draft.title,
+            body=draft.body,
+            note="Resolved an edit conflict",
+        )
+    except WikiError as exc:
+        messages.error(request, str(exc))
+        return redirect(page.get_absolute_url())
+    # apply_edit owns title and body; the facts come from the draft's own snapshot, which
+    # is why A snapshots them at all — restoring the prose and not the Quick Answers leaves
+    # a page whose summary contradicts its text.
+    # Atomic for the same reason revert_to's identical delete-then-create is: a failure
+    # between the two would leave the winner's prose with no Quick Answers at all,
+    # permanently, and this project sets no ATOMIC_REQUESTS.
+    with transaction.atomic():
+        page.restore_facts(draft.facts)
+        page.rebuild_search_text()
+        page.save(update_fields=["search_text"])
+    WikiEditLock.release(page, member)
+    messages.success(request, "Your version is on the page. The other one is still in the history.")
+    return redirect(page.get_absolute_url())
+
+
+# --- Moderation: the safety gate (spec D §6.11) ---------------------------------------
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_publish_proposal(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/publish/`` — publish a held safety page at YOUR OWN authority.
+
+    An admin publishing lands it Official; a guild lead or staff lands it Guild verified.
+    One button, an honest outcome, and no escalation ladder to build.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    as_official = is_effective_staff(request)
+    try:
+        page.publish_proposal(by=member, as_official=as_official)
+    except WikiError as exc:
+        message, tone = str(exc), "info"
+    else:
+        message = "Published as an Official page." if as_official else "Published as Guild verified."
+        tone = "success"
+    response = render(request, "hub/partials/_wiki_review_card_done.html", {"line": message})
+    trigger_toast(response, message, tone)
+    return response
+
+
+@login_required
+@wiki_feature_required
+@require_POST
+def hub_wiki_decline_proposal(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/decline/`` — send a safety proposal back with something to act on.
+
+    Not a shrug: the reviewer's words land on the page's own history AND in the author's
+    inbox, the page stays a draft, nothing is deleted, and the author may edit their own
+    unpublished proposal to answer it.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    form = WikiDeclineForm(request.POST)
+    if not form.is_valid():
+        context = _get_hub_context(request)
+        context.update({"proposal": page, "decline_form": form})
+        return render(request, "hub/partials/_wiki_decline_form.html", context)
+    try:
+        page.decline_proposal(by=member, note=form.cleaned_data["note"])
+    except WikiError as exc:
+        message, tone = str(exc), "info"
+    else:
+        message, tone = "Sent back to the author.", "success"
+    response = render(
+        request,
+        "hub/partials/_wiki_decline_result.html",
+        {"line": message, "proposal": page},
+    )
+    trigger_toast(response, message, tone)
+    trigger_client_event(response, "close-modal", f"wiki-decline-{page.pk}")
     return response
 
 

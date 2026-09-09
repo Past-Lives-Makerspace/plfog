@@ -1,0 +1,29 @@
+{% comment %}
+One member's quoted reason, escaped, with an expander when the clamp could be hiding text.
+
+NEVER run through the renderer. It is member free text shown to every reader, and a
+renderer buys nothing here but an XSS surface.
+
+expand_over is the PHONE's capacity, not the desktop's, and deliberately so. The clamp is
+a CSS fact the server cannot measure, so this is a guess either way — and the two errors
+are not equal. Guess too high and a 150-character report is clamped on a 390px screen with
+no expander at all, so the tail is unreachable on the device where reporting actually
+happens. Guess too low and a rare short-but-over-threshold reason shows a button that does
+nothing when tapped. The second error is much the cheaper one, so the threshold is the
+narrow width's three lines (about 120 characters at 0.9rem italic in a card), not the
+desktop's.
+
+Parameters:
+  reason       — required.
+  clamp_class  — optional, e.g. pl-wp-mod__quote--short for the 2-line clamp.
+  expand_over  — optional, the character count above which the expander renders.
+                 Defaults to the 3-line clamp's phone capacity; pass 80 with the 2-line one.
+{% endcomment %}
+<div class="pl-wp-mod__quotewrap" x-data="{ expanded: false }">
+    <blockquote class="pl-wp-mod__quote {{ clamp_class }}"
+                :class="expanded ? 'pl-wp-mod__quote--open' : ''">{{ reason }}</blockquote>
+    {% if reason|length > expand_over|default:120 %}
+    <button type="button" class="pl-wp-mod__more" @click="expanded = !expanded"
+            x-text="expanded ? 'Show less' : 'Show more'">Show more</button>
+    {% endif %}
+</div>

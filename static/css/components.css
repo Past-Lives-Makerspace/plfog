@@ -608,6 +608,31 @@
     color: var(--hub-text-muted, #96ACBB);
 }
 
+/* The bare input confirm_modal.html renders for its note and typed-confirmation fields.
+   That markup has always claimed this class and nothing ever defined it, so both inputs
+   shipped as browser-default white boxes with near-invisible text on the Obsidian theme,
+   for every caller. Defined here beside .pl-form-label and .pl-field-hint (the same
+   markup's other two classes) and mirroring .hub-form-group's input rule, so it inherits
+   both themes from the input tokens rather than restyling the labels of three shipped
+   screens the way a .hub-form-group wrapper would. */
+.pl-input {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    font-family: var(--font-body);
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+    background-color: var(--hub-input-bg);
+    border: 1px solid var(--hub-input-border);
+    border-radius: 6px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pl-input:focus {
+    outline: none;
+    border-color: var(--color-tuscan-yellow);
+    box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.15);
+}
+
 .pl-form-group input,
 .pl-form-group select,
 .pl-form-group textarea {
@@ -868,6 +893,30 @@
 
 .pl-btn--success:hover {
     background: #37a259;
+}
+
+/* Low-emphasis inline action, the pl-btn twin of .hub-btn--ghost. Nine wiki-moderation
+   controls claimed this modifier while nothing defined it, so every "ghost" control
+   rendered as a bare .pl-btn: no background, no colour, indistinguishable from the solid
+   buttons beside it, and the graduated escalation the markup describes did not render.
+   Same species as the .pl-input bug above, fixed the same way. */
+.pl-btn--ghost {
+    background: transparent;
+    color: var(--hub-text-muted);
+    border: 1px solid var(--hub-border-strong);
+}
+
+.pl-btn--ghost:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--hub-text);
+    border-color: var(--hub-text-muted);
+}
+
+/* A white wash over a light card is no wash at all. The house idiom for this is a
+   [data-theme="light"] override (see .pl-confirm-warn), not color-mix, which appears
+   nowhere in this stylesheet. */
+[data-theme="light"] .pl-btn--ghost:hover {
+    background: rgba(0, 0, 0, 0.05);
 }
 
 .pl-btn--sm {

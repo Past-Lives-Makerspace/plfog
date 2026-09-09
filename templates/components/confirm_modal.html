@@ -37,9 +37,14 @@ Parameters (pass via {% include ... with %}):
   both plain-POST and HTMX modes):
   confirm_note_name        — when set, an optional single-line text input renders above the
                              buttons and posts under this name (e.g. "reason", "note").
-  confirm_note_label       — the input's label (default: "Note (optional)").
+  confirm_note_label       — the input's label (default: "Note (optional)", or "Note" when
+                             confirm_note_required is set).
   confirm_note_placeholder — the input's placeholder (default: empty).
   confirm_note_hint        — optional hint line under the input.
+  confirm_note_required    — optional, opt-in. Keeps Confirm disabled until the note is
+                             non-blank as well as (where used) the typed value matching.
+                             A courtesy only: the view stays the real gate, so a JS-off
+                             POST with a blank note is still the view's to reject.
 
   Rich-body mode (optional): confirm_body_include — a template path included after the
   message, rendered with the including context (per-row conditional copy, links).
@@ -71,7 +76,7 @@ Parameters (pass via {% include ... with %}):
             {% if confirm_message %}<p style="margin:0 0 1.5rem;">{{ confirm_message }}</p>{% endif %}
             {% if confirm_body_include %}{% include confirm_body_include %}{% endif %}
             {% if confirm_note_name %}
-            <label class="pl-form-label" for="{{ confirm_id }}-note">{{ confirm_note_label|default:"Note (optional)" }}</label>
+            <label class="pl-form-label" for="{{ confirm_id }}-note">{% if confirm_note_label %}{{ confirm_note_label }}{% elif confirm_note_required %}Note{% else %}Note (optional){% endif %}</label>
             <input type="text" id="{{ confirm_id }}-note" x-model="note" autocomplete="off"
                    placeholder="{{ confirm_note_placeholder|default:'' }}"
                    class="pl-input" style="width:100%; margin:0 0 1rem;">
@@ -100,7 +105,8 @@ Parameters (pass via {% include ... with %}):
                       style="flex:1;">
                     {% csrf_token %}
                     {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
-                    <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;" hx-disabled-elt="this">
+                    <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;" hx-disabled-elt="this"
+                            {% if confirm_note_required %}:disabled="note.trim() === ''"{% endif %}>
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>
                 </form>
@@ -111,7 +117,7 @@ Parameters (pass via {% include ... with %}):
                     {% if confirm_note_name %}<input type="hidden" name="{{ confirm_note_name }}" :value="note">{% endif %}
                     {% if confirm_typed_value %}<input type="hidden" name="{{ confirm_typed_field_name|default:'confirm' }}" :value="typed">{% endif %}
                     <button type="submit" class="pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}" style="width:100%;"
-                            {% if confirm_typed_value %}:disabled="typed !== '{{ confirm_typed_value }}'"{% endif %}>
+                            {% if confirm_typed_value and confirm_note_required %}:disabled="typed !== '{{ confirm_typed_value }}' || note.trim() === ''"{% elif confirm_typed_value %}:disabled="typed !== '{{ confirm_typed_value }}'"{% elif confirm_note_required %}:disabled="note.trim() === ''"{% endif %}>
                         {{ confirm_button_text|default:"Confirm" }}
                     </button>
                 </form>

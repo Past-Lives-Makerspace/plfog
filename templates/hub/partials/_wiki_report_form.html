@@ -1,0 +1,17 @@
+{% comment %}
+The report modal's body, and the target the bound form re-renders into on an error.
+
+The explicit hx-target is load-bearing: without it an error response has nowhere to land,
+and a member who typed three sentences and tripped the ten-character floor loses them.
+Send Report is the last element in the form (Rule 21).
+{% endcomment %}
+<p class="hub-text-muted">Tell us what is wrong. The page stays up and readable while a guild lead takes a look.</p>
+<form hx-post="{% url 'hub_wiki_report' page.slug %}" hx-target="#wiki-report-body" hx-swap="innerHTML">
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=report_form.reason field_hint="What is wrong, and what should it say instead if you know?" %}
+    <div class="pl-wp-mod__modal-actions">
+        <button type="button" class="pl-btn pl-btn--secondary"
+                @click="$dispatch('close-modal', 'wiki-report')">Cancel</button>
+        <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Send Report</button>
+    </div>
+</form>

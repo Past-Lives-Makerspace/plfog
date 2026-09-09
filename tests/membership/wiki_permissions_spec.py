@@ -16,10 +16,12 @@ from classes.factories import UserFactory
 from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
 from membership.models import GuildStaffMembership, Member, WikiPage
 from membership.permissions import (
-    _can_moderate_wiki_page,
     can_edit_wiki_page,
+    can_moderate_wiki_page,
+    can_moderate_wiki_scope,
     can_verify_wiki_page,
     editable_wiki_scopes,
+    moderatable_wiki_scopes,
     visible_wiki_pages,
 )
 from tests.membership.factories import (
@@ -224,29 +226,29 @@ def describe_can_verify_wiki_page():
 
 
 def describe_can_moderate_wiki_page():
-    """The private stand-in spec D replaces with its public version, unchanged."""
+    """Spec D's public page-scoped moderation gate, which replaced A's private stand-in."""
 
     def it_allows_a_guild_lead_in_their_own_guild():
         user = UserFactory(username="mod@example.com")
         guild = GuildFactory(guild_lead=user.member)
         request = _request(user, roles={ROLE_MEMBER})
-        assert _can_moderate_wiki_page(request, WikiPageFactory(guild=guild)) is True
+        assert can_moderate_wiki_page(request, WikiPageFactory(guild=guild)) is True
 
     def it_denies_that_lead_in_another_guild():
         user = UserFactory(username="mod2@example.com")
         GuildFactory(guild_lead=user.member)
         request = _request(user, roles={ROLE_MEMBER})
-        assert _can_moderate_wiki_page(request, WikiPageFactory(guild=GuildFactory())) is False
+        assert can_moderate_wiki_page(request, WikiPageFactory(guild=GuildFactory())) is False
 
     def it_denies_a_lead_on_a_space_wide_page():
         user = UserFactory(username="mod3@example.com")
         GuildFactory(guild_lead=user.member)
         request = _request(user, roles={ROLE_MEMBER})
-        assert _can_moderate_wiki_page(request, WikiPageFactory()) is False
+        assert can_moderate_wiki_page(request, WikiPageFactory()) is False
 
     def it_allows_effective_staff_anywhere():
         request = _request(UserFactory(username="mod4@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
-        assert _can_moderate_wiki_page(request, WikiPageFactory()) is True
+        assert can_moderate_wiki_page(request, WikiPageFactory()) is True
 
 
 def describe_visible_wiki_pages():
@@ -297,3 +299,54 @@ def describe_editable_wiki_scopes():
         request = _request(user, roles={ROLE_MEMBER})
         guilds, _ = editable_wiki_scopes(request)
         assert len(guilds) == 1
+
+
+def describe_can_moderate_wiki_scope():
+    """The page-less twin, for the moment the safety gate decides before a page exists."""
+
+    def it_allows_a_lead_in_their_own_guild():
+        user = UserFactory(username="scope_mod@example.com")
+        guild = GuildFactory(guild_lead=user.member)
+        request = _request(user, roles={ROLE_MEMBER})
+        assert can_moderate_wiki_scope(request, guild) is True
+
+    def it_denies_a_lead_the_space_wide_scope():
+        user = UserFactory(username="scope_mod2@example.com")
+        GuildFactory(guild_lead=user.member)
+        request = _request(user, roles={ROLE_MEMBER})
+        assert can_moderate_wiki_scope(request, None) is False
+
+    def it_allows_effective_staff_the_space_wide_scope():
+        request = _request(UserFactory(username="scope_mod3@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
+        assert can_moderate_wiki_scope(request, None) is True
+
+    def it_agrees_with_the_page_scoped_twin():
+        user = UserFactory(username="scope_mod4@example.com")
+        guild = GuildFactory(guild_lead=user.member)
+        request = _request(user, roles={ROLE_MEMBER})
+        page = WikiPageFactory(guild=guild)
+        assert can_moderate_wiki_page(request, page) == can_moderate_wiki_scope(request, page.guild)
+
+
+def describe_moderatable_wiki_scopes():
+    """Reuses the meeting helper's guild list but REPLACES its council boolean."""
+
+    def it_gives_a_lead_their_guilds_and_no_space_wide_leg():
+        user = UserFactory(username="modscope@example.com")
+        guild = GuildFactory(guild_lead=user.member)
+        request = _request(user, roles={ROLE_MEMBER})
+        guilds, space_wide = moderatable_wiki_scopes(request)
+        assert [g.pk for g in guilds] == [guild.pk]
+        assert space_wide is False
+
+    def it_gives_effective_staff_every_guild_and_the_space_wide_leg():
+        GuildFactory()
+        GuildFactory()
+        request = _request(UserFactory(username="modscope2@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
+        guilds, space_wide = moderatable_wiki_scopes(request)
+        assert len(guilds) == 2
+        assert space_wide is True
+
+    def it_gives_a_plain_member_nothing():
+        request = _request(UserFactory(username="modscope3@example.com"), roles={ROLE_MEMBER})
+        assert moderatable_wiki_scopes(request) == ([], False)

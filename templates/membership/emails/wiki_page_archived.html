@@ -1,0 +1,32 @@
+{% extends "membership/emails/_base.html" %}
+{% block content %}
+{% comment %}
+The archive notice. The brief is emphatic that silent removal ends a contributor's
+participation permanently, so this names the person, quotes their reason verbatim, and
+links the page — which still works, so the author can read what was there.
+
+The mailto: publishes the archiver's own address to the author, deliberately: "reply to the
+person who did this" that routes nowhere is the polite version of no answer at all.
+
+Inline styles are the rule here, not the exception — mail clients strip <style> blocks.
+{% endcomment %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ author_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">A page you wrote was archived</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">
+    {{ archiver_name }} archived <strong><a href="{{ page_url }}" style="color: #0d4876; text-decoration: none;">{{ page.title }}</a></strong> on the member wiki and wrote:
+</p>
+<div style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 0 0 16px;">
+    <p style="margin: 0; font-size: 14px; color: #33424f; line-height: 1.6;">{{ reason }}</p>
+</div>
+<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">
+    The link still works, so you can read what was there. Nothing was deleted.{% if redirect_page %} The current page on this subject is <a href="{{ redirect_url }}" style="color: #0d4876; text-decoration: none;">{{ redirect_page.title }}</a>.{% endif %}
+</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ page_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Read what was there</a>
+</div>
+{% if archiver_email %}
+<p style="margin: 16px 0 0; font-size: 14px; color: #33424f; line-height: 1.6; text-align: center;">
+    <a href="mailto:{{ archiver_email }}" style="color: #0d4876;">Reply to {{ archiver_name }}</a>
+</p>
+{% endif %}
+{% endblock %}

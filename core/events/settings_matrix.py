@@ -67,6 +67,10 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Classes",
     "Teaching",
     "Voting",
+    # wiki.page_verified is member-facing and lands here. wiki.page_reported is staff-only
+    # and collapses into STAFF_SECTION instead, so this category is never empty for the
+    # people it exists for.
+    "Wiki",
     "Billing",
     "Membership",
     "Spaces & Equipment",
@@ -107,6 +111,11 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.BILLING_APPROVERS,
         Recipients.REFUND_AUTHORITY,
         Recipients.EQUIPMENT_MANAGERS,
+        # A report routes to a guild's leadership or the admins — a staff row.
+        # WIKI_PAGE_CONTRIBUTORS is deliberately absent: it is the member-facing half of
+        # the pair, and hiding it in the staff section would hide it from the very people
+        # it exists for.
+        Recipients.WIKI_SCOPE_LEADERSHIP,
     }
 )
 
@@ -252,6 +261,9 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # The three equipment-manage tiers, mirroring the equipment_managers resolver:
         # per-equipment staff row, owning-guild leadership, or the EQUIPMENT capability.
         Recipients.EQUIPMENT_MANAGERS: lead or profile.manages_equipment or cap.EQUIPMENT in caps,
+        # Either audience of the composed wiki_scope_leadership resolver: a guild's
+        # leadership for a scoped page, the admins for a space-wide one.
+        Recipients.WIKI_SCOPE_LEADERSHIP: lead or profile.is_admin,
     }
     return checks[recipient]
 

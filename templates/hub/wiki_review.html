@@ -1,0 +1,75 @@
+{% extends "hub/base.html" %}
+{% block title %}Wiki Review{% endblock %}
+
+{% block content %}
+{% comment %}
+What is waiting on this moderator. Two lists on the open view and a third on ?archived=1.
+
+Only ONE list is ever paginated. components/table_pagination.html hard-codes ?page= in
+every link it builds, so two paginators on one screen would drive each other: clicking page
+two of the reports would also jump the safety list to page two, or to an empty page, since
+the two lists are different lengths. Reports are the list that can actually grow; safety
+proposals are a handful at a time by construction.
+
+The scope line is not decoration. A queue that silently filters is a queue people stop
+trusting.
+{% endcomment %}
+<nav class="pl-wp-breadcrumbs" aria-label="Breadcrumb"><a href="{% url 'hub_wiki_home' %}">Wiki</a></nav>
+{% include "components/page_header.html" with title="Wiki Review" description="Pages members have flagged, and safety pages waiting on a second read. Oldest first." %}
+
+<div class="pl-tabs pl-wp-mod__tabs">
+    <a href="{{ open_url }}" class="vote-tab {% if not archived_view %}vote-tab--active{% endif %}">Open</a>
+    <a href="{{ archived_url }}" class="vote-tab {% if archived_view %}vote-tab--active{% endif %}">Archived</a>
+</div>
+
+{% if archived_view %}
+<div class="hub-card pl-wp-group">
+    <h2 class="hub-detail-label pl-wp-section__title">Archived Pages</h2>
+    <p class="hub-text-muted">{{ scope_line }}</p>
+    {% for archived in archived_page %}
+    {% include "hub/partials/_wiki_review_archived_card.html" with archived=archived %}
+    {% empty %}
+    <div class="pl-wp-mod__empty">
+        {% if is_admin_scope %}
+        <p>Nothing has been archived.</p>
+        {% else %}
+        <p>Nothing has been archived in your scopes.</p>
+        {% endif %}
+        <p class="hub-text-muted">Pages you remove show up here so you can find them again.</p>
+    </div>
+    {% endfor %}
+</div>
+{% include "components/table_pagination.html" with page=archived_page base_params=base_params %}
+
+{% else %}
+
+{% if not reports_page.object_list and not proposals %}
+<div class="pl-wp-mod__empty">
+    <p>Nothing to review. You are all caught up.</p>
+    <p class="hub-text-muted">{{ scope_line }}</p>
+</div>
+{% else %}
+<div class="hub-card pl-wp-group">
+    <h2 class="hub-detail-label pl-wp-section__title">Reported Pages</h2>
+    <p class="hub-text-muted">{{ scope_line }}</p>
+    {% for report in reports_page %}
+    {% include "hub/partials/_wiki_review_report_card.html" with report=report %}
+    {% empty %}
+    <div class="pl-wp-mod__empty">
+        <p>Nothing reported. You are all caught up.</p>
+    </div>
+    {% endfor %}
+</div>
+{% include "components/table_pagination.html" with page=reports_page base_params=base_params %}
+
+{% if proposals %}
+<div class="hub-card pl-wp-group">
+    <h2 class="hub-detail-label pl-wp-section__title">Safety Pages Awaiting Review</h2>
+    {% for proposal in proposals %}
+    {% include "hub/partials/_wiki_review_safety_card.html" with proposal=proposal %}
+    {% endfor %}
+</div>
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

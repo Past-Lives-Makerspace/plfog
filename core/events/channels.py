@@ -228,6 +228,9 @@ _CHANNEL_BY_CATEGORY: dict[str, str] = {
     "Membership": PUSH_CHANNEL_GENERAL,
     "Orientations": PUSH_CHANNEL_GENERAL,
     "Spaces & Equipment": PUSH_CHANNEL_GENERAL,
+    # The wiki is guild-shaped: a report routes to a guild's leadership and a
+    # verification comes from one, so both ride the Guilds channel.
+    "Wiki": PUSH_CHANNEL_GUILDS,
 }
 
 

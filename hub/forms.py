@@ -4332,6 +4332,16 @@ class WikiPageFactForm(IgnorableRowFormMixin, forms.ModelForm):
     A row carrying a label and no answer is an untouched starter prompt, not an error:
     without this, every prompt the member skipped would fail its required ``value`` and
     block Save — the exact FRONTEND.md Rule 11 bug, arriving through the back door.
+
+    **Blanking a SAVED row's answer therefore deletes that row, deliberately**, and this
+    is the one place it is written down. Unlike :class:`WikiAttachmentForm` there is no
+    ``not self.instance.pk`` guard, because the equipment seeder writes label-only rows
+    (``facts=[(prompt, "") for prompt in ...]``) and every one of them is a *saved* row
+    with a blank value — so the guard would either block Save on prompts the member never
+    touched, or leave permanently empty rows in the page's two-column summary. A Quick
+    Answers row IS its answer; the label on its own is a prompt, not a fact. The residual
+    cost is that clearing an answer to retype it and then saving loses the label too,
+    which is what the row's real Delete button is for.
     """
 
     class Meta:
@@ -4487,6 +4497,108 @@ class WikiQuickTipForm(forms.Form):
         if tip:
             cleaned["tip_html"] = f"<p>{escape(' '.join(tip.split()))}</p>"
         return cleaned
+
+
+# --- Wiki moderation (spec D) ----------------------------------------------------------
+
+
+class WikiReportForm(forms.Form):
+    """Report a problem: one field, because two taps is the whole design."""
+
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4}),
+        label="What is wrong?",
+        min_length=10,
+        max_length=500,
+        error_messages={
+            "required": "Please say a little more so a lead knows what to look at.",
+            "min_length": "Please say a little more so a lead knows what to look at.",
+        },
+    )
+
+    def clean_reason(self) -> str:
+        """Collapse whitespace. The reason is never rendered as markup, only escaped."""
+        return " ".join(cast(str, self.cleaned_data["reason"]).split())
+
+
+class WikiResolveForm(forms.Form):
+    """Mark a report reviewed. The note is for the audit trail, not for the reporter."""
+
+    resolution = forms.CharField(
+        required=False,
+        max_length=300,
+        label="What you did (optional)",
+        help_text="Recorded for the audit trail. The reporter is not emailed.",
+    )
+
+
+class WikiOfficialNoteForm(forms.Form):
+    """The locked staff callout that sits above member content."""
+
+    note = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 5}),
+        label="Official note",
+        max_length=1000,
+        help_text="Members cannot edit or remove this. Keep it to what is true right now.",
+        error_messages={"required": "Write the note first, or use Remove Note."},
+    )
+
+
+class WikiArchiveForm(forms.Form):
+    """The reason an archived page carries forever, and emails to its author by name.
+
+    Capped at the model's own 300 characters and rejected rather than truncated: a reason
+    silently cut in half is read by the author as the whole of what was said to them.
+    """
+
+    reason = forms.CharField(
+        max_length=300,
+        label="Why is this page being removed?",
+        error_messages={
+            "required": "Add a reason. The author will read it.",
+            "max_length": "Keep the reason to one sentence, under 300 characters.",
+        },
+    )
+
+
+class WikiDeclineForm(forms.Form):
+    """Send a safety proposal back with something its author can act on.
+
+    A textarea rather than the confirm modal's single-line note: this is the one message
+    in the round whose entire job is to explain what a member should do next.
+    """
+
+    note = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4}),
+        label="What should change?",
+        min_length=10,
+        max_length=1000,
+        help_text="The author gets this by email. Say what would make it publishable.",
+        error_messages={
+            "required": "Say what should change. The author only has this to go on.",
+            "min_length": "Say what should change. The author only has this to go on.",
+        },
+    )
+
+
+class WikiRedirectForm(forms.Form):
+    """Point an archived page's readers at a live replacement, from the tombstone itself."""
+
+    target = forms.ModelChoiceField(
+        queryset=WikiPage.objects.none(),
+        required=False,
+        label="Point readers at another page",
+        empty_label="No replacement page",
+        help_text="Only live pages in the same scope.",
+    )
+
+    def __init__(self, *args: Any, page: WikiPage, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Same scope only, and never this page or another tombstone. The model re-checks
+        # both, so a crafted POST meets the same rule this queryset expresses.
+        choices = WikiPage.objects.published().not_archived().exclude(pk=page.pk)
+        choices = choices.for_guild(page.guild) if page.guild is not None else choices.space_wide()
+        cast(forms.ModelChoiceField, self.fields["target"]).queryset = choices.order_by("title")
 
 
 class WikiVerifyNoteForm(forms.Form):

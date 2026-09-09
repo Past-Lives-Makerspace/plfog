@@ -549,6 +549,60 @@ def guild_welcome_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+# --- Member wiki ----------------------------------------------------------------
+
+
+def _sample_wiki_page(data: SampleData) -> Any:
+    """An unsaved WikiPage with a slug, which is all both templates read off it.
+
+    Unsaved on purpose: ``get_absolute_url`` only needs the slug, and the gallery should
+    not leave rows behind in a database it shares with the other builders.
+    """
+    from membership.models import WikiPage
+
+    return WikiPage(title="SawStop Table Saw", slug="sawstop-table-saw", kind=WikiPage.Kind.MACHINE)
+
+
+def wiki_page_archived_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.models.WikiPage.send_archive_notice``."""
+    from django.conf import settings as django_settings
+
+    page = _sample_wiki_page(data)
+    return {
+        "subject": f'Your wiki page "{page.title}" was archived',
+        "template_context": {
+            "page": page,
+            "author_name": data.member.display_name,
+            "archiver": data.lead,
+            "archiver_name": data.lead.display_name,
+            "archiver_email": data.lead.primary_email,
+            "reason": "The information here was replaced by the Bandsaw Safety page.",
+            "page_url": f"{django_settings.MEMBER_BASE_URL}{page.get_absolute_url()}",
+            "redirect_page": None,
+            "redirect_url": "",
+        },
+    }
+
+
+def wiki_proposal_declined_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.models.WikiPage.decline_proposal``."""
+    from django.conf import settings as django_settings
+
+    page = _sample_wiki_page(data)
+    return {
+        "subject": f'Your safety page "{page.title}" needs one change',
+        "template_context": {
+            "page": page,
+            "author_name": data.member.display_name,
+            "reviewer_name": data.lead.display_name,
+            "reviewer_email": data.lead.primary_email,
+            "note": "Add the dust mask requirement and say who to ask when the blade needs changing.",
+            "edit_url": f"{django_settings.MEMBER_BASE_URL}{reverse('hub_wiki_edit', args=[page.slug])}",
+            "page_url": f"{django_settings.MEMBER_BASE_URL}{page.get_absolute_url()}",
+        },
+    }
+
+
 def wiki_guild_digest_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``send_wiki_guild_digest``, over one seeded page and one seeded miss.
 

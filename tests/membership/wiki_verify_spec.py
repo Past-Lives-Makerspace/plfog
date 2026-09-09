@@ -151,7 +151,7 @@ def describe_WikiPage_verify():
         guild = GuildFactory(name="Woodworking", guild_lead=lead)
         return guild, lead
 
-    def it_sets_every_verification_field(db, guild_and_lead, stub_page_verified_event):
+    def it_sets_every_verification_field(db, guild_and_lead):
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild)
         page.verify(lead, note="Checked the blade guard.")
@@ -162,7 +162,7 @@ def describe_WikiPage_verify():
         assert page.verified_note == "Checked the blade guard."
         assert page.verified_role_label == "Woodworking lead"
 
-    def it_also_stamps_the_freshness_clock_and_the_name_on_it(db, guild_and_lead, stub_page_verified_event):
+    def it_also_stamps_the_freshness_clock_and_the_name_on_it(db, guild_and_lead):
         """Writing only the timestamp would leave A's byline naming the PREVIOUS checker."""
         guild, lead = guild_and_lead
         other = MemberFactory()
@@ -172,7 +172,7 @@ def describe_WikiPage_verify():
         assert page.last_checked_by_id == lead.pk
         assert page.last_checked_at == page.verified_at
 
-    def it_clears_the_unverified_reason(db, guild_and_lead, stub_page_verified_event):
+    def it_clears_the_unverified_reason(db, guild_and_lead):
         """Otherwise a green check renders directly above a line contradicting it."""
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild, unverified_reason="Edited since it was verified.")
@@ -180,7 +180,7 @@ def describe_WikiPage_verify():
         page.refresh_from_db()
         assert page.unverified_reason == ""
 
-    def it_clears_the_needs_review_pair_so_the_pill_actually_changes(db, guild_and_lead, stub_page_verified_event):
+    def it_clears_the_needs_review_pair_so_the_pill_actually_changes(db, guild_and_lead):
         """A's pill precedence puts Needs review ABOVE Guild verified, so without this the
         button appears to do nothing: the page keeps its amber pill."""
         guild, lead = guild_and_lead
@@ -196,7 +196,7 @@ def describe_WikiPage_verify():
         modifier, label, _tooltip = page.status_pill
         assert (modifier, label) == ("ok", "Guild verified")
 
-    def it_writes_no_revision(db, guild_and_lead, stub_page_verified_event):
+    def it_writes_no_revision(db, guild_and_lead):
         """Spec A's handoff says to write one. Do not. Spec D's contributor resolver reads
         wiki_revisions, so a verification revision would enrol every verifier as a
         permanent contributor of every page they verify."""
@@ -207,7 +207,7 @@ def describe_WikiPage_verify():
         page.verify(lead)
         assert page.revisions.count() == before
 
-    def it_logs_the_activity_row(db, guild_and_lead, stub_page_verified_event):
+    def it_logs_the_activity_row(db, guild_and_lead):
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild)
         page.verify(lead)
@@ -215,7 +215,7 @@ def describe_WikiPage_verify():
         assert row.payload["guild"] == guild.pk
         assert row.payload["note"] is False
 
-    def it_truncates_a_role_label_that_would_overflow_its_column(db, stub_page_verified_event):
+    def it_truncates_a_role_label_that_would_overflow_its_column(db):
         """verified_role_label is 80 chars; Guild.name is 255 and a custom staff title is
         60, so the two together cross it. The BUG is backend-dependent -- Postgres raises
         DataError and the Verify tap 500s with the page left unverified, while SQLite
@@ -232,7 +232,7 @@ def describe_WikiPage_verify():
         page.refresh_from_db()
         assert len(page.verified_role_label) == 80
 
-    def it_truncates_a_long_note(db, guild_and_lead, stub_page_verified_event):
+    def it_truncates_a_long_note(db, guild_and_lead):
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild)
         page.verify(lead, note="x" * 400)
@@ -292,7 +292,7 @@ def describe_WikiPage_verify():
         assert local_day == "20260303"
         assert emit.call_args.kwargs["period"] == f"wiki_verified:{page.pk}:{local_day}"
 
-    def it_delivers_once_per_day(db, guild_and_lead, stub_page_verified_event):
+    def it_delivers_once_per_day(db, guild_and_lead):
         """Bucketing by the second mailed the contributors once per staff edit forever."""
         guild, lead = guild_and_lead
         page = WikiPageFactory(guild=guild)
@@ -311,7 +311,7 @@ def describe_WikiPage_verify():
         assert emit.call_args.kwargs["context"]["guild_name"] == "the makerspace"
 
     def describe_a_second_tap_within_a_minute():
-        def it_is_a_quiet_no_op(db, guild_and_lead, stub_page_verified_event):
+        def it_is_a_quiet_no_op(db, guild_and_lead):
             guild, lead = guild_and_lead
             page = WikiPageFactory(guild=guild)
             page.verify(lead, note="First note.")
@@ -322,7 +322,7 @@ def describe_WikiPage_verify():
             assert page.verified_note == "First note."
             assert SiteActivity.objects.filter(kind=SiteActivity.Kind.WIKI_PAGE_VERIFIED).count() == 1
 
-        def it_does_re_verify_once_the_window_has_passed(db, guild_and_lead, stub_page_verified_event):
+        def it_does_re_verify_once_the_window_has_passed(db, guild_and_lead):
             guild, lead = guild_and_lead
             page = WikiPageFactory(guild=guild)
             page.verify(lead)
@@ -332,7 +332,7 @@ def describe_WikiPage_verify():
             page.refresh_from_db()
             assert page.verified_note == "Still right."
 
-        def it_does_not_swallow_a_different_verifier(db, guild_and_lead, stub_page_verified_event):
+        def it_does_not_swallow_a_different_verifier(db, guild_and_lead):
             guild, lead = guild_and_lead
             second = MemberFactory()
             GuildStaffMembershipFactory(guild=guild, member=second, role="orienter")
@@ -360,7 +360,7 @@ def describe_WikiPage_verify():
 
 
 def describe_the_frozen_role_label():
-    def it_reads_the_staff_role_for_an_orienter(db, stub_page_verified_event):
+    def it_reads_the_staff_role_for_an_orienter(db):
         orienter = _member("label_orienter")
         guild = GuildFactory(name="Woodworking")
         GuildStaffMembershipFactory(guild=guild, member=orienter, role="orienter")
@@ -368,13 +368,13 @@ def describe_the_frozen_role_label():
         page.verify(orienter)
         assert page.verified_role_label == "Woodworking orienter"
 
-    def it_reads_Admin_for_someone_reaching_in_from_outside_the_guild(db, stub_page_verified_event):
+    def it_reads_Admin_for_someone_reaching_in_from_outside_the_guild(db):
         admin = _member("label_admin", fog_role=Member.FogRole.ADMIN)
         page = WikiPageFactory(guild=GuildFactory(name="Woodworking"))
         page.verify(admin)
         assert page.verified_role_label == "Admin"
 
-    def it_reads_Admin_for_a_space_wide_page(db, stub_page_verified_event):
+    def it_reads_Admin_for_a_space_wide_page(db):
         admin = _member("label_sw_admin", fog_role=Member.FogRole.ADMIN)
         page = WikiPageFactory(guild=None)
         page.verify(admin)
@@ -394,7 +394,7 @@ def describe_the_frozen_role_label():
         officer = _member("label_real_officer", fog_role=Member.FogRole.GUILD_OFFICER)
         assert _wiki_role_label(officer, GuildFactory(name="Woodworking")) == "Admin"
 
-    def it_survives_the_verifiers_staff_row_being_deleted(db, stub_page_verified_event):
+    def it_survives_the_verifiers_staff_row_being_deleted(db):
         """The whole point of denormalizing: the credit is a statement about the past."""
         orienter = _member("label_departing")
         guild = GuildFactory(name="Woodworking")
@@ -407,7 +407,7 @@ def describe_the_frozen_role_label():
 
 
 def describe_WikiPage_unverify():
-    def it_clears_the_credit_and_drops_to_community(db, stub_page_verified_event):
+    def it_clears_the_credit_and_drops_to_community(db):
         lead = _member("unverify_lead")
         guild = GuildFactory(name="Woodworking", guild_lead=lead)
         page = WikiPageFactory(guild=guild)
@@ -423,7 +423,7 @@ def describe_WikiPage_unverify():
         # The clock is NOT rewound: removing a verification says nothing about freshness.
         assert page.last_checked_at == checked_at
 
-    def it_never_raises_spec_Ds_amber_banner(db, stub_page_verified_event):
+    def it_never_raises_spec_Ds_amber_banner(db):
         """Removing a verification is not a report; doing so would put a page in D's queue
         with no WikiReport behind it."""
         lead = _member("unverify_noreport")
@@ -434,7 +434,7 @@ def describe_WikiPage_unverify():
         page.refresh_from_db()
         assert page.needs_review_since is None
 
-    def it_logs_a_removal_and_emits_nothing(db, stub_page_verified_event):
+    def it_logs_a_removal_and_emits_nothing(db):
         lead = _member("unverify_logs")
         guild = GuildFactory(guild_lead=lead)
         page = WikiPageFactory(guild=guild, status=WikiPage.Status.GUILD_VERIFIED)
