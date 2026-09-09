@@ -12,8 +12,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "Host a Workshop is now in the sidebar for every member. If you do not teach yet, it "
             "opens a page about running a workshop or a class for the shop, with a real workshop "
-            "page you can open and look at. Tap I'm Interested, tell us what you have in mind, and "
-            "the page tells you when an admin has answered. Admins can edit every word of that page "
+            "page you can open and look at. Tap the interested button, tell us what you have in mind, "
+            "and the page tells you when an admin has answered. Admins can edit every word of that page "
             "from Class Settings.",
             "Becoming an instructor now goes through an admin instead of a self serve unlock. Anyone "
             "interested shows up on the classes overview for admins to say yes or not right now, and "
