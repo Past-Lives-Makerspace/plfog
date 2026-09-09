@@ -89,15 +89,26 @@ literal string **"What It Does How To Use It What Goes Wrong Tips From Members"*
 section headings run together with no punctuation. This renders on every card on the wiki
 home, in search results, in Related Pages and in the guild tab.
 
-The sibling `WikiArticle.lead_text` (`:3511`) already handles this correctly: it splits the
-body into blocks and skips heading-only ones, returning `""` when there is no prose.
+The sibling `WikiArticle.lead_text` (`:3511`) already skipped heading-only blocks, returning
+`""` when there is no prose. Because the wiki launched empty, this is the *default* appearance
+of every page a member starts, until they type prose into a section.
 
-Because the wiki launched empty, this is the *default* appearance of every page a member
-starts, until they type prose into a section.
+**Fix:** one shared `_lead_text` helper that removes section headings and flattens whatever
+prose is left, returning `""` when nothing is. `_wiki_card.html` already guards on
+`{% elif page.lead_text %}`, so the card drops the line. Display-only; no migration, no
+stored-data change.
 
-**Fix:** make `WikiPage.lead_text` skip headings the same way, returning `""` when the page
-has no prose yet. `_wiki_card.html:37` already guards on `{% elif page.lead_text %}`, so the
-card simply drops the line. Display-only; no migration, no stored-data change.
+**Removing headings is the *only* transformation, and that is the point.** Two review rounds
+were spent on richer designs that each broke a shape they had not anticipated: scanning `<p>`
+blocks emptied every list, table and `<div>`; scanning a *list* of block tags then needed a
+whole-body fallback behind it, which made the scan itself untestable (deleting it left every
+test green); and bounding the window by cutting back to its last `>` emptied the lead of any
+body over the limit whose opening is tag-sparse. Stripping only headings makes the safety
+property trivial to state and to test: **no body that produced an excerpt before can produce
+an empty one now.** Two mechanical guards sit behind it — an 8000-character window, because
+the heading pattern is non-greedy and 100KB of `<h2><h2>…` took 7.5s, and a trim of one
+unterminated trailing tag, because bleach renders `</stro` as literal text rather than
+dropping it. Each of the three is mutation-tested individually.
 
 ## 4. Touch targets stop at the guild tab boundary
 
@@ -136,13 +147,18 @@ surface in the building — is not in that list. Its whole toolbar measures 27px
 
 - The guild page's own tab strip clips at 390px ("Meeti"). It belongs to the guild page
   chrome, not the wiki, and touching it moves five other tabs.
-- The six non-wiki templates that also use a bare `.pl-btn` are fixed incidentally by §2's
-  base rule; their screens are not otherwise reviewed here.
+- The non-wiki templates that also use a bare `.pl-btn` or `.hub-btn` are **not** fixed here.
+  §2 rejected the base-rule change that would have swept them in, so they stay as they are:
+  93 bare `hub-btn` usages repo-wide, plus the two that actually render as browser chrome on
+  the screens sampled (`/meetings/` "Start the agenda", `/members/` "Apply"). The new lint in
+  §7.2 is scoped to wiki templates for the same reason.
 
 ## 7. Tests
 
-Every guard must fail when the fix is reverted. Vacuous tests are the failure mode this round
-already produced once.
+Every guard must fail when the fix is reverted, checked by actually reverting it. Vacuous
+tests are the failure mode this round kept producing: review round 2 added three tests for a
+block-scanning mechanism that a later fix made redundant, and deleting the whole mechanism
+left them green. Every mechanism below has been mutated individually and observed to fail.
 
 1. **`static/css/` brace balance** — parse every stylesheet, strip comments, assert depth
    returns to 0. Proven by reverting §1 and watching it fail.

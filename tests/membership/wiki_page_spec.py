@@ -371,9 +371,10 @@ def describe_WikiPage():
                 assert WikiPageFactory(body="## What It Does\n\n## How To Use It\n").lead_text() == ""
 
             def describe_when_the_prose_is_not_in_a_paragraph():
-                # A machine how-to is very often a list of steps, and Quill also emits
-                # <ol>, <table>, <blockquote> and <div>. Scanning only <p> gave every one
-                # of those an empty excerpt, which is worse than the bug it replaced.
+                # Removing headings is the whole transformation, so every one of these reads
+                # for the same reason. An earlier attempt scanned a list of block tags
+                # instead and gave each of these an empty excerpt, which was worse than the
+                # bug it replaced.
                 def it_reads_a_bulleted_procedure():
                     page = WikiPageFactory(body="<ul><li>Set the fence to 3 inches.</li><li>Feed slowly.</li></ul>")
                     assert page.lead_text() == "Set the fence to 3 inches. Feed slowly."
@@ -419,16 +420,43 @@ def describe_WikiPage():
                     # The fallback has to be tried even when a block DID match and was empty.
                     assert WikiPageFactory(body="<p></p>Loose prose.").lead_text() == "Loose prose."
 
-            def describe_on_a_pathological_body():
-                def it_stays_fast_on_a_long_run_of_unclosed_tags():
-                    # Both patterns are non-greedy, so without a bound each start position
-                    # scans to the end looking for a close that never comes: ~6s on 100KB.
+            def describe_on_a_body_longer_than_the_scan_window():
+                # The window is bounded because the heading pattern is non-greedy and a long
+                # run of unbalanced <h2> makes every start position scan to the end: 7.5s on
+                # 100KB. Bounding it must not cost the excerpt, which an earlier attempt did
+                # by cutting the window back to its last ">" — on a tag-sparse body that
+                # discarded almost everything and emptied the lead entirely.
+                def it_reads_a_paragraph_far_longer_than_the_window():
+                    page = WikiPageFactory(body="<p>" + ("word " * 1900) + "</p>")
+                    assert page.lead_text().startswith("word word")
+
+                def it_reads_a_long_body_that_never_closes_its_tag():
+                    assert WikiPageFactory(body="<p>" + ("x" * 9000)).lead_text().startswith("xxx")
+
+                def it_reads_a_list_far_longer_than_the_window():
+                    page = WikiPageFactory(body="<ul><li>" + ("word " * 2000) + "</li></ul>")
+                    assert page.lead_text().startswith("word word")
+
+                def it_never_leaks_a_tag_the_window_cut_in_half():
+                    # 1140 empty paragraphs is 7980 characters, so the 8000-character window
+                    # lands inside "</strong>". bleach renders an unterminated tag as literal
+                    # text rather than dropping it, so without the trim the excerpt reads
+                    # "bold</strong".
+                    page = WikiPageFactory(body="<p></p>" * 1140 + "<strong>bold</strong>" + "x" * 3000)
+                    assert page.lead_text() == "bold"
+
+                def it_never_leaks_an_unterminated_tag_at_the_end_of_a_short_body():
+                    assert WikiPageFactory(body="<p>hello</p><stro").lead_text() == "hello"
+
+                def it_stays_fast_on_a_long_run_of_unclosed_headings():
                     import time
 
-                    page = WikiPageFactory(body="<p>" * 25000)
+                    page = WikiPageFactory(body="<h2>" * 25000)
                     started = time.perf_counter()
                     page.lead_text()
-                    assert time.perf_counter() - started < 1.0
+                    # Unbounded this takes ~7.5s; bounded it is ~50ms. A 3s ceiling still
+                    # separates the two by 150x while tolerating a loaded CI runner.
+                    assert time.perf_counter() - started < 3.0
 
                 def it_still_finds_prose_that_follows_many_empty_blocks():
                     page = WikiPageFactory(body="<h2>A</h2>" + "<p></p>" * 800 + "<p>Real prose here.</p>")

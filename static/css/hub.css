@@ -9988,11 +9988,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-tab .hub-btn,
     .pl-wp-tab__scope-chip,
     .pl-wp-screen .pl-btn,
-    .pl-wp-screen .hub-btn,
-    .pl-wp-screen .pl-wp-tab__scope-chip { min-height: 48px; }
+    .pl-wp-screen .hub-btn { min-height: 48px; }
     /* Bare links standing in an action row are targets too, and were never covered by a
-       rule that only knew about buttons. */
-    .pl-wp-screen .pl-wp-tab__row-edit,
+       rule that only knew about buttons. .pl-wp-tab__scope-chip and __row-edit are NOT
+       mirrored under .pl-wp-screen: they exist only in _guild_wiki_tab.html, which renders
+       on the guild page, so a .pl-wp-screen copy of them could never match anything.
+       __miss-onlist is, because _wiki_miss_row.html also renders on /wiki/wanted/. */
     .pl-wp-screen .pl-wp-tab__miss-onlist,
     .pl-wp-tab .pl-wp-tab__row-edit,
     .pl-wp-tab .pl-wp-tab__miss-onlist { display: inline-flex; align-items: center; min-height: 48px; }

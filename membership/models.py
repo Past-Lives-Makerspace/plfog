@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import secrets
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -3374,21 +3374,23 @@ _MD_EMPHASIS_RE = re.compile(r"[*_`]")
 
 # One pass over the help-rendered body: h2/h3 headings that carry an id.
 _HELP_TOC_HEADING_RE = re.compile(r'<h([23])[^>]*\bid="([^"]+)"[^>]*>(.*?)</h\1>', re.DOTALL)
-# Lead-text block scanning. Headings are dropped outright (they are section labels, not lead
-# copy); what remains is scanned for the first block-level element with text in it. A nested
-# list closes early against the non-greedy match, which costs an excerpt a few trailing words
-# and never breaks it.
+# Lead text drops section headings and reads whatever prose is left. Deliberately NOT a list
+# of block tags to scan: two review rounds were spent discovering that any such list is both
+# incomplete (a how-to is as often a <ul> or a <table> as a <p>) and, once a whole-body
+# fallback exists behind it, untestable — every case the scan claimed to handle the fallback
+# answered identically. Removing headings is the entire transformation, which also makes the
+# safety property trivial to state: nothing that produced text before can now produce "".
 _HTML_HEADING_RE = re.compile(r"<h[1-6]\b[^>]*>.*?</h[1-6]\s*>", re.IGNORECASE | re.DOTALL)
-# Both patterns are non-greedy, so a long run of unbalanced OPENING tags makes each start
-# position scan to the end of the string looking for a close that never comes: measured at
-# ~6s on 100KB of "<p><p><p>…". A lead is at most a couple of hundred characters, so only the
-# opening of a body can ever contribute one. Bounding the scan makes the cost constant and
-# leaves a scaffold (about 120 characters) with room to spare.
+# The heading pattern is non-greedy, so a long run of unbalanced OPENING headings makes each
+# start position scan to the end for a close that never comes: measured at 7.5s on 100KB of
+# "<h2><h2><h2>…". A lead is a couple of hundred characters, so only the opening of a body can
+# contribute one, and bounding the window makes the cost constant.
 _LEAD_SCAN_LIMIT = 8000
-_HTML_BLOCK_RE = re.compile(
-    r"<(p|ul|ol|table|blockquote|pre|figure|div)\b[^>]*>.*?</\1\s*>",
-    re.IGNORECASE | re.DOTALL,
-)
+# A bounded window can end mid-"<stro". bleach does not drop an unterminated final tag — it
+# renders it as literal text — so trim exactly that, and nothing else. Cutting back to the
+# last ">" instead (the round-2 approach) collapsed a tag-sparse window to almost nothing and
+# emptied the lead of every body over the limit.
+_TRAILING_PARTIAL_TAG_RE = re.compile(r"<[^>]*$")
 
 
 def _markdown_to_text(source: str) -> str:
@@ -3418,52 +3420,41 @@ def _source_to_text(source: str) -> str:
 
 
 def _lead_text(body: str, limit: int) -> str:
-    """First block of *prose* in a dual-mode body, truncated on a word boundary.
+    """The opening prose of a dual-mode body, minus section headings, cut on a word boundary.
 
-    Section headings are not lead copy, so they are dropped and a body with nothing else in
-    it returns "". Both wiki models share this: flattening the whole body instead made a page
-    created from the kind scaffold — headings plus empty paragraphs, which is every page
-    until a member writes in it — advertise its own template as its excerpt ("What It Does
-    How To Use It What Goes Wrong Tips From Members") on every card.
+    Section headings are not lead copy, so they are removed and a body with nothing else in
+    it returns "". That is the whole point: flattening the body *including* its headings made
+    a page created from the kind scaffold — headings plus empty paragraphs, which is every
+    page until a member writes in it — advertise its own template as its excerpt ("What It
+    Does How To Use It What Goes Wrong Tips From Members") on every card.
 
-    Blocks are not only ``<p>``. A machine how-to is very often a ``<ul>`` of steps, and
-    Quill also emits ``<ol>``, ``<table>``, ``<blockquote>`` and ``<div>``; matching
-    paragraphs alone gave every one of those an empty excerpt. Anything the block pattern
-    does not recognise falls back to the whole heading-stripped body, so an inline-only or
-    plain-text body still reads.
+    Removing headings is the only transformation, so no body that produced an excerpt before
+    can produce an empty one now. An HTML body is flattened whole rather than block by block:
+    the result is capped at ``limit`` anyway, and a card is better served by the opening two
+    short paragraphs than by only the first.
     """
     from core.html_sanitize import rich_html_to_text
     from membership.markdown import looks_like_html
 
     if looks_like_html(body):
-        # Flatten with rich_html_to_text directly rather than _source_to_text. That helper
-        # re-sniffs each fragment with lstrip().startswith("<"), and a heading-stripped body
-        # whose prose is loose text no longer starts with a tag — so it took the Markdown
-        # path, which leaves inline tags alone, and "<strong>bold</strong>" reached the card
-        # as literal text. The branch already knows this is HTML; it should not ask twice.
-        window = body[:_LEAD_SCAN_LIMIT]
-        if len(body) > _LEAD_SCAN_LIMIT:
-            # Cut back to the last complete tag so the window never ends mid-"<p", which
-            # would survive tag stripping as literal text.
-            last_close = window.rfind(">")
-            if last_close != -1:
-                window = window[: last_close + 1]
-        without_headings = _HTML_HEADING_RE.sub(" ", window)
-        blocks = [match.group(0) for match in _HTML_BLOCK_RE.finditer(without_headings)]
-        # Always the last resort, not only when no block matched: a body can open with an
-        # empty <p> and carry its real prose loose after it.
-        blocks.append(without_headings)
-        flatten: Callable[[str], str] = rich_html_to_text
+        # rich_html_to_text directly, not _source_to_text: that helper re-sniffs with
+        # lstrip().startswith("<"), and a heading-stripped body whose prose is loose text no
+        # longer opens with a tag, so it took the Markdown path and "<strong>bold</strong>"
+        # reached the card as literal text. This branch already knows it is HTML.
+        window = _TRAILING_PARTIAL_TAG_RE.sub("", body[:_LEAD_SCAN_LIMIT])
+        candidates = [rich_html_to_text(_HTML_HEADING_RE.sub(" ", window))]
     else:
-        blocks = [b for b in re.split(r"\n\s*\n", body) if not b.lstrip().startswith("#")]
-        flatten = _markdown_to_text
-    for block in blocks:
-        text = flatten(block)
+        # Markdown keeps its block split: a body can open with an image-only block, which is
+        # not lead copy either, and skipping it is covered by the help-article specs.
+        candidates = [
+            _markdown_to_text(block) for block in re.split(r"\n\s*\n", body) if not block.lstrip().startswith("#")
+        ]
+    for text in candidates:
         if not text:
             continue
         if len(text) <= limit:
             return text
-        return text[:limit].rsplit(" ", 1)[0] + "…"
+        return text[:limit].rsplit(" ", 1)[0] + "\u2026"
     return ""
 
 
