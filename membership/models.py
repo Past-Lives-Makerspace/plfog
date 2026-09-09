@@ -3378,6 +3378,16 @@ _HELP_TOC_HEADING_RE = re.compile(r'<h([23])[^>]*\bid="([^"]+)"[^>]*>(.*?)</h\1>
 # Markdown on blank lines (headings/lists fall outside <p> and are skipped naturally).
 _HTML_PARAGRAPH_RE = re.compile(r"<p[^>]*>(.*?)</p>", re.IGNORECASE | re.DOTALL)
 
+# Lead-text block scanning. Headings are dropped outright (they are section labels, not lead
+# copy); what remains is scanned for the first block-level element with text in it. A nested
+# list closes early against the non-greedy match, which costs an excerpt a few trailing words
+# and never breaks it.
+_HTML_HEADING_RE = re.compile(r"<h[1-6]\b[^>]*>.*?</h[1-6]\s*>", re.IGNORECASE | re.DOTALL)
+_HTML_BLOCK_RE = re.compile(
+    r"<(p|ul|ol|table|blockquote|pre|figure|div)\b[^>]*>.*?</\1\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _markdown_to_text(source: str) -> str:
     """Strip Markdown syntax to whitespace-normalized plain text."""
@@ -3406,18 +3416,25 @@ def _source_to_text(source: str) -> str:
 
 
 def _lead_text(body: str, limit: int) -> str:
-    """First *prose* paragraph of a dual-mode body, truncated on a word boundary.
+    """First block of *prose* in a dual-mode body, truncated on a word boundary.
 
-    Section headings are not lead copy, so heading-only blocks are skipped and a body that
-    has none left returns "". Both wiki models share this: flattening the whole body instead
-    made a page created from the kind scaffold — headings plus empty paragraphs, which is
-    every page until a member writes in it — advertise its own template as its excerpt
-    ("What It Does How To Use It What Goes Wrong Tips From Members") on every card.
+    Section headings are not lead copy, so they are dropped and a body with nothing else in
+    it returns "". Both wiki models share this: flattening the whole body instead made a page
+    created from the kind scaffold — headings plus empty paragraphs, which is every page
+    until a member writes in it — advertise its own template as its excerpt ("What It Does
+    How To Use It What Goes Wrong Tips From Members") on every card.
+
+    Blocks are not only ``<p>``. A machine how-to is very often a ``<ul>`` of steps, and
+    Quill also emits ``<ol>``, ``<table>``, ``<blockquote>`` and ``<div>``; matching
+    paragraphs alone gave every one of those an empty excerpt. Anything the block pattern
+    does not recognise falls back to the whole heading-stripped body, so an inline-only or
+    plain-text body still reads.
     """
     from membership.markdown import looks_like_html
 
     if looks_like_html(body):
-        blocks = [f"<p>{inner}</p>" for inner in _HTML_PARAGRAPH_RE.findall(body)]
+        without_headings = _HTML_HEADING_RE.sub(" ", body)
+        blocks = [match.group(0) for match in _HTML_BLOCK_RE.finditer(without_headings)] or [without_headings]
     else:
         blocks = [b for b in re.split(r"\n\s*\n", body) if not b.lstrip().startswith("#")]
     for block in blocks:

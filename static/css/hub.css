@@ -9287,7 +9287,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-text);
     font-weight: 600;
 }
-/* Negative margins keep the chip its current size while the tap target reaches 44px. */
+/* A 44px tap target around a ~9px glyph. The negative margins reclaim the vertical growth
+   entirely and most of the horizontal, so the chip gets taller by nothing and wider by
+   roughly a thumb's worth — the trade this control is worth on a phone. */
 .pl-wp-chip__clear {
     display: inline-flex;
     align-items: center;
@@ -9300,7 +9302,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 
 /* components/table_search.html used to inline `max-width:340px` on its form, which no
-   selector could beat — .pl-wp-searchbar form { max-width: none } below was dead CSS and
+   selector could beat — .pl-wp-searchbar form { max-width: none } at the top of this
+   section was dead CSS and
    the wiki's main search box stayed 340px wide inside a 1140px card. The default now
    lives here so a surface can override it. */
 .pl-table-search { max-width: 340px; }
@@ -9973,8 +9976,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
        page's Wiki tab and nothing else, so /wiki/p/<slug>/ — the screen a QR sticker on a
        machine opens, and the likeliest phone surface in the building — kept a 27px
        toolbar. Every wiki template now sets body class .pl-wp-screen, which is the real
-       container root for the feature; the hub chrome declares no .pl-btn or .hub-btn of
-       its own, so this reaches page controls only. */
+       container root for the feature.
+
+       Being body-scoped it does also reach the three chrome buttons the hub renders on
+       every page (_tour.html's Resume tour, and the welcome modal's two), on wiki screens
+       only and at phone widths only. That is deliberate and harmless: those are a tour
+       control and a modal footer, which want a 48px target on a phone anyway. */
     .pl-wp-tab .pl-btn,
     .pl-wp-tab .hub-btn,
     .pl-wp-tab__scope-chip,

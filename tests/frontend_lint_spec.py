@@ -29,7 +29,7 @@ CSS_DIR = REPO_ROOT / "static" / "css"
 TEMPLATES_DIR = REPO_ROOT / "templates"
 
 _COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
-_CLASS_ATTR_RE = re.compile(r'class="([^"]*)"')
+_CLASS_ATTR_RE = re.compile(r"""class=["']([^"']*)["']""")
 
 # --sm and --icon are size/shape modifiers; neither paints anything.
 _SIZE_ONLY_MODIFIERS = {"pl-btn--sm", "pl-btn--icon", "hub-btn--sm", "hub-btn--icon"}
@@ -116,3 +116,8 @@ def describe_wiki_buttons():
     def it_accepts_a_variant_chosen_by_the_template():
         markup = "<button class=\"pl-btn pl-btn--{{ confirm_button_style|default:'danger' }}\">Go</button>"
         assert _bare_button_class_lists(markup) == []
+
+    def it_reads_single_quoted_class_attributes():
+        # A double-quote-only pattern would score a single-quoted bare button as clean.
+        assert _bare_button_class_lists("<button class='pl-btn pl-btn--sm'>Go</button>") == ["pl-btn pl-btn--sm"]
+        assert _bare_button_class_lists("<button class='pl-btn pl-btn--ghost'>Go</button>") == []

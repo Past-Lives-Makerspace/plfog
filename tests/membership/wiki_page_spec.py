@@ -370,6 +370,33 @@ def describe_WikiPage():
             def it_is_empty_for_a_markdown_scaffold_too():
                 assert WikiPageFactory(body="## What It Does\n\n## How To Use It\n").lead_text() == ""
 
+            def describe_when_the_prose_is_not_in_a_paragraph():
+                # A machine how-to is very often a list of steps, and Quill also emits
+                # <ol>, <table>, <blockquote> and <div>. Scanning only <p> gave every one
+                # of those an empty excerpt, which is worse than the bug it replaced.
+                def it_reads_a_bulleted_procedure():
+                    page = WikiPageFactory(body="<ul><li>Set the fence to 3 inches.</li><li>Feed slowly.</li></ul>")
+                    assert page.lead_text() == "Set the fence to 3 inches. Feed slowly."
+
+                def it_reads_a_list_under_a_heading():
+                    page = WikiPageFactory(body="<h2>Steps</h2><ul><li>Set the fence.</li></ul>")
+                    assert page.lead_text() == "Set the fence."
+
+                def it_reads_a_numbered_list():
+                    assert WikiPageFactory(body="<ol><li>First step.</li></ol>").lead_text() == "First step."
+
+                def it_reads_a_blockquote():
+                    assert (
+                        WikiPageFactory(body="<blockquote>Wear the mask.</blockquote>").lead_text() == "Wear the mask."
+                    )
+
+                def it_reads_a_bare_div():
+                    assert WikiPageFactory(body="<div>Cuts sheet goods.</div>").lead_text() == "Cuts sheet goods."
+
+                def it_skips_an_empty_paragraph_to_reach_a_list():
+                    page = WikiPageFactory(body="<h2>A</h2><p></p><ul><li>Real step.</li></ul>")
+                    assert page.lead_text() == "Real step."
+
             def it_returns_markdown_prose_under_a_heading():
                 page = WikiPageFactory(body="## What It Does\n\nCuts sheet goods.\n")
                 assert page.lead_text() == "Cuts sheet goods."

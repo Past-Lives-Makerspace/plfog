@@ -4416,12 +4416,14 @@ class WikiAttachmentForm(IgnorableRowFormMixin, forms.ModelForm):
     class Meta:
         model = WikiAttachment
         fields = ["label", "file", "url", "sort_order"]
-        # FileInput, not the default ClearableFileInput: the row already has its own Delete
-        # button, so the clear checkbox is a second way to say the same thing — and it ships
-        # a <label for="…-clear">Clear</label> that lands *inside* the row's
-        # <label class="cls-image-upload-zone">. Nested labels are invalid, and the outer
-        # label's `for` swallows the click, so tapping Clear opened the file picker instead.
-        widgets = {"sort_order": forms.HiddenInput(), "file": forms.FileInput()}
+        # Deliberately NOT forms.FileInput here. The project overrides ClearableFileInput
+        # (templates/django/forms/widgets/clearable_file_input.html, via FORM_RENDERER =
+        # TemplatesSetting) with a thumbnail plus a "Remove" button over a hidden checkbox —
+        # so this field already renders well inside the row's upload zone, and swapping the
+        # widget would drop the current-file preview and the only way to turn a file row
+        # back into a link row. The raw <input type="file"> is hidden by CSS instead, on
+        # .cls-image-upload-zone itself.
+        widgets = {"sort_order": forms.HiddenInput()}
         labels = {"label": "Name", "file": "File", "url": "Link"}
         help_texts = {
             "label": "One line. 'Blade change steps' beats 'scan_0034'.",

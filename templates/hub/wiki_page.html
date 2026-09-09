@@ -31,10 +31,10 @@ cannot drift apart.
         <h1 class="hub-page-title">{{ page.title }}</h1>
         <div id="wiki-status" class="pl-wp-status">
             <span class="hub-pill hub-pill--{{ page.status_pill.0 }}">{{ page.status_pill.1 }}</span>
-    <span class="pl-help">
-        <span class="pl-help__icon" tabindex="0" role="img" aria-label="{{ page.status_pill.1 }}: {{ page.status_pill.2 }}">?</span>
-        <span class="pl-help__bubble">{{ page.status_pill.2 }}</span>
-    </span>
+            <span class="pl-help">
+                <span class="pl-help__icon" tabindex="0" role="img" aria-label="{{ page.status_pill.1 }}: {{ page.status_pill.2 }}">?</span>
+                <span class="pl-help__bubble">{{ page.status_pill.2 }}</span>
+            </span>
             {% if page.status_note %}<span class="hub-text-muted pl-wp-statusnote">{{ page.status_note }}</span>{% endif %}
         </div>
         <div id="wiki-verify" class="pl-wp-tab__verify">
