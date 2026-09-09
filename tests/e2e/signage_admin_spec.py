@@ -47,10 +47,18 @@ def describe_signage_admin_editor():
         # this page now reads just "Save" (Rule 21), so scope the lookup to the slides card
         # or Playwright's strict mode matches three buttons.
         slides_form = page.locator(f'form[action="{reverse("hub_admin_slideshow_slides_save")}"]')
-        slides_form.get_by_role("button", name="Save", exact=True).click()
+        with page.expect_navigation(url=re.compile(re.escape(reverse("hub_admin_slideshow")) + r"$")):
+            slides_form.get_by_role("button", name="Save", exact=True).click()
 
-        # The save redirects back to the Slideshow page; the persisted row now renders with
-        # our title in its editable field.
+        # THE SYNCHRONISATION POINT, and it has to be something that is false before the
+        # save. On this page the URL is already /manage/slideshow/ and the title input
+        # already holds "Wall welcome" the moment we finish typing, so asserting either of
+        # those on their own passes instantly and races the in-flight POST — which is
+        # exactly how this spec went green locally and red in CI. A saved row renders a
+        # NON-EMPTY hidden id; the row we cloned and typed into had an empty one.
+        expect(page.locator('input[name="slides-0-id"]')).not_to_have_value("")
+
+        # Now the redirected page really is the reloaded one, and it renders our slide.
         expect(page).to_have_url(re.compile(re.escape(reverse("hub_admin_slideshow")) + r"$"))
         expect(page.locator('input[name="slides-0-title"]')).to_have_value("Wall welcome")
 
