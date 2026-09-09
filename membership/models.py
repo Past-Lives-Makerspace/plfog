@@ -1313,6 +1313,10 @@ class Member(models.Model):
             raise ValueError("A teaching application needs a note saying what they want to teach")
         if self.teaching_application_state == self.TeachingApplicationState.PENDING:
             raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
+        if self.can_create_classes:
+            # The page never offers the button to an instructor; this is the crafted POST
+            # backstop, so an approved member cannot ping the admins about an empty queue.
+            raise ValueError(f"Member {self.pk} can already teach and has nothing to apply for")
         self.teaching_applied_at = timezone.now()
         self.teaching_application_note = note
         self.teaching_decided_at = None

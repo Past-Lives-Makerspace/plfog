@@ -86,9 +86,9 @@ the parent's x-init runs, so a synchronous dispatch would fire into the void.{% 
         {% if request.view_as.actual_is_admin and lifecycle == 'upcoming' %}
             {% url 'classes:admin_class_unpublish' pk=offering.pk as unpublish_url %}
             {% if offering.active_registration_count %}
-                {% concat "It comes out of the catalog straight away. The " offering.active_registration_count " people already registered keep their spots and are not emailed. You will need to submit it for review again before it can go live." as unpublish_message %}
+                {% concat "It comes out of the catalog straight away. The " offering.active_registration_count " people already registered keep their spots and are not emailed, but their class page and the links in their emails stop working until it is live again. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
             {% else %}
-                {% concat "It comes out of the catalog straight away. Nobody is emailed. You will need to submit it for review again before it can go live." as unpublish_message %}
+                {% concat "It comes out of the catalog straight away. Nobody is emailed. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
             {% endif %}
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'unpublish-class')">Take back to draft</button>
             {% include "components/confirm_modal.html" with confirm_id="unpublish-class" confirm_title="Take this class back to draft?" confirm_message=unpublish_message confirm_action_url=unpublish_url confirm_button_text="Take Back to Draft" confirm_button_style="primary" %}

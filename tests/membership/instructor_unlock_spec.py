@@ -123,6 +123,19 @@ def describe_apply_to_teach():
         member.refresh_from_db()
         assert member.teaching_applied_at is None
 
+    def it_raises_for_a_member_who_can_already_teach():
+        """The page hides the button from instructors; this is the crafted POST backstop."""
+        _fog_admin("apply-admin-instructor")
+        member = _linked_member("apply-instructor")
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["instructor_oriented_at"])
+        with pytest.raises(ValueError):
+            member.apply_to_teach("Let me apply again.")
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
+        assert Notification.objects.filter(trigger="instructor_application_received").count() == 0
+
     def it_raises_rather_than_overwriting_a_pending_application():
         member = _linked_member("apply-twice")
         member.apply_to_teach("First ask.")

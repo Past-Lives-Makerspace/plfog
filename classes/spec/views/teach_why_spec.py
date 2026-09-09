@@ -286,6 +286,23 @@ def describe_teach_apply():
         assert member.teaching_application_note == "Intro to wheel throwing, two hours."
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).count() == 1
 
+    def it_refuses_an_instructor_and_says_the_portal_is_already_open(db, client):
+        from django.contrib.messages import get_messages
+
+        user, member = _active_member_user("apply-instructor@example.com")
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["instructor_oriented_at"])
+        client.force_login(user)
+        response = client.post(reverse("classes:teach_apply"), {"note": "Let me apply again."})
+        assert response.status_code == 302
+        assert response["Location"] == reverse("classes:teach_why")
+        member.refresh_from_db()
+        assert member.teaching_applied_at is None
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
+        assert [m.message for m in get_messages(response.wsgi_request)] == [
+            "You can already host workshops. The teaching portal is open."
+        ]
+
     def it_rerenders_with_the_field_error_on_a_blank_note(db, client):
         user, member = _active_member_user("apply-blank@example.com")
         client.force_login(user)

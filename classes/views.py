@@ -1176,7 +1176,10 @@ def teach_apply(request: HttpRequest) -> HttpResponse:
     try:
         member.apply_to_teach(form.cleaned_data["note"])
     except ValueError:
-        messages.error(request, "We already have your note. Refresh the page and check where things stand.")
+        if member.can_create_classes:
+            messages.error(request, "You can already host workshops. The teaching portal is open.")
+        else:
+            messages.error(request, "We already have your note. Refresh the page and check where things stand.")
         return redirect("classes:teach_why")
     messages.success(request, "Thanks. An admin will get back to you.")
     return redirect("classes:teach_overview")
