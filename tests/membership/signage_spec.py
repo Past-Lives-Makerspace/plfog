@@ -17,8 +17,8 @@ from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassSettings
 from core.models import SiteConfiguration
 from membership.cycle import get_cycle_context
-from membership.signage import SIGNAGE_CLASS_CAP, SIGNAGE_CLASS_DAYS, SIGNAGE_EVENT_CAP, build_deck, deck_hash
 from membership.qr import qr_svg
+from membership.signage import SIGNAGE_CLASS_CAP, SIGNAGE_CLASS_DAYS, SIGNAGE_EVENT_CAP, build_deck, deck_hash
 from tests.membership.factories import (
     CommunityEventFactory,
     GuildAnnouncementFactory,

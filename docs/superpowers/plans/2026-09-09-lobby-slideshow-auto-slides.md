@@ -309,8 +309,10 @@ style, title `Slideshow`, description:
 
 ### 5.1 Config
 
-Six `BooleanField`s on `SiteConfiguration`, beside the existing `signage_*` block, every one
-`default=True` with a `verbose_name` and admin-facing `help_text`:
+Seven `BooleanField`s on `SiteConfiguration`, beside the existing `signage_*` block, every one
+`default=True` with a `verbose_name` and admin-facing `help_text`. The tour block adds one
+`URLField` alongside its switch, `signage_tour_url` (`blank=True`, defaulting to
+`https://www.pastlives.space/tours`), because it is the only block whose destination is off-site:
 
 | Field | verbose_name | help_text |
 |---|---|---|
@@ -453,6 +455,20 @@ is in the space, what they make, and what they can teach you."*, QR to
 A QR pointing at a members-only page is intended: the audience is members standing in the building,
 and the login wall is one tap.
 
+### Addendum (added after the first review pass, at Jo's request)
+
+**7. `_tour_slide`.** A Book a Tour invitation with a QR to the booking page. This is the one
+generated slide whose destination is NOT an internal `reverse()` — tours are booked on the
+marketing site (`https://www.pastlives.space/tours`), so the URL is a new admin-editable
+`SiteConfiguration.signage_tour_url` (that default; `blank=True`) rather than a constant. A
+hardcoded pastlives.space URL would contradict the brand block's "one deployment is one
+organization" rule, and deriving it from `org_website_url + "/tours"` assumes a path another
+org would not have. Blank drops the slide, exactly as a blanked Host a Workshop CTA does.
+Fixed copy, no admin fields: title *"Book a Tour"*, body *"New here? Book a walkthrough and a
+member will show you the shops, the tools, and how to join."* Appended last in the block order
+so the existing order is unchanged. No CSS variant — it is a title/body/QR slide, like the
+voting and directory slides, both of which use the default styling.
+
 ### 5.4 Rendering
 
 `templates/signage/_deck.html` currently hardcodes a class for two kinds only. Replace both branches
@@ -503,7 +519,7 @@ is dark-only by design; `hub.css` changes are checked in both themes.
   longer discarded. The image field keeps its "re-attach the file" hint, since a file input genuinely
   cannot be repopulated.
 - **Success state:** `messages.success` on each save.
-- The six switches render as `pl-toggle` switches through `components/form_field.html`, each showing
+- The switches render as `pl-toggle` switches through `components/form_field.html`, each showing
   its `help_text`, under a line saying they apply to every screen.
 - **Mobile:** cards stack, `.pl-slideshow-daterow` already collapses under 640px, the zone QR/actions
   panel wraps. No horizontal scroll on the page body.
@@ -527,20 +543,6 @@ an empty slide. The month grid fits `100vh` at 1080p landscape and on a portrait
   live models; the player re-polls every 300s and reloads at 04:00. Persisting generated slides
   would add a staleness bug and a job to babysit for no gain.
 - **No per-block ordering or per-block duration.** Fixed order, shared duration.
-### Addendum (added after the first review pass, at Jo's request)
-
-**7. `_tour_slide`.** A Book a Tour invitation with a QR to the booking page. This is the one
-generated slide whose destination is NOT an internal `reverse()` — tours are booked on the
-marketing site (`https://www.pastlives.space/tours`), so the URL is a new admin-editable
-`SiteConfiguration.signage_tour_url` (that default; `blank=True`) rather than a constant. A
-hardcoded pastlives.space URL would contradict the brand block's "one deployment is one
-organization" rule, and deriving it from `org_website_url + "/tours"` assumes a path another
-org would not have. Blank drops the slide, exactly as a blanked Host a Workshop CTA does.
-Fixed copy, no admin fields: title *"Book a Tour"*, body *"New here? Book a walkthrough and a
-member will show you the shops, the tools, and how to join."* Appended last in the block order
-so the existing order is unchanged. No CSS variant — it is a title/body/QR slide, like the
-voting and directory slides, both of which use the default styling.
-
 - **No new copy fields.** The Host a Workshop slide reads the copy admins already edit.
 - **No changes to the zones/slides models**, the player JS, the surface middleware, or the
   `SIGNAGE_HOSTS` go-live wiring.
@@ -601,6 +603,9 @@ migration (CI runs system checks local pytest skips).
 
 ## 9. Version & changelog
 
-`VERSION = "1.49.0"`. One new `CHANGELOG` entry at that version: member-facing, plain language, no
+`VERSION = "1.49.0"`, superseded: #347 claimed 1.49.0 first, so #348's merge left VERSION unchanged
+and the notify workflow skipped the announcement. The entry was re-stamped `1.50.0` in the tour-slide
+follow-up, which is the release that actually announces this feature. One `CHANGELOG` entry at the
+shipping version: member-facing, plain language, no
 dashes, no jargon. It covers what now appears on the lobby screens on its own, and closes with one
 line for admins that Slideshow is now its own tile.

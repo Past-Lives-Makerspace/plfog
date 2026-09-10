@@ -259,7 +259,9 @@ def describe_automatic_slides_settings_save():
                 # Unchecked booleans simply don't post; send only the ones staying on.
                 "signage_show_classes": "on",
                 "signage_show_guilds": "on",
-                "signage_tour_url": "https://www.pastlives.space/tours",
+                # Deliberately NOT the model default: asserting the default back proves
+                # nothing, and passes even when the key never posts at all.
+                "signage_tour_url": "https://example.org/visit",
             },
         )
         assert resp.status_code == 302
@@ -275,7 +277,7 @@ def describe_automatic_slides_settings_save():
         assert config.signage_show_directory is False
         assert config.signage_show_teach is False
         assert config.signage_show_tour is False
-        assert config.signage_tour_url == "https://www.pastlives.space/tours"
+        assert config.signage_tour_url == "https://example.org/visit"
 
     def it_re_renders_with_the_typed_value_on_an_invalid_save(client):
         _superuser(client)
