@@ -21,8 +21,8 @@ Two asks, one release.
    sibling forms, and it has outgrown a tab.
 2. **The lobby screen fills itself in.** Today an admin hand-builds every slide except the
    upcoming-events ones. This adds seven more self-building slide blocks — this week's classes, the
-   guilds, a month calendar, the funding vote, the member directory, and Host a Workshop — each with
-   its own on/off switch, each carrying a QR a passer-by can scan.
+   guilds, a month calendar, the funding vote, the member directory, Host a Workshop and Book a Tour
+   — each with its own on/off switch, each carrying a QR a passer-by can scan.
 
 The kiosk requirement ("the monitor refreshes once a week and must need nothing else") is **already
 met by the player and needs no new code**: the deck is built per request from live data, the player
