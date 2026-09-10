@@ -1,0 +1,24 @@
+REGISTRATION MOVED
+
+Hi {{ registration.first_name }},
+
+The studio moved your {% if is_waitlisted %}waitlist spot{% else %}registration{% endif %} to another class. Everything else stays as it was, and you do not need to sign up again.
+
+You were in: {{ source.title }}
+You're now in: {{ offering.title }}{% if offering.instructor %}, with {{ offering.instructor.display_name }}{% endif %}
+
+{% if upcoming_sessions %}New schedule:
+{% for session in upcoming_sessions %}{{ session.starts_at|date:"l, F j, Y" }} at {{ session.starts_at|time:"g:i A" }}
+{% endfor %}{% else %}New schedule: TBA. {% if offering.instructor %}{{ offering.instructor.display_name }} will be in touch with dates.{% else %}We'll be in touch with dates.{% endif %}
+{% endif %}Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
+{% if is_waitlisted %}
+You're on the waitlist for this one. We'll email you the moment a seat opens up.
+{% endif %}
+View your new class:
+{{ class_url }}
+
+Manage your registration:
+{{ self_serve_url }}
+
+Not what you expected? Reach us at info@pastlives.space.
+{% include "membership/emails/_footer.txt" %}

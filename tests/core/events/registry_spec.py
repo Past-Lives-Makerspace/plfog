@@ -52,6 +52,7 @@ _BRAND_NEW_KEYS = {
     "waitlist_promoted",
     "waitlist_promoted_pay",
     "registration_removed",
+    "registration_moved",
     "guild_welcome",
     "equipment.reservation_confirmed",
     "equipment.reservation_cancelled_by_manager",
@@ -204,6 +205,13 @@ def describe_event_registry():
 
         def it_routes_class_validation_to_class_approvers():
             assert get_event("class_validation_requested").recipient is Recipients.CLASS_APPROVERS
+
+        def it_routes_the_teach_request_to_class_approvers_not_every_admin():
+            """Deciding who may host a workshop is the CMS Administrators' duty, not the admin tier's."""
+            assert get_event("instructor_application_received").recipient is Recipients.CLASS_APPROVERS
+
+        def it_routes_the_move_notice_to_the_registrant():
+            assert get_event("registration_moved").recipient is Recipients.REGISTRANT
 
         def it_routes_orientation_requested_to_orienters_or_equipment_managers():
             # Composed for equipment-owned orientations: equipment in context routes

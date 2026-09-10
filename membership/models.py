@@ -2771,7 +2771,10 @@ class AdminCapability(models.Model):
     #: drift. Written without a subject so each line reads correctly whether the reader is
     #: granting a duty to someone else or to themselves.
     DESCRIPTIONS: dict[str, str] = {
-        Capability.CLASS_APPROVER: "Approves and publishes classes for every guild, and gets class-review emails.",
+        Capability.CLASS_APPROVER: (
+            "Approves and publishes classes for every guild. Gets the class-review emails, and the "
+            "requests from members who want to host a workshop."
+        ),
         Capability.SPACE_APPROVER: "Reviews space and cubby requests, and gets those request emails.",
         Capability.DISCOUNT_APPROVER: "Approves discount codes, and gets discount-request emails.",
         Capability.EVENTS_APPROVER: "Reviews Calendar and meeting proposals, and gets those emails.",

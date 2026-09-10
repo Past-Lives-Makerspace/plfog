@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
+from django.core import mail
+from django.utils import timezone
+from django.utils.timezone import localtime
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory, UserFactory
-from classes.models import CmsActivity, Registration
+from classes.models import ClassSession, CmsActivity, Registration
 
 pytestmark = pytest.mark.django_db
 
@@ -107,3 +112,69 @@ def describe_move_to():
         reg = RegistrationFactory(class_offering=offering)
         with pytest.raises(ValueError):
             reg.move_to(offering)
+
+    def describe_the_move_notice():
+        def it_emails_the_registrant_naming_both_classes():
+            src = ClassOfferingFactory(slug="mv-mail-src", title="Old Class")
+            dst = ClassOfferingFactory(slug="mv-mail-dst", title="New Class")
+            reg = RegistrationFactory(
+                class_offering=src, status=Registration.Status.CONFIRMED, email="moved@example.com"
+            )
+            mail.outbox.clear()
+
+            reg.move_to(dst)
+
+            assert len(mail.outbox) == 1
+            email = mail.outbox[0]
+            assert email.to == ["moved@example.com"]
+            assert "New Class" in email.subject
+            # The class they left has to be named too, or the notice is unreadable:
+            # "you've been moved" means nothing without saying moved from what.
+            assert "Old Class" in email.body
+            assert "New Class" in email.body
+
+        def it_links_the_new_class_page_and_the_self_serve_page():
+            src = ClassOfferingFactory(slug="mv-link-src")
+            dst = ClassOfferingFactory(slug="mv-link-dst")
+            reg = RegistrationFactory(class_offering=src, status=Registration.Status.CONFIRMED)
+            mail.outbox.clear()
+
+            reg.move_to(dst)
+
+            body = mail.outbox[0].body
+            assert "/classes/mv-link-dst/" in body
+            assert f"/classes/my/{reg.self_serve_token}/" in body
+
+        def it_carries_the_new_schedule():
+            src = ClassOfferingFactory(slug="mv-when-src")
+            dst = ClassOfferingFactory(slug="mv-when-dst")
+            starts = timezone.now() + timedelta(days=30)
+            ClassSession.objects.create(class_offering=dst, starts_at=starts, ends_at=starts + timedelta(hours=2))
+            reg = RegistrationFactory(class_offering=src, status=Registration.Status.CONFIRMED)
+            mail.outbox.clear()
+
+            reg.move_to(dst)
+
+            assert localtime(starts).strftime("%B") in mail.outbox[0].body
+
+        def it_stays_silent_for_a_cancelled_row():
+            """Reassigning a cancelled row is bookkeeping — it promises nobody a seat."""
+            src = ClassOfferingFactory(slug="mv-quiet-src")
+            dst = ClassOfferingFactory(slug="mv-quiet-dst")
+            reg = RegistrationFactory(class_offering=src, status=Registration.Status.CANCELLED)
+            mail.outbox.clear()
+
+            reg.move_to(dst)
+
+            assert mail.outbox == []
+
+        def it_tells_a_waitlisted_registrant_they_are_still_waiting():
+            src = ClassOfferingFactory(slug="mv-wlmail-src")
+            dst = ClassOfferingFactory(slug="mv-wlmail-dst")
+            reg = RegistrationFactory(class_offering=src, status=Registration.Status.WAITLISTED)
+            mail.outbox.clear()
+
+            reg.move_to(dst)
+
+            assert len(mail.outbox) == 1
+            assert "waitlist" in mail.outbox[0].body.lower()

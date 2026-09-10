@@ -489,6 +489,7 @@ BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab ch
 WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
 WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
 REGISTRATION_REMOVED = "registration_removed"  # staff removed a registrant (seat-holder or waitlister)
+REGISTRATION_MOVED = "registration_moved"  # staff reassigned a registrant to a different class
 GUILD_WELCOME = "guild_welcome"  # transactional per-guild join welcome — email only via email_to, no matrix row
 EQUIPMENT_RESERVATION_CONFIRMED = "equipment.reservation_confirmed"  # your reservation is set (+ .ics)
 EQUIPMENT_RESERVATION_CANCELLED_BY_MANAGER = "equipment.reservation_cancelled_by_manager"  # with the reason
@@ -1044,6 +1045,20 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
+    # registration_moved — staff reassigned this registrant to a different class. The
+    # registrant did not ask for it and their old class page is now wrong, so they are
+    # told which class they left, which one they are in, and when it meets. Same shape
+    # as its removal sibling: REGISTRANT for the bell row, the raw address via
+    # ``email_to`` so a guest with no account still hears about it.
+    EventType(
+        key=REGISTRATION_MOVED,
+        label="Moved to another class",
+        description="Staff moved your registration from one class to another.",
+        category="Classes",
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # --- Equipment reservations (equipment-reservations spec §8, PR 2) ----------
     # equipment.reservation_confirmed — the member's own booking receipt. Operational
     # mail like orientation updates: in-app on + email FORCED, push on (via
@@ -1115,19 +1130,21 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # instructor_application_received — a member asked to teach. Deliberately FOG_ADMINS
-    # and NOT CLASS_APPROVERS: the capability resolver returns only members holding an
-    # explicitly granted capability, so on a site where nobody holds it the application
-    # would notify nobody and the queue would pile up unseen. Teaching access is an admin
-    # decision, so the admins are the right inbox. Per-recipient only, no broadcast; the
-    # application timestamp makes each ask its own dedupe period, so re-applying after a
-    # decline notifies again.
+    # instructor_application_received — a member asked to teach. Routed to CLASS_APPROVERS
+    # (the CMS Administrators) rather than every admin: deciding who may host a workshop is
+    # the same duty as reviewing the workshops themselves, so it belongs to the people who
+    # already hold that duty and sits in the same queue they already watch. This was
+    # FOG_ADMINS at first, on the reasoning that a capability nobody holds would notify
+    # nobody; the capability is now widely held and the queue is the CMS Administrators'
+    # own screen, so the narrower, correct audience wins. Granting the capability is what
+    # opts someone in. Per-recipient only, no broadcast; the application timestamp makes
+    # each ask its own dedupe period, so re-applying after a decline notifies again.
     EventType(
         key=INSTRUCTOR_APPLICATION_RECEIVED,
         label="Someone applied to teach",
-        description="A member asked for teaching access and is waiting on an admin.",
+        description="A member asked for teaching access and is waiting on a CMS Administrator.",
         category="Classes",
-        recipient=Recipients.FOG_ADMINS,
+        recipient=Recipients.CLASS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

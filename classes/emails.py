@@ -790,6 +790,57 @@ def send_removal_notice(registration: "Registration", *, was_waitlisted: bool) -
     )
 
 
+def send_registration_moved(registration: "Registration", *, source: "ClassOffering") -> None:
+    """Tell a registrant that staff reassigned them from one class to another.
+
+    Fired from :meth:`Registration.move_to`, the single move path both the teaching
+    portal and the admin registrations tab go through. Nobody asked for this move, and
+    the confirmation they are holding now names the wrong class, so the email leads with
+    both classes by name and carries the new schedule plus a link to the new class page.
+
+    Payment is deliberately not mentioned: ``move_to`` reconciles no money (a $60 seat
+    moved into a $45 class stays paid at $60), so any figure here would be a promise the
+    system does not keep. Staff settle the difference by hand and say so themselves.
+
+    Args:
+        registration: The moved registration, already pointing at its new class.
+        source: The class it came FROM — read before the move, since the row no
+            longer references it.
+    """
+    from core.events.senders import emit_with_email_shell
+
+    offering = registration.class_offering
+    upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
+    template_context = {
+        "registration": registration,
+        "offering": offering,
+        "source": source,
+        "upcoming_sessions": upcoming_sessions,
+        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "self_serve_url": _absolute_url(
+            reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
+        ),
+        "is_waitlisted": registration.status == registration.Status.WAITLISTED,
+    }
+    emit_with_email_shell(
+        "registration_moved",
+        actor=registration.member.user if registration.member is not None else None,
+        target=registration,
+        context={"member": registration.member},
+        subject=f"You've been moved to {offering.title}",
+        text_template="classes/emails/moved.txt",
+        html_template="classes/emails/moved.html",
+        template_context=template_context,
+        in_app_title="You've been moved to another class",
+        in_app_body=f"{source.title} to {offering.title}",
+        url="/classes/account/",
+        email_to=registration.email,
+        # Each move is its own notice: a student moved twice hears about it twice, and
+        # the pair of class pks makes the second move a different bucket from the first.
+        period=f"reg:{registration.pk}:moved:{source.pk}:{offering.pk}",
+    )
+
+
 def send_duplicate_payment_alert(
     registration: "Registration", *, amount_cents: int, payment_intent: str, session_id: str
 ) -> None:

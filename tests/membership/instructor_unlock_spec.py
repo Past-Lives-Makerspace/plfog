@@ -20,7 +20,7 @@ from django.utils import timezone
 from classes.factories import ClassOfferingFactory
 from classes.models import ClassOffering, Registration
 from core.models import Notification, SiteActivity
-from membership.models import Member
+from membership.models import AdminCapability, Member
 from tests.membership.factories import MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -35,10 +35,17 @@ def _linked_member(username: str) -> Member:
 
 
 def _fog_admin(username: str) -> Member:
-    """A linked ADMIN member — the audience instructor_application_received resolves to."""
+    """A linked member holding CLASS_APPROVER — who instructor_application_received resolves to.
+
+    The capability, not the admin tier, is the audience: a plain admin without the CMS
+    Administrator duty hears nothing (see ``core.events.resolvers._capability_recipients``).
+    The member is also given the ADMIN role so the fixture still stands in for the person
+    who acts on the queue, which is still admin-gated.
+    """
     member = _linked_member(username)
     member.fog_role = Member.FogRole.ADMIN
     member.save(update_fields=["fog_role"])
+    AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.CLASS_APPROVER)
     return member
 
 

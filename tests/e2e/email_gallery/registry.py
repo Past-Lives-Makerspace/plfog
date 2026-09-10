@@ -246,6 +246,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="removed_context",
     ),
     GalleryEmail(
+        key="moved",
+        name="Moved to another class",
+        section="Classes",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when staff reassign a registrant from one class to another, from either the teaching "
+            "portal roster or the admin registrations tab. Names both classes and carries the new "
+            "schedule. Goes to the registrant's email address; a cancelled row is moved silently."
+        ),
+        edit_pointer=_tpl("classes/emails", "moved"),
+        audience="The moved registrant (member or guest).",
+        event_keys=frozenset({"registration_moved"}),
+        text_template="classes/emails/moved.txt",
+        html_template="classes/emails/moved.html",
+        context_builder="moved_context",
+    ),
+    GalleryEmail(
         key="duplicate_payment_alert",
         name="Duplicate payment alert (admin)",
         section="Classes",
@@ -330,10 +347,10 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
             "Sent when a guild lead approves a class and the admin (executive) gate opens. "
-            "Goes to all FOG admins, with a tokenized review link."
+            "Goes to the CMS Administrators (CLASS_APPROVER holders), with a tokenized review link."
         ),
         edit_pointer=_tpl("classes/emails", "admin_validation_request"),
-        audience="All FOG admins.",
+        audience="The CMS Administrators (CLASS_APPROVER holders).",
         event_keys=frozenset({"class_validation_requested"}),
         text_template="classes/emails/admin_validation_request.txt",
         html_template="classes/emails/admin_validation_request.html",
