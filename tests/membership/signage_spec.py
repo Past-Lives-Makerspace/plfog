@@ -17,6 +17,7 @@ from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessio
 from classes.models import ClassSettings
 from core.models import SiteConfiguration
 from membership.cycle import get_cycle_context
+from membership.models import CommunityEvent
 from membership.qr import qr_svg
 from membership.signage import (
     SIGNAGE_AGENDA_CAP,
@@ -298,8 +299,9 @@ def describe_guild_slides():
         zone = SlideshowZoneFactory()
         GuildFactory(name="Blacksmiths")
         GuildFactory(name="Weavers")
+        GuildFactory(name="Archived Guild", is_active=False)  # visible() must drop it
         titles = [vm.title for vm in _guild_vms(zone)]
-        assert titles == ["Blacksmiths", "Weavers"]  # one slide EACH, alphabetical
+        assert titles == ["Blacksmiths", "Weavers"]  # one slide EACH, alphabetical, active only
         assert all(vm.qr_svg is not None for vm in _guild_vms(zone))
 
     def it_labels_the_next_thing_so_it_does_not_read_as_a_tagline():
@@ -408,6 +410,56 @@ def describe_guild_slides():
         assert vm.meta == ""
         assert vm.body == "Hot metal."
 
+    def it_never_names_a_meeting_that_ran_earlier_today():
+        # Same guard as the What's On list, three lines away in _guild_next_item and until now
+        # unexercised. Without it the wall reads "NEXT UP / Morning Meetup / 10:00 AM" at noon.
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        guild = GuildFactory(name="Blacksmiths", about="Hot metal.")
+        noon = datetime(2026, 9, 15, 19, 0, tzinfo=UTC)
+        this_morning = datetime(2026, 9, 15, 17, 0, tzinfo=UTC)  # 10am, two hours before
+        CommunityEventFactory(
+            guild=guild, title="Morning Meetup", starts_at=this_morning, ends_at=this_morning + timedelta(hours=1)
+        )
+        with patch("django.utils.timezone.now", return_value=noon):
+            vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta == ""
+        assert vm.body == "Hot metal."
+
+    def it_names_the_next_occurrence_of_a_monthly_series_anchored_in_the_past():
+        # THE normal shape for a guild: a monthly meeting whose anchor row is months old. A
+        # naive starts_at BETWEEN window drops the row before occurrences_in ever sees it, so
+        # the guild that meets every month is exactly the one that shows no meeting.
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        guild = GuildFactory(name="Blacksmiths", about="Hot metal.")
+        anchor = datetime(2026, 7, 10, 2, 0, tzinfo=UTC)  # 7pm Jul 9 Portland, two months back
+        CommunityEventFactory(
+            guild=guild,
+            title="Monthly Forge Night",
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+        )
+        noon = datetime(2026, 9, 15, 19, 0, tzinfo=UTC)
+        with patch("django.utils.timezone.now", return_value=noon):
+            vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta == "Monthly Forge Night"
+        assert "Oct" in vm.body  # the NEXT occurrence, not the July anchor
+
+    def it_ignores_a_guild_class_past_the_horizon():
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        guild = GuildFactory(name="Blacksmiths", about="Hot metal.")
+        far = timezone.now() + timedelta(days=SIGNAGE_GUILD_HORIZON_DAYS + 10)
+        offering = ClassOfferingFactory(
+            title="Far Off Class", status="published", is_private=False, category=CategoryFactory(guild=guild)
+        )
+        ClassSessionFactory(class_offering=offering, starts_at=far, ends_at=far + timedelta(hours=2))
+        vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta == ""
+        assert vm.body == "Hot metal."
+
     def it_never_puts_one_guilds_meeting_on_another_guilds_slide():
         _config(signage_show_guilds=True)
         zone = SlideshowZoneFactory()
@@ -498,6 +550,38 @@ def describe_whats_on_slide():
         offering = ClassOfferingFactory(title="Early Class", status="published", is_private=False)
         ClassSessionFactory(class_offering=offering, starts_at=early, ends_at=early + timedelta(hours=2))
         assert _titles(zone) == ["Early Class", "Late Event"]
+
+    def it_names_the_next_occurrence_of_a_monthly_series_anchored_in_the_past():
+        # Same recurrence trap as the guild slide. A monthly site-wide event anchored in July
+        # must still contribute its September date; a naive BETWEEN drops the row entirely.
+        _config(signage_show_calendar=True)
+        zone = SlideshowZoneFactory()
+        anchor = datetime(2026, 7, 20, 2, 0, tzinfo=UTC)  # 7pm Jul 19 Portland
+        CommunityEventFactory(
+            community=True,
+            title="Monthly Potluck",
+            starts_at=anchor,
+            ends_at=anchor + timedelta(hours=2),
+            recurrence=CommunityEvent.Recurrence.MONTHLY,
+        )
+        assert "Monthly Potluck" in _titles(zone)
+
+    def it_leaves_out_a_class_that_ran_earlier_this_month():
+        # The window opens at NOW, not at the first of the month. "What's On This Month" is a
+        # forward-looking list; a class that ran on the 3rd is not on.
+        _config(signage_show_calendar=True)
+        zone = SlideshowZoneFactory()
+        earlier = datetime(2026, 9, 3, 19, 0, tzinfo=UTC)
+        offering = ClassOfferingFactory(title="Already Ran", status="published", is_private=False)
+        ClassSessionFactory(class_offering=offering, starts_at=earlier, ends_at=earlier + timedelta(hours=2))
+        assert not any(vm.kind == "calendar" for vm in _deck(zone))
+
+    def it_leaves_out_something_next_month():
+        # The window closes at the END of this month, not a year out.
+        _config(signage_show_calendar=True)
+        zone = SlideshowZoneFactory()
+        _event("October Thing", datetime(2026, 10, 6, 19, 0, tzinfo=UTC))
+        assert not any(vm.kind == "calendar" for vm in _deck(zone))
 
     def it_never_names_a_guild_meeting():
         # The privacy rule for the SITE-WIDE list. A guild's meeting appears on that guild's
