@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.53.0"
+VERSION = "1.53.1"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -20,6 +20,10 @@ VERSION = "1.53.0"
 # second post about the same feature, and re-stamping 1.47.0's entry would re-announce the whole
 # wiki a day late. Then this branch had carried 1.50.0 too, which would have skipped the
 # slideshow announcement a THIRD time.
+#
+# 1.53.1 - the automated PR review workflow took it with no entry, correctly: it is repo
+# tooling, invisible to members. A VERSION with no matching entry announces nothing, which is
+# what this release wants. Do not invent an entry for it.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
