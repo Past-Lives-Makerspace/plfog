@@ -398,6 +398,26 @@ def removed_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def moved_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_registration_moved`` — the confirmed seat-holder variant.
+
+    ``source`` is the class they came FROM. The template reads only its title, so a plain
+    mapping stands in rather than seeding a second offering just to render one line.
+    """
+    registration = data.registration
+    return {
+        "subject": f"You've been moved to {data.offering.title}",
+        "template_context": {
+            "registration": registration,
+            "offering": data.offering,
+            "source": {"title": "Introduction to Wheel Throwing"},
+            "upcoming_sessions": _upcoming_sessions(data),
+            **_class_urls(data, registration),
+            "is_waitlisted": False,
+        },
+    }
+
+
 def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``classes.emails.send_duplicate_payment_alert`` exactly."""
     from classes.emails import _absolute_url

@@ -60,6 +60,13 @@ I understand that I may revoke this consent at any time by notifying PLM in writ
 # default of the matching ClassSettings.teach_page_* field, so a fresh database renders
 # the whole page with no seed command; an admin edits the words on the classes Settings
 # page. No dashes anywhere in this copy: it is member facing.
+#: Markers that identify seeded demo content. The slug prefix is what every seeder sets
+#: and what the catalog gate in ``ClassOfferingQuerySet.public`` filters on; the title
+#: prefix is the convention a human follows when building one by hand. See
+#: ``ClassOffering.is_demo``.
+DEMO_SLUG_PREFIX = "demo-"
+DEMO_TITLE_PREFIX = "[DEMO]"
+
 DEFAULT_TEACH_PAGE_TITLE = "Share What You Love"
 
 DEFAULT_TEACH_PAGE_LEAD = (
@@ -231,7 +238,7 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
 
         qs = self.filter(status="published", is_private=False)
         if not SiteConfiguration.load().display_demo_classes:
-            qs = qs.exclude(slug__startswith="demo-")
+            qs = qs.exclude(slug__startswith=DEMO_SLUG_PREFIX)
         return qs
 
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
@@ -1271,6 +1278,11 @@ class ClassOffering(HeroCropMixin, models.Model):
             # again (Discord, bell, email) instead of matching the first publish's slot.
             # Microseconds, because a test (or a hasty admin) can do both inside a second.
             period=f"offering:{self.pk}:published:{self.published_at:%Y%m%d%H%M%S%f}",
+            # A demo class is real enough to walk through end to end, but announcing it in
+            # the makerspace Discord tells 200 members about a workshop that does not
+            # exist. Suppressing only the BROADCAST leaves the in-app row and the email
+            # fan-out alone, so a live walkthrough still shows the whole publish flow.
+            suppress_broadcast=self.is_demo,
         )
 
     def cancel(self, actor: "User | None", reason: str) -> None:
@@ -1840,6 +1852,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.legacy_image_url:
             return f"{reverse('classes:legacy_image')}?{urlencode({'url': self.legacy_image_url})}"
         return ""
+
+    @property
+    def is_demo(self) -> bool:
+        """True for seeded demo content — a ``demo-`` slug or a ``[DEMO]`` title.
+
+        The row-level counterpart of the ``demo-`` slug gate in
+        :meth:`ClassOfferingQuerySet.public`, deliberately a little wider: the slug is
+        the machine-readable marker every seeder sets, while ``[DEMO]`` in the title is
+        the convention a human follows by hand. Something announced to the whole
+        makerspace should be held back on either signal, not only the tidy one.
+        """
+        return self.slug.startswith(DEMO_SLUG_PREFIX) or self.title.strip().upper().startswith(DEMO_TITLE_PREFIX)
 
     @property
     def has_hero_photo(self) -> bool:
@@ -3437,11 +3461,18 @@ class Registration(models.Model):
         No price reconciliation: ``amount_paid_cents`` is unchanged. The source
         class's waitlist is promoted if this registration was holding a spot
         there. Raises ``ValueError`` if ``target`` is the current class.
+
+        The registrant is emailed the move notice from here rather than from the two
+        calling views (the teaching portal roster and the admin registrations tab), so
+        neither path can move somebody silently. A cancelled or refunded row can still
+        be reassigned as bookkeeping, and stays silent: telling that person they are
+        "in a different class now" would promise a seat they do not hold.
         """
         if target.pk == self.class_offering_id:
             raise ValueError("Cannot move a registration to its current class.")
         source = self.class_offering
         held_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        should_notify = self.status in (self.Status.CONFIRMED, self.Status.PENDING, self.Status.WAITLISTED)
         self.class_offering = target
         self.save(update_fields=["class_offering"])
         from classes import activity
@@ -3453,6 +3484,10 @@ class Registration(models.Model):
             actor=actor,
             payload={"from": source.title, "to": target.title},
         )
+        if should_notify:
+            from classes.emails import send_registration_moved
+
+            send_registration_moved(self, source=source)
         if held_spot:
             source.promote_next_from_waitlist()
 

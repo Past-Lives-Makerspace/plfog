@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.51.0"
+VERSION = "1.52.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -26,6 +26,22 @@ VERSION = "1.51.0"
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.52.0",
+        "date": "2026-09-10",
+        "title": "You'll hear about it if your class moves",
+        "changes": [
+            "If we move you from one class to another, you now get an email about it. It names the "
+            "class you were in and the one you are in now, with the new dates, the time, and where "
+            "to go. Your booking carries over, so there is nothing for you to do and no need to "
+            "sign up again.",
+            "If you were waiting for a seat rather than holding one, the email says so, and you "
+            "keep your place in line for the new class.",
+            "Admins: requests from members who want to host a workshop now go to the CMS "
+            "Administrators instead of to every admin. If you want to keep getting them, ask for "
+            "the CMS Administrator duty on your member page.",
+        ],
+    },
     {
         "version": "1.51.0",
         "date": "2026-09-09",
