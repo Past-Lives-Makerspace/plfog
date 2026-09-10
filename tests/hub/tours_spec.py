@@ -172,7 +172,7 @@ def describe_teach_overview_tour_offer():
         _login_member(client, "teach-empty", instructor_oriented_at=timezone.now())
         content = client.get(reverse("classes:teach_overview")).content.decode()
         assert 'data-help-key="teach.create-class"' in content
-        assert "+ New class" in content
+        assert "+ New Class" in content
 
     def it_renders_the_persistent_new_class_button_with_classes(client):
         from classes.factories import ClassOfferingFactory
@@ -181,7 +181,7 @@ def describe_teach_overview_tour_offer():
         ClassOfferingFactory(instructor=member)
         content = client.get(reverse("classes:teach_overview")).content.decode()
         assert 'data-help-key="teach.create-class"' in content
-        assert "+ New class" in content
+        assert "+ New Class" in content
         assert 'data-help-key="teach.roster"' in content
 
 

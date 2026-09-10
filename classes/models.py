@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import secrets
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date as date_type, datetime
 from html import unescape
@@ -3167,6 +3167,42 @@ class Registration(models.Model):
         if match is not None:
             self.member = match
             super().save(update_fields=["member"])
+
+    # --- Announcement composer hand-off -------------------------------------
+
+    @property
+    def announcement_recipient_token(self) -> str:
+        """This registrant as one announcement-composer recipient value, or ``""`` if unreachable.
+
+        Mirrors how :func:`hub.forms.announcement_recipient_choices` builds a class roster, so a
+        token minted here always matches a checkbox the composer will render: a registrant with a
+        linked app account is ``user:<pk>`` (bell + push + email), and an email-only registrant
+        (guest checkout, no account) is ``custom:<lowercased address>`` (email only). A registrant
+        with neither has no way to be reached and yields the empty string.
+        """
+        member = self.member
+        if member is not None and member.user is not None:
+            return f"user:{member.user.pk}"
+        address = (self.email or "").strip().lower()
+        return f"custom:{address}" if address else ""
+
+    @staticmethod
+    def announcement_recipient_tokens(registrations: "Iterable[Registration]") -> list[str]:
+        """Deduped composer recipient tokens for ``registrations``, in the order given.
+
+        Two guest registrations can share one address (the same person signing a friend up), and
+        the composer's checklist is keyed by token, so a duplicate would be a duplicate checkbox.
+        Unreachable registrants (no account, no address) drop out.
+        """
+        tokens: list[str] = []
+        seen: set[str] = set()
+        for registration in registrations:
+            token = registration.announcement_recipient_token
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            tokens.append(token)
+        return tokens
 
     # --- Roster management (staff promote / mark-paid / remove) -------------
 

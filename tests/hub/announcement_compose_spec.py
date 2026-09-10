@@ -923,3 +923,93 @@ def describe_admin_tools_page():
             _instructor(client)
             content = client.get(reverse("hub_admin_tools")).content.decode()
             assert not [href for href in _QUICKSTART_HREFS if href in content]
+
+
+def _checked(form) -> list[str]:
+    """The recipient values the checklist will render as checked.
+
+    Read through the bound field, not ``fields["recipients"].initial``: a pre-selection lands in
+    the FORM's initial and the field-level default is only the fallback, so reading the field
+    alone would report None on exactly the path under test.
+    """
+    return form["recipients"].value()
+
+
+def describe_hub_compose_roster_handoff():
+    """``?recipients=`` narrows the checklist — the teaching portal's roster hand-off (§4a)."""
+
+    def _class_with_registrant(email: str = "guest@example.com", **kwargs):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        registration = RegistrationFactory(
+            class_offering=offering, email=email, status=Registration.Status.CONFIRMED, **kwargs
+        )
+        return offering, registration
+
+    def _compose(client: Client, offering, query: str = ""):
+        url = f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1{query}"
+        return client.get(url)
+
+    def it_checks_only_the_handed_over_recipients(client: Client):
+        _login_admin(client)
+        offering, _first = _class_with_registrant("one@example.com")
+        RegistrationFactory(class_offering=offering, email="two@example.com", status=Registration.Status.CONFIRMED)
+        response = _compose(client, offering, "&recipients=custom:one@example.com")
+        assert _checked(response.context["form"]) == ["custom:one@example.com"]
+
+    def it_leaves_the_whole_roster_checked_without_the_param(client: Client):
+        _login_admin(client)
+        offering, _reg = _class_with_registrant("one@example.com")
+        response = _compose(client, offering)
+        assert _checked(response.context["form"]) == ["custom:one@example.com"]
+
+    def it_ignores_a_token_that_is_not_on_the_roster(client: Client):
+        """A hand-crafted ?recipients= must not pre-check somebody who never registered."""
+        _login_admin(client)
+        offering, _reg = _class_with_registrant("one@example.com")
+        response = _compose(
+            client, offering, "&recipients=custom:one@example.com&recipients=custom:stranger@example.com"
+        )
+        assert _checked(response.context["form"]) == ["custom:one@example.com"]
+
+    def it_falls_back_to_the_whole_roster_when_no_token_survives(client: Client):
+        """An empty checklist would read as "send to nobody" while the send path means everyone."""
+        _login_admin(client)
+        offering, _reg = _class_with_registrant("one@example.com")
+        response = _compose(client, offering, "&recipients=user:999999")
+        assert _checked(response.context["form"]) == ["custom:one@example.com"]
+
+    def it_folds_in_the_waitlist_when_asked(client: Client):
+        _login_admin(client)
+        offering, _confirmed = _class_with_registrant("one@example.com")
+        RegistrationFactory(class_offering=offering, email="waiting@example.com", status=Registration.Status.WAITLISTED)
+        response = _compose(client, offering, "&recipients=custom:waiting@example.com&include_waitlist=1")
+        form = response.context["form"]
+        assert form.waitlist_included is True
+        assert _checked(form) == ["custom:waiting@example.com"]
+
+    def it_cannot_reach_a_waitlisted_student_without_that_flag(client: Client):
+        """Which is exactly why the hand-off sets include_waitlist alongside the tokens."""
+        _login_admin(client)
+        offering, _confirmed = _class_with_registrant("one@example.com")
+        RegistrationFactory(class_offering=offering, email="waiting@example.com", status=Registration.Status.WAITLISTED)
+        response = _compose(client, offering, "&recipients=custom:waiting@example.com")
+        assert _checked(response.context["form"]) == ["custom:one@example.com"]
+
+    def it_ignores_recipients_with_no_audience_to_scope_them(client: Client):
+        _login_admin(client)
+        response = client.get(f"{reverse('hub_compose')}?recipients=custom:one@example.com")
+        assert response.status_code == 200
+        assert "recipients" not in response.context["form"].initial
+
+    def it_leaves_a_resumed_drafts_own_selection_alone(client: Client):
+        """A draft may hold an off-roster member added via "add anyone" — never filter that."""
+        admin = _login_admin(client)
+        offering, _reg = _class_with_registrant("one@example.com")
+        draft = AnnouncementDraft.objects.create(
+            author=admin,
+            audience=AnnouncementDraft.Audience.CLASS,
+            class_offering=offering,
+            recipient_selection={"users": [admin.pk], "custom": []},
+        )
+        response = client.get(reverse("hub_compose_resume", args=[draft.pk]))
+        assert response.context["form"].initial["recipients"] == [f"user:{admin.pk}"]

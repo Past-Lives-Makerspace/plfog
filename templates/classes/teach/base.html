@@ -1,11 +1,11 @@
 {% extends "hub/base.html" %}
 
-{% block title %}Manage Classes & Workshops — {{ active_tab|title }}{% endblock %}
+{% block title %}Manage My Classes — {{ active_tab|title }}{% endblock %}
 
 {% block content %}
 <div class="hub-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:0.75rem;">
-        <h1 style="margin:0;">Manage Classes & Workshops</h1>
+        <h1 style="margin:0;">Manage My Classes</h1>
         <span style="display:flex;gap:8px;flex-wrap:wrap;">
             {% if instructor.instructor_slug %}
             <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}" target="_blank" rel="noopener">View public profile ↗</a>
@@ -15,10 +15,10 @@
     </div>
     <nav style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.25rem; flex-wrap:wrap;" role="tablist">
         <a href="{% url 'classes:teach_overview' %}" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}">Overview</a>
-        <a href="{% url 'classes:teach_dashboard' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">Classes</a>
+        <a href="{% url 'classes:teach_dashboard' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}">My Classes</a>
         <a href="{% url 'classes:teach_registrations' %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}">Registrations</a>
         {% if instructor_discount_codes_enabled %}<a href="{% url 'classes:teach_discount_codes' %}" class="vote-tab{% if active_tab == 'discount_codes' %} vote-tab--active{% endif %}">Discount Codes</a>{% endif %}
-        <a href="{% url 'classes:teach_profile' %}" class="vote-tab{% if active_tab == 'profile' %} vote-tab--active{% endif %}">Profile</a>
+        <a href="{% url 'classes:teach_profile' %}" class="vote-tab{% if active_tab == 'profile' %} vote-tab--active{% endif %}">Instructor Profile</a>
     </nav>
     {% block tab_content %}{% endblock %}
 </div>

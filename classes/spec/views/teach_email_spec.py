@@ -1,6 +1,13 @@
-"""BDD specs for the instructor manual email composer (Gap 5)."""
+"""BDD specs for the Registrations tab's hand-off to the Announcement Composer.
+
+The tab used to carry its own subject/body form and send a plain BCC email. It now validates
+the ticked rows and redirects to ``hub_compose``, pre-scoped to the class and pre-checking
+exactly those students — the same composer every other class-email surface opens.
+"""
 
 from __future__ import annotations
+
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from django.core import mail
@@ -12,7 +19,7 @@ from classes.factories import (
     RegistrationFactory,
     UserFactory,
 )
-from classes.models import InstructorMessage, InstructorMessageRecipient
+from classes.models import Registration
 
 pytestmark = pytest.mark.django_db
 
@@ -37,7 +44,24 @@ def other_instructor():
     return InstructorFactory(user=user, full_legal_name="Other", instructor_slug="other")
 
 
-def describe_instructor_email_composer():
+def _compose_params(response):
+    """The compose querystring the view redirected to, as ``{name: [values]}``."""
+    assert response.status_code == 302
+    parsed = urlparse(response["Location"])
+    assert parsed.path == reverse("hub_compose")
+    return parse_qs(parsed.query)
+
+
+def _member_registration(offering, email, first_name="Ada"):
+    """A registration whose registrant has a real app account (so it maps to a ``user:`` token)."""
+    from membership.models import Member
+
+    user = UserFactory(username=email, email=email)
+    member = Member.objects.get(user=user)
+    return RegistrationFactory(class_offering=offering, email=email, first_name=first_name, member=member)
+
+
+def describe_registrations_tab_email_handoff():
     def it_requires_an_active_member(client):
         from membership.models import Member
 
@@ -47,89 +71,145 @@ def describe_instructor_email_composer():
         response = client.post(reverse("classes:teach_registrations_email"), data={})
         assert response.status_code == 403
 
-    def it_redirects_back_with_error_when_form_invalid(instructor, client):
+    def describe_a_selection_it_refuses():
+        def it_bounces_back_when_nothing_was_ticked(instructor, client):
+            client.force_login(instructor.user)
+            response = client.post(reverse("classes:teach_registrations_email"), data={})
+            assert response.status_code == 302
+            assert response["Location"] == reverse("classes:teach_registrations")
+            assert len(mail.outbox) == 0
+
+        def it_says_which_step_was_missed(instructor, client):
+            client.force_login(instructor.user)
+            response = client.post(reverse("classes:teach_registrations_email"), data={}, follow=True)
+            messages = [str(m) for m in response.context["messages"]]
+            assert "Tick the students you want to email first." in messages
+
+        def it_ignores_a_row_id_that_is_not_a_number(instructor, client):
+            client.force_login(instructor.user)
+            response = client.post(
+                reverse("classes:teach_registrations_email"), data={"registration_ids": ["not-a-pk"]}
+            )
+            assert response["Location"] == reverse("classes:teach_registrations")
+
+        def it_bounces_back_when_every_row_belongs_to_someone_else(instructor, other_instructor, client):
+            """A crafted POST resolves to nothing, rather than emailing a stranger's students."""
+            client.force_login(instructor.user)
+            theirs = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=other_instructor))
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [theirs.pk]})
+            assert response["Location"] == reverse("classes:teach_registrations")
+            assert len(mail.outbox) == 0
+
+        def it_refuses_a_selection_spanning_two_classes(instructor, client):
+            client.force_login(instructor.user)
+            one = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=instructor, slug="one"))
+            two = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=instructor, slug="two"))
+            response = client.post(
+                reverse("classes:teach_registrations_email"),
+                data={"registration_ids": [one.pk, two.pk]},
+                follow=True,
+            )
+            messages = [str(m) for m in response.context["messages"]]
+            assert "Pick students from one class at a time." in messages
+
+    def describe_a_selection_it_accepts():
+        def it_opens_the_composer_locked_to_that_class(instructor, client):
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reg = RegistrationFactory(class_offering=offering, email="guest@example.com")
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
+            params = _compose_params(response)
+            assert params["audience"] == [f"class:{offering.pk}"]
+            assert params["lock"] == ["1"]
+
+        def it_sends_a_registrant_with_an_account_through_as_a_user_token(instructor, client):
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reg = _member_registration(offering, "ada@example.com")
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
+            assert _compose_params(response)["recipients"] == [f"user:{reg.member.user.pk}"]
+
+        def it_sends_a_guest_registrant_through_as_their_address(instructor, client):
+            """Guest checkout leaves no account, so the composer reaches them by email alone."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reg = RegistrationFactory(class_offering=offering, email="Guest@Example.com")
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
+            assert _compose_params(response)["recipients"] == ["custom:guest@example.com"]
+
+        def it_folds_in_the_waitlist_when_a_waitlisted_student_was_ticked(instructor, client):
+            """Without this the composer's roster is confirmed-only and the pick would vanish."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reg = RegistrationFactory(
+                class_offering=offering, email="waiting@example.com", status=Registration.Status.WAITLISTED
+            )
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
+            assert _compose_params(response)["include_waitlist"] == ["1"]
+
+        def it_leaves_the_waitlist_out_for_a_confirmed_only_selection(instructor, client):
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reg = RegistrationFactory(
+                class_offering=offering, email="confirmed@example.com", status=Registration.Status.CONFIRMED
+            )
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
+            assert "include_waitlist" not in _compose_params(response)
+
+        def it_keeps_only_the_rows_that_are_mine(instructor, other_instructor, client):
+            """A mixed POST is the intersection, not an error and not a leak."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            mine = RegistrationFactory(class_offering=offering, email="mine@example.com")
+            theirs = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=other_instructor))
+            response = client.post(
+                reverse("classes:teach_registrations_email"), data={"registration_ids": [mine.pk, theirs.pk]}
+            )
+            params = _compose_params(response)
+            assert params["audience"] == [f"class:{offering.pk}"]
+            assert params["recipients"] == ["custom:mine@example.com"]
+
+        def it_lists_two_students_once_each(instructor, client):
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            first = RegistrationFactory(class_offering=offering, email="one@example.com")
+            second = RegistrationFactory(class_offering=offering, email="two@example.com")
+            response = client.post(
+                reverse("classes:teach_registrations_email"), data={"registration_ids": [first.pk, second.pk]}
+            )
+            assert _compose_params(response)["recipients"] == ["custom:one@example.com", "custom:two@example.com"]
+
+        def it_collapses_two_rows_sharing_one_address(instructor, client):
+            """One person signing a friend up twice must not become two identical checkboxes."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            first = RegistrationFactory(class_offering=offering, email="shared@example.com")
+            second = RegistrationFactory(class_offering=offering, email="SHARED@example.com")
+            response = client.post(
+                reverse("classes:teach_registrations_email"), data={"registration_ids": [first.pk, second.pk]}
+            )
+            assert _compose_params(response)["recipients"] == ["custom:shared@example.com"]
+
+        def it_skips_a_registrant_with_no_way_to_reach_them(instructor, client):
+            """No account and no address is nobody to email; the rest of the selection still goes."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reachable = RegistrationFactory(class_offering=offering, email="reachable@example.com")
+            unreachable = RegistrationFactory(class_offering=offering, email="drop@example.com")
+            Registration.objects.filter(pk=unreachable.pk).update(email="")
+            response = client.post(
+                reverse("classes:teach_registrations_email"),
+                data={"registration_ids": [reachable.pk, unreachable.pk]},
+            )
+            assert _compose_params(response)["recipients"] == ["custom:reachable@example.com"]
+
+
+def describe_registrations_tab_page():
+    def it_offers_the_composer_button_and_no_inline_message_form(instructor, client):
         client.force_login(instructor.user)
         offering = ClassOfferingFactory(instructor=instructor)
-        reg = RegistrationFactory(class_offering=offering)
-        response = client.post(
-            reverse("classes:teach_registrations_email"),
-            data={"subject": "", "body": "", "registration_ids": [reg.pk]},
-        )
-        assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_registrations")
-        assert len(mail.outbox) == 0
-
-    def it_rejects_recipients_outside_my_classes(instructor, other_instructor, client):
-        client.force_login(instructor.user)
-        my_offering = ClassOfferingFactory(instructor=instructor)
-        their_offering = ClassOfferingFactory(instructor=other_instructor)
-        mine = RegistrationFactory(class_offering=my_offering)
-        theirs = RegistrationFactory(class_offering=their_offering)
-        client.post(
-            reverse("classes:teach_registrations_email"),
-            data={
-                "subject": "Hi",
-                "body": "Reminder.",
-                "registration_ids": [mine.pk, theirs.pk],  # theirs must be rejected
-                "bcc_self": "on",
-            },
-        )
-        # Form-level error: theirs isn't in the queryset; the whole form fails.
-        assert len(mail.outbox) == 0
-        assert InstructorMessage.objects.count() == 0
-
-    def it_sends_with_bcc_and_records_audit_rows(instructor, client):
-        client.force_login(instructor.user)
-        offering = ClassOfferingFactory(instructor=instructor)
-        r1 = RegistrationFactory(class_offering=offering, email="alice@example.com")
-        r2 = RegistrationFactory(class_offering=offering, email="bob@example.com")
-        response = client.post(
-            reverse("classes:teach_registrations_email"),
-            data={
-                "subject": "Class reminder",
-                "body": "See you tomorrow at 10am.",
-                "registration_ids": [r1.pk, r2.pk],
-                "bcc_self": "on",
-            },
-        )
-        assert response.status_code == 302
-        assert len(mail.outbox) == 1
-        sent = mail.outbox[0]
-        assert sent.subject == "Class reminder"
-        assert sent.body == "See you tomorrow at 10am."
-        assert "alice@example.com" in sent.bcc
-        assert "bob@example.com" in sent.bcc
-        assert "teacher@example.com" in sent.to
-        assert "teacher@example.com" not in sent.bcc
-        message = InstructorMessage.objects.get()
-        assert message.recipient_count == 2
-        assert message.instructor == instructor
-        assert InstructorMessageRecipient.objects.filter(message=message).count() == 2
-
-        # Decision 8: the send is now audited through the choke-point, with the
-        # BCC'd registrants recorded in the log's recipient list.
-        from core.models import TransactionalEmailLog
-
-        log = TransactionalEmailLog.objects.get()
-        assert log.trigger_kind == "classes.instructor_message"
-        assert log.status == TransactionalEmailLog.Status.SENT
-        assert "alice@example.com" in log.to_email
-        assert "bob@example.com" in log.to_email
-
-    def it_omits_self_from_bcc_when_unchecked(instructor, client):
-        client.force_login(instructor.user)
-        offering = ClassOfferingFactory(instructor=instructor)
-        r1 = RegistrationFactory(class_offering=offering, email="alice@example.com")
-        client.post(
-            reverse("classes:teach_registrations_email"),
-            data={
-                "subject": "Hi",
-                "body": "Yo",
-                "registration_ids": [r1.pk],
-                # bcc_self omitted from form post → unchecked
-            },
-        )
-        assert len(mail.outbox) == 1
-        sent = mail.outbox[0]
-        assert "alice@example.com" in sent.bcc
-        assert "teacher@example.com" not in sent.bcc
+        RegistrationFactory(class_offering=offering, first_name="Ada", last_name="Kiln")
+        html = client.get(reverse("classes:teach_registrations")).content.decode()
+        assert ">Email selected students</button>" in html
+        assert 'name="subject"' not in html
+        assert 'name="bcc_self"' not in html

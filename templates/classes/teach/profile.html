@@ -1,7 +1,11 @@
 {% extends "classes/teach/base.html" %}
 {% block tab_content %}
-{# The public instructor page is minted by the first published class; the bio and photo live on the hub Profile settings. #}
-<section class="hub-card" style="margin:0 0 1rem;" data-card="instructor-page">
+{% comment %}The three things the public instructor page shows — photo, bio, links — edited in
+place. The same fields stay editable in Profile settings; this is a second door onto them, not
+a move. The links list is the member's contacts flagged "show on instructor page", driven the
+same way the settings page drives them: extra=0, a "+ Add" button that clones the empty form,
+real Delete buttons that save the page (FRONTEND, Editable Lists).{% endcomment %}
+<section class="hub-card" style="margin:0 0 1.5rem;" data-card="instructor-page">
     <h3 style="margin:0 0 0.5rem;">Your Public Instructor Page</h3>
     {% if public_profile_url %}
         <p style="margin:0;">Your public instructor page is live: <a href="{{ public_profile_url }}" target="_blank" rel="noopener">{{ public_profile_url }}</a></p>
@@ -9,8 +13,91 @@
         <p style="margin:0;color:var(--hub-text-muted);">Your public instructor page goes live with your first published class.</p>
     {% endif %}
 </section>
-<p style="margin:0;color:var(--hub-text-muted);">Your bio, photo, and which details show on that page are edited in your profile settings.</p>
-<div style="margin-top:1rem;">
-    <a class="hub-btn hub-btn--sm hub-btn--primary" href="{{ profile_settings_url }}">Edit profile</a>
-</div>
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ contact_formset.management_form }}
+
+    <section class="hub-card" style="margin:0 0 1.5rem;">
+        <h3 style="margin:0 0 1rem;">Photo and Bio</h3>
+        {% url 'hub_profile_photo_delete' as profile_photo_delete_url %}
+        {% include "components/image_field.html" with field=form.profile_photo current_image=instructor.profile_photo delete_url=profile_photo_delete_url modal_id="delete-instructor-photo" shape="circle" thumbnail_width="96px" max_bytes=max_upload_image_bytes delete_button_text="Delete photo" confirm_title="Delete your photo?" confirm_message="Your photo will be removed from your instructor page, from the member directory, and from our storage. This can't be undone." hint_html=photo_upload_hint %}
+        {% include "components/form_field.html" with field=form.instructor_bio %}
+    </section>
+
+    <section class="hub-card" style="margin:0 0 1.5rem;">
+        <h3 style="margin:0 0 0.5rem;">Links</h3>
+        <p class="hub-text-muted" style="margin:0 0 1rem;">
+            Your website, shop, or social accounts. These show on your public instructor page.
+            Turn off "Show on instructor page" to keep a link but take it off that page.
+        </p>
+        <div id="instructor-contact-rows" style="display:flex; flex-direction:column; gap:1rem;">
+            {% for f in contact_formset %}
+            <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=f.label %}</div>
+                    <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=f.value %}</div>
+                </div>
+                <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                    <div>{% include "components/toggle.html" with field=f.show_on_instructor_page toggle_label=f.show_on_instructor_page.label %}</div>
+                    <div>{% include "components/toggle.html" with field=f.show_in_directory toggle_label=f.show_in_directory.label %}</div>
+                </div>
+                {% if f.instance.pk %}
+                <div style="display:none;">{{ f.DELETE }}</div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;"
+                        onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
+                    Delete this link
+                </button>
+                {% endif %}
+                {{ f.id }}
+                {{ f.sort_order }}
+                {{ f.kind }}
+            </div>
+            {% empty %}
+            <p class="hub-text-muted" style="margin:0;">No links yet.</p>
+            {% endfor %}
+        </div>
+
+        <template id="instructor-contact-template" data-kind="other">
+            <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
+                {% with contact_formset.empty_form as ef %}
+                <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:160px;">{% include "components/form_field.html" with field=ef.label %}</div>
+                    <div style="flex:2; min-width:200px;">{% include "components/form_field.html" with field=ef.value %}</div>
+                </div>
+                <div style="display:flex; gap:1.5rem; flex-wrap:wrap; margin-top:0.5rem;">
+                    <div>{% include "components/toggle.html" with field=ef.show_on_instructor_page toggle_label=ef.show_on_instructor_page.label %}</div>
+                    <div>{% include "components/toggle.html" with field=ef.show_in_directory toggle_label=ef.show_in_directory.label %}</div>
+                </div>
+                {{ ef.id }}
+                {{ ef.sort_order }}
+                {{ ef.kind }}
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>
+                {% endwith %}
+            </div>
+        </template>
+
+        <button type="button" class="hub-btn hub-btn--sm" style="margin-top:1rem;"
+                onclick="
+                  const tpl = document.getElementById('instructor-contact-template');
+                  const total = document.getElementById('id_contacts-TOTAL_FORMS');
+                  const idx = parseInt(total.value, 10);
+                  const wrap = document.createElement('div');
+                  wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
+                  const row = wrap.firstElementChild;
+                  row.querySelector('[name$=\'-kind\']').value = tpl.dataset.kind;
+                  document.getElementById('instructor-contact-rows').appendChild(row);
+                  total.value = idx + 1;
+                ">
+            + Add a link
+        </button>
+    </section>
+
+    <button type="submit" class="hub-btn hub-btn--primary">Save</button>
+</form>
+
+<p style="margin:1.5rem 0 0;color:var(--hub-text-muted);">
+    The rest of your profile (your name, your pronouns, and what other members see in the
+    directory) lives in <a href="{{ profile_settings_url }}">Profile settings</a>.
+</p>
 {% endblock %}

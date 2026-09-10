@@ -1,11 +1,11 @@
 {% extends "classes/admin/base.html" %}
 {% load classes_tags %}
 {% block tab_content %}
-<h2 style="margin-top:0;margin-bottom:0.25rem;">Activity</h2>
+<h2 style="margin-top:0;margin-bottom:0.25rem;">Catalog Activity</h2>
 <p style="color:var(--hub-text-muted);margin-top:0;margin-bottom:1.25rem;font-size:0.9rem;">
-  Reverse-chronological feed of every classes-app event: class lifecycle, registrations, waitlist
-  movement, and discount-code activity. For the registrations-only management table with email
-  tools, open the Overview and follow "View all registrations".
+  Every event across the whole class catalog, newest first: class approvals and status changes,
+  sign-ups, waitlist movement, and discount codes. To work with registrations themselves (rosters,
+  refunds, email), open the Registrations tab.
 </p>
 
 <form method="get" style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end;margin-bottom:1.25rem;">
@@ -34,6 +34,7 @@
         {% sort_header "When" "created_at" current_sort current_dir base_params %}
         <th>Event</th>
         <th>Class</th>
+        <th>Who</th>
       </tr>
     </thead>
     <tbody>
@@ -64,6 +65,18 @@
               <a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>
             {% else %}
               <span style="color:var(--hub-text-muted);">—</span>
+            {% endif %}
+          </td>
+          {% comment %}Who did it. The search box filters on the actor's name and email, so the
+          page has to show them; this column came over from the Overview panel this tab replaced.
+          {% endcomment %}
+          <td>
+            {% if ev.registration %}
+              {{ ev.registration.first_name }} {{ ev.registration.last_name }}
+            {% elif ev.actor %}
+              {{ ev.actor.get_full_name|default:ev.actor.email }}
+            {% else %}
+              <span style="color:var(--hub-text-muted);">System</span>
             {% endif %}
           </td>
         </tr>

@@ -112,11 +112,23 @@ def describe_admin_overview():
             resp = client.get(reverse("classes:admin_overview"))
             assert reverse("classes:admin_registrations").encode() in resp.content
 
-    def describe_activity_panel():
-        def it_links_to_the_full_activity_log(admin_user, client, db):
+    def describe_catalog_activity_tab():
+        """The activity feed is its own tab now; the Overview carries no panel of its own."""
+
+        def it_offers_the_tab_from_the_overview(admin_user, client, db):
             client.force_login(admin_user)
             resp = client.get(reverse("classes:admin_overview"))
+            assert b"Catalog Activity" in resp.content
             assert reverse("classes:admin_activity").encode() in resp.content
+
+        def it_drops_the_activity_panel_from_the_overview(admin_user, client, db):
+            from classes.models import CmsActivity
+
+            client.force_login(admin_user)
+            CmsActivity.objects.create(kind=CmsActivity.Kind.CLASS_CREATED)
+            resp = client.get(reverse("classes:admin_overview"))
+            assert "recent_activity" not in resp.context
+            assert b"View full log" not in resp.content
 
         def it_names_the_actor_who_performed_an_event(admin_user, client, db):
             from django.contrib.auth import get_user_model
@@ -128,7 +140,7 @@ def describe_admin_overview():
                 username="zelda@example.com", email="zelda@example.com", first_name="Zelda", last_name="Forge"
             )
             CmsActivity.objects.create(kind=CmsActivity.Kind.CLASS_CREATED, actor=user)
-            resp = client.get(reverse("classes:admin_overview"))
+            resp = client.get(reverse("classes:admin_activity"))
             assert b"Zelda Forge" in resp.content
 
         def it_falls_back_to_system_for_an_actorless_event(admin_user, client, db):
@@ -136,8 +148,18 @@ def describe_admin_overview():
 
             client.force_login(admin_user)
             CmsActivity.objects.create(kind=CmsActivity.Kind.CLASS_CREATED)
-            resp = client.get(reverse("classes:admin_overview"))
+            resp = client.get(reverse("classes:admin_activity"))
             assert b"System" in resp.content
+
+        def it_names_the_registrant_behind_a_registration_event(admin_user, client, db):
+            from classes.factories import RegistrationFactory
+            from classes.models import CmsActivity
+
+            client.force_login(admin_user)
+            registration = RegistrationFactory(first_name="Rosa", last_name="Kiln")
+            CmsActivity.objects.create(kind=CmsActivity.Kind.REGISTRATION_CREATED, registration=registration)
+            resp = client.get(reverse("classes:admin_activity"))
+            assert b"Rosa Kiln" in resp.content
 
     def describe_stats():
         def it_counts_a_registration_in_the_window(admin_user, client, db):

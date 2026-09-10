@@ -536,3 +536,13 @@ def describe_equipment_owned_upcoming_cards():
             for booking in bookings:
                 booking.orientation_type.owner_name
                 booking.orientation_type.owner_page_path()
+
+
+def describe_upcoming_block_heading():
+    def it_is_named_for_the_makerspace_not_the_member(client: Client):
+        """The block lists what is on at Past Lives, not only the things this member signed up for."""
+        user = _member_user("headline")
+        client.force_login(user)
+        html = client.get(reverse("hub_home")).content.decode()
+        assert '<h2 class="pl-home-heading">Upcoming at Past Lives</h2>' in html
+        assert '<h2 class="pl-home-heading">Your Upcoming</h2>' not in html
