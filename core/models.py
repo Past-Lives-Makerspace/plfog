@@ -832,12 +832,16 @@ class SiteConfiguration(models.Model):
     signage_show_guilds = models.BooleanField(
         default=True,
         verbose_name="Show the guilds",
-        help_text="Add a slide listing every guild in the space, with a QR to the guild directory.",
+        help_text=(
+            "Add a slide for each guild, naming its next meeting or class. A guild with nothing "
+            "coming up shows its About text instead. Guild meetings on a screen are readable by "
+            "anyone in the building, not only that guild's members."
+        ),
     )
     signage_show_calendar = models.BooleanField(
         default=True,
-        verbose_name="Show the month calendar",
-        help_text="Add a slide with this month's calendar, marking the days that have something on.",
+        verbose_name="Show what's on this month",
+        help_text="Add a slide naming what is still to come this month, soonest first.",
     )
     signage_show_voting = models.BooleanField(
         default=True,
@@ -853,6 +857,17 @@ class SiteConfiguration(models.Model):
         default=True,
         verbose_name="Show Host a Workshop",
         help_text="Add a slide inviting members to run their own workshop or class.",
+    )
+    signage_show_tour = models.BooleanField(
+        default=True,
+        verbose_name="Show Book a Tour",
+        help_text="Add a slide inviting visitors to book a walkthrough of the space, with a QR to the booking page.",
+    )
+    signage_tour_url = models.URLField(
+        blank=True,
+        default="https://www.pastlives.space/tours",
+        verbose_name="Tour booking link",
+        help_text="Where the Book a Tour QR sends people. Blank leaves the tour slide off the screens.",
     )
 
     # Brand block (PLAT-1). One deployment is one organization; these are the strings and

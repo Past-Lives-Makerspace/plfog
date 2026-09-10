@@ -20,9 +20,9 @@ Two asks, one release.
    at `/manage/slideshow/`. It is the only Site Settings tab that manages its own models through two
    sibling forms, and it has outgrown a tab.
 2. **The lobby screen fills itself in.** Today an admin hand-builds every slide except the
-   upcoming-events ones. This adds six more self-building slide blocks — this week's classes, the
-   guilds, a month calendar, the funding vote, the member directory, and Host a Workshop — each with
-   its own on/off switch, each carrying a QR a passer-by can scan.
+   upcoming-events ones. This adds seven more self-building slide blocks — this week's classes, the
+   guilds, a month calendar, the funding vote, the member directory, Host a Workshop and Book a Tour
+   — each with its own on/off switch, each carrying a QR a passer-by can scan.
 
 The kiosk requirement ("the monitor refreshes once a week and must need nothing else") is **already
 met by the player and needs no new code**: the deck is built per request from live data, the player
@@ -38,7 +38,7 @@ Decided from the codebase and the request; none of these need the user before bu
 | a | Where the admin lives | A new full page, `/manage/slideshow/` (`hub_admin_slideshow`), reached from a new Admin Tools tile. Not a tab anywhere. |
 | b | Old links | `?tab=slideshow` on Site Settings **302s** to the new page. This exists **only** for bookmarks and `tests/e2e/screenshots_spec.py`. Both editor save views are retargeted directly at the new page (§4.1) and must not lean on the redirect. |
 | c | Which settings move | The three `signage_*` fields leave `SiteSettingsForm` for a new `SlideshowSettingsForm`. They are not duplicated. |
-| d | Auto-slide switches | Six new `BooleanField`s on `SiteConfiguration`, **all `default=True`**. The user is putting this live and wants it populated on arrival; an admin switches off what they don't want. |
+| d | Auto-slide switches | Seven new `BooleanField`s on `SiteConfiguration`, **all `default=True`**. The user is putting this live and wants it populated on arrival; an admin switches off what they don't want. |
 | e | Classes window | Fixed 7 days ("this week"), a module constant. No admin field — the ask is "the week", and the events block already owns the configurable look-ahead. |
 | f | Guilds | **One** slide listing every currently visible guild, not one slide per guild. |
 | g | Calendar sources | The current calendar month, dotted from **public sources only** (§5.3.3). Never `hub.calendar_entries.community_event_entries`, which returns every guild's private meetings. |
@@ -93,12 +93,12 @@ safe: `hub_guild_directory` (`hub/urls.py:77`), `hub_community_calendar` (`:545`
 
 ```
 core/
-  models.py                     # +6 signage_show_* BooleanFields on SiteConfiguration
+  models.py                     # +7 signage_show_* BooleanFields + signage_tour_url on SiteConfiguration
   migrations/00XX_...py         # additive, no data migration
 classes/
   models.py                     # ClassSessionQuerySet: extract public(), add public_between()
 membership/
-  signage.py                    # +6 generators, +SignageCalendarDay, VM gains calendar_days,
+  signage.py                    # +7 generators, +SignageCalendarDay, VM gains calendar_days,
                                 #   build_deck order + config pass-down, deck_hash covers the grid
   cycle.py                      # get_cycle_context(): local time, not UTC
 hub/
@@ -176,6 +176,8 @@ class SlideshowSettingsForm(forms.ModelForm):
             "signage_show_voting",
             "signage_show_directory",
             "signage_show_teach",
+            "signage_show_tour",
+            "signage_tour_url",
         ]
 ```
 
@@ -205,7 +207,7 @@ Three `hub-card`s, each its own `<form>` with its Save as the last element **ins
 2. **Slides** — the slides editor, moved from Block B Part 3: summary rows, reorder buttons and
    grip, Edit disclosure, Delete, the image drop zone with its `.pl-help` size tooltip,
    `+ Add a slide`, and the `No slides yet.` empty state.
-3. **Automatic Slides** — `SlideshowSettingsForm`: a lead line, the six `signage_show_*` toggles via
+3. **Automatic Slides** — `SlideshowSettingsForm`: a lead line, the seven `signage_show_*` toggles via
    `components/form_field.html` (which renders booleans as `pl-toggle` switches — never a raw
    checkbox), then a `Timing` sub-heading with `signage_default_slide_seconds` and
    `signage_event_days_ahead`.
@@ -307,8 +309,10 @@ style, title `Slideshow`, description:
 
 ### 5.1 Config
 
-Six `BooleanField`s on `SiteConfiguration`, beside the existing `signage_*` block, every one
-`default=True` with a `verbose_name` and admin-facing `help_text`:
+Seven `BooleanField`s on `SiteConfiguration`, beside the existing `signage_*` block, every one
+`default=True` with a `verbose_name` and admin-facing `help_text`. The tour block adds one
+`URLField` alongside its switch, `signage_tour_url` (`blank=True`, defaulting to
+`https://www.pastlives.space/tours`), because it is the only block whose destination is off-site:
 
 | Field | verbose_name | help_text |
 |---|---|---|
@@ -318,6 +322,7 @@ Six `BooleanField`s on `SiteConfiguration`, beside the existing `signage_*` bloc
 | `signage_show_voting` | Show the funding vote | Add a slide about the monthly guild funding vote and when it closes. |
 | `signage_show_directory` | Show the member directory | Add a slide with a QR that opens the member directory. |
 | `signage_show_teach` | Show Host a Workshop | Add a slide inviting members to run their own workshop or class. |
+| `signage_show_tour` | Show Book a Tour | Add a slide inviting visitors to book a walkthrough of the space, with a QR to the booking page. |
 
 One additive migration in `core/migrations/`. No data migration.
 
@@ -351,7 +356,7 @@ entry, so the function keeps the per-slide grouping it documents:
 
 ### 5.3 The generators
 
-All six live in `membership/signage.py` beside `_event_slides`, all typed, all with a docstring, all
+All seven live in `membership/signage.py` beside `_event_slides`, all typed, all with a docstring, all
 taking `(config: SiteConfiguration, default: int)` and returning `list[SignageSlideVM]` — empty when
 there is nothing to show, so an empty block never renders a hollow slide. Lazy imports inside each
 function, matching the file's style. `build_deck` loads `SiteConfiguration` once and passes it down;
@@ -360,7 +365,7 @@ the two `load()` calls that happen *inside* `ClassSession`/`Guild` querysets are
 `build_deck` appends the blocks **after** the admin's own configured slides, each behind its switch:
 
 ```
-configured slides → classes → events (existing) → guilds → calendar → voting → directory → teach
+configured slides → classes → events (existing) → guilds → calendar → voting → directory → teach → tour
 ```
 
 The holding-slide fallback still applies only when the whole deck is empty.
@@ -450,6 +455,52 @@ is in the space, what they make, and what they can teach you."*, QR to
 A QR pointing at a members-only page is intended: the audience is members standing in the building,
 and the login wall is one tap.
 
+### Addendum 2 (2026-09-09, after seeing the slides on a real screen)
+
+**Sections 5.3 items 2 and 4 below are SUPERSEDED.** Both shipped as data dumps and were
+rejected on sight. Recorded here rather than edited away, because the reason is the reusable
+part: a lobby slide has about three seconds and six metres to work in, and both of these
+showed *that* something exists without ever saying *what*.
+
+**The month grid is gone.** It rendered 30 squares with an anonymous dot on any day that had
+something on it. On a live month 24 of 30 days carried a dot, so the marking discriminated
+nothing, and a dot cannot be acted on. Replaced by **What's On This Month**: the items still
+to come, by name, soonest first, capped at `SIGNAGE_AGENDA_CAP` lines — date, title, time.
+Same public sources as before (site-wide published events plus public class sessions), same
+QR. The slide drops out entirely when the month has nothing left, rather than showing an
+empty frame. `SignageCalendarDay` and `SignageSlideVM.calendar_days`/`calendar_weeks` are
+replaced by `SignageAgendaEntry` and `entries`; the `.pl-sign-calendar` grid CSS, including
+the six-week viewport cap, is replaced by `.pl-sign-agenda`.
+
+**One guild slide became one slide per guild.** The single slide joined every guild name with
+middots into one string and rendered it centered at 32ch, which reads as a paragraph blob.
+Each guild now gets its own slide: name as the headline, its next meeting or class named
+beneath, then the date. A guild with nothing inside `SIGNAGE_GUILD_HORIZON_DAYS` shows its
+own `about` copy truncated to `SIGNAGE_GUILD_ABOUT_CHARS`. Kind `guilds` became `guild`.
+
+**A deliberate visibility widening, decided by Jo on 2026-09-09.** `for_member` scopes guild
+meetings to the guilds a member has joined, so before this a visitor could not discover one.
+A guild slide now names its guild's next PUBLISHED meeting on a screen anyone in the building
+can read. The alternatives offered were classes-only (no change, but most guilds would show
+the fallback most weeks) and a per-guild opt-in switch (safest, but the wall stays empty until
+leads find it). Bounds that stayed: PUBLISHED only, so no pending proposal or parked draft
+reaches a screen; and no other block names a guild's events — the What's On list is still
+`site_wide()` only, with a spec pinning that.
+
+### Addendum (added after the first review pass, at Jo's request)
+
+**7. `_tour_slide`.** A Book a Tour invitation with a QR to the booking page. This is the one
+generated slide whose destination is NOT an internal `reverse()` — tours are booked on the
+marketing site (`https://www.pastlives.space/tours`), so the URL is a new admin-editable
+`SiteConfiguration.signage_tour_url` (that default; `blank=True`) rather than a constant. A
+hardcoded pastlives.space URL would contradict the brand block's "one deployment is one
+organization" rule, and deriving it from `org_website_url + "/tours"` assumes a path another
+org would not have. Blank drops the slide, exactly as a blanked Host a Workshop CTA does.
+Fixed copy, no admin fields: title *"Book a Tour"*, body *"New here? Book a walkthrough and a
+member will show you the shops, the tools, and how to join."* Appended last in the block order
+so the existing order is unchanged. No CSS variant — it is a title/body/QR slide, like the
+voting and directory slides, both of which use the default styling.
+
 ### 5.4 Rendering
 
 `templates/signage/_deck.html` currently hardcodes a class for two kinds only. Replace both branches
@@ -460,7 +511,7 @@ class="pl-sign-slide pl-sign-slide--{{ s.kind }}{% if forloop.first %} is-active
 ```
 
 `.pl-sign-slide--event` and `.pl-sign-slide--holding` keep working unchanged; `--classes`,
-`--guilds`, `--calendar`, `--voting`, `--directory`, `--teach` become addressable.
+`--guilds`, `--calendar`, `--voting`, `--directory`, `--teach`, `--tour` become addressable.
 
 Then add one branch, before the existing body block:
 
@@ -500,7 +551,7 @@ is dark-only by design; `hub.css` changes are checked in both themes.
   longer discarded. The image field keeps its "re-attach the file" hint, since a file input genuinely
   cannot be repopulated.
 - **Success state:** `messages.success` on each save.
-- The six switches render as `pl-toggle` switches through `components/form_field.html`, each showing
+- The switches render as `pl-toggle` switches through `components/form_field.html`, each showing
   its `help_text`, under a line saying they apply to every screen.
 - **Mobile:** cards stack, `.pl-slideshow-daterow` already collapses under 640px, the zone QR/actions
   panel wraps. No horizontal scroll on the page body.
@@ -547,6 +598,9 @@ factory-boy for data. 100% coverage gate.
   its day (the `public_between` assertion); toggle off removes it.
 - voting / directory / teach: each renders with the expected title and a QR; each toggle off removes
   its slide; teach falls back to the page title/lead when both CTA fields are blank.
+- tour: renders with the expected title and a QR; the QR encodes the CONFIGURED url, not the default
+  (the only block whose destination an admin types); a blank url removes the slide; toggle off
+  removes it.
 - `deck_hash`: two decks differing only in a day's `event_count` hash differently.
 
 **`tests/classes/`** — `ClassSessionQuerySet.public_between` includes a past-but-this-month session
@@ -564,7 +618,7 @@ that form — re-point it at the new page's settings form), and the two
 `"tab=slideshow" in resp["Location"]` redirect assertions. Add: anonymous redirect, non-admin 403,
 both editors render with `+ Add` and Save, both save views persist and redirect to
 `hub_admin_slideshow`, **an invalid save re-renders with the typed value still present** (§4.6), the
-settings form saves the six switches, `?tab=slideshow` 302s to the new page, the delete-screen
+settings form saves the switches, `?tab=slideshow` 302s to the new page, the delete-screen
 confirm modal is present, and the root `x-data` wrapper exists so Copy URL is live. Keep the
 structural assertion that the editor `<form>`s are siblings, never nested.
 
@@ -584,6 +638,9 @@ migration (CI runs system checks local pytest skips).
 
 ## 9. Version & changelog
 
-`VERSION = "1.49.0"`. One new `CHANGELOG` entry at that version: member-facing, plain language, no
+`VERSION = "1.49.0"`, superseded: #347 claimed 1.49.0 first, so #348's merge left VERSION unchanged
+and the notify workflow skipped the announcement. The entry was re-stamped `1.50.0` in the tour-slide
+follow-up, which is the release that actually announces this feature. One `CHANGELOG` entry at the
+shipping version: member-facing, plain language, no
 dashes, no jargon. It covers what now appears on the lobby screens on its own, and closes with one
 line for admins that Slideshow is now its own tile.

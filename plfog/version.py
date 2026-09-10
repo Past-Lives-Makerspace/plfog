@@ -2,36 +2,42 @@
 
 from __future__ import annotations
 
-VERSION = "1.50.0"
+VERSION = "1.51.0"
 
-# No entry at 1.50.0, and the reasoning is about THIS release only. (An earlier draft of this
-# comment claimed 1.50.0 was following 1.49.0's precedent of announcing nothing. There is no
-# such precedent: #347 bumped to 1.49.0 with no entry, then #348 reused that version and added
-# the slideshow entry below, so 1.49.0 did announce. A "no entry" decision only holds until
-# somebody else lands on the same version.)
+# Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
+# picking a version: the same slot has now been claimed twice by accident, which cost the
+# slideshow its announcement twice.
 #
-# The wiki was announced this morning at 1.47.0 and launched EMPTY. What this release changes
-# is the two first-run screens — a guild Wiki tab that opened with three cards explaining
-# curation machinery for content nobody has written yet, and a create form that put three or
-# four Quick Answers rows between the title field and the box you came to type in. Members
-# have had those screens for a few hours, on a wiki with nothing in it, so almost nobody has
-# reached them; announcing "starting a wiki page is simpler now" hours after "we have a wiki
-# now" is a second post about the same feature rather than news.
+# 1.49.0 — the wiki frontend cleanup (#347) took it with no entry, correctly: a stylesheet
+# trapped in an unclosed media query, three dozen controls rendering as raw browser chrome, and
+# a page showing its own headings as its excerpt, all within hours of the wiki launch. Then the
+# lobby slideshow (#348) had branched before that and carried 1.49.0 too, so its merge left
+# VERSION unchanged and the workflow logged "previous=1.49.0 current=1.49.0 ... skipping the
+# announcement". The slideshow shipped to production announced to nobody.
 #
-# The alternative was folding this into 1.47.0's wiki entry and re-stamping it here, which the
-# convention prefers for polish on a shipped feature — but that re-announces the ENTIRE wiki
-# to Discord a day later, which is worse than either option. A VERSION with no matching entry
-# announces nothing. If Josh wants it announced, add one short entry stamped "1.50.0".
+# 1.50.0 — the wiki first-run cleanup (#350) took it with no entry, also correctly: the wiki was
+# announced at 1.47.0 and launched empty, so "starting a page is simpler now" hours later is a
+# second post about the same feature, and re-stamping 1.47.0's entry would re-announce the whole
+# wiki a day late. Then this branch had carried 1.50.0 too, which would have skipped the
+# slideshow announcement a THIRD time.
+#
+# 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
+# What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
+# 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
+# is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.49.0",
+        "version": "1.51.0",
         "date": "2026-09-09",
         "title": "The lobby screens fill themselves in",
         "changes": [
             "The wall screens now build their own slides from what is already in the app. Classes "
-            "and workshops happening in the next seven days, the guilds, a calendar of this month "
-            "with the busy days marked, the guild funding vote and when it closes, the member "
-            "directory, and an invitation to host a workshop.",
+            "and workshops happening in the next seven days, a list of what is still to come this "
+            "month, the guild funding vote and when it closes, the member directory, an invitation "
+            "to host a workshop, and an invitation to book a tour.",
+            "Every guild gets its own slide naming its next meeting or class. A guild with nothing "
+            "coming up shows its About text instead. Note that a meeting shown this way is readable "
+            "by anyone standing in the building, not only that guild's members.",
             "Every one of those slides carries a QR code, so anyone walking past can scan it and "
             "open the page on their phone.",
             "A screen still needs nothing from you. Point a monitor at its address once; it "

@@ -1098,6 +1098,8 @@ class SlideshowSettingsForm(forms.ModelForm):
             "signage_show_voting",
             "signage_show_directory",
             "signage_show_teach",
+            "signage_show_tour",
+            "signage_tour_url",
         ]
 
 
