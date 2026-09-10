@@ -176,6 +176,8 @@ class SlideshowSettingsForm(forms.ModelForm):
             "signage_show_voting",
             "signage_show_directory",
             "signage_show_teach",
+            "signage_show_tour",
+            "signage_tour_url",
         ]
 ```
 
@@ -318,6 +320,7 @@ Six `BooleanField`s on `SiteConfiguration`, beside the existing `signage_*` bloc
 | `signage_show_voting` | Show the funding vote | Add a slide about the monthly guild funding vote and when it closes. |
 | `signage_show_directory` | Show the member directory | Add a slide with a QR that opens the member directory. |
 | `signage_show_teach` | Show Host a Workshop | Add a slide inviting members to run their own workshop or class. |
+| `signage_show_tour` | Show Book a Tour | Add a slide inviting visitors to book a walkthrough of the space, with a QR to the booking page. |
 
 One additive migration in `core/migrations/`. No data migration.
 
@@ -360,7 +363,7 @@ the two `load()` calls that happen *inside* `ClassSession`/`Guild` querysets are
 `build_deck` appends the blocks **after** the admin's own configured slides, each behind its switch:
 
 ```
-configured slides → classes → events (existing) → guilds → calendar → voting → directory → teach
+configured slides → classes → events (existing) → guilds → calendar → voting → directory → teach → tour
 ```
 
 The holding-slide fallback still applies only when the whole deck is empty.
@@ -460,7 +463,7 @@ class="pl-sign-slide pl-sign-slide--{{ s.kind }}{% if forloop.first %} is-active
 ```
 
 `.pl-sign-slide--event` and `.pl-sign-slide--holding` keep working unchanged; `--classes`,
-`--guilds`, `--calendar`, `--voting`, `--directory`, `--teach` become addressable.
+`--guilds`, `--calendar`, `--voting`, `--directory`, `--teach`, `--tour` become addressable.
 
 Then add one branch, before the existing body block:
 
@@ -524,6 +527,20 @@ an empty slide. The month grid fits `100vh` at 1080p landscape and on a portrait
   live models; the player re-polls every 300s and reloads at 04:00. Persisting generated slides
   would add a staleness bug and a job to babysit for no gain.
 - **No per-block ordering or per-block duration.** Fixed order, shared duration.
+### Addendum (added after the first review pass, at Jo's request)
+
+**7. `_tour_slide`.** A Book a Tour invitation with a QR to the booking page. This is the one
+generated slide whose destination is NOT an internal `reverse()` — tours are booked on the
+marketing site (`https://www.pastlives.space/tours`), so the URL is a new admin-editable
+`SiteConfiguration.signage_tour_url` (that default; `blank=True`) rather than a constant. A
+hardcoded pastlives.space URL would contradict the brand block's "one deployment is one
+organization" rule, and deriving it from `org_website_url + "/tours"` assumes a path another
+org would not have. Blank drops the slide, exactly as a blanked Host a Workshop CTA does.
+Fixed copy, no admin fields: title *"Book a Tour"*, body *"New here? Book a walkthrough and a
+member will show you the shops, the tools, and how to join."* Appended last in the block order
+so the existing order is unchanged. No CSS variant — it is a title/body/QR slide, like the
+voting and directory slides, both of which use the default styling.
+
 - **No new copy fields.** The Host a Workshop slide reads the copy admins already edit.
 - **No changes to the zones/slides models**, the player JS, the surface middleware, or the
   `SIGNAGE_HOSTS` go-live wiring.

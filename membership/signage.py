@@ -389,6 +389,29 @@ def _teach_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM
     ]
 
 
+def _tour_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM]:
+    """The Book a Tour invitation, with a QR to the booking page.
+
+    The only generated slide whose URL is not an internal ``reverse()``: tours are booked on
+    the marketing site, so the destination is an admin-editable field rather than a constant.
+    Empty when an admin has blanked it, the same way a blanked Host a Workshop CTA drops out.
+    """
+    url = config.signage_tour_url
+    if not url:
+        return []
+    return [
+        SignageSlideVM(
+            kind="tour",
+            title="Book a Tour",
+            body="New here? Book a walkthrough and a member will show you the shops, the tools, and how to join.",
+            image_url=None,
+            qr_svg=_qr_svg(url),
+            duration_seconds=default,
+            url_display=_friendly_url(url),
+        )
+    ]
+
+
 # The self-building blocks, in the fixed order they append after the admin's own slides.
 # Each pairs its SiteConfiguration switch with its generator; the uniform
 # ``(config, default) -> list`` signature is what lets build_deck drive them in one loop.
@@ -400,6 +423,7 @@ _GENERATED_BLOCKS: tuple[tuple[str, Callable[[SiteConfiguration, int], list[Sign
     ("signage_show_voting", _voting_slide),
     ("signage_show_directory", _directory_slide),
     ("signage_show_teach", _teach_slide),
+    ("signage_show_tour", _tour_slide),
 )
 
 

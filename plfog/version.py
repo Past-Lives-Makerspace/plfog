@@ -13,7 +13,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "The wall screens now build their own slides from what is already in the app. Classes "
             "and workshops happening in the next seven days, the guilds, a calendar of this month "
             "with the busy days marked, the guild funding vote and when it closes, the member "
-            "directory, and an invitation to host a workshop.",
+            "directory, an invitation to host a workshop, and an invitation to book a tour.",
             "Every one of those slides carries a QR code, so anyone walking past can scan it and "
             "open the page on their phone.",
             "A screen still needs nothing from you. Point a monitor at its address once; it "
