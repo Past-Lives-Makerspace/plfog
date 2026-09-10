@@ -24,9 +24,12 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "The lobby screens fill themselves in",
         "changes": [
             "The wall screens now build their own slides from what is already in the app. Classes "
-            "and workshops happening in the next seven days, the guilds, a calendar of this month "
-            "with the busy days marked, the guild funding vote and when it closes, the member "
-            "directory, an invitation to host a workshop, and an invitation to book a tour.",
+            "and workshops happening in the next seven days, a list of what is still to come this "
+            "month, the guild funding vote and when it closes, the member directory, an invitation "
+            "to host a workshop, and an invitation to book a tour.",
+            "Every guild gets its own slide naming its next meeting or class. A guild with nothing "
+            "coming up shows its About text instead. Note that a meeting shown this way is readable "
+            "by anyone standing in the building, not only that guild's members.",
             "Every one of those slides carries a QR code, so anyone walking past can scan it and "
             "open the page on their phone.",
             "A screen still needs nothing from you. Point a monitor at its address once; it "

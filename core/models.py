@@ -832,12 +832,16 @@ class SiteConfiguration(models.Model):
     signage_show_guilds = models.BooleanField(
         default=True,
         verbose_name="Show the guilds",
-        help_text="Add a slide listing every guild in the space, with a QR to the guild directory.",
+        help_text=(
+            "Add a slide for each guild, naming its next meeting or class. A guild with nothing "
+            "coming up shows its About text instead. Guild meetings on a screen are readable by "
+            "anyone in the building, not only that guild's members."
+        ),
     )
     signage_show_calendar = models.BooleanField(
         default=True,
-        verbose_name="Show the month calendar",
-        help_text="Add a slide with this month's calendar, marking the days that have something on.",
+        verbose_name="Show what's on this month",
+        help_text="Add a slide naming what is still to come this month, soonest first.",
     )
     signage_show_voting = models.BooleanField(
         default=True,

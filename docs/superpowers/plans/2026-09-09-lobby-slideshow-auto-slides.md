@@ -455,6 +455,38 @@ is in the space, what they make, and what they can teach you."*, QR to
 A QR pointing at a members-only page is intended: the audience is members standing in the building,
 and the login wall is one tap.
 
+### Addendum 2 (2026-09-09, after seeing the slides on a real screen)
+
+**Sections 5.3 items 2 and 4 below are SUPERSEDED.** Both shipped as data dumps and were
+rejected on sight. Recorded here rather than edited away, because the reason is the reusable
+part: a lobby slide has about three seconds and six metres to work in, and both of these
+showed *that* something exists without ever saying *what*.
+
+**The month grid is gone.** It rendered 30 squares with an anonymous dot on any day that had
+something on it. On a live month 24 of 30 days carried a dot, so the marking discriminated
+nothing, and a dot cannot be acted on. Replaced by **What's On This Month**: the items still
+to come, by name, soonest first, capped at `SIGNAGE_AGENDA_CAP` lines — date, title, time.
+Same public sources as before (site-wide published events plus public class sessions), same
+QR. The slide drops out entirely when the month has nothing left, rather than showing an
+empty frame. `SignageCalendarDay` and `SignageSlideVM.calendar_days`/`calendar_weeks` are
+replaced by `SignageAgendaEntry` and `entries`; the `.pl-sign-calendar` grid CSS, including
+the six-week viewport cap, is replaced by `.pl-sign-agenda`.
+
+**One guild slide became one slide per guild.** The single slide joined every guild name with
+middots into one string and rendered it centered at 32ch, which reads as a paragraph blob.
+Each guild now gets its own slide: name as the headline, its next meeting or class named
+beneath, then the date. A guild with nothing inside `SIGNAGE_GUILD_HORIZON_DAYS` shows its
+own `about` copy truncated to `SIGNAGE_GUILD_ABOUT_CHARS`. Kind `guilds` became `guild`.
+
+**A deliberate visibility widening, decided by Jo on 2026-09-09.** `for_member` scopes guild
+meetings to the guilds a member has joined, so before this a visitor could not discover one.
+A guild slide now names its guild's next PUBLISHED meeting on a screen anyone in the building
+can read. The alternatives offered were classes-only (no change, but most guilds would show
+the fallback most weeks) and a per-guild opt-in switch (safest, but the wall stays empty until
+leads find it). Bounds that stayed: PUBLISHED only, so no pending proposal or parked draft
+reaches a screen; and no other block names a guild's events — the What's On list is still
+`site_wide()` only, with a spec pinning that.
+
 ### Addendum (added after the first review pass, at Jo's request)
 
 **7. `_tour_slide`.** A Book a Tour invitation with a QR to the booking page. This is the one

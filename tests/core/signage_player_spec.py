@@ -165,55 +165,42 @@ def describe_generated_slide_rendering():
         assert "pl-sign-slide--custom" in body
         assert "pl-sign-slide--directory" in body
 
-    def it_renders_the_month_grid_on_the_calendar_slide(client):
-        from datetime import datetime, time, timedelta
-
-        from django.utils import timezone
+    def it_renders_the_whats_on_list_by_name(client):
+        import datetime as dt
+        from unittest.mock import patch
 
         from tests.membership.factories import CommunityEventFactory
 
         _no_generated_blocks(signage_show_calendar=True)
         SlideshowZoneFactory(slug="woodshop")
-        today = timezone.localdate()
-        start = timezone.make_aware(datetime.combine(today, time(hour=13)))
+        now = dt.datetime(2026, 9, 15, 19, 0, tzinfo=dt.UTC)  # noon Sep 15 Portland
+        start = dt.datetime(2026, 9, 20, 1, 0, tzinfo=dt.UTC)  # 6pm Sep 19 Portland
         event = CommunityEventFactory(
             community=True,
             title="Potluck And Shop Tour",
             starts_at=start,
-            ends_at=start + timedelta(hours=1),
+            ends_at=start + dt.timedelta(hours=1),
         )
 
-        body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
-        assert "pl-sign-calendar" in body
-        assert "pl-sign-calendar__dow" in body
-        assert "pl-sign-calendar__day--today" in body
-        assert "pl-sign-calendar__day--has-events" in body
-        assert "pl-sign-calendar__dot" in body
-        # Whole weeks: every row is seven cells, padding included.
-        cells = body.count('<span class="pl-sign-calendar__day')
-        assert cells >= 28 and cells % 7 == 0
-        # A dot, never a title — a busy day must not name what is on it. Asserted against
-        # the event's REAL title; a generic word here would pass no matter what rendered.
-        assert event.title not in body
+        with patch("django.utils.timezone.now", return_value=now):
+            body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+        assert "pl-sign-agenda" in body
+        assert "pl-sign-agenda__when" in body
+        assert "pl-sign-agenda__time" in body
+        # The whole point of the rewrite: the slide NAMES the thing. The old grid rendered
+        # an anonymous dot here, and this asserts against the event's real title so a
+        # generic word could not pass in its place.
+        assert event.title in body
+        assert "Sat 19 Sep" in body
+        assert "6:00 p.m." in body or "6:00 PM" in body
 
-    def it_bounds_a_six_week_month_so_the_grid_cannot_overflow_the_stage(client, settings):
-        # Cells are square, so a sixth week is a whole extra row of height and the stage is
-        # overflow:hidden. Only six-week months get the vh cap; five-week months keep their
-        # full size. November 2026 is the next six-week month, September 2026 a five-week one.
+    def it_leaves_the_whats_on_slide_out_when_the_month_has_nothing_left(client):
         import datetime as dt
         from unittest.mock import patch
 
         _no_generated_blocks(signage_show_calendar=True)
         SlideshowZoneFactory(slug="woodshop")
-
-        def _body_in(moment):
-            with patch("django.utils.timezone.now", return_value=moment):
-                return client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
-
-        six_week = _body_in(dt.datetime(2026, 11, 12, 20, 0, tzinfo=dt.UTC))
-        assert "pl-sign-calendar--six-weeks" in six_week
-        assert six_week.count('<span class="pl-sign-calendar__day') == 42
-
-        five_week = _body_in(dt.datetime(2026, 9, 12, 20, 0, tzinfo=dt.UTC))
-        assert "pl-sign-calendar--six-weeks" not in five_week
-        assert five_week.count('<span class="pl-sign-calendar__day') == 35
+        with patch("django.utils.timezone.now", return_value=dt.datetime(2026, 9, 15, 19, 0, tzinfo=dt.UTC)):
+            body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+        assert "pl-sign-agenda" not in body
+        assert "pl-sign-slide--holding" in body  # the branded fallback, never a blank wall

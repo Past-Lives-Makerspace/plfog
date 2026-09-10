@@ -17,26 +17,16 @@ Carries the fresh deck hash into the swapped content; the player copies it up on
     {% if s.image_url %}<img class="pl-sign-slide__img" src="{{ s.image_url }}" alt="">{% endif %}
     {% if s.title %}<h1 class="pl-sign-slide__title">{{ s.title }}</h1>{% endif %}
     {% if s.meta %}<p class="pl-sign-slide__meta">{{ s.meta }}</p>{% endif %}
-    {% if s.calendar_days %}
-      <div class="pl-sign-calendar{% if s.calendar_weeks > 5 %} pl-sign-calendar--six-weeks{% endif %}">
-        <span class="pl-sign-calendar__dow">Mon</span>
-        <span class="pl-sign-calendar__dow">Tue</span>
-        <span class="pl-sign-calendar__dow">Wed</span>
-        <span class="pl-sign-calendar__dow">Thu</span>
-        <span class="pl-sign-calendar__dow">Fri</span>
-        <span class="pl-sign-calendar__dow">Sat</span>
-        <span class="pl-sign-calendar__dow">Sun</span>
-        {% for d in s.calendar_days %}
-          {% if d.day %}
-            <span class="pl-sign-calendar__day{% if d.is_today %} pl-sign-calendar__day--today{% endif %}{% if d.event_count %} pl-sign-calendar__day--has-events{% endif %}">
-              <span class="pl-sign-calendar__num">{{ d.day }}</span>
-              {% if d.event_count > 1 %}<span class="pl-sign-calendar__count">{{ d.event_count }}</span>{% elif d.event_count %}<span class="pl-sign-calendar__dot"></span>{% endif %}
-            </span>
-          {% else %}
-            <span class="pl-sign-calendar__day pl-sign-calendar__day--pad"></span>
-          {% endif %}
+    {% if s.entries %}
+      <ul class="pl-sign-agenda">
+        {% for e in s.entries %}
+          <li class="pl-sign-agenda__row">
+            <span class="pl-sign-agenda__when">{{ e.when_display }}</span>
+            <span class="pl-sign-agenda__title">{{ e.title }}</span>
+            <span class="pl-sign-agenda__time">{{ e.time_display }}</span>
+          </li>
         {% endfor %}
-      </div>
+      </ul>
     {% endif %}
     {% if s.body %}<div class="pl-sign-slide__body">{{ s.body|linebreaksbr }}</div>{% endif %}
     {% if s.qr_svg or s.url_display %}
