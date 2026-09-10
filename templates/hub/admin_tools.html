@@ -95,5 +95,14 @@
     <span class="pl-tool-card__desc">Configure the site: registration, integrations, and content.</span>
   </a>
   {% endif %}
+  {% if tool_slideshow %}
+  <a class="hub-card pl-tool-card" href="{% url 'hub_admin_slideshow' %}">
+    <span class="pl-tool-card__icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+    </span>
+    <span class="pl-tool-card__title">Slideshow</span>
+    <span class="pl-tool-card__desc">The wall monitors: screens, slides, and what shows automatically.</span>
+  </a>
+  {% endif %}
 </div>
 {% endblock %}

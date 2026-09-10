@@ -822,6 +822,38 @@ class SiteConfiguration(models.Model):
         verbose_name="Add a QR to event slides",
         help_text="Add a QR code to the community calendar on auto event slides.",
     )
+    # The self-building slide blocks. All default ON: a screen pointed at its URL should
+    # arrive populated, and an admin switches off what they don't want on the wall.
+    signage_show_classes = models.BooleanField(
+        default=True,
+        verbose_name="Show this week's classes",
+        help_text="Add a slide for each class or workshop happening in the next seven days.",
+    )
+    signage_show_guilds = models.BooleanField(
+        default=True,
+        verbose_name="Show the guilds",
+        help_text="Add a slide listing every guild in the space, with a QR to the guild directory.",
+    )
+    signage_show_calendar = models.BooleanField(
+        default=True,
+        verbose_name="Show the month calendar",
+        help_text="Add a slide with this month's calendar, marking the days that have something on.",
+    )
+    signage_show_voting = models.BooleanField(
+        default=True,
+        verbose_name="Show the funding vote",
+        help_text="Add a slide about the monthly guild funding vote and when it closes.",
+    )
+    signage_show_directory = models.BooleanField(
+        default=True,
+        verbose_name="Show the member directory",
+        help_text="Add a slide with a QR that opens the member directory.",
+    )
+    signage_show_teach = models.BooleanField(
+        default=True,
+        verbose_name="Show Host a Workshop",
+        help_text="Add a slide inviting members to run their own workshop or class.",
+    )
 
     # Brand block (PLAT-1). One deployment is one organization; these are the strings and
     # assets that identify it. Defaults are the Past Lives values so the migration is a

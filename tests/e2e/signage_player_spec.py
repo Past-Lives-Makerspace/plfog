@@ -18,6 +18,18 @@ from playwright.sync_api import expect
 
 from tests.membership.factories import SlideshowSlideFactory, SlideshowZoneFactory
 
+# Every self-building signage block ships default ON; a spec that wants a deck of exactly
+# what it configured has to switch them all off first.
+_GENERATED_FLAGS = (
+    "signage_show_events",
+    "signage_show_classes",
+    "signage_show_guilds",
+    "signage_show_calendar",
+    "signage_show_voting",
+    "signage_show_directory",
+    "signage_show_teach",
+)
+
 
 def describe_signage_player():
     def it_renders_the_first_slide_and_auto_advances_to_the_second(live_server, page, settings):
@@ -25,11 +37,12 @@ def describe_signage_player():
         # leaves SIGNAGE_HOSTS at its default, which localhost is not in).
         settings.SIGNAGE_HOSTS = [urlparse(live_server.url).hostname]
 
-        # Keep the deck to exactly our two slides — no generated event slides.
+        # Keep the deck to exactly our two slides — every self-building block off.
         from core.models import SiteConfiguration
 
         config = SiteConfiguration.load()
-        config.signage_show_events = False
+        for flag in _GENERATED_FLAGS:
+            setattr(config, flag, False)
         # Every slide uses the global default now — keep it short so the rotation is easy to catch.
         config.signage_default_slide_seconds = 2
         config.save()

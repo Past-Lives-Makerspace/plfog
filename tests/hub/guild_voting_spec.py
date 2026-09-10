@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
+from django.utils import timezone
 
 from hub.forms import VotePreferenceForm
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
@@ -28,10 +29,12 @@ from tests.membership.factories import (
 
 
 def describe_get_cycle_context():
+    """Every label comes off LOCAL time, so the patch target is ``localtime``, not ``now``."""
+
     def it_returns_correct_labels_for_a_regular_month():
         fixed = dt.datetime(2026, 3, 15, 12, 0, 0, tzinfo=dt.timezone.utc)
         with patch("membership.cycle.timezone") as mock_tz:
-            mock_tz.now.return_value = fixed
+            mock_tz.localtime.return_value = fixed
             ctx = get_cycle_context()
 
         assert ctx["current_cycle_label"] == "March 2026"
@@ -41,12 +44,24 @@ def describe_get_cycle_context():
     def it_handles_december_rollover_to_january():
         fixed = dt.datetime(2026, 12, 10, 12, 0, 0, tzinfo=dt.timezone.utc)
         with patch("membership.cycle.timezone") as mock_tz:
-            mock_tz.now.return_value = fixed
+            mock_tz.localtime.return_value = fixed
             ctx = get_cycle_context()
 
         assert ctx["current_cycle_label"] == "December 2026"
         assert "December 31, 2026" in ctx["cycle_closes_on"]
         assert "January 1, 2027" in ctx["next_cycle_begins"]
+
+    def it_names_the_local_month_on_the_last_evening_of_a_month():
+        # 6pm Portland on March 31 is 01:00Z on April 1. Off UTC this named the April
+        # cycle and an April 30 close date — wrong on the voting page, and wrong in
+        # public once the lobby slideshow started putting it on a wall.
+        last_evening = timezone.localtime(dt.datetime(2026, 4, 1, 1, 0, 0, tzinfo=dt.timezone.utc))
+        with patch("membership.cycle.timezone") as mock_tz:
+            mock_tz.localtime.return_value = last_evening
+            ctx = get_cycle_context()
+
+        assert ctx["current_cycle_label"] == "March 2026"
+        assert "March 31, 2026" in ctx["cycle_closes_on"]
 
 
 # ---------------------------------------------------------------------------

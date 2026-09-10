@@ -5239,15 +5239,17 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     gap: 1.5rem;
 }
 
-/* ── Slideshow admin tab (Site Settings) ─────────────────────────────────────
+/* ── Slideshow admin page (/manage/slideshow/) ───────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +
    components.css), NOT signage.css. Layout lives in classes, never inline on an
-   x-show element (Rule 12). Controls theme via .site-settings-form / .pl-form-group. */
-.pl-slideshow-tab-a,
-.pl-slideshow-tab-b {
+   x-show element (Rule 12). Controls are themed by .pl-form-group (components.css). */
+/* The Slideshow admin page root. Also the Alpine x-data host — see slideshow.html.
+   .hub-card carries no margin of its own, so this gap is what keeps the three cards
+   from butting flush (Rule 18). */
+.pl-slideshow-page {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: 1.5rem;
 }
 
 

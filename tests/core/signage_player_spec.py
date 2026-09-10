@@ -21,6 +21,31 @@ pytestmark = pytest.mark.django_db
 SIGNAGE_HOST = "slideshow.pastlives.space"
 MEMBERS_HOST = "members.pastlives.space"
 
+# Every self-building block ships default ON, so a spec that wants a deck of exactly
+# what it configured has to switch them all off first.
+_GENERATED_FLAGS = (
+    "signage_show_events",
+    "signage_show_classes",
+    "signage_show_guilds",
+    "signage_show_calendar",
+    "signage_show_voting",
+    "signage_show_directory",
+    "signage_show_teach",
+)
+
+
+def _no_generated_blocks(**overrides):
+    """Turn every automatic slide block off (then apply overrides), and return the config."""
+    from core.models import SiteConfiguration
+
+    config = SiteConfiguration.load()
+    for flag in _GENERATED_FLAGS:
+        setattr(config, flag, False)
+    for name, value in overrides.items():
+        setattr(config, name, value)
+    config.save()
+    return config
+
 
 @pytest.fixture(autouse=True)
 def _signage_env():
@@ -77,11 +102,7 @@ def describe_signage_player():
 
     def describe_empty_state():
         def it_shows_the_branded_holding_slide_when_nothing_is_configured(client):
-            from core.models import SiteConfiguration
-
-            config = SiteConfiguration.load()
-            config.signage_show_events = False
-            config.save()
+            _no_generated_blocks()
             SlideshowZoneFactory(slug="woodshop")
             resp = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST)
             assert resp.status_code == 200
@@ -98,11 +119,7 @@ def describe_signage_player():
 
     def describe_first_paint():
         def it_marks_the_first_rotating_slide_active_server_side(client):
-            from core.models import SiteConfiguration
-
-            config = SiteConfiguration.load()
-            config.signage_show_events = False
-            config.save()
+            _no_generated_blocks()
             SlideshowZoneFactory(slug="woodshop")
             SlideshowSlideFactory(title="First", zone=None)
             body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
@@ -111,11 +128,7 @@ def describe_signage_player():
 
 def describe_signage_deck():
     def it_returns_204_and_skips_the_swap_for_an_unchanged_deck(client):
-        from core.models import SiteConfiguration
-
-        config = SiteConfiguration.load()
-        config.signage_show_events = False
-        config.save()
+        _no_generated_blocks()
         SlideshowZoneFactory(slug="woodshop")
         SlideshowSlideFactory(title="Tip", zone=None)
 
@@ -126,11 +139,7 @@ def describe_signage_deck():
         assert resp["HX-Reswap"] == "none"
 
     def it_renders_a_fresh_deck_with_a_new_hash_for_a_stale_poll(client):
-        from core.models import SiteConfiguration
-
-        config = SiteConfiguration.load()
-        config.signage_show_events = False
-        config.save()
+        _no_generated_blocks()
         SlideshowZoneFactory(slug="woodshop")
         SlideshowSlideFactory(title="Tip", zone=None)
 
@@ -143,3 +152,67 @@ def describe_signage_deck():
         SlideshowZoneFactory(slug="woodshop")
         resp = client.get("/woodshop/deck/", HTTP_HOST=MEMBERS_HOST)
         assert resp.status_code == 404
+
+
+def describe_generated_slide_rendering():
+    def it_gives_every_slide_its_kind_class(client):
+        _no_generated_blocks(signage_show_directory=True)
+        SlideshowZoneFactory(slug="woodshop")
+        SlideshowSlideFactory(title="Tip", zone=None)
+        body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+        # Per-kind styling is only possible if the class is emitted for EVERY slide.
+        assert "pl-sign-slide--custom" in body
+        assert "pl-sign-slide--directory" in body
+
+    def it_renders_the_month_grid_on_the_calendar_slide(client):
+        from datetime import datetime, time, timedelta
+
+        from django.utils import timezone
+
+        from tests.membership.factories import CommunityEventFactory
+
+        _no_generated_blocks(signage_show_calendar=True)
+        SlideshowZoneFactory(slug="woodshop")
+        today = timezone.localdate()
+        start = timezone.make_aware(datetime.combine(today, time(hour=13)))
+        event = CommunityEventFactory(
+            community=True,
+            title="Potluck And Shop Tour",
+            starts_at=start,
+            ends_at=start + timedelta(hours=1),
+        )
+
+        body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+        assert "pl-sign-calendar" in body
+        assert "pl-sign-calendar__dow" in body
+        assert "pl-sign-calendar__day--today" in body
+        assert "pl-sign-calendar__day--has-events" in body
+        assert "pl-sign-calendar__dot" in body
+        # Whole weeks: every row is seven cells, padding included.
+        cells = body.count('<span class="pl-sign-calendar__day')
+        assert cells >= 28 and cells % 7 == 0
+        # A dot, never a title — a busy day must not name what is on it. Asserted against
+        # the event's REAL title; a generic word here would pass no matter what rendered.
+        assert event.title not in body
+
+    def it_bounds_a_six_week_month_so_the_grid_cannot_overflow_the_stage(client, settings):
+        # Cells are square, so a sixth week is a whole extra row of height and the stage is
+        # overflow:hidden. Only six-week months get the vh cap; five-week months keep their
+        # full size. November 2026 is the next six-week month, September 2026 a five-week one.
+        import datetime as dt
+        from unittest.mock import patch
+
+        _no_generated_blocks(signage_show_calendar=True)
+        SlideshowZoneFactory(slug="woodshop")
+
+        def _body_in(moment):
+            with patch("django.utils.timezone.now", return_value=moment):
+                return client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+
+        six_week = _body_in(dt.datetime(2026, 11, 12, 20, 0, tzinfo=dt.UTC))
+        assert "pl-sign-calendar--six-weeks" in six_week
+        assert six_week.count('<span class="pl-sign-calendar__day') == 42
+
+        five_week = _body_in(dt.datetime(2026, 9, 12, 20, 0, tzinfo=dt.UTC))
+        assert "pl-sign-calendar--six-weeks" not in five_week
+        assert five_week.count('<span class="pl-sign-calendar__day') == 35

@@ -13,6 +13,23 @@ VERSION = "1.49.0"
 # which is the correct outcome here — do not invent an entry to fill the gap.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
+        "version": "1.49.0",
+        "date": "2026-09-09",
+        "title": "The lobby screens fill themselves in",
+        "changes": [
+            "The wall screens now build their own slides from what is already in the app. Classes "
+            "and workshops happening in the next seven days, the guilds, a calendar of this month "
+            "with the busy days marked, the guild funding vote and when it closes, the member "
+            "directory, and an invitation to host a workshop.",
+            "Every one of those slides carries a QR code, so anyone walking past can scan it and "
+            "open the page on their phone.",
+            "A screen still needs nothing from you. Point a monitor at its address once; it "
+            "picks up new slides on its own and restarts itself overnight.",
+            "Admins: Slideshow is now its own tile in Admin Tools instead of a tab inside Site "
+            "Settings, and each automatic slide has its own on and off switch.",
+        ],
+    },
+    {
         "version": "1.48.0",
         "date": "2026-09-09",
         "title": "The whole card in the preview, where the money goes, and imported photos that count",

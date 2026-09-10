@@ -659,6 +659,9 @@ urlpatterns = [
         views.admin_brand_logo_delete,
         name="hub_admin_brand_logo_delete",
     ),
+    path("manage/slideshow/", views.hub_admin_slideshow, name="hub_admin_slideshow"),
+    # The two save paths are deliberately unchanged: retargeting them would break both form
+    # actions and three tests for no gain.
     path(
         "manage/site-settings/slideshow/zones/save/",
         views.admin_slideshow_zones_save,

@@ -35,6 +35,18 @@ from tests.membership.factories import (
     SlideshowZoneFactory,
 )
 
+# Every self-building signage block ships default ON; a spec that wants a deck of exactly
+# what it configured has to switch them all off first.
+_GENERATED_FLAGS = (
+    "signage_show_events",
+    "signage_show_classes",
+    "signage_show_guilds",
+    "signage_show_calendar",
+    "signage_show_voting",
+    "signage_show_directory",
+    "signage_show_teach",
+)
+
 # Tolerated a11y debt (axe rule IDs). Currently empty — these pages are fully
 # AA-clean. Add a rule id here only as a documented, temporary escape hatch.
 ACCEPTED_DEBT: set[str] = set()
@@ -196,7 +208,8 @@ def describe_accessibility():
         from core.models import SiteConfiguration
 
         config = SiteConfiguration.load()
-        config.signage_show_events = False
+        for flag in _GENERATED_FLAGS:
+            setattr(config, flag, False)
         config.save()
         zone = SlideshowZoneFactory(slug="woodshop", is_enabled=True)
         SlideshowSlideFactory(zone=zone, title="Welcome to the space")

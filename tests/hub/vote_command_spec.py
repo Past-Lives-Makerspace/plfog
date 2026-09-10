@@ -62,7 +62,8 @@ def describe_vote():
 
         fixed = dt.datetime(2026, 7, 14, 14, 0, 0, tzinfo=dt.timezone.utc)
         with patch("membership.cycle.timezone") as mock_tz:
-            mock_tz.now.return_value = fixed
+            # get_cycle_context reads LOCAL time, so localtime is the seam.
+            mock_tz.localtime.return_value = fixed
             result = _vote(_interaction(g1.slug, g2.slug, g3.slug), member)
 
         preference = VotePreference.objects.get(member=member)

@@ -952,9 +952,6 @@ class SiteSettingsForm(forms.ModelForm):
             "discord_info_channel_id",
             "discord_info_message_id",
             "discord_info_links_content",
-            "signage_default_slide_seconds",
-            "signage_show_events",
-            "signage_event_days_ahead",
         ]
         widgets = {
             "org_primary_color": forms.TextInput(attrs={"type": "color"}),
@@ -1082,8 +1079,30 @@ GuildRoleFormSet = forms.modelformset_factory(
 )
 
 
+class SlideshowSettingsForm(forms.ModelForm):
+    """The Slideshow page's own slice of SiteConfiguration: timing + which blocks self-build.
+
+    These fields left ``SiteSettingsForm`` when the Slideshow admin became its own page; they
+    are not duplicated across the two forms.
+    """
+
+    class Meta:
+        model = SiteConfiguration
+        fields = [
+            "signage_default_slide_seconds",
+            "signage_event_days_ahead",
+            "signage_show_events",
+            "signage_show_classes",
+            "signage_show_guilds",
+            "signage_show_calendar",
+            "signage_show_voting",
+            "signage_show_directory",
+            "signage_show_teach",
+        ]
+
+
 class SlideshowZoneForm(forms.ModelForm):
-    """One row in the Slideshow tab's Zones editor — one physical screen location."""
+    """One row in the Slideshow page's Screens editor — one physical screen location."""
 
     class Meta:
         model = SlideshowZone
@@ -1119,11 +1138,11 @@ SlideshowZoneFormSet = forms.modelformset_factory(
 
 
 class SlideshowSlideForm(forms.ModelForm):
-    """One row in the Slideshow tab's Slides editor.
+    """One row in the Slideshow page's Slides editor.
 
     A row is a custom slide OR a mirror of a published guild announcement — the ``kind``
     select toggles which fields apply (Alpine ``x-model`` in the template). Because only
-    an admin reaches this tab, the announcement picker is the privacy-safe, admin-curated
+    an admin reaches this page, the announcement picker is the privacy-safe, admin-curated
     opt-in the design requires.
     """
 

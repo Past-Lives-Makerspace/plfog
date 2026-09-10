@@ -51,8 +51,6 @@ def _settings_post(**overrides: str) -> dict[str, str]:
         "org_name": "Past Lives Makerspace",
         "registration_mode": SiteConfiguration.RegistrationMode.INVITE_ONLY,
         "member_event_policy": SiteConfiguration.MemberEventPolicy.APPROVAL,
-        "signage_default_slide_seconds": "12",
-        "signage_event_days_ahead": "30",
         "submitted_tab": "brand",
         "feeds-TOTAL_FORMS": "0",
         "feeds-INITIAL_FORMS": "0",

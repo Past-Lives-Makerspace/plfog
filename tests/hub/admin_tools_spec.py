@@ -169,7 +169,17 @@ def describe_admin_tools_card_order():
             "Push Notification Test",
             "Reports",
             "Site Settings",
+            "Slideshow",
         ]
+
+    def describe_the_slideshow_tile():
+        def it_shows_for_a_fog_admin(client: Client):
+            _login_superuser(client, "slideshow_admin")
+            assert reverse("hub_admin_slideshow") in _tools_grid(client)
+
+        def it_does_not_show_for_a_guild_lead(client: Client):
+            _login_guild_lead(client, "slideshow_lead")
+            assert reverse("hub_admin_slideshow") not in _tools_grid(client)
 
     def it_stays_alphabetical_for_a_partial_role(client: Client):
         # A guild lead sees a subset, so this catches an ordering that only holds
