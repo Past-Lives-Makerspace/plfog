@@ -322,7 +322,7 @@ def _guild_next_item(guild: Guild, now: datetime_type) -> tuple[datetime_type, s
 
     horizon = (now + timedelta(days=SIGNAGE_GUILD_HORIZON_DAYS)).date()
     soonest: tuple[datetime_type, str] | None = None
-    for event in CommunityEvent.objects.published().for_guild(guild):
+    for event in CommunityEvent.objects.published().for_guild(guild).candidates_for_window(now.date(), horizon):
         for occurrence in event.occurrences_in(now.date(), horizon):
             if occurrence >= now and (soonest is None or occurrence < soonest[0]):
                 soonest = (occurrence, event.title)
@@ -363,7 +363,7 @@ def _calendar_slide(config: SiteConfiguration, default: int) -> list[SignageSlid
     last = today.replace(day=calendar.monthrange(today.year, today.month)[1])
 
     dated: list[tuple[datetime_type, str]] = []
-    for event in CommunityEvent.objects.published().site_wide():
+    for event in CommunityEvent.objects.published().site_wide().candidates_for_window(today, last):
         dated.extend((occurrence, event.title) for occurrence in event.occurrences_in(today, last) if occurrence >= now)
     window_end = timezone.make_aware(datetime_type.combine(last, time_type.max))
     for session in ClassSession.objects.public_between(now, window_end).select_related("class_offering"):

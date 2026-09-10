@@ -462,23 +462,34 @@ def describe_whats_on_slide():
         assert event.guild is not None  # the factory default IS a guild meeting
         assert not any(vm.kind == "calendar" for vm in _deck(zone))
 
-    def it_leaves_out_something_that_already_happened():
+    def it_leaves_out_something_earlier_the_same_day():
+        # Same DAY as the frozen clock, two hours before it. A month-window filter alone lets
+        # this through — only the `occurrence >= now` comparison drops it. A fixture on an
+        # earlier date would be excluded by the window first and pin nothing.
         _config(signage_show_calendar=True)
         zone = SlideshowZoneFactory()
-        _event("Long Gone", datetime(2026, 9, 2, 1, 0, tzinfo=UTC))  # Sep 1, well before the frozen now
+        this_morning = datetime(2026, 9, 15, 17, 0, tzinfo=UTC)  # 10am Sep 15 Portland
+        assert this_morning < NOON_SEP_15 and this_morning.date() == NOON_SEP_15.date(), (
+            "the fixture must sit earlier on the SAME day as the frozen clock or it proves nothing"
+        )
+        _event("Already Over", this_morning)
         assert not any(vm.kind == "calendar" for vm in _deck(zone))
 
     def it_keeps_a_6pm_event_on_the_last_day_of_the_month():
-        # 6pm Portland on Sep 30 is 01:00Z on Oct 1. A window bounded on UTC dates drops it
-        # out of September entirely — exactly the evening the lobby has people in it.
+        # 6pm Portland on Sep 30 is 01:00Z on Oct 1. The CLOCK is frozen there too, not just the
+        # fixture: derive the month from timezone.now().date() instead of localtime().date() and
+        # "this month" becomes October, so the last evening of September empties off the wall —
+        # exactly when the lobby has people standing in it. A clock frozen at midday would agree
+        # in both timezones and pin nothing.
         _config(signage_show_calendar=True)
         zone = SlideshowZoneFactory()
-        start = datetime(2026, 10, 1, 1, 0, tzinfo=UTC)
-        assert start.date().month != timezone.localtime(start).date().month, (
+        six_pm_sep_30 = datetime(2026, 10, 1, 1, 0, tzinfo=UTC)
+        assert six_pm_sep_30.date().month != timezone.localtime(six_pm_sep_30).date().month, (
             "the fixture must straddle the month boundary in UTC or it proves nothing"
         )
-        _event("Last Night Of The Month", start)
-        assert "Last Night Of The Month" in _titles(zone)
+        _event("Last Night Of The Month", six_pm_sep_30 + timedelta(hours=1))
+        titles = _titles(zone, now=six_pm_sep_30)
+        assert titles == ["Last Night Of The Month"]
 
     def it_caps_the_list():
         _config(signage_show_calendar=True)
@@ -651,14 +662,25 @@ def describe_generated_block_order():
 
 def describe_deck_hash_with_a_whats_on_list():
     def it_changes_when_the_list_gains_a_line():
-        # Without the entries in the digest, a new event never swaps the deck on the wall.
+        # The deck must already CONTAIN a What's On slide before and after, or the hash differs
+        # on slide membership and the entries digest is never exercised: an empty month has no
+        # calendar slide at all, so going 0 -> 1 slides would pass with the digest deleted.
+        # Every other field on the VM (kind, title, body, meta, url, duration) is identical
+        # across the two decks, so only the entries digest can tell them apart.
         config = _config(signage_show_calendar=True)
         zone = SlideshowZoneFactory()
         now = datetime(2026, 9, 15, 19, 0, tzinfo=UTC)
+        first = datetime(2026, 9, 18, 1, 0, tzinfo=UTC)
+        CommunityEventFactory(
+            community=True, title="Open Shop Night", starts_at=first, ends_at=first + timedelta(hours=1)
+        )
         with patch("django.utils.timezone.now", return_value=now):
-            before = deck_hash(build_deck(zone), config)
-            start = datetime(2026, 9, 20, 1, 0, tzinfo=UTC)
+            before_deck = build_deck(zone)
+            before = deck_hash(before_deck, config)
+            second = datetime(2026, 9, 20, 1, 0, tzinfo=UTC)
             CommunityEventFactory(
-                community=True, title="Community Potluck", starts_at=start, ends_at=start + timedelta(hours=1)
+                community=True, title="Community Potluck", starts_at=second, ends_at=second + timedelta(hours=1)
             )
-            assert deck_hash(build_deck(zone), config) != before
+            after_deck = build_deck(zone)
+            assert [vm.kind for vm in before_deck] == [vm.kind for vm in after_deck]  # same slides
+            assert deck_hash(after_deck, config) != before
