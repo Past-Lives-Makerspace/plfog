@@ -88,6 +88,7 @@ class SignageSlideVM:
     duration_seconds: int
     meta: str = ""  # e.g. an event's when_display / location
     url_display: str = ""  # a human-friendly "learn more" URL shown under the slide (paired with the QR)
+    meta_lead: str = ""  # small eyebrow above ``meta`` — e.g. "Next up" over a guild's next event
     entries: tuple[SignageAgendaEntry, ...] = ()  # non-empty only on the What's On slide
 
 
@@ -129,6 +130,7 @@ def deck_hash(deck: list[SignageSlideVM], config: SiteConfiguration) -> str:
                     vm.title,
                     vm.body,
                     vm.meta,
+                    vm.meta_lead,
                     vm.image_url or "",
                     "q" if vm.qr_svg else "",
                     vm.url_display,
@@ -279,10 +281,14 @@ def _guild_slides(config: SiteConfiguration, default: int) -> list[SignageSlideV
         url = settings.GUILDS_BASE_URL + reverse("hub_guild_detail", args=[guild.slug])
         upcoming = _guild_next_item(guild, now)
         if upcoming is None:
+            meta_lead = ""
             meta = ""
             body = Truncator(guild.about).chars(SIGNAGE_GUILD_ABOUT_CHARS) if guild.about else ""
         else:
             when, meta = upcoming
+            # Without the eyebrow the gold line reads as a tagline, not as something with a
+            # date attached. Two words is the difference between "nice name" and "be there".
+            meta_lead = "Next up"
             body = date_format(timezone.localtime(when), "D, M j · g:i A")
         slides.append(
             SignageSlideVM(
@@ -293,6 +299,7 @@ def _guild_slides(config: SiteConfiguration, default: int) -> list[SignageSlideV
                 qr_svg=_qr_svg(url),
                 duration_seconds=default,
                 meta=meta,
+                meta_lead=meta_lead,
                 url_display=_friendly_url(url),
             )
         )
@@ -365,14 +372,25 @@ def _calendar_slide(config: SiteConfiguration, default: int) -> list[SignageSlid
     if not dated:
         return []
     dated.sort(key=lambda pair: pair[0])
-    entries = tuple(
-        SignageAgendaEntry(
-            when_display=date_format(timezone.localtime(when), "D j M"),
-            title=title,
-            time_display=date_format(timezone.localtime(when), "g:i A"),
+    # One line per (instant, title). A class that a lead ALSO put on the calendar by hand
+    # arrives from both sources, and the same row twice on a wall just reads as broken.
+    entries: tuple[SignageAgendaEntry, ...] = ()
+    seen: set[tuple[datetime_type, str]] = set()
+    for when, title in dated:
+        local = timezone.localtime(when)
+        key = (local, title)
+        if key in seen:
+            continue
+        seen.add(key)
+        entries += (
+            SignageAgendaEntry(
+                when_display=date_format(local, "D j M"),
+                title=title,
+                time_display=date_format(local, "g:i A"),
+            ),
         )
-        for when, title in dated[:SIGNAGE_AGENDA_CAP]
-    )
+        if len(entries) == SIGNAGE_AGENDA_CAP:
+            break
     url = settings.MEMBER_BASE_URL + reverse("hub_community_calendar")
     return [
         SignageSlideVM(

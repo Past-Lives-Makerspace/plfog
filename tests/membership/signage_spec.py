@@ -302,6 +302,22 @@ def describe_guild_slides():
         assert titles == ["Blacksmiths", "Weavers"]  # one slide EACH, alphabetical
         assert all(vm.qr_svg is not None for vm in _guild_vms(zone))
 
+    def it_labels_the_next_thing_so_it_does_not_read_as_a_tagline():
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        guild = GuildFactory(name="Blacksmiths")
+        start = timezone.now() + timedelta(days=3)
+        CommunityEventFactory(guild=guild, title="Forge Night", starts_at=start, ends_at=start + timedelta(hours=2))
+        vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta_lead == "Next up"
+
+    def it_carries_no_lead_on_the_about_fallback():
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        GuildFactory(name="Blacksmiths", about="Hot metal.")
+        vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta_lead == ""
+
     def it_names_the_guilds_next_meeting():
         _config(signage_show_guilds=True)
         zone = SlideshowZoneFactory()
@@ -480,6 +496,17 @@ def describe_whats_on_slide():
         offering = ClassOfferingFactory(title="Intro To Lathe", status="published", is_private=False)
         ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
         assert "Intro To Lathe" in _titles(zone)
+
+    def it_shows_one_line_when_a_class_is_also_on_the_calendar_by_hand():
+        # A lead can put their own class on the community calendar as well. Both sources
+        # then carry the same instant and title, and the same row twice reads as broken.
+        _config(signage_show_calendar=True)
+        zone = SlideshowZoneFactory()
+        start = datetime(2026, 9, 21, 19, 0, tzinfo=UTC)
+        offering = ClassOfferingFactory(title="Intro To Lathe", status="published", is_private=False)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        _event("Intro To Lathe", start)
+        assert _titles(zone) == ["Intro To Lathe"]
 
     def it_adds_no_slide_when_nothing_is_left_this_month():
         _config(signage_show_calendar=True)

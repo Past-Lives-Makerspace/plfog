@@ -133,6 +133,18 @@ body {
   word-break: break-all;
 }
 
+/* Eyebrow over a gold meta line: "Next up" above a guild's next event, so the line reads
+   as something with a date attached rather than as that guild's tagline. Mirrors __url-lead. */
+.pl-sign-slide__meta-lead {
+  display: block;
+  margin-bottom: 0.15em;
+  font-size: 0.5em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sign-muted);
+}
+
 .pl-sign-slide__url-lead {
   display: block;
   margin-bottom: 0.15em;
