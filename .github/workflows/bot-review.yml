@@ -24,8 +24,10 @@ name: Bot review
 #   2. Claude never holds a write credential. Its step gets the Claude token and
 #      a read-only GITHUB_TOKEN, and its tools are restricted to reading. Only
 #      the last step sees BOT_PAT, and that step runs no model and no repo code.
-#   3. The verdict is a JSON file parsed by a plain shell step. A missing,
-#      empty, or unrecognised verdict approves nothing. Fail closed.
+#   3. The verdict is a JSON file, parsed by a tested script that runs no model
+#      (.github/scripts/bot_review_post.py). A missing, unreadable, bodyless or
+#      unrecognised verdict approves nothing and says so on the pull request.
+#      Fail closed, and prove it: tests/scripts/bot_review_post_spec.py.
 #   4. The workflow file and the rubric are read from the base branch, so a
 #      fork cannot edit its own reviewer.
 #
@@ -66,6 +68,12 @@ jobs:
       # purpose, and changing it is the whole vulnerability.
       - name: Check out the base branch
         uses: actions/checkout@v4
+
+      # Needed by the post step below, which runs even when the review fails.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
 
       - name: Fetch the pull request as diff text
         env:
@@ -121,58 +129,23 @@ jobs:
           # repository beyond the verdict file.
           claude_args: '--model opus --allowedTools Read,Grep,Glob,Write'
 
-      # `always()` so that a failed or timed-out review still reports itself on
-      # the pull request instead of dying silently in the Actions tab.
+      # Not `always()`: with cancel-in-progress on the concurrency group, a run
+      # superseded by a newer event is CANCELLED, and a cancelled run must not post
+      # "could not complete its review" over the top of the run that replaced it.
+      # `!cancelled()` still covers the case that matters — a review that failed or
+      # timed out reports itself on the pull request instead of dying quietly in the
+      # Actions tab.
+      #
+      # The logic itself lives in a script rather than inline shell so it can be
+      # tested (tests/scripts/bot_review_post_spec.py), matching how
+      # discord_release_notify.py is handled. Inline `jq` could not: a malformed
+      # verdict.json aborted the step before it could report anything.
       - name: Post the review as PastLivesReviewBot
-        if: always()
+        if: ${{ !cancelled() }}
         env:
-          GH_TOKEN: ${{ secrets.BOT_PAT }}
-          PR: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-
-          post() {
-            jq -n --arg event "$1" --arg body "$2" '{event: $event, body: $body}' \
-              | gh api --method POST "repos/$REPO/pulls/$PR/reviews" --input -
-          }
-
-          if [ ! -s verdict.json ]; then
-            echo "No verdict file. The review did not complete; approving nothing."
-            post COMMENT "PastLivesReviewBot could not complete its review: the review step produced no verdict. **No approval has been given.** Add the \`bot-review\` label to try again, or review this by hand."
-            exit 1
-          fi
-
-          verdict=$(jq -r '.verdict // empty' verdict.json)
-          body=$(jq -r '.body // empty' verdict.json)
-
-          if [ -z "$body" ]; then
-            echo "Verdict file has no body; approving nothing."
-            post COMMENT "PastLivesReviewBot produced a verdict with no review text. **No approval has been given.** Add the \`bot-review\` label to try again."
-            exit 1
-          fi
-
-          # request_changes posts as a COMMENT, not a REQUEST_CHANGES review.
-          # This matches what the manual /pl-bot-review-pr command has always
-          # done, and it avoids stranding a pull request behind a blocking
-          # review only the bot can dismiss. Withholding the approval is already
-          # the block: main's ruleset will not merge without one.
-          case "$verdict" in
-            approve)         event=APPROVE ;;
-            request_changes) event=COMMENT ;;
-            *)
-              echo "Unrecognised verdict '$verdict'; approving nothing."
-              event=COMMENT
-              body=$(printf '%s\n\n%s' \
-                'PastLivesReviewBot returned an unrecognised verdict, so **no approval has been given**. Its review follows.' \
-                "$body")
-              ;;
-          esac
-
-          post "$event" "$body"
-          echo "Posted a $event review on #$PR."
-          {
-            echo "### PastLivesReviewBot"
-            echo
-            echo "Verdict: \`$verdict\` (posted as \`$event\`)"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # The only step that sees the write credential, and it runs no model.
+          GITHUB_TOKEN: ${{ secrets.BOT_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          VERDICT_FILE: verdict.json
+        run: python .github/scripts/bot_review_post.py

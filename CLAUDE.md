@@ -53,6 +53,10 @@ automatically, and approved if it has no blockers. Nobody has to ask for it.
   against is `.github/bot-review-prompt.md`. **The rubric is the single source of
   truth for what counts as a blocker** — the manual `/pl-bot-review-pr` command
   reads the same file, so change the rubric, not one of the two callers.
+- The model writes a verdict file and nothing else;
+  `.github/scripts/bot_review_post.py` is what actually posts the review, and it
+  is the only thing holding `BOT_PAT`. Its fail-closed behaviour is specced in
+  `tests/scripts/bot_review_post_spec.py` — change one, change the other.
 - It runs on `pull_request_target` so that PRs from forks are reviewed too. That
   trigger holds secrets, so the contributor's code is never checked out and
   never executed — the change is reviewed as diff text. The header comment in
