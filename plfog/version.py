@@ -2,24 +2,32 @@
 
 from __future__ import annotations
 
-VERSION = "1.50.0"
+VERSION = "1.51.0"
 
-# No entry at 1.49.0 on purpose, and the slideshow entry moved OFF it deliberately.
+# Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
+# picking a version: the same slot has now been claimed twice by accident, which cost the
+# slideshow its announcement twice.
 #
-# 1.49.0 was claimed twice. The wiki frontend cleanup (#347) took it first with no entry, which
-# was correct: that release fixed a stylesheet trapped in an unclosed media query, three dozen
-# controls rendering as raw browser chrome, and a page showing its own headings as its excerpt,
-# all within hours of the wiki launch, so re-announcing "the wiki, but tidier" would have posted
-# a second Discord message about the same feature. The lobby slideshow (#348) had branched before
-# that and carried 1.49.0 too, so its merge left VERSION unchanged and the workflow logged
-# "previous=1.49.0 current=1.49.0 ... skipping the announcement". The feature went live on
-# production unannounced.
+# 1.49.0 — the wiki frontend cleanup (#347) took it with no entry, correctly: a stylesheet
+# trapped in an unclosed media query, three dozen controls rendering as raw browser chrome, and
+# a page showing its own headings as its excerpt, all within hours of the wiki launch. Then the
+# lobby slideshow (#348) had branched before that and carried 1.49.0 too, so its merge left
+# VERSION unchanged and the workflow logged "previous=1.49.0 current=1.49.0 ... skipping the
+# announcement". The slideshow shipped to production announced to nobody.
 #
-# 1.50.0 is that announcement, re-stamped and now carrying the Book a Tour slide as well. 1.49.0
-# keeps no entry of its own, which stays the right outcome for the cleanup — do not invent one.
+# 1.50.0 — the wiki first-run cleanup (#350) took it with no entry, also correctly: the wiki was
+# announced at 1.47.0 and launched empty, so "starting a page is simpler now" hours later is a
+# second post about the same feature, and re-stamping 1.47.0's entry would re-announce the whole
+# wiki a day late. Then this branch had carried 1.50.0 too, which would have skipped the
+# slideshow announcement a THIRD time.
+#
+# 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
+# What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
+# 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
+# is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.50.0",
+        "version": "1.51.0",
         "date": "2026-09-09",
         "title": "The lobby screens fill themselves in",
         "changes": [

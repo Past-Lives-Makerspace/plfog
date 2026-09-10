@@ -4,6 +4,9 @@ The attachments list editor. Same structure as the Quick Answers rows, extra=0 i
 carries enctype="multipart/form-data" — without it these file inputs post nothing at all and
 the failure is completely silent.
 
+No empty branch on the loop: the section's intro paragraph in wiki_edit.html carries that
+sentence now, and printing it again under an empty list is the same copy twice on one card.
+
 components/image_field.html is deliberately NOT used here: it binds a per-field modal_id and
 a preview id that collide the moment a row is cloned, and its inline script never executes
 inside cloned innerHTML. Drag, drop and preview come from one delegated handler on
@@ -46,8 +49,6 @@ inside cloned innerHTML. Drag, drop and preview come from one delegated handler 
             {% endif %}
         </div>
     </div>
-    {% empty %}
-    <p class="hub-text-muted pl-wp-factrow__empty">Nothing attached yet. A photo of the setup helps more than a paragraph.</p>
     {% endfor %}
 </div>
 

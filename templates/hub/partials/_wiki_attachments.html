@@ -6,7 +6,15 @@ icon, the label, the size, and who added it.
 Its own partial so the quick-photo endpoint can swap just this card back in. The label on
 every attachment is required at the model, because a library of files called scan_0034.pdf
 is a library nobody opens.
+
+Skipped entirely for a reader when the page has nothing attached — the same rule as Quick
+Answers next door, and for the same reason: attachments are optional on the editor, so an
+empty card is the normal state of a perfectly good page and "Nothing attached yet" is noise
+to somebody who cannot attach anything. It still renders for an editor, and the swap target
+goes with it safely: the photo modal that posts into #wiki-attachments is itself gated on
+can_edit in wiki_page.html, so the target exists exactly when something can fire at it.
 {% endcomment %}
+{% if photo_attachments or file_attachments or can_edit %}
 <div class="hub-card pl-wp-attachments" id="wiki-attachments">
     <div class="pl-wp-attachments__head">
         <h2 class="hub-detail-label pl-wp-section__title">Files And Photos</h2>
@@ -38,3 +46,4 @@ is a library nobody opens.
     </p>
     {% endif %}
 </div>
+{% endif %}

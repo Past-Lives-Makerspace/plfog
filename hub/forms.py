@@ -4350,9 +4350,11 @@ class IgnorableRowFormMixin:
 class WikiPageFactForm(IgnorableRowFormMixin, forms.ModelForm):
     """One Quick Answers row.
 
-    A row carrying a label and no answer is an untouched starter prompt, not an error:
-    without this, every prompt the member skipped would fail its required ``value`` and
-    block Save — the exact FRONTEND.md Rule 11 bug, arriving through the back door.
+    A row carrying a label and no answer is an unanswered prompt, not an error: the
+    machine seeder writes exactly that shape, and without this every prompt the member
+    left alone would fail its required ``value`` and block Save — the exact FRONTEND.md
+    Rule 11 bug, arriving through the back door. (The create form stopped seeding prompt
+    rows of its own; the seeder's are the ones that still reach an editor.)
 
     **Blanking a SAVED row's answer therefore deletes that row, deliberately**, and this
     is the one place it is written down. Unlike :class:`WikiAttachmentForm` there is no
@@ -4369,9 +4371,12 @@ class WikiPageFactForm(IgnorableRowFormMixin, forms.ModelForm):
         model = WikiPageFact
         fields = ["label", "value", "sort_order"]
         widgets = {"sort_order": forms.HiddenInput()}
-        labels = {"label": "Question", "value": "Answer"}
+        # NOT "Question". These rows render on the page as a two-column key/value table,
+        # and most of them are a topic rather than a sentence ending in "?" — the starter
+        # prompts used to seed rows reading "Question: Tools needed", which is not one.
+        labels = {"label": "Topic", "value": "Answer"}
         help_texts = {
-            "label": "Two or three words. 'Blade' or 'Max width'.",
+            "label": "Two or three words, or a real question. 'Blade', 'Max width'.",
             "value": "Short enough to read at a glance.",
         }
 
@@ -4415,12 +4420,13 @@ class BaseWikiPageFactFormSet(forms.BaseModelFormSet):
 
 
 def wiki_fact_formset_class(extra: int = 0) -> Any:
-    """The Quick Answers formset, with ``extra`` rows for create mode's starter prompts.
+    """The Quick Answers formset, with ``extra`` rows for the ones a resumed draft holds.
 
     A model formset renders ``initial_form_count() + extra`` rows, which is ``0 + 0`` on a
-    brand new page — so ``extra=0`` in create mode would render no prompt rows at all and
-    the "prompt for the facts first" mechanic would silently not exist. Edit mode passes
-    nothing and keeps Rule 11's ``extra=0``.
+    page that does not exist yet — so a create-mode draft carrying rows needs ``extra`` to
+    match, or every one of them is silently dropped. Everything else passes nothing and
+    gets Rule 11's ``extra=0``: no perpetual blank row, and nothing to delete before you
+    can write.
     """
     return forms.modelformset_factory(
         WikiPageFact,

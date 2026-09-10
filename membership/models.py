@@ -13972,9 +13972,10 @@ class WikiDraft(models.Model):
         """The human label for this draft's starter.
 
         ``kind`` holds the starter segment from the URL, which is a
-        :class:`WikiPage.Kind` value for the six content starters and ``"safety"`` for
-        spec D's Safety & Rules one — so ``get_kind_display`` would print the raw slug
-        there. The starter catalogue is the one place that knows every segment's label.
+        :class:`WikiPage.Kind` value for the six content starters and is not one for two
+        of them: ``"safety"`` (spec D's Safety & Rules) and ``"blank"`` (the empty-page
+        escape hatch). ``get_kind_display`` would print the raw slug for either. The
+        starter catalogue is the one place that knows every segment's label.
         """
         from membership.wiki_starters import STARTERS
 

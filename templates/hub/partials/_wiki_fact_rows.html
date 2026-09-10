@@ -2,7 +2,14 @@
 The Quick Answers list editor — the FAQ/Links editors from guild_edit.html with the
 Slideshow Slides reorder bolted on.
 
-Rule 11 throughout: extra=0 in edit mode so no perpetual blank row can block Save, a real
+It opens with NO rows, in create mode as well as edit. Create used to render one row per
+starter prompt, which meant three or four of these cards — grip, two fields, two arrows,
+a Remove button — stood between the title field and the editor on a form whose header
+promises "two fields and whatever you know". The loop has no empty branch either: the
+section's intro paragraph in wiki_edit.html already says what Quick Answers are, and
+saying it again under an empty list is the same sentence twice on one card.
+
+Rule 11 throughout: extra=0 in both modes so no perpetual blank row can block Save, a real
 "+ Add" button that clones the hidden template, a real danger Delete button (never a toggle)
 that submits the whole form so no other edit on the page is lost, and Remove on an unsaved
 cloned row that just drops the DOM node.
@@ -34,8 +41,6 @@ row to its instance and the save silently creates duplicates instead of updating
             {% endif %}
         </div>
     </div>
-    {% empty %}
-    <p class="hub-text-muted pl-wp-factrow__empty">No quick answers yet. These are the four or five things people actually came for.</p>
     {% endfor %}
 </div>
 

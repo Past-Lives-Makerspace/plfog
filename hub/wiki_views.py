@@ -637,28 +637,23 @@ def _fact_formset(
     *,
     data: Any = None,
     page: WikiPage | None,
-    prompts: list[str] | None = None,
     initial_facts: list[dict[str, str]] | None = None,
 ) -> Any:
     """Build the Quick Answers formset for create mode or for edit mode.
 
-    Create mode needs ``extra=len(prompts)`` with matching ``initial``: a model formset
-    renders ``initial_form_count() + extra`` rows, which is ``0 + 0`` on a brand-new page,
-    so ``extra=0`` there would render no starter prompts at all and the brief's
-    "prompt for the facts first" mechanic would silently not exist. Edit mode keeps
-    ``extra=0`` per FRONTEND.md Rule 11, so no perpetual blank row can block Save.
+    Both modes open with ``extra=0`` and no rows of their own: Quick Answers is opt-in,
+    and the member adds the first row with the section's own "+ Add A Quick Answer"
+    button. Create mode used to render one pre-seeded row per starter prompt, which put
+    three or four list-editor cards in front of the editor and labelled each one
+    "Question: Tools needed" — a label that is not a question, on a row nobody asked for.
+
+    ``initial_facts`` is the one thing that still opens rows: a resumed draft that carries
+    its own. ``extra`` has to match its length, because a model formset renders
+    ``initial_form_count() + extra`` and that is ``0 + 0`` on a page that does not exist
+    yet — so ``extra=0`` would silently drop every row the draft was holding.
     """
     queryset = WikiPageFact.objects.filter(page=page) if page is not None else WikiPageFact.objects.none()
-    # A resumed draft only overrides the prompts when it actually carries rows. Autosave's
-    # allowlist is title and body, so a new-page draft's facts are ALWAYS [] — treating
-    # "not None" as authoritative rendered zero rows, and "Use My Draft" silently produced
-    # a promptless form while a plain visit to the same URL got one row per prompt.
-    if initial_facts:
-        initial = initial_facts
-    elif prompts:
-        initial = [{"label": prompt, "value": ""} for prompt in prompts]
-    else:
-        initial = []
+    initial = initial_facts or []
     formset_class = wiki_fact_formset_class(extra=len(initial))
     return formset_class(data, queryset=queryset, initial=initial, prefix="facts")
 
@@ -820,9 +815,11 @@ def _create_page_from_form(
 def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
     """``/wiki/new/<kind>/`` — write a page, live, with no approval queue.
 
-    Two required fields, both pre-filled from context, plus the starter prompts and the
-    starter headings. A ``?wanted=<pk>`` that rode in from spec B's digest or wanted list
-    is closed out on success.
+    Two required fields, both pre-filled from context, and the starter's headings in the
+    editor. Quick Answers and attachments both open empty: they are what a member adds
+    when they have something to add, not scaffolding to clear out first. A
+    ``?wanted=<pk>`` that rode in from spec B's digest or wanted list is closed out on
+    success.
     """
     if kind not in STARTERS:
         return _not_found(request)
@@ -838,7 +835,7 @@ def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
 
     if request.method == "POST":
         form = WikiPageCreateForm(request.POST, scope_guilds=scope_guilds)
-        fact_formset = _fact_formset(data=request.POST, page=None, prompts=starter["fact_prompts"])
+        fact_formset = _fact_formset(data=request.POST, page=None)
         attachment_formset = _attachment_formset(data=request.POST, files=request.FILES, page=None)
         if form.is_valid() and fact_formset.is_valid() and attachment_formset.is_valid():
             created = _create_page_from_form(
@@ -867,7 +864,7 @@ def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
                 },
                 scope_guilds=scope_guilds,
             )
-            fact_formset = _fact_formset(page=None, prompts=starter["fact_prompts"], initial_facts=draft.facts)
+            fact_formset = _fact_formset(page=None, initial_facts=draft.facts)
         else:
             form = WikiPageCreateForm(
                 initial={
@@ -881,7 +878,7 @@ def hub_wiki_create(request: HttpRequest, kind: str) -> HttpResponse:
                 },
                 scope_guilds=scope_guilds,
             )
-            fact_formset = _fact_formset(page=None, prompts=starter["fact_prompts"])
+            fact_formset = _fact_formset(page=None)
         attachment_formset = _attachment_formset(page=None)
 
     context = _get_hub_context(request)

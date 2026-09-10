@@ -169,6 +169,7 @@ def guild_wiki_tab_context(request: HttpRequest, guild: Guild) -> dict[str, Any]
     if not can_verify:
         # A work queue shown to people who cannot work it is noise. Members still see the
         # Out of date chip on the page itself, and they still see the wanted list.
+        context.update(_panel_visibility(recent=recent, overdue=[], misses=[], wanted=context["wiki_tab_wanted"]))
         return context
 
     overdue = sorted(
@@ -192,7 +193,50 @@ def guild_wiki_tab_context(request: HttpRequest, guild: Guild) -> dict[str, Any]
             "wiki_tab_misses": misses[:MISS_PANEL_LIMIT],
         }
     )
+    context.update(
+        _panel_visibility(
+            recent=recent,
+            overdue=overdue,
+            misses=context["wiki_tab_misses"],
+            wanted=context["wiki_tab_wanted"],
+        )
+    )
     return context
+
+
+def _panel_visibility(
+    *,
+    recent: list[WikiPage],
+    overdue: list[WikiPage],
+    misses: list[dict[str, Any]],
+    wanted: list[WikiWantedPage],
+) -> dict[str, bool]:
+    """Which of the right-hand column's cards render, and whether the column renders.
+
+    A panel whose only content is a sentence saying it has no content teaches nobody
+    anything and cannot be acted on. On a wiki that launched empty that was the entire
+    right-hand column — "Nothing overdue", "No failed searches", "No requests yet" — three
+    cards explaining curation machinery for content that does not exist yet, stacked above
+    the one thing a member could actually do. So each card is gated on having rows.
+
+    The wanted card is the exception, and only in one direction: it also renders whenever
+    the failed-search panel does, because "Add To Wanted" there swaps the new row into
+    ``#wiki-tab-wanted-rows`` out of band. With the card gone that target does not exist,
+    htmx drops the swap, and a lead who just filed a request watches nothing happen.
+    """
+    show_wanted = bool(wanted) or bool(misses)
+    return {
+        "wiki_tab_show_overdue": bool(overdue),
+        "wiki_tab_show_misses": bool(misses),
+        "wiki_tab_show_wanted": show_wanted,
+        # Nothing in the column means the grid drops to one column rather than reserving a
+        # third of the page for whitespace beside the list. Two terms, not four: an overdue
+        # page is one of this guild's pages, so Recently Updated is never empty while the
+        # overdue panel has a row, and misses are already inside show_wanted. Spelling out
+        # all four would read as thoroughness and be two conditions that cannot change the
+        # answer.
+        "wiki_tab_has_panels": bool(recent) or show_wanted,
+    }
 
 
 # --- The monthly digest ----------------------------------------------------------------
