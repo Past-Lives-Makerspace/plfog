@@ -390,6 +390,54 @@ def describe_wiki_page_reading():
         response = client.get(page.get_absolute_url())
         assert b"No quick answers yet." in response.content
 
+    def it_shows_a_reader_no_quick_answers_card_at_all(client: Client):
+        # Quick Answers is opt-in on the editor, so a page with none is an ordinary good
+        # page rather than an unfinished one. A whole card whose only content is a sentence
+        # saying it is empty is noise to somebody who cannot do anything about it.
+        _login(client, "read_nofacts_reader", status=Member.Status.FORMER)
+        page = WikiPageFactory()
+        response = client.get(page.get_absolute_url())
+        assert response.status_code == 200
+        assert b"No quick answers yet." not in response.content
+        assert b"pl-wp-factsblock" not in response.content
+
+    def it_still_shows_a_reader_the_facts_a_page_does_have(client: Client):
+        _login(client, "read_facts_reader", status=Member.Status.FORMER)
+        page = WikiPageFactory()
+        WikiPageFactFactory(page=page, label="Blade", value="10 inch")
+        response = client.get(page.get_absolute_url())
+        assert b"pl-wp-factsblock" in response.content
+        assert b"10 inch" in response.content
+
+    def it_shows_a_reader_no_empty_files_and_photos_card_either(client: Client):
+        # Same rule as Quick Answers next door: attachments are optional, so an empty card
+        # is the normal state of a good page and the sentence saying so is noise to
+        # somebody who cannot attach anything.
+        _login(client, "read_noattach_reader", status=Member.Status.FORMER)
+        page = WikiPageFactory()
+        response = client.get(page.get_absolute_url())
+        assert response.status_code == 200
+        assert b"Nothing attached yet." not in response.content
+        assert b'id="wiki-attachments"' not in response.content
+
+    def it_keeps_the_card_and_its_swap_target_for_an_editor(client: Client):
+        # #wiki-attachments is the quick-photo modal's hx-target. That modal is gated on
+        # can_edit, so gating the card the same way keeps the target present exactly when
+        # something can fire at it — but only if this holds.
+        _login(client, "read_noattach_editor")
+        page = WikiPageFactory()
+        response = client.get(page.get_absolute_url())
+        assert b'id="wiki-attachments"' in response.content
+        assert b"Nothing attached yet." in response.content
+
+    def it_still_shows_a_reader_the_attachments_a_page_does_have(client: Client):
+        _login(client, "read_attach_reader", status=Member.Status.FORMER)
+        page = WikiPageFactory()
+        WikiAttachmentFactory(page=page, label="The Manual")
+        response = client.get(page.get_absolute_url())
+        assert b'id="wiki-attachments"' in response.content
+        assert b"The Manual" in response.content
+
     def it_renders_the_official_block_from_equipment(client: Client):
         _login(client, "read_official")
         equipment = EquipmentFactory(name="SawStop")

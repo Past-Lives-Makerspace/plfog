@@ -15,6 +15,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError, transaction
 
+from membership.management.commands.seed_wiki_machine_pages import MACHINE_FACT_PROMPTS
 from membership.models import WikiPage, WikiPageFact, WikiRevision
 from membership.wiki_starters import STARTERS
 from tests.membership.factories import (
@@ -81,7 +82,7 @@ def describe_seed_wiki_machine_pages():
             EquipmentFactory(name="Table Saw")
             _run()
             page = WikiPage.objects.get()
-            assert list(page.facts.values_list("label", flat=True)) == MACHINE_STARTER["fact_prompts"]
+            assert list(page.facts.values_list("label", flat=True)) == MACHINE_FACT_PROMPTS
             assert {fact.value for fact in page.facts.all()} == {""}
 
         def it_leaves_the_page_community_and_published(db):
@@ -334,7 +335,7 @@ def describe_seed_wiki_machine_pages():
             _run()
             values = dict(page.facts.values_list("label", "value"))
             assert values["Blade or bit"] == "40 tooth"
-            assert len(values) == len(MACHINE_STARTER["fact_prompts"])
+            assert len(values) == len(MACHINE_FACT_PROMPTS)
 
         def it_puts_back_a_prompt_row_that_was_removed(db):
             EquipmentFactory(name="Table Saw")

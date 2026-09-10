@@ -144,6 +144,29 @@ def describe_the_grouped_list():
             assert "Nothing here yet." in html
             assert "+ Start A Page" in html
 
+        def it_hides_the_search_box(db, client):
+            # Searching this guild's wiki over zero pages can only disappoint, and the row
+            # put a second "+ Start A Page" a couple of inches above the card's own.
+            _login(client, "tab_empty_search")
+            html = _guild_page(client, GuildFactory(name="Gardeners Guild", slug="gardeners"))
+            assert "Search the Gardeners Guild wiki" not in html
+            assert html.count("+ Start A Page") == 1
+
+        def it_keeps_a_way_through_to_the_whole_wiki(db, client):
+            # The row it replaces also offered an "Everything" scope, so the cross-guild
+            # search must not disappear along with it.
+            _login(client, "tab_empty_browse")
+            html = _guild_page(client, GuildFactory())
+            assert "Browse the whole wiki" in html
+            assert reverse("hub_wiki_home") in html
+
+        def it_brings_the_search_box_back_with_the_first_page(db, client):
+            _login(client, "tab_search_back")
+            guild = GuildFactory(name="Gardeners Guild", slug="gardeners-two")
+            WikiPageFactory(guild=guild, title="Something Written")
+            html = _guild_page(client, guild)
+            assert "Search the Gardeners Guild wiki" in html
+
 
 def describe_recently_updated():
     def it_lists_five_newest_first(db, client):
@@ -167,17 +190,29 @@ def describe_the_lead_panels():
         html = _guild_page(client, guild)
         assert "Overdue For Review" not in html
         assert "Searches That Found Nothing" not in html
-        # The wanted list is NOT a lead panel: every member can claim or start one.
+        # The wanted list is NOT a lead panel — but with nothing on it there is nothing to
+        # show a member either, and the card used to render anyway saying "No requests yet."
+        assert "Wanted Pages" not in html
+
+    def it_shows_the_wanted_card_to_a_plain_member_once_something_is_on_it(db, client):
+        user = _login(client, "tab_panels_member_wanted")
+        guild = GuildFactory()
+        GuildMembershipFactory(guild=guild, member=user.member)
+        WikiWantedPageFactory(guild=guild, title="Bandsaw Blade Change")
+        html = _guild_page(client, guild)
         assert "Wanted Pages" in html
+        assert "Bandsaw Blade Change" in html
 
     def it_shows_all_three_to_a_lead(db, client):
         user = _login(client, "tab_panels_lead")
         guild = GuildFactory(guild_lead=user.member)
         _stale(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE, title="Old Machine"))
         WikiSearchMissFactory(guild=guild, query="epoxy cure time")
+        WikiWantedPageFactory(guild=guild, title="Bandsaw Blade Change")
         html = _guild_page(client, guild)
         assert "Overdue For Review" in html
         assert "Searches That Found Nothing" in html
+        assert "Wanted Pages" in html
         assert "Old Machine" in html
         assert "epoxy cure time" in html
 
@@ -185,6 +220,7 @@ def describe_the_lead_panels():
         user = _login(client, "tab_panels_orienter")
         guild = GuildFactory()
         GuildStaffMembershipFactory(guild=guild, member=user.member, role="orienter")
+        _stale(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE))
         assert "Overdue For Review" in _guild_page(client, guild)
 
     def it_keeps_a_reported_page_out_of_the_overdue_panel(db, client):
@@ -192,19 +228,76 @@ def describe_the_lead_panels():
         the wrong answer to "this is wrong"."""
         user = _login(client, "tab_panels_reported")
         guild = GuildFactory(guild_lead=user.member)
+        # A second stale page nobody reported, so the panel is on the screen at all: the
+        # panel is gated on having rows now, and "the reported page is not in it" would
+        # pass against a panel that never rendered.
+        _stale(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE, title="Fine Machine"))
         reported = _stale(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE, title="Reported Machine"))
         WikiPage.objects.filter(pk=reported.pk).update(needs_review_since=timezone.now())
         html = _guild_page(client, guild)
-        panel = html.split("Overdue For Review", 1)[1].split("Searches That Found Nothing", 1)[0]
+        panel = html.split("Overdue For Review", 1)[1].split('id="wiki-confirm-cue"', 1)[0]
+        assert "Fine Machine" in panel
         assert "Reported Machine" not in panel
-        assert "Nothing overdue." in panel
 
-    def it_writes_both_empty_states(db, client):
-        user = _login(client, "tab_panels_empty")
+    def describe_when_a_panel_has_nothing_in_it():
+        def it_renders_no_panel_and_no_empty_state(db, client):
+            # Three cards saying "Nothing overdue", "No failed searches" and "No requests
+            # yet" is a column that describes curation machinery for content nobody has
+            # written. On a wiki that launched empty it was most of the guild tab.
+            user = _login(client, "tab_panels_empty")
+            guild = GuildFactory(guild_lead=user.member)
+            html = _guild_page(client, guild)
+            assert "Overdue For Review" not in html
+            assert "Searches That Found Nothing" not in html
+            assert "Wanted Pages" not in html
+            assert "Nothing overdue." not in html
+            assert "No failed searches in the last 30 days." not in html
+            assert "No requests yet." not in html
+
+        def it_drops_the_whole_column_and_widens_the_list(db, client):
+            user = _login(client, "tab_panels_solo")
+            guild = GuildFactory(guild_lead=user.member)
+            html = _guild_page(client, guild)
+            assert "pl-wp-tab__col--panels" not in html
+            assert "pl-wp-tab__grid--solo" in html
+
+        def it_keeps_the_column_as_soon_as_one_card_has_rows(db, client):
+            user = _login(client, "tab_panels_notsolo")
+            guild = GuildFactory(guild_lead=user.member)
+            WikiPageFactory(guild=guild, title="Something Written")
+            html = _guild_page(client, guild)
+            assert "pl-wp-tab__col--panels" in html
+            assert "pl-wp-tab__grid--solo" not in html
+
+        def it_leaves_a_lead_one_line_to_the_wanted_list(db, client):
+            # The card is gone, the entry point is not: a lead with pages but no requests
+            # still needs somewhere to file one from.
+            user = _login(client, "tab_panels_leadlink")
+            guild = GuildFactory(guild_lead=user.member)
+            WikiPageFactory(guild=guild, title="Something Written")
+            html = _guild_page(client, guild)
+            assert "Wanted Pages" not in html
+            assert "Ask for a page someone should write" in html
+
+        def it_offers_a_plain_member_no_such_line(db, client):
+            user = _login(client, "tab_panels_memberlink")
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=user.member)
+            WikiPageFactory(guild=guild, title="Something Written")
+            assert "Ask for a page someone should write" not in _guild_page(client, guild)
+
+    def it_keeps_the_wanted_card_in_the_dom_for_the_failed_search_swap(db, client):
+        """ "Add To Wanted" in the failed-search panel swaps the new row into
+        #wiki-tab-wanted-rows out of band. With the card gated on already having rows that
+        target would be missing exactly when a lead first uses the button, htmx would drop
+        the swap, and the request would land in the database with nothing on screen to say
+        so."""
+        user = _login(client, "tab_panels_oobtarget")
         guild = GuildFactory(guild_lead=user.member)
+        WikiSearchMissFactory(guild=guild, query="epoxy cure time")
         html = _guild_page(client, guild)
-        assert "Nothing overdue. Everything here has been checked recently." in html
-        assert "No failed searches in the last 30 days." in html
+        assert "Searches That Found Nothing" in html
+        assert 'id="wiki-tab-wanted-rows"' in html
 
 
 def describe_the_compact_verify_button():
