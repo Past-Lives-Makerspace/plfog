@@ -194,6 +194,28 @@ def describe_generated_slide_rendering():
         assert "Sat 19 Sep" in body
         assert "6:00 p.m." in body or "6:00 PM" in body
 
+    def it_renders_the_next_up_eyebrow_on_a_guild_slide(client):
+        # The VM field alone is not enough: deleting the span from the template silently
+        # reverts the gold line to reading as the guild's tagline rather than as something
+        # with a date attached.
+        import datetime as dt
+
+        from django.utils import timezone
+
+        from tests.membership.factories import CommunityEventFactory, GuildFactory
+
+        _no_generated_blocks(signage_show_guilds=True)
+        SlideshowZoneFactory(slug="woodshop")
+        guild = GuildFactory(name="Blacksmiths Guild")
+        start = timezone.now() + dt.timedelta(days=3)
+        CommunityEventFactory(guild=guild, title="Forge Night", starts_at=start, ends_at=start + dt.timedelta(hours=2))
+
+        body = client.get("/woodshop/", HTTP_HOST=SIGNAGE_HOST).content.decode()
+        assert "pl-sign-slide--guild" in body
+        assert "pl-sign-slide__meta-lead" in body
+        assert "Next up" in body
+        assert "Forge Night" in body
+
     def it_leaves_the_whats_on_slide_out_when_the_month_has_nothing_left(client):
         import datetime as dt
         from unittest.mock import patch

@@ -371,6 +371,43 @@ def describe_guild_slides():
         assert vm.meta == ""
         assert "Unapproved" not in vm.body
 
+    def it_never_names_a_private_or_draft_class():
+        # The class half of the visibility gate. The meeting half is pinned by
+        # it_never_names_an_unpublished_meeting; without this, weakening
+        # upcoming_public() puts a draft private class on a public lobby wall.
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        guild = GuildFactory(name="Blacksmiths", about="Hot metal.")
+        soon = timezone.now() + timedelta(days=2)
+        offering = ClassOfferingFactory(
+            title="Secret Draft Class",
+            status="draft",
+            is_private=True,
+            category=CategoryFactory(guild=guild),
+        )
+        ClassSessionFactory(class_offering=offering, starts_at=soon, ends_at=soon + timedelta(hours=2))
+        vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta == ""
+        assert vm.body == "Hot metal."
+
+    def it_never_names_a_class_that_already_happened():
+        # .first() on a start-ordered queryset picks the OLDEST row, so a gate that lets past
+        # sessions through advertises last year's class as this guild's next thing.
+        _config(signage_show_guilds=True)
+        zone = SlideshowZoneFactory()
+        guild = GuildFactory(name="Blacksmiths", about="Hot metal.")
+        long_ago = timezone.now() - timedelta(days=400)
+        offering = ClassOfferingFactory(
+            title="Last Years Class",
+            status="published",
+            is_private=False,
+            category=CategoryFactory(guild=guild),
+        )
+        ClassSessionFactory(class_offering=offering, starts_at=long_ago, ends_at=long_ago + timedelta(hours=2))
+        vm = next(vm for vm in _guild_vms(zone) if vm.title == "Blacksmiths")
+        assert vm.meta == ""
+        assert vm.body == "Hot metal."
+
     def it_never_puts_one_guilds_meeting_on_another_guilds_slide():
         _config(signage_show_guilds=True)
         zone = SlideshowZoneFactory()
@@ -449,6 +486,18 @@ def describe_whats_on_slide():
         _event("Later", datetime(2026, 9, 22, 1, 0, tzinfo=UTC))
         _event("Sooner", datetime(2026, 9, 18, 1, 0, tzinfo=UTC))
         assert _titles(zone) == ["Sooner", "Later"]
+
+    def it_orders_a_class_and_an_event_against_each_other():
+        # it_orders_soonest_first uses two events, which CommunityEvent.Meta.ordering already
+        # sorts — so it passes with the sort deleted. Only a fixture that crosses the two
+        # sources pins it: events are appended first, classes second.
+        _config(signage_show_calendar=True)
+        zone = SlideshowZoneFactory()
+        _event("Late Event", datetime(2026, 9, 25, 19, 0, tzinfo=UTC))
+        early = datetime(2026, 9, 18, 19, 0, tzinfo=UTC)
+        offering = ClassOfferingFactory(title="Early Class", status="published", is_private=False)
+        ClassSessionFactory(class_offering=offering, starts_at=early, ends_at=early + timedelta(hours=2))
+        assert _titles(zone) == ["Early Class", "Late Event"]
 
     def it_never_names_a_guild_meeting():
         # The privacy rule for the SITE-WIDE list. A guild's meeting appears on that guild's
