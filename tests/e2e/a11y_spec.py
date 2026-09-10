@@ -45,6 +45,7 @@ _GENERATED_FLAGS = (
     "signage_show_voting",
     "signage_show_directory",
     "signage_show_teach",
+    "signage_show_tour",
 )
 
 # Tolerated a11y debt (axe rule IDs). Currently empty — these pages are fully

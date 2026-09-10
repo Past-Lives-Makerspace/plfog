@@ -854,6 +854,17 @@ class SiteConfiguration(models.Model):
         verbose_name="Show Host a Workshop",
         help_text="Add a slide inviting members to run their own workshop or class.",
     )
+    signage_show_tour = models.BooleanField(
+        default=True,
+        verbose_name="Show Book a Tour",
+        help_text="Add a slide inviting visitors to book a walkthrough of the space, with a QR to the booking page.",
+    )
+    signage_tour_url = models.URLField(
+        blank=True,
+        default="https://www.pastlives.space/tours",
+        verbose_name="Tour booking link",
+        help_text="Where the Book a Tour QR sends people. Blank leaves the tour slide off the screens.",
+    )
 
     # Brand block (PLAT-1). One deployment is one organization; these are the strings and
     # assets that identify it. Defaults are the Past Lives values so the migration is a

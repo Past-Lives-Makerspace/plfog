@@ -18,6 +18,7 @@ from classes.models import ClassSettings
 from core.models import SiteConfiguration
 from membership.cycle import get_cycle_context
 from membership.signage import SIGNAGE_CLASS_CAP, SIGNAGE_CLASS_DAYS, SIGNAGE_EVENT_CAP, build_deck, deck_hash
+from membership.qr import qr_svg
 from tests.membership.factories import (
     CommunityEventFactory,
     GuildAnnouncementFactory,
@@ -40,6 +41,7 @@ _GENERATED_FLAGS = (
     "signage_show_voting",
     "signage_show_directory",
     "signage_show_teach",
+    "signage_show_tour",
 )
 
 
@@ -447,6 +449,36 @@ def describe_teach_slide():
         assert not any(vm.kind == "teach" for vm in build_deck(zone))
 
 
+def describe_tour_slide():
+    def it_renders_with_a_qr_to_the_booking_link():
+        _config(signage_show_tour=True, signage_tour_url="https://www.pastlives.space/tours")
+        zone = SlideshowZoneFactory()
+        vm = next(vm for vm in build_deck(zone) if vm.kind == "tour")
+        assert vm.title == "Book a Tour"
+        assert vm.qr_svg is not None
+        assert vm.url_display == "www.pastlives.space/tours"
+
+    def it_encodes_the_configured_link_in_the_qr():
+        # The one generated slide whose destination is admin-typed rather than reversed, so
+        # the QR has to carry THAT url and not a default. qr_svg embeds no text, so compare
+        # against the same helper's output for the configured link.
+        _config(signage_show_tour=True, signage_tour_url="https://example.org/visit")
+        zone = SlideshowZoneFactory()
+        vm = next(vm for vm in build_deck(zone) if vm.kind == "tour")
+        assert vm.qr_svg == qr_svg("https://example.org/visit")
+        assert vm.qr_svg != qr_svg("https://www.pastlives.space/tours")
+
+    def it_adds_no_slide_when_the_link_is_blank():
+        _config(signage_show_tour=True, signage_tour_url="")
+        zone = SlideshowZoneFactory()
+        assert not any(vm.kind == "tour" for vm in build_deck(zone))
+
+    def it_adds_nothing_when_switched_off():
+        _config(signage_show_tour=False, signage_tour_url="https://www.pastlives.space/tours")
+        zone = SlideshowZoneFactory()
+        assert not any(vm.kind == "tour" for vm in build_deck(zone))
+
+
 def describe_generated_block_order():
     def it_runs_the_blocks_in_the_fixed_order_after_the_admins_own_slides():
         config = _config()
@@ -461,7 +493,7 @@ def describe_generated_block_order():
         start = timezone.now() + timedelta(days=1)
         ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
         kinds = [vm.kind for vm in build_deck(zone)]
-        assert kinds == ["custom", "class", "event", "guilds", "calendar", "voting", "directory", "teach"]
+        assert kinds == ["custom", "class", "event", "guilds", "calendar", "voting", "directory", "teach", "tour"]
 
 
 def describe_deck_hash_with_a_calendar():

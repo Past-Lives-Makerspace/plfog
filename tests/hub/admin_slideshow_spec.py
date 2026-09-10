@@ -141,7 +141,7 @@ def describe_slideshow_page_render():
         assert "slideshow/zones/save" not in settings_form
         assert "slideshow/slides/save" not in settings_form
 
-    def it_renders_all_six_automatic_slide_switches_as_toggles(client):
+    def it_renders_every_automatic_slide_switch_as_a_toggle(client):
         _superuser(client)
         html = client.get(_PAGE).content.decode()
         for field in (
@@ -152,8 +152,11 @@ def describe_slideshow_page_render():
             "signage_show_voting",
             "signage_show_directory",
             "signage_show_teach",
+            "signage_show_tour",
         ):
             assert f'name="{field}"' in html
+        # The tour link is the one block with a destination to type, so its field rides along.
+        assert 'name="signage_tour_url"' in html
         # form_field.html renders booleans as pl-toggle switches, never a raw checkbox.
         assert "pl-toggle" in html
 
@@ -256,6 +259,7 @@ def describe_automatic_slides_settings_save():
                 # Unchecked booleans simply don't post; send only the ones staying on.
                 "signage_show_classes": "on",
                 "signage_show_guilds": "on",
+                "signage_tour_url": "https://www.pastlives.space/tours",
             },
         )
         assert resp.status_code == 302
@@ -270,6 +274,8 @@ def describe_automatic_slides_settings_save():
         assert config.signage_show_voting is False
         assert config.signage_show_directory is False
         assert config.signage_show_teach is False
+        assert config.signage_show_tour is False
+        assert config.signage_tour_url == "https://www.pastlives.space/tours"
 
     def it_re_renders_with_the_typed_value_on_an_invalid_save(client):
         _superuser(client)
