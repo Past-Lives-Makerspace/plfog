@@ -3405,6 +3405,30 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     color: var(--hub-text);
 }
 
+/* Merged "Needs Attention" card — the classes admin Overview and the instructor Overview.
+   One card carries several review queues as labeled groups. A group with no rows renders
+   nothing at all (no heading, no "nothing waiting" line), and when every group is empty the
+   whole card collapses to .pl-attention-clear: one quiet strip the height of the Waitlists
+   strip, instead of three tall empty cards. */
+.pl-attention-group + .pl-attention-group {
+    margin-top: 1.25rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.cms-overview .pl-attention-group__title {
+    margin: 0 0 0.6rem;
+}
+
+.pl-attention-clear {
+    padding: 0.75rem 1rem;
+}
+
+.pl-attention-clear__text {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
+
 /* Topbar notification bell — a plain link to the Notifications page (no dropdown). */
 .pl-bell__btn { position: relative; background: none; border: none; color: var(--hub-text); cursor: pointer; padding: 0.4rem; border-radius: 6px; text-decoration: none; }
 .pl-bell__btn:hover { background: rgba(255,255,255,0.06); }

@@ -32,6 +32,8 @@ def describe_teaching_applications_card():
         member = _applicant("queued@example.com", note="I would like to run a two hour intro.")
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
+        # The queue is a group inside the merged "Needs Attention" card now.
+        assert "Needs Attention" in content
         assert "Interested in Teaching" in content
         assert "is interested in becoming an instructor." in content
         assert member.display_name in content
@@ -48,24 +50,28 @@ def describe_teaching_applications_card():
         assert "asked 0 day" not in content
         assert member.display_name in content
 
-    def it_shows_the_empty_state_with_nobody_waiting(admin_user, client, db):
+    def it_hides_the_group_entirely_with_nobody_waiting(admin_user, client, db):
+        """An empty queue renders nothing at all now — not a heading over a reassurance line."""
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "Nobody is waiting to hear back." in content
+        assert "Interested in Teaching" not in content
+        assert "Needs Attention \u00b7 all clear" in content
 
     def it_drops_an_applicant_once_they_are_approved(admin_user, client, db):
         member = _applicant("approved-out@example.com")
         member.grant_teaching(granted_by=None)
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "Nobody is waiting to hear back." in content
+        assert "Interested in Teaching" not in content
+        assert member.display_name not in content
 
     def it_drops_an_applicant_once_they_are_declined(admin_user, client, db):
         member = _applicant("declined-out@example.com")
         member.decline_teaching(decided_by=None, reason="Not yet.")
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "Nobody is waiting to hear back." in content
+        assert "Interested in Teaching" not in content
+        assert member.display_name not in content
 
     def it_drops_an_applicant_who_stopped_being_active(admin_user, client, db):
         member = _applicant("former-out@example.com")
@@ -73,7 +79,8 @@ def describe_teaching_applications_card():
         member.save(update_fields=["status"])
         client.force_login(admin_user)
         content = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "Nobody is waiting to hear back." in content
+        assert "Interested in Teaching" not in content
+        assert member.display_name not in content
 
 
 def describe_admin_teaching_approve():

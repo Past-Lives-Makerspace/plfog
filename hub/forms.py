@@ -339,7 +339,81 @@ class GuildEditForm(forms.ModelForm):
         return guild
 
 
-class ProfileSettingsForm(forms.ModelForm):
+class MemberPhotoFormBase(forms.ModelForm):
+    """Base for member forms carrying ``profile_photo``: a rejected photo never costs the text edits.
+
+    A photo that fails validation (too large, not an image) used to fail the whole form and throw
+    away everything else the member had typed. Every editor of the member photo — the settings
+    page and the teaching portal's Instructor Profile tab — snapshots the existing photo here so
+    its view can persist the text fields and flag only the photo.
+
+    Has no ``Meta`` of its own; subclasses declare the model and fields.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._initial_photo = self.instance.profile_photo if self.instance and self.instance.pk else None
+
+    def _apply_photo_safe_extras(self, member: Member) -> None:
+        """Hook: fold in any non-model-field state before the rescue save. No-op by default."""
+        return None
+
+    @property
+    def has_only_photo_errors(self) -> bool:
+        """True when every validation error is confined to the profile photo field.
+
+        Lets the view persist the member's other edits even though the new photo was rejected —
+        losing those edits was the bug.
+        """
+        return bool(self.errors) and set(self.errors) <= {"profile_photo"}
+
+    @property
+    def photo_error(self) -> str:
+        """The first profile-photo error message, for the 'photo not saved' notice."""
+        return str(self.errors["profile_photo"][0])
+
+    def save_keeping_existing_photo(self) -> Member:
+        """Persist the other edits while discarding an invalid photo upload.
+
+        Only called when :attr:`has_only_photo_errors` — the valid fields are already applied to
+        ``self.instance`` by the form's clean pass, so we restore the member's existing photo
+        (dropping the rejected upload) and save. ``save()`` can't be used because the form did
+        not fully validate.
+        """
+        member = self.instance
+        member.profile_photo = self._initial_photo
+        self._apply_photo_safe_extras(member)
+        member.save()
+        return member
+
+
+class InstructorProfileForm(MemberPhotoFormBase):
+    """The teaching portal's Instructor Profile tab: the member photo and the instructor bio.
+
+    A second door onto two fields the settings page also edits, not a move — an instructor
+    should not have to leave the portal to write the bio their public page shows. The photo is
+    the *shared* member photo (the directory uses it too), which the label says out loud.
+    """
+
+    class Meta:
+        model = Member
+        fields = ["profile_photo", "instructor_bio"]
+        widgets = {
+            "instructor_bio": forms.Textarea(
+                attrs={"rows": 5, "placeholder": "What you teach, your background, how you like to run a class..."}
+            ),
+        }
+        labels = {
+            # Names it as the shared member photo, not an instructor-only one.
+            "profile_photo": "Your member photo",
+            "instructor_bio": "About me as an instructor",
+        }
+        help_texts = {
+            "instructor_bio": "Shown on your public instructor page.",
+        }
+
+
+class ProfileSettingsForm(MemberPhotoFormBase):
     """Form for editing member profile fields plus per-field directory visibility."""
 
     VISIBILITY_PREFIX = "show_"
@@ -366,9 +440,6 @@ class ProfileSettingsForm(forms.ModelForm):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Snapshot the photo the member already has so an invalid upload can be discarded
-        # without saving it (see ``save_keeping_existing_photo``).
-        self._initial_photo = self.instance.profile_photo if self.instance and self.instance.pk else None
         # Admins, Guild Officers, Guild Leads, and Instructors are always listed —
         # the field gets force-true on save and is shown disabled with a note.
         if self.instance and self.instance.pk and self.instance.must_be_listed_in_directory:
@@ -401,33 +472,9 @@ class ProfileSettingsForm(forms.ModelForm):
             member.save()
         return member
 
-    @property
-    def has_only_photo_errors(self) -> bool:
-        """True when every validation error is confined to the profile photo field.
-
-        Lets the view persist the member's text + visibility edits even though the new
-        photo was rejected (too large / not an image) — losing those edits was the bug.
-        """
-        return bool(self.errors) and set(self.errors) <= {"profile_photo"}
-
-    @property
-    def photo_error(self) -> str:
-        """The first profile-photo error message, for the 'photo not saved' notice."""
-        return str(self.errors["profile_photo"][0])
-
-    def save_keeping_existing_photo(self) -> Member:
-        """Persist the text + visibility edits while discarding an invalid photo upload.
-
-        Only called when :attr:`has_only_photo_errors` — the text fields are already
-        applied to ``self.instance`` by the form's clean pass, so we restore the member's
-        existing photo (dropping the rejected upload) and save. ``save()`` can't be used
-        because the form did not fully validate.
-        """
-        member = self.instance
-        member.profile_photo = self._initial_photo
+    def _apply_photo_safe_extras(self, member: Member) -> None:
+        """The visibility toggles are not model fields, so the rescue save has to fold them in too."""
         self._apply_directory_fields(member)
-        member.save()
-        return member
 
     class Meta:
         model = Member
@@ -506,6 +553,25 @@ class MemberContactForm(forms.ModelForm):
 
 MemberContactFormSet = forms.inlineformset_factory(
     Member, MemberContact, form=MemberContactForm, extra=0, can_delete=True
+)
+
+
+class InstructorContactForm(MemberContactForm):
+    """A contact row edited from the teaching portal's Instructor Profile tab.
+
+    Same row as the settings page edits, with one difference: a row added *here* is on the
+    instructor page by default, because that is the only list this tab shows. An existing row
+    keeps whatever the member already chose.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if self.instance.pk is None:
+            self.fields["show_on_instructor_page"].initial = True
+
+
+InstructorContactFormSet = forms.inlineformset_factory(
+    Member, MemberContact, form=InstructorContactForm, extra=0, can_delete=True
 )
 
 

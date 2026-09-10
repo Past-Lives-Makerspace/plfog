@@ -1297,6 +1297,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         if is_guild_lead
         else []
     )
+    # The merged "Needs Attention" card's own count: this instructor's own pipeline plus both
+    # guild-lead queues, which a lead sees whether or not they teach anything themselves.
+    stats["needs_attention"] = stats["attention"] + len(guild_lead_pending) + len(guild_lead_awaiting_admin)
 
     return render(
         request,
@@ -1679,25 +1682,32 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
 @teaching_member_required
 @require_POST
 def teach_registrations_email(request: HttpRequest) -> HttpResponse:
-    """Send a manual email to selected registrants of one of the teaching member’s classes.
+    """Hand the ticked students on the Registrations tab to the announcement composer.
 
-    Submitted as a POST from the registrations table; on success bounces back
-    with a flash message so the teaching member sees the confirmation inline.
+    This used to send a plain email of its own. Every other class-email surface routes to the
+    composer, so this one does too: it validates the selection and redirects to a compose page
+    already scoped to that class, with exactly those students pre-checked. A rejected selection
+    bounces back to the tab with the reason.
     """
-    from classes.forms import TeachEmailForm
+    from django.http import QueryDict
+
+    from classes.forms import RosterSelectionForm
 
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    form = TeachEmailForm(request.POST, teaching_member=teaching_member)
+    form = RosterSelectionForm(request.POST, teaching_member=teaching_member)
     if not form.is_valid():
-        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn’t send the message."
-        messages.error(request, str(first_error))
+        messages.error(request, form.error_message)
         return redirect("classes:teach_registrations")
-    message = form.send()
-    messages.success(
-        request,
-        f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
-    )
-    return redirect("classes:teach_registrations")
+
+    params = QueryDict(mutable=True)
+    params["audience"] = f"class:{form.offering.pk}"
+    params["lock"] = "1"
+    params.setlist("recipients", form.recipient_tokens)
+    if form.needs_waitlist:
+        # Without this the composer's roster is confirmed registrants only, and a ticked
+        # waitlisted student would have no checkbox for the pre-selection to land on.
+        params["include_waitlist"] = "1"
+    return redirect(f"{reverse('hub_compose')}?{params.urlencode()}")
 
 
 @teaching_member_required
@@ -2172,14 +2182,47 @@ def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
 
 @teaching_member_required
 def teach_profile(request: HttpRequest) -> HttpResponse:
-    """The portal's Profile tab: when the public instructor page goes live, and where to edit it.
+    """The portal's Instructor Profile tab: the three things the public instructor page shows.
 
-    The bio and photo themselves are edited on the hub Profile settings (the
-    Instructor tab there); this page states the public page's status and links across.
+    Photo, bio and links are editable right here, so an instructor never has to leave the portal
+    to finish their public page. The same fields stay editable on the hub Profile settings — this
+    is a second door, not a move. Validation lives in the forms; a rejected photo saves everything
+    else rather than throwing the bio away.
     """
     from classes.emails import _absolute_url
+    from hub.forms import InstructorContactFormSet, InstructorProfileForm
+    from membership.models import MemberContact
 
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+
+    def build_formset(data: Any = None) -> Any:
+        """The member's instructor-page links only — the tab shows one list, not all contacts."""
+        return InstructorContactFormSet(
+            data,
+            instance=teaching_member,
+            queryset=MemberContact.objects.filter(member=teaching_member, show_on_instructor_page=True),
+            prefix="contacts",
+        )
+
+    if request.method == "POST":
+        form = InstructorProfileForm(request.POST, request.FILES, instance=teaching_member)
+        formset = build_formset(request.POST)
+        contacts_ok = formset.is_valid()
+        if form.is_valid() and contacts_ok:
+            form.save()
+            formset.save()
+            messages.success(request, "Instructor profile updated.")
+            return redirect("classes:teach_profile")
+        if form.has_only_photo_errors and contacts_ok:
+            # A rejected photo (too large / not an image) must never discard the bio edit.
+            form.save_keeping_existing_photo()
+            formset.save()
+            messages.warning(request, f"Your profile was saved, but the new photo wasn't: {form.photo_error}")
+            return redirect("classes:teach_profile")
+    else:
+        form = InstructorProfileForm(instance=teaching_member)
+        formset = build_formset()
+
     public_url = (
         _absolute_url(reverse("classes:public_instructor", kwargs={"slug": teaching_member.instructor_slug}))
         if teaching_member.instructor_slug
@@ -2191,8 +2234,16 @@ def teach_profile(request: HttpRequest) -> HttpResponse:
         {
             "active_tab": "profile",
             "instructor": teaching_member,
+            "form": form,
+            "contact_formset": formset,
             "public_profile_url": public_url,
             "profile_settings_url": reverse("hub_user_settings") + "?tab=profile",
+            "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+            "photo_upload_hint": (
+                "This is your member photo. It shows on your public instructor page and next to "
+                "your name in the member directory. Max "
+                f"{settings.MAX_UPLOAD_IMAGE_BYTES / (1024 * 1024):.0f} MB."
+            ),
         },
     )
 
@@ -2330,8 +2381,11 @@ OVERVIEW_DEFAULT_RANGE = "7"
 
 @classes_admin_access_required
 def admin_overview(request: HttpRequest) -> HttpResponse:
-    """Admin dashboard: the approvals queue, classes happening this week, waitlist
-    pressure, recent registrations, recent activity, and at-a-glance stats.
+    """Admin dashboard: the approvals queue, at-a-glance stats with recent registrations,
+    classes happening this week, and waitlist pressure.
+
+    The three review queues (waiting on you, with guild leads, interested in teaching) render
+    as one "Needs Attention" card; the full activity feed is its own Catalog Activity tab.
 
     The metric panels (stat tiles, recent sign-ups, trend chart) honor a
     ``?range=`` lookback window so the numbers can be scoped; the approvals,
@@ -2389,9 +2443,6 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     )
 
     recent_registrations = registrations.select_related("class_offering").order_by("-registered_at")[:8]
-    recent_activity = CmsActivity.objects.select_related("class_offering", "registration", "actor").order_by(
-        "-created_at"
-    )[:8]
 
     # Daily registration series across the window, bounded so long ranges stay legible.
     chart_days = min(range_days or 30, 90)
@@ -2413,6 +2464,8 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
         "awaiting_you": len(waiting_on_you),
         "with_leads": len(with_guild_leads),
         "pending": len(waiting_on_you) + len(with_guild_leads),
+        # The merged "Needs Attention" card's own count: all three of its queues together.
+        "needs_attention": len(waiting_on_you) + len(with_guild_leads) + len(teaching_applications),
         "new_regs": registrations.count(),
         "active_registrations": confirmed.count(),
         "collected": confirmed.aggregate(total=Sum("amount_paid_cents"))["total"] or 0,
@@ -2429,7 +2482,6 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
             "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
-            "recent_activity": recent_activity,
             "reg_by_day": reg_by_day,
             "reg_by_day_max": max((d["count"] for d in reg_by_day), default=0),
             "stats": stats,

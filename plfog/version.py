@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.52.0"
+VERSION = "1.53.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -27,7 +27,7 @@ VERSION = "1.52.0"
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.52.0",
+        "version": "1.53.0",
         "date": "2026-09-10",
         "title": "You'll hear about it if your class moves",
         "changes": [
@@ -40,6 +40,30 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Admins: requests from members who want to host a workshop now go to the CMS "
             "Administrators instead of to every admin. If you want to keep getting them, ask for "
             "the CMS Administrator duty on your member page.",
+        ],
+    },
+    {
+        "version": "1.52.0",
+        "date": "2026-09-10",
+        "title": "A tidier teaching portal, and panels that shrink when they are empty",
+        "changes": [
+            "The teaching portal is now called Manage My Classes, and the tab listing your classes is now "
+            "My Classes. The + New Class button on the first page now looks like the one on the class list, "
+            "instead of blending into the page.",
+            "Emailing your students now opens the same announcement tool the rest of the app uses. Tick the "
+            "students you want on the Registrations tab, click Email selected students, and the tool opens "
+            "with exactly those people already chosen. Your message reaches them in the app, on their "
+            "phone, and by email, rather than by email alone.",
+            "Your instructor bio, your photo, and the links shown on your public instructor page can now be "
+            "edited on the Instructor Profile tab. You are no longer sent off to your profile settings to "
+            "change them. That photo is the same one members see in the member directory.",
+            "The review lists that used to stack up as three tall panels are now one. A list with nothing "
+            "in it takes up no room at all, and when nothing is waiting anywhere the whole panel shrinks to "
+            "a single line. Instructors and admins both get this.",
+            "On the Home page, Your Upcoming is now Upcoming at Past Lives. It lists what is happening at "
+            "the space, which was never only the things you signed up for.",
+            "Admins: the class admin is now called Manage All Classes. The summary numbers moved above this "
+            "week's classes, and the activity log moved out of the overview into a tab of its own.",
         ],
     },
     {

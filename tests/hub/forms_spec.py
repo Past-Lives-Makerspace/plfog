@@ -263,3 +263,74 @@ def describe_DeleteAccountConfirmForm():
         form = DeleteAccountConfirmForm({"confirm_text": ""})
         assert not form.is_valid()
         assert "confirm_text" in form.errors
+
+
+@pytest.mark.django_db
+def describe_instructor_profile_form():
+    """The teaching portal's own view of the member photo + instructor bio."""
+
+    def it_edits_only_the_two_public_instructor_fields():
+        from hub.forms import InstructorProfileForm
+
+        assert set(InstructorProfileForm().fields) == {"profile_photo", "instructor_bio"}
+
+    def it_saves_the_bio():
+        from hub.forms import InstructorProfileForm
+
+        member = MemberFactory(full_legal_name="Bio Writer")
+        form = InstructorProfileForm({"instructor_bio": "I throw pots."}, instance=member)
+        assert form.is_valid(), form.errors
+        form.save().refresh_from_db()
+        member.refresh_from_db()
+        assert member.instructor_bio == "I throw pots."
+
+    def it_leaves_the_rest_of_the_profile_untouched():
+        """It renders two fields, so it must not blank the ones the settings page owns."""
+        from hub.forms import InstructorProfileForm
+
+        member = MemberFactory(full_legal_name="Full Profile", preferred_name="Pip", about_me="Hello there")
+        form = InstructorProfileForm({"instructor_bio": "New bio."}, instance=member)
+        assert form.is_valid(), form.errors
+        form.save()
+        member.refresh_from_db()
+        assert member.preferred_name == "Pip"
+        assert member.about_me == "Hello there"
+
+    def it_keeps_the_bio_when_the_photo_is_rejected(settings):
+        from hub.forms import InstructorProfileForm
+
+        settings.MAX_UPLOAD_IMAGE_BYTES = 10
+        member = MemberFactory(full_legal_name="Photo Instructor", preferred_name="Zed")
+        photo = SimpleUploadedFile("big.png", _real_png_bytes(), content_type="image/png")
+        form = InstructorProfileForm({"instructor_bio": "Kept."}, {"profile_photo": photo}, instance=member)
+        assert form.is_valid() is False
+        assert form.has_only_photo_errors is True
+
+        saved = form.save_keeping_existing_photo()
+        saved.refresh_from_db()
+        assert saved.instructor_bio == "Kept."
+        assert saved.preferred_name == "Zed"
+        assert not saved.profile_photo
+
+
+@pytest.mark.django_db
+def describe_instructor_contact_form():
+    def it_defaults_a_brand_new_row_to_showing_on_the_instructor_page():
+        """The tab shows one list, so a link added there is on the instructor page."""
+        from hub.forms import InstructorContactFormSet
+
+        member = MemberFactory(full_legal_name="Linker")
+        formset = InstructorContactFormSet(instance=member, prefix="contacts")
+        assert formset.empty_form["show_on_instructor_page"].value() is True
+
+    def it_leaves_an_existing_rows_own_choice_alone():
+        from membership.models import MemberContact
+
+        from hub.forms import InstructorContactForm
+
+        member = MemberFactory(full_legal_name="Linker Two")
+        contact = MemberContact.objects.create(
+            member=member, label="Site", value="https://example.test", show_on_instructor_page=False
+        )
+        form = InstructorContactForm(instance=contact)
+        assert form["show_on_instructor_page"].value() is False

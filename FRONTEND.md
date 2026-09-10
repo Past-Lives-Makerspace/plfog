@@ -234,7 +234,7 @@ Canonical implementations to copy: the FAQ and Links editors, and the orientatio
 | Destructive action | Confirm modal | Delete product, void charge |
 | Success feedback (HTMX) | Toast notification | "Added to your tab!" |
 | Success feedback (full page) | Django messages | Login, signup |
-| Optional / secondary form on a page | Toggle button reveals it (`x-show`, closed by default) | "Email selected registrants" |
+| Optional / secondary form on a page | Toggle button reveals it (`x-show`, closed by default) | The Spaces "Request this space" form (`hub/partials/_space_request_form.html`) |
 
 **Rule of thumb:** If the action doesn't need the user to leave the page, use a modal + toast. If it's a full form with many fields, use an inline form or dedicated page.
 
