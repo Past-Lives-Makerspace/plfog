@@ -56,10 +56,6 @@ I waive any right to inspect or approve the finished images or the use to which 
 
 I understand that I may revoke this consent at any time by notifying PLM in writing at info@pastlives.space."""
 
-# The Host a Workshop page, as an admin first sees it. Each constant is the migration
-# default of the matching ClassSettings.teach_page_* field, so a fresh database renders
-# the whole page with no seed command; an admin edits the words on the classes Settings
-# page. No dashes anywhere in this copy: it is member facing.
 #: Markers that identify seeded demo content. The slug prefix is what every seeder sets
 #: and what the catalog gate in ``ClassOfferingQuerySet.public`` filters on; the title
 #: prefix is the convention a human follows when building one by hand. See
@@ -67,6 +63,10 @@ I understand that I may revoke this consent at any time by notifying PLM in writ
 DEMO_SLUG_PREFIX = "demo-"
 DEMO_TITLE_PREFIX = "[DEMO]"
 
+# The Host a Workshop page, as an admin first sees it. Each constant is the migration
+# default of the matching ClassSettings.teach_page_* field, so a fresh database renders
+# the whole page with no seed command; an admin edits the words on the classes Settings
+# page. No dashes anywhere in this copy: it is member facing.
 DEFAULT_TEACH_PAGE_TITLE = "Share What You Love"
 
 DEFAULT_TEACH_PAGE_LEAD = (
@@ -3484,12 +3484,15 @@ class Registration(models.Model):
             actor=actor,
             payload={"from": source.title, "to": target.title},
         )
+        if held_spot:
+            source.promote_next_from_waitlist()
+        # Last, mirroring remove_by_staff: cancel() frees the seat and promotes the
+        # waitlist before the removal notice goes out. A send that raises must not
+        # strand the seat this move just opened in the source class.
         if should_notify:
             from classes.emails import send_registration_moved
 
             send_registration_moved(self, source=source)
-        if held_spot:
-            source.promote_next_from_waitlist()
 
     @property
     def waitlist_position(self) -> int | None:

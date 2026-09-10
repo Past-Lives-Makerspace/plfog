@@ -10,8 +10,9 @@ meant to show still happens.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
@@ -22,7 +23,7 @@ from classes.models import ClassOffering, ClassSession
 pytestmark = pytest.mark.django_db
 
 
-def _publishable(**kwargs) -> ClassOffering:
+def _publishable(**kwargs: object) -> ClassOffering:
     """A DRAFT offering that passes every readiness check, so ``publish`` can run."""
     offering = ClassOfferingFactory(
         status=ClassOffering.Status.DRAFT,
@@ -36,7 +37,8 @@ def _publishable(**kwargs) -> ClassOffering:
     return offering
 
 
-def _patch_post():
+def _patch_post() -> "AbstractContextManager[MagicMock]":
+    """Patch the spine's outbound Discord POST so call counts can be asserted."""
     return patch("core.events.discord.post_embed", return_value=True)
 
 

@@ -40,7 +40,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from classes.models import ClassImage, ClassOffering, ClassSession, Category, Registration
+from classes.models import Category, ClassImage, ClassOffering, ClassSession, Registration
 from core.events.registry import Channel, ChannelDefault, all_events
 from core.models import NotificationPreference
 from membership.models import AdminCapability, Guild, GuildMembership, Member
@@ -132,7 +132,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Report what would change and write nothing.",
+            help="With --remove, list what would be deleted. Staging is all-or-nothing and reports nothing.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
