@@ -55,6 +55,13 @@ if TYPE_CHECKING:
 ADOPTION_NOTE = "Linked to the equipment register"
 CREATION_NOTE = "Created from the equipment register"
 
+# The blank-value Quick Answers rows a seeded machine stub opens with. It lives here and
+# not in ``wiki_starters`` because the create FORM no longer pre-seeds anything: a member
+# who chose "Machine or tool" came to type, and four list-editor cards in front of the
+# editor is the opposite of help. A stub nobody chose to make is the other case entirely —
+# the prompts are the only content it has, and they are the ask.
+MACHINE_FACT_PROMPTS = ["Blade or bit", "Max size", "Where the manual is", "Common mistake"]
+
 
 class Command(BaseCommand):
     help = (
@@ -258,14 +265,11 @@ class Command(BaseCommand):
         offer a member no prompts at all. A member who leaves a prompt blank has it
         dropped on save, which is how an untouched prompt disappears for good.
         """
-        from membership.models import WikiPage as _WikiPage
-
-        prompts = STARTERS[_WikiPage.Kind.MACHINE.value]["fact_prompts"]
         existing = {fact.label for fact in page.facts.all()}
         # Only ADD missing prompts: a member may have answered one already through the
         # quick paths, and rebuilding the set wholesale would delete their answer.
         created = False
-        for index, prompt in enumerate(prompts):
+        for index, prompt in enumerate(MACHINE_FACT_PROMPTS):
             if prompt in existing:
                 continue
             fact_model.objects.create(page=page, label=prompt, value="", sort_order=index)
@@ -301,7 +305,7 @@ class Command(BaseCommand):
                 guild=tool.guild,
                 equipment=tool,
                 body=starter["body"],
-                facts=[(prompt, "") for prompt in starter["fact_prompts"]],
+                facts=[(prompt, "") for prompt in MACHINE_FACT_PROMPTS],
                 note=CREATION_NOTE,
             )
 

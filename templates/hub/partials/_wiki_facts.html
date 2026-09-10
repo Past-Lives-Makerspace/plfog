@@ -1,10 +1,16 @@
 {% comment %}
 Quick Answers — the two-column key/value block of the four to eight facts people actually
-came to the page for. First thing under the title on purpose: it is the most useful
-component on a wiki page, which is why the starter template prompts for these before prose.
+came to the page for. First thing under the title on purpose: when a page has them they
+are the most useful component on it, and somebody who came for one number can stop there.
 
 On a phone the two columns stack into label-above-value pairs at reading size.
+
+The whole card is skipped for a reader when the page has none. Quick Answers is optional
+on the editor now, so "no quick answers yet" is the normal state of a perfectly good page,
+and a card whose entire content is a sentence saying it is empty is noise to somebody who
+cannot do anything about it. Somebody who CAN still gets it, with the invitation.
 {% endcomment %}
+{% if facts or can_edit %}
 <div class="hub-card pl-wp-factsblock">
     <h2 class="hub-detail-label pl-wp-section__title">Quick Answers</h2>
     {% if facts %}
@@ -27,8 +33,9 @@ On a phone the two columns stack into label-above-value pairs at reading size.
     {% endif %}
     {% else %}
     <p class="hub-text-muted pl-wp-factsblock__empty">
-        No quick answers yet. These are the four or five things people actually came for.
-        {% if can_edit %}<a href="{% url 'hub_wiki_edit' page.slug %}#wp-fact-rows">Add the first one</a>{% endif %}
+        No quick answers yet. A short lookup table here saves the next person reading the whole page.
+        <a href="{% url 'hub_wiki_edit' page.slug %}#wp-fact-rows">Add the first one</a>
     </p>
     {% endif %}
 </div>
+{% endif %}

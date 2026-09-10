@@ -390,6 +390,25 @@ def describe_wiki_page_reading():
         response = client.get(page.get_absolute_url())
         assert b"No quick answers yet." in response.content
 
+    def it_shows_a_reader_no_quick_answers_card_at_all(client: Client):
+        # Quick Answers is opt-in on the editor, so a page with none is an ordinary good
+        # page rather than an unfinished one. A whole card whose only content is a sentence
+        # saying it is empty is noise to somebody who cannot do anything about it.
+        _login(client, "read_nofacts_reader", status=Member.Status.FORMER)
+        page = WikiPageFactory()
+        response = client.get(page.get_absolute_url())
+        assert response.status_code == 200
+        assert b"No quick answers yet." not in response.content
+        assert b"pl-wp-factsblock" not in response.content
+
+    def it_still_shows_a_reader_the_facts_a_page_does_have(client: Client):
+        _login(client, "read_facts_reader", status=Member.Status.FORMER)
+        page = WikiPageFactory()
+        WikiPageFactFactory(page=page, label="Blade", value="10 inch")
+        response = client.get(page.get_absolute_url())
+        assert b"pl-wp-factsblock" in response.content
+        assert b"10 inch" in response.content
+
     def it_renders_the_official_block_from_equipment(client: Client):
         _login(client, "read_official")
         equipment = EquipmentFactory(name="SawStop")

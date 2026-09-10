@@ -1,4 +1,4 @@
-"""Starter content for a new wiki page — one entry per :class:`~membership.models.WikiPage.Kind`.
+"""Starter content for a new wiki page — one entry per card on the ``/wiki/new/`` chooser.
 
 Module data, not hardcoded template markup, so the starter chooser (``/wiki/new/``) and
 the create form (``/wiki/new/<kind>/``) render from one source, and spec D can add its
@@ -7,10 +7,16 @@ seventh "Safety & Rules" starter card without editing spec A's template (brief �
 Each entry supplies:
 
 - The chooser card copy (``label`` / ``description`` / ``icon``).
-- ``fact_prompts`` — blank-value Quick Answers rows pre-seeded on create, because the
-  brief's starter template must prompt for the 4-8 facts people came for *first*.
 - ``body`` — a starter body (headings only) for the Quill editor, so a member opens a
-  structured page instead of a blank box.
+  structured page instead of a blank box. The ``blank`` starter's is empty on purpose.
+
+There is deliberately no ``fact_prompts`` key any more. Create mode used to pre-seed one
+Quick Answers row per prompt, which put three or four list-editor cards — each with a
+drag grip, two fields, two reorder arrows and a Remove button — between "The Basics" and
+the box the member actually came to type in, and labelled them "Question: Tools needed",
+which is not a question. Quick Answers is opt-in now: the section renders empty with one
+"+ Add A Quick Answer" button. The machine seeder still writes prompt rows, because on an
+auto-created stub the prompts ARE the content; its list lives in that command.
 """
 
 from __future__ import annotations
@@ -22,14 +28,14 @@ class WikiStarter(TypedDict):
     """One starter card / template on the ``/wiki/new/`` chooser.
 
     The dict key is the URL segment. For the six content starters it is also the
-    :class:`~membership.models.WikiPage.Kind` value; spec D's Safety & Rules starter is
-    the one whose segment is not a kind, which is why ``page_kind`` is a field of its own.
+    :class:`~membership.models.WikiPage.Kind` value; spec D's Safety & Rules starter and
+    the Blank page one are the two whose segment is not a kind, which is why
+    ``page_kind`` is a field of its own.
     """
 
     label: str
     description: str
     icon: str
-    fact_prompts: list[str]
     body: str
     # The WikiPage.Kind the page is filed under. Same as the key for the six content
     # starters; the Safety starter picks one because "safety" is not a kind (the brief
@@ -47,7 +53,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "Machine or tool",
         "description": "A saw, a kiln, a press. What it does and how not to break it.",
         "icon": "machine",
-        "fact_prompts": ["Blade or bit", "Max size", "Where the manual is", "Common mistake"],
         "body": (
             "<h2>What It Does</h2><p></p>"
             "<h2>How To Use It</h2><p></p>"
@@ -61,7 +66,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "How to do something",
         "description": "A process, a technique, a fix. Steps someone can follow.",
         "icon": "howto",
-        "fact_prompts": ["Tools needed", "Time it takes", "Skill level"],
         "body": ("<h2>Before You Start</h2><p></p><h2>Steps</h2><p></p><h2>What Goes Wrong</h2><p></p>"),
         "page_kind": "howto",
         "status": "",
@@ -70,7 +74,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "Material",
         "description": "Wood, resin, filament, fabric. What it is and how to work with it.",
         "icon": "material",
-        "fact_prompts": ["Where to buy it", "Typical cost", "Best used for"],
         "body": ("<h2>What It Is</h2><p></p><h2>Working With It</h2><p></p><h2>Where To Get It</h2><p></p>"),
         "page_kind": "material",
         "status": "",
@@ -79,7 +82,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "Project write-up",
         "description": "Something you made. How you did it, so someone can make it too.",
         "icon": "project",
-        "fact_prompts": ["Time it took", "Skill level", "Materials used"],
         "body": ("<h2>What I Made</h2><p></p><h2>How I Did It</h2><p></p><h2>What I'd Do Differently</h2><p></p>"),
         "page_kind": "project",
         "status": "",
@@ -88,7 +90,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "How this guild works",
         "description": "Meeting times, how to join, who to ask.",
         "icon": "guild_info",
-        "fact_prompts": ["Meeting time", "How to join", "Who to ask"],
         "body": "<h2>How To Get Involved</h2><p></p><h2>What We Do</h2><p></p>",
         "page_kind": "guild_info",
         "status": "",
@@ -97,7 +98,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "Reference table or chart",
         "description": "A cheat sheet, a chart, a lookup table.",
         "icon": "reference",
-        "fact_prompts": ["Source", "Last updated"],
         "body": "<h2>Reference</h2><p></p>",
         "page_kind": "reference",
         "status": "",
@@ -111,7 +111,6 @@ STARTERS: dict[str, WikiStarter] = {
         "label": "Safety and rules",
         "description": "Rules, hazards, required gear. A guild lead reads these before they go live.",
         "icon": "safety",
-        "fact_prompts": ["Required gear", "Who may use it", "Who to ask"],
         "body": (
             "<h2>The Rules</h2><p></p>"
             "<h2>What Can Go Wrong</h2><p></p>"
@@ -120,5 +119,18 @@ STARTERS: dict[str, WikiStarter] = {
         ),
         "page_kind": "guild_info",
         "status": "official",
+    },
+    # Last on the chooser on purpose: the seven above are the guided route, and this is the
+    # escape hatch for the member who already knows what they want to write and does not
+    # want four headings to delete first. Filed as HOWTO because the chooser's own "not
+    # sure?" hint already points there and the Kind select is right on the form — the point
+    # of this card is the empty body, not the filing.
+    "blank": {
+        "label": "Blank page",
+        "description": "No sections and no prompts. Start from nothing and write it your way.",
+        "icon": "blank",
+        "body": "",
+        "page_kind": "howto",
+        "status": "",
     },
 }

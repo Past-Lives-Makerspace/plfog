@@ -14,6 +14,13 @@ resumed draft it is the ancestor the member actually typed over rather than "now
 Two named blocks are seams for spec D: wiki_editor_banners (its lock warning and conflict
 notice, alongside A's resume card) and wiki_editor_footer.
 
+Section order is The Basics, The Page, Quick Answers, Files And Photos, and that order is
+the whole point: a member who clicked "Start A Page" came to WRITE. Quick Answers used to
+sit second, pre-seeded with three or four starter-prompt rows, so the first thing between
+the title field and the editor was a stack of list-editor cards nobody had asked for. Both
+list sections now open empty, and each says "Optional." in its own first line rather than in a
+badge inside a heading that is already tiny, uppercase and muted.
+
 Rule 21: Save is the LAST element in the form and says just "Save". Both anti-fear hint lines
 sit ABOVE it with room to breathe (Rule 18), never underneath.
 {% endcomment %}
@@ -70,12 +77,6 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
     </div>
 
     <div class="hub-card pl-wp-editor__card">
-        <h2 class="hub-detail-label pl-wp-section__title">Quick Answers</h2>
-        <p class="hub-text-muted">The four or five things people actually came for. Short beats complete.</p>
-        {% include "hub/partials/_wiki_fact_rows.html" %}
-    </div>
-
-    <div class="hub-card pl-wp-editor__card">
         <div class="pl-wp-editor__head">
             <h2 class="hub-detail-label pl-wp-section__title">The Page</h2>
             <span class="pl-wp-savepill" :class="'pl-wp-savepill--' + saveState" x-show="savePillVisible()"
@@ -88,7 +89,14 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
     </div>
 
     <div class="hub-card pl-wp-editor__card">
+        <h2 class="hub-detail-label pl-wp-section__title">Quick Answers</h2>
+        <p class="hub-text-muted">Optional. A short lookup table at the top of the page. Add one only if there is something worth looking up.</p>
+        {% include "hub/partials/_wiki_fact_rows.html" %}
+    </div>
+
+    <div class="hub-card pl-wp-editor__card">
         <h2 class="hub-detail-label pl-wp-section__title">Files And Photos</h2>
+        <p class="hub-text-muted">Optional. A photo of the setup helps more than a paragraph.</p>
         {% include "hub/partials/_wiki_attach_rows.html" %}
     </div>
 

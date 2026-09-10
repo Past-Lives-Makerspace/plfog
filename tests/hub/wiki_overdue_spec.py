@@ -52,10 +52,25 @@ def _aged(page: WikiPage, *, days: int) -> WikiPage:
 
 
 def _panel(client: Client, guild) -> str:
+    """The Overdue For Review card's markup, or "" when the card does not render.
+
+    Bounded by the confirm-cue anchor that closes the card and NOT by the next panel's
+    heading: every panel in that column is gated on having rows of its own now, so the one
+    that used to follow this card may simply not be there.
+    """
     html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
     if "Overdue For Review" not in html:
         return ""
-    return html.split("Overdue For Review", 1)[1].split("Searches That Found Nothing", 1)[0]
+    return html.split("Overdue For Review", 1)[1].split('id="wiki-confirm-cue"', 1)[0]
+
+
+def _overdue_machine(guild, title: str = "Old Saw") -> WikiPage:
+    """A page that IS overdue, so the panel renders and an absence test can discriminate.
+
+    Without one of these the panel is not on the page at all, and "the page I am looking
+    for is not in the panel" passes against an empty string no matter what the code does.
+    """
+    return _aged(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE, title=title), days=400)
 
 
 def describe_what_is_in_the_list():
@@ -69,25 +84,43 @@ def describe_what_is_in_the_list():
         """How-tos get 24 months, machines 12. Kind drives the clock."""
         user = _login(client, "overdue_howto")
         guild = GuildFactory(guild_lead=user.member)
+        _overdue_machine(guild)
         _aged(WikiPageFactory(guild=guild, kind=WikiPage.Kind.HOWTO, title="Young Howto"), days=400)
         panel = _panel(client, guild)
+        assert "Old Saw" in panel
         assert "Young Howto" not in panel
-        assert "Nothing overdue." in panel
+
+    def it_does_not_render_the_panel_at_all_when_nothing_is_overdue(db, client):
+        # A card whose entire content is "Nothing overdue. Everything here has been checked
+        # recently." explains a review clock to somebody who has nothing to review. On a
+        # wiki that launched empty that sentence was most of the guild tab.
+        user = _login(client, "overdue_none")
+        guild = GuildFactory(guild_lead=user.member)
+        _aged(WikiPageFactory(guild=guild, kind=WikiPage.Kind.HOWTO), days=10)
+        html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        assert "Overdue For Review" not in html
+        assert "Nothing overdue." not in html
 
     def it_never_lists_a_project_page(db, client):
         """A project write-up is a record of what somebody did once; re-confirming it every
         year would be asking them to do it again."""
         user = _login(client, "overdue_project")
         guild = GuildFactory(guild_lead=user.member)
+        _overdue_machine(guild)
         _aged(WikiPageFactory(guild=guild, kind=WikiPage.Kind.PROJECT, title="Ancient Project"), days=5000)
-        assert "Ancient Project" not in _panel(client, guild)
+        panel = _panel(client, guild)
+        assert "Old Saw" in panel
+        assert "Ancient Project" not in panel
 
     def it_never_lists_a_reported_page_however_stale(db, client):
         user = _login(client, "overdue_reported")
         guild = GuildFactory(guild_lead=user.member)
+        _overdue_machine(guild)
         page = _aged(WikiPageFactory(guild=guild, kind=WikiPage.Kind.MACHINE, title="Reported Saw"), days=5000)
         WikiPage.objects.filter(pk=page.pk).update(needs_review_since=timezone.now())
-        assert "Reported Saw" not in _panel(client, guild)
+        panel = _panel(client, guild)
+        assert "Old Saw" in panel
+        assert "Reported Saw" not in panel
 
     def it_says_never_checked_when_nobody_has(db, client):
         user = _login(client, "overdue_never")
@@ -158,6 +191,7 @@ def describe_the_panels_help_bubble():
     def it_spells_out_every_interval(db, client):
         user = _login(client, "overdue_help")
         guild = GuildFactory(guild_lead=user.member)
+        _overdue_machine(guild)
         panel = _panel(client, guild)
         assert "pl-help__bubble" in panel
         assert "Machines every 12 months" in panel

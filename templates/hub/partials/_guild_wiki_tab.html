@@ -9,9 +9,22 @@ pill across the whole wiki.
 Two columns on desktop; one below 900px, where .pl-wp-tab__grid--lead reorders them so a
 lead's to-do list is not underneath as many as 72 page rows. That ordering lives entirely
 in the CSS class, never in an inline style on the x-show pane (Rule 12).
+
+Every card in the right-hand column is gated on having rows, and the column itself is
+gated on any of them rendering — the wiki_tab_show_* flags, decided in wiki_guild.py where
+the rows are counted rather than by three conditions written out here. On a wiki that
+launched empty this column WAS the tab: "Nothing overdue", "No failed searches", "No
+requests yet" — three cards describing curation machinery for content nobody has written,
+sitting above the one thing a member could actually do.
 {% endcomment %}
 <div class="pl-wp-tab">
 
+{% comment %}No search box on a guild whose wiki is empty: "Search the Gardeners Guild
+wiki" over zero pages is a control that can only disappoint, and it put a second
+"+ Start A Page" a couple of inches above the one in the empty-state card. Below, the card
+carries a link to the whole wiki so the cross-guild search this row also offered is not
+lost with it.{% endcomment %}
+{% if wiki_tab_has_pages %}
 <div class="pl-wp-tab__search">
     <form method="get" action="{{ wiki_tab_search_url }}">
         <input type="hidden" name="guild" value="{{ wiki_tab_guild.slug }}">
@@ -29,8 +42,9 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
     </form>
     <a href="{{ wiki_tab_new_url }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start A Page</a>
 </div>
+{% endif %}
 
-<div class="pl-wp-tab__grid{% if wiki_tab_lead_panels_first %} pl-wp-tab__grid--lead{% endif %}">
+<div class="pl-wp-tab__grid{% if not wiki_tab_has_panels %} pl-wp-tab__grid--solo{% endif %}{% if wiki_tab_lead_panels_first %} pl-wp-tab__grid--lead{% endif %}">
 
 <div class="pl-wp-tab__col pl-wp-tab__col--list">
     {% if wiki_tab_has_pages %}
@@ -55,10 +69,12 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
             <a href="{{ wiki_tab_new_url }}" class="pl-btn pl-btn--primary pl-btn--sm">+ Start A Page</a>
             {% if wiki_tab_can_verify %}<a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">+ Add A Wanted Page</a>{% endif %}
         </div>
+        <a href="{% url 'hub_wiki_home' %}" class="pl-wp-tab__panel-more">Browse the whole wiki &rarr;</a>
     </div>
     {% endif %}
 </div>
 
+{% if wiki_tab_has_panels %}
 <div class="pl-wp-tab__col pl-wp-tab__col--panels">
     {% if wiki_tab_recent %}
     <div class="hub-card pl-wp-tab__recent">
@@ -72,7 +88,7 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
     </div>
     {% endif %}
 
-    {% if wiki_tab_can_verify %}
+    {% if wiki_tab_show_overdue %}
     <div class="hub-card pl-wp-tab__panel">
         <h3 class="hub-detail-label pl-wp-tab__panel-title">Overdue For Review
             <span class="pl-help pl-help--right">
@@ -98,8 +114,6 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
             </div>
             <p class="pl-wp-tab__panel-done" x-show="done" x-cloak>&#10003; Confirmed just now</p>
         </div>
-        {% empty %}
-        <p class="hub-text-muted pl-wp-tab__panel-empty">&#10003; Nothing overdue. Everything here has been checked recently.</p>
         {% endfor %}
         {% if wiki_tab_overdue_has_more %}
         <a href="{{ wiki_tab_overdue_url }}" class="pl-wp-tab__panel-more">See all {{ wiki_tab_overdue_total }} &rarr;</a>
@@ -107,34 +121,42 @@ in the CSS class, never in an inline style on the x-show pane (Rule 12).
         {% comment %}Absorbs spec A's out-of-band confirm-cue swap, which has no home on a guild page, so htmx never logs a missing target.{% endcomment %}
         <div id="wiki-confirm-cue" hidden></div>
     </div>
+    {% endif %}
 
+    {% if wiki_tab_show_misses %}
     <div class="hub-card pl-wp-tab__misses">
         <h3 class="hub-detail-label pl-wp-tab__panel-title">Searches That Found Nothing</h3>
         <p class="hub-text-muted">What members looked for in {{ wiki_tab_guild.name }} in the last 30 days and didn't find. This is your writing list.</p>
         {% for miss in wiki_tab_misses %}
         {% include "hub/partials/_wiki_miss_row.html" with miss=miss guild=wiki_tab_guild wanted_url=wiki_tab_wanted_url %}
-        {% empty %}
-        <p class="hub-text-muted pl-wp-tab__panel-empty">No failed searches in the last 30 days. Either everything is findable, or nobody looked.</p>
         {% endfor %}
     </div>
     {% endif %}
 
+    {% if wiki_tab_show_wanted %}
     <div class="hub-card pl-wp-tab__wanted">
         <h3 class="hub-detail-label pl-wp-tab__panel-title">Wanted Pages</h3>
         <p class="hub-text-muted">Pages this guild wants written. Claim one, or just start it.</p>
+        {% comment %}Stays in the DOM even with no rows in it, whenever the failed-search
+        panel above is rendering: that panel's "Add To Wanted" swaps the new row in here out
+        of band, and an absent target means the lead files a request and watches nothing
+        happen.{% endcomment %}
         <div id="wiki-tab-wanted-rows">
             {% include "hub/partials/_wiki_wanted_rows.html" with wanted_rows=wiki_tab_wanted %}
         </div>
-        {% if not wiki_tab_wanted and wiki_tab_can_verify %}
-        <p class="hub-text-muted">Ask for the pages your guild actually needs. A specific ask gets written; an open invitation doesn't.</p>
-        <a href="{{ wiki_tab_wanted_url }}" class="pl-btn pl-btn--ghost pl-btn--sm">+ Add A Wanted Page</a>
-        {% elif wiki_tab_can_verify %}
+        {% if wiki_tab_can_verify %}
         <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">Manage the list &rarr;</a>
         {% elif wiki_tab_wanted_has_more %}
         <a href="{{ wiki_tab_wanted_url }}" class="pl-wp-tab__panel-more">See the whole list &rarr;</a>
         {% endif %}
     </div>
+    {% elif wiki_tab_can_verify %}
+    {% comment %}One line instead of the card, so a lead keeps the entry point to the
+    wanted list without a card whose whole content is "No requests yet."{% endcomment %}
+    <p class="pl-wp-tab__panel-link"><a href="{{ wiki_tab_wanted_url }}">Ask for a page someone should write &rarr;</a></p>
+    {% endif %}
 </div>
+{% endif %}
 
 </div>
 </div>

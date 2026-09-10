@@ -97,6 +97,35 @@ def describe_the_starter_chooser():
         assert b"Your membership needs to be active to write here." in response.content
         assert b"Machine or tool" not in response.content
 
+    def describe_the_blank_card():
+        def it_offers_a_way_past_the_guided_starters(client: Client):
+            # Every card handed the member a body of headings to delete. Somebody who
+            # already knows what they are writing needs a door that is just a door.
+            _login(client, "new_blank_card")
+            response = client.get(reverse("hub_wiki_new"))
+            assert b"Blank page" in response.content
+            assert reverse("hub_wiki_create", args=["blank"]).encode() in response.content
+
+        def it_opens_an_empty_editor_with_no_quick_answers(client: Client):
+            _login(client, "new_blank_open")
+            response = client.get(reverse("hub_wiki_create", args=["blank"]))
+            assert response.status_code == 200
+            assert response.context["form"].initial["body"] == ""
+            assert response.context["form"].initial["kind"] == "howto"
+            assert response.context["facts_formset"].total_form_count() == 0
+
+        def it_saves_a_page_like_any_other_starter(client: Client):
+            _login(client, "new_blank_save")
+            response = client.post(
+                reverse("hub_wiki_create", args=["blank"]),
+                {"title": "Shop Notes", "kind": "reference", "body": "<p>Whatever I want.</p>", **_formset_data()},
+            )
+            page = WikiPage.objects.get(title="Shop Notes")
+            assert response.status_code == 302
+            # The chooser card preselects howto; the Kind select is right there and wins.
+            assert page.kind == WikiPage.Kind.REFERENCE
+            assert page.status == WikiPage.Status.COMMUNITY
+
 
 def describe_creating_a_page():
     def it_404s_an_unknown_starter(client: Client):
@@ -107,12 +136,34 @@ def describe_creating_a_page():
         _login(client, "create_inactive", status=Member.Status.FORMER)
         assert client.get(reverse("hub_wiki_create", args=["howto"])).status_code == 403
 
-    def it_renders_one_row_per_starter_prompt(client: Client):
+    def it_opens_quick_answers_with_no_rows_at_all(client: Client):
+        # Create used to render one row per starter prompt, so three or four list-editor
+        # cards — grip, two fields, two reorder arrows, a Remove button — stood between the
+        # title field and the editor, each labelled "Question: Tools needed". A member who
+        # clicked "Start A Page" came to write, not to clear scaffolding.
         _login(client, "create_prompts")
         response = client.get(reverse("hub_wiki_create", args=["machine"]))
         assert response.status_code == 200
-        assert response.context["facts_formset"].total_form_count() == 4
-        assert b"Blade or bit" in response.content
+        assert response.context["facts_formset"].total_form_count() == 0
+        assert b"Blade or bit" not in response.content
+        # The section is still there, opt-in, with its own add button.
+        assert b"+ Add A Quick Answer" in response.content
+
+    def it_calls_the_quick_answer_key_a_topic_and_not_a_question(client: Client):
+        # The rows render on the page as a two-column key/value table and most keys are a
+        # topic ("Blade", "Max width"), so "Question: Tools needed" was a label that lied.
+        _login(client, "create_topiclabel")
+        response = client.get(reverse("hub_wiki_create", args=["machine"]))
+        assert response.context["facts_formset"].empty_form.fields["label"].label == "Topic"
+        # And it reaches the markup: the clone template is where a member first sees it.
+        assert "Topic" in response.content.decode().split('id="wp-fact-empty-template"', 1)[1]
+
+    def it_puts_the_writing_box_before_the_optional_sections(client: Client):
+        # Order is the whole fix: The Basics, The Page, then the two optional list editors.
+        _login(client, "create_order")
+        html = client.get(reverse("hub_wiki_create", args=["howto"])).content.decode()
+        assert html.index("The Basics") < html.index("The Page") < html.index("Quick Answers")
+        assert html.index("Quick Answers") < html.index("Files And Photos")
 
     def it_prefills_the_starter_body_and_the_kind(client: Client):
         _login(client, "create_starter")
@@ -1270,16 +1321,16 @@ def describe_the_review_round_fixes():
             assert b"Nobody has written this one yet." not in response.content
 
     def describe_create_mode_draft_resume():
-        def it_keeps_the_starter_prompts(client: Client):
+        def it_restores_the_title_and_opens_quick_answers_empty(client: Client):
             # Autosave's allowlist is title and body, so a new-page draft's facts are
-            # ALWAYS empty. Treating that as authoritative rendered zero prompt rows, so
-            # "Use My Draft" produced a promptless form while a plain visit did not.
+            # ALWAYS empty — and now so is a plain visit's Quick Answers section, which is
+            # what makes the two agree. The draft's own rows are the only thing that opens
+            # any (the test below), so extra must still track them.
             user = _login(client, "draft_prompts")
             WikiDraftFactory(page=None, author=user.member, kind="machine", title="Half A Saw")
             response = client.get(reverse("hub_wiki_create", args=["machine"]), {"draft": "use"})
             assert response.context["form"].initial["title"] == "Half A Saw"
-            assert response.context["facts_formset"].total_form_count() == 4
-            assert b"Blade or bit" in response.content
+            assert response.context["facts_formset"].total_form_count() == 0
 
         def it_prefers_the_drafts_own_rows_when_it_has_any(client: Client):
             user = _login(client, "draft_ownrows")

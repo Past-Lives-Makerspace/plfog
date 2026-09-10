@@ -16,10 +16,11 @@ from membership.wiki_starters import STARTERS
 
 
 def describe_STARTERS():
-    def it_covers_every_kind_plus_the_safety_starter():
-        # Six content starters keyed by their own kind, plus spec D's Safety & Rules card,
-        # whose segment is deliberately not a kind (the brief locks the six).
-        assert set(STARTERS) == {kind.value for kind in WikiPage.Kind} | {"safety"}
+    def it_covers_every_kind_plus_the_safety_and_blank_starters():
+        # Six content starters keyed by their own kind, plus spec D's Safety & Rules card
+        # and the Blank page one, whose segments are deliberately not kinds (the brief
+        # locks the six).
+        assert set(STARTERS) == {kind.value for kind in WikiPage.Kind} | {"safety", "blank"}
 
     @pytest.mark.parametrize("kind", sorted(STARTERS))
     def it_files_every_starter_under_a_real_kind(kind):
@@ -41,18 +42,21 @@ def describe_STARTERS():
     @pytest.mark.parametrize("kind", sorted(STARTERS))
     def it_supplies_every_key(kind):
         starter = STARTERS[kind]
-        assert set(starter) == {"label", "description", "icon", "fact_prompts", "body", "page_kind", "status"}
+        assert set(starter) == {"label", "description", "icon", "body", "page_kind", "status"}
         assert starter["label"]
         assert starter["description"]
         assert starter["icon"]
 
     @pytest.mark.parametrize("kind", sorted(STARTERS))
-    def it_prompts_for_at_least_two_facts(kind):
-        # The Quick Answers block is the most useful thing on the page, so the starter
-        # has to ask for it before it asks for prose.
-        assert len(STARTERS[kind]["fact_prompts"]) >= 2
+    def it_pre_seeds_no_quick_answers_rows(kind):
+        # A starter carries no fact prompts at all any more. Create mode used to render
+        # one list-editor card per prompt between "The Basics" and the editor, labelled
+        # "Question: Tools needed" — a label that is not a question, on rows the member
+        # never asked for. The one place prompts still make sense is a stub the SEEDER
+        # made, where they are the only content, and that list lives in that command.
+        assert "fact_prompts" not in STARTERS[kind]
 
-    @pytest.mark.parametrize("kind", sorted(STARTERS))
+    @pytest.mark.parametrize("kind", sorted(set(STARTERS) - {"blank"}))
     def it_offers_a_body_of_headings_that_survives_the_sanitizer(kind):
         body = STARTERS[kind]["body"]
         assert "<h2>" in body
@@ -75,8 +79,22 @@ def describe_STARTERS():
             words = [w for w in heading.split() if w not in {"To", "It", "Is", "With", "From", "You", "I", "I'd"}]
             assert all(word[0].isupper() or not word[0].isalpha() for word in words), heading
 
-    def it_names_the_machine_facts_a_member_actually_wants():
-        assert "Blade or bit" in STARTERS["machine"]["fact_prompts"]
+    def describe_the_blank_starter():
+        def it_opens_an_empty_editor():
+            # The whole point of the card: somebody who knows what they are writing should
+            # not have to delete four headings before they can start.
+            assert STARTERS["blank"]["body"] == ""
+
+        def it_still_files_the_page_under_a_real_kind():
+            # The Kind select is on the form and the member can change it. What must not
+            # happen is a page filed under a segment that is not a kind at all — WikiPage
+            # has no "blank", and kind_label would KeyError on the way back out.
+            assert STARTERS["blank"]["page_kind"] == WikiPage.Kind.HOWTO
+            assert STARTERS["blank"]["status"] == ""
+
+        def it_comes_last_on_the_chooser():
+            # It is the escape hatch, not the recommendation: the guided cards go first.
+            assert list(STARTERS)[-1] == "blank"
 
     def it_keeps_the_project_starter_free_of_a_review_prompt():
         # A project write-up never goes stale, so nothing in its starter should imply
