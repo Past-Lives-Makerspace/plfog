@@ -262,3 +262,79 @@ def describe_needs_attention_card():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_overview")).content.decode()
         assert "you're all caught up" not in html
+
+
+def describe_guild_approve_classes_help_key():
+    """The Info View entry and its ShotSpec both hang off this key, so it cannot come and go
+    with the queue's contents the way a group heading does."""
+
+    def it_survives_an_empty_review_queue(instructor_fixture, client):
+        from tests.membership.factories import GuildFactory
+
+        GuildFactory(name="Quiet Guild", guild_lead=instructor_fixture)
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        html = resp.content.decode()
+        assert resp.context["is_guild_lead"] is True
+        assert "Waiting on Your Review" not in html
+        assert html.count('data-help-key="guild.approve-classes"') == 1
+
+    def it_is_there_exactly_once_with_a_full_queue(instructor_fixture, client):
+        _pending_class_in_guild_led_by(instructor_fixture, "Queued Class", "queued-class")
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_overview")).content.decode()
+        assert "Waiting on Your Review" in html
+        assert html.count('data-help-key="guild.approve-classes"') == 1
+
+    def it_is_not_offered_to_someone_who_leads_no_guild(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert resp.context["is_guild_lead"] is False
+        assert 'data-help-key="guild.approve-classes"' not in resp.content.decode()
+
+
+def describe_a_leads_own_pending_class():
+    """A lead teaching a PENDING class in their own guild sits in two of the card's queues."""
+
+    def it_appears_once_in_the_queue_that_is_actually_blocking(instructor_fixture, client):
+        offering = _pending_class_in_guild_led_by(instructor_fixture, "Double Booked", "double-booked")
+        offering.instructor = instructor_fixture
+        offering.save(update_fields=["instructor"])
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        html = resp.content.decode()
+        assert html.count("Double Booked") == 1
+        # It is their review that is blocking it, so that is the group it belongs to.
+        assert "Waiting on Your Review" in html
+        assert list(resp.context["pending_classes"]) == []
+
+    def it_counts_the_class_once(instructor_fixture, client):
+        offering = _pending_class_in_guild_led_by(instructor_fixture, "Counted Once", "counted-once")
+        offering.instructor = instructor_fixture
+        offering.save(update_fields=["instructor"])
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert resp.context["stats"]["needs_attention"] == 1
+        assert resp.context["stats"]["attention"] == 0
+
+    def it_leaves_at_a_glance_counting_every_pending_class(instructor_fixture, client):
+        """That tile is a plain fact about their catalog, not a mirror of the card."""
+        offering = _pending_class_in_guild_led_by(instructor_fixture, "Still Pending", "still-pending")
+        offering.instructor = instructor_fixture
+        offering.save(update_fields=["instructor"])
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert resp.context["stats"]["pending"] == 1
+
+    def it_keeps_a_pending_class_outside_the_lead_queue_in_the_pipeline(instructor_fixture, client):
+        """The dedupe must only drop rows that genuinely appear twice."""
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            title="Ordinary Pending",
+            slug="ordinary-pending",
+            status=ClassOffering.Status.PENDING,
+        )
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert list(resp.context["pending_classes"]) == [offering]
+        assert "Needs Your Attention" in resp.content.decode()

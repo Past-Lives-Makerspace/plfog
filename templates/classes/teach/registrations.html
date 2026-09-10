@@ -28,7 +28,9 @@
                 <thead>
                     <tr style="border-bottom:2px solid var(--hub-border);">
                         <th style="text-align:left;padding:0.5rem 0.75rem;font-weight:600;width:2.5rem;">
+                            {% if group.can_email_any %}
                             <input type="checkbox" :checked="allChecked" @change="toggleAll($event)" aria-label="Select all in {{ group.offering.title }}">
+                            {% endif %}
                         </th>
                         <th style="text-align:left;padding:0.5rem 0.75rem;font-weight:600;">Name</th>
                         <th style="text-align:left;padding:0.5rem 0.75rem;font-weight:600;">Email</th>
@@ -39,8 +41,16 @@
                 <tbody>
                 {% for reg in group.registrations %}
                     <tr style="border-bottom:1px solid var(--hub-border);vertical-align:top;">
+                        {% comment %}Only a student the composer can actually reach gets a tick
+                        box. A cancelled or unpaid student has no checkbox over there, so ticking
+                        one here could only ever mean "email nobody", which the composer reads as
+                        "email everybody". Select-all walks the boxes that exist, so it stays
+                        right for free. The server rejects them too: this is not the only way to
+                        POST the form.{% endcomment %}
                         <td style="padding:0.5rem 0.75rem;">
+                            {% if reg.can_receive_class_announcement %}
                             <input type="checkbox" name="registration_ids" value="{{ reg.pk }}" @change="allChecked = false" aria-label="Select {{ reg.first_name }} {{ reg.last_name }}">
+                            {% endif %}
                         </td>
                         <td style="padding:0.5rem 0.75rem;">{{ reg.first_name }} {{ reg.last_name }}{% if reg.pronouns %} <span style="color:var(--hub-text-muted);font-size:0.8rem;">({{ reg.pronouns }})</span>{% endif %}</td>
                         <td style="padding:0.5rem 0.75rem;">{{ reg.email }}</td>
@@ -63,13 +73,17 @@
 
             {% comment %}The button hands the ticked rows to the Announcement Composer, which is
             where every other class-email surface goes. It writes the message there, so this tab
-            carries no subject or body of its own any more.{% endcomment %}
+            carries no subject or body of its own any more. Hidden outright when this class has
+            nobody the composer can reach, rather than offering a button whose only possible
+            answer is "tick someone first" with no tickable row on the page.{% endcomment %}
+            {% if group.can_email_any %}
             <div style="padding:0.75rem 1rem;border-top:1px solid var(--hub-border);">
                 <p style="margin:0 0 0.5rem;color:var(--hub-text-muted);font-size:0.85rem;">
                     Tick the rows above first. This opens the message composer with those students already picked.
                 </p>
                 <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Email selected students</button>
             </div>
+            {% endif %}
         </form>
     {% else %}
         <div style="padding:1.5rem 1rem;text-align:center;color:var(--hub-text-muted);">No registrations yet.</div>

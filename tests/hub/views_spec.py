@@ -872,6 +872,34 @@ def describe_profile_photo_delete():
         assert response.status_code == 302
         assert response.url.endswith("/settings/?tab=profile")
 
+    def it_returns_to_a_same_site_next_when_given_one(client: Client):
+        """Two surfaces edit the member photo, so the caller says where to land."""
+        User.objects.create_user(username="nextok", password="pass")
+        client.login(username="nextok", password="pass")
+
+        response = client.post(_PROFILE_PHOTO_DELETE_URL, data={"next": "/classes/teach/profile/"})
+
+        assert response.status_code == 302
+        assert response.url == "/classes/teach/profile/"
+
+    def it_refuses_an_off_site_next(client: Client):
+        User.objects.create_user(username="nextevil", password="pass")
+        client.login(username="nextevil", password="pass")
+
+        response = client.post(_PROFILE_PHOTO_DELETE_URL, data={"next": "https://evil.example/steal"})
+
+        assert response.status_code == 302
+        assert response.url.endswith("/settings/?tab=profile")
+
+    def it_ignores_a_blank_next(client: Client):
+        User.objects.create_user(username="nextblank", password="pass")
+        client.login(username="nextblank", password="pass")
+
+        response = client.post(_PROFILE_PHOTO_DELETE_URL, data={"next": ""})
+
+        assert response.status_code == 302
+        assert response.url.endswith("/settings/?tab=profile")
+
 
 @pytest.mark.django_db
 def describe_welcome_modal_context():

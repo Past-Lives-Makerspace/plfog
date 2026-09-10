@@ -1273,16 +1273,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     )
 
     bounced_rows = list(bounced)
-    stats = {
-        "published": my_classes.filter(status=ClassOffering.Status.PUBLISHED).count(),
-        "pending": pending.count(),
-        "drafts": drafts.count(),
-        "bounced": len(bounced_rows),
-        "total_signups": Registration.objects.filter(
-            class_offering__instructor=teaching_member, status=Registration.Status.CONFIRMED
-        ).count(),
-    }
-    stats["attention"] = stats["drafts"] + stats["bounced"] + stats["pending"]
 
     is_guild_lead = teaching_member.is_guild_lead
     guild_lead_pending = _guild_lead_review_queue(teaching_member) if is_guild_lead else []
@@ -1297,8 +1287,31 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
         if is_guild_lead
         else []
     )
-    # The merged "Needs Attention" card's own count: this instructor's own pipeline plus both
-    # guild-lead queues, which a lead sees whether or not they teach anything themselves.
+
+    # A guild lead who teaches a PENDING class in their OWN guild is in two of the merged card's
+    # queues at once: their review queue (where they can act) and their own "waiting on a
+    # reviewer" list (where they can only watch). Show it once, in the queue that names the
+    # action actually blocking it, and count distinct classes. This is display-only — it does
+    # not change who may review what.
+    lead_queue_pks = {item["offering"].pk for item in guild_lead_pending}
+    lead_queue_pks |= {offering.pk for offering in guild_lead_awaiting_admin}
+    pending_rows = [offering for offering in pending if offering.pk not in lead_queue_pks]
+
+    stats = {
+        "published": my_classes.filter(status=ClassOffering.Status.PUBLISHED).count(),
+        # At a Glance's "awaiting review" is a plain count of this instructor's pending
+        # classes, so it counts them all — the dedupe above is about what the card renders.
+        "pending": pending.count(),
+        "drafts": drafts.count(),
+        "bounced": len(bounced_rows),
+        "total_signups": Registration.objects.filter(
+            class_offering__instructor=teaching_member, status=Registration.Status.CONFIRMED
+        ).count(),
+    }
+    # The "Needs Your Attention" group's own count, matching the rows it renders.
+    stats["attention"] = stats["drafts"] + stats["bounced"] + len(pending_rows)
+    # The merged card's count: this instructor's own pipeline plus both guild-lead queues,
+    # which a lead sees whether or not they teach anything themselves. Distinct classes.
     stats["needs_attention"] = stats["attention"] + len(guild_lead_pending) + len(guild_lead_awaiting_admin)
 
     return render(
@@ -1309,7 +1322,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "bounced_classes": bounced_rows,
             "drafts": drafts,
-            "pending_classes": pending,
+            "pending_classes": pending_rows,
             "upcoming_classes": upcoming_classes,
             "waitlist_classes": waitlist_classes,
             "recent_registrations": recent_registrations,
@@ -1663,11 +1676,23 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
     for offering in offerings:
         regs = (
             Registration.objects.filter(class_offering=offering)
-            .select_related("member")
+            # ``member__user``, not just ``member``: every row asks
+            # ``can_receive_class_announcement`` to decide whether it gets an email checkbox,
+            # and that reads ``member.user``. Stopping at ``member`` makes it one query a row.
+            .select_related("member__user")
             .prefetch_related("custom_answers__question")
             .order_by("-registered_at")
         )
-        class_groups.append({"offering": offering, "registrations": list(regs)})
+        rows = list(regs)
+        class_groups.append(
+            {
+                "offering": offering,
+                "registrations": rows,
+                # No emailable row means no tick boxes, so the email footer would be a button
+                # that can only ever answer "tick someone first" with nobody to tick.
+                "can_email_any": any(row.can_receive_class_announcement for row in rows),
+            }
+        )
     return render(
         request,
         "classes/teach/registrations.html",
@@ -1698,6 +1723,10 @@ def teach_registrations_email(request: HttpRequest) -> HttpResponse:
     if not form.is_valid():
         messages.error(request, form.error_message)
         return redirect("classes:teach_registrations")
+    if form.dropped_notice:
+        # Part of the selection cannot be reached from the composer. Say who, rather than
+        # handing over a shorter list than the instructor ticked without a word.
+        messages.warning(request, form.dropped_notice)
 
     params = QueryDict(mutable=True)
     params["audience"] = f"class:{form.offering.pk}"

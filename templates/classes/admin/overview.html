@@ -7,12 +7,16 @@
   {% comment %}① Needs Attention — one card for all three review queues: classes waiting on an
   admin, classes still with a guild lead, and members asking to teach. A queue with nothing in
   it renders NOTHING (no heading, no "nothing waiting" line), and when all three are empty the
-  card collapses to the one-line all-clear strip. The #teaching-applications anchor and the
-  admin.review-queue help key both live on this always-rendered wrapper rather than on a group:
-  the link mailed to admins has to resolve and the admin tour has to find its target even on a
-  quiet day, and the group headings themselves come and go with their rows.
+  card collapses to the one-line all-clear strip. The admin.review-queue help key lives on this
+  always-rendered wrapper rather than on a group, so the admin tour finds its target even on a
+  quiet day, when every group heading is gone.
+
+  #teaching-applications is different: membership/models.py mails admins that anchor when
+  somebody applies to teach, so it has to land ON the applications, which sit below two other
+  queues. It goes on that group whenever the group renders, and falls back to this wrapper only
+  when there is nothing to land on. Exactly one element carries it either way.
   {% endcomment %}
-  <div id="teaching-applications" style="scroll-margin-top:1rem;" data-help-key="admin.review-queue">
+  <div {% if not teaching_applications %}id="teaching-applications" {% endif %}style="scroll-margin-top:1rem;" data-help-key="admin.review-queue">
   {% if waiting_on_you or with_guild_leads or teaching_applications %}
   <section class="hub-card" style="margin:0;">
     <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ stats.needs_attention }})</span></h2>
@@ -72,7 +76,7 @@
 
     {% if teaching_applications %}
     {# Members interested in teaching, waiting on an admin to open the teaching portal. #}
-    <div class="pl-attention-group">
+    <div class="pl-attention-group" id="teaching-applications" style="scroll-margin-top:1rem;">
       <h3 class="overview-subtitle pl-attention-group__title">Interested in Teaching <span class="overview-title__count">({{ teaching_applications|length }})</span></h3>
       {% for item in teaching_applications %}
         {% concat "approve-teaching-" item.member.pk as approve_modal_id %}
