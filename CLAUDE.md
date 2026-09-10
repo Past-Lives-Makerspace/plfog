@@ -44,6 +44,38 @@ Every PR bumps `VERSION` in `plfog/version.py`. The `CHANGELOG` is the **member-
 - Entries are **plain, member-friendly language** — no jargon, PR numbers, or commit hashes.
 - The GitHub Actions workflow (`.github/workflows/discord-notify.yml`) posts only the `CHANGELOG` entry/entries whose `version` equals the current `VERSION` (what just shipped) as one announcement, the first matching entry's title as the headline. Multiple entries can share that `VERSION` (features released together) and all post; older entries in the same `MAJOR.MINOR` line are not re-announced. It fires **automatically** on a push to main that changes `plfog/version.py` and bumps `VERSION`, and can still be run by hand (`gh workflow run discord-notify.yml`, or the Actions "Run workflow" button). Git history is the granular per-PR trail; the changelog is the curated highlights.
 
+## Automated PR review
+
+Every pull request marked **Ready for Review** is reviewed by PastLivesReviewBot
+automatically, and approved if it has no blockers. Nobody has to ask for it.
+
+- The workflow is `.github/workflows/bot-review.yml`; the rubric it reviews
+  against is `.github/bot-review-prompt.md`. **The rubric is the single source of
+  truth for what counts as a blocker** — the manual `/pl-bot-review-pr` command
+  reads the same file, so change the rubric, not one of the two callers.
+- The model writes a verdict file and nothing else;
+  `.github/scripts/bot_review_post.py` is what actually posts the review, and it
+  is the only thing holding `BOT_PAT`. Its fail-closed behaviour is specced in
+  `tests/scripts/bot_review_post_spec.py` — change one, change the other.
+- It runs on `pull_request_target` so that PRs from forks are reviewed too. That
+  trigger holds secrets, so the contributor's code is never checked out and
+  never executed — the change is reviewed as diff text. The header comment in
+  the workflow explains the four rules that keep this safe. Read it before
+  editing that file.
+- **The approval is not a merge.** `main`'s ruleset requires one approving
+  review, so the bot's approval is what unblocks the merge, but a human still
+  performs it. That gate is deliberate: a push to main deploys to Render and
+  fires the Discord announcement.
+- Blockers are posted as a **comment**, not a `REQUEST_CHANGES` review, so a PR
+  is never stranded behind a blocking review only the bot can dismiss.
+  Withholding the approval is already the block.
+- It reviews once per PR, on open / reopen / ready-for-review — not on every
+  push. To get a **re-review** after fixing something, add the `bot-review`
+  label. To opt a PR out entirely, add `no-bot-review`.
+- It needs two repo secrets: `CLAUDE_CODE_OAUTH_TOKEN` (from `claude
+  setup-token`) and `BOT_PAT`. If a review ever fails to produce a verdict, the
+  bot says so on the PR and approves nothing — it fails closed.
+
 ## Discord Notifications
 
 A GitHub Actions workflow posts a release announcement to the Past Lives Discord channel. It reads the `CHANGELOG` from `plfog/version.py` and posts only the entry/entries whose `version` equals the current `VERSION` (what just went live) — not the whole `MAJOR.MINOR` line. It fires **automatically** when a push to main changes `VERSION`, and can also be run by hand with `gh workflow run discord-notify.yml` or the Actions "Run workflow" button. It used to re-post the whole `MAJOR.MINOR` line on every hotfix, which is why it was manual for a while; it now posts only the current `VERSION`'s entries, so one merge means one announcement. When `VERSION` has no entry of its own, an automatic run posts nothing; a manual run still re-sends the newest entry, which is the deliberate escape hatch. The script chunks the post under Discord's 4096-char embed limit and fails loudly on a rejected post.

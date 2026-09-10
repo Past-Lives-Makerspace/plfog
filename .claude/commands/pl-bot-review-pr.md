@@ -1,8 +1,19 @@
 Review the current PR and, if it passes review, approve it as PastLivesReviewBot.
 
+This is the hands-on version of the review. The `Bot review` workflow
+(`.github/workflows/bot-review.yml`) does the same job unattended on every PR
+that is marked ready for review — this command is for when you are at the
+keyboard and want the review now, deeper, and arguable. You have the repo
+checked out, so you can run the tests, open the files the diff only grazes, and
+follow a call site. The workflow sees the diff and the standards docs, nothing
+more.
+
+Running this on a PR the workflow already approved is harmless: `main`'s ruleset
+needs one approving review, and a second is simply recorded.
+
 ## Steps
 
-1. Determine the current branch and find its open PR:
+1. Find the open PR for the current branch:
    ```
    gh pr view --json number,title,url,body,headRefName,baseRefName
    ```
@@ -12,36 +23,38 @@ Review the current PR and, if it passes review, approve it as PastLivesReviewBot
    gh pr diff
    ```
 
-3. Review the diff against the project's coding standards in CLAUDE.md / AGENTS.md. Check for:
-   - Fat models, skinny views — no business logic in views
-   - Type annotations on all functions (including `-> None`)
-   - `help_text` on all model fields
-   - `TextChoices` for choice fields
-   - Proper error handling (`dict[key]` not `dict.get()`, re-raised `DoesNotExist`)
-   - No N+1 queries (use `select_related`/`prefetch_related`)
-   - Tests exist for new code (BDD-style `*_spec.py`, `it_*` functions)
-   - Ruff-compatible style (120 char lines, correct import ordering)
-   - No `@pytest.mark.skip`, `# pragma: no cover`, or `# pragma: no mutate`
-   - Migrations have reverse functions (no `RunPython.noop`)
-   - No security issues (SQL injection, XSS, etc.)
+3. **Review it against `.github/bot-review-prompt.md`.** That file is the rubric
+   — the same one the workflow uses — and it is the single source of truth for
+   what counts as a blocker here. Read it and follow it. Do not review from
+   memory of the standards; the rubric exists so the two reviewers cannot drift
+   apart.
 
-4. If issues are found:
-   - Post a **comment** (not an approval) on the PR as PastLivesReviewBot listing the issues:
-     ```
-     GH_TOKEN="$BOT_PAT" gh pr comment <number> --body "<review comments>"
-     ```
-   - Tell me what needs to be fixed.
+   Being local, you can go further than the workflow can. Where the diff makes
+   you suspicious, open the surrounding code, check whether a spec actually
+   covers the new branch, and run the relevant tests.
 
-5. If the code passes review:
-   - Post a formal **APPROVE** review as PastLivesReviewBot:
-     ```
-     GH_TOKEN="$BOT_PAT" gh api --method POST repos/{owner}/{repo}/pulls/<number>/reviews \
-       -f event='APPROVE' \
-       -f body='Reviewed and approved by PastLivesReviewBot. Code meets PLFOG coding standards.'
-     ```
-   - Confirm the approval to me.
+4. If there are blockers, post a **comment** (not an approval) as
+   PastLivesReviewBot, and tell the user what needs fixing:
+   ```
+   BOT_PAT=$(grep '^BOT_PAT=' .env | cut -d= -f2) && \
+   GH_TOKEN=$BOT_PAT gh pr comment <number> --body "<findings, grouped by file:line>"
+   ```
+
+5. If it passes, post a formal **APPROVE** review as PastLivesReviewBot:
+   ```
+   read OWNER REPO < <(gh repo view --json owner,name -q '.owner.login + " " + .name')
+   BOT_PAT=$(grep '^BOT_PAT=' .env | cut -d= -f2) && \
+   GH_TOKEN=$BOT_PAT gh api --method POST "repos/$OWNER/$REPO/pulls/<number>/reviews" \
+     -f event='APPROVE' \
+     -f body='Reviewed and approved by PastLivesReviewBot. Code meets PLFOG coding standards.'
+   ```
+   Then confirm the approval to the user.
 
 ## Important
-- The `BOT_PAT` environment variable must be set (it's stored in GitHub Secrets, but for local use it needs to be in the shell environment or `.env`).
-- Never approve your own changes without actually reviewing the diff.
-- Be strict — follow the coding standards exactly as written.
+
+- `BOT_PAT` must come from `.env` in the same command that uses it; env vars do
+  not persist between tool calls. Never let a bot review fall back to ambient
+  `gh` auth — that posts as the wrong account.
+- Never approve without actually reading the diff.
+- Be strict. The rubric is the contract, including its list of things that are
+  explicitly *not* blockers.
