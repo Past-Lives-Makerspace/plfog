@@ -4,14 +4,24 @@ from __future__ import annotations
 
 VERSION = "1.50.0"
 
-# No entry at 1.50.0, for the same reason 1.49.0 has none. Both are same-day polish on the
-# wiki, which was announced this morning at 1.47.0 and is on production: 1.49.0 fixed how it
-# looked (a media query that had swallowed the guild tab's stylesheet, three dozen controls
-# rendering as raw browser chrome, scaffold headings showing up as a page's excerpt) and this
-# one fixes what is ON those screens — a guild tab that opened with three cards explaining
-# curation machinery for content nobody has written, and a create form that asked for a FAQ
-# before it let you write. A third Discord post about the wiki in one day is worse than none.
-# A VERSION with no matching entry announces nothing, which is correct — do not invent one.
+# No entry at 1.50.0, and the reasoning is about THIS release only. (An earlier draft of this
+# comment claimed 1.50.0 was following 1.49.0's precedent of announcing nothing. There is no
+# such precedent: #347 bumped to 1.49.0 with no entry, then #348 reused that version and added
+# the slideshow entry below, so 1.49.0 did announce. A "no entry" decision only holds until
+# somebody else lands on the same version.)
+#
+# The wiki was announced this morning at 1.47.0 and launched EMPTY. What this release changes
+# is the two first-run screens — a guild Wiki tab that opened with three cards explaining
+# curation machinery for content nobody has written yet, and a create form that put three or
+# four Quick Answers rows between the title field and the box you came to type in. Members
+# have had those screens for a few hours, on a wiki with nothing in it, so almost nobody has
+# reached them; announcing "starting a wiki page is simpler now" hours after "we have a wiki
+# now" is a second post about the same feature rather than news.
+#
+# The alternative was folding this into 1.47.0's wiki entry and re-stamping it here, which the
+# convention prefers for polish on a shipped feature — but that re-announces the ENTIRE wiki
+# to Discord a day later, which is worse than either option. A VERSION with no matching entry
+# announces nothing. If Josh wants it announced, add one short entry stamped "1.50.0".
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
         "version": "1.49.0",
