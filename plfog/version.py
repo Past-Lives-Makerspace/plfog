@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
-VERSION = "1.49.0"
+VERSION = "1.50.0"
 
-# No entry at 1.49.0 on purpose. That release is the wiki frontend cleanup: the guild Wiki
-# tab's stylesheet had been trapped inside an unclosed media query, three dozen controls were
-# rendering as raw browser chrome on the dark theme, and a page nobody had written yet showed
-# its own section headings as its excerpt. Members lived with all of it for a few hours on the
-# same day the wiki was announced, so re-announcing "the wiki, but tidier" would post a second
-# Discord message about the same feature. A VERSION with no matching entry announces nothing,
-# which is the correct outcome here — do not invent an entry to fill the gap.
+# No entry at 1.49.0 on purpose, and the slideshow entry moved OFF it deliberately.
+#
+# 1.49.0 was claimed twice. The wiki frontend cleanup (#347) took it first with no entry, which
+# was correct: that release fixed a stylesheet trapped in an unclosed media query, three dozen
+# controls rendering as raw browser chrome, and a page showing its own headings as its excerpt,
+# all within hours of the wiki launch, so re-announcing "the wiki, but tidier" would have posted
+# a second Discord message about the same feature. The lobby slideshow (#348) had branched before
+# that and carried 1.49.0 too, so its merge left VERSION unchanged and the workflow logged
+# "previous=1.49.0 current=1.49.0 ... skipping the announcement". The feature went live on
+# production unannounced.
+#
+# 1.50.0 is that announcement, re-stamped and now carrying the Book a Tour slide as well. 1.49.0
+# keeps no entry of its own, which stays the right outcome for the cleanup — do not invent one.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.49.0",
+        "version": "1.50.0",
         "date": "2026-09-09",
         "title": "The lobby screens fill themselves in",
         "changes": [
