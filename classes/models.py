@@ -3210,6 +3210,30 @@ class Registration(models.Model):
         address = (self.email or "").strip().lower()
         return f"custom:{address}" if address else ""
 
+    @property
+    def can_receive_class_announcement(self) -> bool:
+        """True when the composer's class roster will actually contain this registrant.
+
+        The composer reaches confirmed registrants, plus waitlisted ones when the sender folds
+        the waitlist in — the exact set :meth:`ClassOffering.announcement_recipients` returns —
+        and only where there is somewhere to send. Everyone else (cancelled, refunded, still
+        unpaid) has no checkbox there at all, so handing their token over would pre-check
+        nothing and silently leave the whole roster checked instead.
+        """
+        reachable_statuses = (self.Status.CONFIRMED, self.Status.WAITLISTED)
+        return self.status in reachable_statuses and bool(self.announcement_recipient_token)
+
+    @property
+    def roster_name(self) -> str:
+        """The registrant as a message can name them: their name, else their address, else the row.
+
+        Used in the "these students were left out" notice, so it must never render as an empty
+        gap in a list. Name and address are both required at registration; the last fallback is
+        for a row that lost them to a direct edit.
+        """
+        name = f"{self.first_name} {self.last_name}".strip()
+        return name or self.email or f"registration #{self.pk}"
+
     @staticmethod
     def announcement_recipient_tokens(registrations: "Iterable[Registration]") -> list[str]:
         """Deduped composer recipient tokens for ``registrations``, in the order given.

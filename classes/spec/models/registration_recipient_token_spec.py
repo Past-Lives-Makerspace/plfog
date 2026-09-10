@@ -74,3 +74,61 @@ def describe_announcement_recipient_tokens():
 
     def it_returns_nothing_for_nobody(db):
         assert Registration.announcement_recipient_tokens([]) == []
+
+
+def describe_can_receive_class_announcement():
+    """Guards the reviewer's blocker: a token the composer's roster cannot match is worse than
+    no token at all, because an empty pre-selection means "everyone"."""
+
+    @pytest.mark.parametrize(
+        "status",
+        [Registration.Status.CONFIRMED, Registration.Status.WAITLISTED],
+    )
+    def it_reaches_a_confirmed_or_waitlisted_student(db, status):
+        assert RegistrationFactory(status=status).can_receive_class_announcement is True
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            Registration.Status.PENDING,
+            Registration.Status.CANCELLED,
+            Registration.Status.REFUNDED,
+        ],
+    )
+    def it_cannot_reach_anyone_else(db, status):
+        assert RegistrationFactory(status=status).can_receive_class_announcement is False
+
+    def it_cannot_reach_a_confirmed_student_with_no_address(db):
+        registration = RegistrationFactory(status=Registration.Status.CONFIRMED)
+        Registration.objects.filter(pk=registration.pk).update(email="")
+        registration.refresh_from_db()
+        assert registration.can_receive_class_announcement is False
+
+    def it_agrees_with_the_composers_own_roster(db):
+        """The two must not drift: this property decides what we hand over, that query decides
+        what the composer will accept."""
+        offering = ClassOfferingFactory()
+        for status in Registration.Status:
+            RegistrationFactory(class_offering=offering, status=status)
+        roster_pks = {r.pk for r in offering.announcement_recipients(include_waitlist=True)}
+        for registration in offering.registrations.all():
+            assert registration.can_receive_class_announcement is (registration.pk in roster_pks), (
+                f"{registration.status} disagrees"
+            )
+
+
+def describe_roster_name():
+    def it_reads_as_the_roster_shows_it(db):
+        registration = RegistrationFactory(first_name="Ada", last_name="Kiln")
+        assert registration.roster_name == "Ada Kiln"
+
+    def it_falls_back_to_the_address_when_there_is_no_name(db):
+        registration = RegistrationFactory(first_name="", last_name="", email="only@example.com")
+        assert registration.roster_name == "only@example.com"
+
+    def it_names_the_row_when_there_is_neither(db):
+        """It goes into a list of names, so it must never render as an empty gap."""
+        registration = RegistrationFactory(first_name="", last_name="", email="gone@example.com")
+        Registration.objects.filter(pk=registration.pk).update(email="")
+        registration.refresh_from_db()
+        assert registration.roster_name == f"registration #{registration.pk}"

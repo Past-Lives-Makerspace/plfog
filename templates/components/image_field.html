@@ -25,6 +25,9 @@ Parameters (pass via {% include ... with %}):
   delete_button_text   — optional, default "Delete"
   confirm_title     — optional, default "Delete image?"
   confirm_message   — optional, default generic warning
+  delete_field_name — optional, one extra hidden field posted with the delete (name)
+  delete_field_value  and its value. Use it to tell a shared delete endpoint where to send
+                      the user back to, e.g. delete_field_name="next".
 {% endcomment %}
 {% with shape=shape|default:"circle" %}
 {% if shape == "rect" %}
@@ -225,6 +228,6 @@ Parameters (pass via {% include ... with %}):
     {% endwith %}
 {% endif %}
 {% if current_image and delete_url and modal_id %}
-{% include "components/confirm_modal.html" with confirm_id=modal_id confirm_title=confirm_title|default:"Delete image?" confirm_message=confirm_message|default:"This image will be removed from our storage. This can't be undone." confirm_action_url=delete_url confirm_button_text=delete_button_text|default:"Delete" %}
+{% include "components/confirm_modal.html" with confirm_id=modal_id confirm_title=confirm_title|default:"Delete image?" confirm_message=confirm_message|default:"This image will be removed from our storage. This can't be undone." confirm_action_url=delete_url confirm_button_text=delete_button_text|default:"Delete" confirm_field_name=delete_field_name confirm_field_value=delete_field_value %}
 {% endif %}
 {% endwith %}

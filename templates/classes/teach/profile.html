@@ -21,7 +21,11 @@ real Delete buttons that save the page (FRONTEND, Editable Lists).{% endcomment 
     <section class="hub-card" style="margin:0 0 1.5rem;">
         <h3 style="margin:0 0 1rem;">Photo and Bio</h3>
         {% url 'hub_profile_photo_delete' as profile_photo_delete_url %}
-        {% include "components/image_field.html" with field=form.profile_photo current_image=instructor.profile_photo delete_url=profile_photo_delete_url modal_id="delete-instructor-photo" shape="circle" thumbnail_width="96px" max_bytes=max_upload_image_bytes delete_button_text="Delete photo" confirm_title="Delete your photo?" confirm_message="Your photo will be removed from your instructor page, from the member directory, and from our storage. This can't be undone." hint_html=photo_upload_hint %}
+        {% url 'classes:teach_profile' as teach_profile_url %}
+        {% comment %}The photo is the shared member photo, so deleting it goes through the one
+        endpoint Profile settings uses. `next` brings the instructor back to this tab instead of
+        dumping them on the settings page they never opened.{% endcomment %}
+        {% include "components/image_field.html" with field=form.profile_photo current_image=instructor.profile_photo delete_url=profile_photo_delete_url delete_field_name="next" delete_field_value=teach_profile_url modal_id="delete-instructor-photo" shape="circle" thumbnail_width="96px" max_bytes=max_upload_image_bytes delete_button_text="Delete photo" confirm_title="Delete your photo?" confirm_message="Your photo will be removed from your instructor page, from the member directory, and from our storage. This can't be undone." hint_html=photo_upload_hint %}
         {% include "components/form_field.html" with field=form.instructor_bio %}
     </section>
 

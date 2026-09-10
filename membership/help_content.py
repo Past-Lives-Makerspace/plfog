@@ -1754,14 +1754,14 @@ Two doors lead to the same review page.
 **From the teaching area:**
 
 1. Go to `/classes/teach/` (or click **Class Catalog** in the left menu, then **Manage My Classes**).
-2. On the Overview, find the **Waiting on your review** panel at the top. You only see this panel if you lead or staff a guild.
+2. On the Overview, find **Waiting on Your Review** inside the **Needs Attention** card at the top. You only see it if you lead or staff a guild.
 3. Click **Review** next to the waiting class.
 
 One caveat: the teaching area itself only opens once an admin has given you teaching access. If you have never been granted it, use the email link instead. It works without it.
 
 ![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 
-![The Waiting on your review panel, with a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
+![The Needs Attention card, with Waiting on Your Review and a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
 
 The review page shows everything the class will publish with: description, sessions, price, capacity, and photos, plus the history of past review rounds.
 
@@ -1790,7 +1790,7 @@ Your approval doesn't publish the class. It opens the admin gate: an admin gets 
                 "file": "02-review-queue-panel.png",
                 "page": "classes:teach_overview",
                 "selector": '[data-help-key="guild.approve-classes"]',
-                "caption": "The Waiting on your review panel, with a Review button per class.",
+                "caption": "The Needs Attention card, with Waiting on Your Review and a Review button per class.",
                 "as_role": "guild_lead",
             },
         ],

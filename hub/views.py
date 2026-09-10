@@ -2849,7 +2849,13 @@ def _log_profile_updated(user: User, member: Member) -> None:
 @login_required
 @require_POST
 def profile_photo_delete(request: HttpRequest) -> HttpResponse:
-    """Clear the logged-in member's profile photo and redirect back to settings."""
+    """Clear the logged-in member's profile photo and return them to where they deleted it.
+
+    Two surfaces edit the member photo — Profile settings and the teaching portal's Instructor
+    Profile tab — so the caller says where to land with a ``next`` field. Off-site targets are
+    refused (``url_has_allowed_host_and_scheme``), and no ``next`` keeps the original settings
+    destination, which is what the settings page itself posts.
+    """
     member = _get_member(request)
     if member is None:
         messages.error(request, "Your account is not linked to a membership.")
@@ -2857,6 +2863,9 @@ def profile_photo_delete(request: HttpRequest) -> HttpResponse:
     if member.profile_photo:
         member.profile_photo.delete(save=True)
         messages.success(request, "Profile photo removed.")
+    next_url = request.POST.get("next", "")
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
     return redirect(f"{reverse('hub_user_settings')}?tab=profile")
 
 
@@ -3668,10 +3677,13 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         requested = request.GET.get("audience")
         if requested:
             initial["audience"] = requested
-        initial.update(_compose_preselection(request, requested))
         locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
     if not _can_enter_compose(request, member, requested):
         return redirect("hub_guild_announcement_propose")
+    if draft_pk is None:
+        # After the gate on purpose: building the pre-selection reads a class roster, and an
+        # unauthorized GET has no business making the server assemble one.
+        initial.update(_compose_preselection(request, requested))
 
     form = AnnouncementComposeForm(initial=initial, **_compose_form_kwargs(request, requested=requested))
     return _render_compose(
