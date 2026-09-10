@@ -41,6 +41,21 @@ def describe_teaching_applications_card():
         assert reverse("classes:admin_teaching_approve", kwargs={"pk": member.pk}) in content
         assert reverse("classes:admin_teaching_decline", kwargs={"pk": member.pk}) in content
 
+    def it_lands_the_mailed_anchor_on_the_applications_themselves(admin_user, client, db):
+        """membership/models.py mails admins #teaching-applications when somebody applies.
+
+        Inside the merged card the applications sit below two other queues, so the anchor has
+        to be ON that group, not on the card, or the link drops them somewhere else.
+        """
+        _applicant("anchored@example.com")
+        client.force_login(admin_user)
+        content = client.get(reverse("classes:admin_overview")).content.decode()
+        assert content.count('id="teaching-applications"') == 1
+        anchor_at = content.index('id="teaching-applications"')
+        assert content.index("Interested in Teaching") > anchor_at
+        # ...and it is the group carrying it, not the wrapper wrapping every queue.
+        assert content.index("Needs Attention") < anchor_at
+
     def it_says_asked_today_for_a_same_day_ask(admin_user, client, db):
         """A zero day wait must not read as 'asked 0 days ago'."""
         member = _applicant("today@example.com", note="Intro to wheel throwing.")

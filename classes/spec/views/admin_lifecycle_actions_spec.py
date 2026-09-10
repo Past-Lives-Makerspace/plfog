@@ -199,9 +199,9 @@ def describe_admin_overview_queue():
         assert "Waiting on You" not in html
         assert "With Guild Leads" not in html
         # The anchor admins are mailed, and the admin tour's target, both have to resolve
-        # even with nothing waiting — which is why they sit on the wrapper, not on a group.
-        assert 'id="teaching-applications"' in html
-        assert 'data-help-key="admin.review-queue"' in html
+        # even with nothing waiting — which is why they fall back to the wrapper.
+        assert html.count('id="teaching-applications"') == 1
+        assert html.count('data-help-key="admin.review-queue"') == 1
 
     def it_offers_review_it_yourself_for_a_leadless_guild(admin_user, client, db):
         from tests.membership.factories import MemberFactory

@@ -1001,6 +1001,18 @@ def describe_hub_compose_roster_handoff():
         assert response.status_code == 200
         assert "recipients" not in response.context["form"].initial
 
+    def it_bounces_an_unauthorized_reader_without_building_a_roster(client: Client):
+        """The pre-selection reads a class roster, so it runs AFTER the permission gate."""
+        MembershipPlanFactory()
+        User.objects.create_user(username="nosy", password="p")
+        client.login(username="nosy", password="p")
+        offering, _reg = _class_with_registrant("one@example.com")
+        response = client.get(
+            f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1&recipients=custom:one@example.com"
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("hub_guild_announcement_propose")
+
     def it_leaves_a_resumed_drafts_own_selection_alone(client: Client):
         """A draft may hold an off-roster member added via "add anyone" — never filter that."""
         admin = _login_admin(client)

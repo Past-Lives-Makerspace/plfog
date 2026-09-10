@@ -146,6 +146,59 @@ def describe_teach_profile():
             messages = [str(m) for m in response.context["messages"]]
             assert any("photo wasn't" in m for m in messages)
 
+    def describe_when_the_photo_is_rejected_and_a_link_is_invalid():
+        def it_saves_nothing_and_re_renders(instructor_fixture, client, settings):
+            """Both halves have to be good before the photo-rescue path runs.
+
+            The rescue writes the bio while dropping the photo; doing that with a broken link
+            row would save half a page the instructor never got to fix.
+            """
+            settings.MAX_UPLOAD_IMAGE_BYTES = 10
+            client.force_login(instructor_fixture.user)
+            photo = SimpleUploadedFile("huge.png", _TINY_PNG, content_type="image/png")
+            response = client.post(
+                reverse("classes:teach_profile"),
+                data={
+                    "instructor_bio": "Should not stick.",
+                    "profile_photo": photo,
+                    **_formset_data(total=1),
+                    "contacts-0-id": "",
+                    "contacts-0-label": "",
+                    "contacts-0-value": "https://shop.example.test",
+                    "contacts-0-kind": "website",
+                    "contacts-0-sort_order": "0",
+                },
+            )
+            assert response.status_code == 200
+            instructor_fixture.refresh_from_db()
+            assert instructor_fixture.instructor_bio == ""
+            assert not instructor_fixture.profile_photo
+            assert not MemberContact.objects.filter(member=instructor_fixture).exists()
+
+    def describe_deleting_the_photo():
+        def it_returns_to_the_instructor_profile_tab(instructor_fixture, client):
+            """The shared delete endpoint used to eject them onto the settings page."""
+            instructor_fixture.profile_photo = SimpleUploadedFile("me.png", _TINY_PNG, content_type="image/png")
+            instructor_fixture.save()
+            client.force_login(instructor_fixture.user)
+            response = client.post(reverse("hub_profile_photo_delete"), data={"next": reverse("classes:teach_profile")})
+            assert response.status_code == 302
+            assert response["Location"] == reverse("classes:teach_profile")
+            instructor_fixture.refresh_from_db()
+            assert not instructor_fixture.profile_photo
+
+        def it_posts_the_tab_as_the_return_target(instructor_fixture, client):
+            instructor_fixture.profile_photo = SimpleUploadedFile("me.png", _TINY_PNG, content_type="image/png")
+            instructor_fixture.save()
+            client.force_login(instructor_fixture.user)
+            html = client.get(reverse("classes:teach_profile")).content.decode()
+            assert f'name="next" value="{reverse("classes:teach_profile")}"' in html
+
+        def it_offers_no_delete_control_when_there_is_no_photo(instructor_fixture, client):
+            client.force_login(instructor_fixture.user)
+            html = client.get(reverse("classes:teach_profile")).content.decode()
+            assert "delete-instructor-photo" not in html
+
     def describe_when_a_link_is_invalid():
         def it_re_renders_without_saving_the_bio(instructor_fixture, client):
             """A blank label on a link is a form error, so nothing on the page is written."""

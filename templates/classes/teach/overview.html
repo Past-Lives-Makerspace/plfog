@@ -16,15 +16,20 @@ they teach anything yet or not. It sits ABOVE the has_classes split on purpose: 
 with no classes of their own still has a review queue, and their queue and their own pipeline
 belong in the same card. A group with no rows renders nothing at all, and when every group is
 empty the card collapses to the one-line all-clear strip. "Needs your attention" holds only
-classes this member teaches, so it self-hides when they have none.{% endcomment %}
-<div class="cms-overview" style="margin:1.25rem 0;">
+classes this member teaches, so it self-hides when they have none.
+
+guild.approve-classes rides the always-rendered wrapper, gated on being a lead rather than on
+having a queue: it is the Info View entry AND a ShotSpec target, and on the group heading it
+would vanish on exactly the quiet day a lead goes looking for the help. A member who leads no
+guild still must not be offered it.{% endcomment %}
+<div class="cms-overview" style="margin:1.25rem 0;"{% if is_guild_lead %} data-help-key="guild.approve-classes"{% endif %}>
 {% if guild_lead_pending or guild_lead_awaiting_admin or bounced_classes or drafts or pending_classes %}
   <section class="hub-card" style="margin:0;">
     <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ stats.needs_attention }})</span></h2>
 
     {% if guild_lead_pending %}
     {# Guild-lead review queue: classes in a guild this member leads, waiting on them. #}
-    <div class="pl-attention-group" data-help-key="guild.approve-classes">
+    <div class="pl-attention-group">
       <h3 class="overview-subtitle pl-attention-group__title">Waiting on Your Review <span class="overview-title__count">({{ guild_lead_pending|length }})</span></h3>
       <p style="color:var(--hub-text-muted);margin:0 0 0.5rem;font-size:.9rem;">Classes in your guild waiting on your review.</p>
       {% for item in guild_lead_pending %}

@@ -58,7 +58,13 @@ def _member_registration(offering, email, first_name="Ada"):
 
     user = UserFactory(username=email, email=email)
     member = Member.objects.get(user=user)
-    return RegistrationFactory(class_offering=offering, email=email, first_name=first_name, member=member)
+    return RegistrationFactory(
+        class_offering=offering,
+        email=email,
+        first_name=first_name,
+        member=member,
+        status=Registration.Status.CONFIRMED,
+    )
 
 
 def describe_registrations_tab_email_handoff():
@@ -100,10 +106,49 @@ def describe_registrations_tab_email_handoff():
             assert response["Location"] == reverse("classes:teach_registrations")
             assert len(mail.outbox) == 0
 
+        def it_refuses_a_selection_of_students_it_cannot_reach(instructor, client):
+            """The reviewer's blocker: a cancelled pick used to arm the WHOLE roster.
+
+            Its token matches no checkbox on the composer's roster, so the pre-selection came
+            out empty, and an empty pre-selection means "everyone" — one click from emailing
+            the whole class. It has to be a refusal, not a silent widening.
+            """
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            cancelled = RegistrationFactory(
+                class_offering=offering, email="gone@example.com", status=Registration.Status.CANCELLED
+            )
+            RegistrationFactory(class_offering=offering, email="a@example.com", status=Registration.Status.CONFIRMED)
+            response = client.post(
+                reverse("classes:teach_registrations_email"),
+                data={"registration_ids": [cancelled.pk]},
+                follow=True,
+            )
+            assert response.redirect_chain[0][0] == reverse("classes:teach_registrations")
+            messages = [str(m) for m in response.context["messages"]]
+            assert "Those students can't be emailed from here." in messages[0]
+            assert "You can only email confirmed students and people on the waitlist." in messages[0]
+
+        def it_refuses_a_student_who_has_not_paid_yet(instructor, client):
+            """PENDING is the likeliest reason an instructor emails a subset in the first place."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            unpaid = RegistrationFactory(
+                class_offering=offering, email="unpaid@example.com", status=Registration.Status.PENDING
+            )
+            response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [unpaid.pk]})
+            assert response["Location"] == reverse("classes:teach_registrations")
+
         def it_refuses_a_selection_spanning_two_classes(instructor, client):
             client.force_login(instructor.user)
-            one = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=instructor, slug="one"))
-            two = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=instructor, slug="two"))
+            one = RegistrationFactory(
+                class_offering=ClassOfferingFactory(instructor=instructor, slug="one"),
+                status=Registration.Status.CONFIRMED,
+            )
+            two = RegistrationFactory(
+                class_offering=ClassOfferingFactory(instructor=instructor, slug="two"),
+                status=Registration.Status.CONFIRMED,
+            )
             response = client.post(
                 reverse("classes:teach_registrations_email"),
                 data={"registration_ids": [one.pk, two.pk]},
@@ -116,7 +161,9 @@ def describe_registrations_tab_email_handoff():
         def it_opens_the_composer_locked_to_that_class(instructor, client):
             client.force_login(instructor.user)
             offering = ClassOfferingFactory(instructor=instructor)
-            reg = RegistrationFactory(class_offering=offering, email="guest@example.com")
+            reg = RegistrationFactory(
+                class_offering=offering, email="guest@example.com", status=Registration.Status.CONFIRMED
+            )
             response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
             params = _compose_params(response)
             assert params["audience"] == [f"class:{offering.pk}"]
@@ -133,7 +180,9 @@ def describe_registrations_tab_email_handoff():
             """Guest checkout leaves no account, so the composer reaches them by email alone."""
             client.force_login(instructor.user)
             offering = ClassOfferingFactory(instructor=instructor)
-            reg = RegistrationFactory(class_offering=offering, email="Guest@Example.com")
+            reg = RegistrationFactory(
+                class_offering=offering, email="Guest@Example.com", status=Registration.Status.CONFIRMED
+            )
             response = client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
             assert _compose_params(response)["recipients"] == ["custom:guest@example.com"]
 
@@ -160,7 +209,9 @@ def describe_registrations_tab_email_handoff():
             """A mixed POST is the intersection, not an error and not a leak."""
             client.force_login(instructor.user)
             offering = ClassOfferingFactory(instructor=instructor)
-            mine = RegistrationFactory(class_offering=offering, email="mine@example.com")
+            mine = RegistrationFactory(
+                class_offering=offering, email="mine@example.com", status=Registration.Status.CONFIRMED
+            )
             theirs = RegistrationFactory(class_offering=ClassOfferingFactory(instructor=other_instructor))
             response = client.post(
                 reverse("classes:teach_registrations_email"), data={"registration_ids": [mine.pk, theirs.pk]}
@@ -172,8 +223,12 @@ def describe_registrations_tab_email_handoff():
         def it_lists_two_students_once_each(instructor, client):
             client.force_login(instructor.user)
             offering = ClassOfferingFactory(instructor=instructor)
-            first = RegistrationFactory(class_offering=offering, email="one@example.com")
-            second = RegistrationFactory(class_offering=offering, email="two@example.com")
+            first = RegistrationFactory(
+                class_offering=offering, email="one@example.com", status=Registration.Status.CONFIRMED
+            )
+            second = RegistrationFactory(
+                class_offering=offering, email="two@example.com", status=Registration.Status.CONFIRMED
+            )
             response = client.post(
                 reverse("classes:teach_registrations_email"), data={"registration_ids": [first.pk, second.pk]}
             )
@@ -183,19 +238,64 @@ def describe_registrations_tab_email_handoff():
             """One person signing a friend up twice must not become two identical checkboxes."""
             client.force_login(instructor.user)
             offering = ClassOfferingFactory(instructor=instructor)
-            first = RegistrationFactory(class_offering=offering, email="shared@example.com")
-            second = RegistrationFactory(class_offering=offering, email="SHARED@example.com")
+            first = RegistrationFactory(
+                class_offering=offering, email="shared@example.com", status=Registration.Status.CONFIRMED
+            )
+            second = RegistrationFactory(
+                class_offering=offering, email="SHARED@example.com", status=Registration.Status.CONFIRMED
+            )
             response = client.post(
                 reverse("classes:teach_registrations_email"), data={"registration_ids": [first.pk, second.pk]}
             )
             assert _compose_params(response)["recipients"] == ["custom:shared@example.com"]
 
+        def it_carries_the_reachable_half_and_names_the_rest(instructor, client):
+            """Dropping half a selection without a word is the same defect, just smaller."""
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            confirmed = RegistrationFactory(
+                class_offering=offering,
+                email="going@example.com",
+                first_name="Ada",
+                last_name="Kiln",
+                status=Registration.Status.CONFIRMED,
+            )
+            cancelled = RegistrationFactory(
+                class_offering=offering,
+                email="gone@example.com",
+                first_name="Bo",
+                last_name="Stone",
+                status=Registration.Status.CANCELLED,
+            )
+            response = client.post(
+                reverse("classes:teach_registrations_email"),
+                data={"registration_ids": [confirmed.pk, cancelled.pk]},
+            )
+            assert _compose_params(response)["recipients"] == ["custom:going@example.com"]
+            follow = client.get(reverse("classes:teach_registrations"))
+            notices = [str(m) for m in follow.context["messages"]]
+            assert any("Left out: Bo Stone." in m for m in notices)
+
+        def it_says_nothing_extra_when_every_pick_is_going(instructor, client):
+            client.force_login(instructor.user)
+            offering = ClassOfferingFactory(instructor=instructor)
+            reg = RegistrationFactory(
+                class_offering=offering, email="all@example.com", status=Registration.Status.CONFIRMED
+            )
+            client.post(reverse("classes:teach_registrations_email"), data={"registration_ids": [reg.pk]})
+            follow = client.get(reverse("classes:teach_registrations"))
+            assert [str(m) for m in follow.context["messages"]] == []
+
         def it_skips_a_registrant_with_no_way_to_reach_them(instructor, client):
             """No account and no address is nobody to email; the rest of the selection still goes."""
             client.force_login(instructor.user)
             offering = ClassOfferingFactory(instructor=instructor)
-            reachable = RegistrationFactory(class_offering=offering, email="reachable@example.com")
-            unreachable = RegistrationFactory(class_offering=offering, email="drop@example.com")
+            reachable = RegistrationFactory(
+                class_offering=offering, email="reachable@example.com", status=Registration.Status.CONFIRMED
+            )
+            unreachable = RegistrationFactory(
+                class_offering=offering, email="drop@example.com", status=Registration.Status.CONFIRMED
+            )
             Registration.objects.filter(pk=unreachable.pk).update(email="")
             response = client.post(
                 reverse("classes:teach_registrations_email"),
@@ -208,8 +308,98 @@ def describe_registrations_tab_page():
     def it_offers_the_composer_button_and_no_inline_message_form(instructor, client):
         client.force_login(instructor.user)
         offering = ClassOfferingFactory(instructor=instructor)
-        RegistrationFactory(class_offering=offering, first_name="Ada", last_name="Kiln")
+        RegistrationFactory(
+            class_offering=offering,
+            first_name="Ada",
+            last_name="Kiln",
+            status=Registration.Status.CONFIRMED,
+        )
         html = client.get(reverse("classes:teach_registrations")).content.decode()
         assert ">Email selected students</button>" in html
         assert 'name="subject"' not in html
         assert 'name="bcc_self"' not in html
+
+    def it_does_not_grow_a_query_per_student(instructor, client):
+        """``can_receive_class_announcement`` reads ``member.user`` for every row, so the roster
+        query has to select_related all the way to the user. Counting the queries the REQUEST
+        makes, not a cached instance afterwards: the render warms the FK cache, so a loop over
+        the returned rows would report zero either way."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from membership.models import Member
+
+        client.force_login(instructor.user)
+        offering = ClassOfferingFactory(instructor=instructor)
+
+        def add_linked_student(tag: str) -> None:
+            address = f"{tag}@example.com"
+            member = Member.objects.get(user=UserFactory(username=address, email=address))
+            RegistrationFactory(
+                class_offering=offering,
+                email=address,
+                member=member,
+                status=Registration.Status.CONFIRMED,
+            )
+
+        def roster_queries() -> int:
+            with CaptureQueriesContext(connection) as captured:
+                assert client.get(reverse("classes:teach_registrations")).status_code == 200
+            return len(captured)
+
+        add_linked_student("one")
+        add_linked_student("two")
+        roster_queries()  # warm up: the first render of the page primes per-process caches
+        with_two = roster_queries()
+        add_linked_student("three")
+        add_linked_student("four")
+        assert roster_queries() == with_two, "the roster tab grew a query per student"
+
+    def it_gives_a_confirmed_student_a_tick_box(instructor, client):
+        client.force_login(instructor.user)
+        offering = ClassOfferingFactory(instructor=instructor)
+        reg = RegistrationFactory(
+            class_offering=offering, first_name="Ada", last_name="Kiln", status=Registration.Status.CONFIRMED
+        )
+        html = client.get(reverse("classes:teach_registrations")).content.decode()
+        assert f'name="registration_ids" value="{reg.pk}"' in html
+
+    def it_drops_the_email_controls_when_nobody_on_the_class_can_be_reached(instructor, client):
+        """Otherwise the tab offers a button whose only answer is "tick someone first", with
+        nothing on the page to tick."""
+        client.force_login(instructor.user)
+        offering = ClassOfferingFactory(instructor=instructor)
+        RegistrationFactory(
+            class_offering=offering, first_name="Bo", last_name="Stone", status=Registration.Status.CANCELLED
+        )
+        html = client.get(reverse("classes:teach_registrations")).content.decode()
+        assert "Bo" in html
+        assert ">Email selected students</button>" not in html
+        assert "Select all in" not in html
+
+    def it_keeps_the_email_controls_when_someone_can_be_reached(instructor, client):
+        client.force_login(instructor.user)
+        offering = ClassOfferingFactory(instructor=instructor)
+        RegistrationFactory(
+            class_offering=offering, first_name="Bo", last_name="Stone", status=Registration.Status.CANCELLED
+        )
+        RegistrationFactory(
+            class_offering=offering, first_name="Ada", last_name="Kiln", status=Registration.Status.CONFIRMED
+        )
+        html = client.get(reverse("classes:teach_registrations")).content.decode()
+        assert ">Email selected students</button>" in html
+        assert "Select all in" in html
+
+    def it_withholds_the_tick_box_from_a_student_it_cannot_email(instructor, client):
+        """The row still shows (it is the roster), but there is nothing to tick."""
+        client.force_login(instructor.user)
+        offering = ClassOfferingFactory(instructor=instructor)
+        reg = RegistrationFactory(
+            class_offering=offering,
+            first_name="Bo",
+            last_name="Stone",
+            status=Registration.Status.CANCELLED,
+        )
+        html = client.get(reverse("classes:teach_registrations")).content.decode()
+        assert "Bo" in html
+        assert f'name="registration_ids" value="{reg.pk}"' not in html

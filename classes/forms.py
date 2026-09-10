@@ -1332,15 +1332,26 @@ class _AnyValueMultipleChoiceField(forms.MultipleChoiceField):
 class RosterSelectionForm(forms.Form):
     """The ticked rows on the teaching portal's Registrations tab, on their way to the composer.
 
-    Resolves the ticked registration ids against the classes this teaching member actually
-    teaches — anything else is dropped, never emailed — and insists the survivors all sit in one
-    class, because the announcement composer scopes to a single class and a cross-class selection
-    has no way to be expressed there. Exposes the composer's pre-checked recipient tokens and
-    whether the waitlist has to be folded in for those tokens to resolve to a checkbox.
+    Three things have to hold before a selection can be handed over, and each is a rejection the
+    instructor can act on rather than a row quietly disappearing:
+
+    1. The rows are this teaching member's to email. Anything else is dropped, never emailed.
+    2. They all sit in ONE class — the composer scopes to a single class, so a cross-class
+       selection cannot be expressed there at all.
+    3. At least one is somebody the composer can actually reach
+       (:attr:`Registration.can_receive_class_announcement`). A cancelled or unpaid student has
+       no checkbox on the composer's roster, so handing over only those tokens would pre-check
+       nothing — and an empty pre-selection means "everyone", which would arm one click to
+       email the whole class. Reachable rows that were NOT ticked must never become checked.
+
+    A selection that mixes reachable and unreachable rows goes through with the reachable ones,
+    and :attr:`dropped_notice` names the rest so the instructor is told who is not going.
     """
 
     NOTHING_SELECTED = "Tick the students you want to email first."
     MIXED_CLASSES = "Pick students from one class at a time."
+    ONLY_EMAIL_CONFIRMED = "You can only email confirmed students and people on the waitlist."
+    NONE_REACHABLE = f"Those students can't be emailed from here. {ONLY_EMAIL_CONFIRMED}"
 
     registration_ids = _AnyValueMultipleChoiceField(required=False, label="Students")
 
@@ -1348,6 +1359,7 @@ class RosterSelectionForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.teaching_member = teaching_member
         self.registrations: list[Registration] = []
+        self.dropped: list[Registration] = []
 
     def clean(self) -> dict[str, Any]:
         cleaned: dict[str, Any] = super().clean() or {}
@@ -1363,7 +1375,19 @@ class RosterSelectionForm(forms.Form):
             raise ValidationError(self.NOTHING_SELECTED)
         if len({registration.class_offering_id for registration in selected}) > 1:
             raise ValidationError(self.MIXED_CLASSES)
-        self.registrations = selected
+
+        emailable: list[Registration] = []
+        dropped: list[Registration] = []
+        for registration in selected:
+            if registration.can_receive_class_announcement:
+                emailable.append(registration)
+            else:
+                dropped.append(registration)
+        if not emailable:
+            raise ValidationError(self.NONE_REACHABLE)
+
+        self.registrations = emailable
+        self.dropped = dropped
         return cleaned
 
     @property
@@ -1373,15 +1397,32 @@ class RosterSelectionForm(forms.Form):
 
     @property
     def recipient_tokens(self) -> list[str]:
-        """The composer's pre-checked recipient values for the selected students."""
+        """The composer's pre-checked recipient values for the selected students.
+
+        Never empty for a valid form: an all-unreachable selection is rejected in
+        :meth:`clean`, precisely so this cannot hand the composer nothing.
+        """
         return Registration.announcement_recipient_tokens(self.registrations)
+
+    @property
+    def dropped_notice(self) -> str:
+        """A heads-up naming the ticked students who are not going, or ``""`` when all are.
+
+        Quietly dropping half a selection is the same defect as dropping all of it, just
+        smaller: the instructor has to be told which rows the composer will not carry.
+        """
+        if not self.dropped:
+            return ""
+        names = ", ".join(registration.roster_name for registration in self.dropped)
+        return f"Left out: {names}. {self.ONLY_EMAIL_CONFIRMED}"
 
     @property
     def needs_waitlist(self) -> bool:
         """True when a waitlisted student was ticked.
 
         The composer builds a class roster from confirmed registrants alone unless the waitlist is
-        folded in, so without this those picks would quietly vanish from the checklist.
+        folded in, so without this those picks would quietly vanish from the checklist. Reads the
+        surviving rows, not the raw selection: a dropped row must not widen the roster.
         """
         return any(r.status == Registration.Status.WAITLISTED for r in self.registrations)
 
