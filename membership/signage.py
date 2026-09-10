@@ -135,10 +135,11 @@ def deck_hash(deck: list[SignageSlideVM], config: SiteConfiguration) -> str:
                     "q" if vm.qr_svg else "",
                     vm.url_display,
                     str(vm.duration_seconds),
-                    # The month grid folds in here rather than as its own top-level part, so
-                    # the per-slide grouping this function documents survives. Without it a
-                    # day gaining its first event never changes the hash and never swaps.
-                    # ``is_today`` needs no digest — ``parts[0]`` is already today's date.
+                    # The What's On lines fold in here rather than as their own top-level
+                    # part, so the per-slide grouping this function documents survives.
+                    # Without them the slide's other fields are identical from one build to
+                    # the next, so a list gaining or losing an entry never changes the hash
+                    # and the wall never swaps.
                     ",".join(f"{e.when_display} {e.time_display} {e.title}" for e in vm.entries),
                 ]
             )
