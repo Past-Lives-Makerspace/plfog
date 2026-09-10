@@ -4,113 +4,104 @@
 {% block tab_content %}
 <div class="cms-overview" style="display:flex;flex-direction:column;gap:1.25rem;">
 
-  {# ① Waiting on you: PENDING classes with no open guild-lead gate. Approve opens the publish confirm. #}
+  {% comment %}① Needs Attention — one card for all three review queues: classes waiting on an
+  admin, classes still with a guild lead, and members asking to teach. A queue with nothing in
+  it renders NOTHING (no heading, no "nothing waiting" line), and when all three are empty the
+  card collapses to the one-line all-clear strip. The #teaching-applications anchor and the
+  admin.review-queue help key both live on this always-rendered wrapper rather than on a group:
+  the link mailed to admins has to resolve and the admin tour has to find its target even on a
+  quiet day, and the group headings themselves come and go with their rows.
+  {% endcomment %}
+  <div id="teaching-applications" style="scroll-margin-top:1rem;" data-help-key="admin.review-queue">
+  {% if waiting_on_you or with_guild_leads or teaching_applications %}
   <section class="hub-card" style="margin:0;">
-    <h2 class="overview-title" data-help-key="admin.review-queue">Waiting on You <span class="overview-title__count">({{ stats.awaiting_you }})</span></h2>
-    {% for c in waiting_on_you %}
-      {% url 'classes:admin_class_approve' pk=c.pk as approve_url %}
-      {% concat "publish-class-" c.pk as publish_modal_id %}
-      {% concat "“" c.title "” goes live in the catalog, every active member gets a new class notice, and it posts to Discord. Use Review with notes to ask for changes instead." as publish_message %}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
-        <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-          <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
-          <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor.display_name }} · {{ c.category.name }} · waiting {{ c.created_at|timesince }}</span>
-        </span>
-        <span class="pl-row-actions">
-          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', '{{ publish_modal_id }}')">Approve</button>
-          {% include "components/confirm_modal.html" with confirm_id=publish_modal_id confirm_title="Publish this class?" confirm_message=publish_message confirm_action_url=approve_url confirm_button_text="Publish" confirm_button_style="primary" %}
-        </span>
-      </div>
-    {% empty %}
-      <p style="color:var(--hub-text-muted);">Nothing waiting on you.</p>
-    {% endfor %}
-  </section>
+    <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ stats.needs_attention }})</span></h2>
 
-  {# ② With guild leads: the lead holds the gate; admins may nudge them or step in. #}
-  <section class="hub-card" style="margin:0;">
-    <h2 class="overview-title">With Guild Leads <span class="overview-title__count">({{ stats.with_leads }})</span></h2>
-    {% for item in with_guild_leads %}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
-        <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-          <a href="{% url 'classes:admin_class_detail' pk=item.offering.pk %}">{{ item.offering.title }}</a>
-          <span style="color:var(--hub-text-muted);font-size:0.85rem;">
-            {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.display_name|urlencode }}">{{ item.lead.display_name }}</a>{% else %}No lead{% endif %}
-            · waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}
+    {% if waiting_on_you %}
+    {# PENDING classes with no open guild-lead gate. Approve opens the publish confirm. #}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">Waiting on You <span class="overview-title__count">({{ stats.awaiting_you }})</span></h3>
+      {% for c in waiting_on_you %}
+        {% url 'classes:admin_class_approve' pk=c.pk as approve_url %}
+        {% concat "publish-class-" c.pk as publish_modal_id %}
+        {% concat "“" c.title "” goes live in the catalog, every active member gets a new class notice, and it posts to Discord. Use Review with notes to ask for changes instead." as publish_message %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor.display_name }} · {{ c.category.name }} · waiting {{ c.created_at|timesince }}</span>
           </span>
-        </span>
-        <span class="pl-row-actions">
-          {% if item.leadless %}
-            <span class="pl-queue-note">This guild has no lead. Review it yourself.</span>
-            <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'classes:admin_class_review' pk=item.offering.pk %}">Review</a>
-          {% else %}
-            <form hx-post="{% url 'classes:admin_class_remind_lead' pk=item.offering.pk %}" hx-swap="none" style="display:inline;">
-              {% csrf_token %}
-              <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Remind lead</button>
-            </form>
-            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=item.offering.pk %}">Review</a>
-          {% endif %}
-        </span>
-      </div>
-    {% empty %}
-      <p style="color:var(--hub-text-muted);">Nothing with guild leads.</p>
-    {% endfor %}
-  </section>
-
-  {# ③ Members interested in teaching, waiting on an admin to open the teaching portal. #}
-  <section id="teaching-applications" class="hub-card" style="margin:0;scroll-margin-top:1rem;">
-    <h2 class="overview-title">Interested in Teaching <span class="overview-title__count">({{ teaching_applications|length }})</span></h2>
-    {% for item in teaching_applications %}
-      {% concat "approve-teaching-" item.member.pk as approve_modal_id %}
-      {% concat "decline-teaching-" item.member.pk as decline_modal_id %}
-      {% concat "Let " item.member.display_name " teach?" as approve_title %}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
-        <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-          <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a> is interested in becoming an instructor.</span>
-          <span style="color:var(--hub-text-muted);font-size:0.85rem;">{% if item.days_waiting == 0 %}asked today{% else %}asked {{ item.days_waiting }} day{{ item.days_waiting|pluralize }} ago{% endif %}</span>
-          <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ item.member.teaching_application_note|truncatechars:140 }}</span>
-        </span>
-        <span class="pl-row-actions">
-          <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', '{{ approve_modal_id }}')">Approve</button>
-          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ decline_modal_id }}')">Decline</button>
-          {% include "components/confirm_modal.html" with confirm_id=approve_modal_id confirm_title=approve_title confirm_message="They get the teaching portal and can start building a class. They will be emailed." confirm_action_url=item.approve_url confirm_button_text="Approve" confirm_button_style="primary" %}
-          {% include "components/confirm_modal.html" with confirm_id=decline_modal_id confirm_title="Not right now?" confirm_message="" confirm_action_url=item.decline_url confirm_button_text="Decline" confirm_note_name="reason" confirm_note_label="Why? (they see this)" confirm_note_hint="Say what would change your answer, so they know whether to ask again." %}
-        </span>
-      </div>
-    {% empty %}
-      <p style="color:var(--hub-text-muted);">Nobody is waiting to hear back.</p>
-    {% endfor %}
-  </section>
-
-  {# ④ Upcoming classes this week — full width #}
-  <section class="hub-card" style="margin:0;">
-    <h2 class="overview-title">Upcoming Classes This Week</h2>
-    {% for c in upcoming_classes %}
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
-        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
-        <span style="color:var(--hub-text-muted);white-space:nowrap;">{{ c.next_session_at|date:"D M j, g:i a" }}</span>
-      </div>
-    {% empty %}
-      <p style="color:var(--hub-text-muted);">No classes scheduled in the next 7 days.</p>
-    {% endfor %}
-    <div style="text-align:right;margin-top:0.75rem;">
-      <a href="{% url 'hub_community_calendar' %}">View more →</a>
-    </div>
-  </section>
-
-  {# ⑤ Waitlist pressure — compact strip #}
-  <section class="hub-card" style="margin:0;padding:0.75rem 1rem;">
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-      <h2 class="overview-title" style="margin:0;">Waitlists</h2>
-      {% for c in waitlist_classes %}
-        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ c.title }} · {{ c.waiting }} waiting</a>
-      {% empty %}
-        <span style="color:var(--hub-text-muted);font-size:0.875rem;">No active waitlists.</span>
+          <span class="pl-row-actions">
+            <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=c.pk %}">Review</a>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', '{{ publish_modal_id }}')">Approve</button>
+            {% include "components/confirm_modal.html" with confirm_id=publish_modal_id confirm_title="Publish this class?" confirm_message=publish_message confirm_action_url=approve_url confirm_button_text="Publish" confirm_button_style="primary" %}
+          </span>
+        </div>
       {% endfor %}
     </div>
-  </section>
+    {% endif %}
 
-  {# ⑥ At a glance — scoped by the range filter #}
+    {% if with_guild_leads %}
+    {# The lead holds the gate; admins may nudge them or step in. #}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">With Guild Leads <span class="overview-title__count">({{ stats.with_leads }})</span></h3>
+      {% for item in with_guild_leads %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <a href="{% url 'classes:admin_class_detail' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">
+              {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.display_name|urlencode }}">{{ item.lead.display_name }}</a>{% else %}No lead{% endif %}
+              · waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}
+            </span>
+          </span>
+          <span class="pl-row-actions">
+            {% if item.leadless %}
+              <span class="pl-queue-note">This guild has no lead. Review it yourself.</span>
+              <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'classes:admin_class_review' pk=item.offering.pk %}">Review</a>
+            {% else %}
+              <form hx-post="{% url 'classes:admin_class_remind_lead' pk=item.offering.pk %}" hx-swap="none" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost">Remind lead</button>
+              </form>
+              <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:admin_class_review' pk=item.offering.pk %}">Review</a>
+            {% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if teaching_applications %}
+    {# Members interested in teaching, waiting on an admin to open the teaching portal. #}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">Interested in Teaching <span class="overview-title__count">({{ teaching_applications|length }})</span></h3>
+      {% for item in teaching_applications %}
+        {% concat "approve-teaching-" item.member.pk as approve_modal_id %}
+        {% concat "decline-teaching-" item.member.pk as decline_modal_id %}
+        {% concat "Let " item.member.display_name " teach?" as approve_title %}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
+          <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+            <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a> is interested in becoming an instructor.</span>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{% if item.days_waiting == 0 %}asked today{% else %}asked {{ item.days_waiting }} day{{ item.days_waiting|pluralize }} ago{% endif %}</span>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ item.member.teaching_application_note|truncatechars:140 }}</span>
+          </span>
+          <span class="pl-row-actions">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', '{{ approve_modal_id }}')">Approve</button>
+            <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', '{{ decline_modal_id }}')">Decline</button>
+            {% include "components/confirm_modal.html" with confirm_id=approve_modal_id confirm_title=approve_title confirm_message="They get the teaching portal and can start building a class. They will be emailed." confirm_action_url=item.approve_url confirm_button_text="Approve" confirm_button_style="primary" %}
+            {% include "components/confirm_modal.html" with confirm_id=decline_modal_id confirm_title="Not right now?" confirm_message="" confirm_action_url=item.decline_url confirm_button_text="Decline" confirm_note_name="reason" confirm_note_label="Why? (they see this)" confirm_note_hint="Say what would change your answer, so they know whether to ask again." %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+  </section>
+  {% else %}
+    {% include "classes/_components/needs_attention_clear.html" %}
+  {% endif %}
+  </div>
+
+  {# ② At a glance — scoped by the range filter #}
   <section id="at-a-glance" class="hub-card" style="margin:0;scroll-margin-top:1rem;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.9rem;">
       <h2 class="overview-title" style="margin:0;">At a Glance</h2>
@@ -174,35 +165,31 @@
     </div>
   </section>
 
-  {# ⑦ Activity #}
+  {# ③ Upcoming classes this week — full width #}
   <section class="hub-card" style="margin:0;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <h2 class="overview-title" style="margin:0;">Activity</h2>
-      <a href="{% url 'classes:admin_activity' %}">View full log →</a>
+    <h2 class="overview-title">Upcoming Classes This Week</h2>
+    {% for c in upcoming_classes %}
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
+        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+        <span style="color:var(--hub-text-muted);white-space:nowrap;">{{ c.next_session_at|date:"D M j, g:i a" }}</span>
+      </div>
+    {% empty %}
+      <p style="color:var(--hub-text-muted);">No classes scheduled in the next 7 days.</p>
+    {% endfor %}
+    <div style="text-align:right;margin-top:0.75rem;">
+      <a href="{% url 'hub_community_calendar' %}">View more →</a>
     </div>
-    <div class="admin-table-wrap" style="margin-top:8px;">
-    <table>
-      <thead>
-        <tr>
-          <th style="width:150px;">When</th>
-          <th>Event</th>
-          <th>Class</th>
-          <th>Who</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for ev in recent_activity %}
-        <tr>
-          <td style="white-space:nowrap;color:var(--hub-text-muted);">{{ ev.created_at|date:"M j, g:i a" }}</td>
-          <td>{{ ev.get_kind_display }}</td>
-          <td>{% if ev.class_offering %}<a href="{% url 'classes:admin_class_detail' pk=ev.class_offering.pk %}">{{ ev.class_offering.title }}</a>{% else %}<span style="color:var(--hub-text-muted);">—</span>{% endif %}</td>
-          <td>{% if ev.registration %}{{ ev.registration.first_name }} {{ ev.registration.last_name }}{% elif ev.actor %}{{ ev.actor.get_full_name|default:ev.actor.email }}{% else %}<span style="color:var(--hub-text-muted);">System</span>{% endif %}</td>
-        </tr>
+  </section>
+
+  {# ④ Waitlist pressure — compact strip #}
+  <section class="hub-card" style="margin:0;padding:0.75rem 1rem;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+      <h2 class="overview-title" style="margin:0;">Waitlists</h2>
+      {% for c in waitlist_classes %}
+        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ c.title }} · {{ c.waiting }} waiting</a>
       {% empty %}
-        <tr><td colspan="4" style="color:var(--hub-text-muted);padding:1.5rem 0.75rem;">No activity yet.</td></tr>
+        <span style="color:var(--hub-text-muted);font-size:0.875rem;">No active waitlists.</span>
       {% endfor %}
-      </tbody>
-    </table>
     </div>
   </section>
 

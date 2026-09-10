@@ -3595,6 +3595,40 @@ def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, st
     return False, "", "", ""
 
 
+def _compose_preselection(request: HttpRequest, requested: str | None) -> dict[str, Any]:
+    """The pre-checked recipient set carried in on a fresh compose URL, as form ``initial``.
+
+    The teaching portal's Registrations tab hands its ticked students over as
+    ``?recipients=<token>&recipients=<token>…`` (plus ``include_waitlist=1`` when one of them is
+    waitlisted, without which the composer's roster would not contain them at all). Only tokens
+    that appear in this audience's own roster survive, so a hand-crafted
+    ``?recipients=user:1`` cannot pre-check somebody who is not registered for the class; the
+    send path re-validates server-side regardless, but the checklist must not display a name
+    that is not on the roster.
+
+    Returns ``{}`` when nothing usable was asked for, which leaves the composer's default in
+    place: the whole roster checked. That is deliberate — an empty checklist reads as "send to
+    nobody" while the send path treats "nothing chosen" as everyone.
+    """
+    from hub.forms import announcement_recipient_choices, split_audience
+
+    wanted = request.GET.getlist("recipients")
+    if not (wanted and requested):
+        return {}
+    include_waitlist = bool(request.GET.get("include_waitlist"))
+    audience, guild, offering = split_audience(requested)
+    roster = {
+        value
+        for value, _label in announcement_recipient_choices(
+            audience, guild, offering, include_waitlist=include_waitlist
+        )
+    }
+    picked = [token for token in wanted if token in roster]
+    if not picked:
+        return {}
+    return {"recipients": picked, "include_waitlist": include_waitlist}
+
+
 def _compose_first_error(form: Any) -> str:
     """A member-friendly message for the save-draft error toast (title is the common miss)."""
     if form.errors.get("title"):
@@ -3610,8 +3644,10 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     """The compose wizard page. GET renders all three steps + the drafts list.
 
     A ``draft_pk`` resumes an unsent draft you own (a foreign / already-sent pk 404s);
-    ``?audience=guild:<pk>`` pre-scopes a fresh compose. A member who can compose nothing
-    (not an admin, leads no guild) is redirected to the separate propose flow.
+    ``?audience=guild:<pk>`` pre-scopes a fresh compose, and ``?recipients=<token>`` (repeatable,
+    with ``?include_waitlist=1``) narrows the checklist to a roster hand-off — see
+    :func:`_compose_preselection`. A member who can compose nothing (not an admin, leads no
+    guild) is redirected to the separate propose flow.
     """
     from hub.forms import AnnouncementComposeForm
     from membership.models import AnnouncementDraft
@@ -3632,6 +3668,7 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         requested = request.GET.get("audience")
         if requested:
             initial["audience"] = requested
+        initial.update(_compose_preselection(request, requested))
         locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
     if not _can_enter_compose(request, member, requested):
         return redirect("hub_guild_announcement_propose")

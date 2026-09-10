@@ -108,7 +108,12 @@ def describe_admin_class_registrations_students():
         assert response.status_code == 200
         assert b"Alice" in response.content
         assert b"Smith" in response.content
-        assert b"Email selected students" in response.content
+        # The page's email affordance is the composer hand-off. The old assertion here looked
+        # for "Email selected students", which no admin template has ever contained: it matched
+        # only because plfog.version's CHANGELOG renders into every hub page's context, so it
+        # would have kept passing with the button gone entirely.
+        compose_link = f"{reverse('hub_compose')}?audience=class:{offering.pk}&amp;lock=1"
+        assert compose_link in response.content.decode()
 
     def it_shows_empty_state_when_no_registrations(admin_user, client):
         offering = ClassOfferingFactory()

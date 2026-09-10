@@ -217,3 +217,48 @@ def describe_teach_overview():
             resp = client.get(reverse("classes:teach_overview"))
             assert b"Mine Pending" in resp.content
             assert b"Foreign Pending" not in resp.content
+
+
+def describe_needs_attention_card():
+    """The three review queues render as one card, and an empty queue renders nothing at all."""
+
+    def it_collapses_to_one_quiet_line_when_nothing_waits(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_overview")).content.decode()
+        assert "Needs Attention · all clear" in html
+        assert "Needs Your Attention" not in html
+        assert "Waiting on Your Review" not in html
+        assert "Awaiting Admin Validation" not in html
+
+    def it_shows_only_the_instructors_own_pipeline_when_that_is_all_there_is(instructor_fixture, client):
+        ClassOfferingFactory(instructor=instructor_fixture, title="My Draft", slug="my-draft")
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_overview")).content.decode()
+        assert "Needs Your Attention" in html
+        assert "My Draft" in html
+        assert "Waiting on Your Review" not in html
+        assert "Needs Attention · all clear" not in html
+
+    def it_shows_a_guild_leads_queue_even_with_no_classes_of_their_own(instructor_fixture, client):
+        """A lead who teaches nothing still has a review queue, so the card must not hide with it."""
+        _pending_class_in_guild_led_by(instructor_fixture, "Someone Elses Class", "someone-elses")
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        html = resp.content.decode()
+        assert resp.context["has_classes"] is False
+        assert "Waiting on Your Review" in html
+        assert "Someone Elses Class" in html
+        assert "Needs Your Attention" not in html
+
+    def it_counts_every_queue_in_the_cards_own_total(instructor_fixture, client):
+        _pending_class_in_guild_led_by(instructor_fixture, "Guild Queue Class", "guild-queue")
+        ClassOfferingFactory(instructor=instructor_fixture, title="My Draft", slug="my-draft")
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_overview"))
+        assert resp.context["stats"]["needs_attention"] == 2
+
+    def it_drops_the_all_caught_up_reassurance_lines(instructor_fixture, client):
+        """Those three empty-state paragraphs were the bulk this round set out to remove."""
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_overview")).content.decode()
+        assert "you're all caught up" not in html

@@ -160,6 +160,8 @@ def describe_admin_overview_queue():
         assert resp.context["stats"]["awaiting_you"] == 2
         assert resp.context["stats"]["with_leads"] == 1
         html = resp.content.decode()
+        # Both queues are groups inside the one "Needs Attention" card now.
+        assert "Needs Attention" in html
         assert "Waiting on You" in html and "With Guild Leads" in html
         assert "Lena Lead" in html
         assert reverse("classes:admin_class_remind_lead", kwargs={"pk": with_lead.pk}) in html
@@ -167,11 +169,39 @@ def describe_admin_overview_queue():
         assert "Publish this class?" in html
         assert "posts to Discord" in html
 
-    def it_shows_the_empty_states(admin_user, client, db):
+    def it_counts_every_queue_in_the_merged_card(admin_user, client, db):
+        """The card's own count is all three queues together, not just the admin's own."""
+        lead_user = _lead_user()
+        guild = _guild_with_lead(lead_user)
+        with_lead = ClassOfferingFactory(
+            title="Lead Holds It", status=Status.PENDING, category=CategoryFactory(guild=guild)
+        )
+        ClassApproval.objects.create(class_offering=with_lead, role=ClassApproval.Role.GUILD_LEAD)
+        ClassOfferingFactory(title="Rowless Pending", status=Status.PENDING)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:admin_overview"))
+        assert resp.context["stats"]["needs_attention"] == 2
+
+    def it_hides_an_empty_queue_instead_of_an_empty_state_line(admin_user, client, db):
+        """A queue with nothing in it renders nothing at all — no heading, no reassurance line."""
+        ClassOfferingFactory(title="Rowless Pending", status=Status.PENDING)
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_overview")).content.decode()
-        assert "Nothing waiting on you." in html
-        assert "Nothing with guild leads." in html
+        assert "Waiting on You" in html
+        assert "With Guild Leads" not in html
+        assert "Interested in Teaching" not in html
+        assert html.count('data-help-key="admin.review-queue"') == 1
+
+    def it_collapses_to_one_quiet_line_when_every_queue_is_empty(admin_user, client, db):
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_overview")).content.decode()
+        assert "Needs Attention · all clear" in html
+        assert "Waiting on You" not in html
+        assert "With Guild Leads" not in html
+        # The anchor admins are mailed, and the admin tour's target, both have to resolve
+        # even with nothing waiting — which is why they sit on the wrapper, not on a group.
+        assert 'id="teaching-applications"' in html
+        assert 'data-help-key="admin.review-queue"' in html
 
     def it_offers_review_it_yourself_for_a_leadless_guild(admin_user, client, db):
         from tests.membership.factories import MemberFactory

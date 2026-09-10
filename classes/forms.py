@@ -1317,6 +1317,84 @@ class TeachingPageSettingsForm(forms.ModelForm):
         return cleaned
 
 
+class _AnyValueMultipleChoiceField(forms.MultipleChoiceField):
+    """A multi-select that accepts any submitted value, leaving the judgement to the form.
+
+    Mirrors ``hub.forms._RecipientChoiceField``. A stale or hand-crafted row id must be dropped
+    quietly rather than raised as "Select a valid choice": the honest answer to a tampered POST
+    is the intersection with what the sender actually owns, which the form then rules on itself.
+    """
+
+    def valid_value(self, value: str) -> bool:  # noqa: D102 - see class docstring
+        return True
+
+
+class RosterSelectionForm(forms.Form):
+    """The ticked rows on the teaching portal's Registrations tab, on their way to the composer.
+
+    Resolves the ticked registration ids against the classes this teaching member actually
+    teaches — anything else is dropped, never emailed — and insists the survivors all sit in one
+    class, because the announcement composer scopes to a single class and a cross-class selection
+    has no way to be expressed there. Exposes the composer's pre-checked recipient tokens and
+    whether the waitlist has to be folded in for those tokens to resolve to a checkbox.
+    """
+
+    NOTHING_SELECTED = "Tick the students you want to email first."
+    MIXED_CLASSES = "Pick students from one class at a time."
+
+    registration_ids = _AnyValueMultipleChoiceField(required=False, label="Students")
+
+    def __init__(self, *args: Any, teaching_member: "Member", **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.teaching_member = teaching_member
+        self.registrations: list[Registration] = []
+
+    def clean(self) -> dict[str, Any]:
+        cleaned: dict[str, Any] = super().clean() or {}
+        # ``registration_ids`` cannot fail on its own (optional, and every value is accepted),
+        # so it is always in cleaned_data by here.
+        ids = [value for value in cleaned["registration_ids"] if value.isdigit()]
+        selected = list(
+            Registration.objects.filter(pk__in=ids, class_offering__instructor=self.teaching_member)
+            .select_related("class_offering", "member__user")
+            .order_by("pk")
+        )
+        if not selected:
+            raise ValidationError(self.NOTHING_SELECTED)
+        if len({registration.class_offering_id for registration in selected}) > 1:
+            raise ValidationError(self.MIXED_CLASSES)
+        self.registrations = selected
+        return cleaned
+
+    @property
+    def offering(self) -> ClassOffering:
+        """The one class the selection belongs to. Only meaningful once the form has validated."""
+        return self.registrations[0].class_offering
+
+    @property
+    def recipient_tokens(self) -> list[str]:
+        """The composer's pre-checked recipient values for the selected students."""
+        return Registration.announcement_recipient_tokens(self.registrations)
+
+    @property
+    def needs_waitlist(self) -> bool:
+        """True when a waitlisted student was ticked.
+
+        The composer builds a class roster from confirmed registrants alone unless the waitlist is
+        folded in, so without this those picks would quietly vanish from the checklist.
+        """
+        return any(r.status == Registration.Status.WAITLISTED for r in self.registrations)
+
+    @property
+    def error_message(self) -> str:
+        """The one message to flash back on the Registrations tab.
+
+        Every rejection this form makes is a whole-selection rejection raised in :meth:`clean`,
+        so there is always exactly one non-field error to show.
+        """
+        return str(self.non_field_errors()[0])
+
+
 class TeachEmailForm(forms.Form):
     """Form for a teaching member to send a manual email to selected registrants of one of their classes.
 

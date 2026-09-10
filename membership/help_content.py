@@ -942,7 +942,7 @@ Once your class is submitted or live, the teaching portal at `/classes/teach/` i
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
-The portal has three tabs: **Overview**, **Classes**, and **Registrations**. Opening a class from the **Classes** tab gives that class its own workspace with sub-tabs: **Overview**, **Registrations**, **Waitlist**, and **Emails**.
+The portal's tabs are **Overview**, **My Classes**, **Registrations**, and **Instructor Profile** (plus **Discount Codes** if your makerspace has turned those on for instructors). Opening a class from the **My Classes** tab gives that class its own workspace with sub-tabs: **Overview**, **Registrations**, **Waitlist**, and **Emails**.
 
 ![The Classes tab lists every class you teach, with its status and sign-up count.](/static/help/run-your-class/01-your-classes.png)
 
@@ -955,9 +955,11 @@ Open the portal-wide **Registrations** tab to see students for all your classes 
 ### Email Your Students {#teach-email-students}
 
 1. On a Registrations tab, tick the students you want to reach.
-2. Click **Email selected students**.
-3. Write a subject and message. Leave **Send me a copy** checked to get your own copy.
+2. Click **Email selected students**. This opens the message composer with those students already picked.
+3. Write your message. Untick anyone you changed your mind about.
 4. Click **Send**.
+
+Pick students from one class at a time. The composer sends to one class, so a selection that spans two classes is sent back with a note.
 
 You can only email people registered for your own classes, and the per-class tab only reaches that class's students.
 
@@ -1085,7 +1087,7 @@ The classes admin lives at `/classes/admin/`. Reach it from **Class Catalog** in
 
 ### The Review Queue {#admin-review-queue}
 
-The Overview's "Needs your attention" panel lists every class waiting on review. Each row has two buttons:
+The Overview's **Needs Attention** card lists everything waiting on you, under **Waiting on You**. Each row has two buttons:
 
 - **Approve** records your admin approval on the spot.
 - **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Send Response** records it and emails the instructor.
@@ -1094,7 +1096,7 @@ When the class's category belongs to a guild that has a lead, the guild lead rev
 
 Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
 
-![Needs your attention: every class waiting on a review decision.](/static/help/reviewing-classes-admin/01-review-queue.png)
+![Needs Attention: every class waiting on a review decision.](/static/help/reviewing-classes-admin/01-review-queue.png)
 
 ### Archive or Delete
 
@@ -1122,7 +1124,7 @@ Discount codes are created by admins — instructors ask you when they want one 
                 "file": "01-review-queue.png",
                 "page": "/classes/admin/",
                 "selector": None,
-                "caption": "Needs your attention: every class waiting on a review decision.",
+                "caption": "Needs Attention: every class waiting on a review decision.",
                 "as_role": "admin",
             },
             {
