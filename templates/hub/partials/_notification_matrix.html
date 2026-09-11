@@ -25,6 +25,34 @@ Context:
   </div>
   {% for category, rows in notif_matrix %}
     <div class="pl-notif-section" id="notif-{{ category|slugify }}">
+    {% if category == 'Always emailed' %}
+      {% comment %}
+      The forced-email block (settings_matrix.ALWAYS_EMAILED_SECTION): ten notices a
+      member cannot switch off, so they collapse into the documented .pl-disclosure
+      instead of costing ten lines of grid. Collapsed, never hidden — a closed <details>
+      still submits its inputs, and these rows keep writable Push and Discord cells that
+      save_matrix would otherwise read as unchecked and wipe. The summary carries the
+      title, the hint and the chevron and NOTHING else clickable: a <button> inside a
+      <summary> bubbles its click, so the section's All on / All off would also toggle the
+      block shut. They move into .pl-disclosure__body instead; plNotifBulk walks ancestors
+      to .pl-notif-section, which still wraps the whole thing, and querySelectorAll reaches
+      into a closed <details>.
+      {% endcomment %}
+      <details class="pl-disclosure">
+        <summary class="pl-disclosure__summary">
+          <span class="pl-disclosure__text">
+            <span class="pl-disclosure__title">Always emailed</span>
+            <span class="pl-disclosure__hint">You always get these by email. Push and Discord can still be changed inside.</span>
+          </span>
+          <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+        </summary>
+        <div class="pl-disclosure__body">
+        <div class="pl-notif-bulk pl-notif-bulk--section">
+          <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), true)">All on</button>
+          <span class="pl-notif-bulk__sep">·</span>
+          <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), false)">All off</button>
+        </div>
+    {% else %}
     <div class="pl-notif-category-head">
       <h3 class="hub-detail-label pl-notif-category">{{ category }}</h3>
       <div class="pl-notif-bulk pl-notif-bulk--section">
@@ -33,6 +61,7 @@ Context:
         <button type="button" class="pl-notif-bulk__btn" onclick="plNotifBulk(this.closest('.pl-notif-section'), false)">All off</button>
       </div>
     </div>
+    {% endif %}
     {% if category == 'Staff & leadership' %}
       {% if matrix_self %}
         <p class="hub-text-muted pl-notif-section-note">You see a row here only for a duty you hold or a role you have. Class, space, discount, calendar, and billing alerts are controlled by your admin capabilities.{% if capabilities_url %} <a href="{{ capabilities_url }}" hx-boost="false">Manage your admin duties →</a>{% endif %}</p>
@@ -93,6 +122,10 @@ Context:
         {% endfor %}
       </div>
     </div>
+    {% if category == 'Always emailed' %}
+        </div>
+      </details>
+    {% endif %}
     </div>
   {% endfor %}
   <div class="pl-notif-actions">
