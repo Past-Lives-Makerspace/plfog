@@ -278,15 +278,25 @@ def describe_release_published():
 
 
 def describe_orientation_completed():
-    def it_registers_orientation_completed_with_guild_members_and_discord():
+    def it_registers_orientation_completed_as_discord_only():
         event = get_event("orientation.completed")
         assert event.recipient is Recipients.GUILD_MEMBERS
-        assert event.has_channel(Channel.IN_APP)
-        assert event.has_channel(Channel.DISCORD)
-        # No email channel — a light social nudge to the guild, not an inbox item.
+        assert event.channel_list == [Channel.DISCORD]
+        # No email — a light social nudge to the guild, not an inbox item. No bell and no
+        # push either: the welcome belongs in the guild's channel, not in every member's
+        # notification list, so there is nothing per-member left to prefer.
         assert not event.has_channel(Channel.EMAIL)
+        assert not event.has_channel(Channel.IN_APP)
+        assert not event.has_channel(Channel.PUSH)
         # activity_kind stays None: complete_orientation logs the SiteActivity itself.
         assert event.activity_kind is None
+
+    def it_keeps_orientation_completed_off_the_member_settings_page():
+        # No per-user channel means no settings row: the member has nothing to toggle.
+        from core.events.settings_matrix import USER_CHANNELS
+
+        event = get_event("orientation.completed")
+        assert not any(event.has_channel(channel) for channel in USER_CHANNELS)
 
     def it_keeps_orientation_completed_placeholders_and_sample_context_in_lockstep():
         from core.events.copy import COPY_CHANNELS, default_copy_for, placeholders_for, sample_context_for

@@ -292,7 +292,7 @@ def describe_push_channel_for():
             "event.approved",
             "meeting.minutes_approved",
             "new_member_joined",
-            "orientation.completed",
+            "orientation_requested",
             "space.lease_requested",
         ):
             assert push_channel_for(key) == "general", key

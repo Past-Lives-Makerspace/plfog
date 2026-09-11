@@ -94,18 +94,21 @@ def describe_event_registry():
             # These member-email events are email-only (the invitee has no account; the
             # login-invite reaches someone who hasn't signed in; the Discord-guilds import
             # is a transactional email_to confirmation with no bell row), so the in-app
-            # invariant holds for every OTHER event.
-            # Discord-broadcast events have no in-app bell (they're @everyone channel posts)
-            email_only = {
+            # invariant holds for every event outside this set.
+            # Discord-broadcast events have no in-app bell (they're @everyone channel posts),
+            # and orientation.completed is one of them: the guild welcome belongs in the
+            # guild's channel, not in every member's notification list.
+            no_bell = {
                 "member.invited",
                 "member.login_invite",
                 "discord_guilds_imported",
                 "guild_welcome",
                 "voting.discord_reminder",
                 "voting.results_discord",
+                "orientation.completed",
             }
             for event in registry.EVENTS:
-                if event.key in email_only:
+                if event.key in no_bell:
                     assert event.channel(Channel.IN_APP) is None
                     continue
                 spec = event.channel(Channel.IN_APP)
@@ -173,7 +176,7 @@ def describe_event_registry():
             assert on == registry._PUSH_ON_BY_DEFAULT
             assert registry.get_event("class_cancelled").channel(Channel.PUSH).default is ChannelDefault.ON
             # routine / FYI notices stay OFF by default (offered, not forced on)
-            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation.completed"):
+            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation_requested"):
                 spec = registry.get_event(quiet).channel(Channel.PUSH)
                 assert spec is not None
                 assert spec.default is ChannelDefault.OFF

@@ -842,19 +842,22 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # 21. orientation.completed — a member finished their orientation; welcome them to the
-    #     guild. Goes to the guild's existing members (GUILD_MEMBERS); in-app on + the guild's
-    #     own Discord channel on (no email — a light social nudge, not an inbox item). Carries
-    #     ``guild`` in context, so the routing sibling posts to the guild's own webhook.
-    #     ``activity_kind`` stays None: ``complete_orientation`` already logs the
-    #     ORIENTATION_COMPLETED SiteActivity, so emit must NOT log a duplicate (mirrors the
-    #     class_published precedent above).
+    #     guild. The guild's own Discord channel ONLY (no email — a light social nudge, not
+    #     an inbox item — and no bell: a welcome belongs in the room the guild talks in, not
+    #     in every member's notification list). Carries ``guild`` in context, so the routing
+    #     sibling posts to the guild's own webhook. Declaring no IN_APP also drops the Push
+    #     channel (``_with_push`` returns early) and the settings row (``_visible_events``
+    #     keeps only events with a per-user channel), which is the point: nothing here is a
+    #     per-member preference. ``activity_kind`` stays None: ``complete_orientation``
+    #     already logs the ORIENTATION_COMPLETED SiteActivity, so emit must NOT log a
+    #     duplicate.
     EventType(
         key=ORIENTATION_COMPLETED,
         label="Orientation completed — welcome",
         description="A member finished their orientation; welcome them to the guild.",
         category="Orientations",
         recipient=Recipients.GUILD_MEMBERS,
-        channels=(_IN_APP_ON, _DISCORD_ON),
+        channels=(_DISCORD_ON,),
         activity_kind=None,
     ),
     # 22-25. space.* — the interactive space map's request flow. All four are personal
