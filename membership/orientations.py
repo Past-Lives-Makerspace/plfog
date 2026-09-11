@@ -1090,8 +1090,9 @@ def complete_orientation(booking: OrientationBooking) -> None:
             email_to=booking.member.primary_email,
             period=f"booking:{booking.pk}:thankyou",
         )
-    # Warm welcome to the guild's members — always fires (no opt-out), in-app + the guild's
-    # own Discord channel. Copy-mode: no title/body, rendered from the seeded catalogue copy.
+    # Warm welcome to the guild's members — always fires (no opt-out), Discord only (no bell,
+    # no email). A guild-scoped Discord event dual-routes: the central notify webhook AND the
+    # guild's own. Copy-mode: no title/body, rendered from the seeded catalogue copy.
     owner_url = booking.orientation_type.owner_page_url()
     emit(
         "orientation.completed",
@@ -1099,14 +1100,15 @@ def complete_orientation(booking: OrientationBooking) -> None:
         target=booking,
         context={
             # resolver key (guild_members) + _guild_broadcast destination; None for an
-            # equipment-owned booking, which resolves to nobody and posts nowhere (the
-            # guild-welcome moment has no equipment equivalent in v1).
+            # equipment-owned booking, which resolves to nobody and skips the guild webhook —
+            # the central one still posts (the guild-welcome moment has no equipment
+            # equivalent in v1).
             "guild": booking.guild,
             "member_name": booking.member.display_name,
             "guild_name": booking.orientation_type.owner_name,
             "guild_url": owner_url,
         },
-        url=owner_url,  # the in-app bell row's click-through
+        url=owner_url,  # the Discord embed's title link
         period=f"booking:{booking.pk}:completed",
     )
 

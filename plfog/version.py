@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.53.1"
+VERSION = "1.54.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -30,6 +30,31 @@ VERSION = "1.53.1"
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.54.0",
+        "date": "2026-09-10",
+        "title": "A notification settings page you can actually read",
+        "changes": [
+            "Your notification settings used to run to 51 rows. The page now opens with 30, plus a "
+            "block of ten you can open when you want them.",
+            "Notices that belong together are now one switch. Every update about an event you "
+            "proposed is a single row, and so are the updates about a class you submitted, an "
+            "announcement you proposed, a space request, a request to host a workshop, and being "
+            "moved off a waitlist. Turning that row off turns off the whole family. If you had "
+            "set one of a family on and another off, the row now shows off, and saving the page "
+            "will switch the rest of that family off too.",
+            "The notices you always get by email now sit together in one block called Always "
+            "emailed. Open it and you can still change push and Discord for the ones that offer "
+            "them. The email itself stays on, which was already true. It just no longer costs "
+            "ten rows to say so.",
+            "A new class no longer rings your bell, and if you had asked for an email about new "
+            "classes, that stops too. New classes are still announced in the Discord classes "
+            "channel.",
+            "When someone finishes their orientation, the welcome no longer lands in the other "
+            "guild members' bells or on their phones. It still posts in Discord, the way it "
+            "always has.",
+        ],
+    },
     {
         "version": "1.53.0",
         "date": "2026-09-10",

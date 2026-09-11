@@ -285,7 +285,7 @@ Do not merge them.
 
   {% if not offering or offering.status == 'draft' %}
     {% if is_admin %}
-      {% include "components/confirm_modal.html" with confirm_id="submit-class" confirm_button_style="primary" confirm_title="Publish This Class?" confirm_message="It goes live in the catalog, every active member gets a new class notice, and it posts to Discord." confirm_button_text="Publish It" confirm_js="document.getElementById('composer-action').value='publish'; document.getElementById('composer-form').requestSubmit();" %}
+      {% include "components/confirm_modal.html" with confirm_id="submit-class" confirm_button_style="primary" confirm_title="Publish This Class?" confirm_message="It goes live in the catalog right away. Members are not sent an individual notice about it. New public classes are also posted to the Discord classes channel within about 15 minutes." confirm_button_text="Publish It" confirm_js="document.getElementById('composer-action').value='publish'; document.getElementById('composer-form').requestSubmit();" %}
     {% else %}
       {% include "components/confirm_modal.html" with confirm_id="submit-class" confirm_button_style="primary" confirm_title="Submit This Class for Review?" confirm_message="Your guild lead and an admin take a look. You can still edit it while it waits, or take it back to draft." confirm_button_text="Submit It" confirm_js="document.getElementById('composer-action').value='submit'; document.getElementById('composer-form').requestSubmit();" %}
     {% endif %}

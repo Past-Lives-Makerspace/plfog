@@ -28,7 +28,7 @@
       {% for c in waiting_on_you %}
         {% url 'classes:admin_class_approve' pk=c.pk as approve_url %}
         {% concat "publish-class-" c.pk as publish_modal_id %}
-        {% concat "“" c.title "” goes live in the catalog, every active member gets a new class notice, and it posts to Discord. Use Review with notes to ask for changes instead." as publish_message %}
+        {% concat "“" c.title "” goes live in the catalog right away. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>

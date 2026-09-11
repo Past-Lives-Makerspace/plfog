@@ -127,7 +127,6 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.CLASS_ROSTER: "Everyone with a confirmed registration for the class.",
     Recipients.NEXT_WAITLISTED: "The next member in line on the waitlist.",
     Recipients.TAB_MEMBER: "The member whose billing tab this concerns.",
-    Recipients.INVITER: "The person who sent the invitation.",
     Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
     Recipients.LEASE_TENANT: "The member holding the space agreement.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
@@ -573,33 +572,6 @@ _CURATED: dict[str, EventCopy] = {
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "Find a Class</a></p>"
                     "<p>Past Lives Makerspace</p>"
-                ),
-            ),
-        },
-    ),
-    "class_published": EventCopy(
-        placeholders=("class_title", "class_url", "class_image_html"),
-        sample_context={
-            "class_title": "Intro to Lost-Wax Casting",
-            "class_url": "https://pastlives.example/classes/intro-to-lost-wax-casting/",
-            # App-built SafeString injected by the send path (the class's hero image, or
-            # empty when it has none). Blank in the preview so no broken image shows.
-            "class_image_html": "",
-        },
-        channels={
-            Channel.IN_APP: ChannelCopy(
-                subject="New class: {{ class_title }}",
-                body_text="{{ class_title }} just went live.",
-            ),
-            Channel.EMAIL: ChannelCopy(
-                subject="New class: {{ class_title }}",
-                body_text=(
-                    "{{ class_title }} just went live at Past Lives.\n\nSee the details and sign up: {{ class_url }}"
-                ),
-                body_html=(
-                    "{{ class_image_html }}"
-                    "<p><strong>{{ class_title }}</strong> just went live at Past Lives.</p>"
-                    '<p><a href="{{ class_url }}">See the details and sign up</a></p>'
                 ),
             ),
         },
@@ -1775,9 +1747,12 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # orientation.completed — a warm welcome to the guild's members when a newcomer finishes
-    # their orientation. In-app + Discord only (no email). The Discord body carries the guild
-    # URL as a plain link (an embed has no separate click target); the in-app row uses its
-    # ``url`` field instead, so its body stays clean.
+    # their orientation. The event declares DISCORD only (see the registry), so Discord is the
+    # only channel that ships. The IN_APP entry below is kept anyway: ``seedable_rows`` seeds
+    # one row per (event x COPY_CHANNELS) whatever the event declares, and this event authors
+    # no email copy, so dropping it would leave ``copy_for(IN_APP)`` nothing to fall back to
+    # and seed a blank in-app row into the admin catalogue. The Discord body carries the guild
+    # URL as a plain link (an embed's description has no separate click target).
     "orientation.completed": EventCopy(
         placeholders=("member_name", "guild_name", "guild_url"),
         sample_context={

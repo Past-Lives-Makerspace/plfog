@@ -23,7 +23,7 @@ def _pref(user, event_key, channel, enabled):
 def describe_wants():
     def describe_in_app():
         def it_is_always_on_for_declared_events():
-            assert preferences.wants(_user(), "class_published", Channel.IN_APP) is True
+            assert preferences.wants(_user(), "registration_confirmed", Channel.IN_APP) is True
 
     def describe_forced_channels():
         def it_ignores_preferences_for_forced_email():
@@ -35,26 +35,26 @@ def describe_wants():
     def describe_email_per_channel_row():
         def it_reads_enabled_from_an_explicit_row():
             user = _user()
-            _pref(user, "class_published", Channel.EMAIL, True)
-            assert preferences.wants(user, "class_published", Channel.EMAIL) is True
+            _pref(user, "registration_confirmed", Channel.EMAIL, True)
+            assert preferences.wants(user, "registration_confirmed", Channel.EMAIL) is True
 
         def it_respects_an_explicit_opt_out():
             user = _user()
-            _pref(user, "class_published", Channel.EMAIL, False)
-            assert preferences.wants(user, "class_published", Channel.EMAIL) is False
+            _pref(user, "registration_confirmed", Channel.EMAIL, False)
+            assert preferences.wants(user, "registration_confirmed", Channel.EMAIL) is False
 
         def it_falls_back_to_the_event_default_with_no_row():
-            # class_published defaults email OFF.
-            assert preferences.wants(_user(), "class_published", Channel.EMAIL) is False
+            # registration_confirmed defaults email OFF.
+            assert preferences.wants(_user(), "registration_confirmed", Channel.EMAIL) is False
 
     def describe_push_per_channel_row():
         def it_reads_enabled_from_an_explicit_row():
             user = _user()
-            _pref(user, "class_published", Channel.PUSH, True)
-            assert preferences.wants(user, "class_published", Channel.PUSH) is True
+            _pref(user, "registration_confirmed", Channel.PUSH, True)
+            assert preferences.wants(user, "registration_confirmed", Channel.PUSH) is True
 
         def it_defaults_push_off_with_no_row():
-            assert preferences.wants(_user(), "class_published", Channel.PUSH) is False
+            assert preferences.wants(_user(), "registration_confirmed", Channel.PUSH) is False
 
     def describe_non_legacy_channels():
         def it_now_honors_a_real_per_channel_preference():
@@ -66,8 +66,8 @@ def describe_wants():
 
     def describe_undeclared_channel():
         def it_returns_false_when_event_has_no_such_channel():
-            # A seeded legacy event (class_reminder) declares no discord channel. (class_published
-            # now DOES — it gained the Discord broadcast — so use a still-discord-free event here.)
+            # A seeded legacy event (class_reminder) declares no discord channel at all, so
+            # a preference for one can never be honoured.
             assert preferences.wants(_user(), "class_reminder", Channel.DISCORD) is False
 
 

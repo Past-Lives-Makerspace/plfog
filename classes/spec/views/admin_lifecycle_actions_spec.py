@@ -167,7 +167,7 @@ def describe_admin_overview_queue():
         assert reverse("classes:admin_class_remind_lead", kwargs={"pk": with_lead.pk}) in html
         # Approve opens the publish confirm on the overview row.
         assert "Publish this class?" in html
-        assert "posts to Discord" in html
+        assert "New public classes are also posted to the Discord classes channel within about 15 minutes" in html
 
     def it_counts_every_queue_in_the_merged_card(admin_user, client, db):
         """The card's own count is all three queues together, not just the admin's own."""
@@ -703,7 +703,8 @@ def describe_admin_class_create_publish_path():
         assert created.status == Status.PUBLISHED
         assert created.approved_by == admin_user
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED, class_offering=created).count() == 1
-        assert Notification.objects.filter(trigger="class_published", user=member).count() == 1
+        # The direct-create publish notifies nobody site-wide.
+        assert not Notification.objects.filter(user=member).exists()
 
 
 def describe_admin_classes_facets():

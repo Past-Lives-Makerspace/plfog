@@ -11,6 +11,7 @@ from core.events.registry import Recipients
 from membership.models import GuildStaffMembership, Member
 from tests.membership.factories import (
     GuildFactory,
+    GuildMembershipFactory,
     GuildStaffMembershipFactory,
     OrientationBookingFactory,
 )
@@ -111,6 +112,38 @@ def describe_guild_lead():
     def it_is_empty_when_the_guild_has_no_lead():
         guild = GuildFactory(guild_lead=None)
         assert resolvers.guild_lead({"guild": guild}) == []
+
+
+def describe_guild_members():
+    def it_includes_everyone_on_the_guild_roster(linked_member):
+        joined = linked_member()
+        guild = GuildFactory()
+        GuildMembershipFactory(guild=guild, member=joined)
+        recipients = resolvers.guild_members({"guild": guild})
+        assert _user_pks(recipients) == {joined.user_id}
+
+    def it_excludes_a_member_who_has_not_joined(linked_member):
+        joined = linked_member()
+        outsider = linked_member()
+        guild = GuildFactory()
+        GuildMembershipFactory(guild=guild, member=joined)
+        recipients = resolvers.guild_members({"guild": guild})
+        assert _user_pks(recipients) == {joined.user_id}
+        assert outsider.user_id not in _user_pks(recipients)
+
+    def it_includes_a_directory_hidden_member(linked_member):
+        # Directory privacy governs the public roster, not whether you hear from your
+        # own guild — a hidden member is still part of the guild's audience.
+        hidden = linked_member()
+        hidden.show_in_directory = False
+        hidden.save(update_fields=["show_in_directory"])
+        guild = GuildFactory()
+        GuildMembershipFactory(guild=guild, member=hidden)
+        recipients = resolvers.guild_members({"guild": guild})
+        assert _user_pks(recipients) == {hidden.user_id}
+
+    def it_resolves_to_nobody_for_an_empty_guild():
+        assert resolvers.guild_members({"guild": GuildFactory()}) == []
 
 
 def describe_guild_orienters():

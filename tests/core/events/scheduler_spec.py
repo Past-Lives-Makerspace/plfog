@@ -117,7 +117,7 @@ def describe_flush_digests():
     def it_drains_buffered_digest_rows(db):
         # A PENDING digest row should be grouped + flipped to SENT by the flush.
         EventDelivery.objects.create(
-            event_key="class_published",
+            event_key="site_announcement",
             target_ref="user:1",
             channel=Channel.DIGEST.value,
             period="digest",

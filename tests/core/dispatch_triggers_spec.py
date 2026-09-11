@@ -1,6 +1,6 @@
-"""Event-spine fan-out at core events — invite_accepted, new_member_joined.
+"""Event-spine fan-out at core events — new_member_joined.
 
-These senders were migrated onto ``core.events.emit.emit`` (Phase 4). The
+This sender was migrated onto ``core.events.emit.emit`` (Phase 4). The
 characterization here pins the post-migration truth: the in-app Notification rows
 still land for the right audience, exactly one SiteActivity row is written (emit
 logs it — there is no second manual log), and ``new_member_joined`` now resolves
@@ -16,7 +16,7 @@ from django.db.models.signals import post_save
 from django.test import RequestFactory
 from factory.django import mute_signals
 
-from core.models import Invite, Notification, SiteActivity
+from core.models import Notification, SiteActivity
 from membership.models import Member
 from tests.membership.factories import MemberFactory
 
@@ -36,36 +36,6 @@ def _admin_member(email: str) -> Member:
     member.user = user
     member.save(update_fields=["user"])
     return member
-
-
-def describe_invite_accepted_dispatch():
-    def it_dispatches_to_invited_by_user_on_mark_accepted():
-        invited_by = User.objects.create_user(username="inviter", email="inviter@example.com")
-        member = MemberFactory()
-        invite = Invite.objects.create(email="invitee@example.com", invited_by=invited_by, member=member)
-
-        invite.mark_accepted()
-
-        assert Notification.objects.filter(user=invited_by, trigger="invite_accepted").exists()
-
-    def it_does_not_dispatch_when_invited_by_is_none():
-        member = MemberFactory()
-        invite = Invite.objects.create(email="noinviter@example.com", invited_by=None, member=member)
-
-        invite.mark_accepted()
-
-        assert not Notification.objects.filter(trigger="invite_accepted").exists()
-
-    def it_logs_exactly_one_invite_accepted_activity_row():
-        invited_by = User.objects.create_user(username="inviter2", email="inviter2@example.com")
-        member = MemberFactory()
-        invite = Invite.objects.create(email="once@example.com", invited_by=invited_by, member=member)
-
-        invite.mark_accepted()
-
-        rows = list(SiteActivity.objects.filter(kind=SiteActivity.Kind.INVITE_ACCEPTED))
-        assert len(rows) == 1
-        assert rows[0].target == member
 
 
 def describe_new_member_joined_dispatch():

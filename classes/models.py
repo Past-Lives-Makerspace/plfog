@@ -17,7 +17,7 @@ from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
 from django.utils import timezone
 from django.utils.formats import date_format
-from django.utils.html import format_html, strip_tags
+from django.utils.html import strip_tags
 from django.utils.safestring import SafeString, mark_safe
 from django.utils.timezone import localtime
 
@@ -1226,12 +1226,25 @@ class ClassOffering(HeroCropMixin, models.Model):
         return row
 
     def publish(self, actor: "User | None") -> None:
-        """The single place a class goes live: stamps the row, logs it, and announces it.
+        """The single place a class goes live: stamps the row and logs it.
 
         Called by the admin's final review approval (``on_review_decision_recorded``) and
         by the admin's direct create path. Refuses an unready class (no photos, no dates,
         no real description, no capacity) so the catalog never shows a class nobody can
         book.
+
+        Publishing notifies nobody site-wide. The instructor's "Your class was approved"
+        bell row + the rich "live!" email fan out from the ``instructor_class_approved``
+        event emitted by ``classes.emails.send_class_review_decision`` (called by the view
+        right after the publishing decision), and members hear that a new class is live
+        from the ``announce_new_classes`` cron, which posts every newly bookable offering
+        to #classes every 15 minutes.
+
+        Republishing announces nothing. The cron stamps :attr:`channel_announced_at` once
+        and :meth:`unpublish` never clears it, so a class taken back to draft and published
+        again is not news a second time. The retired ``class_published`` event used to make
+        it news again, by carrying the publish moment in its ledger key; that is gone
+        deliberately, not by oversight.
 
         Raises:
             ValidationError: When :attr:`is_ready` is False, naming every failing item.
@@ -1240,11 +1253,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             from django.core.exceptions import ValidationError
 
             raise ValidationError(self.readiness_error("publish"))
-        from django.urls import reverse
-
         from classes import activity
-        from classes.emails import _absolute_url
-        from core.events.emit import emit
 
         self.status = self.Status.PUBLISHED
         self.approved_by = actor
@@ -1256,34 +1265,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         # an admin publishes never gets a page re-minted behind an admin's back.
         if self.instructor is not None and self.instructor.can_create_classes:
             self.instructor.ensure_instructor_slug()
-        # The instructor's "Your class was approved" bell row + the rich "live!" email
-        # both fan out from the ``instructor_class_approved`` event emitted by
-        # ``classes.emails.send_class_review_decision`` (called by the view right after
-        # the publishing decision). This broadcast is the "a new class is live" in-app
-        # fan-out to ALL active members (resolved by the ``class_published`` event); its
-        # EMAIL channel defaults off, matching the old in-app-only dispatch.
-        class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
-        emit(
-            "class_published",
-            actor=actor,
-            target=self,
-            context={
-                "class_title": self.title,
-                "class_url": class_url,
-                "class_image_html": self.email_hero_image_html,
-            },
-            url=class_url,
-            # The publish moment is part of the period on purpose: the delivery ledger
-            # dedupes on it, so a class taken back to draft and published again announces
-            # again (Discord, bell, email) instead of matching the first publish's slot.
-            # Microseconds, because a test (or a hasty admin) can do both inside a second.
-            period=f"offering:{self.pk}:published:{self.published_at:%Y%m%d%H%M%S%f}",
-            # A demo class is real enough to walk through end to end, but announcing it in
-            # the makerspace Discord tells 200 members about a workshop that does not
-            # exist. Suppressing only the BROADCAST leaves the in-app row and the email
-            # fan-out alone, so a live walkthrough still shows the whole publish flow.
-            suppress_broadcast=self.is_demo,
-        )
 
     def cancel(self, actor: "User | None", reason: str) -> None:
         """Cancel a live class: the member-facing event. Everyone registered is told why.
@@ -1897,28 +1878,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         (the hero already leads the page).
         """
         return [{"url": gi.image.url, "alt": gi.alt_text or self.title} for gi in self.gallery_images.all()]
-
-    @property
-    def email_hero_image_html(self) -> SafeString:
-        """A styled ``<img>`` of the class's hero image for the class-published email.
-
-        Empty string when the class has no image. Injected as a trusted, app-built
-        SafeString into the ``class_published`` copy fragment (the same pattern as the
-        voting-results chart) so the constrained copy renderer inserts it verbatim;
-        ``format_html`` escapes the URL and alt text. The URL comes from
-        :attr:`display_images` (the class's own hero, else a gallery shot, else the
-        category hero) and is absolute in production (R2 storage).
-        """
-        images = self.display_images
-        if not images:
-            return mark_safe("")
-        hero = images[0]
-        return format_html(
-            '<img src="{}" alt="{}" width="520" '
-            'style="width:100%;max-width:520px;height:auto;border-radius:8px;margin:0 0 20px;display:block;">',
-            hero["url"],
-            hero["alt"],
-        )
 
     @property
     def display_faqs(self) -> list[dict]:

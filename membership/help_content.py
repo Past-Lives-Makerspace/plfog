@@ -228,7 +228,7 @@ There are three ways in:
 
 Your settings are a grid: every kind of event runs down the side, and each column is a way that event can reach you.
 
-- **In-app (Bell)** — always on. The bell shows everything, so nothing is ever lost.
+- **In-app (Bell)** — always on. Most notices land in the bell and you can't switch it off. A few reach you only by email.
 - **Email** — a message to your inbox.
 - **Push** — a notification on your phone. Android only for now; iOS is coming soon.
 - **Discord** — a direct message from the Fog Bot. This column only works once you've connected Discord.
@@ -241,12 +241,13 @@ Flip any switch to turn that notice on or off for that channel. To move faster:
 
 - **All on** / **All off** at the very top flips everything at once.
 - Each category ("Classes", "Your guilds", and so on) has its own **All on** / **All off**.
+- Some rows cover a whole family of notices at once — every update about an event you proposed, say. Switching that row off switches off the whole family.
 
 Then hit **Save** at the bottom.
 
 ## What You Can't Turn Off {#always-on}
 
-A few notices are locked on, because missing them would cause real problems: receipts, security and sign-in messages, and booking and orientation updates. You'll always get those, and the bell always shows everything.
+A few notices are locked on, because missing them would cause real problems: sign-in links and invitations, a class being cancelled, refunds, charges, and tab limit warnings, a space agreement ending, equipment reservations, and Discord setup. You'll always get those by email. Most of them sit together in a block called **Always emailed**. Open it and you can still change push and Discord for the ones that offer them.
 
 Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
 

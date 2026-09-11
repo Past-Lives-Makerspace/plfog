@@ -109,5 +109,5 @@ def describe_events_without_the_override():
     def it_leaves_the_central_post_untouched_for_other_events(settings):
         settings.DISCORD_NOTIFY_WEBHOOK_URL = _CENTRAL
         with patch("core.events.discord.post_embed", return_value=True) as mock_post:
-            emit("class_published", context={}, title="T", body="B", period="cp:central")
+            emit("site_announcement", context={}, title="T", body="B", period="sa:central")
         assert _posted_urls(mock_post) == [_CENTRAL]

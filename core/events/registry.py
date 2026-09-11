@@ -98,7 +98,6 @@ class Recipients(str, Enum):
     CLASS_ROSTER = "class_roster"
     NEXT_WAITLISTED = "next_waitlisted"
     TAB_MEMBER = "tab_member"
-    INVITER = "inviter"
     INVITEE = "invitee"
     LEASE_TENANT = "lease_tenant"
     ALL_ACTIVE_MEMBERS = "all_active_members"
@@ -226,8 +225,6 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         "instructor_application_approved",
         "instructor_application_declined",
-        # Membership — someone accepted the invite you sent
-        "invite_accepted",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
     }
@@ -293,7 +290,6 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
 # These are the Phase-1 seed wiring; the migration phase refines per-site.
 _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     # Classes — member-side
-    "class_published": Recipients.ALL_ACTIVE_MEMBERS,
     "class_reminder": Recipients.REGISTRANT,
     "registration_confirmed": Recipients.REGISTRANT,
     # class_cancelled is the site-wide "a class was cancelled" broadcast that
@@ -329,7 +325,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "tab_entry_added": Recipients.TAB_MEMBER,
     "tab_approaching_limit": Recipients.TAB_MEMBER,
     # Membership
-    "invite_accepted": Recipients.INVITER,
     "new_member_joined": Recipients.FOG_ADMINS,
     # Spaces / leases
     "lease_expiring": Recipients.LEASE_TENANT,
@@ -345,7 +340,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
 # (audit-E). Triggers with no corresponding activity kind get ``None`` (no
 # activity row is written when they are emitted).
 _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
-    "class_published": None,  # see the class_cancelled note below (CmsActivity mirror is the source)
     "class_reminder": None,
     # ``registration_confirmed`` / ``waitlist_confirmed`` / ``class_review_requested`` /
     # ``instructor_class_approved`` log NO SiteActivity via emit: the classes app writes its
@@ -356,10 +350,9 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     # also logged the SiteActivity here it would write the row twice. Keeping these ``None``
     # makes the CmsActivity mirror the single source of the SiteActivity, exactly as today.
     "registration_confirmed": None,
-    # ``class_cancelled`` / ``class_published`` / ``refund_issued`` log NO SiteActivity
-    # via emit: the classes app already writes the CmsActivity at each workflow point and
-    # ``classes.activity.log`` MIRRORS it into the matching SiteActivity kind
-    # (class_archived→class_cancelled, class_published→class_published,
+    # ``class_cancelled`` / ``refund_issued`` log NO SiteActivity via emit: the classes app
+    # already writes the CmsActivity at each workflow point and ``classes.activity.log``
+    # MIRRORS it into the matching SiteActivity kind (class_archived→class_cancelled,
     # registration_refunded→refund_issued — see ``classes.activity._SITE_KIND_MAP``). If
     # emit also logged the SiteActivity here it would write the row twice; keeping these
     # ``None`` makes the CmsActivity mirror the single source, exactly as before the
@@ -387,7 +380,6 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     # ``None`` makes that the single source after the dispatch→emit migration.
     "tab_entry_added": None,
     "tab_approaching_limit": None,
-    "invite_accepted": "invite_accepted",
     "new_member_joined": "member_signup",
     "lease_expiring": None,
     # Both wiki events log NO SiteActivity via emit. emit() writes its activity row with
@@ -439,7 +431,6 @@ def _seed_from_triggers() -> list[EventType]:
 _DISCORD_ON = ChannelSpec(Channel.DISCORD, ChannelDefault.ON)
 
 # New event keys (single vocabulary — these strings ARE the preference / audit keys).
-CLASS_PUBLISHED = "class_published"  # re-uses the seeded key + ADDS the Discord broadcast channel
 MEMBER_INVITED = "member.invited"
 MEMBER_LOGIN_INVITE = "member.login_invite"
 GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
@@ -502,22 +493,6 @@ _DISCORD_OFF = ChannelSpec(Channel.DISCORD, ChannelDefault.OFF)
 
 
 _NEW_EVENTS: list[EventType] = [
-    # 0. class_published — a newly published class/workshop, broadcast site-wide to all
-    #    active members. REPLACES the Phase-1 seed entry to ADD the Discord broadcast
-    #    channel (in-app stays ON, email stays OFF, push stays OFF). It is site-wide, so
-    #    it posts to the central/global webhook only — no guild webhook (its emit carries
-    #    no ``guild`` in context). ``activity_kind`` stays None: the classes app writes the
-    #    CmsActivity and ``classes.activity.log`` MIRRORS it into the matching SiteActivity
-    #    kind (see ``_TRIGGER_ACTIVITY_KINDS`` above), so emit must not log a duplicate.
-    EventType(
-        key=CLASS_PUBLISHED,
-        label="New class published",
-        description="A new class or workshop goes live.",
-        category="Classes",
-        recipient=Recipients.ALL_ACTIVE_MEMBERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _PUSH_OFF, _DISCORD_ON),
-        activity_kind=None,
-    ),
     # 1. member.invited — the invitee MUST receive it (forced email). In-app would
     #    have nowhere to land (the invitee has no account yet), so email only.
     EventType(
@@ -842,19 +817,22 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # 21. orientation.completed — a member finished their orientation; welcome them to the
-    #     guild. Goes to the guild's existing members (GUILD_MEMBERS); in-app on + the guild's
-    #     own Discord channel on (no email — a light social nudge, not an inbox item). Carries
-    #     ``guild`` in context, so the routing sibling posts to the guild's own webhook.
-    #     ``activity_kind`` stays None: ``complete_orientation`` already logs the
-    #     ORIENTATION_COMPLETED SiteActivity, so emit must NOT log a duplicate (mirrors the
-    #     class_published precedent above).
+    #     guild. Discord only (no email — a light social nudge, not an inbox item — and no
+    #     bell: a welcome belongs in the room the guild talks in, not in every member's
+    #     notification list). Carries ``guild`` in context, so the post DUAL-ROUTES: the
+    #     central notify webhook AND the guild's own, per ``_broadcast_fan_out``. Declaring
+    #     no IN_APP also drops the Push channel (``_with_push`` returns early) and the
+    #     settings row (``_visible_events`` keeps only events with a per-user channel), which
+    #     is the point: nothing here is a per-member preference. ``activity_kind`` stays
+    #     None: ``complete_orientation`` already logs the ORIENTATION_COMPLETED
+    #     SiteActivity, so emit must NOT log a duplicate.
     EventType(
         key=ORIENTATION_COMPLETED,
         label="Orientation completed — welcome",
         description="A member finished their orientation; welcome them to the guild.",
         category="Orientations",
         recipient=Recipients.GUILD_MEMBERS,
-        channels=(_IN_APP_ON, _DISCORD_ON),
+        channels=(_DISCORD_ON,),
         activity_kind=None,
     ),
     # 22-25. space.* — the interactive space map's request flow. All four are personal

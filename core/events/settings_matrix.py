@@ -57,9 +57,9 @@ CHANNEL_LABELS: dict[Channel, str] = {
 # Shown on a disabled DISCORD_DM toggle when the member hasn't linked Discord yet.
 _DISCORD_LINK_HINT = "Connect your Discord account first to receive DMs."
 
-# Stable category display order; any category not listed falls to the end, alpha
-# (before STAFF_SECTION). STAFF_SECTION is always forced dead-last by
-# _ordered_categories, so it is not listed here.
+# Stable category display order; any category not listed falls to the end, alpha,
+# ahead of both collapsed tail sections. _ordered_categories forces ALWAYS_EMAILED_SECTION
+# then STAFF_SECTION dead-last, so neither is listed here.
 CATEGORY_ORDER: tuple[str, ...] = (
     "Orientations",
     "Guilds",
@@ -119,6 +119,20 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
     }
 )
 
+# The single display section that collects every event whose EMAIL channel is FORCED —
+# mail the member cannot switch off. It renders as a collapsed disclosure rather than ten
+# rows of grid (templates/hub/partials/_notification_matrix.html).
+#
+# The name is pronoun-free ("Always emailed", not "Always sent to you") so the one string
+# reads correctly on all three surfaces — the member's own page, the no-login token page,
+# and the admin editing someone else's — with no template branching. It is about the
+# *email* specifically: these rows keep writable Push and Discord cells. Those cells are
+# why the block is COLLAPSED rather than hidden — a collapsed <details> still submits its
+# inputs, whereas omitting the rows would omit their checkboxes from the POST and
+# save_matrix would read the absence as enabled=False, silently wiping the member's
+# push/Discord choices.
+ALWAYS_EMAILED_SECTION = "Always emailed"
+
 
 @dataclass(frozen=True)
 class Cell:
@@ -159,20 +173,142 @@ class Row:
     badge: str = ""
 
 
+@dataclass(frozen=True)
+class RowGroup:
+    """Sibling events a member thinks of as ONE setting, rendered as one matrix row.
+
+    "What happened to my event proposal" is one question to a member and three events to
+    the app (approved / changes requested / declined). The page asks it once: the group
+    renders a single :class:`Row` at the position of its *first* member, in that member's
+    section, its checkboxes are named after ``group_id``, and :func:`save_matrix` fans the
+    one posted value back out to every key in ``event_keys``.
+
+    This is presentation only, and deliberately so. The event registry keeps its separate
+    events, every send path still reads its own key, the Emails tab and the admin copy
+    catalogue still read ``EventType.label``/``description``, and
+    :class:`core.models.NotificationPreference` keeps exactly one row per
+    ``(user, event key, channel)`` — grouping changes no row count in that table and
+    ``preferences.wants()`` never learns groups exist.
+
+    What it costs: from *this page* the siblings now move in lockstep. A member can no
+    longer ask for the approval mail but not the decline mail. That was accepted as the
+    price of a page a member can actually read.
+
+    ``event_keys`` is always an explicit tuple and never a key prefix. ``event.submitted``
+    and ``guild_announcement.submitted`` share the prefix of the outcome notices below but
+    are approval *requests* routed to staff through a different emit helper; a prefix
+    match would swallow them.
+    """
+
+    group_id: str
+    label: str
+    description: str
+    event_keys: tuple[str, ...]
+
+
+# The sibling families this page collapses into one row each. ``group_id`` lives in its
+# own literal ``group.`` namespace, which no registered event key uses (a spec pins that),
+# so a group id can never collide with an event key.
+#
+# ``label`` and ``description`` are settings-page copy and reach no other surface: the
+# Emails tab and the admin catalogue both read the registry's own ``description``.
+ROW_GROUPS: tuple[RowGroup, ...] = (
+    RowGroup(
+        group_id="group.event_decision",
+        label="Updates to your event",
+        description="Your proposed event was approved, sent back for changes, or declined.",
+        event_keys=("event.approved", "event.changes_requested", "event.declined"),
+    ),
+    RowGroup(
+        group_id="group.class_decision",
+        label="Updates to your class",
+        description="A reviewer approved your class or asked you for changes.",
+        event_keys=("instructor_class_approved", "instructor_changes_requested"),
+    ),
+    RowGroup(
+        group_id="group.announcement_decision",
+        label="Updates to your announcement",
+        description="Your proposed announcement was approved, sent back for changes, or declined.",
+        event_keys=(
+            "guild_announcement.approved",
+            "guild_announcement.changes_requested",
+            "guild_announcement.declined",
+        ),
+    ),
+    RowGroup(
+        group_id="group.space_request_decision",
+        label="Updates to your space request",
+        description="Your studio or cubby request was approved or declined.",
+        event_keys=("space.request_approved", "space.request_declined"),
+    ),
+    RowGroup(
+        group_id="group.instructor_application_decision",
+        label="Updates to your request to host a workshop",
+        description="Your request to host a workshop was approved or declined.",
+        event_keys=("instructor_application_approved", "instructor_application_declined"),
+    ),
+    RowGroup(
+        group_id="group.waitlist_promotion",
+        label="Added from the waitlist",
+        description=(
+            "Staff moved you off the waitlist into a class. If the class is paid, this carries your payment link."
+        ),
+        event_keys=("waitlist_promoted", "waitlist_promoted_pay"),
+    ),
+)
+
+# Reverse index: the group a member key belongs to. Absent for the vast majority of
+# events, which still render one row each.
+_GROUP_BY_EVENT_KEY: dict[str, RowGroup] = {key: group for group in ROW_GROUPS for key in group.event_keys}
+
+
 def field_name(event_key: str, channel: Channel) -> str:
     """The POST field name for an (event, channel) checkbox."""
     return f"pref__{event_key}__{channel.value}"
 
 
+def _post_key_for(event: EventType) -> str:
+    """The key ``event``'s checkboxes are named after — its group's id, or its own key.
+
+    This one helper is the whole group fan-out. :func:`build_matrix` names the rendered
+    cells with it and :func:`save_matrix` reads the posted value with it, so every member
+    of a group reads the SAME posted field: one checkbox writes one
+    :class:`core.models.NotificationPreference` row per member key, with no separate
+    fan-out loop to keep in step.
+    """
+    group = _GROUP_BY_EVENT_KEY.get(event.key)
+    return event.key if group is None else group.group_id
+
+
+def _is_always_sent(event: EventType) -> bool:
+    """Whether ``event`` reaches the member's inbox no matter what they choose.
+
+    Derived, never declared: an event whose EMAIL channel default is ``FORCED`` is exactly
+    the set :data:`ALWAYS_EMAILED_SECTION` collects.
+    """
+    spec = event.channel(Channel.EMAIL)
+    return spec is not None and spec.is_forced
+
+
 def _section_for(event: EventType) -> str:
     """The settings-page section an event renders under.
 
-    Staff/leadership/admin events collapse into the single STAFF_SECTION; every
-    other event keeps its own member-facing ``category``. This is display grouping
-    only — an event's ``category`` (which also drives the email ``X-Category``
-    header) is left untouched.
+    Precedence, in order: staff/leadership/admin events collapse into the single
+    STAFF_SECTION; then an event whose email is forced collapses into
+    ALWAYS_EMAILED_SECTION; every other event keeps its own member-facing ``category``.
+
+    The staff check deliberately wins: ``refund_failed`` declares a forced email *and*
+    routes to BILLING_APPROVERS, and it belongs with the other staff duties, gated behind
+    the same eligibility check, not in a block a plain member would be shown.
+
+    This is display grouping only — an event's ``category`` (which also drives the email
+    ``X-Category`` header) is left untouched.
     """
-    return STAFF_SECTION if event.recipient in STAFF_RECIPIENTS else event.category
+    if event.recipient in STAFF_RECIPIENTS:
+        return STAFF_SECTION
+    if _is_always_sent(event):
+        return ALWAYS_EMAILED_SECTION
+    return event.category
 
 
 @dataclass(frozen=True)
@@ -300,15 +436,16 @@ def _visible_events(user: User, *, include_staff_section: bool = True) -> list[E
 
 
 def _ordered_categories(categories: set[str]) -> list[str]:
-    """Order the rendered sections: CATEGORY_ORDER first, unknown extras alpha, staff last.
+    """Order the rendered sections: CATEGORY_ORDER first, unknown extras alpha, then the
+    two collapsed blocks — Always emailed, then Staff & leadership.
 
-    STAFF_SECTION is forced dead-last (its comment finally becomes true): a member-facing
-    category always sorts ahead of the Staff & Leadership section, even a brand-new one not
-    yet listed in CATEGORY_ORDER.
+    Both tail sections are placed **structurally**, not alphabetically, so a brand-new
+    category not yet listed in CATEGORY_ORDER still sorts ahead of them whatever it is
+    called.
     """
-    tail = [STAFF_SECTION] if STAFF_SECTION in categories else []
+    tail = [section for section in (ALWAYS_EMAILED_SECTION, STAFF_SECTION) if section in categories]
     ranked = [c for c in CATEGORY_ORDER if c in categories]
-    rest = sorted(c for c in categories if c not in CATEGORY_ORDER and c != STAFF_SECTION)
+    rest = sorted(c for c in categories if c not in CATEGORY_ORDER and c not in tail)
     return ranked + rest + tail
 
 
@@ -397,9 +534,16 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tupl
     For each visible event, one :class:`Row` with a :class:`Cell` per user channel:
     forced cells locked-on, opt-out-able cells reflecting the saved preference (or the
     event's channel default). A row the user receives via an admin capability carries a
-    badge. Sections are returned in :data:`CATEGORY_ORDER`, with every staff/leadership
-    event collected into a single :data:`STAFF_SECTION` rendered **last** (and only for
-    eligible viewers — see :func:`_visible_events`).
+    badge. Sections are returned in :data:`CATEGORY_ORDER`, with every always-emailed
+    event collected into :data:`ALWAYS_EMAILED_SECTION` and every staff/leadership event
+    into a single :data:`STAFF_SECTION` rendered **last** (and only for eligible viewers —
+    see :func:`_visible_events`).
+
+    The members of a :class:`RowGroup` collapse into ONE row, emitted at the position of
+    the group's first member and named after the group. Such a row's cell is on only when
+    **every** member key is on: any opt-out wins, so the page never promises mail that one
+    of the siblings would not send. A member holding a mix therefore sees the row off, and
+    flattens the group on their next save — the approved rule, not a bug.
 
     When ``include_staff_section`` is ``False`` (an admin/officer previewing as Member or
     Guest), the Staff & Leadership section and any staff-only channel columns are omitted.
@@ -412,7 +556,18 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tupl
     availability = {channel: channel_availability(user, channel, discord_linked=discord_linked) for channel in channels}
     capability_badges = _capability_badges(user, events)
     by_category: dict[str, list[Row]] = {}
+    rendered: set[str] = set()
     for event in events:
+        post_key = _post_key_for(event)
+        if post_key in rendered:
+            # A later sibling of a group whose row is already out. Plain event keys are
+            # unique, so this only ever skips siblings — never a second real event.
+            continue
+        rendered.add(post_key)
+        group = _GROUP_BY_EVENT_KEY.get(event.key)
+        # The keys this row's state is read from: the whole family for a group, else the
+        # event itself.
+        pref_keys = (event.key,) if group is None else group.event_keys
         cells: list[Cell] = []
         for channel in channels:
             spec = event.channel(channel)
@@ -422,11 +577,12 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tupl
             forced = spec.is_forced
             # IN_APP is always-on; show it locked-on like a forced channel.
             locked = forced or channel is Channel.IN_APP
-            enabled = preferences.wants(user, event.key, channel)
+            # Conservative read for a group: on only when every member key is on.
+            enabled = all(preferences.wants(user, key, channel) for key in pref_keys)
             available, hint = availability[channel]
             cells.append(
                 Cell(
-                    name=field_name(event.key, channel),
+                    name=field_name(post_key, channel),
                     channel=channel,
                     enabled=enabled,
                     forced=locked,
@@ -436,9 +592,9 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[tupl
                 )
             )
         row = Row(
-            event_key=event.key,
-            label=event.label,
-            description=event.description,
+            event_key=post_key,
+            label=event.label if group is None else group.label,
+            description=event.description if group is None else group.description,
             cells=cells,
             badge=capability_badges.get(event.key, ""),
         )
@@ -458,6 +614,13 @@ def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bo
     before they link Discord) is skipped — its box renders disabled, so the browser
     omits it, and writing ``enabled=False`` would silently wipe a preference they set
     while linked. Skipping preserves their choice across an unlink/relink.
+
+    A :class:`RowGroup` posts ONE checkbox per channel for the whole family, so every
+    member key of the group reads that same field (:func:`_post_key_for`) and gets its own
+    row written with the same ``enabled``. The iteration is still per event, so the group
+    fan-out costs no extra bookkeeping and writes exactly the rows the ungrouped page
+    wrote: nothing in :class:`core.models.NotificationPreference` ever carries a
+    ``group.`` key.
 
     ``include_staff_section`` **must** match the flag the GET render used. When it is
     ``False`` (an admin/officer saving while previewing as Member/Guest), the staff-event
@@ -481,5 +644,5 @@ def save_matrix(user: User, posted: dict[str, str], *, include_staff_section: bo
                 user=user,
                 event_key=event.key,
                 channel=channel.value,
-                defaults={"enabled": posted.get(field_name(event.key, channel)) == "on"},
+                defaults={"enabled": posted.get(field_name(_post_key_for(event), channel)) == "on"},
             )

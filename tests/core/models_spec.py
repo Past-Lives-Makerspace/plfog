@@ -218,18 +218,6 @@ def describe_Invite():
             assert row.actor == admin_user
             assert row.payload["email"] == "invited@example.com"
 
-    def describe_mark_accepted_site_activity():
-        def it_logs_invite_accepted_site_activity(admin_user):
-            MembershipPlanFactory()
-            with patch("core.email.send_mail"):
-                invite = Invite.create_and_send(email="accepted@example.com", invited_by=admin_user)
-            SiteActivity.objects.all().delete()
-            invite.mark_accepted()
-
-            row = SiteActivity.objects.filter(kind=SiteActivity.Kind.INVITE_ACCEPTED).first()
-            assert row is not None
-            assert row.target == invite.member
-
     def describe_sent_at():
         def it_returns_last_sent_at_when_set(admin_user):
             invite = Invite.objects.create(email="s@example.com", invited_by=admin_user)

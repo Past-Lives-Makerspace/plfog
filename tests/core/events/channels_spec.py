@@ -31,7 +31,7 @@ def _user():
 
 
 def _message(**kw):
-    base = dict(title="T", body="B", url="/x/", trigger_kind="class_published")
+    base = dict(title="T", body="B", url="/x/", trigger_kind="registration_confirmed")
     base.update(kw)
     return Message(**base)
 
@@ -41,7 +41,7 @@ def describe_in_app_adapter():
         user = _user()
         InAppAdapter().deliver(user, _message())
         note = Notification.objects.get(user=user)
-        assert note.trigger == "class_published"
+        assert note.trigger == "registration_confirmed"
         assert note.title == "T"
         assert note.body == "B"
         assert note.url == "/x/"
@@ -61,7 +61,7 @@ def describe_email_adapter():
     def it_sends_through_the_choke_point_and_logs():
         user = _user()
         EmailAdapter().deliver(user, _message())
-        assert TransactionalEmailLog.objects.filter(trigger_kind="class_published").exists()
+        assert TransactionalEmailLog.objects.filter(trigger_kind="registration_confirmed").exists()
 
     def it_skips_users_without_an_email():
         user = User.objects.create_user(username="noemail", email="")
@@ -75,7 +75,7 @@ def describe_email_adapter():
         _args, kwargs = mock_send.call_args
         assert kwargs["best_effort"] is True
         assert kwargs["html_body"] == "<b>hi</b>"
-        assert kwargs["trigger_kind"] == "class_published"
+        assert kwargs["trigger_kind"] == "registration_confirmed"
 
 
 def describe_push_adapter():
@@ -158,7 +158,7 @@ def describe_scheduled_email_adapter():
     def it_sends_through_the_choke_point_like_email():
         user = _user()
         ScheduledEmailAdapter().deliver(user, _message())
-        assert TransactionalEmailLog.objects.filter(trigger_kind="class_published").exists()
+        assert TransactionalEmailLog.objects.filter(trigger_kind="registration_confirmed").exists()
 
     def it_skips_users_without_an_email():
         user = User.objects.create_user(username="noemail2", email="")
@@ -202,14 +202,14 @@ def describe_digest_adapter():
 
     def it_lists_pending_rows_for_a_user_oldest_first():
         user = _user()
-        DigestAdapter().deliver(user, _message(trigger_kind="class_published"))
+        DigestAdapter().deliver(user, _message(trigger_kind="registration_confirmed"))
         DigestAdapter().deliver(user, _message(trigger_kind="class_cancelled"))
         pending = DigestAdapter.pending_for(user)
-        assert [r.event_key for r in pending] == ["class_published", "class_cancelled"]
+        assert [r.event_key for r in pending] == ["registration_confirmed", "class_cancelled"]
 
     def it_flush_due_groups_per_recipient_and_marks_sent():
         user = _user()
-        DigestAdapter().deliver(user, _message(trigger_kind="class_published"))
+        DigestAdapter().deliver(user, _message(trigger_kind="registration_confirmed"))
         DigestAdapter().deliver(user, _message(trigger_kind="class_cancelled"))
         grouped = DigestAdapter.flush_due()
         assert set(grouped) == {f"user:{user.pk}"}
@@ -282,7 +282,7 @@ def describe_push_channel_for():
         assert push_channel_for("voting.results_published") == "guilds"
 
     def it_sends_class_and_teaching_events_to_the_classes_channel():
-        assert push_channel_for("class_published") == "classes"
+        assert push_channel_for("registration_confirmed") == "classes"
         assert push_channel_for("instructor_new_registration") == "classes"
 
     def it_sends_other_categories_to_the_general_channel():
@@ -292,7 +292,7 @@ def describe_push_channel_for():
             "event.approved",
             "meeting.minutes_approved",
             "new_member_joined",
-            "orientation.completed",
+            "orientation_requested",
             "space.lease_requested",
         ):
             assert push_channel_for(key) == "general", key

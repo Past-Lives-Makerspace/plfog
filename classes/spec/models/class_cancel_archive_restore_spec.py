@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
-from core.models import EventDelivery, Notification, SiteActivity
+from core.models import Notification, SiteActivity
 
 Status = ClassOffering.Status
 
@@ -242,28 +242,17 @@ def describe_publish():
         assert offering.approved_by == admin_user
         assert offering.published_at is not None
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED, class_offering=offering).count() == 1
-        assert Notification.objects.filter(trigger="class_published", user=member).count() == 1
+        # Publishing notifies nobody site-wide — the #classes announcer does that.
+        assert not Notification.objects.filter(user=member).exists()
 
-    def it_announces_again_after_an_unpublish(db, admin_user):
-        # The delivery ledger dedupes on the emit period, so the period carries the publish
-        # moment: a class taken back to draft and published again is news again.
-        member = UserFactory(last_login=timezone.now())
+    def it_logs_the_publish_again_after_an_unpublish(db, admin_user):
+        # A class taken back to draft and published again is a second publish, so the
+        # CmsActivity trail records both rather than collapsing them.
         offering = ClassOfferingFactory(ready=True, status=Status.PENDING)
         offering.publish(admin_user)
-        first_period = (
-            EventDelivery.objects.filter(event_key="class_published").values_list("period", flat=True).first()
-        )
-        assert first_period is not None
-        assert first_period.startswith(f"offering:{offering.pk}:published:")
-        rows_after_first = EventDelivery.objects.filter(event_key="class_published").count()
-        assert rows_after_first >= 1
         offering.unpublish(admin_user)
         offering.publish(admin_user)
-        rows = EventDelivery.objects.filter(event_key="class_published")
-        assert rows.count() == 2 * rows_after_first
-        assert rows.values_list("period", flat=True).distinct().count() == 2
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED, class_offering=offering).count() == 2
-        assert Notification.objects.filter(trigger="class_published", user=member).count() == 2
 
     def it_refuses_the_admin_decision_on_an_unready_class_before_saving_the_row(db, admin_user):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")

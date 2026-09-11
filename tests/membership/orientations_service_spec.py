@@ -374,21 +374,24 @@ def describe_complete_orientation():
         assert booking.is_completed is True
         assert mail.outbox == []
 
-    def it_posts_the_welcome_to_existing_guild_members_on_manual_complete():
-        guild = GuildFactory(name="Metal Guild")
-        first = _guild_member(guild, "welcome_first")
-        second = _guild_member(guild, "welcome_second")
+    def it_posts_the_welcome_to_the_guild_channel_on_manual_complete():
+        # The welcome is Discord-only: the newcomer's and the guild's names render into the
+        # guild's own post, and no member gets a bell row for it.
+        guild = GuildFactory(name="Metal Guild", discord_webhook_url=_GUILD_HOOK, discord_post_enabled=True)
+        _guild_member(guild, "welcome_first")
         newcomer = MemberFactory(full_legal_name="Robin Newcomer")
         booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=newcomer)
 
-        orientations.complete_orientation(booking)
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            orientations.complete_orientation(booking)
 
-        for existing in (first, second):
-            row = Notification.objects.get(user=existing.user, trigger="orientation.completed")
-            assert "Robin Newcomer" in row.title
-            assert "Metal Guild" in row.title
-            assert "Robin Newcomer" in row.body
-            assert "Metal Guild" in row.body
+        guild_calls = [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK]
+        assert len(guild_calls) == 1
+        message = guild_calls[0].args[1]
+        assert "Robin Newcomer" in message.title
+        assert "Robin Newcomer" in message.body
+        assert "Metal Guild" in message.body
+        assert not Notification.objects.filter(trigger="orientation.completed").exists()
 
     def it_logs_exactly_one_completion_activity():
         # emit's activity_kind is None, so the only ORIENTATION_COMPLETED row is the one
@@ -406,15 +409,14 @@ def describe_complete_orientation():
     def describe_idempotency():
         def it_does_not_double_post_when_completed_twice():
             guild = GuildFactory(name="Wood Guild", discord_webhook_url=_GUILD_HOOK, discord_post_enabled=True)
-            existing = _guild_member(guild, "idem_existing")
+            _guild_member(guild, "idem_existing")
             booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
 
             with patch("core.events.discord.post_embed", return_value=True) as mock_post:
                 orientations.complete_orientation(booking)
                 orientations.complete_orientation(booking)
 
-            # The period slot dedupes: exactly one in-app row per member, one guild post.
-            assert Notification.objects.filter(user=existing.user, trigger="orientation.completed").count() == 1
+            # The period slot dedupes: exactly one guild post, however often it is completed.
             guild_calls = [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK]
             assert len(guild_calls) == 1
 
@@ -431,49 +433,19 @@ def describe_complete_orientation():
             assert _guild_url(guild) in guild_calls[0].args[1].body
 
         def it_silently_skips_discord_when_no_webhook():
-            # Default guild has a blank webhook → the guild-own Discord post never fires, but
-            # the in-app welcome still does.
+            # Default guild has a blank webhook → the guild-own Discord post never fires, and
+            # the completion itself is unaffected.
             guild = GuildFactory(name="Clay Guild")
-            existing = _guild_member(guild, "nodiscord_existing")
+            _guild_member(guild, "nodiscord_existing")
             booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
 
-            with patch("core.events.discord.post_embed", return_value=True):
+            with patch("core.events.discord.post_embed", return_value=True) as mock_post:
                 orientations.complete_orientation(booking)
 
             assert not EventDelivery.objects.filter(target_ref__startswith="broadcast:guild:").exists()
-            assert Notification.objects.filter(user=existing.user, trigger="orientation.completed").exists()
-
-    def describe_audience():
-        def it_does_not_notify_the_newcomer_who_has_not_joined():
-            # The completing member has no GuildMembership → they're the subject, not a recipient.
-            guild = GuildFactory(name="Leather Guild")
-            newcomer = _member_with_user("newcomer_subject")
-            booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=newcomer)
-
-            orientations.complete_orientation(booking)
-
-            assert not Notification.objects.filter(user=newcomer.user, trigger="orientation.completed").exists()
-
-        def it_notifies_a_directory_hidden_member():
-            # guild_members ignores directory privacy — a hidden member still hears from their guild.
-            guild = GuildFactory(name="Stone Guild")
-            hidden = _member_with_user("hidden_member")
-            hidden.show_in_directory = False
-            hidden.save(update_fields=["show_in_directory"])
-            GuildMembershipFactory(guild=guild, member=hidden)
-            booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
-
-            orientations.complete_orientation(booking)
-
-            assert Notification.objects.filter(user=hidden.user, trigger="orientation.completed").exists()
-
-        def it_creates_no_rows_when_the_guild_has_no_other_members():
-            guild = GuildFactory(name="Solo Guild")
-            booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
-
-            orientations.complete_orientation(booking)
-
-            assert not Notification.objects.filter(trigger="orientation.completed").exists()
+            assert [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK] == []
+            booking.refresh_from_db()
+            assert booking.is_completed is True
 
 
 def describe_auto_complete():
@@ -503,14 +475,15 @@ def describe_auto_complete():
 
     def it_posts_the_welcome_when_auto_complete_closes_the_booking():
         # The cron path loops complete_orientation, so the welcome ships on auto-completion too.
-        guild = GuildFactory(name="Bronze Guild")
-        existing = _guild_member(guild, "autocomplete_existing")
+        guild = GuildFactory(name="Bronze Guild", discord_webhook_url=_GUILD_HOOK, discord_post_enabled=True)
+        _guild_member(guild, "autocomplete_existing")
         _past_confirmed_booking(guild)
 
-        completed = orientations.auto_complete()
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            completed = orientations.auto_complete()
 
         assert completed == 1
-        assert Notification.objects.filter(user=existing.user, trigger="orientation.completed").exists()
+        assert [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK] != []
 
 
 def describe_member_joined_guild():

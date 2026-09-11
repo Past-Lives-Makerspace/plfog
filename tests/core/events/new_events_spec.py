@@ -278,15 +278,30 @@ def describe_release_published():
 
 
 def describe_orientation_completed():
-    def it_registers_orientation_completed_with_guild_members_and_discord():
+    def it_registers_orientation_completed_as_discord_only():
         event = get_event("orientation.completed")
         assert event.recipient is Recipients.GUILD_MEMBERS
-        assert event.has_channel(Channel.IN_APP)
-        assert event.has_channel(Channel.DISCORD)
-        # No email channel — a light social nudge to the guild, not an inbox item.
+        assert event.channel_list == [Channel.DISCORD]
+        # No email — a light social nudge to the guild, not an inbox item. No bell and no
+        # push either: the welcome belongs in the guild's channel, not in every member's
+        # notification list, so there is nothing per-member left to prefer.
         assert not event.has_channel(Channel.EMAIL)
+        assert not event.has_channel(Channel.IN_APP)
+        assert not event.has_channel(Channel.PUSH)
         # activity_kind stays None: complete_orientation logs the SiteActivity itself.
         assert event.activity_kind is None
+
+    def it_keeps_orientation_completed_off_the_member_settings_page():
+        # No per-user channel means no settings row: the member has nothing to toggle.
+        # Asserted against the rendered matrix, not against the registry — deleting the
+        # no-user-channel guard in _visible_events would otherwise ship a label-only row
+        # with zero checkboxes onto every member's page.
+        from core.events.settings_matrix import build_matrix
+
+        viewer = User.objects.create_user(username="oc-settings", email="oc-settings@example.com")
+        rendered = {row.event_key for _section, rows in build_matrix(viewer) for row in rows}
+        assert rendered  # the page is not empty, so the absence below means something
+        assert "orientation.completed" not in rendered
 
     def it_keeps_orientation_completed_placeholders_and_sample_context_in_lockstep():
         from core.events.copy import COPY_CHANNELS, default_copy_for, placeholders_for, sample_context_for

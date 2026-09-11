@@ -191,33 +191,33 @@ def describe_revert_copy():
 def describe_edit_discord_route():
     def it_renders_the_routing_form_for_an_admin(client):
         _admin(client)
-        url = reverse("hub_admin_notification_discord", args=["class_published"])
+        url = reverse("hub_admin_notification_discord", args=["site_announcement"])
         response = client.get(url)
         assert response.status_code == 200
         assert b"Discord routing" in response.content
 
     def it_never_echoes_the_stored_webhook_url(client):
         secret = "https://discord.example/SECRET-TOKEN"
-        DiscordWebhookRoute.objects.create(event_key="class_published", webhook_url=secret, is_enabled=True)
+        DiscordWebhookRoute.objects.create(event_key="site_announcement", webhook_url=secret, is_enabled=True)
         _admin(client)
-        url = reverse("hub_admin_notification_discord", args=["class_published"])
+        url = reverse("hub_admin_notification_discord", args=["site_announcement"])
         response = client.get(url)
         assert b"SECRET-TOKEN" not in response.content
 
     def it_saves_a_route(client):
         _admin(client)
-        url = reverse("hub_admin_notification_discord", args=["class_published"])
+        url = reverse("hub_admin_notification_discord", args=["site_announcement"])
         response = client.post(
             url,
             {"webhook_url": "https://discord.example/hook", "is_enabled": "on"},
         )
         assert response.status_code == 302
-        route = DiscordWebhookRoute.objects.get(event_key="class_published")
+        route = DiscordWebhookRoute.objects.get(event_key="site_announcement")
         assert route.webhook_url == "https://discord.example/hook"
         assert route.is_enabled is True
 
     def it_forbids_plain_members(client):
         user = _member(username="m4")
         client.login(username=user.username, password="p")
-        url = reverse("hub_admin_notification_discord", args=["class_published"])
+        url = reverse("hub_admin_notification_discord", args=["site_announcement"])
         assert client.get(url).status_code == 403

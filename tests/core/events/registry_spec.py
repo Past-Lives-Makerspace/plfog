@@ -94,18 +94,21 @@ def describe_event_registry():
             # These member-email events are email-only (the invitee has no account; the
             # login-invite reaches someone who hasn't signed in; the Discord-guilds import
             # is a transactional email_to confirmation with no bell row), so the in-app
-            # invariant holds for every OTHER event.
-            # Discord-broadcast events have no in-app bell (they're @everyone channel posts)
-            email_only = {
+            # invariant holds for every event outside this set.
+            # Discord-broadcast events have no in-app bell (they're @everyone channel posts),
+            # and orientation.completed is one of them: the guild welcome belongs in the
+            # guild's channel, not in every member's notification list.
+            no_bell = {
                 "member.invited",
                 "member.login_invite",
                 "discord_guilds_imported",
                 "guild_welcome",
                 "voting.discord_reminder",
                 "voting.results_discord",
+                "orientation.completed",
             }
             for event in registry.EVENTS:
-                if event.key in email_only:
+                if event.key in no_bell:
                     assert event.channel(Channel.IN_APP) is None
                     continue
                 spec = event.channel(Channel.IN_APP)
@@ -129,8 +132,8 @@ def describe_event_registry():
             assert spec.is_forced
 
         def it_defaults_email_off_for_non_default_triggers():
-            # class_published has email_default=False in the legacy catalogue.
-            spec = get_event("class_published").channel(Channel.EMAIL)
+            # class_reminder has email_default=False in the legacy catalogue.
+            spec = get_event("class_reminder").channel(Channel.EMAIL)
             assert spec is not None
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
@@ -173,14 +176,13 @@ def describe_event_registry():
             assert on == registry._PUSH_ON_BY_DEFAULT
             assert registry.get_event("class_cancelled").channel(Channel.PUSH).default is ChannelDefault.ON
             # routine / FYI notices stay OFF by default (offered, not forced on)
-            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation.completed"):
+            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation_requested"):
                 spec = registry.get_event(quiet).channel(Channel.PUSH)
                 assert spec is not None
                 assert spec.default is ChannelDefault.OFF
 
         def it_broadcasts_announcements_and_releases_on_discord():
             for key in (
-                "class_published",
                 "guild_announcement",
                 "site_announcement",
                 "release.published",
@@ -235,7 +237,6 @@ def describe_event_registry():
         def it_leaves_activity_kind_none_when_classes_cmsactivity_mirror_owns_the_site_row():
             # These classes events write their SiteActivity via the CmsActivity mirror
             # (classes.activity._SITE_KIND_MAP), so emit must NOT log a duplicate.
-            assert get_event("class_published").activity_kind is None
             assert get_event("registration_confirmed").activity_kind is None
             assert get_event("waitlist_confirmed").activity_kind is None
             assert get_event("class_review_requested").activity_kind is None
@@ -243,7 +244,7 @@ def describe_event_registry():
 
     def describe_get_event():
         def it_returns_the_event_for_a_known_key():
-            assert get_event("class_published").key == "class_published"
+            assert get_event("class_reminder").key == "class_reminder"
 
         def it_raises_keyerror_for_an_unknown_key():
             with pytest.raises(KeyError):
@@ -257,11 +258,11 @@ def describe_event_registry():
             assert not get_event("class_reminder").has_channel(Channel.DISCORD)
 
         def it_lists_channels_in_declared_order():
-            # class_published now REPLACES the seed to add the Discord broadcast channel,
-            # appended after the preserved in-app/email/push channels.
-            assert get_event("class_published").channel_list == [
+            # site_announcement REPLACES the seed to add the Discord broadcast channel, and
+            # _with_push appends Push last — so the list is declaration order, not a sort.
+            assert get_event("site_announcement").channel_list == [
                 Channel.IN_APP,
                 Channel.EMAIL,
-                Channel.PUSH,
                 Channel.DISCORD,
+                Channel.PUSH,
             ]
