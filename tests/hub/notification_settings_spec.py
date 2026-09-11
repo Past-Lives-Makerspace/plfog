@@ -1,5 +1,7 @@
 """Notifications settings tab saves NotificationPreference rows."""
 
+import re
+
 import pytest
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -177,6 +179,26 @@ def _always_emailed_block(content):
     return content[start : content.index("</details>", start) + len("</details>")]
 
 
+_CHECKBOX = re.compile(r'<input type="checkbox"[^>]*>', re.S)
+
+
+def _browser_post_data(content):
+    """The notification fields a real browser would submit from the rendered page.
+
+    A checkbox contributes its name only when it is rendered, checked and not
+    disabled. Building the POST this way instead of naming fields by hand is what
+    lets a save-wipe spec detect a wipe: stop rendering the block's rows and the
+    field stops being submitted, exactly as it would in a browser, while
+    ``save_matrix`` still iterates every visible event and reads the absence as off.
+    """
+    data = {"form_id": "notifications"}
+    for tag in _CHECKBOX.findall(content):
+        if "disabled" in tag or "checked" not in tag:
+            continue
+        data[re.search(r'name="([^"]+)"', tag).group(1)] = "on"
+    return data
+
+
 def _summary_of(content):
     """Just the <summary> of the Always-emailed disclosure — its title, hint and chevron."""
     block = _always_emailed_block(content)
@@ -229,8 +251,12 @@ def describe_always_emailed_disclosure():
             summaries = {_summary_of(page) for page in (own_page, admin_page, token_page)}
             assert len(summaries) == 1
             summary = summaries.pop()
-            for pronoun in ("this member", "Always sent to you", "your"):
+            for pronoun in ("this member", "Always sent to you"):
                 assert pronoun not in summary
+            # Word-boundary, not a bare substring: "your" also lives inside "yourself"
+            # and any number of future class names, and a spec that fails on those
+            # reads as unrelated to the pronoun it is actually policing.
+            assert not re.search(r"\byours?\b", summary, re.IGNORECASE)
 
     def describe_the_markup():
         def it_uses_the_documented_disclosure_component(client):
@@ -306,13 +332,18 @@ def describe_always_emailed_disclosure():
             assert pref.enabled is True
 
         def it_does_not_wipe_a_writable_cell_the_member_left_checked(client):
+            # Submit what the page actually rendered, not a hand-named field: naming it
+            # by hand supplies the very input whose absence is the hazard, so the spec
+            # could never fail for the reason it is named after. Hide the block instead
+            # of collapsing it and this POST arrives without the cell, and the member's
+            # checked push preference is silently zeroed.
             user = User.objects.create_user(username="ae_keep", email="ae_keep@example.com", password="pw12345!")
             NotificationPreference.objects.create(user=user, event_key="lease_expiring", channel="push", enabled=True)
             client.login(username="ae_keep", password="pw12345!")
-            client.post(
-                reverse("hub_user_settings"),
-                {"form_id": "notifications", "pref__lease_expiring__push": "on"},
+            posted = _browser_post_data(
+                client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
             )
+            client.post(reverse("hub_user_settings"), posted)
             pref = NotificationPreference.objects.get(user=user, event_key="lease_expiring", channel="push")
             assert pref.enabled is True
 

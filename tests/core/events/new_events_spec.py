@@ -293,10 +293,15 @@ def describe_orientation_completed():
 
     def it_keeps_orientation_completed_off_the_member_settings_page():
         # No per-user channel means no settings row: the member has nothing to toggle.
-        from core.events.settings_matrix import USER_CHANNELS
+        # Asserted against the rendered matrix, not against the registry — deleting the
+        # no-user-channel guard in _visible_events would otherwise ship a label-only row
+        # with zero checkboxes onto every member's page.
+        from core.events.settings_matrix import build_matrix
 
-        event = get_event("orientation.completed")
-        assert not any(event.has_channel(channel) for channel in USER_CHANNELS)
+        viewer = User.objects.create_user(username="oc-settings", email="oc-settings@example.com")
+        rendered = {row.event_key for _section, rows in build_matrix(viewer) for row in rows}
+        assert rendered  # the page is not empty, so the absence below means something
+        assert "orientation.completed" not in rendered
 
     def it_keeps_orientation_completed_placeholders_and_sample_context_in_lockstep():
         from core.events.copy import COPY_CHANNELS, default_copy_for, placeholders_for, sample_context_for

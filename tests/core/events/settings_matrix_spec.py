@@ -269,25 +269,39 @@ def describe_row_groups():
 
     def it_keeps_each_group_row_where_its_first_member_sat(db):
         # Registry order is the page's row order; a group takes the slot of its first
-        # member and its later siblings vanish. Rebuild that expectation straight from
-        # the registry and compare section by section.
+        # member and its later siblings vanish. Pinned as a LITERAL, not rebuilt from
+        # _visible_events/_section_for/_post_key_for: an expectation computed from the
+        # same helpers build_matrix calls moves with every bug in them and can only ever
+        # catch a re-sort. Classes is the section worth pinning — two groups, one mid-list
+        # and one last, with ungrouped siblings on both sides of the first.
         user = User.objects.create_user(username="grp3", email="grp3@example.com")
-        expected: dict[str, list[str]] = {}
-        for event in settings_matrix._visible_events(user):
-            keys = expected.setdefault(settings_matrix._section_for(event), [])
-            post_key = settings_matrix._post_key_for(event)
-            if post_key not in keys:
-                keys.append(post_key)
-        for section, rows in settings_matrix.build_matrix(user):
-            assert [row.event_key for row in rows] == expected[section], section
+        classes = dict(settings_matrix.build_matrix(user))["Classes"]
+        assert [row.event_key for row in classes] == [
+            "class_reminder",
+            "registration_confirmed",
+            "waitlist_spot_available",
+            "waitlist_confirmed",
+            "class_announcement",
+            "group.waitlist_promotion",
+            "registration_removed",
+            "registration_moved",
+            "group.instructor_application_decision",
+        ]
 
     def describe_group_membership():
-        def it_never_grabs_every_key_that_shares_a_namespace(db):
+        def it_never_swallows_a_sibling_that_shares_the_prefix(db):
             # The prefix a group's keys share is NOT its scope. Scoped by prefix, "event."
             # would drag in event.submitted, event.reminder, event.happening_now and
-            # event.community_published; "space." would drag in the lease events. Every
-            # one of those has to stay its own row.
-            not_grouped = 0
+            # event.community_published; "space." would drag in the lease events;
+            # event.submitted and guild_announcement.submitted are approval REQUESTS
+            # routed to staff through a different emit helper. Every one of those has to
+            # keep posting under its own key.
+            #
+            # Asserted through _post_key_for, never against _GROUP_BY_EVENT_KEY: that dict
+            # is a comprehension over the very keys the group declares, so reading it back
+            # can only restate its own construction. _post_key_for is where a prefix match
+            # would actually be written, so this is the call that fails when one is.
+            checked = 0
             for group in settings_matrix.ROW_GROUPS:
                 assert isinstance(group.event_keys, tuple)
                 assert len(group.event_keys) >= 2
@@ -296,17 +310,10 @@ def describe_row_groups():
                     for event in all_events():
                         if not event.key.startswith(namespace) or event.key in group.event_keys:
                             continue
-                        not_grouped += 1
-                        assert settings_matrix._GROUP_BY_EVENT_KEY.get(event.key) is not group
-            assert not_grouped >= 4, "expected several same-namespace keys a prefix match would have swallowed"
-
-        def it_never_swallows_a_submitted_sibling_that_shares_the_prefix(db):
-            # event.submitted / guild_announcement.submitted are approval REQUESTS routed
-            # to staff through a different emit helper. They share the prefix of the
-            # outcome notices the groups collect and must stay their own rows — a prefix
-            # match would quietly move a staff row into a member's group.
+                        checked += 1
+                        assert settings_matrix._post_key_for(event) == event.key
+            assert checked >= 4, "expected several same-namespace keys a prefix match would have swallowed"
             for key in ("event.submitted", "guild_announcement.submitted"):
-                assert key not in settings_matrix._GROUP_BY_EVENT_KEY
                 assert settings_matrix._post_key_for(get_event(key)) == key
 
         def it_still_renders_a_submitted_sibling_as_its_own_staff_row(db):
@@ -337,6 +344,17 @@ def describe_row_groups():
             for group in settings_matrix.ROW_GROUPS:
                 sections = {settings_matrix._section_for(get_event(key)) for key in group.event_keys}
                 assert len(sections) == 1, f"{group.group_id} members disagree on section"
+
+        def it_puts_every_member_of_a_group_on_one_recipient(db):
+            # The section check above only catches a group that straddles the member/staff
+            # split. Two staff recipients both land in STAFF_SECTION, so it passes them —
+            # and then build_matrix reads the row's state from EVERY key in event_keys
+            # while save_matrix writes only the ones _visible_events returns for this
+            # viewer. A holder of one duty but not the other would see a row stuck on the
+            # hidden sibling's value: check the box, save, watch it come back unchecked.
+            for group in settings_matrix.ROW_GROUPS:
+                recipients = {get_event(key).recipient for key in group.event_keys}
+                assert len(recipients) == 1, f"{group.group_id} members disagree on recipient"
 
     def describe_cell_state():
         GROUP = "group.event_decision"
@@ -450,6 +468,18 @@ def describe_always_emailed_section():
             event = get_event("class_reminder")
             assert not event.channel(Channel.EMAIL).is_forced
             assert settings_matrix._section_for(event) == "Classes"
+
+        def it_registers_no_category_named_after_the_block(db):
+            # Symmetric with the `group.` namespace guard: ALWAYS_EMAILED_SECTION is a
+            # section name the code assigns, never a category an event may declare. One
+            # that did would be swept into the tail ordering with the forced emails and
+            # then rendered by the template's literal `category == 'Always emailed'`
+            # branch, putting ordinary opt-in rows inside the collapsed disclosure under
+            # a heading that says they cannot be turned off.
+            collisions = [
+                event.key for event in all_events() if event.category == settings_matrix.ALWAYS_EMAILED_SECTION
+            ]
+            assert collisions == []
 
         def it_ignores_an_event_that_declares_no_email_at_all(db):
             eventless = [event for event in all_events() if not event.has_channel(Channel.EMAIL)]

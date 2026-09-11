@@ -92,3 +92,24 @@ def describe_mobile_no_horizontal_overflow():
 
         page.goto(f"{live_server.url}{reverse(url_name, args=args)}")
         assert page.evaluate(NO_H_SCROLL), f"{label} scrolls sideways at {PHONE['width']}px"
+
+    def it_never_scrolls_sideways_on_the_notifications_tab(live_server, page, login_via_code):
+        """The settings page in PAGES above lands on the default tab, where the whole
+        notification pane is ``x-show``/``x-cloak`` hidden and contributes nothing to
+        ``scrollWidth``. Ask for the tab explicitly, so the matrix and the Always emailed
+        disclosure are actually laid out, and measure with the block both shut and open.
+        """
+        _seed_world()
+        page.set_viewport_size(PHONE)
+        login_via_code(MEMBER_EMAIL)
+
+        page.goto(f"{live_server.url}{reverse('hub_user_settings')}?tab=notifications")
+        block = page.locator("#notif-always-emailed")
+        block.wait_for(state="visible")
+        assert page.evaluate(NO_H_SCROLL), f"notifications tab scrolls sideways at {PHONE['width']}px"
+
+        # Opening it lays out ten more rows of grid inside the disclosure body.
+        details = block.locator("details.pl-disclosure")
+        details.locator("summary").click()
+        page.wait_for_function("() => document.querySelector('#notif-always-emailed details').open")
+        assert page.evaluate(NO_H_SCROLL), f"the opened Always emailed block scrolls sideways at {PHONE['width']}px"
