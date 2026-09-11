@@ -40,16 +40,19 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Notices that belong together are now one switch. Every update about an event you "
             "proposed is a single row, and so are the updates about a class you submitted, an "
             "announcement you proposed, a space request, a request to host a workshop, and being "
-            "moved off a waitlist. Turning that row off turns off the whole family.",
+            "moved off a waitlist. Turning that row off turns off the whole family. If you had "
+            "set one of a family on and another off, the row now shows off, and saving the page "
+            "will switch the rest of that family off too.",
             "The notices you always get by email now sit together in one block called Always "
             "emailed. Open it and you can still change push and Discord for the ones that offer "
             "them. The email itself stays on, which was already true. It just no longer costs "
             "ten rows to say so.",
             "A new class no longer rings your bell, and if you had asked for an email about new "
             "classes, that stops too. New classes are still announced in the Discord classes "
-            "channel. They no longer also post in the general channel.",
-            "Finishing an orientation no longer rings your bell or sends a push. The welcome is "
-            "posted in Discord instead.",
+            "channel.",
+            "When someone finishes their orientation, the welcome no longer lands in the other "
+            "guild members' bells or on their phones. It still posts in Discord, the way it "
+            "always has.",
         ],
     },
     {
