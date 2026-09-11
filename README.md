@@ -154,26 +154,33 @@ suite. All of it must be green to merge.
 
 ## Versioning & changelog
 
-Every change that ships bumps the version in [`plfog/version.py`](plfog/version.py) (`VERSION`) and
-adds a `CHANGELOG` entry. That changelog is the **source of truth for the Discord release
-announcement**, so write entries in plain, member-friendly language — no jargon, PR numbers, or
-commit hashes. Members read these.
+Every change that ships bumps the version in [`plfog/version.py`](plfog/version.py) (`VERSION`).
+Anything a member would notice also gets a `CHANGELOG` entry; a tooling or test change that
+members will never see deliberately gets none, and then nothing is announced, which is correct.
+That changelog is the **source of truth for the Discord release announcement**, so write entries
+in plain, member-friendly language — no jargon, PR numbers, or commit hashes. Members read these.
 
-**Forgetting the bump fails the build, on purpose.** A merge that edits `plfog/version.py` but
-leaves `VERSION` where it was deploys to production and announces nothing, which has happened. The
-**Discord Notifications** workflow now fails on that instead of skipping the announcement quietly.
-A red X on the Actions tab is the only alert; nothing is sent anywhere else.
+**Editing `plfog/version.py` without moving `VERSION` fails the build, on purpose.** That exact
+shape once deployed a feature to production and announced it to nobody on a green Actions tab, so
+the **Discord Notifications** workflow now fails on it instead of skipping the announcement
+quietly. A red X on the Actions tab is the only alert; nothing is sent anywhere else.
 
-To recover, pick **one** of these. Doing both announces the release twice, and a Discord post
-cannot be unsent:
+It is a narrow check, deliberately. A merge that does not touch `plfog/version.py` at all is not
+caught — the workflow does not even run — and neither is a release that bumps `VERSION` but stamps
+its entry at the wrong number. Getting the entry onto the right number is still a human job.
+
+To recover, first find out whether *this* push wrote the entry at the stuck `VERSION`
+(`git diff <base> <merge commit> -- plfog/version.py`), then pick **one**. Doing both announces
+the release twice, and a Discord post cannot be unsent:
 
 | Situation | What to do |
 |---|---|
-| The entry at the stuck `VERSION` already reads correctly | Run `gh workflow run discord-notify.yml`. A manual run always posts, whatever `VERSION` says. That is the whole fix. |
-| The entry needs writing or fixing | Do it in a follow-up PR that **also bumps `VERSION`**. Merging it announces by itself; do not also run the workflow by hand. |
+| This push added or rewrote the entry at the stuck `VERSION` | Run `gh workflow run discord-notify.yml`. A manual run always posts, whatever `VERSION` says. That is the whole fix. |
+| It did not — the entry is the previous release's, already announced | Write what this push shipped in a follow-up PR that bumps `VERSION` **and stamps the new entry at the new number**. Merging it announces by itself; do not also run the workflow by hand. |
 
 A follow-up that edits the entry *without* bumping `VERSION` fails the guard again, correctly: it
-is another release that announces nothing.
+is another release that announces nothing. One that bumps `VERSION` but leaves the entry at the
+old number announces nothing and goes green, which nothing will tell you.
 
 `python manage.py announce_release` is **not** a companion to either. It sends the release email,
 but the `release.published` event is registered on Discord as well, so it re-announces on top of

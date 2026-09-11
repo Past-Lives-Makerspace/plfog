@@ -84,10 +84,11 @@ def describe_release_guard():
             assert module.extract_version('"""No version here."""\n\nCHANGELOG = []\n') is None
 
         def it_ignores_a_version_that_is_not_at_the_start_of_a_line():
-            # The literal is anchored, so a mention inside a comment or a nested assignment
-            # cannot be mistaken for the real one.
+            # The decoys sit BELOW the real literal deliberately. Since extract_version takes
+            # the LAST match, decoys above it would be shadowed by the real one and the spec
+            # would pass with the ^ anchor dropped — which is the whole thing being tested.
             module = _load_script()
-            source = '# VERSION = "9.9.9" in a comment\n    VERSION = "8.8.8"\nVERSION = "1.0.0"\n'
+            source = 'VERSION = "1.0.0"\n# VERSION = "9.9.9" in a comment\n    VERSION = "8.8.8"\n'
             assert module.extract_version(source) == "1.0.0"
 
         def describe_when_two_top_level_assignments_are_present():
@@ -150,9 +151,11 @@ def describe_release_guard():
 
         def it_runs_in_the_repo_root_not_the_working_directory(monkeypatch, tmp_path):
             # tmp_path is not a git repository, so an unpinned cwd would make every git call
-            # fail — which is precisely the state in which the guard silently passes.
-            module = _load_script()
+            # fail — which is precisely the state in which the guard silently passes. The chdir
+            # MUST precede the load: _REPO_ROOT binds at module exec, so loading first would
+            # let a cwd-derived implementation pass.
             monkeypatch.chdir(tmp_path)
+            module = _load_script()
             assert module._git("rev-parse", "--show-toplevel") is not None
 
         def it_does_not_swallow_a_missing_git(monkeypatch):
@@ -172,8 +175,9 @@ def describe_release_guard():
             assert module._current_version() == VERSION
 
         def it_resolves_from_the_script_location_not_the_working_directory(monkeypatch, tmp_path):
-            module = _load_script()
+            # chdir before the load, for the reason given in describe_git above.
             monkeypatch.chdir(tmp_path)
+            module = _load_script()
             assert module._current_version() == VERSION
 
         def it_exits_when_the_version_literal_cannot_be_read(monkeypatch):
@@ -195,6 +199,20 @@ def describe_release_guard():
         def it_rejects_an_empty_base():
             module = _load_script()
             assert module._names_a_commit("") is False
+
+        def it_rejects_forty_characters_that_are_not_hex():
+            module = _load_script()
+            assert module._names_a_commit("z" * 40) is False
+
+        def it_rejects_an_uppercase_sha():
+            # git never hands one back, but accepting it here would mean accepting anything.
+            module = _load_script()
+            assert module._names_a_commit("A" * 40) is False
+
+        def it_rejects_a_sha_with_trailing_characters():
+            # Without the closing anchor, a longer string would match on its first 40 chars.
+            module = _load_script()
+            assert module._names_a_commit(_BASE + "extra") is False
 
         def it_rejects_an_abbreviated_sha():
             # An abbreviated ref would make `git show :plfog/version.py` read the INDEX when
@@ -270,6 +288,28 @@ def describe_release_guard():
             module._write_output("should_post", "true")
             module._write_output("other", "value")
             assert output.read_text() == "should_post=true\nother=value\n"
+
+    def describe_the_workflow_that_runs_it():
+        # _require_readable_base exists because this setting can silently regress, and its
+        # error text names it. Asserted on the raw text rather than parsed: PyYAML is not a
+        # declared dependency of this repo, only a transitive one.
+        @pytest.fixture
+        def workflow() -> str:
+            path = _SCRIPT.parents[1] / "workflows" / "discord-notify.yml"
+            return path.read_text(encoding="utf-8")
+
+        def it_checks_out_the_full_history(workflow):
+            assert "fetch-depth: 0" in workflow
+
+        def it_no_longer_checks_out_a_shallow_clone(workflow):
+            assert "fetch-depth: 2" not in workflow
+
+        def it_runs_this_guard(workflow):
+            assert "run: python .github/scripts/release_guard.py" in workflow
+
+        def it_still_filters_on_version_py(workflow):
+            # The paths: filter is what keeps the guard off the 41 commits it must not judge.
+            assert '- "plfog/version.py"' in workflow
 
     def describe_main():
         @pytest.fixture
@@ -350,13 +390,30 @@ def describe_release_guard():
                 assert "it was 1.49.0 before this push" in message
                 assert "left VERSION at 1.49.0" in message
 
-            def it_gives_the_one_command_that_is_the_whole_fix(failure):
+            def it_tells_the_reader_how_to_find_out_which_recovery_applies(failure):
+                # "Does the entry read well" is the wrong question: an entry can sit at the
+                # stuck VERSION, read perfectly, and already have been announced by the
+                # PREVIOUS release. Whether THIS push wrote it is the question that separates
+                # the two recoveries, so the message hands over the command that answers it.
                 message, _ = failure
+                assert f"git diff {_BASE} {_HEAD} -- plfog/version.py" in message
+
+            def it_gives_the_one_command_for_an_entry_this_push_wrote(failure):
+                message, _ = failure
+                assert "ADDED or REWROTE that entry" in message
                 assert "gh workflow run discord-notify.yml" in message
 
-            def it_warns_that_editing_the_entry_without_bumping_fires_the_guard_again(failure):
+            def it_warns_that_re_posting_an_older_entry_announces_the_wrong_release(failure):
                 message, _ = failure
-                assert "without bumping VERSION fails this guard again" in message
+                assert "belongs to the release before this one" in message
+                assert "wrong release" in message
+
+            def it_says_the_new_entry_goes_at_the_new_version(failure):
+                # Bumping VERSION but stamping the entry at the old number announces nothing
+                # and goes green, which is the miss this guard cannot see.
+                message, _ = failure
+                assert "stamps the new entry at\nthe NEW number" in message
+                assert "Stamping it at 1.49.0 instead" in message
 
             def it_warns_that_announce_release_would_double_post(failure):
                 # announce_release emits release.published, which is registered on the
@@ -368,6 +425,23 @@ def describe_release_guard():
             def it_does_not_arm_the_post_step(failure):
                 _, output = failure
                 assert output.read_text() == ""
+
+            def it_emits_a_github_error_annotation(monkeypatch, output, capsys):
+                # The annotation is what surfaces the reason on the Actions summary rather
+                # than only inside the step log.
+                module = _load_script()
+                monkeypatch.setenv("EVENT_NAME", "push")
+                monkeypatch.setenv("BEFORE_SHA", _BASE)
+                monkeypatch.setenv("AFTER_SHA", _HEAD)
+                monkeypatch.setattr(module, "_current_version", lambda: "1.49.0")
+                monkeypatch.setattr(
+                    module,
+                    "_git",
+                    _fake_git(base_source=_version_py("1.49.0"), diff_output="plfog/version.py\n"),
+                )
+                with pytest.raises(SystemExit):
+                    module.main()
+                assert "::error title=Release shipped without an announcement::" in capsys.readouterr().out
 
         def describe_when_the_push_created_the_branch():
             def it_announces_because_there_is_no_previous_release(monkeypatch, output):

@@ -86,16 +86,30 @@ A GitHub Actions workflow posts a release announcement to the Past Lives Discord
 
 **A red X on the Actions tab is the whole alert.** Nothing is posted, filed or notified outside GitHub. That is a deliberate choice, not an omission.
 
-**It closes the #348 shape, not the whole class.** The guard only compares the `VERSION` literal. A release that moves `VERSION` correctly but stamps its changelog entry at the *wrong* number still deploys, still announces nothing, and still goes green — from the workflow's side that is indistinguishable from a tooling release that deliberately carries no entry, which is a thing this repo does on purpose. Curating the entry at the right number is still on you.
+**It closes the #348 shape, not the whole class**, and the gaps are bigger than the catch:
+
+- **A merge that never touches `plfog/version.py` at all does not fail anything.** The workflow's `paths:` filter means it never runs, so there is no red X — there is not even a run. That is the ordinary "forgot to bump" mistake, and it is out of reach on purpose: the broader predicate would have fired on 41 *more* commits in this history, almost all of them deliberate batched releases.
+- **A release that moves `VERSION` but stamps its entry at the wrong number** still deploys, still announces nothing, and still goes green. From the workflow's side that is indistinguishable from a tooling release that deliberately carries no entry, which is a thing this repo does on purpose.
+
+Curating the entry at the right number is still on you. The guard catches one shape: edited the file, left the literal.
 
 #### Recovering a missed announcement
 
-Pick **one** of these. Doing both announces the release twice, and a Discord post cannot be unsent.
+Pick **one**. Doing both announces the release twice, and a Discord post cannot be unsent.
 
-- **The entry at the stuck `VERSION` already says what members should read** — run `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says; the guard never blocks it. That is the whole fix, and no follow-up PR is needed.
-- **The entry needs writing or fixing** — do it in a follow-up PR that **also bumps `VERSION`**, and merging that PR announces by itself. Do not then run the workflow by hand; the merge already posted.
+First work out whether *this* push wrote the entry at the stuck `VERSION`. "Does the entry read well" is the wrong question — an entry can sit there, read perfectly, and have been announced already by the release before this one:
 
-A follow-up PR that edits the entry **without** bumping `VERSION` fails this guard a second time, correctly: that push is another release that announces nothing. `920fab64` is exactly that commit, which is why the guard counts it as a real fire.
+```
+git diff <the push base> <the merge commit> -- plfog/version.py
+```
+
+- **This push ADDED or REWROTE that entry** — it has never been posted. Run `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says; the guard never blocks it. That is the whole fix, and no follow-up PR is needed.
+- **It did not** — the entry belongs to the previous release and re-posting it would announce the wrong release to members. Write what *this* push shipped in a follow-up PR that bumps `VERSION` and stamps the new entry at the **new** number. Merging that PR announces by itself; do not then run the workflow by hand.
+
+Two ways to get the follow-up wrong, both silent:
+
+- Stamping the new entry at the **stuck** `VERSION` without bumping fails this guard a second time — correctly, since that push is another release that announces nothing. `920fab64` is exactly that commit, which is why the guard counts it as a real fire.
+- Bumping `VERSION` but leaving the entry stamped at the **old** number announces nothing and goes **green**, because that is the gap above. Check the number you stamped.
 
 #### `announce_release` is not a companion to either
 
@@ -104,11 +118,14 @@ A follow-up PR that edits the entry **without** bumping `VERSION` fails this gua
 Two more things about it:
 
 - **Run it as a Render one-off job, never locally against the production database.** It builds every link from `MEMBER_BASE_URL`, which in a local environment is `http://pastlives.test:8000` — links that dead-end on the one laptop that can resolve them, mailed to every member.
-- **Its idempotence is a ledger, not a row.** `emit()` claims an `EventDelivery` per `(event_key, target_ref, channel, period)` with `period="release:<version>"`: one broadcast row *plus one per recipient per channel*, so a single announce writes hundreds. A corrected re-send at the same version needs them all cleared, filtered on the period, where the production database is:
+- **Its idempotence is a ledger, not a row.** `emit()` claims an `EventDelivery` per `(event_key, target_ref, channel, period)` with `period="release:<version>"`: one broadcast row *plus one per recipient per non-broadcast channel*. Discord is a broadcast channel and is skipped in the per-recipient fan-out, so for `release.published` that is in-app and email — `2N + 1` rows for `N` recipients, which is still hundreds. A corrected re-send at the same version needs them all cleared, filtered on the period, where the production database is:
 
   ```python
+  from core.models import EventDelivery
   EventDelivery.objects.filter(period="release:1.49.0").delete()
   ```
+
+  Nothing else uses that period string (`send_release_email` uses the distinct `release:<version>:<lines>` shape), so the exact match is safe.
 
 ---
 
