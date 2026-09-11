@@ -188,6 +188,16 @@ def _failure_message(*, after: str, previous: str, current: str) -> str:
 
 
 def main() -> None:
+    """Arm the announcement, or fail the run.
+
+    Reads ``EVENT_NAME``, ``BEFORE_SHA`` and ``AFTER_SHA`` from the environment (the workflow
+    sets them from ``github.event_name``, ``github.event.before`` and ``github.sha``) and
+    writes ``should_post`` to ``GITHUB_OUTPUT``.
+
+    There is no ``should_post=false``. A push that would once have been skipped is now a
+    failure, and a manual run always posts, so every path that returns has armed the post
+    step and every path that has not, exited non-zero.
+    """
     if os.environ["EVENT_NAME"] == "workflow_dispatch":
         # The documented recovery lever. A manual run always announces, whatever VERSION says
         # — that is the whole point of it, and the guard must never stand in its way.
