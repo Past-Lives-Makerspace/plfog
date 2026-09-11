@@ -1240,6 +1240,12 @@ class ClassOffering(HeroCropMixin, models.Model):
         from the ``announce_new_classes`` cron, which posts every newly bookable offering
         to #classes every 15 minutes.
 
+        Republishing announces nothing. The cron stamps :attr:`channel_announced_at` once
+        and :meth:`unpublish` never clears it, so a class taken back to draft and published
+        again is not news a second time. The retired ``class_published`` event used to make
+        it news again, by carrying the publish moment in its ledger key; that is gone
+        deliberately, not by oversight.
+
         Raises:
             ValidationError: When :attr:`is_ready` is False, naming every failing item.
         """
