@@ -159,6 +159,21 @@ adds a `CHANGELOG` entry. That changelog is the **source of truth for the Discor
 announcement**, so write entries in plain, member-friendly language — no jargon, PR numbers, or
 commit hashes. Members read these.
 
+**Forgetting the bump fails the build, on purpose.** A merge that edits `plfog/version.py` but
+leaves `VERSION` where it was deploys to production and announces nothing, which has happened. The
+**Discord Notifications** workflow now fails on that instead of skipping the announcement quietly.
+A red X on the Actions tab is the only alert; nothing is sent anywhere else. To recover, correct
+`VERSION` and the entry in a follow-up PR, then send the announcement by hand:
+
+| Command | What it does |
+|---|---|
+| `gh workflow run discord-notify.yml` | Re-posts to Discord. A manual run always posts, whatever `VERSION` says. |
+| `python manage.py announce_release` | Sends the release email. |
+
+`announce_release` only sends once per version — it records an `EventDelivery` row with
+`period="release:<version>"` — so delete that row first if a corrected announcement has to go out
+at the same version.
+
 ---
 
 ## Contributing

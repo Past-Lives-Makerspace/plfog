@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.54.1"
+VERSION = "1.54.2"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the

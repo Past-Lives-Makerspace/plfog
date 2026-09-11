@@ -80,6 +80,17 @@ automatically, and approved if it has no blockers. Nobody has to ask for it.
 
 A GitHub Actions workflow posts a release announcement to the Past Lives Discord channel. It reads the `CHANGELOG` from `plfog/version.py` and posts only the entry/entries whose `version` equals the current `VERSION` (what just went live) — not the whole `MAJOR.MINOR` line. It fires **automatically** when a push to main changes `VERSION`, and can also be run by hand with `gh workflow run discord-notify.yml` or the Actions "Run workflow" button. It used to re-post the whole `MAJOR.MINOR` line on every hotfix, which is why it was manual for a while; it now posts only the current `VERSION`'s entries, so one merge means one announcement. When `VERSION` has no entry of its own, an automatic run posts nothing; a manual run still re-sends the newest entry, which is the deliberate escape hatch. The script chunks the post under Discord's 4096-char embed limit and fails loudly on a rejected post.
 
+### The release guard
+
+**A push to main that edits `plfog/version.py` but leaves `VERSION` where it was now FAILS the Discord Notifications workflow.** That is exactly how #348 shipped the lobby slideshow to production and announced it to nobody: the post step was skipped and the run stayed green. The check is `.github/scripts/release_guard.py` (specced in `tests/scripts/release_guard_spec.py`), and it compares `VERSION` against the tip of main before the push, not `HEAD^`, because a rebase merge pushes several commits at once. Replayed over every push to main that touched `plfog/version.py`, it fires twice in 222 — #348 and the hand-written 0.23.39 repair — and both were real.
+
+**A red X on the Actions tab is the whole alert.** Nothing is posted, filed or notified outside GitHub. That is a deliberate choice, not an omission.
+
+Recovery, once `VERSION` and the entry are correct on main:
+
+- `gh workflow run discord-notify.yml` re-posts to Discord. A manual run always posts, whatever `VERSION` says — the guard never blocks it.
+- `python manage.py announce_release` sends the release email. It is idempotent per version: it writes an `EventDelivery` row with `period="release:<version>"`, and a second run for that version sends nothing. Delete that row first if a corrected announcement has to go out at the same version.
+
 ---
 
 # PLFOG Django Coding Standards
