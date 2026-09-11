@@ -35,20 +35,21 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "date": "2026-09-10",
         "title": "A notification settings page you can actually read",
         "changes": [
-            "Your notification settings used to run to 51 rows. They now fit in 30, without hiding anything from you.",
+            "Your notification settings used to run to 51 rows. The page now opens with 30, plus a "
+            "block of ten you can open when you want them.",
             "Notices that belong together are now one switch. Every update about an event you "
             "proposed is a single row, and so are the updates about a class you submitted, an "
             "announcement you proposed, a space request, a request to host a workshop, and being "
             "moved off a waitlist. Turning that row off turns off the whole family.",
-            "The notices you always get by email now sit together at the bottom, in a block called "
-            "Always emailed. Open it and you can still choose whether those also reach you by push "
-            "or on Discord. The email itself stays on, which was already true. It just no longer "
-            "costs ten rows to say so.",
+            "The notices you always get by email now sit together in one block called Always "
+            "emailed. Open it and you can still change push and Discord for the ones that offer "
+            "them. The email itself stays on, which was already true. It just no longer costs "
+            "ten rows to say so.",
             "A new class no longer rings your bell, and if you had asked for an email about new "
-            "classes, that stops too. New classes are posted in the Discord classes channel, "
-            "which is where they already went.",
-            "Finishing an orientation now posts in your guild's Discord channel only. It no longer "
-            "rings your bell or sends a push.",
+            "classes, that stops too. New classes are still announced in the Discord classes "
+            "channel. They no longer also post in the general channel.",
+            "Finishing an orientation no longer rings your bell or sends a push. The welcome is "
+            "posted in Discord instead.",
         ],
     },
     {

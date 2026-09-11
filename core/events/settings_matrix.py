@@ -243,8 +243,8 @@ ROW_GROUPS: tuple[RowGroup, ...] = (
     ),
     RowGroup(
         group_id="group.instructor_application_decision",
-        label="Updates to your instructor application",
-        description="Your note about hosting a workshop was answered.",
+        label="Updates to your request to host a workshop",
+        description="Your request to host a workshop was approved or declined.",
         event_keys=("instructor_application_approved", "instructor_application_declined"),
     ),
     RowGroup(

@@ -168,8 +168,8 @@ def describe_view_as_staff_section():
 # so these specs drive all three hosts of the partial.
 ALWAYS_EMAILED_TITLE = '<span class="pl-disclosure__title">Always emailed</span>'
 ALWAYS_EMAILED_HINT = (
-    '<span class="pl-disclosure__hint">You always get these by email. '
-    "Push and Discord can still be changed inside.</span>"
+    '<span class="pl-disclosure__hint">These always go out by email. '
+    "Push and Discord can still be changed on the notices that offer them.</span>"
 )
 
 
@@ -329,6 +329,28 @@ def describe_always_emailed_disclosure():
                 {"form_id": "notifications", "pref__class_cancelled__push": "on"},
             )
             pref = NotificationPreference.objects.get(user=user, event_key="class_cancelled", channel="push")
+            assert pref.enabled is True
+
+        def it_saves_a_discord_cell_from_inside_the_block(client):
+            # The block's hint promises Discord can still be changed on the notices that
+            # offer it. Only a member who has linked Discord sees a live cell — for anyone
+            # else it renders disabled and save_matrix skips it — so the promise is only
+            # honest if this path works.
+            user = User.objects.create_user(username="ae_disc", email="ae_disc@example.com", password="pw12345!")
+            member = Member.objects.get(user=user)
+            member.discord_user_id = "ae-disc-1"
+            member.save(update_fields=["discord_user_id"])
+            client.login(username="ae_disc", password="pw12345!")
+            block = _always_emailed_block(
+                client.get(reverse("hub_user_settings") + "?tab=notifications").content.decode()
+            )
+            cell = block[block.index('name="pref__class_cancelled__discord_dm"') :]
+            assert "disabled" not in cell[: cell.index(">")]
+            client.post(
+                reverse("hub_user_settings"),
+                {"form_id": "notifications", "pref__class_cancelled__discord_dm": "on"},
+            )
+            pref = NotificationPreference.objects.get(user=user, event_key="class_cancelled", channel="discord_dm")
             assert pref.enabled is True
 
         def it_does_not_wipe_a_writable_cell_the_member_left_checked(client):

@@ -247,7 +247,7 @@ Then hit **Save** at the bottom.
 
 ## What You Can't Turn Off {#always-on}
 
-A few notices are locked on, because missing them would cause real problems: receipts, security and sign-in messages, and changes to a class you booked. You'll always get those by email. They sit together at the bottom of the page in a block called **Always emailed** — open it and you can still choose whether they also reach you by push or on Discord.
+A few notices are locked on, because missing them would cause real problems: sign-in links and invitations, a class being cancelled, refunds and charges on your tab, a lease expiring, equipment reservations, and Discord setup. You'll always get those by email. They sit together in a block called **Always emailed**. Open it and you can still change push and Discord for the ones that offer them.
 
 Announcements can also be marked **urgent** by whoever sends them. An urgent announcement reaches you even if you've turned that kind of email off — it's saved for the things you truly need to know.
 

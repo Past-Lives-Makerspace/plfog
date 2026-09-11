@@ -231,8 +231,8 @@ def describe_row_groups():
             "Spaces & Equipment",
         ),
         "group.instructor_application_decision": (
-            "Updates to your instructor application",
-            "Your note about hosting a workshop was answered.",
+            "Updates to your request to host a workshop",
+            "Your request to host a workshop was approved or declined.",
             "Classes",
         ),
         "group.waitlist_promotion": (
