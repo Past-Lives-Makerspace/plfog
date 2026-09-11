@@ -291,7 +291,6 @@ def _channels_from_trigger(trigger: triggers.Trigger) -> tuple[ChannelSpec, ...]
 # These are the Phase-1 seed wiring; the migration phase refines per-site.
 _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     # Classes — member-side
-    "class_published": Recipients.ALL_ACTIVE_MEMBERS,
     "class_reminder": Recipients.REGISTRANT,
     "registration_confirmed": Recipients.REGISTRANT,
     # class_cancelled is the site-wide "a class was cancelled" broadcast that
@@ -342,7 +341,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
 # (audit-E). Triggers with no corresponding activity kind get ``None`` (no
 # activity row is written when they are emitted).
 _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
-    "class_published": None,  # see the class_cancelled note below (CmsActivity mirror is the source)
     "class_reminder": None,
     # ``registration_confirmed`` / ``waitlist_confirmed`` / ``class_review_requested`` /
     # ``instructor_class_approved`` log NO SiteActivity via emit: the classes app writes its
@@ -353,10 +351,9 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     # also logged the SiteActivity here it would write the row twice. Keeping these ``None``
     # makes the CmsActivity mirror the single source of the SiteActivity, exactly as today.
     "registration_confirmed": None,
-    # ``class_cancelled`` / ``class_published`` / ``refund_issued`` log NO SiteActivity
-    # via emit: the classes app already writes the CmsActivity at each workflow point and
-    # ``classes.activity.log`` MIRRORS it into the matching SiteActivity kind
-    # (class_archived→class_cancelled, class_published→class_published,
+    # ``class_cancelled`` / ``refund_issued`` log NO SiteActivity via emit: the classes app
+    # already writes the CmsActivity at each workflow point and ``classes.activity.log``
+    # MIRRORS it into the matching SiteActivity kind (class_archived→class_cancelled,
     # registration_refunded→refund_issued — see ``classes.activity._SITE_KIND_MAP``). If
     # emit also logged the SiteActivity here it would write the row twice; keeping these
     # ``None`` makes the CmsActivity mirror the single source, exactly as before the
@@ -435,7 +432,6 @@ def _seed_from_triggers() -> list[EventType]:
 _DISCORD_ON = ChannelSpec(Channel.DISCORD, ChannelDefault.ON)
 
 # New event keys (single vocabulary — these strings ARE the preference / audit keys).
-CLASS_PUBLISHED = "class_published"  # re-uses the seeded key + ADDS the Discord broadcast channel
 MEMBER_INVITED = "member.invited"
 MEMBER_LOGIN_INVITE = "member.login_invite"
 GUILD_ANNOUNCEMENT = "guild_announcement"  # re-uses the seeded key + curated copy
@@ -498,22 +494,6 @@ _DISCORD_OFF = ChannelSpec(Channel.DISCORD, ChannelDefault.OFF)
 
 
 _NEW_EVENTS: list[EventType] = [
-    # 0. class_published — a newly published class/workshop, broadcast site-wide to all
-    #    active members. REPLACES the Phase-1 seed entry to ADD the Discord broadcast
-    #    channel (in-app stays ON, email stays OFF, push stays OFF). It is site-wide, so
-    #    it posts to the central/global webhook only — no guild webhook (its emit carries
-    #    no ``guild`` in context). ``activity_kind`` stays None: the classes app writes the
-    #    CmsActivity and ``classes.activity.log`` MIRRORS it into the matching SiteActivity
-    #    kind (see ``_TRIGGER_ACTIVITY_KINDS`` above), so emit must not log a duplicate.
-    EventType(
-        key=CLASS_PUBLISHED,
-        label="New class published",
-        description="A new class or workshop goes live.",
-        category="Classes",
-        recipient=Recipients.ALL_ACTIVE_MEMBERS,
-        channels=(_IN_APP_ON, _EMAIL_OFF, _PUSH_OFF, _DISCORD_ON),
-        activity_kind=None,
-    ),
     # 1. member.invited — the invitee MUST receive it (forced email). In-app would
     #    have nowhere to land (the invitee has no account yet), so email only.
     EventType(

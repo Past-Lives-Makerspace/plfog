@@ -132,8 +132,8 @@ def describe_event_registry():
             assert spec.is_forced
 
         def it_defaults_email_off_for_non_default_triggers():
-            # class_published has email_default=False in the legacy catalogue.
-            spec = get_event("class_published").channel(Channel.EMAIL)
+            # class_reminder has email_default=False in the legacy catalogue.
+            spec = get_event("class_reminder").channel(Channel.EMAIL)
             assert spec is not None
             assert spec.default is ChannelDefault.OFF
             assert not spec.is_forced
@@ -183,7 +183,6 @@ def describe_event_registry():
 
         def it_broadcasts_announcements_and_releases_on_discord():
             for key in (
-                "class_published",
                 "guild_announcement",
                 "site_announcement",
                 "release.published",
@@ -238,7 +237,6 @@ def describe_event_registry():
         def it_leaves_activity_kind_none_when_classes_cmsactivity_mirror_owns_the_site_row():
             # These classes events write their SiteActivity via the CmsActivity mirror
             # (classes.activity._SITE_KIND_MAP), so emit must NOT log a duplicate.
-            assert get_event("class_published").activity_kind is None
             assert get_event("registration_confirmed").activity_kind is None
             assert get_event("waitlist_confirmed").activity_kind is None
             assert get_event("class_review_requested").activity_kind is None
@@ -246,7 +244,7 @@ def describe_event_registry():
 
     def describe_get_event():
         def it_returns_the_event_for_a_known_key():
-            assert get_event("class_published").key == "class_published"
+            assert get_event("class_reminder").key == "class_reminder"
 
         def it_raises_keyerror_for_an_unknown_key():
             with pytest.raises(KeyError):
@@ -260,11 +258,11 @@ def describe_event_registry():
             assert not get_event("class_reminder").has_channel(Channel.DISCORD)
 
         def it_lists_channels_in_declared_order():
-            # class_published now REPLACES the seed to add the Discord broadcast channel,
-            # appended after the preserved in-app/email/push channels.
-            assert get_event("class_published").channel_list == [
+            # site_announcement REPLACES the seed to add the Discord broadcast channel, and
+            # _with_push appends Push last — so the list is declaration order, not a sort.
+            assert get_event("site_announcement").channel_list == [
                 Channel.IN_APP,
                 Channel.EMAIL,
-                Channel.PUSH,
                 Channel.DISCORD,
+                Channel.PUSH,
             ]

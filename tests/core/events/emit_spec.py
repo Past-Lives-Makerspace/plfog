@@ -11,7 +11,7 @@ from core.events.emit import _record_delivery, emit
 from core.events.registry import Channel
 from classes.factories import RegistrationFactory
 from core.models import EventDelivery, Notification, NotificationPreference, SiteActivity, TransactionalEmailLog
-from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+from tests.membership.factories import GuildFactory, GuildMembershipFactory, GuildStaffMembershipFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -32,18 +32,23 @@ def describe_emit():
     def describe_fan_out():
         def it_creates_in_app_rows_for_resolved_recipients(linked_member):
             member = linked_member()
-            result = emit("class_published", context={}, title="New class", body="b", url="/c/")
-            assert Notification.objects.filter(user=member.user, trigger="class_published").exists()
+            result = emit("site_announcement", context={}, title="News", body="b", url="/c/")
+            assert Notification.objects.filter(user=member.user, trigger="site_announcement").exists()
             assert (member.user_id, Channel.IN_APP) in result.delivered
 
         def it_emails_only_opted_in_recipients(linked_member):
+            # meeting.minutes_approved defaults EMAIL off, so only the member holding an
+            # explicit enabled row is mailed; the other guild member gets the bell only.
             opted = linked_member()
+            other = linked_member()  # not opted in
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=opted)
+            GuildMembershipFactory(guild=guild, member=other)
             NotificationPreference.objects.create(
-                user=opted.user, event_key="class_published", channel="email", enabled=True
+                user=opted.user, event_key="meeting.minutes_approved", channel="email", enabled=True
             )
-            linked_member()  # not opted in
-            emit("class_published", context={}, title="t", body="b")
-            logs = list(TransactionalEmailLog.objects.filter(trigger_kind="class_published"))
+            emit("meeting.minutes_approved", context={"guild": guild}, title="t", body="b")
+            logs = list(TransactionalEmailLog.objects.filter(trigger_kind="meeting.minutes_approved"))
             assert len(logs) == 1
             assert logs[0].to_email == opted.user.email
 
@@ -77,35 +82,35 @@ def describe_emit():
     def describe_idempotency():
         def it_does_not_redeliver_on_re_emit(linked_member):
             member = linked_member()
-            NotificationPreference.objects.create(
-                user=member.user, event_key="class_published", channel="email", enabled=True
-            )
-            emit("class_published", context={}, title="t", body="b")
-            emit("class_published", context={}, title="t", body="b")
+            emit("site_announcement", context={}, title="t", body="b")
+            emit("site_announcement", context={}, title="t", body="b")
             # Exactly one in-app row and one email despite two emits.
-            assert Notification.objects.filter(user=member.user, trigger="class_published").count() == 1
-            assert TransactionalEmailLog.objects.filter(trigger_kind="class_published").count() == 1
+            assert Notification.objects.filter(user=member.user, trigger="site_announcement").count() == 1
+            assert TransactionalEmailLog.objects.filter(trigger_kind="site_announcement").count() == 1
 
         def it_reports_skipped_duplicates_on_re_emit(linked_member):
             member = linked_member()
-            emit("class_published", context={}, title="t", body="b")
-            second = emit("class_published", context={}, title="t", body="b")
+            emit("site_announcement", context={}, title="t", body="b")
+            second = emit("site_announcement", context={}, title="t", body="b")
             assert (member.user_id, Channel.IN_APP) in second.skipped_duplicates
             assert second.delivered == []
 
         def it_separates_deliveries_by_period(linked_member):
             member = linked_member()
-            emit("class_published", context={}, title="t", body="b", period="2026-06")
-            emit("class_published", context={}, title="t", body="b", period="2026-07")
+            emit("site_announcement", context={}, title="t", body="b", period="2026-06")
+            emit("site_announcement", context={}, title="t", body="b", period="2026-07")
             # Different period buckets → two in-app rows.
-            assert Notification.objects.filter(user=member.user, trigger="class_published").count() == 2
+            assert Notification.objects.filter(user=member.user, trigger="site_announcement").count() == 2
 
         def it_records_one_eventdelivery_row_per_channel(linked_member):
             member = linked_member()
-            emit("class_published", context={}, title="t", body="b")
-            # class_published is in-app only for a default member (email off, and push is
-            # off by default for it), so exactly one delivery row — one per delivered channel.
-            row = EventDelivery.objects.get(event_key="class_published", target_ref=f"user:{member.user_id}")
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=member)
+            emit("meeting.minutes_approved", context={"guild": guild}, title="t", body="b")
+            # meeting.minutes_approved is in-app only for a default member (email off, and
+            # push is off by default for it), so exactly one delivery row — one per
+            # delivered channel.
+            row = EventDelivery.objects.get(event_key="meeting.minutes_approved", target_ref=f"user:{member.user_id}")
             assert row.channel == Channel.IN_APP.value
             assert row.period == ""
 
@@ -221,8 +226,8 @@ def describe_explicit_email_recipient():
 def describe_record_delivery():
     def it_returns_true_on_first_claim_and_false_after():
         user = User.objects.create_user(username="d", email="d@example.com")
-        first = _record_delivery("class_published", user, Channel.IN_APP, "")
-        second = _record_delivery("class_published", user, Channel.IN_APP, "")
+        first = _record_delivery("site_announcement", user, Channel.IN_APP, "")
+        second = _record_delivery("site_announcement", user, Channel.IN_APP, "")
         assert first is True
         assert second is False
 

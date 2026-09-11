@@ -49,12 +49,14 @@ def _publish_offering(offering: ClassOffering) -> None:
 
 
 # ---------------------------------------------------------------------------
-# class_published — broadcast to all active members
+# publishing — notifies nobody site-wide
 # ---------------------------------------------------------------------------
 
 
-def describe_class_published_notification():
-    def it_dispatches_to_active_members_when_published(db):
+def describe_publishing_a_class():
+    def it_rings_no_bell_for_uninvolved_members(db):
+        # Members hear about a new class from the #classes announcer cron, not from a
+        # site-wide bell row on the publish itself.
         recipient = _active_member_user()
         instructor = InstructorFactory(user=UserFactory())
         offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, instructor=instructor)
@@ -62,10 +64,7 @@ def describe_class_published_notification():
 
         _publish_offering(offering)
 
-        assert Notification.objects.filter(
-            trigger="class_published",
-            user=recipient,
-        ).exists()
+        assert not Notification.objects.filter(user=recipient).exists()
 
 
 # ---------------------------------------------------------------------------

@@ -19,8 +19,8 @@ pytestmark = pytest.mark.django_db
 
 def describe_email_category_for():
     def it_returns_the_events_registry_category_for_a_known_key():
-        expected = get_event("class_published").category
-        assert email_category_for("class_published") == expected
+        expected = get_event("class_reminder").category
+        assert email_category_for("class_reminder") == expected
 
     def it_returns_none_for_an_empty_key():
         assert email_category_for("") is None
@@ -34,12 +34,12 @@ def describe_email_category_for():
 def describe_EmailAdapter_category():
     def it_sets_the_x_category_header_to_the_events_registry_category():
         user = User.objects.create_user(username="catuser", email="cat@example.com")
-        message = Message(title="T", body="B", trigger_kind="class_published")
+        message = Message(title="T", body="B", trigger_kind="class_reminder")
 
         EmailAdapter().deliver(user, message)
 
         assert len(mail.outbox) == 1
-        assert mail.outbox[0].extra_headers["X-Category"] == get_event("class_published").category
+        assert mail.outbox[0].extra_headers["X-Category"] == get_event("class_reminder").category
 
     def it_omits_the_header_when_the_trigger_kind_is_not_a_registered_event():
         user = User.objects.create_user(username="catuser2", email="cat2@example.com")

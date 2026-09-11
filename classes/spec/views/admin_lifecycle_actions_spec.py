@@ -703,7 +703,8 @@ def describe_admin_class_create_publish_path():
         assert created.status == Status.PUBLISHED
         assert created.approved_by == admin_user
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_PUBLISHED, class_offering=created).count() == 1
-        assert Notification.objects.filter(trigger="class_published", user=member).count() == 1
+        # The direct-create publish notifies nobody site-wide.
+        assert not Notification.objects.filter(user=member).exists()
 
 
 def describe_admin_classes_facets():

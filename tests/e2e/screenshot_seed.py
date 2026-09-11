@@ -173,9 +173,9 @@ def _seed_member_hub(member: Member) -> None:
     if member.user is not None:
         Notification.objects.create(
             user=member.user,
-            trigger="class_published",
-            title="New class: Intro to Lost-Wax Casting",
-            body="A new class just went live in the Metalworking guild — grab a seat.",
+            trigger="class_reminder",
+            title="Tomorrow: Intro to Lost-Wax Casting",
+            body="Your class in the Metalworking guild starts tomorrow — see you there.",
             url="/classes/",
         )
         Notification.objects.create(

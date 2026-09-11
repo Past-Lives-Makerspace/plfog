@@ -66,12 +66,12 @@ def describe_user_settings_when_logged_out():
 
             response = client.post(
                 reverse("hub_user_settings"),
-                {"t": token, "form_id": "notifications", "pref__class_published__push": "on"},
+                {"t": token, "form_id": "notifications", "pref__class_reminder__push": "on"},
             )
 
             assert response.status_code == 302
             assert (
-                NotificationPreference.objects.get(user=user, event_key="class_published", channel="push").enabled
+                NotificationPreference.objects.get(user=user, event_key="class_reminder", channel="push").enabled
                 is True
             )
 
@@ -81,7 +81,7 @@ def describe_user_settings_when_logged_out():
 
             response = client.post(
                 reverse("hub_user_settings"),
-                {"t": token, "form_id": "notifications", "pref__class_published__push": "on"},
+                {"t": token, "form_id": "notifications", "pref__class_reminder__push": "on"},
             )
 
             assert response["Location"] == f"{reverse('hub_user_settings')}?tab=notifications&t={token}"
@@ -93,11 +93,11 @@ def describe_user_settings_when_logged_out():
 
             client.post(
                 reverse("hub_user_settings"),
-                {"t": token, "form_id": "notifications", "pref__class_published__push": "on"},
+                {"t": token, "form_id": "notifications", "pref__class_reminder__push": "on"},
             )
 
             assert not NotificationPreference.objects.filter(
-                user=bystander, event_key="class_published", channel="push"
+                user=bystander, event_key="class_reminder", channel="push"
             ).exists()
 
     def describe_without_a_valid_token():

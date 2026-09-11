@@ -4,14 +4,14 @@ from core import triggers
 
 
 def describe_catalogue():
-    def it_has_27_triggers():
+    def it_has_26_triggers():
         # 25, plus spec D's wiki.page_reported, wiki.page_proposed and wiki.page_verified,
-        # less invite_accepted (retired — nothing in production ever emitted it).
-        assert len(triggers.TRIGGERS) == 27  # incl. the forced refund_failed admin alert
+        # less class_published and invite_accepted (both retired).
+        assert len(triggers.TRIGGERS) == 26  # incl. the forced refund_failed admin alert
 
     def it_looks_up_by_key():
-        t = triggers.get("class_published")
-        assert t.label == "New class published"
+        t = triggers.get("class_reminder")
+        assert t.label == "Class reminder"
         assert t.audience == triggers.Audience.ALL_MEMBERS
 
     def it_raises_on_unknown_key():
@@ -22,7 +22,7 @@ def describe_catalogue():
 
     def it_filters_by_audience_for_a_plain_member():
         keys = {t.key for t in triggers.for_member(is_instructor=False, is_staff=False)}
-        assert "class_published" in keys
+        assert "class_reminder" in keys
         assert "instructor_class_approved" not in keys
         assert "new_member_joined" not in keys
 

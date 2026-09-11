@@ -23,7 +23,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _message(**kw):
-    base = {"title": "T", "body": "B", "url": "/x/", "trigger_kind": "class_published"}
+    base = {"title": "T", "body": "B", "url": "/x/", "trigger_kind": "site_announcement"}
     base.update(kw)
     return Message(**base)
 
@@ -72,7 +72,7 @@ def describe_notification_email_for():
         assert notification_email_for(user) == ""
 
 
-def _delivered_to(trigger: str = "class_published") -> set[str]:
+def _delivered_to(trigger: str = "site_announcement") -> set[str]:
     return set(TransactionalEmailLog.objects.filter(trigger_kind=trigger).values_list("to_email", flat=True))
 
 

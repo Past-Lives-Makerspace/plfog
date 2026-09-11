@@ -38,7 +38,6 @@ class Trigger:
 
 TRIGGERS: list[Trigger] = [
     # Classes — member-side
-    Trigger("class_published", "New class published", "A new class or workshop goes live.", "Classes"),
     Trigger("class_reminder", "Class reminder", "24 hours before a session you're registered for.", "Classes"),
     Trigger("registration_confirmed", "Registration confirmed", "Your registration and payment cleared.", "Classes"),
     # Transactional: a cancelled class always emails the people who booked it (including

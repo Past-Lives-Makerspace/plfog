@@ -76,9 +76,10 @@ def describe_dual_route_broadcast():
         assert not EventDelivery.objects.filter(target_ref__startswith="broadcast:guild:").exists()
 
     def it_posts_central_only_when_no_guild_is_in_context():
-        # class_published carries no ``guild`` — the guild branch never fires.
+        # site_announcement is site-wide and carries no ``guild`` — the guild branch
+        # never fires.
         with patch_post() as mock_post:
-            emit("class_published", context={}, title="T", body="B", period="cp:nocontext")
+            emit("site_announcement", context={}, title="T", body="B", period="sa:nocontext")
         assert mock_post.call_count == 1
 
 
