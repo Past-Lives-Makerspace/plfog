@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.53.1"
+VERSION = "1.54.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -30,6 +30,27 @@ VERSION = "1.53.1"
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.54.0",
+        "date": "2026-09-10",
+        "title": "A notification settings page you can actually read",
+        "changes": [
+            "Your notification settings used to run to 51 rows. They now fit in 30, without hiding anything from you.",
+            "Notices that belong together are now one switch. Every update about an event you "
+            "proposed is a single row, and so are the updates about a class you submitted, an "
+            "announcement you proposed, a space request, a request to host a workshop, and being "
+            "moved off a waitlist. Turning that row off turns off the whole family.",
+            "The notices you always get by email now sit together at the bottom, in a block called "
+            "Always emailed. Open it and you can still choose whether those also reach you by push "
+            "or on Discord. The email itself stays on, which was already true. It just no longer "
+            "costs ten rows to say so.",
+            "A new class no longer rings your bell, and if you had asked for an email about new "
+            "classes, that stops too. New classes are posted in the Discord classes channel, "
+            "which is where they already went.",
+            "Finishing an orientation now posts in your guild's Discord channel only. It no longer "
+            "rings your bell or sends a push.",
+        ],
+    },
     {
         "version": "1.53.0",
         "date": "2026-09-10",
