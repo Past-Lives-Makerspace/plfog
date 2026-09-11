@@ -151,7 +151,6 @@ TRIGGERS: list[Trigger] = [
         force_email=True,
     ),
     # Membership
-    Trigger("invite_accepted", "Invite accepted", "Someone you invited has joined.", "Membership"),
     Trigger("new_member_joined", "New member joined", "A new member signed up.", "Membership", Audience.STAFF_ONLY),
     # Spaces / leases
     # Transactional: a tenant must hear that their lease is about to end.

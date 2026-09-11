@@ -1,4 +1,4 @@
-"""The five legacy events that should always email, and the invite-accepted period.
+"""The five legacy events that should always email.
 
 Every event seeded into the registry from ``core/triggers.py`` inherited ``EMAIL = OFF``
 because no legacy :class:`core.triggers.Trigger` ever set ``force_email`` /
@@ -9,9 +9,7 @@ specs pin the fix:
 * each of the five now declares ``EMAIL = FORCED`` and actually puts a message in the
   outbox when emitted through its real call site;
 * the two class events reach a **guest** registrant (no linked ``Member``, therefore
-  invisible to the ``registrant`` / ``all_active_members`` resolvers) via ``email_to``;
-* ``Invite.mark_accepted`` carries a per-invite ``period``, so a second invite's
-  acceptance is not swallowed as a ledger duplicate of the first.
+  invisible to the ``registrant`` / ``all_active_members`` resolvers) via ``email_to``.
 
 Emails are asserted on ``django.core.mail.outbox`` (the locmem backend the test env
 installs); bell rows on :class:`core.models.Notification`.
@@ -34,7 +32,7 @@ from factory.django import mute_signals
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory, UserFactory
 from classes.models import ClassOffering, Registration
 from core.events.registry import Channel, ChannelDefault, get_event
-from core.models import Invite, Notification
+from core.models import Notification
 from membership.models import Member
 from tests.billing.factories import BillingSettingsFactory, ProductFactory, TabFactory
 from tests.membership.factories import LeaseFactory, MemberFactory
@@ -67,10 +65,6 @@ def _linked_member(*, email: str, username: str) -> Member:
 
 def _emails_to(address: str) -> list[mail.EmailMessage]:
     return [message for message in mail.outbox if address in message.to]
-
-
-def _invite(email: str, inviter: User) -> Invite:
-    return Invite.objects.create(email=email, invited_by=inviter)
 
 
 def describe_forced_email_registry():
@@ -317,26 +311,3 @@ def describe_lease_expiring_email():
         call_command("send_lease_expiry_reminders")
 
         assert len(_emails_to("oncetenant@example.com")) == 1
-
-
-def describe_invite_accepted_period():
-    def it_notifies_the_inviter_for_every_invite_not_just_the_first():
-        # A blank ``period`` collapses every acceptance onto one EventDelivery slot, so
-        # only the first invite an admin ever sent would ever notify them.
-        inviter = UserFactory()
-        first = _invite("first@example.com", inviter)
-        second = _invite("second@example.com", inviter)
-
-        first.mark_accepted()
-        second.mark_accepted()
-
-        assert Notification.objects.filter(trigger="invite_accepted", user=inviter).count() == 2
-
-    def it_stays_idempotent_for_a_repeated_acceptance_of_one_invite():
-        inviter = UserFactory()
-        invite = _invite("repeat@example.com", inviter)
-
-        invite.mark_accepted()
-        invite.mark_accepted()
-
-        assert Notification.objects.filter(trigger="invite_accepted", user=inviter).count() == 1

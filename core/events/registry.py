@@ -226,8 +226,6 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         "instructor_application_approved",
         "instructor_application_declined",
-        # Membership — someone accepted the invite you sent
-        "invite_accepted",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
     }
@@ -329,7 +327,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     "tab_entry_added": Recipients.TAB_MEMBER,
     "tab_approaching_limit": Recipients.TAB_MEMBER,
     # Membership
-    "invite_accepted": Recipients.INVITER,
     "new_member_joined": Recipients.FOG_ADMINS,
     # Spaces / leases
     "lease_expiring": Recipients.LEASE_TENANT,
@@ -387,7 +384,6 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     # ``None`` makes that the single source after the dispatch→emit migration.
     "tab_entry_added": None,
     "tab_approaching_limit": None,
-    "invite_accepted": "invite_accepted",
     "new_member_joined": "member_signup",
     "lease_expiring": None,
     # Both wiki events log NO SiteActivity via emit. emit() writes its activity row with
