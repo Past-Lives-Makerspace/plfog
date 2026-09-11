@@ -18,6 +18,13 @@ way hub/base.html sets it up, even though it does inherit through {% include %}.
 
 The __name and __wordmark spans are deliberately adjacent with no newline between them:
 a line break there renders as a stray space inside the wordmark.
+
+Scope, so the next reader is not surprised: hub/base.html only reaches the public_topbar
+block on the guest surface, so this override is inert for someone already signed in on the
+members host — they get the full member topbar and sidebar instead. That is out of scope
+on purpose. The emailed link is always built against the book host (classes/emails.py via
+core/urls_util.py), so the only way to land here is to hand-edit the host in a URL bar,
+and what you then see is the member chrome you are entitled to, not a broken page.
 {% endcomment %}
 <header class="pl-public-topbar pl-public-topbar--minimal">
     <span class="pl-public-topbar__brand">

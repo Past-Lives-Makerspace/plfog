@@ -31,7 +31,10 @@ measuring ``main`` in a real browser before writing them:
   ``__pill`` render only for ``persona == "member"``, which needs an ACTIVE
   member with an ``airtable_record_id``. Without that fixture the row under test
   is the anonymous three-item one, which nearly fits already, and the whole
-  suite would pass on a build with no CSS changes in it.
+  suite would pass on a build with no CSS changes in it. The persona assertion
+  counts those elements in the DOM, which is what proves the fixture worked;
+  below the 880px breakpoint they are present but ``display: none``, so the
+  five-item row is laid out in full only at the 900px width.
 
 Run with ``pytest -m e2e``.
 """
@@ -49,7 +52,11 @@ from classes.models import ClassOffering
 # 320 is the width the horizontal-overflow assertion is real at; 390 is the
 # reporter's iPhone and the width the clipping was photographed at; 768 is iPad
 # portrait, inside the 641-796px band a 640px breakpoint would have left broken.
-WIDTHS = [320, 390, 768]
+# 900 is above the 880px breakpoint, so it is the only width here that lays out
+# the full five-item row with __ext and __pill actually visible — without it
+# every case runs below the breakpoint, where those two are display: none, and
+# nothing would catch a regression to the un-collapsed bar.
+WIDTHS = [320, 390, 768, 900]
 VIEWPORT_HEIGHT = 844
 
 NO_H_SCROLL = "() => document.documentElement.scrollWidth === document.documentElement.clientWidth"

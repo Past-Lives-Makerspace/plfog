@@ -2889,6 +2889,12 @@ a:hover { color: var(--hub-link-hover); }
 .pl-public-topbar--minimal {
     justify-content: flex-start;
 }
+/* The minimal bar's brand is a <span>, not an <a>, so it must not keep the
+   anchor's hover affordance — dimming on hover with no cursor change and
+   nothing to click reads as a broken link. */
+.pl-public-topbar--minimal .pl-public-topbar__brand:hover {
+    opacity: 1;
+}
 
 /* The authenticated five-item row needs roughly 796px laid out, so the bar stops
    fitting well above phone width. 880 matches the sibling .cp-topbar breakpoint
