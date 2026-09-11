@@ -1747,9 +1747,12 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # orientation.completed — a warm welcome to the guild's members when a newcomer finishes
-    # their orientation. In-app + Discord only (no email). The Discord body carries the guild
-    # URL as a plain link (an embed has no separate click target); the in-app row uses its
-    # ``url`` field instead, so its body stays clean.
+    # their orientation. The event declares DISCORD only (see the registry), so Discord is the
+    # only channel that ships. The IN_APP entry below is kept anyway: ``seedable_rows`` seeds
+    # one row per (event x COPY_CHANNELS) whatever the event declares, and this event authors
+    # no email copy, so dropping it would leave ``copy_for(IN_APP)`` nothing to fall back to
+    # and seed a blank in-app row into the admin catalogue. The Discord body carries the guild
+    # URL as a plain link (an embed's description has no separate click target).
     "orientation.completed": EventCopy(
         placeholders=("member_name", "guild_name", "guild_url"),
         sample_context={

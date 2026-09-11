@@ -18,7 +18,7 @@ def active_member_users() -> "QuerySet[User]":
     """All active members' User objects — the default broadcast audience.
 
     Reused by :func:`core.events.resolvers.all_active_members` (the
-    ``ALL_ACTIVE_MEMBERS`` resolver behind site/class broadcasts).
+    ``ALL_ACTIVE_MEMBERS`` resolver behind site-wide broadcasts).
     """
     from django.contrib.auth.models import User
 

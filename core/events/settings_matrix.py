@@ -57,9 +57,9 @@ CHANNEL_LABELS: dict[Channel, str] = {
 # Shown on a disabled DISCORD_DM toggle when the member hasn't linked Discord yet.
 _DISCORD_LINK_HINT = "Connect your Discord account first to receive DMs."
 
-# Stable category display order; any category not listed falls to the end, alpha
-# (before STAFF_SECTION). STAFF_SECTION is always forced dead-last by
-# _ordered_categories, so it is not listed here.
+# Stable category display order; any category not listed falls to the end, alpha,
+# ahead of both collapsed tail sections. _ordered_categories forces ALWAYS_EMAILED_SECTION
+# then STAFF_SECTION dead-last, so neither is listed here.
 CATEGORY_ORDER: tuple[str, ...] = (
     "Orientations",
     "Guilds",
@@ -120,18 +120,16 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
 )
 
 # The single display section that collects every event whose EMAIL channel is FORCED —
-# mail the member cannot switch off. A row nobody can change is not a setting, it is a
-# fact, and it should not cost ten rows plus a heading in the grid; the section renders
-# as a collapsed disclosure instead (templates/hub/partials/_notification_matrix.html).
+# mail the member cannot switch off. It renders as a collapsed disclosure rather than ten
+# rows of grid (templates/hub/partials/_notification_matrix.html).
 #
-# The name is deliberately pronoun-free ("Always emailed", not "Always sent to you") so
-# the one string reads correctly on all three surfaces — the member's own page, the
-# no-login token page, and the admin editing someone else's — with no template branching.
-# It is also deliberately about the *email*: these rows keep writable Push and Discord
-# cells, and a block labelled "always sent" would be lying about them. Those writable
-# cells are why the block is COLLAPSED rather than hidden: a collapsed <details> still
-# submits its inputs, whereas omitting the rows would omit their checkboxes from the POST
-# and save_matrix would read the absence as enabled=False, silently wiping the member's
+# The name is pronoun-free ("Always emailed", not "Always sent to you") so the one string
+# reads correctly on all three surfaces — the member's own page, the no-login token page,
+# and the admin editing someone else's — with no template branching. It is about the
+# *email* specifically: these rows keep writable Push and Discord cells. Those cells are
+# why the block is COLLAPSED rather than hidden — a collapsed <details> still submits its
+# inputs, whereas omitting the rows would omit their checkboxes from the POST and
+# save_matrix would read the absence as enabled=False, silently wiping the member's
 # push/Discord choices.
 ALWAYS_EMAILED_SECTION = "Always emailed"
 
@@ -210,9 +208,7 @@ class RowGroup:
 
 # The sibling families this page collapses into one row each. ``group_id`` lives in its
 # own literal ``group.`` namespace, which no registered event key uses (a spec pins that),
-# so a group id can never collide with an event key — and a ``group.`` value that somehow
-# reached ``NotificationPreference.event_key`` would be obvious on sight rather than
-# looking like a plausible event.
+# so a group id can never collide with an event key.
 #
 # ``label`` and ``description`` are settings-page copy and reach no other surface: the
 # Emails tab and the admin catalogue both read the registry's own ``description``.
@@ -288,10 +284,7 @@ def _is_always_sent(event: EventType) -> bool:
     """Whether ``event`` reaches the member's inbox no matter what they choose.
 
     Derived, never declared: an event whose EMAIL channel default is ``FORCED`` is exactly
-    the set :data:`ALWAYS_EMAILED_SECTION` collects. A hand-maintained ``always_sent`` flag
-    on :class:`~core.events.registry.EventType` would be a second source of truth for
-    something the channel spec already states exactly, and a second source of truth can
-    drift; a derivation cannot.
+    the set :data:`ALWAYS_EMAILED_SECTION` collects.
     """
     spec = event.channel(Channel.EMAIL)
     return spec is not None and spec.is_forced
@@ -446,14 +439,9 @@ def _ordered_categories(categories: set[str]) -> list[str]:
     """Order the rendered sections: CATEGORY_ORDER first, unknown extras alpha, then the
     two collapsed blocks — Always emailed, then Staff & leadership.
 
-    Both tail sections are placed **structurally**, not alphabetically. STAFF_SECTION is
-    forced dead-last (its comment finally becomes true): a member-facing category always
-    sorts ahead of it, even a brand-new one not yet listed in CATEGORY_ORDER.
-    ALWAYS_EMAILED_SECTION sits immediately before it, after every member-facing category.
-    Neither is in CATEGORY_ORDER, so both would *currently* land in the right place by
-    alphabet alone — each is the only such section, and "A" precedes "S". That is an
-    accident of two strings, not a guarantee, and the next unlisted category would break
-    it; naming the order here makes it a guarantee.
+    Both tail sections are placed **structurally**, not alphabetically, so a brand-new
+    category not yet listed in CATEGORY_ORDER still sorts ahead of them whatever it is
+    called.
     """
     tail = [section for section in (ALWAYS_EMAILED_SECTION, STAFF_SECTION) if section in categories]
     ranked = [c for c in CATEGORY_ORDER if c in categories]

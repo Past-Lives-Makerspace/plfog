@@ -167,7 +167,7 @@ def describe_admin_overview_queue():
         assert reverse("classes:admin_class_remind_lead", kwargs={"pk": with_lead.pk}) in html
         # Approve opens the publish confirm on the overview row.
         assert "Publish this class?" in html
-        assert "posts to Discord" in html
+        assert "posts to the Discord classes channel within about 15 minutes" in html
 
     def it_counts_every_queue_in_the_merged_card(admin_user, client, db):
         """The card's own count is all three queues together, not just the admin's own."""

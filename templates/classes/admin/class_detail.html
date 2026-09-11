@@ -59,7 +59,7 @@ the parent's x-init runs, so a synchronous dispatch would fire into the void.{% 
 </div>
 
 {% url 'classes:admin_class_approve' pk=offering.pk as approve_url %}
-{% concat "“" offering.title "” goes live in the catalog, every active member gets a new class notice, and it posts to Discord. Use Review with notes to ask for changes instead." as publish_message %}
+{% concat "“" offering.title "” goes live in the catalog right away. Members are not sent an individual notice. It posts to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
 <div class="admin-toolbar">
     <div style="display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center;">
         {% if request.view_as.actual_is_admin and offering.status != 'archived' and offering.status != 'cancelled' %}
