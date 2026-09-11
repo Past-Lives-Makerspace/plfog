@@ -1,22 +1,30 @@
-"""Fail the release run when a push ships a release that announces nothing.
+"""Fail the release run when a push leaves ``VERSION`` where it was.
 
 A push to ``main`` that edits ``plfog/version.py`` but leaves ``VERSION`` exactly where it
 was deploys to production and tells nobody: ``discord-notify.yml`` used to set
 ``should_post=false`` and exit zero, so the Actions tab stayed green and the missing
 announcement was invisible until somebody noticed. That happened on the merge that shipped
-the lobby slideshow (``11a1693d``, v1.49.0, #348), and once before it on the hand-written
-repair of the same bug (``920fab64``, v0.23.39). Replayed over every push to ``main`` that
-touched ``plfog/version.py``, those two are the only ones this guard would have failed —
-2 of 222, no false positives.
+the lobby slideshow (``11a1693d``, v1.49.0, #348), and once before it on the handwritten
+repair of the same bug (``920fab64``, v0.23.39). Replayed over every first-parent commit on
+``main`` that touched ``plfog/version.py``, those two are the only ones this guard would
+have failed: 2 of 222.
 
 So the skip is now a non-zero exit. **A red X on the Actions tab is the whole alert**: no
 Discord ping, no auto-filed issue, no notification of any kind outside GitHub. That is a
 deliberate decision, not an omission.
 
+**What this does NOT catch.** It only compares the ``VERSION`` literal. A release that moves
+``VERSION`` correctly but stamps its changelog entry at the wrong number still deploys,
+still announces nothing, and still goes green — ``discord_release_notify.py`` prints
+"nothing member-facing to announce" and exits 0, which is also the correct behaviour for a
+tooling release that deliberately carries no entry. The two are indistinguishable from here.
+This closes the #348 shape, not the whole class.
+
 The comparison base is ``github.event.before`` — the tip of ``main`` before the push — not
 ``HEAD^``. A rebase merge pushes every commit of the PR at once, and ``HEAD^`` is then a
-commit from inside that PR, which may already carry the bump. ``discord-notify.yml``
-checks out with ``fetch-depth: 0`` so that base is always reachable.
+commit from inside that PR, which may already carry the bump. ``discord-notify.yml`` checks
+out with ``fetch-depth: 0`` so that base is always reachable, and this script **fails loudly
+if it is not**: a guard that cannot see the base and shrugs is the #348 bug wearing a hat.
 
 Run by ``.github/workflows/discord-notify.yml``. Stdlib only: the release workflows install
 nothing beyond the interpreter.
@@ -33,17 +41,23 @@ import sys
 _VERSION_PY = "plfog/version.py"
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _VERSION_RE = re.compile(r'^VERSION = "([^"]+)"', re.MULTILINE)
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_NULL_SHA = "0" * 40
 
 
 def extract_version(source: str) -> str | None:
     """The ``VERSION`` literal from a ``plfog/version.py`` source text, or ``None`` if absent.
 
-    Reading the literal rather than importing the module lets both sides of the comparison
-    be parsed the same way — the previous side is a blob out of ``git show`` and cannot be
-    imported at all.
+    Takes the **last** top-level assignment, which is what Python itself would bind. A first-
+    match read would disagree with ``discord_release_notify.py``, which gets its ``VERSION``
+    by importing the module: a stray duplicate literal above the real one would then let the
+    guard compare one number while the announcement posts at another.
+
+    Reading the literal rather than importing lets both sides of the comparison be parsed the
+    same way. The previous side is a blob out of ``git show`` and cannot be imported at all.
     """
-    match = _VERSION_RE.search(source)
-    return match.group(1) if match else None
+    matches = _VERSION_RE.findall(source)
+    return matches[-1] if matches else None
 
 
 def should_fail(*, version_py_changed: bool, previous: str | None, current: str) -> bool:
@@ -56,24 +70,29 @@ def should_fail(*, version_py_changed: bool, previous: str | None, current: str)
       not run, and that filter is load-bearing: the broader "``VERSION`` unchanged on any
       push" predicate would have fired 41 times in the same history, almost all of them on
       deliberate batched releases.
-    - ``previous`` unknown — the ref is gone, or the file did not exist yet. That is not
-      evidence of a lost announcement, so it falls through to the announcement, which is
-      what this step did before the guard existed.
+    - ``previous`` unknown, meaning ``plfog/version.py`` did not exist at the base commit.
+      That is the repo's earliest history, not a lost announcement. It is NOT the same as
+      "the base commit is missing from the clone", which fails the run instead — see
+      ``_require_readable_base``.
     """
     return version_py_changed and previous is not None and current == previous
 
 
 def _git(*args: str) -> str | None:
-    """Run a git command, returning its stdout, or ``None`` when git could not answer.
+    """Run a git command in the repo root, returning stdout, or ``None`` on a non-zero exit.
 
-    A failure here means the question is unanswerable (an unreachable ref, a missing file at
-    that ref), not that the answer is "no". Callers turn ``None`` into the permissive
-    outcome so a guard that cannot see the base never blocks a legitimate release.
+    ``None`` means "git declined to answer this question", and every caller says in its own
+    docstring what it does with that. An ``OSError`` — git missing or unexecutable — is NOT
+    caught: that is a broken guard rather than an unanswerable question, and it should crash
+    the step rather than degrade into a pass.
     """
-    try:
-        completed = subprocess.run(["git", *args], capture_output=True, text=True, check=False)
-    except OSError:
-        return None
+    completed = subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=_REPO_ROOT,
+    )
     if completed.returncode != 0:
         return None
     return completed.stdout
@@ -92,8 +111,38 @@ def _current_version() -> str:
     return current
 
 
+def _names_a_commit(before: str) -> bool:
+    """Whether ``github.event.before`` names a commit at all.
+
+    It is forty zeroes when the push created the branch, and empty on event payloads that
+    carry no base. Neither is a commit, and neither is evidence of a lost announcement.
+    """
+    return bool(_SHA_RE.match(before)) and before != _NULL_SHA
+
+
+def _require_readable_base(before: str) -> None:
+    """Fail the run when the base names a commit this clone does not have.
+
+    This is the hole that would otherwise swallow the whole guard. If the checkout loses
+    history — someone lowers ``fetch-depth``, bumps the checkout action, or ``main`` is
+    force-pushed so the old tip is orphaned — then ``git show`` and ``git diff`` both fail,
+    ``previous`` is unknown, ``version_py_changed`` is false, and the guard passes green on
+    exactly the push it exists to catch. Silence there is indistinguishable from #348.
+    """
+    if _git("cat-file", "-e", f"{before}^{{commit}}") is None:
+        sys.exit(
+            f"Release guard: the push base {before} is not in this clone, so VERSION cannot be "
+            f"compared against it and this guard would pass on a release that announces nothing. "
+            f"Check that .github/workflows/discord-notify.yml still checks out with fetch-depth: 0."
+        )
+
+
 def _previous_version(before: str) -> str | None:
-    """``VERSION`` as it stood at ``before``, or ``None`` when that blob is unreadable."""
+    """``VERSION`` as it stood at ``before``, or ``None`` when the file did not exist there.
+
+    ``before`` is known to be a commit in this clone by the time this runs, so a failure here
+    means the path was absent at that commit, not that the ref is missing.
+    """
     source = _git("show", f"{before}:{_VERSION_PY}")
     return extract_version(source) if source is not None else None
 
@@ -101,7 +150,9 @@ def _previous_version(before: str) -> str | None:
 def _version_py_changed(before: str, after: str) -> bool:
     """Whether ``plfog/version.py`` differs across the whole push range."""
     changed = _git("diff", "--name-only", before, after, "--", _VERSION_PY)
-    return bool(changed and changed.strip())
+    if changed is None:
+        sys.exit(f"Release guard: could not diff {before}..{after}. The release guard cannot run.")
+    return bool(changed.strip())
 
 
 def _write_output(name: str, value: str) -> None:
@@ -111,19 +162,28 @@ def _write_output(name: str, value: str) -> None:
 
 
 def _failure_message(*, after: str, previous: str, current: str) -> str:
-    """What a maintainer reads when the guard fires. Names the commit and both versions."""
+    """What a maintainer reads when the guard fires. Names the commit and both versions.
+
+    Deliberately short on recovery: the full version, including the trap that a follow-up
+    which edits the entry WITHOUT bumping VERSION fails this guard a second time, is in
+    CLAUDE.md. A CI log is a bad place to hide a procedure.
+    """
     return (
         f"Release guard: commit {after} edited {_VERSION_PY} but left VERSION at {current} "
         f"(it was {previous} before this push). The release deployed and the Discord "
         f"announcement was skipped, so members heard nothing about what just went live.\n"
         f"\n"
-        f"Recovery, once the changelog entry for this release is correct on main:\n"
-        f"  gh workflow run discord-notify.yml   posts the newest changelog entry to Discord\n"
-        f"  python manage.py announce_release    sends the release email\n"
+        f"If the changelog entry at {current} already says what members should read, this one "
+        f"command is the whole fix:\n"
+        f"  gh workflow run discord-notify.yml\n"
         f"\n"
-        f"announce_release is idempotent per version: it records an EventDelivery row with\n"
-        f'period="release:{current}" and a second run for that version sends nothing. Clear\n'
-        f"that row first if a corrected announcement has to go out at the same version."
+        f"If the entry needs writing or fixing, do that in a follow-up PR that ALSO bumps "
+        f"VERSION, and merging it announces by itself. A follow-up that edits the entry without "
+        f"bumping VERSION fails this guard again.\n"
+        f"\n"
+        f'Do not run both, and read "The release guard" in CLAUDE.md before reaching for\n'
+        f"announce_release: it posts to Discord as well as sending the email, so on top of the\n"
+        f"command above it announces the same release twice."
     )
 
 
@@ -138,11 +198,20 @@ def main() -> None:
     before = os.environ["BEFORE_SHA"]
     after = os.environ["AFTER_SHA"]
     current = _current_version()
+
+    if not _names_a_commit(before):
+        # A branch creation pushes forty zeroes. There is no previous release to compare
+        # against, so there is no lost announcement to detect: announce, as this step did
+        # before the guard existed.
+        print(f"No push base to compare against (before={before or '<empty>'}), announcing.")
+        _write_output("should_post", "true")
+        return
+
+    _require_readable_base(before)
     previous = _previous_version(before)
     changed = _version_py_changed(before, after)
     print(
-        f"push {before}..{after}  previous={previous or '<unknown>'}  current={current}  "
-        f"{_VERSION_PY} changed={changed}"
+        f"push {before}..{after}  previous={previous or '<none>'}  current={current}  {_VERSION_PY} changed={changed}"
     )
 
     if should_fail(version_py_changed=changed, previous=previous, current=current):

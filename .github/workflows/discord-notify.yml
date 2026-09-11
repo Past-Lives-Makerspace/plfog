@@ -11,11 +11,16 @@ name: Discord Notifications
 #   1. `paths:` — the job is only considered when plfog/version.py itself changed.
 #   2. the "Check whether VERSION changed" step below — it compares VERSION against the
 #      tip of main before the push.
-# That second guard used to skip the post and exit zero when VERSION had not moved, which
-# is how #348 shipped the lobby slideshow to production and announced it to nobody on a
-# green Actions tab. It now FAILS the run instead. A red X here is the whole alert: it
-# notifies nothing outside GitHub, by choice. `.github/scripts/release_guard.py` explains
-# the predicate and what it was measured against.
+# That second guard used to SKIP the post and exit zero when VERSION had not moved, which is
+# how #348 shipped the lobby slideshow to production and announced it to nobody on a green
+# Actions tab. It now FAILS the run instead. The guarantee it used to give — "edits to
+# changelog wording, or any other version.py churn, never re-announce a shipped release" —
+# still holds, but it is now paid for with a red X rather than a quiet skip: a push to main
+# that touches version.py without moving VERSION is a build failure, changelog-wording-only
+# edits included. Fix it forward in a PR that bumps VERSION.
+# A red X here is the whole alert: it notifies nothing outside GitHub, by choice.
+# `.github/scripts/release_guard.py` explains the predicate and what it was measured against,
+# and CLAUDE.md under "The release guard" has the recovery.
 # A manual run always posts, which is the escape hatch for re-sending an announcement.
 on:
   workflow_dispatch:

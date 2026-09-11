@@ -82,14 +82,33 @@ A GitHub Actions workflow posts a release announcement to the Past Lives Discord
 
 ### The release guard
 
-**A push to main that edits `plfog/version.py` but leaves `VERSION` where it was now FAILS the Discord Notifications workflow.** That is exactly how #348 shipped the lobby slideshow to production and announced it to nobody: the post step was skipped and the run stayed green. The check is `.github/scripts/release_guard.py` (specced in `tests/scripts/release_guard_spec.py`), and it compares `VERSION` against the tip of main before the push, not `HEAD^`, because a rebase merge pushes several commits at once. Replayed over every push to main that touched `plfog/version.py`, it fires twice in 222 — #348 and the hand-written 0.23.39 repair — and both were real.
+**A push to main that edits `plfog/version.py` but leaves `VERSION` where it was now FAILS the Discord Notifications workflow.** That is exactly how #348 shipped the lobby slideshow to production and announced it to nobody: the post step was skipped and the run stayed green. The check is `.github/scripts/release_guard.py` (specced in `tests/scripts/release_guard_spec.py`), and it compares `VERSION` against the tip of main before the push, not `HEAD^`, because a rebase merge pushes several commits at once. Replayed over every first-parent commit on main that touched `plfog/version.py`, it fires twice in 222 — #348 and the handwritten 0.23.39 repair — and both were real.
 
 **A red X on the Actions tab is the whole alert.** Nothing is posted, filed or notified outside GitHub. That is a deliberate choice, not an omission.
 
-Recovery, once `VERSION` and the entry are correct on main:
+**It closes the #348 shape, not the whole class.** The guard only compares the `VERSION` literal. A release that moves `VERSION` correctly but stamps its changelog entry at the *wrong* number still deploys, still announces nothing, and still goes green — from the workflow's side that is indistinguishable from a tooling release that deliberately carries no entry, which is a thing this repo does on purpose. Curating the entry at the right number is still on you.
 
-- `gh workflow run discord-notify.yml` re-posts to Discord. A manual run always posts, whatever `VERSION` says — the guard never blocks it.
-- `python manage.py announce_release` sends the release email. It is idempotent per version: it writes an `EventDelivery` row with `period="release:<version>"`, and a second run for that version sends nothing. Delete that row first if a corrected announcement has to go out at the same version.
+#### Recovering a missed announcement
+
+Pick **one** of these. Doing both announces the release twice, and a Discord post cannot be unsent.
+
+- **The entry at the stuck `VERSION` already says what members should read** — run `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says; the guard never blocks it. That is the whole fix, and no follow-up PR is needed.
+- **The entry needs writing or fixing** — do it in a follow-up PR that **also bumps `VERSION`**, and merging that PR announces by itself. Do not then run the workflow by hand; the merge already posted.
+
+A follow-up PR that edits the entry **without** bumping `VERSION` fails this guard a second time, correctly: that push is another release that announces nothing. `920fab64` is exactly that commit, which is why the guard counts it as a real fire.
+
+#### `announce_release` is not a companion to either
+
+`python manage.py announce_release` sends the release **email**, but `release.published` is registered on the in-app, email *and* Discord channels (`core/events/registry.py:638`), so it posts to Discord too. Run it on top of either recovery above and members get the same release announced twice.
+
+Two more things about it:
+
+- **Run it as a Render one-off job, never locally against the production database.** It builds every link from `MEMBER_BASE_URL`, which in a local environment is `http://pastlives.test:8000` — links that dead-end on the one laptop that can resolve them, mailed to every member.
+- **Its idempotence is a ledger, not a row.** `emit()` claims an `EventDelivery` per `(event_key, target_ref, channel, period)` with `period="release:<version>"`: one broadcast row *plus one per recipient per channel*, so a single announce writes hundreds. A corrected re-send at the same version needs them all cleared, filtered on the period, where the production database is:
+
+  ```python
+  EventDelivery.objects.filter(period="release:1.49.0").delete()
+  ```
 
 ---
 

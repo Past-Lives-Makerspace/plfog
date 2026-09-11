@@ -162,17 +162,24 @@ commit hashes. Members read these.
 **Forgetting the bump fails the build, on purpose.** A merge that edits `plfog/version.py` but
 leaves `VERSION` where it was deploys to production and announces nothing, which has happened. The
 **Discord Notifications** workflow now fails on that instead of skipping the announcement quietly.
-A red X on the Actions tab is the only alert; nothing is sent anywhere else. To recover, correct
-`VERSION` and the entry in a follow-up PR, then send the announcement by hand:
+A red X on the Actions tab is the only alert; nothing is sent anywhere else.
 
-| Command | What it does |
+To recover, pick **one** of these. Doing both announces the release twice, and a Discord post
+cannot be unsent:
+
+| Situation | What to do |
 |---|---|
-| `gh workflow run discord-notify.yml` | Re-posts to Discord. A manual run always posts, whatever `VERSION` says. |
-| `python manage.py announce_release` | Sends the release email. |
+| The entry at the stuck `VERSION` already reads correctly | Run `gh workflow run discord-notify.yml`. A manual run always posts, whatever `VERSION` says. That is the whole fix. |
+| The entry needs writing or fixing | Do it in a follow-up PR that **also bumps `VERSION`**. Merging it announces by itself; do not also run the workflow by hand. |
 
-`announce_release` only sends once per version — it records an `EventDelivery` row with
-`period="release:<version>"` — so delete that row first if a corrected announcement has to go out
-at the same version.
+A follow-up that edits the entry *without* bumping `VERSION` fails the guard again, correctly: it
+is another release that announces nothing.
+
+`python manage.py announce_release` is **not** a companion to either. It sends the release email,
+but the `release.published` event is registered on Discord as well, so it re-announces on top of
+whichever recovery you used. It also has to run as a Render one-off job rather than locally, since
+it builds every member-facing link from `MEMBER_BASE_URL`. See
+[`CLAUDE.md`](CLAUDE.md) under "The release guard" for the full procedure.
 
 ---
 
