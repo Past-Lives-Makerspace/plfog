@@ -2,6 +2,7 @@
 {% load static classes_tags %}
 
 {% block title %}Review: {{ offering.title }} — Past Lives{% endblock %}
+{% block public_topbar %}{% include "classes/_components/review_topbar.html" %}{% endblock public_topbar %}
 
 {% block content %}
 <div class="hub-card" style="max-width:900px;margin:0 auto;">

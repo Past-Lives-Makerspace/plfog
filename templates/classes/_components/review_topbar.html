@@ -1,0 +1,34 @@
+{% load static %}
+{% static 'img/favicon.png' as fallback_logo %}
+{% comment %}
+The brand-only header for the emailed, tokenized class review page
+(templates/classes/admin/class_review.html and class_review_unknown.html), which overrides
+hub/base.html's `public_topbar` block with this file.
+
+A reviewer arrives here from an email link with no account and nothing to do but approve or
+decline, so the page carries zero navigation: no Classes link, no Sign up, no Log in, no
+member cluster. The brand is a <span>, not an <a>, on purpose — a link to the catalog would
+be the off-task exit this header exists to remove. With no focusable element in it, the page
+also needs no skip link.
+
+`{% load static %}` is required: plfog/settings.py declares no template `builtins`, so a
+partial using {% static %} without loading the library raises TemplateSyntaxError on its
+first render. `fallback_logo` is re-declared here for the same belt-and-braces reason, the
+way hub/base.html sets it up, even though it does inherit through {% include %}.
+
+The __name and __wordmark spans are deliberately adjacent with no newline between them:
+a line break there renders as a stray space inside the wordmark.
+
+Scope, so the next reader is not surprised: hub/base.html only reaches the public_topbar
+block on the guest surface, so this override is inert for someone already signed in on the
+members host — they get the full member topbar and sidebar instead. That is out of scope
+on purpose. The emailed link is always built against the book host (classes/emails.py via
+core/urls_util.py), so the only way to land here is to hand-edit the host in a URL bar,
+and what you then see is the member chrome you are entitled to, not a broken page.
+{% endcomment %}
+<header class="pl-public-topbar pl-public-topbar--minimal">
+    <span class="pl-public-topbar__brand">
+        <img src="{% firstof brand_logo_url fallback_logo %}" alt="" width="22" height="22">
+        <span class="pl-public-topbar__label"><span class="pl-public-topbar__name">{{ brand_short_name }}</span><span class="pl-public-topbar__wordmark"> Member Portal</span></span>
+    </span>
+</header>
