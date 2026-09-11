@@ -20,7 +20,13 @@ Triggered by:
     position: fixed;
     z-index: 2147483000;            /* above the topbar (z-index:50), sidebar (100), modals (9999) */
     top: calc(var(--topbar-height, 56px) + 0.75rem);  /* sit just below the navbar */
-    top: calc(var(--topbar-height, 56px) + env(safe-area-inset-top, 0px) + 0.75rem);  /* notch-safe; the plain rule above is the fallback for browsers that cannot parse env() */
+    /* Notch inset rides on its own var-free property on purpose. An engine that
+       cannot parse env() throws this whole declaration out at parse time and is
+       left with the plain `top` above, exactly as before. Folding env() into
+       that calc() instead would NOT fall back: a value containing var() is only
+       validated after substitution, so it wins the cascade and then computes to
+       `top: auto`, which drops a position:fixed toast below the fold. */
+    margin-top: env(safe-area-inset-top, 0px);
     left: 50%; transform: translateX(-50%);            /* horizontally centered */
     display: flex; flex-direction: column; align-items: center; gap: .5rem;
     width: max-content; max-width: 92vw; pointer-events: none;

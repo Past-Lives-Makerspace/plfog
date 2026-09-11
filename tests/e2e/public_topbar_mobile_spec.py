@@ -16,17 +16,24 @@ It tells the reader "token review, no login needed" and then shows them Sign up
 and Log in, so it overrides the block with a brand-only minimal variant.
 
 Three things about these assertions are deliberate and were each arrived at by
-measuring ``main`` in a real browser before writing them:
+measuring in a real browser before writing them. Every number below was taken
+with this file's own rules removed, and each is labelled with the width and the
+row it came from, because the two rows behave differently and conflating them is
+how this ticket's original acceptance criterion ended up vacuous.
 
 - **Brand height against 1.5x its line-height**, not "brand box inside header
-  box". At 480px on the unfixed CSS the brand is 51.2px inside a 56px header, so
-  a visible two-line wrap passes the containment check. Nor can the lines be
-  counted with ``getClientRects()``: it returns 1 even at three visual lines,
-  because the label is a blockified flex item.
-- **320px carries the horizontal-overflow check.** At 390px
-  ``scrollWidth === clientWidth`` passes on the unfixed CSS (390 === 390) — the
-  brand shrinks to min-content rather than pushing the document wider — so 390
-  alone proves nothing. At 320 it genuinely fails (354 vs 320).
+  box". On the **authenticated member row** the brand measures 102.4px at 320,
+  390 and 480, and **51.2px at 768** — that last one is a real two-line wrap that
+  sits *inside* a 56px header, so the containment check passes on it while the
+  1.5x line-height check (38.4px) fails. Containment is therefore the weaker
+  assertion and is not used. Nor can the lines be counted with
+  ``getClientRects()``: it returns 1 at every width, including the four-line
+  102.4px case, because the label is a blockified flex item.
+- **320px carries the horizontal-overflow check** — but only on the review
+  page's row. There the document overflows at 320 and not at 390, so 390 alone
+  would prove nothing and 320 is what makes the assertion real. The member row
+  is worse and overflows at 320, 390 and 480 alike (a 517px document against
+  each). Sampling 320 covers both.
 - **The 404 case is authenticated as a member persona.** ``__ext`` and
   ``__pill`` render only for ``persona == "member"``, which needs an ACTIVE
   member with an ``airtable_record_id``. Without that fixture the row under test

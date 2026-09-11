@@ -2720,13 +2720,20 @@ a:hover { color: var(--hub-link-hover); }
     z-index: 50;
     /* Grow by the status-bar/notch inset, exactly as .pl-topbar does — the app
        webview is edge-to-edge (viewport-fit=cover), so the bar keeps its brand
-       and nav below the system UI. The plain declaration FIRST and the env()
-       one immediately after is a fallback pair, not a duplicate: a browser that
-       cannot parse env() drops the WHOLE declaration rather than the term,
-       which would leave the bar with no height and no padding at all. Do not
-       collapse either pair into the env() line on its own. */
+       and nav below the system UI.
+       Two different mechanisms carry that inset, and which one a declaration
+       needs depends on whether its value contains var():
+       - No var() (the `padding` below): an engine that cannot parse env()
+         throws out the WHOLE declaration at parse time, so writing the plain
+         line FIRST and the env() line immediately after is a real fallback
+         pair. Do not collapse it into the env() line on its own.
+       - Contains var() (`height`): a declaration holding var() is stored as an
+         unvalidated token stream and only checked after substitution, so it
+         WINS the cascade on that engine and then computes to `auto` — a bar
+         collapsed to content height, not a fallback. The pair trick does
+         nothing there, so the height inset lives in the @supports block just
+         below this rule, which such an engine skips whole. */
     height: var(--topbar-height);
-    height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
     background-color: rgba(6, 31, 51, 0.85);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -2741,6 +2748,16 @@ a:hover { color: var(--hub-link-hover); }
        nothing inside the bar can ever shrink and the row overflows its own
        header. The same declaration repeats on the brand and the label. */
     min-width: 0;
+}
+/* The height half of the inset. @supports is parse-tested, so an engine that
+   cannot parse env() never enters this block and keeps the plain height above;
+   one that can gets the taller bar. Keep this after the base rule and ahead of
+   the breakpoints — neither @media block declares height, so nothing later
+   re-declares it at equal specificity. */
+@supports (height: env(safe-area-inset-top)) {
+    .pl-public-topbar {
+        height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
+    }
 }
 .pl-public-topbar__brand {
     display: inline-flex;
