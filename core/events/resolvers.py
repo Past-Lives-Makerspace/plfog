@@ -459,22 +459,6 @@ def tab_member(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients([member], "tab_member")
 
 
-def inviter(context: dict[str, Any]) -> list[Recipient]:
-    """The user who sent an invitation (notified when it's accepted).
-
-    ``Invite.invited_by`` is a ``User`` (the admin who sent it), not a Member, so
-    this resolver yields that User directly. An explicit ``user`` in context wins.
-    """
-    if "user" in context:
-        user = context["user"]
-    else:
-        invite = _require(context, "invite")
-        user = invite.invited_by
-    if user is None or not user.pk or not (user.email or "").strip():
-        return []
-    return [(user, "inviter")]
-
-
 def invitee(context: dict[str, Any]) -> list[Recipient]:
     """The person being INVITED — addressed by raw email, not a user (Decision 5).
 
@@ -712,7 +696,6 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.CLASS_ROSTER: class_roster,
     Recipients.NEXT_WAITLISTED: next_waitlisted,
     Recipients.TAB_MEMBER: tab_member,
-    Recipients.INVITER: inviter,
     Recipients.INVITEE: invitee,
     Recipients.LEASE_TENANT: lease_tenant,
     Recipients.ALL_ACTIVE_MEMBERS: all_active_members,

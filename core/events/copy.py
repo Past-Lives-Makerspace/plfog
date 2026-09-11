@@ -127,7 +127,6 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.CLASS_ROSTER: "Everyone with a confirmed registration for the class.",
     Recipients.NEXT_WAITLISTED: "The next member in line on the waitlist.",
     Recipients.TAB_MEMBER: "The member whose billing tab this concerns.",
-    Recipients.INVITER: "The person who sent the invitation.",
     Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
     Recipients.LEASE_TENANT: "The member holding the space agreement.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",

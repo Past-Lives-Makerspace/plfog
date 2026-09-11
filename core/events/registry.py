@@ -98,7 +98,6 @@ class Recipients(str, Enum):
     CLASS_ROSTER = "class_roster"
     NEXT_WAITLISTED = "next_waitlisted"
     TAB_MEMBER = "tab_member"
-    INVITER = "inviter"
     INVITEE = "invitee"
     LEASE_TENANT = "lease_tenant"
     ALL_ACTIVE_MEMBERS = "all_active_members"
