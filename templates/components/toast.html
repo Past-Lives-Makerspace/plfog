@@ -20,6 +20,7 @@ Triggered by:
     position: fixed;
     z-index: 2147483000;            /* above the topbar (z-index:50), sidebar (100), modals (9999) */
     top: calc(var(--topbar-height, 56px) + 0.75rem);  /* sit just below the navbar */
+    top: calc(var(--topbar-height, 56px) + env(safe-area-inset-top, 0px) + 0.75rem);  /* notch-safe; the plain rule above is the fallback for browsers that cannot parse env() */
     left: 50%; transform: translateX(-50%);            /* horizontally centered */
     display: flex; flex-direction: column; align-items: center; gap: .5rem;
     width: max-content; max-width: 92vw; pointer-events: none;

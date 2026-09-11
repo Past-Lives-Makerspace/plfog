@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+from django.test import override_settings
 from django.urls import reverse
 
 from classes.factories import ClassOfferingFactory
@@ -214,3 +216,119 @@ def describe_the_framed_preview():
         client.force_login(admin_user)
         html = client.get(f"{reverse('hub_home')}?framed=1").content.decode()
         assert "hub-sidebar" in html
+
+
+def describe_the_review_header():
+    """The emailed review page carries a brand-only header, with no navigation in it at all.
+
+    A tokenized reviewer has no account and exactly one job, so the shared public navbar's
+    exits (Classes, My account, Sign up, Log in, the member cluster) are all removed here.
+    ``classes.emails`` builds the review link against the book host, so every case below runs
+    on the guest surface, which is where that header would otherwise be richest.
+    """
+
+    @pytest.fixture
+    def member_persona_user(db):
+        """An ACTIVE member that also carries an ``airtable_record_id``.
+
+        Copied from ``classes/spec/views/public_spec.py``. That combination is what
+        ``core.context_processors.persona`` reads as ``"member"``, and only that persona
+        renders the topbar's ``__ext`` / ``__pill`` cluster — asserting those absent under
+        any other user would pass on unmodified main and prove nothing.
+        """
+        from django.contrib.auth import get_user_model
+
+        from membership.models import Member, MembershipPlan
+
+        plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
+        user, _ = get_user_model().objects.get_or_create(
+            username="fog@example.com", defaults={"email": "fog@example.com"}
+        )
+        Member.objects.update_or_create(
+            user=user,
+            defaults={
+                "full_legal_name": "Fog Member",
+                "fog_role": Member.FogRole.MEMBER,
+                "membership_plan": plan,
+                "status": Member.Status.ACTIVE,
+                "airtable_record_id": "recFOG123",
+            },
+        )
+        return user
+
+    def _valid_token_url() -> str:
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
+        (row,) = offering.submit_for_review()
+        return reverse("classes:class_review", kwargs={"token": row.token})
+
+    def _unknown_token_url() -> str:
+        return reverse("classes:class_review", kwargs={"token": "not-a-real-token"})
+
+    def _header_markup(html: str) -> str:
+        """The minimal header's own markup only.
+
+        Scoped deliberately: the review page body is full of links and buttons, so a
+        "no focusable element" assertion against the whole document could never fail.
+        """
+        start = html.index('<header class="pl-public-topbar pl-public-topbar--minimal"')
+        return html[start : html.index("</header>", start)]
+
+    def _assert_brand_only_header(response) -> str:
+        """Assert the header is present, is the brand, and holds nothing to click."""
+        from core.models import SiteConfiguration
+
+        assert response.status_code == 200
+        html = response.content.decode()
+        assert "pl-public-topbar--minimal" in html
+        header = _header_markup(html)
+        assert SiteConfiguration.load().org_short_name in header
+        assert "Member Portal" in header
+        assert "<a" not in header
+        assert "<button" not in header
+        return html
+
+    def describe_for_an_anonymous_reviewer():
+        def it_renders_the_brand_alone_with_no_sign_in_exits(client, db):
+            url = _valid_token_url()
+            with override_settings(PUBLIC_HOSTS=["testserver"]):
+                response = client.get(url)
+            html = _assert_brand_only_header(response)
+            assert "pl-public-topbar__signup" not in html
+            assert "pl-public-topbar__login" not in html
+
+        def it_renders_the_brand_alone_on_a_dead_review_link(client, db):
+            with override_settings(PUBLIC_HOSTS=["testserver"]):
+                response = client.get(_unknown_token_url())
+            html = _assert_brand_only_header(response)
+            assert "pl-public-topbar__signup" not in html
+            assert "pl-public-topbar__login" not in html
+
+    def describe_for_a_reviewer_who_happens_to_be_logged_in():
+        def it_renders_the_brand_alone_with_no_member_chrome(client, db, member_persona_user):
+            client.force_login(member_persona_user)
+            url = _valid_token_url()
+            with override_settings(PUBLIC_HOSTS=["testserver"]):
+                response = client.get(url)
+            html = _assert_brand_only_header(response)
+            for marker in (
+                "pl-public-topbar__logout",
+                "pl-public-topbar__ext",
+                "pl-public-topbar__pill",
+                "pl-public-topbar__link",
+                "pl-public-topbar__nav",
+            ):
+                assert marker not in html
+
+        def it_renders_the_brand_alone_on_a_dead_review_link(client, db, member_persona_user):
+            client.force_login(member_persona_user)
+            with override_settings(PUBLIC_HOSTS=["testserver"]):
+                response = client.get(_unknown_token_url())
+            html = _assert_brand_only_header(response)
+            for marker in (
+                "pl-public-topbar__logout",
+                "pl-public-topbar__ext",
+                "pl-public-topbar__pill",
+                "pl-public-topbar__link",
+                "pl-public-topbar__nav",
+            ):
+                assert marker not in html

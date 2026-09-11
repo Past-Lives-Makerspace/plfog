@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.54.0"
+VERSION = "1.54.1"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -24,6 +24,15 @@ VERSION = "1.54.0"
 # 1.53.1 - the automated PR review workflow took it with no entry, correctly: it is repo
 # tooling, invisible to members. A VERSION with no matching entry announces nothing, which is
 # what this release wants. Do not invent an entry for it.
+#
+# 1.54.1 - the public top bar's phone repair takes it with no entry, deliberately, and this one is
+# a deferral rather than a "members will never see it". Members WILL see it: pages opened from an
+# emailed link or a QR code stopped fitting on a phone, and the brand wrapped to three lines inside
+# its own header. But the fix cannot be confirmed from here - env(safe-area-inset-top) is always 0
+# in Chrome and in Playwright, there is no iOS Simulator on this machine, and the bug was reported
+# from Mail's in-app webview. The announcement is the one step a revert cannot undo, so it waits
+# until someone has tapped a real review link on a real iPhone. The member-facing entry is written
+# at the NEXT bump, once that confirm lands. Do not add one here to fill the gap.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for

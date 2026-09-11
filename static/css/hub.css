@@ -2718,7 +2718,15 @@ a:hover { color: var(--hub-link-hover); }
     position: sticky;
     top: 0;
     z-index: 50;
+    /* Grow by the status-bar/notch inset, exactly as .pl-topbar does — the app
+       webview is edge-to-edge (viewport-fit=cover), so the bar keeps its brand
+       and nav below the system UI. The plain declaration FIRST and the env()
+       one immediately after is a fallback pair, not a duplicate: a browser that
+       cannot parse env() drops the WHOLE declaration rather than the term,
+       which would leave the bar with no height and no padding at all. Do not
+       collapse either pair into the env() line on its own. */
     height: var(--topbar-height);
+    height: calc(var(--topbar-height) + env(safe-area-inset-top, 0px));
     background-color: rgba(6, 31, 51, 0.85);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
@@ -2727,7 +2735,12 @@ a:hover { color: var(--hub-link-hover); }
     align-items: center;
     justify-content: space-between;
     padding: 0 1.5rem;
+    padding: env(safe-area-inset-top, 0px) 1.5rem 0;
     gap: 1rem;
+    /* A flex item floors at min-content unless told otherwise, so without this
+       nothing inside the bar can ever shrink and the row overflows its own
+       header. The same declaration repeats on the brand and the label. */
+    min-width: 0;
 }
 .pl-public-topbar__brand {
     display: inline-flex;
@@ -2738,12 +2751,35 @@ a:hover { color: var(--hub-link-hover); }
     font-weight: 800;
     font-size: 16px;
     text-decoration: none;
+    min-width: 0;
 }
 .pl-public-topbar__brand:hover { text-decoration: none; opacity: 0.9; }
+/* The logo is the one thing that never gives way — a shrunk 22px mark reads as
+   a rendering fault, not as a responsive layout. */
+.pl-public-topbar__brand img { flex: 0 0 auto; }
+/* The truncation guard lives on the label, never on __brand: __brand is
+   inline-flex, where text-overflow is a no-op and the text hard-clips
+   mid-glyph instead of ellipsising. min-width: 0 repeats down the whole chain
+   (bar → brand → label) because each flex item's default min-width: auto
+   defeats the one above it. */
+.pl-public-topbar__label {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+/* __name and __wordmark split the brand text into two halves so the 480px block
+   below can drop " Member Portal" and keep the short name. They carry no
+   declarations here on purpose: __label's white-space: nowrap inherits down to
+   both, so repeating it would be inert. The spans exist as markup hooks, and
+   __wordmark's only rule is the display: none in the 480px block. */
 .pl-public-topbar__nav {
     display: inline-flex;
     align-items: center;
     gap: 14px;
+    /* The nav holds its laid-out size; the brand is what shrinks. Narrowing is
+       done by the breakpoints below dropping items, not by squashing them. */
+    flex: 0 0 auto;
 }
 .pl-public-topbar__link {
     color: var(--color-steel, #96acbb);
@@ -2844,6 +2880,66 @@ a:hover { color: var(--hub-link-hover); }
     border-color: rgba(238, 180, 75, 0.35);
     color: var(--color-cream, #f4efdd);
     text-decoration: none;
+}
+
+/* Brand-only variant: a page that offers no public navigation at all (the token
+   review page). It deliberately declares neither height nor padding — inheriting
+   the base rule is what keeps the safe-area inset intact. Anything added here
+   that touches the box must repeat the fallback pair above, in full. */
+.pl-public-topbar--minimal {
+    justify-content: flex-start;
+}
+
+/* The authenticated five-item row needs roughly 796px laid out, so the bar stops
+   fitting well above phone width. 880 matches the sibling .cp-topbar breakpoint
+   in cms-public.css and keeps iPad portrait (768px) on a single line, which a
+   640px rule would not. */
+@media (max-width: 880px) {
+    .pl-public-topbar {
+        /* The env() term is repeated IN FULL here on purpose. This shorthand has
+           the same specificity as the base rule and sits later in the file, so a
+           plain `padding: 0 0.75rem` would win at every width at or below 880px
+           and silently delete the notch inset on exactly the devices this
+           breakpoint exists for. Fallback pair again, for the same reason. */
+        padding: 0 0.75rem;
+        padding: env(safe-area-inset-top, 0px) 0.75rem 0;
+        gap: 0.5rem;
+    }
+
+    .pl-public-topbar__nav {
+        gap: 8px;
+    }
+
+    .pl-public-topbar__ext,
+    .pl-public-topbar__pill {
+        display: none;
+    }
+
+    .pl-public-topbar__link {
+        font-size: 12px;
+    }
+
+    .pl-public-topbar__signup {
+        padding: 8px 12px;
+    }
+
+    .pl-public-topbar__login,
+    .pl-public-topbar__logout {
+        padding: 8px 10px;
+    }
+}
+
+/* The last two things a phone can give up: the " Member Portal" suffix, and the
+   Classes link — the brand anchor already points at the same page, so dropping
+   it removes a duplicate, not a destination. */
+@media (max-width: 480px) {
+    .pl-public-topbar__wordmark {
+        display: none;
+    }
+
+    .pl-public-topbar__link--catalog {
+        display: none;
+    }
 }
 
 /* When no sidebar (anonymous), the wrapper occupies the full viewport. */
