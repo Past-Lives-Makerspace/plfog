@@ -71,9 +71,13 @@ _INSET_SELECTOR_RE = re.compile(r"^\.(pl-public-topbar|plt-container)(--[A-Za-z0
 # The logical-property spellings are in here on purpose. `padding-block-start: 0`
 # is exactly the tidy-up a modern-CSS reviewer would reach for, and it would
 # otherwise slip past this guard and delete the inset silently.
+#
+# `padding-inline` is deliberately NOT in this list, and that is not an oversight.
+# It sets the left and right edges, never the top, so it can never legitimately
+# carry env(safe-area-inset-top) — listing it would make this checker demand a top
+# inset inside a horizontal property and fail a perfectly correct declaration.
 _BOX_DECL_RE = re.compile(
-    r"(?<![\w-])(height|block-size|padding|padding-top|padding-inline|padding-block|padding-block-start)"
-    r"\s*:\s*([^;{}]+);"
+    r"(?<![\w-])(height|block-size|padding|padding-top|padding-block|padding-block-start)\s*:\s*([^;{}]+);"
 )
 _ANY_DECL_RE = re.compile(r"(?<![\w-])([-a-zA-Z]+)\s*:\s*([^;{}]+);")
 _TOPBAR_HEIGHT_RE = re.compile(r"--topbar-height\s*:\s*([^;]+);")
@@ -305,6 +309,12 @@ def describe_public_topbar_safe_area():
             logical = ".pl-public-topbar { padding-block-start: 0; }"
             (offender,) = _inset_offenders(logical)
             assert "notch inset is gone" in offender
+
+        def it_leaves_horizontal_logical_properties_alone():
+            # padding-inline sets the left and right edges and can never carry a TOP
+            # inset, so demanding one in it would fail a correct declaration. This
+            # asserts the omission from _BOX_DECL_RE is deliberate, not an oversight.
+            assert _inset_offenders(".pl-public-topbar { padding-inline: 0.75rem; }") == []
 
         def it_ignores_the_bars_child_elements():
             assert _inset_offenders(".pl-public-topbar__brand { padding: 0 8px; }") == []
