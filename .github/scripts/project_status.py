@@ -242,8 +242,10 @@ mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
 }
 """
 
+# `$field` is deliberately NOT a variable here. The field is filtered for in Python below,
+# and GraphQL rejects a document that declares a variable it never references.
 _ITEM_STATUS_QUERY = """
-query($item: ID!, $field: ID!) {
+query($item: ID!) {
   node(id: $item) {
     ... on ProjectV2Item {
       fieldValueByName: fieldValues(first: 20) {
@@ -266,7 +268,7 @@ def current_status(item_id: str, field_id: str, token: str) -> str | None:
     Returns:
         The column name, or ``None`` when the card has no status yet.
     """
-    data = graphql(_ITEM_STATUS_QUERY, {"item": item_id, "field": field_id}, token)
+    data = graphql(_ITEM_STATUS_QUERY, {"item": item_id}, token)
     for node in data["node"]["fieldValueByName"]["nodes"]:
         # Non-single-select values come back as empty objects from the inline fragment.
         if node and node["field"]["id"] == field_id:

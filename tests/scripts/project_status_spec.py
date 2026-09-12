@@ -22,6 +22,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import re
 import urllib.error
 from email.message import Message
 from types import ModuleType
@@ -533,3 +534,24 @@ def describe_project_status():
             def it_is_refused_by_the_argument_parser(module, env):
                 with pytest.raises(SystemExit):
                     module.main(["--status", "Plan"])
+
+    def describe_the_query_documents():
+        def it_declares_no_variable_it_does_not_use(module):
+            """GitHub rejects a document declaring an unused variable, and the fake transport
+            in these specs cannot know that — it answers whatever it is asked. This shipped a
+            real break: ``_ITEM_STATUS_QUERY`` declared ``$field`` while filtering for the
+            field in Python, and every board move failed with "Variable $field is declared by
+            anonymous query but not used" against 54 green specs. A static read of the
+            documents is the cheap guard the mock cannot be.
+            """
+            documents = {
+                name: value
+                for name, value in vars(module).items()
+                if name.endswith(("_QUERY", "_MUTATION")) and isinstance(value, str)
+            }
+            assert documents, "no GraphQL documents found to check"
+            for name, document in documents.items():
+                header, _, body = document.partition("{")
+                declared = set(re.findall(r"\$(\w+)\s*:", header))
+                used = set(re.findall(r"\$(\w+)", body))
+                assert declared <= used, f"{name} declares unused variable(s): {declared - used}"
