@@ -67,6 +67,26 @@ _STATUS_FIELD = "Status"
 # Ordered. The index is the rank that makes movement forward-only.
 PHASES = ("Triage", "Research", "Plan", "Implement", "Present", "Observe", "Done")
 
+# What each phase is called ON THE BOARD. The two halves are deliberately different
+# vocabularies in one string: the method's word, so a column maps to a phase and a skill
+# without a translation table in someone's head, and a plain-English word, because "Observe"
+# and "Present" tell a reader nothing about what is happening to their ticket.
+#
+# The CLI and the specs stay on the single-word phase. `--status "Present / In Review"` is a
+# quoted string with a slash in it, typed by a human at a terminal or interpolated into YAML,
+# and it would be wrong eventually. One mapping here is the whole cost of keeping both.
+COLUMNS = {
+    "Triage": "Triage / Not Started",
+    "Research": "Research / Finding Facts",
+    "Plan": "Plan / Choosing Approach",
+    "Implement": "Implement / Building",
+    "Present": "Present / In Review",
+    "Observe": "Observe / Checking Production",
+    "Done": "Done",
+}
+
+_PHASE_BY_COLUMN = {column: phase for phase, column in COLUMNS.items()}
+
 # `fog/357-public-topbar-mobile` -> 357. The prefix is not pinned to `fog/` because
 # the repo has used others (`wiki-b`, `fix/...`); what matters is a number leading the slug.
 _BRANCH_ISSUE_RE = re.compile(r"^[^/]+/(\d+)-")
@@ -170,13 +190,14 @@ def load_board(org: str, number: int, token: str) -> tuple[str, str, dict[str, s
         raise ProjectStatusError(f"Board '{project['title']}' has no single-select field named '{_STATUS_FIELD}'.")
 
     options = {option["name"]: option["id"] for option in field["options"]}
-    missing = [phase for phase in PHASES if phase not in options]
+    missing = [COLUMNS[phase] for phase in PHASES if COLUMNS[phase] not in options]
     if missing:
         raise ProjectStatusError(
             f"Board '{project['title']}' is missing the column(s) {', '.join(missing)}. "
             f"Its {_STATUS_FIELD} options are: {', '.join(options) or '(none)'}."
         )
-    return project["id"], field["id"], options
+    # Keyed by phase, not by column name, so every caller below speaks one vocabulary.
+    return project["id"], field["id"], {phase: options[COLUMNS[phase]] for phase in PHASES}
 
 
 _ISSUE_QUERY = """
@@ -317,7 +338,12 @@ def move(
         present = None
         added = " (added to the board)"
     else:
-        present = current_status(item_id, field_id, token)
+        column = current_status(item_id, field_id, token)
+        # A board column that is not one of ours is legitimate: somebody can add "Icebox" in
+        # the UI at any time. `.get` with a fallback is correct here precisely because the key
+        # may honestly be absent, and an unknown column ranks below everything so the move
+        # proceeds rather than wedging the card.
+        present = None if column is None else _PHASE_BY_COLUMN.get(column, column)
         added = ""
 
     if present == status:

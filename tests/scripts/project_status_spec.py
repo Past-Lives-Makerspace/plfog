@@ -76,11 +76,14 @@ class _FakeResponse:
         return None
 
 
-_PHASES = _load_script().PHASES
+_MODULE = _load_script()
+_PHASES = _MODULE.PHASES
+_COLUMNS = _MODULE.COLUMNS
 
 
 def _board(options: list[str] | None = None, title: str = "Delivery") -> dict:
-    names = options if options is not None else list(_PHASES)
+    """A board whose Status options are the DISPLAY names, as the real one carries them."""
+    names = options if options is not None else [_COLUMNS[p] for p in _PHASES]
     return {
         "organization": {
             "projectV2": {
@@ -102,6 +105,12 @@ def _issue(item: bool = True, other_board: bool = False) -> dict:
 
 
 def _status(name: str | None) -> dict:
+    """A card's Status value. A phase is translated to its DISPLAY name, as the real board
+    returns it, so specs exercise the translation rather than stepping around it. Anything
+    not a phase is passed through, which is how a hand-made column like "Icebox" is spelt.
+    """
+    if name is not None:
+        name = _COLUMNS.get(name, name)
     nodes = [{}] if name is None else [{"name": name, "field": {"id": _FIELD_ID}}]
     return {"node": {"fieldValueByName": {"nodes": nodes}}}
 
@@ -201,7 +210,7 @@ def describe_project_status():
             project_id, field_id, options = module.load_board(_ORG, 4, "tok")
             assert project_id == _PROJECT_ID
             assert field_id == _FIELD_ID
-            assert options["Observe"] == "opt_Observe"
+            assert options["Observe"] == "opt_Observe / Checking Production"
 
         def describe_when_the_organization_is_invisible():
             def it_raises(module, serve):
@@ -229,8 +238,12 @@ def describe_project_status():
 
         def describe_when_a_phase_column_is_missing():
             def it_names_every_missing_column(module, serve):
-                serve(board=_board(["Triage", "Plan", "Done"]))
-                with pytest.raises(module.ProjectStatusError, match="Research, Implement, Present, Observe"):
+                present = [_COLUMNS["Triage"], _COLUMNS["Plan"], "Done"]
+                serve(board=_board(present))
+                with pytest.raises(
+                    module.ProjectStatusError,
+                    match="Research / Finding Facts, Implement / Building, Present / In Review",
+                ):
                     module.load_board(_ORG, 4, "tok")
 
             def it_lists_what_the_board_does_have(module, serve):
@@ -272,9 +285,10 @@ def describe_project_status():
                     module.find_issue("o", "r", 366, _PROJECT_ID, "tok")
 
     def describe_current_status():
-        def it_returns_the_column_name(module, serve):
+        def it_returns_the_board_column_verbatim(module, serve):
+            # The board's own spelling, not the phase. move() does the translating.
             serve(item_status=_status("Present"))
-            assert module.current_status(_ITEM_ID, _FIELD_ID, "tok") == "Present"
+            assert module.current_status(_ITEM_ID, _FIELD_ID, "tok") == "Present / In Review"
 
         def describe_when_the_field_is_unset():
             def it_returns_none(module, serve):
@@ -287,6 +301,22 @@ def describe_project_status():
                 serve(item_status={"node": {"fieldValueByName": {"nodes": nodes}}})
                 assert module.current_status(_ITEM_ID, _FIELD_ID, "tok") is None
 
+    def describe_the_column_names():
+        def it_maps_every_phase_to_a_column(module):
+            assert set(module.COLUMNS) == set(module.PHASES)
+
+        def it_pairs_the_method_word_with_a_plain_one(module):
+            assert module.COLUMNS["Present"] == "Present / In Review"
+            assert module.COLUMNS["Observe"] == "Observe / Checking Production"
+
+        def it_reads_a_board_column_back_as_its_phase(module, serve):
+            """The round trip that the CLI depends on: the board says "Present / In Review",
+            and a --status Implement must still be recognised as a backwards move."""
+            server = serve(board=_board(), issue=_issue(), item_status=_status("Present"))
+            result = module.move("o", "r", 357, "Implement", _ORG, 4, "tok")
+            assert result == "#357 is in Present, which is not behind Implement; left alone."
+            assert server.sent("set") == []
+
     def describe_move():
         def it_sets_the_column_and_reports_the_transition(module, serve):
             server = serve(
@@ -297,7 +327,7 @@ def describe_project_status():
             )
             result = module.move("o", "r", 357, "Present", _ORG, 4, "tok")
             assert result == "#357: Implement -> Present"
-            assert server.sent("set")[0]["option"] == "opt_Present"
+            assert server.sent("set")[0]["option"] == "opt_Present / In Review"
 
         def describe_when_the_issue_is_not_on_the_board_yet():
             def it_adds_the_card_first_and_says_so(module, serve):
@@ -335,7 +365,7 @@ def describe_project_status():
                 )
                 result = module.move("o", "r", 357, "Research", _ORG, 4, "tok", force=True)
                 assert result == "#357: Observe -> Research"
-                assert server.sent("set")[0]["option"] == "opt_Research"
+                assert server.sent("set")[0]["option"] == "opt_Research / Finding Facts"
 
         def describe_when_the_card_sits_in_a_column_that_is_not_a_phase():
             def it_treats_it_as_behind_everything_and_moves(module, serve):
