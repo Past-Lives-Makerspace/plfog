@@ -18,6 +18,16 @@ name: Delivery board
 # the wrong column. GITHUB_TOKEN cannot be used at all: it is scoped to the repository that
 # issued it, and an organization board belongs to no repository.
 #
+#
+# Every step below is `continue-on-error`. The board is a window onto the work and never a
+# gate on it, so a board that cannot be reached must not redden an unrelated pull request.
+# That is not squeamishness about red: it is protecting the meaning of red. A red X in this
+# repo already means "a release shipped to production and announced to nobody" (#364), and
+# that signal is worth keeping rare. A workflow that fires on every push to every branch and
+# goes red whenever a token expires would train everyone to scroll past exactly the X that
+# matters. The failure is still visible as an annotation on the run, and the board visibly
+# stops moving, which is the louder signal in practice.
+#
 # The trigger is `pull_request`, not `pull_request_target`. That means a pull request from a
 # fork gets no secrets and moves no card, which is the behaviour we want: a drive-by fork PR
 # is not RPIPO work and has no ticket on this board.
@@ -72,6 +82,7 @@ jobs:
       # later push to the same branch re-runs this and is a no-op, because the card is by
       # then at Present or beyond and the move is forward only.
       - name: Implement -- a branch exists
+        continue-on-error: true
         if: github.event_name == 'push'
         env:
           PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
@@ -81,6 +92,7 @@ jobs:
         run: python .github/scripts/project_status.py --branch "${GITHUB_REF#refs/heads/}" --status Implement
 
       - name: Present -- a pull request is open
+        continue-on-error: true
         if: github.event_name == 'pull_request' && github.event.action != 'closed'
         env:
           PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
@@ -92,6 +104,7 @@ jobs:
       # Merged, not closed. A pull request closed without merging leaves the card where it
       # is: the ticket did not advance, and dropping it to Done would be a lie.
       - name: Observe -- merged, production unverified
+        continue-on-error: true
         if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
         env:
           PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
@@ -104,6 +117,7 @@ jobs:
       # change deployed, is being used, and broke nothing -- so the issue closing is the
       # signal, and it is the human or the Observe phase that produces it.
       - name: Done -- the issue closed
+        continue-on-error: true
         if: github.event_name == 'issues'
         env:
           PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
@@ -112,6 +126,9 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python .github/scripts/project_status.py --issue ${{ github.event.issue.number }} --status Done
 
+      # NOT continue-on-error, unlike the ambient steps above. Somebody typed a ticket
+      # number into a form and pressed the button; a green run that moved nothing would
+      # be lying to the one person actually watching this workflow.
       - name: Move by hand
         if: github.event_name == 'workflow_dispatch'
         env:
