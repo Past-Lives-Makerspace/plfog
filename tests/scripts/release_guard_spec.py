@@ -271,20 +271,12 @@ def describe_release_guard():
                 assert _BASE in failure
                 assert "fetch-depth: 0" in failure
 
-            def it_names_the_force_push_cause_too(failure):
-                # On that path fetch-depth is already correct, so sending the maintainer to
-                # audit it wastes the one moment they are paying attention.
-                assert "force-pushed" in failure
-                assert "no checkout depth can reach" in _squash(failure)
-
-            def it_does_not_promise_that_a_manual_run_decides_anything(failure):
-                # It does not. With FORCE_ANNOUNCE a manual run posts the entries at the
-                # current VERSION, or the NEWEST entry when there are none, either way
-                # unconditionally. Telling the maintainer it "will announce it if it needs
-                # announcing" invents a safety check and re-announces a shipped release.
-                assert "Do NOT reach straight for" in failure
-                assert "does not decide whether an announcement is owed" in _squash(failure)
-                assert "if it needs announcing" not in failure
+            def it_hands_the_judgment_to_a_human_rather_than_a_rule(failure):
+                # The force-push branch and the manual-run advisory that used to live here
+                # were both cut: this message now states the fact, names the one setting
+                # worth auditing, and stops. Nothing in a CI log can tell whether an
+                # announcement is owed on a push it cannot see the base of.
+                assert "judge this push by hand" in _squash(failure)
 
     def describe_previous_version():
         def it_reads_the_blob_at_the_base_commit(monkeypatch):
@@ -461,47 +453,35 @@ def describe_release_guard():
                 assert "it was 1.49.0 before this push" in message
                 assert "left VERSION at 1.49.0" in message
 
-            def it_asks_whether_the_entry_EXISTED_rather_than_who_touched_it(failure):
-                # Two weaker questions were tried and both re-post an announced release.
-                # "Does the entry read well" is satisfied by the PREVIOUS release's entry.
-                # "Did this push write it" is satisfied by a typo fix to that same entry,
-                # which touched it without making it new. Only existence at the base sorts
-                # the shapes, so that is the command the message hands over.
+            def it_hands_over_the_manual_run_as_the_lever(failure):
+                # The one command this message carries, and the one true thing about it: it
+                # posts, whatever VERSION says. Nothing else here is a recipe.
                 message, _, _ = failure
-                assert f"git show {_BASE}:plfog/version.py" in message
-                assert 'grep \'"version": "1.49.0"\'' in message
-
-            def it_gives_the_one_command_when_nothing_was_there_before(failure):
-                message, _, _ = failure
-                assert "NO MATCH means this push wrote that entry" in message
                 assert "gh workflow run discord-notify.yml" in message
+                assert "posts whatever VERSION says" in _squash(message)
 
-            def it_warns_that_re_posting_an_older_entry_announces_the_wrong_release(failure):
+            def it_warns_that_re_posting_an_entry_members_saw_announces_the_wrong_release(failure):
+                # The caution that survived the trim, and the only one. The message asks the
+                # maintainer to look; it deliberately does not hand them a rule for deciding,
+                # because three rounds of writing one each produced a way to double-post.
                 message, _, _ = failure
-                assert "belongs to the release before this one" in message
-                assert "wrong release" in message
+                assert "already seen the entry at 1.49.0" in _squash(message)
+                assert "announces the wrong release" in _squash(message)
+                assert "cannot be unsent" in _squash(message)
 
-            def it_says_a_rewording_does_not_make_the_entry_new(failure):
-                # The defect this replaced: "ADDED or REWROTE" routed a typo fix on an
-                # already-announced entry into the unconditional re-announce branch.
+            def it_says_why_a_wording_only_edit_trips_the_guard(failure):
+                # Without this the maintainer has no way to tell a lost announcement from a
+                # typo fix on one that already went out, and both shapes land here.
                 message, _, _ = failure
-                assert "whatever this push did to its wording" in _squash(message)
+                assert "a reflow or a typo fix on an entry an earlier release already announced" in _squash(message)
 
-            def it_offers_the_no_entry_answer_for_a_release_members_never_saw(failure):
-                # The guard fires on ANY version.py edit that leaves VERSION alone, including
-                # a comment-block edit. Ordering an entry there would invent one for a release
-                # members never saw, which the repo's own changelog rule forbids.
+            def it_allows_that_nothing_may_be_owed(failure):
+                # The guard fires on ANY version.py edit that leaves VERSION alone, a
+                # comment-block edit included, and this PR is itself that shape. A message
+                # that only ever says "announce it" would order an announcement for a release
+                # members never saw.
                 message, _, _ = failure
-                assert "shipped nothing a member would notice, nothing is owed" in _squash(message)
-                assert "with no entry" in _squash(message)
-
-            def it_says_the_new_entry_goes_at_the_new_version(failure):
-                # Bumping VERSION but stamping the entry at the old number announces nothing
-                # and goes green, which is the miss this guard cannot see. Squashed, because
-                # the assertion is about the words, not where the paragraph happens to wrap.
-                message, _, _ = failure
-                assert "stamps the new entry at the NEW number" in _squash(message)
-                assert "Stamping it at 1.49.0 instead" in _squash(message)
+                assert "Nothing may be owed at all" in _squash(message)
 
             def it_warns_that_announce_release_would_double_post(failure):
                 # announce_release emits release.published, which is registered on the

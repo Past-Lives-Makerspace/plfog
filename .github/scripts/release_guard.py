@@ -145,16 +145,8 @@ def _require_readable_base(before: str) -> None:
             f"Release guard: the push base {before} is not in this clone, so VERSION cannot be "
             f"compared against it and this guard would pass on a release that announces nothing.\n"
             f"\n"
-            f"Two things cause this. Either .github/workflows/discord-notify.yml no longer checks "
-            f"out with fetch-depth: 0, which is a bug to fix; or main was force-pushed and the old "
-            f"tip is orphaned, which no checkout depth can reach. In the second case nothing is "
-            f"wrong with the workflow and the guard simply cannot judge this push.\n"
-            f"\n"
-            f"Do NOT reach straight for `gh workflow run discord-notify.yml`. A manual run does not "
-            f"decide whether an announcement is owed: it posts the entries stamped at the current "
-            f"VERSION, or the NEWEST entry if there are none, and either way it posts. Read the "
-            f"CHANGELOG against what this push actually shipped first, and run it only if an "
-            f"entry nobody has seen is sitting at the current VERSION."
+            f"Check that .github/workflows/discord-notify.yml still checks out with fetch-depth: 0. "
+            f'Then read "The release guard" in CLAUDE.md and judge this push by hand.'
         )
 
 
@@ -182,46 +174,39 @@ def _write_output(name: str, value: str) -> None:
         handle.write(f"{name}={value}\n")
 
 
-def _failure_message(*, before: str, after: str, previous: str, current: str) -> str:
-    """What a maintainer reads when the guard fires. Names the commit and both versions.
+def _failure_message(*, after: str, previous: str, current: str) -> str:
+    """What a maintainer reads when the guard fires: the fact, the lever, and one caution.
 
-    The question it asks is deliberately narrow: **did an entry at ``current`` already exist
-    at the base**. Two weaker questions were tried and both were wrong.
+    Deliberately this short. Three review rounds each rewrote a longer runbook here, and each
+    rewrite encoded a rule for deciding whether members had already seen the entry at
+    ``current`` — first "does the entry read well", then "did this push write it", then "did
+    an entry exist at the base". Every one of them was satisfiable by a shape nobody had
+    enumerated, and every one of them therefore sent a maintainer to a manual run that
+    re-announced a release members had already had. A Discord post cannot be unsent, so the
+    rule is gone rather than written a fourth time.
 
-    "Does the entry read well" is satisfied by an entry the *previous* release wrote and
-    already announced. "Did this push touch the entry" is satisfied by a push that merely
-    reflowed or typo-fixed that same already-announced entry — touching it without making it
-    new. Either reading sends the maintainer to a manual run that re-posts a release members
-    have already seen, and a Discord post cannot be unsent. Existence at the base is the only
-    reading that separates the shapes, which is why the command that answers it is inline.
-
-    Deliberately short on the rest: the full procedure is in CLAUDE.md. A CI log is a bad
-    place to hide one.
+    What this message owes the maintainer is the fact, the one lever, and the reason to look
+    before pulling it. The judgment is theirs. The rest is in CLAUDE.md, which is a better
+    place for it than a CI log.
     """
     return (
         f"Release guard: commit {after} edited {_VERSION_PY} but left VERSION at {current} "
         f"(it was {previous} before this push). The release deployed and the Discord "
         f"announcement was skipped, so members heard nothing about what just went live.\n"
         f"\n"
-        f"First find out whether a changelog entry at {current} already existed before this push:\n"
-        f'  git show {before}:{_VERSION_PY} | grep \'"version": "{current}"\'\n'
-        f"\n"
-        f"NO MATCH means this push wrote that entry and nobody has seen it. One command is the\n"
-        f"whole fix:\n"
+        f"The lever is a manual run, which posts whatever VERSION says and which this guard\n"
+        f"never blocks:\n"
         f"  gh workflow run discord-notify.yml\n"
         f"\n"
-        f"A MATCH means the entry at {current} belongs to the release before this one and was\n"
-        f"announced already — whatever this push did to its wording. Re-posting it would tell\n"
-        f"members about the wrong release, so do not run the workflow by hand. Instead:\n"
-        f"  - If this push shipped nothing a member would notice, nothing is owed. Bump VERSION\n"
-        f"    in the next PR as usual, with no entry, and nothing is announced. That is correct.\n"
-        f"  - Otherwise write what THIS push shipped in a follow-up PR that bumps VERSION and\n"
-        f"    stamps the new entry at the NEW number; merging that announces by itself. Stamping\n"
-        f"    it at {current} instead announces nothing and fails this guard again.\n"
+        f"Look before you pull it. This guard fires on any {_VERSION_PY} edit that leaves\n"
+        f"VERSION alone, including a reflow or a typo fix on an entry an earlier release\n"
+        f"already announced, so check whether members have already seen the entry at\n"
+        f"{current}. Re-posting one they have seen announces the wrong release, and a Discord\n"
+        f"post cannot be unsent. Nothing may be owed at all.\n"
         f"\n"
-        f'Never both, and read "The release guard" in CLAUDE.md before reaching for\n'
-        f"announce_release: it posts to Discord as well as sending the email, so on top of the\n"
-        f"command above it announces the same release twice."
+        f'Read "The release guard" in CLAUDE.md before reaching for announce_release: it posts\n'
+        f"to Discord as well as sending the email, so on top of the command above it announces\n"
+        f"the same release twice."
     )
 
 
@@ -266,7 +251,7 @@ def main() -> None:
         # should_fail is False whenever previous is None, so the narrowing below is sound.
         assert previous is not None
         print(f"::error title=Release shipped without an announcement::commit {after} left VERSION at {current}")
-        sys.exit(_failure_message(before=before, after=after, previous=previous, current=current))
+        sys.exit(_failure_message(after=after, previous=previous, current=current))
 
     _write_output("should_post", "true")
 

@@ -95,42 +95,11 @@ Curating the entry at the right number is still on you. The guard catches one sh
 
 #### Recovering a missed announcement
 
-Pick **one**. Doing both announces the release twice, and a Discord post cannot be unsent.
+The release is live and members heard nothing. The lever already exists: `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says, and the guard never blocks one.
 
-First work out whether an entry at the stuck `VERSION` **already existed before this push**. Two weaker questions are both wrong: "does the entry read well" is satisfied by an entry the previous release wrote and already announced, and "did this push touch the entry" is satisfied by a push that merely reflowed or typo-fixed that same announced entry. Existence at the base is what separates the shapes:
+**Look before you pull it.** The guard fires on any edit to `plfog/version.py` that leaves the literal alone — a reflow or a typo fix on an entry an earlier release already announced included — so check whether members have already seen the entry sitting at the stuck `VERSION`. Re-posting one they have seen announces the wrong release, and a Discord post cannot be unsent. Nothing may be owed at all: a tooling release legitimately carries no entry, and then the answer is to run nothing and bump `VERSION` in the next PR as usual. That judgment is a human's, and there is deliberately no rule here that makes it for you — three attempts at writing one each produced a different way to double-post to members.
 
-```
-git show <the push base>:plfog/version.py | grep '"version": "<the stuck VERSION>"'
-```
-
-- **No match** — this push wrote that entry and nobody has seen it. Run `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says; the guard never blocks it. That is the whole fix, and no follow-up PR is needed.
-- **A match** — the entry belongs to the previous release and was announced already, *whatever this push did to its wording*. Re-posting it would announce the wrong release to members, so do not run the workflow by hand. Then:
-  - **If this push shipped nothing a member would notice**, nothing is owed. Bump `VERSION` in the next PR as usual, with no entry, and nothing is announced — which is correct. The guard fires on any `plfog/version.py` edit that leaves `VERSION` alone, comment-block edits included, so this is a routine way to trip it.
-  - **Otherwise** write what *this* push shipped in a follow-up PR that bumps `VERSION` and stamps the new entry at the **new** number. Merging that PR announces by itself; do not then run the workflow by hand.
-
-Two ways to get that follow-up wrong:
-
-- Stamping the new entry at the **stuck** `VERSION` without bumping fails this guard a second time — correctly, since that push is another release that announces nothing. Noisy, not silent: you get a red X. `920fab64` is exactly that commit, which is why the guard counts it as a real fire.
-- Bumping `VERSION` but leaving the entry stamped at the **old** number announces nothing and goes **green**, because that is the gap above. This one is silent — nothing will tell you. Check the number you stamped.
-
-#### `announce_release` is not a companion to either
-
-`python manage.py announce_release` sends the release **email**, but `release.published` is registered on the in-app, email *and* Discord channels (`core/events/registry.py:638`), so it posts to Discord too. Run it on top of either recovery above and members get the same release announced twice.
-
-Two more things about it:
-
-- **Run it as a Render one-off job, never locally against the production database.** It builds every link from `MEMBER_BASE_URL`, which in a local environment is `http://pastlives.test:8000` — links that dead-end on the one laptop that can resolve them, mailed to every member.
-- **Its idempotence is a ledger, not a row.** `emit()` claims an `EventDelivery` per `(event_key, target_ref, channel, period)` with `period="release:<version>"`: one broadcast row *plus* per-recipient rows. Discord is a broadcast channel and is skipped in the per-recipient fan-out (`core/events/emit.py:427-429`), so per recipient you get up to three rows — in-app, email, and push where a member has opted into it — and fewer wherever they have opted out. Either way it is hundreds. A corrected re-send at the same version needs them cleared, filtered on the period, as a Render one-off job:
-
-  ```python
-  from core.models import EventDelivery; print(EventDelivery.objects.filter(period='release:1.49.0').exclude(channel='discord').delete())
-  ```
-
-  One line, because `manage.py shell -c` does not take a multi-line body, and it prints the delete count so you can verify by data rather than by exit code.
-
-  **Keep the Discord row.** `_record_broadcast` claims it on the *same* period (`core/events/emit.py:326`), so an unfiltered delete releases it, and `announce_release` passes no `suppress_broadcast` — the re-send would post a second identical embed to a channel where nothing can be unsent. The `.exclude` is what makes the re-send email-and-in-app only.
-
-  Nothing else writes a bare `release:<version>` period: `send_release_email` always writes three segments, `release:<version>:<lines-or-current-minor>`. So the exact match is safe — but do not broaden it to `period__startswith="release:1.49.0"`, which would take the release-email ledger with it.
+`python manage.py announce_release` is **not** a companion to the manual run. It sends the release **email**, but `release.published` is registered on the in-app, email *and* Discord channels (`core/events/registry.py:638`), so it posts to Discord too — run both and members get the same release announced twice.
 
 ---
 

@@ -169,26 +169,13 @@ It is a narrow check, deliberately. A merge that does not touch `plfog/version.p
 caught — the workflow does not even run — and neither is a release that bumps `VERSION` but stamps
 its entry at the wrong number. Getting the entry onto the right number is still a human job.
 
-To recover, first find out whether an entry at the stuck `VERSION` **already existed before this
-push** — not whether this push touched it, since a typo fix touches an entry that already went out
-(`git show <base>:plfog/version.py | grep '"version": "<stuck VERSION>"'`). Then pick **one**. Doing
-both announces the release twice, and a Discord post cannot be unsent:
-
-| Situation | What to do |
-|---|---|
-| No match — this push wrote the entry, nobody has seen it | Run `gh workflow run discord-notify.yml`. A manual run always posts, whatever `VERSION` says. That is the whole fix. |
-| A match, and this push shipped nothing members would notice | Nothing is owed. Bump `VERSION` in the next PR as usual, with no entry. Comment-only edits to `plfog/version.py` trip the guard this way. |
-| A match, and this push did ship something members would notice | Write what this push shipped in a follow-up PR that bumps `VERSION` **and stamps the new entry at the new number**. Merging it announces by itself; do not also run the workflow by hand. |
-
-A follow-up that edits the entry *without* bumping `VERSION` fails the guard again, correctly: it
-is another release that announces nothing. One that bumps `VERSION` but leaves the entry at the
-old number announces nothing and goes green, which nothing will tell you.
-
-`python manage.py announce_release` is **not** a companion to either. It sends the release email,
-but the `release.published` event is registered on Discord as well, so it re-announces on top of
-whichever recovery you used. It also has to run as a Render one-off job rather than locally, since
-it builds every member-facing link from `MEMBER_BASE_URL`. See
-[`CLAUDE.md`](CLAUDE.md) under "The release guard" for the full procedure.
+To recover, run `gh workflow run discord-notify.yml`: a manual run posts unconditionally, whatever
+`VERSION` says. Check first whether members have already seen the entry sitting at the stuck
+`VERSION`, because the guard also fires on a typo fix to an entry that already went out, and a
+Discord post cannot be unsent. That call is a human's. `python manage.py announce_release` is
+**not** a companion to it — `release.published` is registered on Discord as well as email, so
+running both announces the same release twice. See [`CLAUDE.md`](CLAUDE.md) under "The release
+guard".
 
 ---
 
