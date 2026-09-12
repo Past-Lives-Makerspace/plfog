@@ -154,10 +154,28 @@ suite. All of it must be green to merge.
 
 ## Versioning & changelog
 
-Every change that ships bumps the version in [`plfog/version.py`](plfog/version.py) (`VERSION`) and
-adds a `CHANGELOG` entry. That changelog is the **source of truth for the Discord release
-announcement**, so write entries in plain, member-friendly language — no jargon, PR numbers, or
-commit hashes. Members read these.
+Every change that ships bumps the version in [`plfog/version.py`](plfog/version.py) (`VERSION`).
+Anything a member would notice also gets a `CHANGELOG` entry; a tooling or test change that
+members will never see deliberately gets none, and then nothing is announced, which is correct.
+That changelog is the **source of truth for the Discord release announcement**, so write entries
+in plain, member-friendly language — no jargon, PR numbers, or commit hashes. Members read these.
+
+**Editing `plfog/version.py` without moving `VERSION` fails the build, on purpose.** That exact
+shape once deployed a feature to production and announced it to nobody on a green Actions tab, so
+the **Discord Notifications** workflow now fails on it instead of skipping the announcement
+quietly. A red X on the Actions tab is the only alert; nothing is sent anywhere else.
+
+It is a narrow check, deliberately. A merge that does not touch `plfog/version.py` at all is not
+caught — the workflow does not even run — and neither is a release that bumps `VERSION` but stamps
+its entry at the wrong number. Getting the entry onto the right number is still a human job.
+
+To recover, run `gh workflow run discord-notify.yml`: a manual run posts unconditionally, whatever
+`VERSION` says. Check first whether members have already seen the entry sitting at the stuck
+`VERSION`, because the guard also fires on a typo fix to an entry that already went out, and a
+Discord post cannot be unsent. That call is a human's. `python manage.py announce_release` is
+**not** a companion to it — `release.published` is registered on Discord as well as email, so
+running both announces the same release twice. See [`CLAUDE.md`](CLAUDE.md) under "The release
+guard".
 
 ---
 

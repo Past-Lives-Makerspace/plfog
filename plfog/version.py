@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.54.1"
+VERSION = "1.54.2"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -33,6 +33,13 @@ VERSION = "1.54.1"
 # from Mail's in-app webview. The announcement is the one step a revert cannot undo, so it waits
 # until someone has tapped a real review link on a real iPhone. The member-facing entry is written
 # at the NEXT bump, once that confirm lands. Do not add one here to fill the gap.
+#
+# 1.54.2 - the release guard takes it with no entry, correctly: a CI check is repo tooling and
+# invisible to members. It is NOT the bump 1.54.1's note is waiting for. That note defers the top
+# bar's member-facing entry to "the NEXT bump, once that confirm lands", and the confirm has not
+# landed - nobody has tapped a real review link on a real iPhone yet. So this release walks past
+# the pointer without consuming it, and the deferral still stands for whoever takes 1.54.3 or
+# 1.55.0. Do not add an entry here to fill the gap.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for

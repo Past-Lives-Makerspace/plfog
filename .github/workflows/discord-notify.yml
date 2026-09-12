@@ -10,8 +10,17 @@ name: Discord Notifications
 # way on automatic runs:
 #   1. `paths:` — the job is only considered when plfog/version.py itself changed.
 #   2. the "Check whether VERSION changed" step below — it compares VERSION against the
-#      parent commit and skips the post when it is unchanged, so edits to changelog
-#      wording (or any other version.py churn) never re-announce a shipped release.
+#      tip of main before the push.
+# That second guard used to SKIP the post and exit zero when VERSION had not moved, which is
+# how #348 shipped the lobby slideshow to production and announced it to nobody on a green
+# Actions tab. It now FAILS the run instead. The guarantee it used to give — "edits to
+# changelog wording, or any other version.py churn, never re-announce a shipped release" —
+# still holds, but it is now paid for with a red X rather than a quiet skip: a push to main
+# that touches version.py without moving VERSION is a build failure, changelog-wording-only
+# edits included. Fix it forward in a PR that bumps VERSION.
+# A red X here is the whole alert: it notifies nothing outside GitHub, by choice.
+# `.github/scripts/release_guard.py` explains the predicate and what it was measured against,
+# and CLAUDE.md under "The release guard" has the recovery.
 # A manual run always posts, which is the escape hatch for re-sending an announcement.
 on:
   workflow_dispatch:
@@ -27,8 +36,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # Need the parent commit so the step below can diff VERSION across the push.
-          fetch-depth: 2
+          # Full history, so the step below can read VERSION at `github.event.before` — the
+          # tip of main before the push. A shallow clone only reaches HEAD^, and a rebase
+          # merge pushes every commit of the PR at once, so HEAD^ is then a commit from
+          # inside the PR that may already carry the bump.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -39,22 +51,12 @@ jobs:
         id: version_changed
         env:
           EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "Manual run, announcing regardless of VERSION."
-            echo "should_post=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          current=$(python -c "import sys; sys.path.insert(0, '.'); from plfog.version import VERSION; print(VERSION)")
-          previous=$(git show HEAD^:plfog/version.py 2>/dev/null | grep -E '^VERSION = ' | head -1 | cut -d'"' -f2 || true)
-          echo "previous=${previous:-<none>} current=${current}"
-          if [ "$current" = "$previous" ]; then
-            echo "VERSION is unchanged, skipping the announcement."
-            echo "should_post=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_post=true" >> "$GITHUB_OUTPUT"
-          fi
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        # Sets should_post=true, or exits non-zero when this push shipped a release that
+        # would announce nothing. It never sets should_post=false: a push that would have
+        # been skipped is now a failure, and a manual run always posts.
+        run: python .github/scripts/release_guard.py
 
       - name: Post release announcement to Discord
         if: steps.version_changed.outputs.should_post == 'true'

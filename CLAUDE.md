@@ -80,6 +80,27 @@ automatically, and approved if it has no blockers. Nobody has to ask for it.
 
 A GitHub Actions workflow posts a release announcement to the Past Lives Discord channel. It reads the `CHANGELOG` from `plfog/version.py` and posts only the entry/entries whose `version` equals the current `VERSION` (what just went live) — not the whole `MAJOR.MINOR` line. It fires **automatically** when a push to main changes `VERSION`, and can also be run by hand with `gh workflow run discord-notify.yml` or the Actions "Run workflow" button. It used to re-post the whole `MAJOR.MINOR` line on every hotfix, which is why it was manual for a while; it now posts only the current `VERSION`'s entries, so one merge means one announcement. When `VERSION` has no entry of its own, an automatic run posts nothing; a manual run still re-sends the newest entry, which is the deliberate escape hatch. The script chunks the post under Discord's 4096-char embed limit and fails loudly on a rejected post.
 
+### The release guard
+
+**A push to main that edits `plfog/version.py` but leaves `VERSION` where it was now FAILS the Discord Notifications workflow.** That is exactly how #348 shipped the lobby slideshow to production and announced it to nobody: the post step was skipped and the run stayed green. The check is `.github/scripts/release_guard.py` (specced in `tests/scripts/release_guard_spec.py`), and it compares `VERSION` against the tip of main before the push, not `HEAD^`, because a rebase merge pushes several commits at once. Replayed over every first-parent commit on main that touched `plfog/version.py`, it fires twice in 222 — #348 and the handwritten 0.23.39 repair — and both were real.
+
+**A red X on the Actions tab is the whole alert.** Nothing is posted, filed or notified outside GitHub. That is a deliberate choice, not an omission.
+
+**It closes the #348 shape, not the whole class**, and the gaps are bigger than the catch:
+
+- **A merge that never touches `plfog/version.py` at all does not fail anything.** The workflow's `paths:` filter means it never runs, so there is no red X — there is not even a run. That is the ordinary "forgot to bump" mistake, and it is out of reach on purpose: the broader predicate would have fired on 41 *more* commits in this history, almost all of them deliberate batched releases.
+- **A release that moves `VERSION` but stamps its entry at the wrong number** still deploys, still announces nothing, and still goes green. From the workflow's side that is indistinguishable from a tooling release that deliberately carries no entry, which is a thing this repo does on purpose.
+
+Curating the entry at the right number is still on you. The guard catches one shape: edited the file, left the literal.
+
+#### Recovering a missed announcement
+
+The release is live and members heard nothing. The lever already exists: `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says, and the guard never blocks one.
+
+**Look before you pull it.** The guard fires on any edit to `plfog/version.py` that leaves the literal alone — a reflow or a typo fix on an entry an earlier release already announced included — so check whether members have already seen the entry sitting at the stuck `VERSION`. Re-posting one they have seen announces the wrong release, and a Discord post cannot be unsent. Nothing may be owed at all: a tooling release legitimately carries no entry, and then the answer is to run nothing and bump `VERSION` in the next PR as usual. That judgment is a human's, and there is deliberately no rule here that makes it for you — three attempts at writing one each produced a different way to double-post to members.
+
+`python manage.py announce_release` is **not** a companion to the manual run. It sends the release **email**, but `release.published` is registered on the in-app, email *and* Discord channels (`core/events/registry.py:638`), so it posts to Discord too — run both and members get the same release announced twice.
+
 ---
 
 # PLFOG Django Coding Standards
