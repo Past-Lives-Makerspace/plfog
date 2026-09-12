@@ -1,0 +1,143 @@
+name: Delivery board
+
+# Moves a ticket's card across the RPIPO delivery board as the work becomes visible to
+# GitHub. The columns are Triage, Research, Plan, Implement, Present, Observe, Done, and
+# this workflow owns only the last four of those. Research and Plan happen on a laptop
+# against a corpus that deliberately lives outside the repo, so no event ever reaches here
+# for them; the rpipo-research and rpipo-plan skills call
+# .github/scripts/project_status.py themselves. Triage is the board's own built-in
+# auto-add workflow, configured in the board UI rather than here.
+#
+# Movement is forward only. A push to a branch that already has an open pull request does
+# not drag the card back from Present to Implement -- see the script's module docstring.
+#
+# The credential is PROJECT_PAT: a classic token holding ONLY the `project` scope. It is
+# deliberately not BOT_PAT, which holds `repo` and is already handed to the
+# pull_request_target job in bot-review.yml. A token that can only move cards can only ever
+# move cards, so the worst this workflow can do when something goes wrong is put a card in
+# the wrong column. GITHUB_TOKEN cannot be used at all: it is scoped to the repository that
+# issued it, and an organization board belongs to no repository.
+#
+#
+# Every step below is `continue-on-error`. The board is a window onto the work and never a
+# gate on it, so a board that cannot be reached must not redden an unrelated pull request.
+# That is not squeamishness about red: it is protecting the meaning of red. A red X in this
+# repo already means "a release shipped to production and announced to nobody" (#364), and
+# that signal is worth keeping rare. A workflow that fires on every push to every branch and
+# goes red whenever a token expires would train everyone to scroll past exactly the X that
+# matters. The failure is still visible as an annotation on the run, and the board visibly
+# stops moving, which is the louder signal in practice.
+#
+# The trigger is `pull_request`, not `pull_request_target`. That means a pull request from a
+# fork gets no secrets and moves no card, which is the behaviour we want: a drive-by fork PR
+# is not RPIPO work and has no ticket on this board.
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed]
+  issues:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to move
+        required: true
+        type: string
+      status:
+        description: Target column
+        required: true
+        type: choice
+        options: [Triage, Research, Plan, Implement, Present, Observe, Done]
+      force:
+        description: Allow a backwards move
+        required: false
+        type: boolean
+        default: false
+
+# The card is one row on one board; two events racing to set it would have one silently win.
+concurrency:
+  group: delivery-board-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the scripts
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # A branch appearing is the first thing GitHub can see of the Implement phase. Every
+      # later push to the same branch re-runs this and is a no-op, because the card is by
+      # then at Present or beyond and the move is forward only.
+      - name: Implement -- a branch exists
+        continue-on-error: true
+        if: github.event_name == 'push'
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/project_status.py --branch "${GITHUB_REF#refs/heads/}" --status Implement
+
+      - name: Present -- a pull request is open
+        continue-on-error: true
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Present
+
+      # Merged, not closed. A pull request closed without merging leaves the card where it
+      # is: the ticket did not advance, and dropping it to Done would be a lie.
+      - name: Observe -- merged, production unverified
+        continue-on-error: true
+        if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/project_status.py --pr ${{ github.event.pull_request.number }} --status Observe
+
+      # Merged is not done. Observe closes the issue only once production evidence says the
+      # change deployed, is being used, and broke nothing -- so the issue closing is the
+      # signal, and it is the human or the Observe phase that produces it.
+      - name: Done -- the issue closed
+        continue-on-error: true
+        if: github.event_name == 'issues'
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/project_status.py --issue ${{ github.event.issue.number }} --status Done
+
+      # NOT continue-on-error, unlike the ambient steps above. Somebody typed a ticket
+      # number into a form and pressed the button; a green run that moved nothing would
+      # be lying to the one person actually watching this workflow.
+      - name: Move by hand
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          PROJECT_PAT: ${{ secrets.PROJECT_PAT }}
+          PROJECT_OWNER: ${{ github.repository_owner }}
+          PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python .github/scripts/project_status.py \
+            --issue "${{ inputs.issue }}" \
+            --status "${{ inputs.status }}" \
+            ${{ inputs.force && '--force' || '' }}
