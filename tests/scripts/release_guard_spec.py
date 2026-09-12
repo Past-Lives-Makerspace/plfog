@@ -271,6 +271,21 @@ def describe_release_guard():
                 assert _BASE in failure
                 assert "fetch-depth: 0" in failure
 
+            def it_names_the_force_push_cause_too(failure):
+                # On that path fetch-depth is already correct, so sending the maintainer to
+                # audit it wastes the one moment they are paying attention.
+                assert "force-pushed" in failure
+                assert "no checkout depth can reach" in _squash(failure)
+
+            def it_does_not_promise_that_a_manual_run_decides_anything(failure):
+                # It does not. With FORCE_ANNOUNCE a manual run posts the entries at the
+                # current VERSION, or the NEWEST entry when there are none, either way
+                # unconditionally. Telling the maintainer it "will announce it if it needs
+                # announcing" invents a safety check and re-announces a shipped release.
+                assert "Do NOT reach straight for" in failure
+                assert "does not decide whether an announcement is owed" in _squash(failure)
+                assert "if it needs announcing" not in failure
+
     def describe_previous_version():
         def it_reads_the_blob_at_the_base_commit(monkeypatch):
             module = _load_script()
