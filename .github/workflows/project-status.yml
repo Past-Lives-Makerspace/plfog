@@ -1,8 +1,11 @@
 name: Delivery board
 
 # Moves a ticket's card across the RPIPO delivery board as the work becomes visible to
-# GitHub. The columns are Triage, Research, Plan, Implement, Present, Observe, Done, and
-# this workflow owns only the last four of those. Research and Plan happen on a laptop
+# GitHub. The board's columns pair the method's word with a plain one -- "Present / In
+# Review", "Observe / Checking Production" -- because "Observe" alone tells a reader nothing
+# about what is happening to their ticket. Everything below, and the CLI, speaks the single
+# word; project_status.py holds the one mapping between the two. This workflow owns only
+# Implement, Present, Observe and Done. Research and Plan happen on a laptop
 # against a corpus that deliberately lives outside the repo, so no event ever reaches here
 # for them; the rpipo-research and rpipo-plan skills call
 # .github/scripts/project_status.py themselves. Triage is the board's own built-in
