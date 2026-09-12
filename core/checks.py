@@ -7,6 +7,13 @@ Those commands run the plain system checks, not the ``--deploy`` ones, so a chec
 registered here without ``deploy=True`` fires on every deploy and an ``Error``
 stops the container before it can serve. Nothing on Render ever runs
 ``manage.py check --deploy``, so a ``deploy=True`` check never fires there.
+
+The same plain checks also run inside every management command with the default
+``requires_system_checks``, which includes the ``run_scheduled_tasks`` cron every
+fifteen minutes, on that service's own environment. Render has no env groups, so
+the cron's copy of a variable can drift from the web service's. A check about
+serving HTTP has nothing to protect on a cron, so it skips there rather than
+taking every scheduled task down over a variable the cron never uses.
 """
 
 import os
@@ -59,16 +66,21 @@ def check_public_hosts_are_allowed(app_configs: Sequence[AppConfig] | None, **kw
 
     if settings.DEBUG or os.environ.get("CI"):
         return errors
+    # Render sets RENDER_SERVICE_TYPE on every service; a cron never serves a request, so
+    # ALLOWED_HOSTS is meaningless there and an error would only stop the scheduled tasks.
+    if os.environ.get("RENDER_SERVICE_TYPE") == "cron":
+        return errors
 
     for host in settings.PUBLIC_HOSTS:
         domain, _port = split_domain_port(host)
         if not validate_host(domain, settings.ALLOWED_HOSTS):
             errors.append(
                 Error(
-                    f"PUBLIC_HOSTS entry '{host}' is not in ALLOWED_HOSTS.",
+                    f"PUBLIC_HOSTS entry '{host}' is not allowed by ALLOWED_HOSTS.",
                     hint=(
-                        "Add it to DJANGO_ALLOWED_HOSTS (and CSRF_TRUSTED_ORIGINS) in the same "
-                        "change that adds it to PUBLIC_HOSTS, or remove it from PUBLIC_HOSTS."
+                        f"Effective ALLOWED_HOSTS is {settings.ALLOWED_HOSTS!r}. Add the host to "
+                        "DJANGO_ALLOWED_HOSTS (and CSRF_TRUSTED_ORIGINS) in the same change that adds "
+                        "it to PUBLIC_HOSTS, or remove it from PUBLIC_HOSTS."
                     ),
                     id="core.E002",
                 )

@@ -11,13 +11,17 @@ from django.test import override_settings
 
 from core.checks import check_public_hosts_are_allowed, check_webpush_settings
 
-# Build a clean env dict without CI for production-simulation tests
-_env_without_ci = {k: v for k, v in os.environ.items() if k != "CI"}
+# Build a clean env dict for production-simulation tests: GitHub Actions always sets CI, and a
+# Render service always sets RENDER_SERVICE_TYPE, so both have to go for the checks to run.
+_env_without_ci = {k: v for k, v in os.environ.items() if k not in {"CI", "RENDER_SERVICE_TYPE"}}
 
 
 def describe_check_webpush_settings():
     def it_returns_no_errors_when_debug_is_true():
-        with override_settings(DEBUG=True):
+        with (
+            override_settings(DEBUG=True, WEBPUSH_SETTINGS={}),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
             errors = check_webpush_settings(app_configs=None)
         assert errors == []
 
@@ -112,9 +116,28 @@ def describe_check_webpush_settings():
 
 def describe_check_public_hosts_are_allowed():
     def it_returns_no_errors_when_debug_is_true():
-        with override_settings(DEBUG=True, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]):
+        with (
+            override_settings(DEBUG=True, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
             errors = check_public_hosts_are_allowed(app_configs=None)
         assert errors == []
+
+    def it_returns_no_errors_on_a_render_cron_service():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", {**_env_without_ci, "RENDER_SERVICE_TYPE": "cron"}, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_still_checks_a_render_web_service():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", {**_env_without_ci, "RENDER_SERVICE_TYPE": "web"}, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert [e.id for e in errors] == ["core.E002"]
 
     def it_returns_no_errors_when_ci_is_set():
         with (
@@ -171,6 +194,8 @@ def describe_check_public_hosts_are_allowed():
         assert "book.example.com" in errors[0].msg
         assert "classes.example.org" in errors[1].msg
         assert "DJANGO_ALLOWED_HOSTS" in errors[0].hint
+        # The operator reads the effective list, not the raw env var, so a stray space shows.
+        assert "['members.example.com']" in errors[0].hint
 
     def it_names_only_the_missing_host():
         with (
