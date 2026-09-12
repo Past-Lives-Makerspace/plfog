@@ -10,10 +10,11 @@ stops the container before it can serve. Nothing on Render ever runs
 
 The same plain checks also run inside every management command with the default
 ``requires_system_checks``, which includes the ``run_scheduled_tasks`` cron every
-fifteen minutes, on that service's own environment. Render has no env groups, so
-the cron's copy of a variable can drift from the web service's. A check about
-serving HTTP has nothing to protect on a cron, so it skips there rather than
-taking every scheduled task down over a variable the cron never uses.
+fifteen minutes, on that service's own environment. This deployment links no
+Render environment group, so the cron's copy of a variable can drift from the web
+service's (one shared group would be the structural cure). A check about serving
+HTTP has nothing to protect on a cron, so it skips there rather than taking every
+scheduled task down over a variable the cron never uses.
 """
 
 import os
