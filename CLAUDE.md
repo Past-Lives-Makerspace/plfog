@@ -97,19 +97,21 @@ Curating the entry at the right number is still on you. The guard catches one sh
 
 Pick **one**. Doing both announces the release twice, and a Discord post cannot be unsent.
 
-First work out whether *this* push wrote the entry at the stuck `VERSION`. "Does the entry read well" is the wrong question — an entry can sit there, read perfectly, and have been announced already by the release before this one:
+First work out whether an entry at the stuck `VERSION` **already existed before this push**. Two weaker questions are both wrong: "does the entry read well" is satisfied by an entry the previous release wrote and already announced, and "did this push touch the entry" is satisfied by a push that merely reflowed or typo-fixed that same announced entry. Existence at the base is what separates the shapes:
 
 ```
-git diff <the push base> <the merge commit> -- plfog/version.py
+git show <the push base>:plfog/version.py | grep '"version": "<the stuck VERSION>"'
 ```
 
-- **This push ADDED or REWROTE that entry** — it has never been posted. Run `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says; the guard never blocks it. That is the whole fix, and no follow-up PR is needed.
-- **It did not** — the entry belongs to the previous release and re-posting it would announce the wrong release to members. Write what *this* push shipped in a follow-up PR that bumps `VERSION` and stamps the new entry at the **new** number. Merging that PR announces by itself; do not then run the workflow by hand.
+- **No match** — this push wrote that entry and nobody has seen it. Run `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says; the guard never blocks it. That is the whole fix, and no follow-up PR is needed.
+- **A match** — the entry belongs to the previous release and was announced already, *whatever this push did to its wording*. Re-posting it would announce the wrong release to members, so do not run the workflow by hand. Then:
+  - **If this push shipped nothing a member would notice**, nothing is owed. Bump `VERSION` in the next PR as usual, with no entry, and nothing is announced — which is correct. The guard fires on any `plfog/version.py` edit that leaves `VERSION` alone, comment-block edits included, so this is a routine way to trip it.
+  - **Otherwise** write what *this* push shipped in a follow-up PR that bumps `VERSION` and stamps the new entry at the **new** number. Merging that PR announces by itself; do not then run the workflow by hand.
 
-Two ways to get the follow-up wrong, both silent:
+Two ways to get that follow-up wrong:
 
-- Stamping the new entry at the **stuck** `VERSION` without bumping fails this guard a second time — correctly, since that push is another release that announces nothing. `920fab64` is exactly that commit, which is why the guard counts it as a real fire.
-- Bumping `VERSION` but leaving the entry stamped at the **old** number announces nothing and goes **green**, because that is the gap above. Check the number you stamped.
+- Stamping the new entry at the **stuck** `VERSION` without bumping fails this guard a second time — correctly, since that push is another release that announces nothing. Noisy, not silent: you get a red X. `920fab64` is exactly that commit, which is why the guard counts it as a real fire.
+- Bumping `VERSION` but leaving the entry stamped at the **old** number announces nothing and goes **green**, because that is the gap above. This one is silent — nothing will tell you. Check the number you stamped.
 
 #### `announce_release` is not a companion to either
 
@@ -118,14 +120,17 @@ Two ways to get the follow-up wrong, both silent:
 Two more things about it:
 
 - **Run it as a Render one-off job, never locally against the production database.** It builds every link from `MEMBER_BASE_URL`, which in a local environment is `http://pastlives.test:8000` — links that dead-end on the one laptop that can resolve them, mailed to every member.
-- **Its idempotence is a ledger, not a row.** `emit()` claims an `EventDelivery` per `(event_key, target_ref, channel, period)` with `period="release:<version>"`: one broadcast row *plus one per recipient per non-broadcast channel*. Discord is a broadcast channel and is skipped in the per-recipient fan-out, so for `release.published` that is in-app and email — `2N + 1` rows for `N` recipients, which is still hundreds. A corrected re-send at the same version needs them all cleared, filtered on the period, where the production database is:
+- **Its idempotence is a ledger, not a row.** `emit()` claims an `EventDelivery` per `(event_key, target_ref, channel, period)` with `period="release:<version>"`: one broadcast row *plus* per-recipient rows. Discord is a broadcast channel and is skipped in the per-recipient fan-out (`core/events/emit.py:427-429`), so per recipient you get up to three rows — in-app, email, and push where a member has opted into it — and fewer wherever they have opted out. Either way it is hundreds. A corrected re-send at the same version needs them cleared, filtered on the period, as a Render one-off job:
 
   ```python
-  from core.models import EventDelivery
-  EventDelivery.objects.filter(period="release:1.49.0").delete()
+  from core.models import EventDelivery; print(EventDelivery.objects.filter(period='release:1.49.0').exclude(channel='discord').delete())
   ```
 
-  Nothing else uses that period string (`send_release_email` uses the distinct `release:<version>:<lines>` shape), so the exact match is safe.
+  One line, because `manage.py shell -c` does not take a multi-line body, and it prints the delete count so you can verify by data rather than by exit code.
+
+  **Keep the Discord row.** `_record_broadcast` claims it on the *same* period (`core/events/emit.py:326`), so an unfiltered delete releases it, and `announce_release` passes no `suppress_broadcast` — the re-send would post a second identical embed to a channel where nothing can be unsent. The `.exclude` is what makes the re-send email-and-in-app only.
+
+  Nothing else writes a bare `release:<version>` period: `send_release_email` always writes three segments, `release:<version>:<lines-or-current-minor>`. So the exact match is safe — but do not broaden it to `period__startswith="release:1.49.0"`, which would take the release-email ledger with it.
 
 ---
 

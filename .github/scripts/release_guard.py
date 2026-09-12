@@ -47,7 +47,7 @@ import sys
 _VERSION_PY = "plfog/version.py"
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _VERSION_RE = re.compile(r'^VERSION = "([^"]+)"', re.MULTILINE)
-_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _NULL_SHA = "0" * 40
 
 
@@ -122,8 +122,13 @@ def _names_a_commit(before: str) -> bool:
 
     It is forty zeroes when the push created the branch, and empty on event payloads that
     carry no base. Neither is a commit, and neither is evidence of a lost announcement.
+
+    ``fullmatch`` rather than an anchored ``match``: with ``^…$`` in the pattern the leading
+    anchor and the ``match`` call each made the other redundant, so neither could be specced
+    on its own and dropping BOTH — two edits, but two edits nothing would have caught —
+    accepted a sha with junk in front of it.
     """
-    return bool(_SHA_RE.match(before)) and before != _NULL_SHA
+    return bool(_SHA_RE.fullmatch(before)) and before != _NULL_SHA
 
 
 def _require_readable_base(before: str) -> None:
@@ -143,8 +148,13 @@ def _require_readable_base(before: str) -> None:
             f"Two things cause this. Either .github/workflows/discord-notify.yml no longer checks "
             f"out with fetch-depth: 0, which is a bug to fix; or main was force-pushed and the old "
             f"tip is orphaned, which no checkout depth can reach. In the second case nothing is "
-            f"wrong with the workflow, the guard simply cannot judge this push, and "
-            f"`gh workflow run discord-notify.yml` will announce it if it needs announcing."
+            f"wrong with the workflow and the guard simply cannot judge this push.\n"
+            f"\n"
+            f"Do NOT reach straight for `gh workflow run discord-notify.yml`. A manual run does not "
+            f"decide whether an announcement is owed: it posts the entries stamped at the current "
+            f"VERSION, or the NEWEST entry if there are none, and either way it posts. Read the "
+            f"CHANGELOG against what this push actually shipped first, and run it only if an "
+            f"entry nobody has seen is sitting at the current VERSION."
         )
 
 
@@ -175,11 +185,15 @@ def _write_output(name: str, value: str) -> None:
 def _failure_message(*, before: str, after: str, previous: str, current: str) -> str:
     """What a maintainer reads when the guard fires. Names the commit and both versions.
 
-    The branch it asks the reader to decide is NOT "does the entry read well". An entry can
-    sit at ``current`` and read perfectly because the *previous* release wrote it and already
-    announced it; re-posting that says nothing about what just shipped and tells members the
-    same thing twice. The question that actually separates the two recoveries is whether
-    **this push** wrote that entry, which is why the command to check it is inline.
+    The question it asks is deliberately narrow: **did an entry at ``current`` already exist
+    at the base**. Two weaker questions were tried and both were wrong.
+
+    "Does the entry read well" is satisfied by an entry the *previous* release wrote and
+    already announced. "Did this push touch the entry" is satisfied by a push that merely
+    reflowed or typo-fixed that same already-announced entry — touching it without making it
+    new. Either reading sends the maintainer to a manual run that re-posts a release members
+    have already seen, and a Discord post cannot be unsent. Existence at the base is the only
+    reading that separates the shapes, which is why the command that answers it is inline.
 
     Deliberately short on the rest: the full procedure is in CLAUDE.md. A CI log is a bad
     place to hide one.
@@ -189,18 +203,21 @@ def _failure_message(*, before: str, after: str, previous: str, current: str) ->
         f"(it was {previous} before this push). The release deployed and the Discord "
         f"announcement was skipped, so members heard nothing about what just went live.\n"
         f"\n"
-        f"First find out whether this push wrote the changelog entry at {current}:\n"
-        f"  git diff {before} {after} -- {_VERSION_PY}\n"
+        f"First find out whether a changelog entry at {current} already existed before this push:\n"
+        f'  git show {before}:{_VERSION_PY} | grep \'"version": "{current}"\'\n'
         f"\n"
-        f"If it ADDED or REWROTE that entry, the entry has never been posted and one command is\n"
-        f"the whole fix:\n"
+        f"NO MATCH means this push wrote that entry and nobody has seen it. One command is the\n"
+        f"whole fix:\n"
         f"  gh workflow run discord-notify.yml\n"
         f"\n"
-        f"If it did NOT, the entry at {current} belongs to the release before this one and was\n"
-        f"announced already — re-posting it would tell members about the wrong release. Write\n"
-        f"what THIS push shipped in a follow-up PR that bumps VERSION and stamps the new entry at\n"
-        f"the NEW number; merging that announces by itself. Stamping it at {current} instead\n"
-        f"announces nothing and fails this guard again.\n"
+        f"A MATCH means the entry at {current} belongs to the release before this one and was\n"
+        f"announced already — whatever this push did to its wording. Re-posting it would tell\n"
+        f"members about the wrong release, so do not run the workflow by hand. Instead:\n"
+        f"  - If this push shipped nothing a member would notice, nothing is owed. Bump VERSION\n"
+        f"    in the next PR as usual, with no entry, and nothing is announced. That is correct.\n"
+        f"  - Otherwise write what THIS push shipped in a follow-up PR that bumps VERSION and\n"
+        f"    stamps the new entry at the NEW number; merging that announces by itself. Stamping\n"
+        f"    it at {current} instead announces nothing and fails this guard again.\n"
         f"\n"
         f'Never both, and read "The release guard" in CLAUDE.md before reaching for\n'
         f"announce_release: it posts to Discord as well as sending the email, so on top of the\n"

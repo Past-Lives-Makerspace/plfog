@@ -169,14 +169,16 @@ It is a narrow check, deliberately. A merge that does not touch `plfog/version.p
 caught — the workflow does not even run — and neither is a release that bumps `VERSION` but stamps
 its entry at the wrong number. Getting the entry onto the right number is still a human job.
 
-To recover, first find out whether *this* push wrote the entry at the stuck `VERSION`
-(`git diff <base> <merge commit> -- plfog/version.py`), then pick **one**. Doing both announces
-the release twice, and a Discord post cannot be unsent:
+To recover, first find out whether an entry at the stuck `VERSION` **already existed before this
+push** — not whether this push touched it, since a typo fix touches an entry that already went out
+(`git show <base>:plfog/version.py | grep '"version": "<stuck VERSION>"'`). Then pick **one**. Doing
+both announces the release twice, and a Discord post cannot be unsent:
 
 | Situation | What to do |
 |---|---|
-| This push added or rewrote the entry at the stuck `VERSION` | Run `gh workflow run discord-notify.yml`. A manual run always posts, whatever `VERSION` says. That is the whole fix. |
-| It did not — the entry is the previous release's, already announced | Write what this push shipped in a follow-up PR that bumps `VERSION` **and stamps the new entry at the new number**. Merging it announces by itself; do not also run the workflow by hand. |
+| No match — this push wrote the entry, nobody has seen it | Run `gh workflow run discord-notify.yml`. A manual run always posts, whatever `VERSION` says. That is the whole fix. |
+| A match, and this push shipped nothing members would notice | Nothing is owed. Bump `VERSION` in the next PR as usual, with no entry. Comment-only edits to `plfog/version.py` trip the guard this way. |
+| A match, and this push did ship something members would notice | Write what this push shipped in a follow-up PR that bumps `VERSION` **and stamps the new entry at the new number**. Merging it announces by itself; do not also run the workflow by hand. |
 
 A follow-up that edits the entry *without* bumping `VERSION` fails the guard again, correctly: it
 is another release that announces nothing. One that bumps `VERSION` but leaves the entry at the

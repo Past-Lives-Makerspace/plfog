@@ -49,6 +49,26 @@ def _version_py(version: str) -> str:
     return f'"""App version and changelog."""\n\nVERSION = "{version}"\n\nCHANGELOG = []\n'
 
 
+def _squash(text: str) -> str:
+    """Collapse all whitespace, so an assertion pins the words and not the line wrapping.
+
+    Asserting a sentence with its hard newline in place makes a pure reflow — the same words,
+    wrapped one word earlier — a test failure, while a maintainer reading the CI log sees no
+    difference at all.
+    """
+    return " ".join(text.split())
+
+
+def _uncommented(text: str) -> str:
+    """Drop whole-line ``#`` comments, so a YAML assertion cannot be satisfied by prose.
+
+    ``discord-notify.yml`` carries a long comment block that talks ABOUT ``fetch-depth`` and
+    the ``paths:`` filter directly above the settings themselves, so an unfiltered substring
+    check passes with the real setting deleted.
+    """
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
 def _fake_git(
     *,
     base: str = _BASE,
@@ -210,9 +230,16 @@ def describe_release_guard():
             assert module._names_a_commit("A" * 40) is False
 
         def it_rejects_a_sha_with_trailing_characters():
-            # Without the closing anchor, a longer string would match on its first 40 chars.
+            # fullmatch, so a longer string cannot match on its first 40 characters.
             module = _load_script()
             assert module._names_a_commit(_BASE + "extra") is False
+
+        def it_rejects_a_sha_with_leading_characters():
+            # The other half of fullmatch. Under the old anchored-match pair, `^` and .match
+            # each covered for the other, so neither could be killed alone and dropping both
+            # accepted this string.
+            module = _load_script()
+            assert module._names_a_commit("junk" + _BASE) is False
 
         def it_rejects_an_abbreviated_sha():
             # An abbreviated ref would make `git show :plfog/version.py` read the INDEX when
@@ -290,26 +317,55 @@ def describe_release_guard():
             assert output.read_text() == "should_post=true\nother=value\n"
 
     def describe_the_workflow_that_runs_it():
-        # _require_readable_base exists because this setting can silently regress, and its
-        # error text names it. Asserted on the raw text rather than parsed: PyYAML is not a
-        # declared dependency of this repo, only a transitive one.
+        # _require_readable_base exists because these settings can silently regress, and its
+        # error text names one of them. Asserted on the raw text rather than parsed: PyYAML is
+        # not a declared dependency of this repo, only a transitive one.
+        #
+        # Every assertion here runs against the COMMENT-STRIPPED text. The file's own comment
+        # block discusses fetch-depth and the paths: filter directly above the settings, so a
+        # whole-file substring check passes with the setting itself deleted.
         @pytest.fixture
         def workflow() -> str:
             path = _SCRIPT.parents[1] / "workflows" / "discord-notify.yml"
-            return path.read_text(encoding="utf-8")
+            return _uncommented(path.read_text(encoding="utf-8"))
 
         def it_checks_out_the_full_history(workflow):
+            # Anything shallower and _require_readable_base fires on every rebase-merge push,
+            # turning healthy releases red and blaming a setting nothing had checked.
             assert "fetch-depth: 0" in workflow
 
-        def it_no_longer_checks_out_a_shallow_clone(workflow):
-            assert "fetch-depth: 2" not in workflow
+        def it_only_runs_on_pushes_to_main(workflow):
+            assert "branches: [main]" in workflow
 
-        def it_runs_this_guard(workflow):
-            assert "run: python .github/scripts/release_guard.py" in workflow
+        def it_runs_this_guard_as_its_own_step(workflow):
+            # The whole line, not a prefix: `|| true` appended to it would swallow the exit
+            # code, and a red X on the Actions tab is documented as the entire alert.
+            assert "\n        run: python .github/scripts/release_guard.py\n" in workflow
+
+        def it_does_not_let_the_guard_fail_softly(workflow):
+            assert "continue-on-error" not in workflow
+            assert "if: false" not in workflow
 
         def it_still_filters_on_version_py(workflow):
             # The paths: filter is what keeps the guard off the 41 commits it must not judge.
-            assert '- "plfog/version.py"' in workflow
+            # Asserted with its key attached: `paths-ignore:` leaves the list item untouched
+            # and inverts the trigger, so the guard would never judge a release again.
+            assert 'paths:\n      - "plfog/version.py"' in workflow
+            assert "paths-ignore" not in workflow
+
+        def it_arms_the_post_step_from_the_guard_output(workflow):
+            # should_post is the only thing connecting release_guard.py to any observable
+            # behaviour. A typo in this expression silently stops every announcement.
+            assert "if: steps.version_changed.outputs.should_post == 'true'" in workflow
+            assert "id: version_changed" in workflow
+
+        def it_hands_the_guard_the_push_base_and_not_a_pull_request_base(workflow):
+            # github.event.before is the tip of main before the push. A pull_request
+            # expression is EMPTY on a push event, and the script then reports "no push base"
+            # and announces, which is #348 restored behind a guard that still looks present.
+            assert "BEFORE_SHA: ${{ github.event.before }}" in workflow
+            assert "AFTER_SHA: ${{ github.sha }}" in workflow
+            assert "EVENT_NAME: ${{ github.event_name }}" in workflow
 
     def describe_main():
         @pytest.fixture
@@ -365,7 +421,7 @@ def describe_release_guard():
 
         def describe_on_a_push_that_left_the_version_alone():
             @pytest.fixture
-            def failure(monkeypatch, output):
+            def failure(monkeypatch, output, capsys):
                 module = _load_script()
                 monkeypatch.setenv("EVENT_NAME", "push")
                 monkeypatch.setenv("BEFORE_SHA", _BASE)
@@ -378,70 +434,76 @@ def describe_release_guard():
                 )
                 with pytest.raises(SystemExit) as exit_info:
                     module.main()
-                return str(exit_info.value), output
+                return str(exit_info.value), output, capsys.readouterr().out
 
             def it_fails_the_run(failure):
-                message, _ = failure
+                message, _, _ = failure
                 assert "Release guard" in message
 
             def it_names_the_commit_and_both_versions(failure):
-                message, _ = failure
+                message, _, _ = failure
                 assert _HEAD in message
                 assert "it was 1.49.0 before this push" in message
                 assert "left VERSION at 1.49.0" in message
 
-            def it_tells_the_reader_how_to_find_out_which_recovery_applies(failure):
-                # "Does the entry read well" is the wrong question: an entry can sit at the
-                # stuck VERSION, read perfectly, and already have been announced by the
-                # PREVIOUS release. Whether THIS push wrote it is the question that separates
-                # the two recoveries, so the message hands over the command that answers it.
-                message, _ = failure
-                assert f"git diff {_BASE} {_HEAD} -- plfog/version.py" in message
+            def it_asks_whether_the_entry_EXISTED_rather_than_who_touched_it(failure):
+                # Two weaker questions were tried and both re-post an announced release.
+                # "Does the entry read well" is satisfied by the PREVIOUS release's entry.
+                # "Did this push write it" is satisfied by a typo fix to that same entry,
+                # which touched it without making it new. Only existence at the base sorts
+                # the shapes, so that is the command the message hands over.
+                message, _, _ = failure
+                assert f"git show {_BASE}:plfog/version.py" in message
+                assert 'grep \'"version": "1.49.0"\'' in message
 
-            def it_gives_the_one_command_for_an_entry_this_push_wrote(failure):
-                message, _ = failure
-                assert "ADDED or REWROTE that entry" in message
+            def it_gives_the_one_command_when_nothing_was_there_before(failure):
+                message, _, _ = failure
+                assert "NO MATCH means this push wrote that entry" in message
                 assert "gh workflow run discord-notify.yml" in message
 
             def it_warns_that_re_posting_an_older_entry_announces_the_wrong_release(failure):
-                message, _ = failure
+                message, _, _ = failure
                 assert "belongs to the release before this one" in message
                 assert "wrong release" in message
 
+            def it_says_a_rewording_does_not_make_the_entry_new(failure):
+                # The defect this replaced: "ADDED or REWROTE" routed a typo fix on an
+                # already-announced entry into the unconditional re-announce branch.
+                message, _, _ = failure
+                assert "whatever this push did to its wording" in _squash(message)
+
+            def it_offers_the_no_entry_answer_for_a_release_members_never_saw(failure):
+                # The guard fires on ANY version.py edit that leaves VERSION alone, including
+                # a comment-block edit. Ordering an entry there would invent one for a release
+                # members never saw, which the repo's own changelog rule forbids.
+                message, _, _ = failure
+                assert "shipped nothing a member would notice, nothing is owed" in _squash(message)
+                assert "with no entry" in _squash(message)
+
             def it_says_the_new_entry_goes_at_the_new_version(failure):
                 # Bumping VERSION but stamping the entry at the old number announces nothing
-                # and goes green, which is the miss this guard cannot see.
-                message, _ = failure
-                assert "stamps the new entry at\nthe NEW number" in message
-                assert "Stamping it at 1.49.0 instead" in message
+                # and goes green, which is the miss this guard cannot see. Squashed, because
+                # the assertion is about the words, not where the paragraph happens to wrap.
+                message, _, _ = failure
+                assert "stamps the new entry at the NEW number" in _squash(message)
+                assert "Stamping it at 1.49.0 instead" in _squash(message)
 
             def it_warns_that_announce_release_would_double_post(failure):
                 # announce_release emits release.published, which is registered on the
                 # Discord channel as well as email, so running both announces twice.
-                message, _ = failure
+                message, _, _ = failure
                 assert "announce_release" in message
                 assert "twice" in message
 
             def it_does_not_arm_the_post_step(failure):
-                _, output = failure
+                _, output, _ = failure
                 assert output.read_text() == ""
 
-            def it_emits_a_github_error_annotation(monkeypatch, output, capsys):
+            def it_emits_a_github_error_annotation(failure):
                 # The annotation is what surfaces the reason on the Actions summary rather
                 # than only inside the step log.
-                module = _load_script()
-                monkeypatch.setenv("EVENT_NAME", "push")
-                monkeypatch.setenv("BEFORE_SHA", _BASE)
-                monkeypatch.setenv("AFTER_SHA", _HEAD)
-                monkeypatch.setattr(module, "_current_version", lambda: "1.49.0")
-                monkeypatch.setattr(
-                    module,
-                    "_git",
-                    _fake_git(base_source=_version_py("1.49.0"), diff_output="plfog/version.py\n"),
-                )
-                with pytest.raises(SystemExit):
-                    module.main()
-                assert "::error title=Release shipped without an announcement::" in capsys.readouterr().out
+                _, _, stdout = failure
+                assert "::error title=Release shipped without an announcement::" in stdout
 
         def describe_when_the_push_created_the_branch():
             def it_announces_because_there_is_no_previous_release(monkeypatch, output):
