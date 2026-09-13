@@ -34,6 +34,7 @@ CARD_PHOTOS = ".pl-card-focus__frame .cls-img"
 FOCUS_INPUT = "[data-card-focus-input]"
 # The first slider on the Photos step is "Up and down" (posY).
 FOCUS_RANGE = '[data-composer-step="2"] input.pl-card-focus__range'
+CSRF_META = 'meta[name="csrf-token"]'
 
 
 def _seed_draft() -> ClassOffering:
@@ -107,3 +108,31 @@ def describe_boosted_arrival_at_the_composer():
         expect(photo).to_have_attribute("style", re.compile(r"object-position: 50% 80%"))
 
         assert errors == [], "\n".join(errors)
+
+    def it_sends_the_current_csrf_token_with_an_htmx_request_after_a_boost(live_server, page, login_via_code):
+        # hub_boot.js reads the token from <meta name="csrf-token"> per request. Django masks
+        # the token on every render, so the boosted page's meta differs from the first page's
+        # and head-support has to have replaced it; the header must carry the new one.
+        offering = _seed_draft()
+        login_via_code(EMAIL)
+        page.goto(f"{live_server.url}{reverse('classes:teach_dashboard')}")
+        token_before = page.locator(CSRF_META).get_attribute("content")
+        edit_path = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        page.locator(f'a[href="{edit_path}"]').first.click()
+        page.wait_for_url(re.compile(re.escape(edit_path)))
+
+        expect(page.locator(CSRF_META)).to_have_count(1)
+        token = page.locator(CSRF_META).get_attribute("content")
+        assert token and token != token_before
+
+        # A header-only htmx POST, the way hx-post buttons work: no form, no body.
+        dismiss_url = f"{live_server.url}{reverse('hub_onboarding_dismiss')}"
+        with page.expect_response(lambda r: r.url == dismiss_url and r.request.method == "POST") as posted:
+            page.evaluate("url => htmx.ajax('POST', url, { swap: 'none' })", dismiss_url)
+        response = posted.value
+        assert response.request.headers["x-csrftoken"] == token
+        assert response.status == 200
+
+        # Control: the same POST with no token is what Django refuses.
+        bare_status = page.evaluate("url => fetch(url, { method: 'POST' }).then(r => r.status)", dismiss_url)
+        assert bare_status == 403

@@ -19,7 +19,9 @@ from django.urls import reverse
 from classes.factories import InstructorFactory
 from tests.membership.factories import MembershipPlanFactory, UserFactory
 
-STATIC_JS = Path(__file__).resolve().parent.parent.parent / "static" / "js"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+STATIC_JS = REPO_ROOT / "static" / "js"
+TEMPLATES_DIR = REPO_ROOT / "templates"
 HEAD_ORDER = (
     "js/htmx.min.js",
     "js/htmx-ext-head-support.js",
@@ -43,6 +45,18 @@ def _split(html: str) -> tuple[str, str]:
 
 def _script_tags(fragment: str) -> list[str]:
     return re.findall(r"<script[^>]*\bsrc=[^>]*>", fragment)
+
+
+def _registers_without_guard(template_text: str) -> bool:
+    """True when a template registers an Alpine component but never checks ``window.Alpine``.
+
+    An inline registration behind a plain ``alpine:init`` listener runs on a hard load and
+    never on a boosted arrival, where Alpine (loaded once, from the head) started long ago
+    and the event does not fire again; the component is silently missing on every in-app
+    navigation to that page. The guard, ``if (window.Alpine) register(); else listen``,
+    is what keeps both paths alive.
+    """
+    return "Alpine.data(" in template_text and "window.Alpine" not in template_text
 
 
 @pytest.fixture
@@ -98,6 +112,29 @@ def describe_hub_base_scripts():
         assert [name for name in registrants if name not in HEAD_ORDER] == []
         for name in registrants:
             assert head.index(name) < head.index("js/alpine.min.js"), name
+
+    def it_guards_every_inline_template_registration_for_a_boosted_arrival():
+        offenders = [
+            str(path.relative_to(REPO_ROOT))
+            for path in sorted(TEMPLATES_DIR.rglob("*.html"))
+            if _registers_without_guard(path.read_text(encoding="utf-8"))
+        ]
+        assert offenders == [], (
+            "Alpine.data(...) inside a template must register on whichever side of alpine:init "
+            "it lands, like hub/wiki_edit.html: if (window.Alpine) register(); else "
+            "document.addEventListener('alpine:init', register). Unguarded:\n  " + "\n  ".join(offenders)
+        )
+
+    def it_actually_detects_an_unguarded_inline_registration():
+        # Self-test so a refactor can't quietly neuter the lint.
+        unguarded = "<script>document.addEventListener('alpine:init', () => { Alpine.data('x', () => ({})) })</script>"
+        guarded = (
+            "<script>function define() { Alpine.data('x', () => ({})) }\n"
+            "if (window.Alpine) { define() } else { document.addEventListener('alpine:init', define) }</script>"
+        )
+        assert _registers_without_guard(unguarded)
+        assert not _registers_without_guard(guarded)
+        assert not _registers_without_guard('<div x-data="{ open: false }"></div>')
 
     def it_keeps_the_composer_page_free_of_a_second_card_focus_script(db, client):
         MembershipPlanFactory()
