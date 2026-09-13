@@ -71,6 +71,10 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
+{% if not is_framed %}
+{# First focusable element on every hub page: keyboard and screen-reader users jump past the sidebar and topbar to <main id="main-content">. The framed preview (?framed=1) renders no chrome, so there is nothing to skip and it renders no link. #}
+<a href="#main-content" class="skip-link">Skip to main content</a>
+{% endif %}
 {% include "components/toast.html" %}
 {% include "components/loading_bar.html" %}
 {% block extra_body %}{% endblock %}
@@ -595,7 +599,8 @@
         {% endblock public_topbar %}
         {% endif %}
 
-        <main class="hub-content">
+        {# tabindex="-1" lets the skip link move focus into the landmark in every browser, not just the ones that focus hash targets on their own. #}
+        <main id="main-content" class="hub-content" tabindex="-1">
             {% if messages %}
             {# Hidden source list; the toast script (components/toast.html) drains these into toasts. #}
             <ul class="hub-messages" role="alert" style="display:none;">

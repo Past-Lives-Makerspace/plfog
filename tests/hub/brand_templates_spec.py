@@ -6,7 +6,7 @@ Assertions that check for the ABSENCE of "Past Lives" strings are scoped to the 
 template actually controls, not the full response body: ``hub/home.html``'s own dashboard
 copy ("Welcome to Past Lives Member Portal") and the changelog modal (39 historical
 CHANGELOG entries mentioning Past Lives) are both outside the four templates this story
-touches, so the hub check is scoped to everything before ``<main class="hub-content">``.
+touches, so the hub check is scoped to everything before ``<main id="main-content"``.
 Likewise the privacy policy extends the plain (non-hub) ``base.html``, whose own nav/meta
 are out of PLAT-1's scope, so that check is scoped to the ``<article class="pl-legal">``
 block privacy_policy.html itself renders.
@@ -60,7 +60,7 @@ def _set_brand(**overrides: object) -> SiteConfiguration:
 def _hub_chrome(body: str) -> str:
     """Everything hub/base.html renders before the dashboard's own <main> content —
     i.e. the region this story's template edits actually touch."""
-    return body.split('<main class="hub-content">')[0]
+    return body.split('<main id="main-content"')[0]
 
 
 def describe_hub_base():

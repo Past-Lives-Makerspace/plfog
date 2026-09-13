@@ -1034,6 +1034,42 @@ a:hover { color: var(--hub-link-hover); }
 /* ========================================
    Content Area
    ======================================== */
+
+/* Skip link: the first focusable element on every hub page (hub/base.html), so a
+   keyboard or screen-reader user can jump past the sidebar and topbar straight to
+   <main id="main-content">. Off-canvas until it takes focus, then pinned top-left
+   above the sticky topbar (z-index 50) and the sidebar. Gold fill with navy text is
+   the primary-button pairing and clears AA contrast in both themes (neither token
+   changes under [data-theme="light"]). Hub pages never load style.css, so this is
+   the hub's own copy of that file's .skip-link. */
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: 0.5rem;
+    z-index: 1000;
+    padding: 0.5rem 0.75rem;
+    background-color: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    font-weight: 700;
+    font-size: 0.875rem;
+    text-decoration: none;
+    border-radius: 0 0 0.375rem 0.375rem;
+    transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+    top: 0;
+    color: var(--color-navy);
+    outline: 2px solid var(--hub-blue);
+    outline-offset: 2px;
+}
+
+/* The skip link's target. A landmark that just received focus does not need its
+   own ring around the whole content column: the link that sent focus here showed one. */
+.hub-content:focus {
+    outline: none;
+}
+
 .hub-content {
     flex: 1;
     min-width: 0;
