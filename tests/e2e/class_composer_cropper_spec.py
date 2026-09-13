@@ -109,6 +109,13 @@ def _width(page, selector: str) -> float:
     return box["width"]
 
 
+def _wait_ready(page) -> None:
+    """Block until the cropper on the current preview img has built its frame."""
+    page.wait_for_function(
+        f"() => {{ const img = document.querySelector('{PREVIEW}'); return !!(img && img.cropper && img.cropper.ready); }}"
+    )
+
+
 def _drag_frame_down(page, pixels: int) -> None:
     """Drag the crop frame by its face, the way a host does."""
     face = page.locator(".cropper-face")
@@ -230,3 +237,65 @@ def describe_hero_cropper():
         _drag_frame_down(page, 30)
         crop = json.loads(page.locator(CROP_INPUT).input_value())
         assert crop["w"] == 900 and crop["h"] == pytest.approx(506, abs=1)
+
+    def it_rebuilds_the_frame_after_a_window_resize_while_the_step_was_hidden(
+        live_server, page, login_via_code, serve_media
+    ):
+        # Cropper's own window resize handler keeps running while the pane is display:none
+        # and scales its geometry to nothing (a phone keyboard, a rotation, a zoom on
+        # another step all do this), so the reveal has to rebuild from the saved crop.
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        page.set_viewport_size({"width": 1280, "height": 900})
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        _drag_frame_down(page, 60)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+
+        page.locator('[data-step-tab="3"]').click()
+        expect(page.locator(FRAME)).to_be_hidden()
+        page.set_viewport_size({"width": 1000, "height": 900})
+        page.locator('[data-step-tab="2"]').click()
+
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        assert _width(page, ".cropper-crop-box") > 0
+        assert _width(page, FRAME) == pytest.approx(_width(page, "#hero-preview"), abs=1)
+        # The drag survived the rebuild, on screen and in the field the form posts.
+        assert json.loads(page.locator(CROP_INPUT).input_value()) == crop
+        rebuilt = page.evaluate(f"document.querySelector('{PREVIEW}').cropper.getData(true)")
+        assert rebuilt["y"] == pytest.approx(crop["y"], abs=2)
+        assert rebuilt["height"] == pytest.approx(crop["h"], abs=2)
+
+    def it_mounts_one_frame_after_a_boosted_leave_and_back(live_server, page, login_via_code, serve_media):
+        # htmx snapshots the page before a boosted navigation and restores that DOM on Back;
+        # a snapshot taken with the frame still mounted came back as a second, stacked frame.
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        edit_path = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        # Arrive the way a host does, through the boosted link on Manage My Classes.
+        page.goto(f"{live_server.url}{reverse('classes:teach_dashboard')}")
+        page.locator(f'a[href="{edit_path}"]').first.click()
+        page.wait_for_url(re.compile(re.escape(edit_path)))
+        page.locator('[data-step-tab="2"]').click()
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+
+        # Leave through the boosted Cancel link, let the new page finish loading, then come
+        # back. The wait matters: hub/base.html loads htmx inside <body>, so a boosted swap
+        # re-executes it as an async script, and until that copy boots the previous page's
+        # copy still owns window.onpopstate with a stale current path; a Back inside that
+        # window snapshots the wrong page under the composer's history key. Nobody presses
+        # Back before the page has even settled, so the scenario does not either.
+        page.locator("#composer-form").get_by_role("link", name="Cancel").click()
+        page.wait_for_url(lambda url: edit_path not in url)
+        page.wait_for_load_state("networkidle")
+        page.go_back()
+        page.wait_for_url(re.compile(re.escape(edit_path)))
+        page.locator('[data-step-tab="2"]').click()
+
+        expect(page.locator(FRAME)).to_be_visible()
+        _wait_ready(page)
+        assert page.locator(FRAME).count() == 1
+        assert page.locator(PREVIEW).count() == 1
+        assert _width(page, FRAME) > COLLAPSED_WIDTH

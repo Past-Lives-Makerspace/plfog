@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import io
 import json
 from html.parser import HTMLParser
 
 import pytest
 from django.contrib.messages import get_messages
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from classes.factories import (
     READY_DESCRIPTION,
@@ -208,6 +211,29 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.flexible_note == "We will find a time together."
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)
+
+
+def _png_upload(name: str, width: int, height: int) -> SimpleUploadedFile:
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (200, 30, 30)).save(buf, "PNG")
+    return SimpleUploadedFile(name, buf.getvalue(), content_type="image/png")
+
+
+# The create-mode cropper measures the original file the browser showed: the left half of a
+# 4800x2700 photo, framed 16:9, is this box in original pixels.
+LEFT_HALF_OF_4800 = {"x": 0, "y": 0, "w": 2400, "h": 1350}
+
+
+def _assert_crop_followed_the_downsize(offering: ClassOffering) -> None:
+    """save() capped the 4800px photo at 2400; the stored box is the left half of THAT photo.
+
+    A 16:9 frame on the left half of a 16:9 photo covers the top half of that half, so its
+    centre sits a quarter in and a quarter down. Unscaled, the box would cover the whole
+    stored photo and read 50.0% 50.0%.
+    """
+    assert (offering.image.width, offering.image.height) == (2400, 1350)
+    assert (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h) == (0, 0, 1200, 675)
+    assert offering.hero_object_position == "25.0% 25.0%"
 
 
 def describe_the_step_map_matches_the_payload():
@@ -473,6 +499,21 @@ def describe_teach_composer_post():
         )
         assert "Draft saved." in _messages(resp)
 
+    def it_shrinks_a_create_mode_crop_with_the_downsized_upload(instructor_fixture, client, settings):
+        # Create mode crops the original file (the FileReader preview); save() then caps the long
+        # edge, so the box has to shrink with it or the stored centre points at the wrong part of
+        # the stored photo. Edit mode is safe on its own: the instant upload normalises first and
+        # the browser crops the stored file.
+        settings.IMAGE_MAX_LONG_EDGE_HERO = 2400
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        payload = _full_payload(
+            cat, image=_png_upload("phone-shot.png", 4800, 2700), hero_crop=json.dumps(LEFT_HALF_OF_4800)
+        )
+        resp = client.post(reverse("classes:teach_class_create"), payload)
+        assert resp.status_code == 302
+        _assert_crop_followed_the_downsize(ClassOffering.objects.get(title="Round Trip"))
+
     def it_round_trips_the_free_toggle(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
         client.force_login(instructor_fixture.user)
@@ -681,6 +722,18 @@ def describe_admin_composer():
         assert created.private_for_name == "The Guild"
         _assert_round_trip(created, cat)
         assert "Draft saved." in _messages(resp)
+
+    def it_shrinks_a_create_mode_crop_with_the_downsized_upload(admin_user, client, db, settings):
+        # Same path as the teach composer: the admin form saves through the same model.
+        settings.IMAGE_MAX_LONG_EDGE_HERO = 2400
+        cat, inst = CategoryFactory(), InstructorFactory()
+        client.force_login(admin_user)
+        payload = _admin_payload(
+            cat, inst, image=_png_upload("phone-shot.png", 4800, 2700), hero_crop=json.dumps(LEFT_HALF_OF_4800)
+        )
+        resp = client.post(reverse("classes:admin_class_create"), payload)
+        assert resp.status_code == 302
+        _assert_crop_followed_the_downsize(ClassOffering.objects.get(title="Round Trip"))
 
     def it_round_trips_every_field_on_edit(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
