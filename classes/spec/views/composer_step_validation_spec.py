@@ -281,7 +281,7 @@ def describe_what_next_never_blocks_on():
 
     def it_never_refuses_a_youtube_link_typed_without_a_scheme(composer):
         # <input type="url"> demands a scheme; the server does not. forms.URLField normalises
-        # "youtube.com/watch?v=…" to https (assume_scheme) and _validate_youtube_url takes what
+        # "youtube.com/watch?v=…" to https (assume_scheme) and validate_video_url takes what
         # it is handed. The rendered control is the client's whole rule book, so a URL input
         # would make Next refuse a link the very next save accepts. inputmode keeps the URL
         # keyboard on a phone; dropping the type is what stops the browser gating it.

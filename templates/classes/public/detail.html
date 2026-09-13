@@ -173,25 +173,15 @@
         </section>
       {% endif %}
 
-      {# YouTube video embed (added in v2.3.0; template-safe when field is empty) #}
-      {% if offering.video_url %}
-        {% with embed_id=offering.video_url|youtube_embed_id %}
-          {% if embed_id %}
-            <section class="cp-detail__section">
-              <h2 class="cp-detail__h2">Watch</h2>
-              <div class="cp-detail__video">
-                <iframe
-                  src="https://www.youtube-nocookie.com/embed/{{ embed_id }}"
-                  title="{{ offering.title }} — preview video"
-                  frameborder="0"
-                  allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  referrerpolicy="strict-origin-when-cross-origin"
-                  allowfullscreen></iframe>
-              </div>
-            </section>
-          {% endif %}
-        {% endwith %}
-      {% endif %}
+      {# Video (YouTube embeds; Instagram and Facebook link out). Empty or unrecognised renders nothing. #}
+      {% with video=offering.video_url|video_link %}
+        {% if video %}
+          <section class="cp-detail__section">
+            <h2 class="cp-detail__h2">Watch</h2>
+            {% include "components/video_embed.html" with video=video title=offering.title|add:" preview video" frame_class="cp-detail__video" %}
+          </section>
+        {% endif %}
+      {% endwith %}
 
       {# Schedule — every date for a series (past ones marked), the single date for a one-off. #}
       {% if schedule_sessions %}

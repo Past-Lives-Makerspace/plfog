@@ -35,7 +35,7 @@ from classes.models import (
     _unique_slug,
 )
 from classes.questions import active_questions, collect_answers, inject_fields
-from classes.templatetags.classes_tags import youtube_embed_id as _youtube_embed_id
+from classes.video_providers import validate_video_url
 
 
 def _assign_provisional_slug(offering: ClassOffering) -> None:
@@ -55,22 +55,11 @@ def _assign_provisional_slug(offering: ClassOffering) -> None:
     offering.slug = _unique_slug(base, exclude_pk=offering.pk)
 
 
-def _validate_youtube_url(url: str) -> str:
-    """Return a stripped YouTube URL, raising ValidationError when given a
-    non-YouTube link. Empty/blank values pass through (the field is optional)."""
-    cleaned = (url or "").strip()
-    if not cleaned:
-        return ""
-    if not _youtube_embed_id(cleaned):
-        raise ValidationError("Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…")
-    return cleaned
-
-
 def _video_url_widget() -> forms.TextInput:
-    """The composer's YouTube link as a plain text control, never ``<input type="url">``.
+    """The composer's video link as a plain text control, never ``<input type="url">``.
 
     ``forms.URLField`` accepts a link typed without a scheme and normalises it
-    (``assume_scheme="https"``), and :func:`_validate_youtube_url` then takes
+    (``assume_scheme="https"``), and :func:`validate_video_url` then takes
     ``youtube.com/watch?v=…`` exactly as it is handed over. Chromium's ``type="url"``
     refuses that same string in the browser. The composer's per step check reads the
     rendered control as its rule book (``static/js/composer_validation.js``), so a URL
@@ -414,7 +403,7 @@ class ClassOfferingForm(
         self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
-        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
+        return validate_video_url(self.cleaned_data.get("video_url", ""))
 
     def clean(self) -> dict:
         data = super().clean() or {}
@@ -475,7 +464,7 @@ class TeachClassOfferingForm(
         self.setup_scheduling_type_field()
 
     def clean_video_url(self) -> str:
-        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
+        return validate_video_url(self.cleaned_data.get("video_url", ""))
 
     def clean(self) -> dict:
         data = super().clean() or {}
@@ -686,7 +675,7 @@ class TeachPublishedClassForm(forms.ModelForm):
         ]
 
     def clean_video_url(self) -> str:
-        return _validate_youtube_url(self.cleaned_data.get("video_url", ""))
+        return validate_video_url(self.cleaned_data.get("video_url", ""))
 
 
 class ClassChangeRequestForm(forms.Form):

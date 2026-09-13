@@ -211,6 +211,27 @@ def describe_guild_detail():
             assert match, "the FAQ answer video iframe did not render"
             assert 'referrerpolicy="strict-origin-when-cross-origin"' in match.group(0)
 
+        def it_renders_a_linked_card_for_an_instagram_faq_answer(client: Client):
+            # No Instagram embed script runs on a member page (#368 item 8), so the answer
+            # offers the video as a link that opens on their site.
+            from membership.models import GuildFAQItem
+
+            guild = GuildFactory()
+            _linked_user(client)
+            GuildFAQItem.objects.create(
+                guild=guild,
+                question="What does it look like?",
+                answer="Here it is.",
+                video_url="https://www.instagram.com/reel/CxYzAbCdEfG/",
+                sort_order=0,
+            )
+            body = client.get(f"/guilds/{guild.slug}/").content.decode()
+            card = re.search(r'<a class="pl-video-card".*?</a>', body, re.S)
+            assert card, "the Instagram card did not render"
+            assert 'href="https://www.instagram.com/reel/CxYzAbCdEfG/"' in card.group(0)
+            assert "Watch this video on Instagram" in card.group(0)
+            assert "<iframe" not in body
+
         def it_hides_the_faq_tab_when_the_guild_has_no_faqs(client: Client):
             guild = GuildFactory()
             _linked_user(client)

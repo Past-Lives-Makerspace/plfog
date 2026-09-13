@@ -1,0 +1,19 @@
+{# One video, rendered the way its provider allows. Pass video (a VideoLink), title, frame_class. #}
+{% if video.is_embed %}
+<div class="{{ frame_class }}">
+  <iframe
+    src="{{ video.embed_src }}"
+    title="{{ title }}"
+    frameborder="0"
+    allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+    referrerpolicy="strict-origin-when-cross-origin"
+    allowfullscreen></iframe>
+</div>
+{% else %}
+{# No embed script from Instagram or Facebook runs on a member facing page, so the link is the card. #}
+<a class="pl-video-card" href="{{ video.url }}" target="_blank" rel="noopener noreferrer">
+  <span class="pl-video-card__provider">{{ video.provider.name }}</span>
+  <span class="pl-video-card__title">Watch this video on {{ video.provider.name }}</span>
+  <span class="pl-video-card__hint">Opens {{ video.provider.name }} in a new tab.</span>
+</a>
+{% endif %}

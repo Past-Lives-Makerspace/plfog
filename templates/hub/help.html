@@ -175,11 +175,11 @@ OrgInfoPage.intro_parts, and admins keep Edit this page / Adjust in the top corn
                 <div class="pl-guild-faq__q" @click="open = !open">{{ item.question }}</div>
                 <div class="pl-guild-faq__a" x-show="open" x-cloak>
                     <div class="pl-md">{{ item.answer|page_content:"member" }}</div>
-                    {% if item.video_url %}{% with vid=item.video_url|youtube_embed_id %}{% if vid %}
-                    <div class="pl-guild-video" style="margin-top:0.75rem;">
-                        <iframe src="https://www.youtube-nocookie.com/embed/{{ vid }}" title="{{ item.question }}" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+                    {% with video=item.video_url|video_link %}{% if video %}
+                    <div style="margin-top:0.75rem;">
+                        {% include "components/video_embed.html" with video=video title=item.question frame_class="pl-guild-video" %}
                     </div>
-                    {% endif %}{% endwith %}{% endif %}
+                    {% endif %}{% endwith %}
                     {% if item.has_document %}
                     <div style="margin-top:0.75rem;">
                         <a href="{{ item.document_href }}" class="hub-btn hub-btn--sm"{% if item.document %} download{% else %} target="_blank" rel="noopener nofollow noreferrer"{% endif %}>{% if item.document %}📄{% else %}🔗{% endif %} {{ item.document_display_name }}</a>

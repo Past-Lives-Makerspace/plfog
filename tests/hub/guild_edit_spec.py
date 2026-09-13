@@ -819,7 +819,27 @@ def describe_guild_faq_save():
         faq = GuildFAQItem.objects.get(guild=guild)
         assert faq.video_url == "https://youtu.be/dQw4w9WgXcQ"
 
-    def it_rejects_a_non_youtube_video(client: Client):
+    def it_saves_an_instagram_video_on_an_answer(client: Client):
+        # The hub FAQ shares the class composer's provider registry (#368 item 8), so a
+        # guild lead may paste any of the three; Instagram renders as a linked card.
+        _user_with_role("faq_ig", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_ig", password="pass")
+        data = _faq_post(**{"faq-0-video_url": "https://www.instagram.com/reel/CxYzAbCdEfG/"})
+        client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        faq = GuildFAQItem.objects.get(guild=guild)
+        assert faq.video_url == "https://www.instagram.com/reel/CxYzAbCdEfG/"
+
+    def it_saves_a_facebook_video_on_an_answer(client: Client):
+        _user_with_role("faq_fb", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_fb", password="pass")
+        data = _faq_post(**{"faq-0-video_url": "https://www.facebook.com/watch/?v=1234567890"})
+        client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
+        faq = GuildFAQItem.objects.get(guild=guild)
+        assert faq.video_url == "https://www.facebook.com/watch/?v=1234567890"
+
+    def it_rejects_a_video_from_an_unsupported_provider(client: Client):
         _user_with_role("faq_vidbad", fog_role=Member.FogRole.ADMIN)
         guild = GuildFactory()
         client.login(username="faq_vidbad", password="pass")

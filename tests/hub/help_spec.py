@@ -199,6 +199,17 @@ def describe_org_info_read_page():
         assert match, "the help FAQ video iframe did not render"
         assert 'referrerpolicy="strict-origin-when-cross-origin"' in match.group(0)
 
+    def it_renders_a_linked_card_for_a_facebook_faq_answer(client: Client):
+        # Facebook needs its own script to embed, which never runs on a member page
+        # (#368 item 8), so the answer links out instead.
+        OrgFAQItemFactory(question="Where is the tour?", video_url="https://www.facebook.com/watch/?v=1234567890")
+        body = client.get(reverse("hub_help")).content.decode()
+        card = re.search(r'<a class="pl-video-card".*?</a>', body, re.S)
+        assert card, "the Facebook card did not render"
+        assert 'href="https://www.facebook.com/watch/?v=1234567890"' in card.group(0)
+        assert "Watch this video on Facebook" in card.group(0)
+        assert "<iframe" not in body
+
     def it_hides_the_faq_section_when_empty(client: Client):
         assert b"pl-guild-faq__q" not in client.get(reverse("hub_help")).content
 
@@ -497,8 +508,8 @@ def describe_org_info_editor():
         assert resp.status_code == 302
         assert OrgFAQItem.objects.filter(question="Where are the restrooms?").exists()
 
-    def it_re_renders_a_faq_row_with_a_non_youtube_video(admin_client: Client):
-        # A valid URL that isn't YouTube — passes URLField, then fails clean_video_url.
+    def it_re_renders_a_faq_row_with_an_unsupported_video(admin_client: Client):
+        # A valid URL no provider owns: passes URLField, then fails clean_video_url.
         resp = admin_client.post(
             reverse("hub_org_info_faq_save"), _faq_payload("Q?", "A", video_url="https://vimeo.com/12345")
         )

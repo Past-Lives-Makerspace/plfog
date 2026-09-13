@@ -899,7 +899,10 @@ class ClassOffering(HeroCropMixin, models.Model):
     video_url = models.URLField(
         blank=True,
         max_length=500,
-        help_text="Optional YouTube link (watch, youtu.be, embed, or shorts URL). Embeds on the public class page.",
+        help_text=(
+            "Optional video link from YouTube, Instagram, or Facebook. A YouTube link plays right on the "
+            "public class page; an Instagram or Facebook link shows a card that opens the video on their site."
+        ),
     )
     requires_model_release = models.BooleanField(
         default=False, help_text="When on, registrants also sign photo release."

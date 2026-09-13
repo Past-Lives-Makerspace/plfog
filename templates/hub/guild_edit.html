@@ -724,7 +724,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     {% csrf_token %}
     <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.manage-faq">
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">{{ guild.faq_label|default:"FAQ" }}</h2>
-      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Each answer can also embed a YouTube video and attach one document — upload a file <em>or</em> paste a link. Rename this section's heading on the <strong>Basic Information</strong> tab.</p>
+      <p class="hub-text-muted" style="font-size:0.8125rem; margin:0 0 1rem;">Each answer can also show a video from YouTube, Instagram, or Facebook, and attach one document (upload a file <em>or</em> paste a link). Rename this section's heading on the <strong>Basic Information</strong> tab.</p>
       {{ faq_formset.management_form }}
       <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in faq_formset %}

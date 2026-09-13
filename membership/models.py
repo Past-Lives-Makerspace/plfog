@@ -2862,7 +2862,10 @@ class GuildFAQItem(models.Model):
     video_url = models.URLField(
         blank=True,
         default="",
-        help_text="Optional YouTube link shown with this answer (watch, youtu.be, embed, or shorts URL).",
+        help_text=(
+            "Optional video link shown with this answer, from YouTube, Instagram, or Facebook. A YouTube link "
+            "plays here; an Instagram or Facebook link shows a card that opens the video on their site."
+        ),
     )
     document = models.FileField(
         upload_to="guilds/faq/",
@@ -3194,7 +3197,10 @@ class OrgFAQItem(models.Model):
     video_url = models.URLField(
         blank=True,
         default="",
-        help_text="Optional YouTube link shown with this answer (watch, youtu.be, embed, or shorts URL).",
+        help_text=(
+            "Optional video link shown with this answer, from YouTube, Instagram, or Facebook. A YouTube link "
+            "plays here; an Instagram or Facebook link shows a card that opens the video on their site."
+        ),
     )
     document = models.FileField(
         upload_to="org/faq/",

@@ -1344,7 +1344,7 @@ class VotePreferenceForm(forms.Form):
 class GuildFAQItemForm(forms.ModelForm):
     """A single FAQ question/answer row on the guild edit page.
 
-    Beyond the text answer, a row may add a YouTube embed and at most one document
+    Beyond the text answer, a row may add a video link and at most one document
     (an uploaded file OR a link). The XOR guard mirrors ``GuildMeetingNoteAttachmentForm``.
     """
 
@@ -1353,12 +1353,12 @@ class GuildFAQItemForm(forms.ModelForm):
         fields = ["question", "answer", "video_url", "document", "document_url", "sort_order"]
         widgets = {
             "answer": forms.Textarea(attrs={"rows": 3}),
-            "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
+            "video_url": forms.URLInput(attrs={"placeholder": "https://www.youtube.com/watch?v=…"}),
             "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
             "sort_order": forms.HiddenInput(),
         }
         labels = {
-            "video_url": "Video (YouTube)",
+            "video_url": "Video link",
             "document": "Document (upload)",
             "document_url": "…or document link",
         }
@@ -1367,15 +1367,10 @@ class GuildFAQItemForm(forms.ModelForm):
         }
 
     def clean_video_url(self) -> str:
-        """Accept only a YouTube URL (or blank) so the answer can embed it."""
-        from classes.templatetags.classes_tags import youtube_embed_id
+        """Accept only a link one of the video providers recognises (or blank)."""
+        from classes.video_providers import validate_video_url
 
-        url = (self.cleaned_data.get("video_url") or "").strip()
-        if url and not youtube_embed_id(url):
-            raise forms.ValidationError(
-                "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
-            )
-        return url
+        return validate_video_url(self.cleaned_data.get("video_url"))
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
@@ -1493,12 +1488,12 @@ class OrgFAQItemForm(forms.ModelForm):
             # Org FAQ answers historically rendered through the *member* Markdown profile —
             # the widget's markdown_profile keeps a legacy answer displaying identically.
             "answer": PageContentEditorWidget(attrs={"rows": 3}, markdown_profile="member"),
-            "video_url": forms.URLInput(attrs={"placeholder": "https://youtube.com/watch?v=…"}),
+            "video_url": forms.URLInput(attrs={"placeholder": "https://www.youtube.com/watch?v=…"}),
             "document_url": forms.URLInput(attrs={"placeholder": "https://docs.google.com/…"}),
             "sort_order": forms.HiddenInput(),
         }
         labels = {
-            "video_url": "Video (YouTube)",
+            "video_url": "Video link",
             "document": "Document (upload)",
             "document_url": "…or document link",
         }
@@ -1514,15 +1509,10 @@ class OrgFAQItemForm(forms.ModelForm):
         return answer
 
     def clean_video_url(self) -> str:
-        """Accept only a YouTube URL (or blank) so the answer can embed it."""
-        from classes.templatetags.classes_tags import youtube_embed_id
+        """Accept only a link one of the video providers recognises (or blank)."""
+        from classes.video_providers import validate_video_url
 
-        url = (self.cleaned_data.get("video_url") or "").strip()
-        if url and not youtube_embed_id(url):
-            raise forms.ValidationError(
-                "Enter a YouTube URL — e.g. https://www.youtube.com/watch?v=… or https://youtu.be/…"
-            )
-        return url
+        return validate_video_url(self.cleaned_data.get("video_url"))
 
     def clean(self) -> dict[str, Any]:
         cleaned = cast(dict[str, Any], super().clean())
