@@ -23,7 +23,9 @@ pytestmark = pytest.mark.django_db
 
 SKIP_LINK = '<a href="#main-content" class="skip-link">Skip to main content</a>'
 MAIN_OPEN = '<main id="main-content" class="hub-content" tabindex="-1">'
-_FOCUSABLE = re.compile(r"<(a|button|input|select|textarea)\b")
+# Anything Tab can land on: the focusable elements, plus an explicit tabindex="0" or
+# contenteditable on any tag, so a future extra_body override cannot slip in ahead.
+_FOCUSABLE = re.compile(r'<(a|button|input|select|textarea|summary|iframe)\b|\btabindex="0"|\bcontenteditable\b')
 
 
 def _body(html: str) -> str:
