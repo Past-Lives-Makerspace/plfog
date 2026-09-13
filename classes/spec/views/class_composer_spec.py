@@ -6,6 +6,7 @@ import io
 import json
 import re
 from datetime import timedelta
+from html import unescape
 from html.parser import HTMLParser
 
 import pytest
@@ -24,6 +25,7 @@ from classes.factories import (
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
 from classes.models import ClassApproval, ClassOffering, CmsActivity
+from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 
 Status = ClassOffering.Status
 
@@ -146,6 +148,28 @@ def _price_input_value(html: str) -> str:
     assert tag is not None, "no price input rendered"
     match = re.search(r'\bvalue="([^"]*)"', tag.group(0))
     return match.group(1) if match else ""
+
+
+def _draft_key(html: str) -> str:
+    """The localStorage key the composer told the browser to keep its in flight typing under."""
+    match = re.search(r'data-composer-draft-key="([^"]+)"', html)
+    assert match is not None, "the composer rendered no draft key"
+    return match.group(1)
+
+
+def _draft_baseline(html: str) -> str:
+    """The saved values the composer stamped on an unsaved render, still JSON."""
+    match = re.search(r'data-composer-draft-baseline="([^"]*)"', html)
+    assert match is not None, "the composer stamped no baseline"
+    return unescape(match.group(1))
+
+
+def _draft_notice(html: str) -> str:
+    """The draft persistence notice's markup, or "" when the composer rendered none."""
+    opener = '<div class="pl-composer-draft" '
+    if opener not in html:
+        return ""
+    return html.partition(opener)[2].partition("</div>")[0]
 
 
 def _still_missing(html: str) -> str:
@@ -1419,3 +1443,212 @@ def describe_a_cancelled_class_post_that_also_has_field_errors():
         assert notice_at < errors_at
         offering.refresh_from_db()
         assert offering.title == "Before"
+
+
+def describe_the_composer_draft_notice():
+    """Draft persistence (issue #368, item 3c): the browser held copy of the in flight typing.
+
+    static/js/composer_draft.js does the keeping and the offering; what the server owes it is a
+    key nobody else's draft can collide with, a place to say what is kept, and a one shot signal
+    that a save landed so the copy can be dropped. These specs pin those three.
+    """
+
+    def it_loads_the_draft_script_on_both_composers(instructor_fixture, admin_user, client):
+        client.force_login(instructor_fixture.user)
+        teach = client.get(reverse("classes:teach_class_create")).content.decode()
+        client.force_login(admin_user)
+        admin = client.get(reverse("classes:admin_class_create")).content.decode()
+        for html in (teach, admin):
+            assert '<script src="/static/js/composer_draft.js" defer></script>' in html
+            # In <body> with the other per page boot scripts, never in the head with Alpine's
+            # component registrations: it registers no component and needs the fresh DOM.
+            assert html.count("js/composer_draft.js") == 1
+            assert html.index("js/composer_draft.js") > html.index("js/composer_validation.js")
+
+    def it_renders_the_notice_hidden_with_every_line_and_both_controls(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        notice = _draft_notice(html)
+        assert '<div class="pl-composer-draft" data-composer-draft hidden>' in html
+        assert 'data-composer-draft-line="offer" hidden>We kept what you typed in this browser' in notice
+        assert 'data-composer-draft-line="kept" hidden>Kept in this browser' in notice
+        assert 'data-composer-draft-line="blocked" hidden>This browser will not let us keep' in notice
+        # The honest half. Files cannot live in localStorage at all, and the session dates,
+        # the ticks and any row added after load are widget state this deliberately skips, so
+        # the sentence has to cover all of them rather than name photos and stop there.
+        assert "Photos, dates, the FAQ and anything you ticked were not." in notice
+        assert "Photos, dates, the FAQ and anything you tick are not," in notice
+        # The announcement is its own region OUTSIDE the notice: a live region inside a subtree
+        # toggled with `hidden` announces nothing when it is revealed.
+        assert 'role="status"' not in notice
+        assert '<p class="sr-only" role="status" data-composer-draft-live></p>' in html
+        assert "data-composer-draft-restore hidden>Restore It</button>" in notice
+        assert "data-composer-draft-discard hidden>Discard It</button>" in notice
+
+    def it_sits_above_the_form_so_it_shows_on_every_step(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert html.index("data-composer-draft ") < html.index('id="composer-form"')
+
+    def it_keys_the_copy_by_class_so_two_drafts_never_collide(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        create = _draft_key(client.get(reverse("classes:teach_class_create")).content.decode())
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        edit = _draft_key(client.get(edit_url).content.decode())
+        assert create.endswith(".teach.new")
+        assert edit.endswith(f".teach.{offering.pk}")
+
+    def it_keys_the_copy_by_person_so_a_shared_browser_never_leaks_one(instructor_fixture, client, db):
+        other = InstructorFactory(user=UserFactory(username="second-teacher@example.com"))
+        url = reverse("classes:teach_class_create")
+        client.force_login(instructor_fixture.user)
+        mine = _draft_key(client.get(url).content.decode())
+        client.force_login(other.user)
+        theirs = _draft_key(client.get(url).content.decode())
+        assert mine != theirs
+        assert str(instructor_fixture.user.pk) in mine and str(other.user.pk) in theirs
+
+    def it_keys_the_copy_by_portal_so_the_two_composers_do_not_share_one(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _draft_key(html).endswith(f".admin.{offering.pk}")
+
+    def it_stamps_the_saved_signal_on_the_render_after_a_save_and_takes_it_back_off(instructor_fixture, client):
+        # The redirect target is where the browser learns its copy is redundant: the database
+        # has the work now. One render only, so typing again on that same page is kept afresh.
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:teach_class_create"), _full_payload(cat))
+        assert resp.status_code == 302
+        first = client.get(resp["Location"]).content.decode()
+        assert 'data-composer-draft-saved="1"' in first
+        second = client.get(resp["Location"]).content.decode()
+        assert "data-composer-draft-saved" not in second
+
+    def it_stamps_it_for_the_class_that_was_saved_and_no_other(instructor_fixture, client):
+        cat = CategoryFactory()
+        other = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        client.post(reverse("classes:teach_class_create"), _full_payload(cat))
+        other_url = reverse("classes:teach_class_edit", kwargs={"pk": other.pk})
+        assert "data-composer-draft-saved" not in client.get(other_url).content.decode()
+
+    def it_never_stamps_it_on_a_failed_save(instructor_fixture, client):
+        # A failed save re-renders from the POST, and what was typed then lives nowhere but this
+        # page and the browser's copy. Clearing the copy there would be the loss this feature exists
+        # to stop, so the signal is read on a GET only and waits for the next one.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        client.post(edit_url, _full_payload(offering.category))  # leaves the flag on the session
+        refused = client.post(edit_url, _full_payload(offering.category, title=""))
+        assert refused.status_code == 200
+        assert "data-composer-draft-saved" not in refused.content.decode()
+        # Still there for the GET that comes next: the save it belongs to really did happen.
+        assert 'data-composer-draft-saved="1"' in client.get(edit_url).content.decode()
+
+    def it_stamps_a_submit_that_was_refused_for_readiness_because_the_draft_still_saved(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, action="submit", step="5"),
+        )
+        assert resp.status_code == 302
+        assert 'data-composer-draft-saved="1"' in client.get(resp["Location"]).content.decode()
+
+    def it_marks_a_refused_save_as_unsaved_so_the_browser_trusts_none_of_it(instructor_fixture, client):
+        # Every value on a refused save's page came from the POST and none of it is in the
+        # database, so composer_draft.js must not read the page as a safe baseline: doing so
+        # would shrink the browser copy to whatever was edited after the refusal, and the
+        # refresh that followed would bring back that one field and nothing else.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        refused = client.post(edit_url, _full_payload(offering.category, video_url="https://vimeo.com/12345"))
+        assert refused.status_code == 200
+        assert 'data-composer-draft-unsaved="1"' in refused.content.decode()
+        # A GET renders the saved row, which is exactly what a baseline is meant to be.
+        assert "data-composer-draft-unsaved" not in client.get(edit_url).content.decode()
+
+    def it_remembers_every_save_that_never_landed_on_a_composer(admin_user, client, db):
+        # The admin composer's plain Save with no step goes to the class page, not back here, so
+        # the entry waits. One slot per session would let the second save overwrite the first,
+        # and that class would then offer text it has already saved for the rest of the session.
+        first = ClassOfferingFactory(status=Status.DRAFT)
+        second = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        for offering in (first, second):
+            resp = client.post(
+                reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+                _admin_payload(offering.category, offering.instructor, step=""),
+            )
+            assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        for offering in (first, second):
+            url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+            assert 'data-composer-draft-saved="1"' in client.get(url).content.decode(), offering.pk
+            assert "data-composer-draft-saved" not in client.get(url).content.decode(), offering.pk
+
+    def it_caps_how_many_it_remembers_so_a_long_session_cannot_grow_without_bound(rf):
+        request = rf.get("/")
+        request.session = {}
+        for pk in range(1, COMPOSER_SAVED_LIMIT + 6):
+            _mark_composer_saved(request, ClassOffering(pk=pk))
+        kept = request.session[COMPOSER_SAVED_SESSION_KEY]
+        assert kept == list(range(6, COMPOSER_SAVED_LIMIT + 6))
+        assert len(kept) == COMPOSER_SAVED_LIMIT
+
+    def it_keeps_one_entry_per_class_however_often_it_is_saved(rf):
+        request = rf.get("/")
+        request.session = {}
+        for _ in range(3):
+            _mark_composer_saved(request, ClassOffering(pk=7))
+        assert request.session[COMPOSER_SAVED_SESSION_KEY] == [7]
+
+    def it_ships_the_saved_values_exactly_as_a_fresh_page_would_render_them(instructor_fixture, client):
+        # The browser compares strings, and `initial` holds Python: a Decimal price, a
+        # category's pk, a date. Every one of these that renders differently from the value
+        # the GET puts in the DOM is a field that looks edited when it is not, which is the
+        # over capture this baseline exists to prevent. So the whole baseline is checked
+        # against a real unbound render rather than against a list of expected conversions.
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, ready=True, price_cents=8000
+        )
+        client.force_login(instructor_fixture.user)
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        edit_html = client.get(edit_url).content.decode()
+        # Django opens every textarea with a newline the HTML spec tells the browser to drop,
+        # so the DOM value, which is what the browser compares, is the text after it.
+        rendered = {name: value.removeprefix("\n") for name, value in _untouched_form_values(edit_html).items()}
+        refused = client.post(edit_url, _full_payload(offering.category, video_url="https://vimeo.com/12345"))
+        baseline = json.loads(_draft_baseline(refused.content.decode()))
+
+        assert refused.status_code == 200
+        # Not vacuous: the fields most likely to convert badly are all in here.
+        assert {"title", "description", "category", "price_cents", "member_discount_pct", "capacity"} <= set(baseline)
+        assert baseline["price_cents"] == rendered["price_cents"]
+        assert {name: value for name, value in baseline.items() if name in rendered} == {
+            name: value for name, value in rendered.items() if name in baseline
+        }
+
+    def it_ships_nothing_on_a_render_that_saved_everything(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-composer-draft-baseline" not in html
+
+    def it_ships_an_empty_baseline_in_create_mode_where_nothing_is_saved_yet(instructor_fixture, client):
+        # Nothing is in the database, so the whole page is the work and every filled field
+        # belongs in the copy. The form's own defaults are still saved values in the sense
+        # that matters here: nobody typed them, so they are not what a Restore should put back.
+        client.force_login(instructor_fixture.user)
+        cat = CategoryFactory()
+        refused = client.post(
+            reverse("classes:teach_class_create"), _full_payload(cat, video_url="https://vimeo.com/12345")
+        )
+        baseline = json.loads(_draft_baseline(refused.content.decode()))
+        assert baseline["title"] == ""
+        assert baseline["description"] == ""
+        assert baseline["capacity"] == str(TeachClassOfferingForm().fields["capacity"].initial)

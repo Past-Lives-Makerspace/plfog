@@ -23,6 +23,9 @@ Context (from _composer_context in classes/views.py, plus the form context):
                     rendered as the Still Missing checklist: not a form error, the form validated
   composer_notice — a page level refusal that is not a form error (the class was cancelled
                     while this page was open, so nothing was saved)
+  composer_draft_key / composer_draft_saved — the localStorage key this composer keeps its
+                    in flight typing under (per person, per portal, per class), and the one
+                    shot signal that a save just landed, so the browser copy can be dropped
   card_group      — the genuine CatalogGroup for a saved class (None on create); the
                     card preview frames on steps 2 and 5 render the REAL catalog card
                     through it
@@ -51,6 +54,13 @@ them and a half filled row stays the server's to refuse at save, on the step tha
 Back, the tabs, goTo() and goToField() never validate: jumping around to look at things
 stays free. The form keeps novalidate because the browser's own bubble cannot
 point at a control inside a hidden pane; the step check points at the field itself.
+
+Draft persistence (issue #368, item 3c) lives in static/js/composer_draft.js: the typed text
+fields are mirrored into localStorage as they are typed and OFFERED back on the next load,
+never restored silently, because what the server rendered may be newer than what the browser
+kept. The notice below the tabs is the visible half of that: what is kept, when it was kept,
+that photos and files are not, and a way to discard it. A save clears the copy, signalled by
+composer_draft_saved.
 
 The step tabs ("how much of the form have I filled in?") and the review pipeline card
 ("where is my class with the reviewers?") are two components with two meanings (§C.4).
@@ -83,6 +93,7 @@ Do not merge them.
 {% endif %}
 
 <div class="hub-card pl-composer"
+     data-composer-draft-key="{{ composer_draft_key }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1" data-composer-draft-baseline="{{ composer_draft_baseline }}"{% endif %}
      x-data="{
        phase: {{ initial_phase }},
        errorSteps: {{ error_steps_json }},
@@ -150,6 +161,23 @@ Do not merge them.
             @click="goTo({{ tab.step.number }})">{{ tab.step.tab_label }}{% if tab.done %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="!errorSteps.includes({{ tab.step.number }})">&#10003;</span>{% endif %}<span class="pl-phase-tab__mark" aria-hidden="true" x-show="errorSteps.includes({{ tab.step.number }})" x-cloak>&#9679;</span></button>
     {% endfor %}
   </div>
+
+  {% comment %}
+  Draft persistence (issue #368, item 3c). static/js/composer_draft.js picks the line and
+  fills the time; nothing here is visible until it has something true to say, so a browser
+  that refuses to keep anything shows the last line instead of a promise it cannot keep.
+  {% endcomment %}
+  <div class="pl-composer-draft" data-composer-draft hidden>
+    <p class="pl-composer-draft__line" data-composer-draft-line="offer" hidden>We kept what you typed in this browser<span data-composer-draft-when></span>. Photos, dates, the FAQ and anything you ticked were not. Want it back?</p>
+    <p class="pl-composer-draft__line" data-composer-draft-line="kept" hidden>Kept in this browser<span data-composer-draft-when></span>, on this device only. Photos, dates, the FAQ and anything you tick are not, so save your draft for those.</p>
+    <p class="pl-composer-draft__line" data-composer-draft-line="blocked" hidden>This browser will not let us keep what you type, so save your draft often.</p>
+    <span class="pl-composer-draft__actions">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-composer-draft-restore hidden>Restore It</button>
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-composer-draft-discard hidden>Discard It</button>
+    </span>
+  </div>
+  {# The announcement lives outside the notice: a live region inside a subtree toggled with hidden announces nothing. #}
+  <p class="sr-only" role="status" data-composer-draft-live></p>
 
   {# novalidate stays on purpose: the server is the gate, and the browser's own bubble cannot point at a control inside a hidden step (it refuses silently). The per step check (static/js/composer_validation.js, next() / saveDraft() / confirmSubmit() above) reads the same rendered attributes and points at the field itself. #}
   <form method="post" enctype="multipart/form-data" id="composer-form" x-ref="composerForm" novalidate>
@@ -357,8 +385,11 @@ Do not merge them.
 </div>
 {% comment %}hero_cropper.js boots itself from the page each time it runs, so it lives in <body>
 where hx-boost re-runs it on every arrival; composer_validation.js is a guarded IIFE that defines
-window.plComposerValidation once and is safe to re-run the same way. card_focus.js registers an
+window.plComposerValidation once and is safe to re-run the same way, and composer_draft.js hands a
+re-run back to the copy already loaded so its one set of document listeners keeps pointing at the
+page that just arrived. card_focus.js registers an
 Alpine.data component and must exist before Alpine initialises the page, so it loads once from
 hub/base.html's head with the other Alpine components (FRONTEND.md, Scripts under hx-boost).{% endcomment %}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
 <script src="{% static 'js/composer_validation.js' %}" defer></script>
+<script src="{% static 'js/composer_draft.js' %}" defer></script>

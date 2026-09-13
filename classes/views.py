@@ -1426,6 +1426,102 @@ def _composer_step(request: HttpRequest) -> int:
     return clamp_step(source.get("step"))
 
 
+# A successful composer save leaves the class it saved on this session list. The next composer
+# GET for that class takes it back off and stamps data-composer-draft-saved on the page, which is
+# how static/js/composer_draft.js learns the browser held copy of what was typed is now redundant
+# and forgets it (issue #368, item 3c). A session flag rather than a query parameter because not
+# every save lands back on the composer: an admin publish goes to the class page. And a flag
+# rather than comparing values, because the server normalises some of them: a price typed as 80
+# comes back as 80.00, which is the same work saved, not a draft worth offering back.
+#
+# A LIST, not one pk, for exactly that reason: a save that never lands on a composer leaves its
+# entry waiting, and a single slot would let the next such save overwrite it. The first class
+# would then keep offering text it has already saved for as long as the session lasts (its price
+# alone would force it, since 80.00 in comes back as 80). Capped, so a long session cannot grow
+# the session record without bound; twenty unvisited saves is already far past real use.
+COMPOSER_SAVED_SESSION_KEY = "composer_saved_pks"
+COMPOSER_SAVED_LIMIT = 20
+
+
+def _composer_saved_pks(request: HttpRequest) -> list[int]:
+    """The classes saved but not yet seen again in a composer. Absent means none, not a bug."""
+    return list(request.session.get(COMPOSER_SAVED_SESSION_KEY, []))
+
+
+def _mark_composer_saved(request: HttpRequest, offering: ClassOffering) -> None:
+    """Record that this class's composer work reached the database, for the next composer render."""
+    pending = [pk for pk in _composer_saved_pks(request) if pk != offering.pk]
+    pending.append(offering.pk)
+    request.session[COMPOSER_SAVED_SESSION_KEY] = pending[-COMPOSER_SAVED_LIMIT:]
+
+
+def _composer_draft_saved(request: HttpRequest, saved: ClassOffering | None) -> bool:
+    """True on the first composer GET after this class was saved, and only that once.
+
+    Read on a GET only. A failed save re-renders the composer from the POST, and the typed
+    values are then held nowhere but this page and the browser's copy, so an entry left over
+    from an earlier save must not reach that render and clear the copy.
+
+    Taken off the list once read, so a later visit that types something new and then refreshes
+    is offered its draft instead of having it cleared by a stale entry.
+    """
+    if saved is None or request.method != "GET":
+        return False
+    pending = _composer_saved_pks(request)
+    if saved.pk not in pending:
+        return False
+    request.session[COMPOSER_SAVED_SESSION_KEY] = [pk for pk in pending if pk != saved.pk]
+    return True
+
+
+def _rendered_initial(form: Any, into: dict[str, str]) -> None:
+    """Add every field of ``form`` at its saved value, as the string an unbound page would render.
+
+    ``initial`` holds Python (a ``Decimal`` price, a category's pk, a date), and the browser
+    compares strings, so each value goes back through the same two steps that build the
+    ``value`` attribute on a GET: the field prepares it, the widget formats it. Hand converting
+    the types instead is how a "saved" value stops matching its own rendering, which puts the
+    field back in the copy as if it had been edited.
+    """
+    for bound in form:
+        rendered = bound.field.widget.format_value(bound.field.prepare_value(bound.initial))
+        if isinstance(rendered, list | tuple):
+            rendered = rendered[0] if rendered else ""
+        # A textarea posts CRLF and reads back LF in the DOM, so a saved multi line
+        # description would never match its own baseline without this.
+        into[bound.html_name] = "" if rendered is None else str(rendered).replace("\r\n", "\n")
+
+
+def _composer_draft_baseline(form: Any) -> str:
+    """What the database holds for every control on the page, for a render that saved nothing.
+
+    A refused save re-renders from the POST, so the page itself is unsaved work and the browser
+    cannot read it as a baseline: everything matching the re-render would drop out of its copy
+    on the next keystroke, and a refresh would return only the field last edited. It cannot
+    treat the whole page as changed either, or Restore would put back fields nobody touched,
+    over the top of whatever an admin has saved since. The saved values are the honest answer
+    to both. Empty in create mode, where nothing is saved and the whole page is the work.
+
+    The class's own fields only. The repeating rows (sessions, FAQ, gallery) are never kept in
+    the first place, because a row is identified by its position and the position does not
+    survive a save; ``static/js/composer_draft.js`` skips them at the source.
+    """
+    values: dict[str, str] = {}
+    _rendered_initial(form, values)
+    return json.dumps(values)
+
+
+def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None, *, is_admin: bool) -> str:
+    """The ``localStorage`` key the in flight composer mirrors its typed fields into.
+
+    Per signed in person, so a shared browser never offers one member's draft to the next;
+    per portal and per class, so the admin composer, the instructor composer, and a new class
+    that has no row yet each keep their own copy.
+    """
+    portal = "admin" if is_admin else "teach"
+    return f"plfog.composer.v1.{request.user.pk}.{portal}.{saved.pk if saved is not None else 'new'}"
+
+
 def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResponse:
     """Back to the composer on the step the user was looking at, when the POST said which one."""
     url = reverse(url_name, kwargs={"pk": pk})
@@ -1526,6 +1622,16 @@ def _composer_context(
         "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
+        # Draft persistence (issue #368, item 3c): the key the browser keeps the in flight
+        # typing under, and the one shot signal that the database now has it.
+        "composer_draft_key": _composer_draft_key(request, saved, is_admin=is_admin),
+        "composer_draft_saved": _composer_draft_saved(request, saved),
+        # A bound form here means a save this view refused: every value on the page came from
+        # the POST and none of it is in the database, so the browser must not read any of it
+        # as a safe baseline. Every successful save redirects, so bound is exactly "unsaved",
+        # and the saved values ride along for the browser to compare against instead.
+        "composer_draft_unsaved": form.is_bound,
+        "composer_draft_baseline": _composer_draft_baseline(form) if form.is_bound else "",
         # The Share & Print card shows the flyer button and QR downloads only when this
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
@@ -1588,6 +1694,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
             offering.delete()  # roll back the half-created offering
             form.add_error(None, exc.messages[0])
         else:
+            _mark_composer_saved(request, offering)
             submit_now = request.POST.get("action") == "submit"
             if submit_now:
                 try:
@@ -1635,6 +1742,7 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
         faq_formset.save()
+        _mark_composer_saved(request, offering)
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             try:
@@ -2912,6 +3020,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
                 _discard_half_created_offering(offering)
                 form.add_error(None, exc.messages[0])
             else:
+                _mark_composer_saved(request, offering)
                 messages.success(request, f"{offering.title} is published." if publish_now else "Draft saved.")
                 return _composer_redirect("classes:admin_class_edit", offering.pk, request)
 
@@ -3003,6 +3112,7 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         form.save()
         session_formset.save()
         faq_formset.save()
+        _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
             # publish() checks readiness, not status: a crafted publish on a live class would
             # re-stamp published_at and announce again, and one on a class still in review
