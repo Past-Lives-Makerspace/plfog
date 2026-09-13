@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, datetime, timedelta
+from itertools import islice
 from math import ceil
 from typing import TYPE_CHECKING, cast
 
@@ -303,13 +304,18 @@ def _slot_disambiguation(
     """
     # An orientation whose signups happen off site has no bookable time to offer here:
     # ensure_bookable_for would refuse the slot: pk anyway, so printing it is a dead end.
-    slots = [
-        slot
-        for slot in guild.orientation_slots.bookable()
+    # Drop those BEFORE the cap: filtering a capped page would answer "no posted times"
+    # to a guild whose next ten slots are all an external type's while internal ones
+    # wait behind them, which is a wrong answer rather than a short one.
+    bookable = (
+        guild.orientation_slots.bookable()
         .select_related("orientation_type__guild__orientation_settings")
-        .order_by("starts_at")[:_SLOT_LIST_CAP]
-        if not slot.orientation_type.resolved_external_signup_url
-    ]
+        .order_by("starts_at")
+        .iterator()
+    )
+    slots = list(
+        islice((slot for slot in bookable if not slot.orientation_type.resolved_external_signup_url), _SLOT_LIST_CAP)
+    )
     if slots:
         lines = [
             f"{prefix}Here are **{guild.name}**'s open orientation times — re-run "

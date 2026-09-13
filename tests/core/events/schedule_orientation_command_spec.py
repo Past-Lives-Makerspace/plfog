@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
+from django.utils import timezone
 
 from core.events.discord_commands import dispatch
 from membership.discord_commands import SCHEDULE_ORIENTATION, _schedule_orientation
@@ -134,6 +136,32 @@ def describe_gates():
         content = _content(member, guild=guild)  # no options → the slot list
         assert f"`{shown.pk}`" in content
         assert f"`{hidden.pk}`" not in content
+
+    def it_finds_an_internal_time_behind_a_screenful_of_external_ones(linked_member):
+        # The cap is applied after the external types are dropped. Filtering a capped page
+        # would answer "no posted times" to a guild whose next ten slots all sign up off
+        # site while an internal one waits behind them, which is wrong, not merely short.
+        member = linked_member()
+        guild = _guild()
+        external = OrientationTypeFactory(guild=guild, name="Lathe", external_signup_url="https://forms.gle/l")
+        internal = OrientationTypeFactory(guild=guild, name="Shop Basics", sort_order=1)
+        start = timezone.now() + timedelta(days=1)
+        for offset in range(12):
+            OrientationSlotFactory(
+                guild=guild,
+                orientation_type=external,
+                enabled_settings=False,
+                starts_at=start + timedelta(hours=offset),
+            )
+        behind = OrientationSlotFactory(
+            guild=guild,
+            orientation_type=internal,
+            enabled_settings=False,
+            starts_at=start + timedelta(hours=99),
+        )
+        content = _content(member, guild=guild)
+        assert f"`{behind.pk}`" in content
+        assert "No posted times right now" not in content
 
     def it_still_says_a_request_is_already_in_at_a_guild_with_a_link(linked_member):
         member = linked_member()
