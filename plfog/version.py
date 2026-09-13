@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.54.2"
+VERSION = "1.54.3"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -40,6 +40,10 @@ VERSION = "1.54.2"
 # landed - nobody has tapped a real review link on a real iPhone yet. So this release walks past
 # the pointer without consuming it, and the deferral still stands for whoever takes 1.54.3 or
 # 1.55.0. Do not add an entry here to fill the gap.
+#
+# 1.54.3 - the PUBLIC_HOSTS deploy check takes it with no entry, correctly: a system check that
+# stops a misconfigured deploy is repo tooling, invisible to members. It is not the bump 1.54.1's
+# note is waiting for either; that deferral still stands for the next member-facing release.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for

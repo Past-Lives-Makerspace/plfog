@@ -3,18 +3,25 @@
 import os
 from unittest.mock import patch
 
-from django.core.checks import Error
+import pytest
+from django.core.checks import Error, registry
+from django.core.management import call_command
+from django.core.management.base import SystemCheckError
 from django.test import override_settings
 
-from core.checks import check_webpush_settings
+from core.checks import check_public_hosts_are_allowed, check_webpush_settings
 
-# Build a clean env dict without CI for production-simulation tests
-_env_without_ci = {k: v for k, v in os.environ.items() if k != "CI"}
+# Build a clean env dict for production-simulation tests: GitHub Actions always sets CI, and a
+# Render service always sets RENDER_SERVICE_TYPE, so both have to go for the checks to run.
+_env_without_ci = {k: v for k, v in os.environ.items() if k not in {"CI", "RENDER_SERVICE_TYPE"}}
 
 
 def describe_check_webpush_settings():
     def it_returns_no_errors_when_debug_is_true():
-        with override_settings(DEBUG=True):
+        with (
+            override_settings(DEBUG=True, WEBPUSH_SETTINGS={}),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
             errors = check_webpush_settings(app_configs=None)
         assert errors == []
 
@@ -105,3 +112,116 @@ def describe_check_webpush_settings():
 
         assert len(errors) == 1
         assert "WEBPUSH_VAPID_PUBLIC_KEY" in errors[0].hint
+
+
+def describe_check_public_hosts_are_allowed():
+    def it_returns_no_errors_when_debug_is_true():
+        with (
+            override_settings(DEBUG=True, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_returns_no_errors_on_a_render_cron_service():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", {**_env_without_ci, "RENDER_SERVICE_TYPE": "cron"}, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_still_checks_a_render_web_service():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", {**_env_without_ci, "RENDER_SERVICE_TYPE": "web"}, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert [e.id for e in errors] == ["core.E002"]
+
+    def it_returns_no_errors_when_ci_is_set():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[]),
+            patch.dict("os.environ", {"CI": "true"}, clear=False),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_returns_no_errors_when_every_public_host_is_allowed():
+        with (
+            override_settings(
+                DEBUG=False,
+                PUBLIC_HOSTS=["book.example.com", "classes.example.org"],
+                ALLOWED_HOSTS=["members.example.com", "book.example.com", "classes.example.org"],
+            ),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_accepts_a_subdomain_wildcard_in_allowed_hosts():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["book.example.com"], ALLOWED_HOSTS=[".example.com"]),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_ignores_a_port_on_the_public_host():
+        with (
+            override_settings(
+                DEBUG=False, PUBLIC_HOSTS=["book.example.test:8000"], ALLOWED_HOSTS=["book.example.test"]
+            ),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+        assert errors == []
+
+    def it_returns_one_error_per_public_host_missing_from_allowed_hosts():
+        with (
+            override_settings(
+                DEBUG=False,
+                PUBLIC_HOSTS=["book.example.com", "classes.example.org"],
+                ALLOWED_HOSTS=["members.example.com"],
+            ),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+
+        assert len(errors) == 2
+        assert all(isinstance(e, Error) for e in errors)
+        assert all(e.id == "core.E002" for e in errors)
+        assert "book.example.com" in errors[0].msg
+        assert "classes.example.org" in errors[1].msg
+        assert "DJANGO_ALLOWED_HOSTS" in errors[0].hint
+        # The operator reads the effective list, not the raw env var, so a stray space shows.
+        assert "['members.example.com']" in errors[0].hint
+
+    def it_names_only_the_missing_host():
+        with (
+            override_settings(
+                DEBUG=False,
+                PUBLIC_HOSTS=["book.example.com", "classes.example.org"],
+                ALLOWED_HOSTS=["book.example.com"],
+            ),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+        ):
+            errors = check_public_hosts_are_allowed(app_configs=None)
+
+        assert len(errors) == 1
+        assert "classes.example.org" in errors[0].msg
+        assert "book.example.com" not in errors[0].msg
+
+    def it_is_registered_as_a_plain_check_not_a_deploy_check():
+        # The whole point: Render runs migrate and the seeders at container start, never
+        # ``check --deploy``, so a deploy-tagged check would never fire in production.
+        assert check_public_hosts_are_allowed in registry.registry.registered_checks
+        assert check_public_hosts_are_allowed not in registry.registry.deployment_checks
+
+    def it_fails_a_plain_manage_py_check_on_a_mismatch():
+        with (
+            override_settings(DEBUG=False, PUBLIC_HOSTS=["classes.example.org"], ALLOWED_HOSTS=["members.example.com"]),
+            patch.dict("os.environ", _env_without_ci, clear=True),
+            pytest.raises(SystemCheckError, match="core.E002"),
+        ):
+            call_command("check")
