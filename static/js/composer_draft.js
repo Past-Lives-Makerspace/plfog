@@ -17,9 +17,11 @@
  * a stored draft renders as an offer with a Restore button and the time it was kept.
  *
  * WHAT IS STORED. Named text boxes, dropdowns and text areas inside the composer form, and
- * only where the value differs from the baseline, which is what the database holds (see
- * boot: usually the rendered page, and nothing at all on a render the server marked
- * unsaved). Everything else is skipped on purpose:
+ * only where the value differs from the baseline, which is what the database holds (see boot:
+ * usually the rendered page, and the values stamped on it by the server where the render
+ * itself is unsaved). Keeping the copy to what actually changed is also what keeps Restore
+ * narrow: it puts back the fields the person edited, and leaves every other field at whatever
+ * the page has now, which may be newer than this copy. Everything else is skipped on purpose:
  *   - file inputs (the hero photo and the gallery) cannot live in localStorage at all,
  *     and the notice says so rather than pretending otherwise;
  *   - hidden inputs belong to a widget, not to the person. The hero crop box, the
@@ -29,6 +31,12 @@
  *     to a photo that may have been replaced since;
  *   - formset management forms (TOTAL_FORMS and friends) describe the rows the server
  *     rendered, so a stale count would mis-parse the POST;
+ *   - every repeating row (anything named <prefix>-<n>-<field>: the session dates, the FAQ,
+ *     the gallery). A row is identified by its position, and position does not survive: the
+ *     FAQ arrives as three unsaved default questions and comes back as saved rows, a deleted
+ *     row shifts every row after it, and the count itself lives in a management form we do
+ *     not keep. Putting row 0's text back into whatever row 0 is next time is a guess, and
+ *     the wrong guess overwrites a real answer. The notice says the FAQ is not kept;
  *   - checkboxes and radios, which in this form are the free/private ticks, the
  *     formset DELETE boxes and the scheduling type cards: a restored tick reads as a
  *     decision the person did not just make;
@@ -77,6 +85,7 @@
     var ROOT = ".pl-composer[data-composer-draft-key]";
     var SAVED_ATTR = "data-composer-draft-saved";
     var UNSAVED_ATTR = "data-composer-draft-unsaved";
+    var BASELINE_ATTR = "data-composer-draft-baseline";
     var PENDING_KEY = "plfog.composer.pending";
     var NOTICE = "[data-composer-draft]";
     var LINE = "[data-composer-draft-line]";
@@ -85,6 +94,7 @@
     var DISCARD = "[data-composer-draft-discard]";
     var LIVE = "[data-composer-draft-live]";
     var MANAGEMENT = /-(?:TOTAL|INITIAL|MIN_NUM|MAX_NUM)_FORMS$/;
+    var ROW = /-\d+-/;
     var TEXTISH = ["text", "email", "url", "number", "tel", "search", "date", "time"];
     var DEBOUNCE_MS = 400;
     var MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
@@ -190,10 +200,26 @@
         for (var i = 0; i < all.length; i++) {
             var el = all[i];
             if (!el.name || el.name === "csrfmiddlewaretoken" || MANAGEMENT.test(el.name)) continue;
+            if (ROW.test(el.name)) continue;
             if (el.tagName === "INPUT" && TEXTISH.indexOf(el.type) === -1) continue;
             found.push(el);
         }
         return found;
+    }
+
+    /* The saved values the server stamped on an unsaved render. Unreadable falls back to an
+     * empty baseline, which keeps the whole page rather than losing part of it: too much in
+     * the copy is a wider Restore, too little is work that is gone. */
+    function stamped(root) {
+        var raw = root.getAttribute(BASELINE_ATTR);
+        if (!raw) return {};
+        var values;
+        try {
+            values = JSON.parse(raw);
+        } catch (err) {
+            return {};
+        }
+        return isValues(values) ? values : {};
     }
 
     function snapshot(form) {
@@ -321,12 +347,13 @@
         var form = root.querySelector("form");
         var key = root.getAttribute("data-composer-draft-key");
         if (!form || !key) return;
-        /* The baseline is what the DATABASE holds, which is usually what the page renders.
-         * On a render the server marked unsaved (a save it refused, re-rendered from the
-         * POST) it holds none of this, so the baseline is empty and the whole page counts as
-         * work to keep. Reading the rendered values as safe there would quietly shrink the
-         * copy on the next keystroke: every field that matched the re-render would drop out
-         * of it, and the refresh that followed would bring back only the field last edited. */
+        /* The baseline is what the DATABASE holds, which on a normal render is what the page
+         * shows. On a render the server marked unsaved (a save it refused, re-rendered from
+         * the POST) the page is unsaved work instead, and the saved values come stamped on it
+         * separately. Reading the page as the baseline there would quietly shrink the copy on
+         * the next keystroke, so a refresh would bring back only the field last edited; taking
+         * the whole page as changed instead would put every field into the copy, and Restore
+         * would then push fields nobody touched back over whatever has been saved since. */
         var unsaved = root.hasAttribute(UNSAVED_ATTR);
         page = {
             root: root,
@@ -335,7 +362,7 @@
             unsaved: unsaved,
             notice: root.querySelector(NOTICE),
             live: root.querySelector(LIVE),
-            baseline: unsaved ? {} : snapshot(form),
+            baseline: unsaved ? stamped(root) : snapshot(form),
         };
 
         // Whatever was in flight when this page's form was submitted. Read once per

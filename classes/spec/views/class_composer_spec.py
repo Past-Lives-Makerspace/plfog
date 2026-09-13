@@ -6,6 +6,7 @@ import io
 import json
 import re
 from datetime import timedelta
+from html import unescape
 from html.parser import HTMLParser
 
 import pytest
@@ -154,6 +155,13 @@ def _draft_key(html: str) -> str:
     match = re.search(r'data-composer-draft-key="([^"]+)"', html)
     assert match is not None, "the composer rendered no draft key"
     return match.group(1)
+
+
+def _draft_baseline(html: str) -> str:
+    """The saved values the composer stamped on an unsaved render, still JSON."""
+    match = re.search(r'data-composer-draft-baseline="([^"]*)"', html)
+    assert match is not None, "the composer stamped no baseline"
+    return unescape(match.group(1))
 
 
 def _draft_notice(html: str) -> str:
@@ -1468,8 +1476,8 @@ def describe_the_composer_draft_notice():
         # The honest half. Files cannot live in localStorage at all, and the session dates,
         # the ticks and any row added after load are widget state this deliberately skips, so
         # the sentence has to cover all of them rather than name photos and stop there.
-        assert "Photos, dates and anything you added or ticked were not." in notice
-        assert "Photos, dates and anything you add or tick are not," in notice
+        assert "Photos, dates, the FAQ and anything you ticked were not." in notice
+        assert "Photos, dates, the FAQ and anything you tick are not," in notice
         # The announcement is its own region OUTSIDE the notice: a live region inside a subtree
         # toggled with `hidden` announces nothing when it is revealed.
         assert 'role="status"' not in notice
@@ -1598,3 +1606,49 @@ def describe_the_composer_draft_notice():
         for _ in range(3):
             _mark_composer_saved(request, ClassOffering(pk=7))
         assert request.session[COMPOSER_SAVED_SESSION_KEY] == [7]
+
+    def it_ships_the_saved_values_exactly_as_a_fresh_page_would_render_them(instructor_fixture, client):
+        # The browser compares strings, and `initial` holds Python: a Decimal price, a
+        # category's pk, a date. Every one of these that renders differently from the value
+        # the GET puts in the DOM is a field that looks edited when it is not, which is the
+        # over capture this baseline exists to prevent. So the whole baseline is checked
+        # against a real unbound render rather than against a list of expected conversions.
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, ready=True, price_cents=8000
+        )
+        client.force_login(instructor_fixture.user)
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        edit_html = client.get(edit_url).content.decode()
+        # Django opens every textarea with a newline the HTML spec tells the browser to drop,
+        # so the DOM value, which is what the browser compares, is the text after it.
+        rendered = {name: value.removeprefix("\n") for name, value in _untouched_form_values(edit_html).items()}
+        refused = client.post(edit_url, _full_payload(offering.category, video_url="https://vimeo.com/12345"))
+        baseline = json.loads(_draft_baseline(refused.content.decode()))
+
+        assert refused.status_code == 200
+        # Not vacuous: the fields most likely to convert badly are all in here.
+        assert {"title", "description", "category", "price_cents", "member_discount_pct", "capacity"} <= set(baseline)
+        assert baseline["price_cents"] == rendered["price_cents"]
+        assert {name: value for name, value in baseline.items() if name in rendered} == {
+            name: value for name, value in rendered.items() if name in baseline
+        }
+
+    def it_ships_nothing_on_a_render_that_saved_everything(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-composer-draft-baseline" not in html
+
+    def it_ships_an_empty_baseline_in_create_mode_where_nothing_is_saved_yet(instructor_fixture, client):
+        # Nothing is in the database, so the whole page is the work and every filled field
+        # belongs in the copy. The form's own defaults are still saved values in the sense
+        # that matters here: nobody typed them, so they are not what a Restore should put back.
+        client.force_login(instructor_fixture.user)
+        cat = CategoryFactory()
+        refused = client.post(
+            reverse("classes:teach_class_create"), _full_payload(cat, video_url="https://vimeo.com/12345")
+        )
+        baseline = json.loads(_draft_baseline(refused.content.decode()))
+        assert baseline["title"] == ""
+        assert baseline["description"] == ""
+        assert baseline["capacity"] == str(TeachClassOfferingForm().fields["capacity"].initial)

@@ -41,6 +41,7 @@ VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 # the per step check reads the rendered constraint attributes, which say nothing about hosts.
 # This is the only way to reach a server refusal from a form the client considers complete.
 REFUSED_VIDEO = "https://vimeo.com/12345"
+ADMIN_DESCRIPTION = "Rewritten by an admin while the instructor was away from the page."
 
 
 def _seed_instructor(email: str = EMAIL) -> Member:
@@ -96,8 +97,17 @@ def _open_edit(page, live_server, offering: ClassOffering) -> None:
 
 
 def _kept(page) -> None:
-    """Wait for the notice to say the copy is written, which is the debounce having fired."""
-    expect(page.locator(KEPT)).to_be_visible()
+    """Wait for the notice to say the copy is written, which is the debounce having fired.
+
+    Longer than the default five seconds on purpose: this waits on a 400ms timer in a browser
+    sharing a machine with the live server, the database and whatever else CI is running, and
+    a slow machine is not a product failure.
+    """
+    expect(page.locator(KEPT)).to_be_visible(timeout=20_000)
+
+
+def _tab(page, n: int):
+    return page.locator(f'[data-step-tab="{n}"]')
 
 
 def _stored(page) -> dict:
@@ -158,7 +168,7 @@ def describe_a_refresh_mid_wizard():
         expect(page.locator(OFFER)).to_contain_text("We kept what you typed in this browser at")
         # The line names everything this does not keep, not just the photos: the session dates,
         # the ticks and any row added after load are widget state and go the same way.
-        expect(page.locator(OFFER)).to_contain_text("Photos, dates and anything you added or ticked were not.")
+        expect(page.locator(OFFER)).to_contain_text("Photos, dates, the FAQ and anything you ticked were not.")
 
         page.locator(RESTORE).click()
 
@@ -299,11 +309,50 @@ def describe_a_save_the_server_refuses():
         page.locator("#id_video_url").fill(VIDEO)
         _wait_for_kept_value(page, create_key, "video_url", VIDEO)
 
+        # Only what was actually filled in. The server's own defaults for the fields nobody
+        # touched (the seats, the member discount, how it is scheduled) are rendered on this
+        # page too, and treating the whole page as changed would sweep them into the copy.
+        assert set(_stored(page)["values"]) == {"title", "category", "description", "price_cents", "video_url"}
+
         _open_create(page, live_server)
         expect(page.locator(OFFER)).to_be_visible()
         page.locator(RESTORE).click()
 
         _expect_the_class_is_back(page)
+
+    def it_leaves_a_field_nobody_touched_at_whatever_the_database_now_says(live_server, page, login_via_code):
+        # The reason this is offered rather than restored automatically is that the page may
+        # be newer than the copy. That only holds while the copy is what the person CHANGED:
+        # a copy of the whole page would put fields they never touched back over an edit
+        # somebody else has made since, one deliberate click being the only thing in the way.
+        offering = _seed_draft(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        key = page.locator(ROOT).get_attribute("data-composer-draft-key")
+        rendered_description = page.locator("#id_description").input_value()
+        assert rendered_description
+
+        page.locator("#id_title").fill(TITLE)
+        _tab(page, 2).click()
+        expect(_step(page, 2)).to_be_visible()
+        page.locator("#id_video_url").fill(REFUSED_VIDEO)
+        page.locator(SAVE_DRAFT).click()
+        expect(page.locator(".pl-composer-errors")).to_be_visible()
+        page.locator("#id_video_url").fill(VIDEO)
+        _wait_for_kept_value(page, key, "video_url", VIDEO)
+
+        assert set(_stored(page)["values"]) == {"title", "video_url"}
+
+        # Somebody with access rewrites the description while this is sitting there.
+        ClassOffering.objects.filter(pk=offering.pk).update(description=ADMIN_DESCRIPTION)
+        _open_edit(page, live_server, offering)
+        expect(page.locator(OFFER)).to_be_visible()
+        page.locator(RESTORE).click()
+
+        expect(page.locator("#id_title")).to_have_value(TITLE)
+        expect(page.locator("#id_description")).to_have_value(ADMIN_DESCRIPTION)
+        _tab(page, 2).click()
+        expect(page.locator("#id_video_url")).to_have_value(VIDEO)
 
 
 def describe_a_boosted_arrival():

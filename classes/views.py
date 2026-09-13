@@ -1474,6 +1474,43 @@ def _composer_draft_saved(request: HttpRequest, saved: ClassOffering | None) -> 
     return True
 
 
+def _rendered_initial(form: Any, into: dict[str, str]) -> None:
+    """Add every field of ``form`` at its saved value, as the string an unbound page would render.
+
+    ``initial`` holds Python (a ``Decimal`` price, a category's pk, a date), and the browser
+    compares strings, so each value goes back through the same two steps that build the
+    ``value`` attribute on a GET: the field prepares it, the widget formats it. Hand converting
+    the types instead is how a "saved" value stops matching its own rendering, which puts the
+    field back in the copy as if it had been edited.
+    """
+    for bound in form:
+        rendered = bound.field.widget.format_value(bound.field.prepare_value(bound.initial))
+        if isinstance(rendered, list | tuple):
+            rendered = rendered[0] if rendered else ""
+        # A textarea posts CRLF and reads back LF in the DOM, so a saved multi line
+        # description would never match its own baseline without this.
+        into[bound.html_name] = "" if rendered is None else str(rendered).replace("\r\n", "\n")
+
+
+def _composer_draft_baseline(form: Any) -> str:
+    """What the database holds for every control on the page, for a render that saved nothing.
+
+    A refused save re-renders from the POST, so the page itself is unsaved work and the browser
+    cannot read it as a baseline: everything matching the re-render would drop out of its copy
+    on the next keystroke, and a refresh would return only the field last edited. It cannot
+    treat the whole page as changed either, or Restore would put back fields nobody touched,
+    over the top of whatever an admin has saved since. The saved values are the honest answer
+    to both. Empty in create mode, where nothing is saved and the whole page is the work.
+
+    The class's own fields only. The repeating rows (sessions, FAQ, gallery) are never kept in
+    the first place, because a row is identified by its position and the position does not
+    survive a save; ``static/js/composer_draft.js`` skips them at the source.
+    """
+    values: dict[str, str] = {}
+    _rendered_initial(form, values)
+    return json.dumps(values)
+
+
 def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None, *, is_admin: bool) -> str:
     """The ``localStorage`` key the in flight composer mirrors its typed fields into.
 
@@ -1591,8 +1628,10 @@ def _composer_context(
         "composer_draft_saved": _composer_draft_saved(request, saved),
         # A bound form here means a save this view refused: every value on the page came from
         # the POST and none of it is in the database, so the browser must not read any of it
-        # as a safe baseline. Every successful save redirects, so bound is exactly "unsaved".
+        # as a safe baseline. Every successful save redirects, so bound is exactly "unsaved",
+        # and the saved values ride along for the browser to compare against instead.
         "composer_draft_unsaved": form.is_bound,
+        "composer_draft_baseline": _composer_draft_baseline(form) if form.is_bound else "",
         # The Share & Print card shows the flyer button and QR downloads only when this
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
