@@ -247,14 +247,19 @@ def parse_lines(raw: str) -> list[str]:
     return parsed
 
 
-def build_release_cards(version: str, lines: list[str] | None = None) -> list[Card]:
+def build_release_cards(lines: list[str] | None = None) -> list[Card]:
     """One :class:`Card` per changelog entry in scope (newest first).
 
-    Scope is ``version``'s current line by default (unchanged, backward-compatible);
-    pass ``lines`` (e.g. ``["0.20", "0.21"]``) to span several release lines in one
-    email. Each card's default screenshot comes from the entry's optional ``screenshot``
-    slug; the title links to that feature's page when the slug is known. The composer
-    later overrides ``included`` / ``screenshot_url`` per card.
+    Scope is the current batch — everything unswept in ``changelog.d/`` — by default; pass
+    ``lines`` (e.g. ``["0.20", "0.21"]``) to span several already-swept release lines in one
+    email instead. Each card's default screenshot comes from the entry's optional
+    ``screenshot`` slug; the title links to that feature's page when the slug is known. The
+    composer later overrides ``included`` / ``screenshot_url`` per card.
+
+    Took a ``version`` first argument until the scope stopped being derived from one. Nothing
+    read it after that, so it is gone rather than left for the next reader to wonder about;
+    :func:`render_release_email` still takes one, because the hero band's badge genuinely
+    needs it.
     """
     cards: list[Card] = []
     entries = current_release_entries() if lines is None else line_entries(lines)

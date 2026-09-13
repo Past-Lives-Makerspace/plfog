@@ -76,7 +76,12 @@ def _changed_fragments(base: str, head: str) -> list[str]:
 
 
 def _labels() -> set[str]:
-    """Labels on the pull request, from the event payload the workflow forwards."""
+    """Labels on the pull request, from the event payload the workflow forwards.
+
+    Defaulted rather than read as ``os.environ[...]`` like the shas are, and deliberately: an
+    absent value means no label, which fails toward REQUIRING a fragment. The fail-loudly rule
+    exists to stop a missing value quietly weakening a check, and this one cannot.
+    """
     raw = os.environ.get("PR_LABELS", "[]")
     return {str(label).strip().lower() for label in json.loads(raw)}
 

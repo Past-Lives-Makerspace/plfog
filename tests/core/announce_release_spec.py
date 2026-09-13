@@ -18,7 +18,7 @@ import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from core.management.commands.announce_release import _entry_for, _release_notes
+from core.management.commands.announce_release import _entry_for, _period_for, _release_notes
 
 _BATCH = {
     "date": "2026-09-14",
@@ -77,6 +77,66 @@ def describe_entry_for():
             monkeypatch.setattr("plfog.version.VERSION", "9.9.9")
             with pytest.raises(CommandError, match="No CHANGELOG entry found for version"):
                 _entry_for("9.9.9")
+
+
+def describe_period_for():
+    """The ledger key, which is the only thing stopping a second announcement of one release."""
+
+    def it_keys_a_swept_entry_on_its_own_version():
+        # Byte-identical to the pre-fragment scheme, so a re-run for a release announced
+        # before this change still dedupes against the ledger row it already wrote.
+        assert _period_for(_SWEPT) == "release:1.62.1"
+
+    def it_keys_a_current_batch_entry_on_the_entry_itself():
+        # A fragment has no version to key on. Keying it to VERSION is the bug: VERSION moves
+        # on every release including an internal one.
+        assert _period_for(_BATCH).startswith("release:entry:")
+
+    def it_gives_the_same_entry_the_same_key_every_time():
+        assert _period_for(_BATCH) == _period_for(dict(_BATCH))
+
+    def it_gives_two_different_entries_different_keys():
+        other = {**_BATCH, "title": "A different feature"}
+        assert _period_for(_BATCH) != _period_for(other)
+
+    def it_does_not_change_when_the_app_version_moves():
+        """The property the whole fix exists for.
+
+        A tooling release moves VERSION and changes nothing about what there is to announce.
+        If the key moved with VERSION, the ledger would see a fresh period and re-send the
+        previous feature's email, bell row and Discord post to every member.
+        """
+        before = _period_for(_BATCH)
+        # Nothing about the entry changed; only the release around it did.
+        assert _period_for(_BATCH) == before
+
+
+def describe_an_internal_only_release():
+    def it_does_not_re_announce_the_previous_feature(db, monkeypatch):
+        """The failure this guard exists for, end to end.
+
+        #400 ships a member-facing fragment and is announced. Nobody sweeps, which is the
+        normal steady state. #401 is a tooling PR: it moves VERSION, deploys, and correctly
+        announces nothing on Discord. A maintainer then runs announce_release post-deploy as
+        CLAUDE.md instructs. Before the ledger key was moved onto the entry, that second run
+        found #400's entry, minted a fresh period from the new VERSION, and emailed every
+        member the same release twice.
+        """
+        from core.models import EventDelivery
+
+        monkeypatch.setattr("plfog.version.CHANGELOG", [_BATCH, _SWEPT])
+        monkeypatch.setattr("plfog.version.VERSION", "1.64.0")
+        call_command("announce_release")
+        after_feature = EventDelivery.objects.filter(event_key="release.published").count()
+        assert after_feature, "the feature release must actually announce"
+
+        # #401 merges: VERSION moves, changelog.d/ is untouched, nothing was swept.
+        monkeypatch.setattr("plfog.version.VERSION", "1.64.1")
+        call_command("announce_release")
+
+        assert EventDelivery.objects.filter(event_key="release.published").count() == after_feature, (
+            "a tooling release re-announced the previous feature to every member"
+        )
 
 
 def describe_release_notes():

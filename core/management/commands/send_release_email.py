@@ -88,7 +88,7 @@ class Command(BaseCommand):
             except ValueError as exc:
                 raise CommandError(str(exc))
 
-        cards = build_release_cards(VERSION, lines=lines)
+        cards = build_release_cards(lines=lines)
         if not cards:
             scope = ", ".join(lines) if lines else f"since v{BASE_VERSION}"
             raise CommandError(f"No changelog entries for {scope} — nothing to send.")

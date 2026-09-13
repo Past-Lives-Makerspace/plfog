@@ -277,14 +277,14 @@ def describe_parse_lines():
 
 def describe_build_release_cards():
     def it_yields_one_card_per_current_batch_entry_newest_first(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         assert [c.title for c in cards] == [
             "A home base when you sign in",
             "One place for how our space works",
         ]
 
     def it_excludes_anything_already_swept(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         assert all("older release line" not in c.title for c in cards)
         assert all("already swept" not in c.title for c in cards)
 
@@ -292,18 +292,18 @@ def describe_build_release_cards():
         # These run against the REAL CHANGELOG (no fixture) so the 0.20 + 0.21 batches
         # are both present — that is exactly the span the release email needs to cover.
         def it_spans_both_named_lines(db, fake_storage):
-            titles = [c.title for c in build_release_cards("0.21.4", lines=["0.20", "0.21"])]
+            titles = [c.title for c in build_release_cards(lines=["0.20", "0.21"])]
             assert "A home base when you sign in" in titles  # a 0.20 feature
             assert "Your notifications, cleaned up" in titles  # a 0.21 feature
 
         def it_scopes_to_only_the_named_line(db, fake_storage):
-            titles = [c.title for c in build_release_cards("0.21.4", lines=["0.21"])]
+            titles = [c.title for c in build_release_cards(lines=["0.21"])]
             assert "Your notifications, cleaned up" in titles
             assert "A home base when you sign in" not in titles  # 0.20 is out of scope
 
     def it_links_the_title_when_the_slug_maps_to_a_feature_page(db, fixture_changelog, fake_storage, settings):
         settings.MEMBER_BASE_URL = "https://members.example"
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         assert cards[0].feature_url == "https://members.example/home/"
         assert cards[1].feature_url == ""  # no screenshot slug → plain title
 
@@ -311,7 +311,7 @@ def describe_build_release_cards():
 def describe_render_release_email():
     def it_renders_the_preheader_hero_cards_and_cta(db, fixture_changelog, fake_storage):
         fake_storage.existing.add("email/features/home.png")
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         html, _text = render_release_email(
             "0.20.5",
             subject="What's new",
@@ -333,19 +333,19 @@ def describe_render_release_email():
 
     def it_renders_an_image_for_a_captured_card_with_alt(db, fixture_changelog, fake_storage):
         fake_storage.existing.add("email/features/home.png")
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert 'src="https://cdn.example/email/features/home.png"' in html
         assert 'alt="A home base when you sign in"' in html
 
     def it_renders_a_text_only_card_when_there_is_no_screenshot(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")  # nothing captured → no image on either card
+        cards = build_release_cards()  # nothing captured → no image on either card
         html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert "One place for how our space works" in html  # card still appears
         assert "email/features/" not in html  # but no feature-card screenshot (the Play badge img is always present)
 
     def it_keeps_the_text_part_in_sync_with_the_html(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         _html, text = render_release_email(
             "0.20.5",
             subject="What's new at Past Lives",
@@ -364,7 +364,7 @@ def describe_render_release_email():
         assert "unsubscribe" in text
 
     def it_omits_a_card_that_is_not_included(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         cards[1].included = False
         html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert "A home base when you sign in" in html
@@ -374,7 +374,7 @@ def describe_render_release_email():
     def describe_when_spanning_lines():
         # Real CHANGELOG so 0.20 + 0.21 both exist; the badge tracks the newest line.
         def it_badges_the_newest_selected_line(db, fake_storage):
-            cards = build_release_cards("0.21.4", lines=["0.20", "0.21"])
+            cards = build_release_cards(lines=["0.20", "0.21"])
             html, _text = render_release_email(
                 "0.21.4", subject="s", preheader="p", intro="", cards=cards, lines=["0.20", "0.21"]
             )

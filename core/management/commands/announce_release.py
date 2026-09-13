@@ -7,9 +7,10 @@ existing GitHub-Actions Discord changelog post (``.github/workflows/release.yml`
 — that workflow stays; this is the in-app + email companion.
 
 VERSION-TRIGGERED, NOT TIME-TRIGGERED. Run this **once, post-deploy** (the deploy that
-ships a new ``VERSION``). It is deduped on the version string via
-:class:`core.models.EventDelivery` (period ``release:<version>``), so a second run for
-the same version is a safe no-op — but it is deliberately NOT wired into the 15-minute
+ships a new ``VERSION``). It is deduped on the ENTRY via :class:`core.models.EventDelivery`
+(see :func:`_period_for`), so a second run announcing the same release is a safe no-op —
+including across an intervening tooling release, which moves ``VERSION`` without changing
+what there is to announce — but it is deliberately NOT wired into the 15-minute
 ``run_scheduled_tasks`` cron (a release is a deploy event, not a clock event).
 
     python manage.py announce_release                        # announce VERSION
@@ -18,6 +19,7 @@ the same version is a safe no-op — but it is deliberately NOT wired into the 1
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from django.conf import settings
@@ -49,6 +51,30 @@ def _entry_for(version: str) -> dict[str, Any]:
         if str(entry.get("version", "")) == version:
             return entry
     raise CommandError(f"No CHANGELOG entry found for version {version!r}.")
+
+
+def _period_for(entry: dict[str, Any]) -> str:
+    """The delivery-ledger key that makes announcing the same release twice a no-op.
+
+    Keyed to the ENTRY, not to ``VERSION``, and that distinction is the whole guard.
+
+    It used to be ``f"release:{version}"``, which was safe only because ``_entry_for`` raised
+    ``CommandError`` when nothing was stamped at that version — on a release carrying nothing
+    member-facing, that raise *was* the protection, and CLAUDE.md relied on it by name. With
+    the current batch selected by recency instead of by number, the raise is gone and a
+    version-keyed period actively breaks: ``VERSION`` moves on every release including an
+    internal one, so a tooling deploy mints a fresh period, ``_entry_for`` hands back the
+    previous feature's entry, and every member gets that release's email, bell row and Discord
+    post a second time. A Discord post cannot be unsent.
+
+    A swept entry still keys on its own version, byte-identical to the old scheme, so a re-run
+    for a release announced before this change still dedupes against the ledger row it wrote.
+    A current-batch entry has no version to key on, so it keys on what identifies it instead.
+    """
+    if "version" in entry:
+        return f"release:{entry['version']}"
+    digest = hashlib.sha256(f"{entry['date']}|{entry['title']}".encode()).hexdigest()[:16]
+    return f"release:entry:{digest}"
 
 
 def _release_notes(entry: dict[str, Any]) -> str:
@@ -99,7 +125,7 @@ class Command(BaseCommand):
                 "site_url": site_url,
             },
             url=site_url,
-            period=f"release:{version}",
+            period=_period_for(entry),
         )
         if result.delivery_count:
             self.stdout.write(

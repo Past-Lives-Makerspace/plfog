@@ -49,7 +49,7 @@ class Command(BaseCommand):
             except ValueError as exc:
                 raise CommandError(str(exc))
 
-        cards = build_release_cards(VERSION, lines=lines)
+        cards = build_release_cards(lines=lines)
         subject = (
             f"Heads-Up: New Member Portal Features — {cards[0].title}"
             if cards
