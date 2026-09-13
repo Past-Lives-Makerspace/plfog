@@ -14,7 +14,9 @@ Validating every fragment in the tree (not only the added ones) is deliberate: a
 *edits* an unshipped fragment can break it just as thoroughly as one that adds a broken one,
 and the release workflow parses the whole directory to fold the version.
 
-Stdlib only, and no Django: this runs in the lint job before anything is installed.
+Stdlib only, and no Django: this runs in ci.yml's own `changelog` job, which installs
+nothing beyond the interpreter so a missing fragment is reported in seconds rather than
+after a dependency install.
 """
 
 from __future__ import annotations
@@ -86,7 +88,7 @@ def main() -> None:
         sys.exit(f"Invalid changelog fragment.\n\n{exc}\n\nSee changelog.d/README.md.")
 
     # Parsing the whole directory is also what computes VERSION, so importing it above has
-    # already proved the fold works — including the "two majors in one unswept set" rejection.
+    # already proved the fold works and that every fragment in the tree parses.
     print(f"{len(fragments)} fragment(s) in changelog.d/, folding to v{VERSION}.")
 
     if _SKIP_LABEL in _labels():

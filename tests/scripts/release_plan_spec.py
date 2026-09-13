@@ -73,6 +73,19 @@ def describe_release_plan():
             # git would then reject, and the planner would exit on a real push.
             assert not _load_script()._names_a_commit(f"xx{_BASE}")
 
+    def describe_git():
+        # Every other spec fakes _git, so these two are the only exercise the real subprocess
+        # wrapper gets. Both branches matter: a None here is how the planner learns the base is
+        # unreachable, and confusing "git said no" with "git said nothing" is the failure mode
+        # the whole file is written around.
+        def it_returns_stdout_when_git_answers():
+            module = _load_script()
+            assert module._git("rev-parse", "--is-inside-work-tree").strip() == "true"
+
+        def it_returns_none_when_git_declines():
+            module = _load_script()
+            assert module._git("cat-file", "-e", "d" * 40) is None
+
     def describe_require_readable_base():
         def it_passes_when_the_base_is_in_the_clone(monkeypatch):
             module = _load_script()
@@ -187,6 +200,19 @@ def describe_release_plan():
             monkeypatch.setenv("AFTER_SHA", _HEAD)
             assert module._plan_fragments() == []
             assert "No push base" in capsys.readouterr().out
+
+        def it_returns_what_the_push_added_without_warning(monkeypatch, capsys, tmp_path):
+            module = _load_script()
+            path = tmp_path / "1-a.toml"
+            path.write_text(_FRAGMENT)
+            fragment = module.load_fragment(path)
+            monkeypatch.setenv("EVENT_NAME", "push")
+            monkeypatch.setenv("BEFORE_SHA", _BASE)
+            monkeypatch.setenv("AFTER_SHA", _HEAD)
+            monkeypatch.setattr(module, "_require_readable_base", lambda before: None)
+            monkeypatch.setattr(module, "added_fragments", lambda before, after: [fragment])
+            assert module._plan_fragments() == [fragment]
+            assert "::warning" not in capsys.readouterr().out
 
         def it_warns_but_does_not_fail_when_a_push_adds_no_fragment(monkeypatch, capsys):
             # A no-changelog-labelled PR legitimately adds none, and the pull-request check

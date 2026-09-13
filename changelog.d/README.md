@@ -39,7 +39,9 @@ changes = [
   it is member-facing and it gets bullets.
 - **`minor`** — anything net-new members can see or do.
 - **`major`** — a break in how the portal works. Twice in this repo's life. Sweep
-  `changelog.d/` first (see below); the fold rejects two majors in one unswept set.
+  `changelog.d/` first (see below), so the number stays exact — two unswept majors are
+  approximated, not rejected, because the fold runs at app import and refusing there
+  would mean the app does not boot.
 
 The version is the fold of every fragment here over `changelog/base.json`, computed in
 `plfog/changelog.py`. Nothing writes it down, which is why nothing can get it wrong.
@@ -75,4 +77,5 @@ set `changelog/base.json` to the current `VERSION`, and delete the fragments. Th
 "start a fresh release line", and it is a deliberate housekeeping PR — usually right after the
 release email goes out, since the email offers exactly the unswept fragments as its cards.
 
-Nothing breaks if you never sweep. It is tidiness, and a prerequisite for a second major.
+Nothing breaks if you never sweep. It is tidiness, plus what keeps a second major's number
+exact.

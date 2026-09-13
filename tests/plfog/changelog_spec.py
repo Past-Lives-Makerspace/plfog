@@ -284,11 +284,20 @@ def describe_fold_version():
         # release still moves the number.
         assert fold_version("1.62.1", [_fragment("minor", audience="internal")]) == "1.63.0"
 
-    def it_refuses_two_majors_in_one_unswept_set():
-        # Exact only while at most one major is present: a second would need to know how many
-        # minors fell between them. Rejected rather than approximated.
-        with pytest.raises(ValueError, match="2 fragments declare bump = 'major'"):
-            fold_version("1.62.1", [_fragment("major"), _fragment("major")])
+    def it_counts_two_majors_rather_than_raising():
+        # This runs at import of plfog.version, so raising here means the app does not boot —
+        # and two PRs each declaring `major` both pass the PR check alone and collide only
+        # once both are on main. A slightly imprecise number beats a production outage.
+        assert fold_version("1.62.1", [_fragment("major"), _fragment("major")]) == "3.0.0"
+
+    def it_stays_monotonic_as_majors_accumulate():
+        one = fold_version("1.62.1", [_fragment("major")])
+        two = fold_version("1.62.1", [_fragment("major"), _fragment("major")])
+        assert parse_version(two) > parse_version(one)
+
+    def it_keeps_minors_and_patches_after_several_majors():
+        fragments = [_fragment("major"), _fragment("major"), _fragment("minor"), _fragment("patch")]
+        assert fold_version("1.62.1", fragments) == "3.1.1"
 
     def it_refuses_a_base_that_is_not_a_version():
         with pytest.raises(ValueError, match="Not a MAJOR.MINOR.PATCH version"):

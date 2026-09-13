@@ -23,8 +23,6 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from plfog.version import CHANGELOG, VERSION
-
 
 def _entry_for(version: str) -> dict[str, Any]:
     """The CHANGELOG entry to announce for ``version``. Raises ``CommandError`` if absent.
@@ -39,6 +37,7 @@ def _entry_for(version: str) -> dict[str, Any]:
     entry the sweep just wrote.
     """
     from core.release_email import current_release_entries
+    from plfog.version import CHANGELOG, VERSION
 
     if version == VERSION:
         current = current_release_entries()
@@ -68,14 +67,21 @@ class Command(BaseCommand):
             "--release-version",
             dest="release_version",
             type=str,
-            default=VERSION,
+            default=None,
             help="The version to announce (defaults to the current plfog VERSION).",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
         from core.events.emit import emit
 
-        version: str = options["release_version"]
+        from plfog.version import VERSION
+
+        # Resolved here rather than as the argument default, so the default is the VERSION at
+        # RUN time. VERSION is folded from changelog.d/ at import now, not a literal, and
+        # binding it into the parser at module import made the current-batch branch below
+        # unreachable from a spec that pins the changelog — the one branch a real post-deploy
+        # run takes.
+        version: str = options["release_version"] or VERSION
         entry = _entry_for(version)
         title = str(entry["title"])
 

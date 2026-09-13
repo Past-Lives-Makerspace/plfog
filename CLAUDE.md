@@ -77,7 +77,8 @@ to bump `VERSION`, it is stale; fix it.**
   entries keep the numbers they shipped under.
 - **Sweeping** moves fragments into `changelog/history.json` and `changelog/base.json` forward.
   It is deliberate housekeeping, usually right after the release email goes out, and it is a
-  prerequisite for cutting a second major. Nothing breaks if you never do it.
+  the thing that keeps a second major's number exact. Nothing breaks if you never do it:
+  the fold approximates rather than failing, because it runs at app import.
 
 ### Was this really impossible before?
 

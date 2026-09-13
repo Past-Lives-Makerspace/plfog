@@ -224,19 +224,23 @@ def fold_version(base: str, fragments: list[Fragment]) -> str:
     Semver's reset semantics survive the counting: a major resets minor and patch, so with a
     major in the set the minor is *only* the minors and the patch is *only* the patches; a
     minor resets patch the same way. That is exact whenever at most one major is present,
-    which is the real shape of this repo (two majors in its life). Two majors in one unswept
-    set would need to know how many minors fell between them, so the case is rejected rather
-    than approximated — sweep ``changelog.d/`` when you cut a major.
+    which is the real shape of this repo (two majors in its life).
+
+    **Two majors in one unswept set is approximated rather than rejected**, and the reason is
+    worth keeping. Being exact there would need to know how many minors fell between the two
+    majors, which the tree does not record. An earlier draft raised on the case — but this
+    function runs at import of ``plfog.version``, so raising means **the app does not boot**,
+    and the case is reachable without anyone doing anything wrong: two PRs each declaring
+    ``major`` both pass the PR check on their own (each sees only its own branch) and collide
+    only once both are on main. Trading a production outage for an exact version number is the
+    wrong way round. Every major still increments ``major``, so the result stays deterministic
+    and monotonic; the only cost is that a minor which landed *between* two majors is counted
+    after the last one. Sweep ``changelog.d/`` when you cut a major and the question does not
+    arise.
     """
     major, minor, patch = parse_version(base)
     counts = {level: sum(1 for f in fragments if f.bump == level) for level in BUMPS}
 
-    if counts["major"] > 1:
-        raise ValueError(
-            f"{counts['major']} fragments declare bump = 'major' in one unreleased set. "
-            f"Sweep changelog.d/ into changelog/history.json and move changelog/base.json "
-            f"forward before cutting a second major."
-        )
     if counts["major"]:
         return f"{major + counts['major']}.{counts['minor']}.{counts['patch']}"
     if counts["minor"]:
