@@ -92,7 +92,7 @@ def describe_ClassSettings():
                 "Your Words, Your Photos",
                 "Sign Ups That Run Themselves",
                 "Everyone On One Screen",
-                "Free, Paid, Or On Sale",
+                "Paid Or On Sale",
                 "Run It Again In One Click",
             ]
             assert cards[0] == FeatureCard(
@@ -149,9 +149,7 @@ def describe_ClassSettings():
             assert settings.teach_page_split_space_pct == 20
             assert settings.teach_page_split_guild_pct == 10
             assert settings.teach_page_split_note == DEFAULT_TEACH_PAGE_SPLIT_NOTE
-            assert DEFAULT_TEACH_PAGE_SPLIT_NOTE == (
-                "Every paid class splits the same way. Run it free and there is nothing to split."
-            )
+            assert DEFAULT_TEACH_PAGE_SPLIT_NOTE == "Every class splits the same way."
 
     def describe_teach_page_faq_items():
         """The accordion split runs over the SANITIZED HTML, never the raw field."""

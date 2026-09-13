@@ -572,7 +572,7 @@ def _stale_claim_link_redirect(request: HttpRequest, offering: ClassOffering) ->
 
 
 def _confirm_free_registration(request: HttpRequest, registration: Registration) -> HttpResponse:
-    """Free class — confirm + email immediately, no Stripe round-trip.
+    """A $0 total: confirm + email immediately, no Stripe round-trip.
 
     Attributes the confirmation to the acting user (registrant) so the audit
     feed records who confirmed, not "System".
@@ -609,9 +609,10 @@ def _confirm_free_registration(request: HttpRequest, registration: Registration)
 def register(request: HttpRequest, slug: str) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
-    Free classes (price_cents == 0 after discounts) confirm immediately and
-    skip Stripe. Paid classes redirect to a Stripe Checkout Session; the
-    webhook handler flips the registration to CONFIRMED on success.
+    A total of $0 after discounts (a 100% code, a 100% member discount, or a legacy
+    $0 row) confirms immediately and skips Stripe. Anything else redirects to a
+    Stripe Checkout Session; the webhook handler flips the registration to
+    CONFIRMED on success.
     """
     offering = get_object_or_404(
         ClassOffering.objects.public().select_related("category", "instructor"),

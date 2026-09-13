@@ -73,7 +73,11 @@ if TYPE_CHECKING:
 
 
 STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
-MIN_PAID_PRICE_CENTS = 100  # Floor for paid classes ($1.00) — anything cheaper should just be free.
+MIN_PAID_PRICE_CENTS = 100  # Floor for every class ($1.00). There is no free option (#368 item 5).
+PRICE_FLOOR_MESSAGE = "Classes cost at least $1.00."
+PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1.00."
+MAX_MEMBER_DISCOUNT_PCT = 100  # A percentage; the model field only bounds it below.
+MEMBER_DISCOUNT_RANGE_MESSAGE = "Member discount must be between 0 and 100."
 
 
 class CentsAsDollarsField(forms.DecimalField):
@@ -200,69 +204,38 @@ class _CardFocusMixin:
         offering.card_focus_y = focus["y"]
 
 
-class _FreeClassMixin:
-    """Adds an `is_free` checkbox that, when checked, forces price/discount to 0.
+class _PricingRulesMixin:
+    """The pricing rules both composer forms share, from either portal.
 
-    Source of truth remains `price_cents` on the model (0 = free). The checkbox
-    is a UX affordance so the instructor/admin doesn't have to know that "type 0
-    in cents" makes a class free — they just tick a box.
+    Every class costs at least $1.00 (:data:`MIN_PAID_PRICE_CENTS`). There is no free
+    option: a $0 total is something a discount reaches at registration, never a price an
+    instructor or admin can set. ``price_cents`` is a required field, so a blank is refused
+    by Django before this runs; this refuses anything typed under the floor, on the price
+    field, in plain words. The member discount is a percentage, so it is capped at 100 here
+    (the model field only bounds it below). Django finds ``clean_<field>`` through the MRO.
     """
 
-    def add_is_free_field(self) -> None:
-        instance = getattr(self, "instance", None)
-        initial = bool(instance and instance.pk and instance.price_cents == 0)
-        self.fields["is_free"] = forms.BooleanField(  # type: ignore[attr-defined]
-            required=False,
-            initial=initial,
-            label="This is a free class / workshop",
-            help_text="Check this if there's no fee. Members will be able to register without entering payment info.",
-        )
-        # Price and discount aren't required when the class is free — the form's
-        # clean() enforces that price_cents is filled in for non-free classes.
-        self.fields["price_cents"].required = False  # type: ignore[attr-defined]
-        self.fields["member_discount_pct"].required = False  # type: ignore[attr-defined]
-        # Render the checkbox just above price so the visual flow is "Is this free?
-        # → if not, here's the price." Django keeps this order when iterating `form`.
-        ordered: list[str] = []
-        for name in self.fields:  # type: ignore[attr-defined]
-            if name == "price_cents":
-                ordered.append("is_free")
-            if name == "is_free":
-                continue
-            ordered.append(name)
-        self.order_fields(ordered)  # type: ignore[attr-defined]
-
-    def clean_is_free_pricing(self) -> None:
-        """Require price_cents when the class isn't free. Call from `clean()`."""
-        cleaned = self.cleaned_data  # type: ignore[attr-defined]
-        if cleaned.get("is_free"):
-            return
-        price = cleaned.get("price_cents")
-        if price in (None, ""):
-            self.add_error(  # type: ignore[attr-defined]
-                "price_cents", "Set a price or check 'This is a free class / workshop'."
-            )
-            return
+    def clean_price_cents(self) -> int:
+        price: int = self.cleaned_data["price_cents"]  # type: ignore[attr-defined]
         if price < MIN_PAID_PRICE_CENTS:
-            self.add_error(  # type: ignore[attr-defined]
-                "price_cents",
-                "Paid classes must cost at least $1.00. Check 'This is a free class / workshop' for free classes.",
-            )
+            raise forms.ValidationError(PRICE_FLOOR_MESSAGE)
+        return price
 
-    def apply_is_free_to_instance(self, offering: ClassOffering) -> None:
-        if self.cleaned_data.get("is_free"):  # type: ignore[attr-defined]
-            offering.price_cents = 0
-            offering.member_discount_pct = 0
+    def clean_member_discount_pct(self) -> int:
+        pct: int = self.cleaned_data["member_discount_pct"]  # type: ignore[attr-defined]
+        if pct > MAX_MEMBER_DISCOUNT_PCT:
+            raise forms.ValidationError(MEMBER_DISCOUNT_RANGE_MESSAGE)
+        return pct
 
 
 class _SaleMixin:
     """Declares sale_amount_cents as dollars and validates the Sale section.
 
     Enabling a sale needs a kind + the matching amount; percent must be 1–99; a
-    fixed amount must be less than the price; a free class can't be put on sale;
-    and a blank banner falls back to the catchy default (never blocks save).
-    Mirrors _FreeClassMixin: the declared CentsAsDollarsField shadows the model's
-    integer-cents column, and clean_sale_fields() is invoked from clean().
+    fixed amount must be less than the price; a class with no price can't be put on
+    sale; and a blank banner falls back to the catchy default (never blocks save).
+    The declared CentsAsDollarsField shadows the model's integer-cents column, and
+    clean_sale_fields() is invoked from clean().
     """
 
     def clean_sale_fields(self) -> None:
@@ -274,13 +247,8 @@ class _SaleMixin:
         # swallowed. Every error here targets a VISIBLE non-toggle field
         # (price_cents, sale_percent, sale_amount_cents); the edit templates also
         # render a non_field_errors block for any future cross-field case.
-        if cleaned.get("is_free"):
-            self.add_error(  # type: ignore[attr-defined]
-                "price_cents", "A free class can't be on sale. Uncheck the free option or turn the sale off."
-            )
-            return
         price = cleaned.get("price_cents")
-        if not price:  # None / "" / 0
+        if not price:  # None / "" / 0: a legacy $0 row has nothing to discount
             self.add_error("price_cents", "Set a price before putting this class on sale.")  # type: ignore[attr-defined]
             return
         self._validate_sale_amount(cleaned, price)
@@ -348,18 +316,9 @@ class _LiveSaleGuardMixin:
         if not instance.pk or not instance.sale_is_active:
             return
         if self.errors.get("price_cents"):  # type: ignore[attr-defined]
-            return  # the price is already refused for a reason of its own
-        cleaned = self.cleaned_data  # type: ignore[attr-defined]
+            return  # the price is already refused for a reason of its own (blank, or under the floor)
+        price: int = self.cleaned_data["price_cents"]  # type: ignore[attr-defined]
         savings = instance.sale_savings_display
-        if cleaned.get("is_free"):
-            self.add_error(  # type: ignore[attr-defined]
-                "price_cents",
-                f"This class is on sale for {savings}. Turn the sale off from the manage page before making it free.",
-            )
-            return
-        price = cleaned.get("price_cents")
-        if not price:
-            return  # clean_is_free_pricing already refused an empty price
         stored = {
             "sale_kind": instance.sale_kind,
             "sale_percent": instance.sale_percent,
@@ -398,11 +357,11 @@ class _SchedulingTypeMixin:
 
 
 class ClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
 
-    price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
+    price_cents = CentsAsDollarsField(label="Price", help_text=PRICE_HELP_TEXT)
 
     class Meta:
         model = ClassOffering
@@ -433,7 +392,6 @@ class ClassOfferingForm(
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.fields["category"].label = "Guild Type"
-        self.add_is_free_field()
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -443,13 +401,11 @@ class ClassOfferingForm(
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        self.clean_is_free_pricing()
         self.clean_price_against_live_sale()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
-        self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
         self.apply_card_focus_to_instance(offering)
         _assign_provisional_slug(offering)
@@ -460,14 +416,14 @@ class ClassOfferingForm(
 
 
 class TeachClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _FreeClassMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
 ):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
 
     The six ``sale_*`` fields live on :class:`ClassSaleForm` (the Manage Class sale modal).
     """
 
-    price_cents = CentsAsDollarsField(label="Price", help_text="e.g. 80.00 for $80.")
+    price_cents = CentsAsDollarsField(label="Price", help_text=PRICE_HELP_TEXT)
 
     class Meta:
         model = ClassOffering
@@ -496,7 +452,6 @@ class TeachClassOfferingForm(
         super().__init__(*args, **kwargs)
         self.fields["member_discount_pct"].label = "Member discount (%)"
         self.fields["category"].label = "Guild Type"
-        self.add_is_free_field()
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -506,13 +461,11 @@ class TeachClassOfferingForm(
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        self.clean_is_free_pricing()
         self.clean_price_against_live_sale()
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
-        self.apply_is_free_to_instance(offering)
         self.apply_hero_crop_to_instance(offering)
         self.apply_card_focus_to_instance(offering)
         if self.teaching_member is not None and not offering.instructor_id:
@@ -530,9 +483,9 @@ class ClassSaleForm(_SaleMixin, forms.ModelForm):
 
     Carries the five sale amount fields alone. ``sale_enabled`` is not a field: the modal's
     buttons carry it. Turning a sale on or saving its changes validates through
-    :meth:`_SaleMixin.clean_sale_fields` unchanged (the Stripe floor and free class checks
-    are the reason that validation exists), fed the price and free flag from the saved
-    class since the modal has no price field of its own. Turning a sale off never goes
+    :meth:`_SaleMixin.clean_sale_fields` unchanged (the Stripe floor and the no price check
+    are the reason that validation exists), fed the price from the saved class since the
+    modal has no price field of its own. Turning a sale off never goes
     through this form: :meth:`ClassOffering.turn_sale_off` skips validation on purpose.
     """
 
@@ -562,11 +515,10 @@ class ClassSaleForm(_SaleMixin, forms.ModelForm):
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        # The mixin reads the switch, the price, and the free flag from cleaned_data; the
-        # modal has none of those fields, so they come from the class being edited.
+        # The mixin reads the switch and the price from cleaned_data; the modal has neither
+        # field, so they come from the class being edited.
         data["sale_enabled"] = True
         data["price_cents"] = self.instance.price_cents
-        data["is_free"] = self.instance.price_cents == 0
         self.clean_sale_fields()
         return data
 
@@ -1134,7 +1086,7 @@ class RegistrationForm(forms.ModelForm):
             # Downstream (subscribe_registration, the admin detail page) can then
             # read one honest field instead of re-deriving what the form decided.
             registration.wants_newsletter = True
-        registration.amount_paid_cents = 0  # set on payment success or, for free classes, on confirm
+        registration.amount_paid_cents = 0  # set on payment success or, for a $0 total, on confirm
         if self.is_waitlist:
             # Create the row already on the waitlist so Registration.save logs
             # WAITLIST_JOINED at creation time rather than REGISTRATION_CREATED.

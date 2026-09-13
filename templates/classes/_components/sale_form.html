@@ -10,7 +10,7 @@ Changes" post action=on; "Turn the Sale Off" posts action=off and skips validati
 amount fields entirely, so a sale can always be ended even when its stored amounts have
 gone stale. Every field goes through form_field.html (Rule 13). The live price line is a
 preview only: salePrice() mirrors ClassOffering.sale_price_cents, and the server remains
-the authority (the Stripe floor and free class checks live in _SaleMixin).
+the authority (the Stripe floor and the no price check live in _SaleMixin).
 
 The amount fields live in wrappers with a class, never an inline display (Rule 12).
 {% endcomment %}

@@ -155,8 +155,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "class.register": {
         "title": "Register for a class",
         "short_text": (
-            "Sign up from the class page — no account needed. Free classes confirm right away; "
-            "paid ones go through a secure checkout. Your member email applies member pricing automatically."
+            "Sign up from the class page. No account needed. You pay through a secure checkout, and your "
+            "member email applies member pricing automatically. A total of $0 after discounts confirms right away."
         ),
         "article_slug": "taking-a-class",
         "anchor": "class-register",
@@ -486,8 +486,7 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.money-split": {
         "title": "Where the money goes",
         "short_text": (
-            "How a paid class splits between you, Past Lives and your guild. The shares are "
-            "the same for every paid class; a free class has nothing to split."
+            "How a class splits between you, Past Lives and your guild. The shares are the same for every class."
         ),
         "article_slug": None,
         "anchor": None,

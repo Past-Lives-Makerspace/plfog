@@ -93,13 +93,13 @@ def describe_teach_manage_class_page():
         html = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk})).content.decode()
         assert "Sale: $15 off" in html
 
-    def it_says_a_free_class_cannot_go_on_sale(instructor_fixture, client):
+    def it_says_a_zero_priced_class_cannot_go_on_sale(instructor_fixture, client):
         offering = ClassOfferingFactory(
             instructor=instructor_fixture, status=Status.DRAFT, price_cents=0, member_discount_pct=0
         )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        assert "A free class cannot go on sale." in html
+        assert "A class priced at $0 cannot go on sale." in html
         assert "Set Up a Sale" not in html
         assert "Put This Class On Sale" not in html
 
@@ -180,14 +180,18 @@ def describe_teach_class_sale():
         offering.refresh_from_db()
         assert offering.sale_enabled is False
 
-    def it_refuses_a_crafted_sale_on_a_free_class(instructor_fixture, client):
+    def it_refuses_a_crafted_sale_on_a_zero_priced_class(instructor_fixture, client):
         offering = ClassOfferingFactory(
             instructor=instructor_fixture, status=Status.DRAFT, price_cents=0, member_discount_pct=0
         )
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}), _on())
         assert resp.status_code == 200
-        assert "A free class can" in resp.content.decode()
+        html = resp.content.decode()
+        # The page never renders the sale modal on a $0 class, so the refusal reads as the note, not a
+        # form error (the form's own message is pinned in class_sale_form_spec).
+        assert "A class priced at $0 cannot go on sale." in html
+        assert "Put This Class On Sale" not in html
         offering.refresh_from_db()
         assert offering.sale_enabled is False
 

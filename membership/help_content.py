@@ -458,9 +458,9 @@ Classes at Past Lives are open to everyone — you don't need to be a member or 
 
 ### Register and Pay {#class-register}
 
-1. On the class page, click **Register now** (a free class says **Register — Free**).
+1. On the class page, click **Register now**.
 2. Fill in your details, answer any questions, and check the box to agree to the liability waiver.
-3. A free class confirms right away. A paid class sends you to a secure Stripe checkout — your spot is locked in once the payment goes through.
+3. You go to a secure Stripe checkout, and your spot is locked in once the payment goes through. If a discount brings your total to $0, you are confirmed right away.
 
 ![The booking card on a class page — price, spots left, and the Register button.](/static/help/taking-a-class/02-class-page-register.png)
 

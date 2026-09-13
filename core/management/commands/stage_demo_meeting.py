@@ -5,7 +5,7 @@ Builds the accounts and class content one live walkthrough needs:
 * ``counciltreasurer+member@`` — a plain member with a clean teaching-application
   state, so "a member asks to become an instructor" can be performed live.
 * ``counciltreasurer+instructor@`` — a teaching-enabled member ("Demo Teacher")
-  owning three classes: a FULL paid class with a waitlist, a FREE class with open
+  owning three classes: a FULL paid class with a waitlist, a paid class with open
   seats, and a submit-ready DRAFT.
 * ``counciltreasurer+admin@`` — holds the CLASS_APPROVER capability, which is what
   routes both the executive-validation email and the "someone wants to host a
@@ -94,7 +94,7 @@ FULL_DESCRIPTION = (
 OPEN_DESCRIPTION = (
     "A demo class. An easy first session with a compass, a straight edge, and a bottle of ink. We walk "
     "through scale, orientation, and the handful of marks every map needs, then draw a small map of a room "
-    "you know well. Free, and everything you need is on the bench when you arrive."
+    "you know well. Everything you need is on the bench when you arrive."
 )
 DRAFT_DESCRIPTION = (
     "A demo class. Flat washes, graded washes, and the trick of laying color over ink without lifting the "
@@ -345,7 +345,7 @@ class Command(BaseCommand):
             description=OPEN_DESCRIPTION,
             category=category,
             instructor=instructor,
-            price_cents=0,
+            price_cents=2500,
             capacity=8,
             status=ClassOffering.Status.PUBLISHED,
             session_at=datetime(2026, 10, 31, 13, 0, tzinfo=PACIFIC),
@@ -357,6 +357,9 @@ class Command(BaseCommand):
         )
         offering.published_at = offering.published_at or timezone.now()
         offering.save(update_fields=["published_at"])
+        # The class has a real price, but these seeded seats record no payment: the money
+        # reports select every registration with amount_paid_cents > 0, and a demo seat must
+        # never read as revenue.
         for local, first, last in OPEN_SEATS:
             self._upsert_registration(
                 offering,

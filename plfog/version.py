@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.59.0"
+VERSION = "1.60.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -61,11 +61,24 @@ VERSION = "1.59.0"
 #
 # 1.59.0 is the composer submit fixes below. Not the top bar confirm either; the deferral stands.
 #
+# 1.60.0 is the price floor below. Not the top bar confirm either; the deferral stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.60.0",
+        "date": "2026-09-12",
+        "title": "Every class has a price",
+        "changes": [
+            "The free class checkbox is gone from the class composer. Every class now needs a "
+            "price of at least $1.00, from the instructor portal and the admin side alike.",
+            "A registration whose total reaches $0 through a discount code or a member discount "
+            "still completes without a payment step.",
+        ],
+    },
     {
         "version": "1.59.0",
         "date": "2026-09-12",

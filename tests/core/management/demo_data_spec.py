@@ -66,13 +66,25 @@ def describe_demo_data_seed():
     def it_creates_the_published_demo_classes_with_sessions():
         call_command("demo_data")
 
-        # Four published classes seed outside DEBUG: past, current-free, future-paid,
+        # Four published classes seed outside DEBUG: past, current-intro, future-paid,
         # and the full+waitlist class (the pending-approval class is DEBUG-only).
         demo_classes = ClassOffering.objects.filter(slug__startswith=DEMO_SLUG_PREFIX)
         assert demo_classes.count() == 4
         # Every demo class has at least one session so the public list shows them.
         for c in demo_classes:
             assert c.sessions.count() >= 1
+
+    def it_keeps_the_intro_class_seats_out_of_the_money_reports():
+        # The intro class has a real price (there is no free option any more), but a seeded seat
+        # must never read as revenue: the money reports select every registration with
+        # amount_paid_cents > 0 and have no demo exclusion yet.
+        call_command("demo_data")
+
+        intro = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}free-intro")
+        assert intro.price_cents >= 100
+        seats = intro.registrations.filter(status=Registration.Status.CONFIRMED)
+        assert seats.count() == 2  # the Chen seat and the guest
+        assert set(seats.values_list("amount_paid_cents", flat=True)) == {0}
 
     def it_does_not_inflate_member_count():
         from membership.models import Member
@@ -429,9 +441,9 @@ def describe_demo_data_class_images():
 
         call_command("demo_data")
 
-        free = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}free-intro")
-        assert free.image
-        assert free.gallery_images.count() == 3  # 4 requested, gallery_2 missing
+        intro = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}free-intro")
+        assert intro.image
+        assert intro.gallery_images.count() == 3  # 4 requested, gallery_2 missing
         pending = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}pending-review")
         assert pending.image
         assert pending.gallery_images.count() == 2

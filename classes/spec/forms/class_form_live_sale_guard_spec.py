@@ -137,14 +137,13 @@ def describe_live_sale_guard():
             assert form.is_valid(), form.errors
             assert form.save().sale_price_cents == 160
 
-    def describe_the_free_tick():
-        def it_refuses_making_a_class_on_sale_free(form_class):
+    def describe_a_price_under_the_floor():
+        def it_lets_the_floor_speak_and_says_nothing_about_the_sale(form_class):
+            # The price carries one reason, not two: the guard stays quiet when the price is refused.
             offering = _fixed_sale()
-            form = _form(form_class, offering, is_free="on", price_cents="")
+            form = _form(form_class, offering, price_cents="0.50")
             assert not form.is_valid()
-            assert form.errors["price_cents"] == [
-                "This class is on sale for $80 off. Turn the sale off from the manage page before making it free."
-            ]
+            assert form.errors["price_cents"] == ["Classes cost at least $1.00."]
             _assert_untouched(offering, 10000)
 
     def describe_without_a_live_sale():
@@ -165,7 +164,7 @@ def describe_live_sale_guard():
             offering = _fixed_sale()
             form = _form(form_class, offering, price_cents="")
             assert not form.is_valid()
-            assert form.errors["price_cents"] == ["Set a price or check 'This is a free class / workshop'."]
+            assert form.errors["price_cents"] == ["This field is required."]
 
         def it_leaves_a_new_class_alone(form_class):
             form = form_class(data=_data(ClassOfferingFactory.build(category=CategoryFactory()), price_cents="1.00"))
