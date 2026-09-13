@@ -1,0 +1,232 @@
+"""End-to-end: the hero cropper on the composer's Photos step (issue #368, item 4).
+
+Cropper.js measures its mount when it initialises, and the Photos pane is hidden until
+the host opens it, so the Python suite cannot see what the browser does: whether the
+crop frame appears at all, at what size, whether it survives a trip to another step,
+whether an untouched frame keeps ``hero_crop`` empty, whether the crop a host drags is
+the crop the saved class and its card frames carry, and whether a fresh photo gets a
+frame in both composer modes. This drives the real ``static/js/hero_cropper.js``,
+Cropper.js from its CDN, and both inline upload scripts in
+``templates/classes/_components/hero_image_field.html``. Needs the network for the CDN.
+Run with ``pytest -m e2e``.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+from typing import cast
+from urllib.parse import unquote, urlsplit
+
+import pytest
+from django.conf import settings
+from django.urls import reverse
+from PIL import Image
+from playwright.sync_api import expect
+
+from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
+from classes.models import ClassOffering
+from membership.models import Member
+from tests.membership.factories import MembershipPlanFactory
+
+EMAIL = "cropper-teacher@example.com"
+FRAME = ".cropper-container"
+CROP_INPUT = "#id_hero_crop"
+PREVIEW = "[data-hero-cropper-preview]"
+CARD_PHOTOS = ".pl-card-focus__frame .cls-img"
+# Cropper.js sizes a mount it cannot measure (a display:none pane) at 200x100 and never
+# grows it; a frame that mounted on screen is a good deal wider than that.
+COLLAPSED_WIDTH = 200
+
+
+@pytest.fixture
+def serve_media(page):
+    """Answer ``/media/`` requests from ``MEDIA_ROOT``.
+
+    The live server has no media route (production serves uploads from R2) and the
+    cropper only mounts once the preview img has pixels, so the browser has to be able
+    to fetch the photo the factory wrote to disk.
+    """
+    root = Path(settings.MEDIA_ROOT)
+
+    def _serve(route, request):
+        relative = unquote(urlsplit(request.url).path.removeprefix(settings.MEDIA_URL))
+        path = root / relative
+        if path.is_file():
+            route.fulfill(path=str(path))
+        else:
+            route.fulfill(status=404, body="")
+
+    page.route(f"**{settings.MEDIA_URL}**", _serve)
+
+
+def _seed_instructor() -> Member:
+    MembershipPlanFactory()  # so the user signal can provision the member the instructor factory then updates
+    user = UserFactory(username=EMAIL)
+    return cast(
+        Member, InstructorFactory(user=user, full_legal_name="Cropper Teacher", instructor_slug="cropper-teacher")
+    )
+
+
+def _seed_draft_with_square_photo(instructor: Member) -> ClassOffering:
+    """A ready draft with a square hero photo.
+
+    Square on purpose: a 16:9 frame on a square photo has room to move, so a drag
+    changes the crop. On a 16:9 photo the frame fills the image and cannot move.
+    """
+    return cast(
+        ClassOffering,
+        ClassOfferingFactory(
+            instructor=instructor,
+            status=ClassOffering.Status.DRAFT,
+            ready=True,
+            image__width=1200,
+            image__height=1200,
+        ),
+    )
+
+
+def _png(path: Path, width: int, height: int) -> Path:
+    Image.new("RGB", (width, height), (40, 90, 160)).save(path, "PNG")
+    return path
+
+
+def _open_photos_step(page, live_server, url_name: str, **kwargs) -> None:
+    page.goto(f"{live_server.url}{reverse(url_name, kwargs=kwargs)}")
+    page.locator('[data-step-tab="2"]').click()
+
+
+def _percentages(object_position: str) -> tuple[float, float]:
+    """``"50.0% 68.8%"`` -> ``(50.0, 68.8)``."""
+    x, y = (float(part.rstrip("%")) for part in object_position.split())
+    return x, y
+
+
+def _width(page, selector: str) -> float:
+    box = page.locator(selector).bounding_box()
+    assert box is not None, f"{selector} has no box"
+    return box["width"]
+
+
+def _drag_frame_down(page, pixels: int) -> None:
+    """Drag the crop frame by its face, the way a host does."""
+    face = page.locator(".cropper-face")
+    expect(face).to_be_visible()
+    # Centre it in the viewport first, instantly: bounding_box() does not scroll, and the
+    # hub's `html { scroll-behavior: smooth }` would still be animating when the box is
+    # read, so the press would land on the page under it instead of the frame.
+    face.evaluate("el => el.scrollIntoView({ block: 'center', behavior: 'instant' })")
+    box = face.bounding_box()
+    assert box is not None
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    page.mouse.move(x, y)
+    page.mouse.down()
+    page.mouse.move(x, y + pixels, steps=6)
+    page.mouse.up()
+
+
+def describe_hero_cropper():
+    def it_mounts_a_full_width_frame_on_first_reveal_and_keeps_it_on_every_revisit(
+        live_server, page, login_via_code, serve_media
+    ):
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+
+        frame = page.locator(FRAME)
+        expect(frame).to_be_visible()
+        first_width = _width(page, FRAME)
+        assert first_width > COLLAPSED_WIDTH
+        # The frame fills the banner pane it was mounted in.
+        assert first_width == pytest.approx(_width(page, "#hero-preview"), abs=1)
+        # Nobody dragged anything, so nothing was written.
+        expect(page.locator(CROP_INPUT)).to_have_value("")
+
+        page.locator('[data-step-tab="3"]').click()
+        expect(frame).to_be_hidden()
+        page.locator('[data-step-tab="2"]').click()
+        expect(frame).to_be_visible()
+        assert _width(page, FRAME) == pytest.approx(first_width, abs=1)
+        expect(page.locator(CROP_INPUT)).to_have_value("")
+
+    def it_saves_the_crop_a_host_drags_and_the_card_frames_follow_it(live_server, page, login_via_code, serve_media):
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        expect(page.locator(CARD_PHOTOS).first).to_have_attribute("style", re.compile(r"object-position: 50% 50%"))
+
+        _drag_frame_down(page, 60)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+        assert crop["w"] > 0 and crop["h"] > 0 and crop["y"] > 0
+
+        page.locator('#composer-form button[type="submit"]').click()
+        page.wait_for_url(re.compile(r"step=2"))
+
+        offering.refresh_from_db()
+        saved = (offering.hero_crop_x, offering.hero_crop_y, offering.hero_crop_w, offering.hero_crop_h)
+        assert saved == (crop["x"], crop["y"], crop["w"], crop["h"])
+        position = offering.hero_object_position
+        assert position != "50% 50%"
+
+        # Back on the Photos step: the frame restores the saved crop, and every card frame
+        # (two on this step, the phone one on step 5) shows the photo at the crop's centre,
+        # exactly what the catalog will render.
+        expect(page.locator(FRAME)).to_be_visible()
+        assert json.loads(page.locator(CROP_INPUT).input_value()) == crop
+        restored = page.evaluate(f"document.querySelector('{PREVIEW}').cropper.getData(true)")
+        assert restored["y"] == pytest.approx(crop["y"], abs=2)
+        assert restored["height"] == pytest.approx(crop["h"], abs=2)
+        # Step 5 binds the server's string ("50.0% 68.8%"); step 2 binds through
+        # card_focus.js, which reads it back to whole percentages ("50% 69%"). Same focal
+        # point within a third of a pixel at card size, so compare the computed position.
+        centre = _percentages(position)
+        for step, frames in ((2, 2), (5, 1)):
+            card_photos = page.locator(f'[data-composer-step="{step}"] {CARD_PHOTOS}')
+            expect(card_photos).to_have_count(frames)
+            for photo in card_photos.all():
+                shown = _percentages(photo.evaluate("el => getComputedStyle(el).objectPosition"))
+                assert shown == pytest.approx(centre, abs=0.5), (step, shown, centre)
+
+    def it_frames_a_freshly_uploaded_photo_on_a_saved_class(live_server, page, login_via_code, serve_media, tmp_path):
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+        expect(page.locator(FRAME)).to_be_visible()
+        before = page.locator(PREVIEW).get_attribute("src")
+        assert before
+
+        page.locator("#hero-file-input").set_input_files(str(_png(tmp_path / "new-hero.png", 900, 600)))
+
+        # The instant upload swaps the photo in, and the frame is rebuilt on the new one.
+        expect(page.locator(PREVIEW)).not_to_have_attribute("src", before)
+        frame = page.locator(FRAME)
+        expect(frame).to_have_count(1)
+        expect(frame).to_be_visible()
+        assert _width(page, FRAME) > COLLAPSED_WIDTH
+        expect(page.locator(CROP_INPUT)).to_have_value("")
+        offering.refresh_from_db()
+        assert "new-hero" in offering.image.name
+
+    def it_frames_a_photo_picked_before_the_first_save(live_server, page, login_via_code, serve_media, tmp_path):
+        _seed_instructor()
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_create")
+        expect(page.locator(FRAME)).to_have_count(0)
+
+        page.locator('#hero-upload-zone input[type="file"]').set_input_files(
+            str(_png(tmp_path / "first-hero.png", 900, 600))
+        )
+
+        frame = page.locator(FRAME)
+        expect(frame).to_be_visible()
+        assert _width(page, FRAME) > COLLAPSED_WIDTH
+        expect(page.locator(CROP_INPUT)).to_have_value("")
+        # The card skeleton mirrors the same picked photo, so the two panes agree.
+        expect(page.locator(CARD_PHOTOS).first).to_have_attribute("src", re.compile(r"^data:image/png"))
+
+        # A drag writes the box in source pixels; nothing else does.
+        _drag_frame_down(page, 30)
+        crop = json.loads(page.locator(CROP_INPUT).input_value())
+        assert crop["w"] == 900 and crop["h"] == pytest.approx(506, abs=1)
