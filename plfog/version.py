@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.56.1"
+VERSION = "1.57.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -55,11 +55,23 @@ VERSION = "1.56.1"
 # a rebuild on reveal instead of resize, no stacked frame after Back) ship minutes later. Members
 # never lived with them, and re-stamping 1.56.0's entry would announce the cropper twice.
 #
+# 1.57.0 is the in app navigation fix below. Not the top bar confirm either; the deferral stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.57.0",
+        "date": "2026-09-12",
+        "title": "Pages opened from inside the app now work on arrival",
+        "changes": [
+            "Opening a page from a link inside the app could leave some controls dead until you "
+            "refreshed. The class composer's photo tools were the clearest case. Every page now "
+            "works the same on arrival as it does after a refresh.",
+        ],
+    },
     {
         "version": "1.56.0",
         "date": "2026-09-12",
