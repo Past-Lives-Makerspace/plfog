@@ -46,6 +46,29 @@ def describe_shared_qr_share_card():
         assert "/events/5/qr.svg/" in html
         assert "/events/5/qr.png/" in html
 
+    def it_replaces_the_download_links_with_the_locked_note_when_given():
+        html = render_to_string(
+            "components/qr_share_card.html",
+            {
+                "qr_svg": "<svg id='x'></svg>",
+                "share_url": "https://members.test/classes/5/",
+                "svg_url": "/classes/5/qr.svg/",
+                "png_url": "/classes/5/qr.png/",
+                "title": "Share & Print",
+                "hint": "This QR opens the class's public page once it is published.",
+                "locked_note": "The downloads unlock once this class is published.",
+            },
+        )
+        assert "The downloads unlock once this class is published." in html
+        assert "pl-qr-share__locked" in html
+        # Absent, not disabled: no download links at all, even though the URLs were passed.
+        assert "Download QR" not in html
+        assert "/classes/5/qr.svg/" not in html
+        assert "/classes/5/qr.png/" not in html
+        # The link and copy control stay.
+        assert "https://members.test/classes/5/" in html
+        assert 'type="button"' in html
+
 
 @pytest.mark.django_db
 def describe_event_edit_share_card():

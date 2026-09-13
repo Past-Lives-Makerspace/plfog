@@ -4403,9 +4403,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     flex-wrap: wrap;
 }
 
+/* Before publication the download links are absent and this one line takes their place. */
+.pl-qr-share__locked {
+    font-size: 0.8125rem;
+    margin: 0;
+}
+
 /* Printable-flyer button sits just below the Share & Print card in the edit-page aside. */
 .pl-qr-share__flyer {
     margin-top: 0.75rem;
+}
+
+/* The Share & Print card on the live class edit page, between Locked Details and the form. */
+.pl-live-edit-share {
+    margin: 0 0 1.5rem;
 }
 
 /* Class-edit 6/6 split: identity fields (title, slug, category, instructor) on the left,

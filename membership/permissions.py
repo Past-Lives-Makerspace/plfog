@@ -188,6 +188,22 @@ def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     return offering.instructor_id == member.pk
 
 
+def can_print_class_marketing(request: HttpRequest, offering: ClassOffering) -> bool:
+    """True when this request may open the class's printable flyer and QR downloads.
+
+    The class decides when its marketing unlocks (``ClassOffering.marketing_unlocked``:
+    published, the end of the review pipeline). An admin may still open a draft's flyer to
+    see what will print. Like every helper here this honors ``view_as`` preview, so an
+    admin previewing as an instructor sees the lock the instructor sees. This is the second
+    gate: callers check :func:`can_edit_class` first, so a stranger still gets the plain
+    "no access" refusal rather than a hint about publication.
+    """
+    if offering.marketing_unlocked:
+        return True
+    view_as = getattr(request, "view_as", None)
+    return view_as is not None and view_as.is_admin
+
+
 def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
     """True when this request may edit the community event.
 

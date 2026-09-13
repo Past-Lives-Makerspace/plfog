@@ -1450,6 +1450,8 @@ def _composer_context(
         cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
     else:
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
+    from membership.permissions import can_print_class_marketing
+
     is_published = saved is not None and saved.status == ClassOffering.Status.PUBLISHED
     marks = step_marks(readiness) if readiness is not None else {}
     if saved is not None:
@@ -1474,6 +1476,9 @@ def _composer_context(
         "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
+        # The Share & Print card shows the flyer button and QR downloads only when this
+        # request may print them: published, or an admin looking at a draft.
+        "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
     }
 
 
@@ -1604,6 +1609,8 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     Keeps ``teach_class_edit``'s ``editable_by`` scope (guild staff who can edit a draft can
     make light edits too). Saves with one Save button and no submit: nothing to review.
     """
+    from membership.permissions import can_print_class_marketing
+
     form = TeachPublishedClassForm(request.POST or None, instance=offering)
     faq_formset = build_class_faq_formset(request.POST or None, offering)
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
@@ -1620,6 +1627,9 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "form": form,
             "faq_formset": faq_formset,
             "offering": offering,
+            # A live class is where the flyer and QR unlock, and this is the only teach
+            # page a live class lands on, so the Share & Print card renders here.
+            "can_print_marketing": can_print_class_marketing(request, offering),
             "sessions": list(offering.sessions.order_by("starts_at")),
             "change_form": ClassChangeRequestForm(),
             # Request a change posts through the instructor-only scope, so only the
@@ -2833,12 +2843,16 @@ def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
 
     Editor-gated via the shared ``can_edit_class`` check, so it works from either
     portal — an admin, the category guild's lead/staff, or the class's own instructor.
+    Locked until the class is published (``can_print_class_marketing``): the QR is a
+    marketing artifact, and it locks and unlocks together with the flyer.
     """
-    from membership.permissions import can_edit_class
+    from membership.permissions import can_edit_class, can_print_class_marketing
 
     offering = get_object_or_404(ClassOffering, pk=pk)
     if not can_edit_class(request, offering):
         return HttpResponseForbidden("You don't have access to this class.")
+    if not can_print_class_marketing(request, offering):
+        return HttpResponseForbidden(offering.marketing_locked_reason)
     if fmt == "svg":
         resp = HttpResponse(offering.qr_svg(), content_type="image/svg+xml")
     elif fmt == "png":
@@ -2854,12 +2868,17 @@ def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
 
     Editor-gated via the shared ``can_edit_class`` check, so it works from either
     portal — an admin, the category guild's lead/staff, or the class's own instructor.
+    Locked until the class is published (``can_print_class_marketing``), because the URL
+    is guessable and a printed flyer for a class still in review would advertise
+    something that can still change or be refused. The refusal says so.
     """
-    from membership.permissions import can_edit_class
+    from membership.permissions import can_edit_class, can_print_class_marketing
 
     offering = get_object_or_404(ClassOffering, pk=pk)
     if not can_edit_class(request, offering):
         return HttpResponseForbidden("You don't have access to this class.")
+    if not can_print_class_marketing(request, offering):
+        return HttpResponseForbidden(offering.marketing_locked_reason)
     return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
 
 
