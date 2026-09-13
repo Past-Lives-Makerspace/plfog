@@ -22,6 +22,7 @@ from membership.permissions import (
     can_edit_event,
     can_edit_guild,
     can_manage_orientations,
+    can_print_class_marketing,
     editable_meeting_scopes,
     is_effective_staff,
 )
@@ -145,6 +146,15 @@ def describe_request_helpers_without_view_as():
         request = RequestFactory().get("/")
         request.user = UserFactory(username="no-viewas@example.com")
         assert can_edit_class(request, ClassOfferingFactory()) is False
+
+    def it_locks_class_marketing_for_a_request_with_no_view_as_unless_published():
+        # The admin override needs view_as; the model rule (published unlocks) needs nothing.
+        from classes.models import ClassOffering
+
+        request = RequestFactory().get("/")
+        request.user = UserFactory(username="no-viewas-marketing@example.com")
+        assert can_print_class_marketing(request, ClassOfferingFactory()) is False
+        assert can_print_class_marketing(request, ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)) is True
 
 
 def describe_request_helpers_via_views():

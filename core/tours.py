@@ -460,8 +460,8 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="teach.class-qr"]',
                 title="Print a Flyer or QR",
                 body=(
-                    "Open a one page flyer or grab a QR code that links right to your sign up page. "
-                    "Print it, post it, hand it out."
+                    "Once your class is published, open a one page flyer or grab a QR code that links right to "
+                    "your sign up page. Print it, post it, hand it out."
                 ),
                 navigate="classes:teach_class_edit",
                 navigate_kwargs=_instructor_class_pk,

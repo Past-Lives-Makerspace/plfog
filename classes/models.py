@@ -1009,20 +1009,34 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         return render_png(self.qr_url)
 
-    MARKETING_LOCKED_REASON = "The printable flyer and QR downloads unlock once this class is approved and published."
-
     @property
     def marketing_unlocked(self) -> bool:
         """True once the class may be marketed in print: the flyer and the QR downloads.
 
         Published is the end of the review pipeline (the guild lead and admin gates both
         cleared), so a flyer never advertises a class that could still be changed or
-        refused. :attr:`MARKETING_LOCKED_REASON` is the one sentence the refused views and
-        the share card both show, so the explanation cannot drift between them. Admins may
-        still open a draft's flyer; that override is a request concern and lives in
-        ``membership.permissions.can_print_class_marketing``.
+        refused. :attr:`marketing_locked_reason` is the one sentence the refused views and
+        the share card both show while this is False, so the explanation cannot drift
+        between them. Admins may still open a draft's flyer; that override is a request
+        concern and lives in ``membership.permissions.can_print_class_marketing``.
         """
         return self.status == self.Status.PUBLISHED
+
+    @property
+    def marketing_locked_reason(self) -> str:
+        """The one sentence saying why the flyer and QR downloads are unavailable right now.
+
+        A class still on its way to publication will unlock, so it is told when. A cancelled
+        or archived class was (or could have been) published and will not unlock again, so
+        promising "once it is published" to its instructor would be false. Each state's
+        sentence lives here and nowhere else: the refused views and the share card both
+        read this.
+        """
+        if self.status == self.Status.CANCELLED:
+            return "This class is cancelled, so the flyer and QR downloads are no longer available."
+        if self.status == self.Status.ARCHIVED:
+            return "This class is archived, so the flyer and QR downloads are no longer available."
+        return "The printable flyer and QR downloads unlock once this class is approved and published."
 
     @property
     def welcome_email_ready(self) -> bool:

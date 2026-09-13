@@ -2852,7 +2852,7 @@ def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
     if not can_edit_class(request, offering):
         return HttpResponseForbidden("You don't have access to this class.")
     if not can_print_class_marketing(request, offering):
-        return HttpResponseForbidden(ClassOffering.MARKETING_LOCKED_REASON)
+        return HttpResponseForbidden(offering.marketing_locked_reason)
     if fmt == "svg":
         resp = HttpResponse(offering.qr_svg(), content_type="image/svg+xml")
     elif fmt == "png":
@@ -2878,7 +2878,7 @@ def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
     if not can_edit_class(request, offering):
         return HttpResponseForbidden("You don't have access to this class.")
     if not can_print_class_marketing(request, offering):
-        return HttpResponseForbidden(ClassOffering.MARKETING_LOCKED_REASON)
+        return HttpResponseForbidden(offering.marketing_locked_reason)
     return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
 
 

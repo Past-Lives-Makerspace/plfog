@@ -749,7 +749,10 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     },
     "teach.class-qr": {
         "title": "Flyer and QR code",
-        "short_text": "Open a printable one page flyer or download a QR code that links straight to your class sign up page.",
+        "short_text": (
+            "Once your class is published, open a printable one page flyer or download a QR code that links "
+            "straight to your class sign up page."
+        ),
         "article_slug": None,
         "anchor": None,
     },

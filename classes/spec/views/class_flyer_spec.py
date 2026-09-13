@@ -21,6 +21,16 @@ ARTIFACTS = [
     pytest.param(lambda pk: reverse("classes:class_qr", args=[pk, "svg"]), id="qr-svg"),
     pytest.param(lambda pk: reverse("classes:class_qr", args=[pk, "png"]), id="qr-png"),
 ]
+# Every editor can_edit_class admits who is not an admin: each is a distinct leg of that
+# helper (instructor, guild lead FK, guild officer fog_role), so each is exercised.
+NON_ADMIN_EDITORS = ["instructor", "guild_lead", "guild_officer"]
+# The reasons are pinned as literals here on purpose: a spec that compared against the
+# property would pass whatever it said.
+PENDING_REASON = "The printable flyer and QR downloads unlock once this class is approved and published."
+RETIRED_REASONS = {
+    Status.CANCELLED: "This class is cancelled, so the flyer and QR downloads are no longer available.",
+    Status.ARCHIVED: "This class is archived, so the flyer and QR downloads are no longer available.",
+}
 
 
 def describe_class_flyer():
@@ -140,10 +150,21 @@ def describe_class_flyer():
 def describe_lock_until_published():
     @pytest.fixture
     def actors(member_user, admin_user, db):
-        """Every editor of one guild-led class: its instructor, the guild lead, and an admin."""
+        """Every editor of one guild-led class: its instructor, the guild lead, a guild officer, an admin."""
         lead_user = UserFactory(username="flyer-lead@example.com")
         guild = GuildFactory(name="Flyer Guild", guild_lead=Member.objects.get(user=lead_user))
-        return {"instructor": member_user, "guild_lead": lead_user, "admin": admin_user, "guild": guild}
+        officer_user = UserFactory(username="flyer-officer@example.com")
+        officer = officer_user.member
+        officer.fog_role = Member.FogRole.GUILD_OFFICER
+        officer.save(update_fields=["fog_role"])
+        officer.sync_user_permissions()
+        return {
+            "instructor": member_user,
+            "guild_lead": lead_user,
+            "guild_officer": officer_user,
+            "admin": admin_user,
+            "guild": guild,
+        }
 
     def _offering(actors, status):
         return ClassOfferingFactory(
@@ -152,25 +173,37 @@ def describe_lock_until_published():
 
     @pytest.mark.parametrize("artifact", ARTIFACTS)
     @pytest.mark.parametrize("status", [Status.DRAFT, Status.PENDING])
-    @pytest.mark.parametrize("role", ["instructor", "guild_lead"])
+    @pytest.mark.parametrize("role", NON_ADMIN_EDITORS)
     def it_refuses_an_unpublished_class_to_editors_who_are_not_admins(client, actors, role, status, artifact):
         offering = _offering(actors, status)
         client.force_login(actors[role])
         resp = client.get(artifact(offering.pk))
         assert resp.status_code == 403
         # The refusal explains why, and it is the same sentence the share card shows.
-        assert resp.content.decode() == ClassOffering.MARKETING_LOCKED_REASON
-        assert "published" in resp.content.decode()
+        assert resp.content.decode() == PENDING_REASON
 
     @pytest.mark.parametrize("artifact", ARTIFACTS)
-    @pytest.mark.parametrize("status", [Status.DRAFT, Status.PENDING, Status.PUBLISHED])
+    @pytest.mark.parametrize("status", [Status.CANCELLED, Status.ARCHIVED])
+    @pytest.mark.parametrize("role", NON_ADMIN_EDITORS)
+    def it_refuses_a_retired_class_without_promising_publication(client, actors, role, status, artifact):
+        # Cancelled and archived lock again (not bookable), but "once it is published"
+        # would be false for a class that was live, so the sentence names the state.
+        offering = _offering(actors, status)
+        client.force_login(actors[role])
+        resp = client.get(artifact(offering.pk))
+        assert resp.status_code == 403
+        assert resp.content.decode() == RETIRED_REASONS[status]
+        assert "published" not in resp.content.decode()
+
+    @pytest.mark.parametrize("artifact", ARTIFACTS)
+    @pytest.mark.parametrize("status", list(Status))
     def it_lets_an_admin_open_every_status(client, actors, status, artifact):
         offering = _offering(actors, status)
         client.force_login(actors["admin"])
         assert client.get(artifact(offering.pk)).status_code == 200
 
     @pytest.mark.parametrize("artifact", ARTIFACTS)
-    @pytest.mark.parametrize("role", ["instructor", "guild_lead", "admin"])
+    @pytest.mark.parametrize("role", [*NON_ADMIN_EDITORS, "admin"])
     def it_opens_a_published_class_for_every_editor(client, actors, role, artifact):
         offering = _offering(actors, Status.PUBLISHED)
         client.force_login(actors[role])
@@ -199,7 +232,7 @@ def describe_lock_until_published():
         session.save()
         resp = client.get(artifact(offering.pk))
         assert resp.status_code == 403
-        assert resp.content.decode() == ClassOffering.MARKETING_LOCKED_REASON
+        assert resp.content.decode() == PENDING_REASON
 
 
 def describe_share_card():
@@ -231,7 +264,7 @@ def describe_share_card():
             assert label not in body
         assert reverse("classes:class_qr", args=[offering.pk, "svg"]) not in body
         assert reverse("classes:class_qr", args=[offering.pk, "png"]) not in body
-        assert ClassOffering.MARKETING_LOCKED_REASON in body
+        assert PENDING_REASON in body
         assert PENDING_HINT in body
         assert LIVE_HINT not in body
 
@@ -242,7 +275,7 @@ def describe_share_card():
             assert label in body
         assert reverse("classes:class_qr", args=[offering.pk, "svg"]) in body
         assert reverse("classes:class_qr", args=[offering.pk, "png"]) in body
-        assert ClassOffering.MARKETING_LOCKED_REASON not in body
+        assert PENDING_REASON not in body
 
     @pytest.mark.parametrize("status", [Status.DRAFT, Status.PENDING])
     def it_hides_the_flyer_button_and_downloads_from_the_instructor_before_publication(member_user, client, status, db):

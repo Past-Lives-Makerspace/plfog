@@ -6,7 +6,7 @@ they always match and a printed code survives a slug change.
 
 The hint is computed HERE and passed to the shared card as one string, since the shared card
 takes one pre-computed hint. Before publication the flyer button and the QR downloads are
-absent, not disabled: the card shows offering.MARKETING_LOCKED_REASON in their place (the
+absent, not disabled: the card shows offering.marketing_locked_reason in their place (the
 shared card's locked_note), and the two views refuse their URLs with the same sentence, so a
 guessed link learns the same thing. The tour key sits on the wrapper, not the button, so the
 "Print a Flyer or QR" tour stop still has a target while the button is absent.
@@ -19,7 +19,7 @@ guessed link learns the same thing. The tour key sits on the wrapper, not the bu
 {% elif can_print_marketing %}
   {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
 {% else %}
-  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url locked_note=offering.MARKETING_LOCKED_REASON %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url locked_note=offering.marketing_locked_reason %}
 {% endif %}
 {% if can_print_marketing %}
 {# A print-ready one-page flyer (hero photo + QR) that opens in its own tab for browser Print, then Save as PDF. #}

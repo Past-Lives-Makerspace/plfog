@@ -46,3 +46,28 @@ def describe_class_qr():
         one = ClassOfferingFactory(slug="one")
         two = ClassOfferingFactory(slug="two")
         assert one.qr_svg() != two.qr_svg()
+
+
+def describe_marketing_lock():
+    """The flyer and QR downloads unlock at published, and the locked reason is true for the state."""
+
+    from classes.models import ClassOffering
+
+    Status = ClassOffering.Status
+    PENDING_REASON = "The printable flyer and QR downloads unlock once this class is approved and published."
+
+    def it_unlocks_only_when_published():
+        for status in Status:
+            assert ClassOfferingFactory(status=status).marketing_unlocked is (status == Status.PUBLISHED)
+
+    @pytest.mark.parametrize("status", [Status.DRAFT, Status.PENDING])
+    def it_promises_publication_while_the_class_is_on_its_way(status):
+        assert ClassOfferingFactory(status=status).marketing_locked_reason == PENDING_REASON
+
+    def it_does_not_promise_publication_for_a_cancelled_class():
+        reason = ClassOfferingFactory(status=Status.CANCELLED).marketing_locked_reason
+        assert reason == "This class is cancelled, so the flyer and QR downloads are no longer available."
+
+    def it_does_not_promise_publication_for_an_archived_class():
+        reason = ClassOfferingFactory(status=Status.ARCHIVED).marketing_locked_reason
+        assert reason == "This class is archived, so the flyer and QR downloads are no longer available."
