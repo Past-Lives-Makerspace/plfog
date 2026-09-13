@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.61.0"
+VERSION = "1.62.1"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -64,6 +64,11 @@ VERSION = "1.61.0"
 # 1.60.0 is the price floor below. Not the top bar confirm either; the deferral stands.
 #
 # 1.61.0 is the per step validation below. Not the top bar confirm either; the deferral stands.
+#
+# 1.62.1 - the demo meeting command owning its own guild type takes it with no entry, correctly:
+# it is staging tooling for a live walkthrough, invisible to members. 1.62.0 belongs to the
+# composer draft persistence branch, which was cut first and is still open; this one sits above
+# it so whichever order they merge in, VERSION only ever moves forward.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
