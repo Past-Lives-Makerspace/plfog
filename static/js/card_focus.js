@@ -11,6 +11,11 @@
  * On a class that has no saved hero yet, the hero field's local preview (a data URL
  * the create-mode fallback writes into #hero-preview) is mirrored into the frames, so
  * the instructor sees the card before the first save.
+ *
+ * Loaded once, deferred, from hub/base.html's <head> with the other Alpine components,
+ * never from the composer's body: Alpine initialises a boosted page a microtask after
+ * htmx inserts it, before a script the page itself loads could arrive, so the component
+ * has to be registered before the navigation starts (issue #378).
  */
 (function () {
     "use strict";

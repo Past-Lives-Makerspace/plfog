@@ -3,7 +3,8 @@
 <h2>Class Settings</h2>
 <p style="color:var(--hub-text-muted); font-size:0.875rem; margin-top:-0.25rem; margin-bottom:1rem;">
     MailChimp and Google Analytics IDs live in
-    <a href="/admin/core/siteconfiguration/">Site Settings</a> — they apply across the whole site, not just classes.
+    {# The Django admin is its own document with its own Alpine; a boosted swap into it strips the hub's head scripts and the next boosted link back re-runs them all. #}
+    <a href="/admin/core/siteconfiguration/" hx-boost="false">Site Settings</a> — they apply across the whole site, not just classes.
 </p>
 <form method="post">
     {% csrf_token %}

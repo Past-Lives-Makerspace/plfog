@@ -86,6 +86,8 @@ Requests now notify the makerspace admins directly by email and in the bell.{% e
 
 {% if floorplans %}
 {% include "components/modal.html" with modal_id="space-detail" modal_title="Space details" modal_size="md" %}
-<script src="{% static 'js/space_map.js' %}" defer></script>
+{% comment %}space_map.js, which registers the plMap component this page's x-data calls, loads
+once from hub/base.html's head with the other Alpine components (FRONTEND.md, Scripts under
+hx-boost); nothing to load here.{% endcomment %}
 {% endif %}
 {% endblock %}

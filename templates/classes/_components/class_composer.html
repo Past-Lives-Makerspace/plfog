@@ -299,5 +299,8 @@ Do not merge them.
     {% endif %}
   {% endif %}
 </div>
+{% comment %}hero_cropper.js boots itself from the page each time it runs, so it lives in <body>
+where hx-boost re-runs it on every arrival. card_focus.js registers an Alpine.data component and
+must exist before Alpine initialises the page, so it loads once from hub/base.html's head with the
+other Alpine components (FRONTEND.md, Scripts under hx-boost).{% endcomment %}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>
-<script src="{% static 'js/card_focus.js' %}" defer></script>

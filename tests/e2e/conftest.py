@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import pytest
+from django.conf import settings as django_settings
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.urls import reverse
@@ -110,3 +113,27 @@ def login_via_code(page, live_server):
         Member.objects.filter(user=user).update(welcome_dismissed_at=_tz.now())
 
     return _login
+
+
+@pytest.fixture
+def serve_media(page, live_server):
+    """Answer the live server's ``/media/`` requests from ``MEDIA_ROOT``.
+
+    The live server has no media route (production serves uploads from R2), so a spec
+    whose page has to show an uploaded photo (the composer's cropper only mounts once the
+    preview img has pixels) needs the browser to be able to fetch the file the factory
+    wrote to disk. Scoped to the live server's own origin so it never answers for a
+    second, cross-origin media server a spec stands up on purpose.
+    """
+    root = Path(django_settings.MEDIA_ROOT)
+    media_path = urlsplit(django_settings.MEDIA_URL).path
+
+    def _serve(route, request):
+        relative = unquote(urlsplit(request.url).path.removeprefix(media_path))
+        path = root / relative
+        if path.is_file():
+            route.fulfill(path=str(path))
+        else:
+            route.fulfill(status=404, body="")
+
+    page.route(f"{live_server.url}{media_path}**", _serve)

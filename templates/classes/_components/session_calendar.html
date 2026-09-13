@@ -26,7 +26,7 @@ Generates hidden inputs matching Django's inline formset naming convention.
         <div class="session-cal__add-field">
             <label class="session-cal__add-label" for="session-add-date">Date</label>
             <input id="session-add-date" type="date" x-model="newDate" class="session-cal__input"
-                   @click="try { $event.currentTarget.showPicker() } catch (e) {}">
+                   @click="(() => { try { $el.showPicker() } catch (e) {} })()">
         </div>
         <div class="session-cal__add-field">
             <label class="session-cal__add-label" for="session-add-time">Start time</label>
