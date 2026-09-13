@@ -16,6 +16,7 @@ from classes.composer import (
     clamp_step,
     error_steps,
     error_summary,
+    first_unready_step,
     step_for_field,
     step_marks,
 )
@@ -273,3 +274,41 @@ def describe_step_marks():
     def it_reads_a_saved_class(db):
         offering = ClassOfferingFactory(ready=True, instructor=InstructorFactory())
         assert step_marks(offering.readiness()) == {1: True, 2: True, 3: True}
+
+
+def describe_first_unready_step():
+    def _items(**overrides):
+        kwargs = {
+            "has_hero": True,
+            "has_gallery": True,
+            "description": "A description long enough to count as a real one for readiness.",
+            "scheduling_model": "fixed",
+            "flexible_note": "",
+            "has_future_session": True,
+            "capacity": 6,
+        }
+        kwargs.update(overrides)
+        return readiness_items(**kwargs)
+
+    def it_lands_on_the_photos_step_for_a_missing_gallery_photo():
+        assert first_unready_step(_items(has_gallery=False)) == 2
+
+    def it_lands_on_the_photos_step_for_a_missing_hero():
+        assert first_unready_step(_items(has_hero=False)) == 2
+
+    def it_walks_the_steps_in_order_so_the_basics_win_over_photos_and_dates():
+        assert first_unready_step(_items(description="Short", has_hero=False, has_future_session=False)) == 1
+
+    def it_lands_on_the_dates_step_for_a_missing_date():
+        assert first_unready_step(_items(has_future_session=False)) == 3
+
+    def it_lands_on_the_dates_step_for_zero_capacity():
+        assert first_unready_step(_items(capacity=0)) == 3
+
+    def it_lands_on_the_review_step_when_everything_is_ready():
+        # The refusal raced a fix: the checklist on the Review step shows every tick.
+        assert first_unready_step(_items()) == STEP_COUNT
+
+    def it_reads_a_saved_class(db):
+        offering = ClassOfferingFactory(ready=True, instructor=InstructorFactory(), gallery=0)
+        assert first_unready_step(offering.readiness()) == 2

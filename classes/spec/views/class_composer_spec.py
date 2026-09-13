@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import io
 import json
+import re
+from datetime import timedelta
 from html.parser import HTMLParser
 
 import pytest
@@ -136,6 +138,22 @@ def _ComposerParser_x_data(html: str) -> str:  # noqa: N802  # reads as "the par
     parser.feed(html)
     assert parser.x_data is not None
     return parser.x_data
+
+
+def _price_input_value(html: str) -> str:
+    """The value attribute of the price input; Django omits the attribute entirely when the value is blank."""
+    tag = re.search(r'<input[^>]*name="price_cents"[^>]*>', html)
+    assert tag is not None, "no price input rendered"
+    match = re.search(r'\bvalue="([^"]*)"', tag.group(0))
+    return match.group(1) if match else ""
+
+
+def _still_missing(html: str) -> str:
+    """The Still Missing notice's markup, or "" when the composer rendered none."""
+    opener = '<section class="pl-composer-missing '
+    if opener not in html:
+        return ""
+    return html.partition(opener)[2].partition("</section>")[0]
 
 
 @pytest.fixture
@@ -774,16 +792,26 @@ def describe_admin_composer():
         assert any("is published." in m for m in _messages(resp))
 
     def it_refuses_to_publish_an_unready_draft_and_says_why(admin_user, client, db):
+        # The POST saves a ready description and a flexible note first, so after the save the only
+        # gap is the gallery photo on step 2: the refusal lands there, not on the Review step the
+        # POST came from.
         offering = ClassOfferingFactory(status=Status.DRAFT, gallery=0)
         client.force_login(admin_user)
         resp = client.post(
             reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, action="publish", step="5"),
         )
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=5"
+        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=2&missing=1"
         offering.refresh_from_db()
         assert offering.status == Status.DRAFT
-        assert any(m.startswith("Not ready to publish:") for m in _messages(resp))
+        assert offering.description == READY_DESCRIPTION
+        assert "Not ready to publish: Add one gallery photo." in _messages(resp)
+        html = client.get(resp["Location"]).content.decode()
+        assert "phase: 2," in html
+        notice = _still_missing(html)
+        assert "Not ready to publish yet." in notice
+        assert "Add one gallery photo." in notice and "Write a short description." not in notice
 
     def it_lands_on_the_first_broken_step(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
@@ -936,3 +964,414 @@ def describe_live_sale_guard_through_the_composers():
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.price_cents == 15000 and offering.sale_price_cents == 7000
+
+
+# ── Issue #368 item 3b: a half filled session row survives the failed save that reports it ──
+
+
+def describe_a_failed_save_with_a_half_filled_session_row():
+    def it_re_renders_the_row_so_the_start_the_user_typed_is_not_lost(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        start = (timezone.now() + timedelta(days=7)).strftime("%Y-%m-%dT10:00")
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                **_full_payload(cat, title="", step="3"),
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-0-id": "",
+                "sessions-0-starts_at": start,
+                "sessions-0-ends_at": "",
+                "sessions-0-DELETE": "",
+            },
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "errorSteps: [1, 3]," in html
+        assert start in html
+
+    def it_keeps_a_row_with_only_an_end(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        end = (timezone.now() + timedelta(days=7)).strftime("%Y-%m-%dT12:00")
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            {
+                **_full_payload(cat, title="", step="3"),
+                "sessions-TOTAL_FORMS": "1",
+                "sessions-0-id": "",
+                "sessions-0-starts_at": "",
+                "sessions-0-ends_at": end,
+                "sessions-0-DELETE": "",
+            },
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "errorSteps: [1, 3]," in html
+        assert end in html
+
+
+# ── Issue #368 item 3a: the price re-renders as typed, and a saved draft never 500s ──
+
+
+def describe_a_failed_save_with_a_whole_dollar_price():
+    def it_re_renders_the_price_the_user_typed_not_a_hundredth_of_it(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", price_cents="80"),
+        )
+        assert resp.status_code == 200
+        assert _price_input_value(resp.content.decode()) == "80"
+
+    def it_re_renders_a_single_dollar_as_typed(instructor_fixture, client):
+        # "1" used to come back as 0.01 and then trip the $1.00 floor on the next save.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", price_cents="1"),
+        )
+        assert _price_input_value(resp.content.decode()) == "1"
+
+    def it_re_renders_a_whole_dollar_price_as_typed_on_the_admin_composer(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(offering.category, offering.instructor, title="", price_cents="8000"),
+        )
+        assert resp.status_code == 200
+        assert _price_input_value(resp.content.decode()) == "8000"
+
+    def it_keeps_a_blank_price_blank_and_the_free_tick_ticked_on_create(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_create"),
+            _full_payload(cat, title="", price_cents="", is_free="on"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert _price_input_value(html) == ""
+        assert re.search(r'name="is_free"[^>]*\bchecked', html)
+
+
+def describe_a_failed_save_with_a_typed_zero_price():
+    def it_keeps_the_zero(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", price_cents="0"),
+        )
+        assert resp.status_code == 200
+        assert _price_input_value(resp.content.decode()) == "0"
+
+
+def describe_a_failed_save_with_a_blank_price_and_the_free_tick_on_a_saved_draft():
+    def it_re_renders_the_teach_composer_instead_of_crashing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", price_cents="", is_free="on"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert _price_input_value(html) == ""
+        assert re.search(r'name="is_free"[^>]*\bchecked', html)
+        assert "phase: 1," in html and "errorSteps: [1]," in html
+
+    def it_re_renders_the_admin_composer_instead_of_crashing(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(offering.category, offering.instructor, title="", price_cents="", is_free="on"),
+        )
+        assert resp.status_code == 200
+        assert "phase: 1," in resp.content.decode()
+
+    def it_is_the_bound_form_nulling_the_instance_price(db):
+        # Mechanism: ModelForm._post_clean runs construct_instance even when another field failed,
+        # so the in-memory row carries price_cents=None after the POST. The card preview frames used
+        # to read that row and raise; they now read the row as saved (next spec).
+        offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=5000)
+        form = TeachClassOfferingForm(
+            data=_full_payload(offering.category, title="", price_cents="", is_free="on"), instance=offering
+        )
+        assert form.is_valid() is False
+        assert offering.price_cents is None
+
+    def it_shows_the_saved_class_in_the_chrome_and_the_card_not_the_rejected_post(instructor_fixture, client):
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture, status=Status.DRAFT, title="Before", price_cents=5000, member_discount_pct=10
+        )
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", price_cents="", is_free="on", member_discount_pct="50"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        # The heading and the card preview frames read the saved row, not the rejected POST.
+        assert "Edit Class: Before" in html
+        assert "($45 for Past Lives Members)" in html
+        # The fields keep what was typed.
+        assert _price_input_value(html) == ""
+        assert 'name="member_discount_pct"' in html and 'value="50"' in html
+
+
+# ── Issue #368 item 2: a refused submit lands where the gap is, with the reason visible ──
+
+
+def describe_a_composer_submit_refused_for_readiness():
+    def it_lands_on_the_first_unready_step_with_the_still_missing_checklist(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="submit",
+                step="5",
+            ),
+        )
+        assert resp.status_code == 302
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=2&missing=1"
+        assert "Not ready to submit: Add one gallery photo." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.status == Status.DRAFT
+        assert offering.title == "Round Trip"  # the save itself went through; only the submit was refused
+        html = client.get(resp["Location"]).content.decode()
+        assert "phase: 2," in html
+        notice = _still_missing(html)
+        assert "Still Missing" in notice
+        assert "Not ready to submit yet. Tap a line to jump to it." in notice
+        assert "goToField('gallery-manager')\">Add one gallery photo.</button>" in notice
+        assert "Add a hero photo." not in notice
+        # A checklist, not a form error: no error summary, no step marked broken.
+        assert "Some Things Need Fixing" not in html
+        assert "errorSteps: []," in html
+
+    def it_lands_on_the_dates_step_when_the_only_session_slipped_into_the_past(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        session = offering.sessions.get()
+        client.force_login(instructor_fixture.user)
+        # Rendered while the session was still ahead: Submit is enabled, the Dates item is ticked.
+        before = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "Finish the checklist above first." not in before
+        # Time passes with the page open; nothing on screen changes.
+        session.starts_at = timezone.now() - timedelta(minutes=1)
+        session.ends_at = session.starts_at + timedelta(hours=2)
+        session.save()
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(
+                offering.category,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="submit",
+                step="5",
+            ),
+        )
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=3&missing=1"
+        assert "Not ready to submit: Add at least one date." in _messages(resp)
+        after = client.get(resp["Location"]).content.decode()
+        assert "phase: 3," in after
+        assert session.starts_at.strftime("%Y-%m-%dT%H:%M") in after
+        assert "goToField('class-dates')\">Add at least one date.</button>" in _still_missing(after)
+
+    def it_lands_on_the_photos_step_from_a_first_save_that_submits(instructor_fixture, client):
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:teach_class_create"), _full_payload(cat, action="submit", step="5"))
+        assert resp.status_code == 302
+        created = ClassOffering.objects.get(title="Round Trip")
+        assert created.status == Status.DRAFT
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": created.pk})
+        assert resp["Location"] == f"{edit}?step=2&missing=1"
+        assert any(m.startswith("Not ready to submit:") for m in _messages(resp))
+
+    def it_lands_the_admin_publish_on_the_first_unready_step(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            _admin_payload(
+                offering.category,
+                offering.instructor,
+                scheduling_model="fixed",
+                scheduling_type="single_session",
+                action="publish",
+                step="5",
+            ),
+        )
+        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        assert resp["Location"] == f"{edit}?step=2&missing=1"
+        html = client.get(resp["Location"]).content.decode()
+        assert "phase: 2," in html
+        notice = _still_missing(html)
+        assert "Not ready to publish yet." in notice and "Add one gallery photo." in notice
+
+    def it_shows_no_notice_on_a_plain_visit_to_an_unready_draft(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, gallery=0)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _still_missing(html) == ""
+
+    def it_shows_no_notice_when_the_class_became_ready_before_the_page_loaded(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
+        client.force_login(instructor_fixture.user)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=5&missing=1"
+        html = client.get(url).content.decode()
+        assert _still_missing(html) == ""
+        assert "phase: 5," in html
+
+
+def describe_the_admin_create_readiness_preflight():
+    def it_lands_on_the_first_unready_step_as_a_checklist_not_a_form_error(admin_user, client, db):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _admin_payload(cat, inst, action="publish", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "phase: 2," in html
+        assert "errorSteps: []," in html
+        assert "Some Things Need Fixing" not in html
+        assert "Not ready to publish:" not in html
+        notice = _still_missing(html)
+        assert "Still Missing" in notice
+        assert "Not ready to publish yet." in notice
+        assert "Add a hero photo." in notice and "Add one gallery photo." in notice
+        assert "Write a short description." not in notice
+        assert not ClassOffering.objects.filter(title="Round Trip").exists()
+
+    def it_keeps_every_typed_value_in_the_form(admin_user, client, db):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        client.force_login(admin_user)
+        resp = client.post(
+            reverse("classes:admin_class_create"),
+            _admin_payload(cat, inst, action="publish", step="5", price_cents="80"),
+        )
+        html = resp.content.decode()
+        assert 'value="Round Trip"' in html
+        assert _price_input_value(html) == "80"
+        assert "We will find a time together." in html
+
+    def it_saves_a_draft_for_an_unknown_action(admin_user, client, db):
+        # Only action=publish publishes; anything else is a draft save, like the teach composer.
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        client.force_login(admin_user)
+        resp = client.post(reverse("classes:admin_class_create"), _admin_payload(cat, inst, action="bogus", step="2"))
+        assert resp.status_code == 302
+        created = ClassOffering.objects.get(title="Round Trip")
+        assert created.status == Status.DRAFT
+        assert created.published_at is None
+        assert "Draft saved." in _messages(resp)
+
+    def it_saves_a_draft_when_the_action_is_missing(admin_user, client, db):
+        cat = CategoryFactory()
+        inst = InstructorFactory()
+        client.force_login(admin_user)
+        payload = _admin_payload(cat, inst, step="2")
+        payload.pop("action")
+        resp = client.post(reverse("classes:admin_class_create"), payload)
+        assert resp.status_code == 302
+        assert ClassOffering.objects.get(title="Round Trip").status == Status.DRAFT
+
+
+def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
+    def it_keeps_the_typed_work_on_screen_and_saves_nothing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        offering.status = Status.CANCELLED
+        offering.save(update_fields=["status"])
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", action="submit", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'value="Typed after the render"' in html
+        assert "Bring patience." in html
+        assert (
+            "This class was cancelled after you opened this page, so nothing here was saved. "
+            "Cancelled and archived classes can only be edited by an admin. "
+            "Copy anything you want to keep before you leave." in html
+        )
+        assert "Edit Class: Before" in html
+        assert "phase: 5," in html
+        assert "Some Things Need Fixing" not in html
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+        assert offering.status == Status.CANCELLED
+
+    def it_says_archived_for_an_archived_class(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.ARCHIVED, title="Before")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render"),
+        )
+        assert resp.status_code == 200
+        assert "This class was archived after you opened this page, so nothing here was saved." in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+
+
+def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():
+    # Only a draft can be refused, so only a draft shows the Still Missing notice: a bookmarked or
+    # Back navigated landing URL on a class since submitted or published says nothing.
+    def it_renders_no_notice_on_a_pending_class(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        html = client.get(url).content.decode()
+        assert _still_missing(html) == ""
+        assert "Not ready to submit yet." not in html
+        assert "phase: 2," in html
+
+    def it_renders_no_notice_on_a_published_class(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, gallery=0)
+        client.force_login(admin_user)
+        url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        html = client.get(url).content.decode()
+        assert _still_missing(html) == ""
+        assert "Not ready to publish yet." not in html
+
+    def it_still_renders_the_notice_on_a_draft(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        assert "Add one gallery photo." in _still_missing(client.get(url).content.decode())
+
+
+def describe_a_cancelled_class_post_that_also_has_field_errors():
+    def it_leads_with_the_nothing_saved_notice_above_the_error_summary(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED, title="Before")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", action="submit", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        notice_at = html.find("so nothing here was saved.")
+        errors_at = html.find("Some Things Need Fixing")
+        assert notice_at != -1 and errors_at != -1
+        assert notice_at < errors_at
+        offering.refresh_from_db()
+        assert offering.title == "Before"

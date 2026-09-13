@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from datetime import timedelta
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable, TypedDict, cast
@@ -64,7 +65,7 @@ from classes.emails import (
     send_registration_confirmation,
     send_waitlist_joined_confirmation,
 )
-from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, step_marks
+from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_summary, first_unready_step, step_marks
 from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
@@ -94,13 +95,14 @@ from classes.models import (
     Category,
     ClassApproval,
     ClassImage,
+    ClassNotReadyError,
     ClassOffering,
     ClassSettings,
     CmsActivity,
     DiscountCode,
+    ReadinessItem,
     Registration,
     RegistrationQuestion,
-    readiness_error_text,
     readiness_items,
 )
 from core.models import SiteConfiguration
@@ -1366,6 +1368,9 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
     base = (
         ClassOffering.objects.for_instructor(teaching_member)
         .with_lifecycle_inputs()
+        # The quick Submit button on every draft row is gated on readiness; the annotations
+        # keep that off the per-row path.
+        .with_readiness_inputs()
         .select_related("category__guild")
         # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
         .prefetch_related("approvals")
@@ -1398,7 +1403,9 @@ def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering |
             ends = request.POST.get(f"sessions-{i}-ends_at", "")
             pk = request.POST.get(f"sessions-{i}-id", "")
             delete = request.POST.get(f"sessions-{i}-DELETE", "")
-            if starts and ends:
+            # Either end kept: a half filled row is exactly what the failed save is reporting on,
+            # and dropping it here would erase the value the error is about.
+            if starts or ends:
                 sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
     elif offering is not None and offering.pk:
         for s in offering.sessions.order_by("starts_at"):
@@ -1426,6 +1433,39 @@ def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResp
     return redirect(url)
 
 
+def _unready_redirect(url_name: str, offering: ClassOffering, items: Iterable[ReadinessItem]) -> HttpResponse:
+    """Back to the composer on the first step still missing something, with the checklist showing.
+
+    A readiness refusal names things on steps 1 to 3, and the POST came from the Review step
+    (or from a list, with no step at all), so the landing step is read from the saved row,
+    not from the POST. ``missing=1`` tells the composer to render the Still Missing notice
+    on arrival; the toast alone dismisses itself before anyone has read it twice. ``items`` is
+    the checklist the refusal was computed from (:attr:`ClassNotReadyError.items`), so one
+    refusal reads readiness exactly once.
+    """
+    url = reverse(url_name, kwargs={"pk": offering.pk})
+    return redirect(f"{url}?step={first_unready_step(items)}&missing=1")
+
+
+def _missing_context(items: Iterable[ReadinessItem], verb: str) -> dict[str, Any]:
+    """The Still Missing notice: the failing readiness items and the verb (submit or publish) they block."""
+    return {"missing_items": [item for item in items if not item.ok], "missing_verb": verb}
+
+
+def _saved_row(form: Any, offering: ClassOffering | None) -> ClassOffering | None:
+    """The row the composer chrome and previews read: re-read from the database after a failed POST.
+
+    A bound ModelForm writes its raw values onto ``instance`` while validating, valid or not
+    (``construct_instance`` runs from ``_post_clean``), so after a failed POST the in-memory
+    row carries whatever was typed: a blank price, an empty title. The card frames, the
+    readiness checklist, and the heading must show what is SAVED, so a bound form gets a
+    fresh row. Unbound (a GET) and unsaved (create mode) rows pass through untouched.
+    """
+    if offering is None or not offering.pk or not form.is_bound:
+        return offering
+    return ClassOffering.objects.prefetch_related("gallery_images").get(pk=offering.pk)
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -1440,11 +1480,20 @@ def _composer_context(
     marks, and the step 5 checklist are absent until the class has a pk; the template guards
     on these context keys, never on ``offering``. A failed POST lands on the first step with
     an error; otherwise the step comes from the request.
+
+    ``?missing=1`` (set by :func:`_unready_redirect`) renders the Still Missing notice: the
+    failing readiness items as a checklist, distinct from field errors. Pass ``offering``
+    through :func:`_saved_row` first so everything here reads the saved state after a failed POST.
     """
     saved = offering if offering is not None and offering.pk else None
     summary = error_summary(form, formsets)
     error_step_numbers = [step.number for step, _labels in summary]
     readiness = saved.readiness() if saved is not None else None
+    verb = "publish" if is_admin else "submit"
+    # Only a draft can be refused, so only a draft shows the notice: a bookmarked or Back
+    # navigated ?missing=1 on a class since submitted or published says nothing.
+    is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
+    missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
         cancel_name = "classes:admin_class_detail" if is_admin else "classes:teach_class_detail"
         cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
@@ -1479,6 +1528,7 @@ def _composer_context(
         # The Share & Print card shows the flyer button and QR downloads only when this
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
+        **_missing_context(missing, verb),
     }
 
 
@@ -1491,7 +1541,10 @@ def _render_teach_class_form(
     mode: str,
     offering: ClassOffering | None = None,
     faq_formset: Any = None,
+    notice: str | None = None,
 ) -> HttpResponse:
+    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error."""
+    offering = _saved_row(form, offering)
     saved = offering if offering is not None and offering.pk else None
     return render(
         request,
@@ -1505,6 +1558,7 @@ def _render_teach_class_form(
             "initial_forms": formset.initial_form_count() if hasattr(formset, "initial_form_count") else 0,
             "mode": mode,
             "faq_formset": faq_formset,
+            "composer_notice": notice,
             **_composer_context(
                 request,
                 form=form,
@@ -1537,12 +1591,13 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
             if submit_now:
                 try:
                     offering.submit_for_review()
-                except ValidationError as exc:
+                except ClassNotReadyError as exc:
+                    # The draft is saved; the refusal lands where the gap is, not on step 1.
                     messages.error(request, exc.messages[0])
-                else:
-                    messages.success(request, _submitted_message(offering))
-                    if offering.needs_photo_nudge:
-                        messages.info(request, _PHOTO_NUDGE_MESSAGE)
+                    return _unready_redirect("classes:teach_class_edit", offering, exc.items)
+                messages.success(request, _submitted_message(offering))
+                if offering.needs_photo_nudge:
+                    messages.info(request, _PHOTO_NUDGE_MESSAGE)
             else:
                 messages.success(request, "Draft saved.")
             return _composer_redirect("classes:teach_class_edit", offering.pk, request)
@@ -1563,6 +1618,8 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}:
+        if request.method == "POST":
+            return _render_closed_class_post(request, offering, teaching_member)
         messages.info(request, "Cancelled and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
     if offering.status == ClassOffering.Status.PUBLISHED:
@@ -1581,12 +1638,13 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             try:
                 offering.submit_for_review()
-            except ValidationError as exc:
+            except ClassNotReadyError as exc:
+                # Everything typed is saved; the refusal lands where the gap is, not on the POST's step.
                 messages.error(request, exc.messages[0])
-            else:
-                messages.success(request, _submitted_message(offering))
-                if offering.needs_photo_nudge:
-                    messages.info(request, _PHOTO_NUDGE_MESSAGE)
+                return _unready_redirect("classes:teach_class_edit", offering, exc.items)
+            messages.success(request, _submitted_message(offering))
+            if offering.needs_photo_nudge:
+                messages.info(request, _PHOTO_NUDGE_MESSAGE)
         elif offering.status == ClassOffering.Status.DRAFT:
             messages.success(request, "Draft saved.")
         else:
@@ -1600,6 +1658,34 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         mode="edit",
         offering=offering,
         faq_formset=faq_formset,
+    )
+
+
+_CLOSED_WHILE_EDITING = (
+    "This class was {status} after you opened this page, so nothing here was saved. "
+    "Cancelled and archived classes can only be edited by an admin. "
+    "Copy anything you want to keep before you leave."
+)
+
+
+def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
+    """A composer POST to a class cancelled or archived since the page was rendered.
+
+    Nothing is saved. The page comes back with every typed value still in its field and a
+    notice at the top, so the work can be copied out instead of vanishing on a redirect.
+    """
+    form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
+    formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
+    faq_formset = build_class_faq_formset(request.POST, offering)
+    return _render_teach_class_form(
+        request,
+        form=form,
+        formset=formset,
+        teaching_member=teaching_member,
+        mode="edit",
+        offering=offering,
+        faq_formset=faq_formset,
+        notice=_CLOSED_WHILE_EDITING.format(status=offering.get_status_display().lower()),
     )
 
 
@@ -1653,25 +1739,40 @@ def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+@require_POST
 def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Transition a draft to 'pending review'."""
+    """The quick Submit for review on Manage My Classes and the class page: DRAFT to PENDING.
+
+    A refusal lands in the composer on the first step still missing something, with the
+    checklist showing. A class that is no longer a draft (a double click, say) lands on its
+    class page with a message; nothing here lands silently on the list.
+    """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
-    if request.method == "POST" and offering.status == ClassOffering.Status.DRAFT:
-        try:
-            offering.submit_for_review()
-        except ValidationError as exc:
-            messages.error(request, exc.messages[0])
-            return redirect("classes:teach_class_edit", pk=offering.pk)
-        messages.success(request, _submitted_message(offering))
-        if offering.needs_photo_nudge:
-            messages.info(request, _PHOTO_NUDGE_MESSAGE)
+    if offering.status != ClassOffering.Status.DRAFT:
+        messages.info(request, _already_submitted_message(offering))
+        return redirect("classes:teach_class_detail", pk=offering.pk)
+    try:
+        offering.submit_for_review()
+    except ClassNotReadyError as exc:
+        messages.error(request, exc.messages[0])
+        return _unready_redirect("classes:teach_class_edit", offering, exc.items)
+    messages.success(request, _submitted_message(offering))
+    if offering.needs_photo_nudge:
+        messages.info(request, _PHOTO_NUDGE_MESSAGE)
     return redirect("classes:teach_dashboard")
 
 
 def _submitted_message(offering: ClassOffering) -> str:
     """The honest submit message, naming who actually reviews first (create, edit, and submit paths)."""
     return f"Submitted “{offering.title}” for review by {offering.first_gate_label}."
+
+
+def _already_submitted_message(offering: ClassOffering) -> str:
+    """Why a quick submit did nothing: the class is past draft already (a double click lands here)."""
+    if offering.status == ClassOffering.Status.PENDING:
+        return "This class has already been submitted and is waiting for review."
+    return f"Only a draft can be submitted for review. This class is {offering.get_status_display().lower()}."
 
 
 @teaching_member_required
@@ -2779,21 +2880,23 @@ def _discard_half_created_offering(offering: ClassOffering) -> None:
 def admin_class_create(request: HttpRequest) -> HttpResponse:
     """The admin composer, create mode.
 
-    ``action=save`` keeps the class as a draft (the composer's Save Draft). Any other POST is
-    the direct publish path: readiness is checked from the validated form BEFORE anything
-    is written, so an unready class is refused without a hero file, gallery files, or
-    activity rows ever landing. Only the gallery cap (checked inside ``add_gallery_images``)
-    can still refuse after the save; that path rolls everything back.
+    ``action=publish`` is the direct publish path: readiness is checked from the validated
+    form BEFORE anything is written, so an unready class is refused without a hero file,
+    gallery files, or activity rows ever landing. Every other POST keeps the class as a
+    draft (the composer's Save Draft). A readiness gap is not a form error: the form
+    validated, so the composer re-renders on the first step owing an item with the Still
+    Missing checklist, never a non field error on step 1. Only the gallery cap (checked
+    inside ``add_gallery_images``) can still refuse after the save; that path rolls
+    everything back.
     """
     form = ClassOfferingForm(request.POST or None, request.FILES or None)
     session_formset = ClassSessionFormSet(request.POST or None, prefix="sessions")
+    preflight: list[ReadinessItem] = []
     if request.method == "POST" and form.is_valid() and session_formset.is_valid():
         gallery_files = request.FILES.getlist("gallery_images")
-        publish_now = request.POST.get("action") != "save"
+        publish_now = request.POST.get("action") == "publish"
         preflight = _create_form_readiness(form, session_formset, gallery_files) if publish_now else []
-        if not all(item.ok for item in preflight):
-            form.add_error(None, readiness_error_text(preflight, "publish"))
-        else:
+        if all(item.ok for item in preflight):
             offering = form.save(commit=False)
             offering.status = ClassOffering.Status.DRAFT
             offering.save()
@@ -2811,20 +2914,19 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
                 messages.success(request, f"{offering.title} is published." if publish_now else "Draft saved.")
                 return _composer_redirect("classes:admin_class_edit", offering.pk, request)
 
-    return render(
-        request,
-        "classes/admin/class_form.html",
-        {
-            "active_tab": "classes",
-            "form": form,
-            "sessions_json": _sessions_json(request, session_formset, None),
-            "initial_forms": session_formset.initial_form_count(),
-            "mode": "create",
-            **_composer_context(
-                request, form=form, formsets={"sessions": session_formset, "faq": None}, offering=None, is_admin=True
-            ),
-        },
-    )
+    context: dict[str, Any] = {
+        "active_tab": "classes",
+        "form": form,
+        "sessions_json": _sessions_json(request, session_formset, None),
+        "initial_forms": session_formset.initial_form_count(),
+        "mode": "create",
+        **_composer_context(
+            request, form=form, formsets={"sessions": session_formset, "faq": None}, offering=None, is_admin=True
+        ),
+    }
+    if not all(item.ok for item in preflight):
+        context.update(_missing_context(preflight, "publish"), initial_phase=first_unready_step(preflight))
+    return render(request, "classes/admin/class_form.html", context)
 
 
 def class_permalink(request: HttpRequest, pk: int) -> HttpResponse:
@@ -2887,9 +2989,10 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
     """The admin composer, edit mode.
 
     ``action=publish`` saves and then publishes a draft straight from the composer (the
-    admin's step 5 action); an unready class stays a draft and the reason is shown. Every
-    other POST saves and returns to the composer when it said which step it was on, else to
-    the class page, which is where the old single page form always landed.
+    admin's step 5 action); an unready class stays a draft and lands on the first step
+    still owing an item, with the reason shown. Every other POST saves and returns to the
+    composer when it said which step it was on, else to the class page, which is where the
+    old single page form always landed.
     """
     offering = get_object_or_404(ClassOffering.objects.prefetch_related("gallery_images", "sessions"), pk=pk)
     form = ClassOfferingForm(request.POST or None, request.FILES or None, instance=offering)
@@ -2908,9 +3011,9 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 return _composer_redirect("classes:admin_class_edit", offering.pk, request)
             try:
                 offering.publish(cast("User", request.user))
-            except ValidationError as exc:
+            except ClassNotReadyError as exc:
                 messages.error(request, exc.messages[0])
-                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+                return _unready_redirect("classes:admin_class_edit", offering, exc.items)
             messages.success(request, f"{offering.title} is published.")
             return redirect("classes:admin_class_detail", pk=offering.pk)
         messages.success(request, "Class updated.")
@@ -2918,13 +3021,14 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             return _composer_redirect("classes:admin_class_edit", offering.pk, request)
         return redirect("classes:admin_class_detail", pk=offering.pk)
 
+    shown = _saved_row(form, offering)
     return render(
         request,
         "classes/admin/class_form.html",
         {
             "active_tab": "classes",
             "form": form,
-            "sessions_json": _sessions_json(request, session_formset, offering),
+            "sessions_json": _sessions_json(request, session_formset, shown),
             "initial_forms": session_formset.initial_form_count(),
             "mode": "edit",
             "faq_formset": faq_formset,
@@ -2932,7 +3036,7 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 request,
                 form=form,
                 formsets={"sessions": session_formset, "faq": faq_formset},
-                offering=offering,
+                offering=shown,
                 is_admin=True,
             ),
         },

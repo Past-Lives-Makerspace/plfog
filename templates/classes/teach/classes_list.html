@@ -33,10 +33,20 @@
                     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_detail' pk=offering.pk %}">Open</a>
                 {% endif %}
                 {% if offering.status == 'draft' %}
+                    {% with blocker=offering.submit_blocker %}
+                    {% if blocker %}
+                        {# Gated like the composer's own Submit, with the reason written beside it: a disabled button cannot open a hover bubble for keyboard or phone users. #}
+                        <span class="pl-submit-gate pl-submit-gate--end">
+                            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-describedby="submit-gate-{{ offering.pk }}">Submit for review</button>
+                            <span id="submit-gate-{{ offering.pk }}" class="pl-field-hint">{{ blocker }}</span>
+                        </span>
+                    {% else %}
                     <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
                         {% csrf_token %}
                         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Submit for review</button>
                     </form>
+                    {% endif %}
+                    {% endwith %}
                 {% endif %}
                 {% if offering.status == 'pending' %}
                     {% url 'classes:teach_class_withdraw' pk=offering.pk as withdraw_url %}

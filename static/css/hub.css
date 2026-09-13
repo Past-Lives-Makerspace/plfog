@@ -5205,6 +5205,23 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-family: var(--font-body);
     font-size: inherit;
 }
+/* The Still Missing notice: a refused submit or publish is a checklist, not a form error, so it
+   wears the review note gold instead of the error red. Above the steps, so it shows on the step
+   the composer lands on (the first one owing an item). */
+.pl-composer-missing {
+    border: 1px solid var(--color-tuscan-yellow);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    background: rgba(238, 180, 75, 0.08);
+}
+.pl-composer-missing__title {
+    font-weight: 700;
+    margin: 0 0 0.25rem;
+}
+.pl-composer-missing__lead {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
 /* The one action bar, outside every step, sticky. Opaque so page content never shows through. */
 .pl-composer-bar {
     position: sticky;
@@ -5234,6 +5251,19 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font: inherit;
     text-align: left;
     text-decoration: underline;
+}
+/* The quick Submit on Manage My Classes and the class page while a draft is unready: the reason is
+   written beside the disabled button, never only in a hover bubble a disabled control cannot open. */
+.pl-submit-gate {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    max-width: 18rem;
+}
+.pl-submit-gate--end {
+    align-items: flex-end;
+    text-align: right;
 }
 /* The sale modal body (classes/_components/sale_form.html). */
 .pl-sale-form__intro { margin: 0 0 1rem; }

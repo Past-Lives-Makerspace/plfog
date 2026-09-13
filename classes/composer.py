@@ -170,3 +170,19 @@ def step_marks(readiness: Iterable[Any]) -> dict[int, bool]:
         if step.readiness_labels:
             marks[step.number] = all(ok_by_label[label] for label in step.readiness_labels)
     return marks
+
+
+def first_unready_step(readiness: Iterable[Any]) -> int:
+    """The lowest step still owing a readiness item, for landing a refused submit where the gap is.
+
+    A readiness refusal ("Not ready to submit: Add a hero photo.") names things on steps 1 to
+    3, never the step the POST came from: the user pressed Submit from the Review step, or from
+    a list with no step at all. Landing here puts the tab marks and the checklist on screen
+    next to what is missing. Every item ok (the class became ready between the refusal and
+    the redirect) lands on the Review step, where the full checklist lives.
+    """
+    marks = step_marks(readiness)
+    for step in COMPOSER_STEPS:
+        if step.number in marks and not marks[step.number]:
+            return step.number
+    return STEP_COUNT

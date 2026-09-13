@@ -66,7 +66,10 @@ def _upcoming_published(**kwargs) -> ClassOffering:
 
 
 def _payload(cat, inst, **extra) -> dict:
+    """The admin create POST on the direct publish path. Only ``action=publish`` publishes; every other
+    action is a draft save (issue #368 item 2.5), so the publish path specs say so explicitly."""
     payload = {
+        "action": "publish",
         "title": "Direct Publish",
         "category": cat.pk,
         "instructor": inst.pk,
@@ -612,9 +615,12 @@ def describe_admin_class_create_publish_path():
             ),
         )
         assert resp.status_code == 200
-        assert "Not ready to publish: Write a short description. Say how students pick a time." in (
-            resp.content.decode()
-        )
+        # The refusal is the Still Missing checklist on the composer, not a form error (issue #368 item 2.3).
+        html = resp.content.decode()
+        assert "Still Missing" in html and "Not ready to publish yet." in html
+        assert "goToField('id_description')\">Write a short description.</button>" in html
+        assert "goToField('class-dates')\">Say how students pick a time.</button>" in html
+        assert "Some Things Need Fixing" not in html
         assert not ClassOffering.objects.filter(title="Direct Publish").exists()
         assert _stored_class_images() == files_before
         assert CmsActivity.objects.count() == activity_before
@@ -642,7 +648,9 @@ def describe_admin_class_create_publish_path():
             ),
         )
         assert resp.status_code == 200
-        assert "Not ready to publish: Add at least one date." in resp.content.decode()
+        html = resp.content.decode()
+        assert "Still Missing" in html and "Not ready to publish yet." in html
+        assert "goToField('class-dates')\">Add at least one date.</button>" in html
         assert not ClassOffering.objects.filter(title="Direct Publish").exists()
 
     def it_rolls_back_files_and_activity_when_the_gallery_cap_refuses_after_the_save(admin_user, client, db):

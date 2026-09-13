@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
@@ -86,12 +86,14 @@ class CentsAsDollarsField(forms.DecimalField):
         super().__init__(**kwargs)
 
     def prepare_value(self, value: int | str | None) -> Decimal | int | str | None:
-        if value is None or value == "":
-            return value
-        try:
-            return Decimal(int(value)) / 100
-        except (ValueError, TypeError, InvalidOperation):
-            return value
+        """Cents from the model render as dollars; anything else renders exactly as it came in.
+
+        A bound field hands the raw POST string back through here on a failed save, and that
+        string is already dollars: a typed "80" must re-render as 80, not as 0.8.
+        """
+        if isinstance(value, int):
+            return Decimal(value) / 100
+        return value
 
     def clean(self, value: str) -> int | None:
         dollars = super().clean(value)
