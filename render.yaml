@@ -21,6 +21,12 @@ services:
       - key: DJANGO_ALLOWED_HOSTS
         sync: false
         previewValue: ".onrender.com"
+      # Declared next to DJANGO_ALLOWED_HOSTS on purpose: core.E002 stops a deploy whose
+      # PUBLIC_HOSTS entry is not in ALLOWED_HOSTS, and the settings default is the
+      # production host. A preview serves no public host, so it gets an empty list.
+      - key: PUBLIC_HOSTS
+        sync: false
+        previewValue: ""
       - key: CSRF_TRUSTED_ORIGINS
         sync: false
         previewValue: "https://*.onrender.com"
