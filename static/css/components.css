@@ -678,6 +678,15 @@
     box-shadow: 0 0 0 3px rgba(238, 180, 75, 0.15);
 }
 
+/* A control with a reason under it: the server's field errors (Django stamps aria-invalid)
+   and the composer's per step check (static/js/composer_validation.js) both land here, in
+   the same red as .pl-field-error. Focus keeps its gold ring; the border says what is wrong. */
+.pl-form-group input[aria-invalid="true"],
+.pl-form-group select[aria-invalid="true"],
+.pl-form-group textarea[aria-invalid="true"] {
+    border-color: #f87171;
+}
+
 /* Custom dropdown chevron — replaces the native arrow that crowds the right edge. */
 .pl-form-group select {
     appearance: none;
