@@ -13,6 +13,10 @@ Parameters:
               when one page renders this card twice (the wiki reading page renders it at
               desktop width and again inside the phone Details disclosure), because two
               elements sharing an id break the <label for> association.
+  locked_note — optional. When set, the SVG/PNG download links are NOT rendered and this
+              one sentence takes their place (a class still in review: its downloads and
+              flyer unlock on publication). Callers pass the sentence, not a flag, so the
+              wording stays with the model that owns the rule.
 
 The copy input is readonly and has NO `name`, and every control is a type="button" button
 or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the event edit form)
@@ -33,10 +37,14 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
               @click="copy()" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
     </div>
   </div>
+  {% if locked_note %}
+  <p class="hub-text-muted pl-qr-share__locked">{{ locked_note }}</p>
+  {% else %}
   <div class="pl-qr-share__actions">
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}">Download QR (SVG)</a>
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}">Download QR (PNG)</a>
   </div>
+  {% endif %}
 </div>
 <script>
   // Copy that works in both local http and prod https (clipboard API needs a secure

@@ -36,6 +36,11 @@
     </dl>
 </section>
 
+{# Share & Print: a live class is where the flyer and QR unlock, and this is the only teach page a live class lands on. #}
+<div class="pl-live-edit-share">
+    {% include "classes/_components/class_qr_share.html" %}
+</div>
+
 <form method="post">
     {% csrf_token %}
     {% if form.non_field_errors %}

@@ -1,17 +1,28 @@
 {% comment %}
-Share & Print card for a class — thin wrapper over the shared components/qr_share_card.html.
-Expects `offering` (saved). The link + QR both use the slug-proof permalink (offering.qr_url),
-so they always match and a printed code survives a slug change.
+Share & Print card for a class: a thin wrapper over the shared components/qr_share_card.html.
+Expects `offering` (saved) and `can_print_marketing` (from the view: published, or an admin
+looking at a draft). The link + QR both use the slug-proof permalink (offering.qr_url), so
+they always match and a printed code survives a slug change.
 
-The two-state hint (published vs not-yet-published) is computed HERE and passed to the shared
-card as a single string, since the shared card takes one pre-computed hint.
+The hint is computed HERE and passed to the shared card as one string, since the shared card
+takes one pre-computed hint. Before publication the flyer button and the QR downloads are
+absent, not disabled: the card shows offering.MARKETING_LOCKED_REASON in their place (the
+shared card's locked_note), and the two views refuse their URLs with the same sentence, so a
+guessed link learns the same thing. The tour key sits on the wrapper, not the button, so the
+"Print a Flyer or QR" tour stop still has a target while the button is absent.
 {% endcomment %}
 {% url 'classes:class_qr' offering.pk 'svg' as class_qr_svg_url %}
 {% url 'classes:class_qr' offering.pk 'png' as class_qr_png_url %}
-{% if offering.status == 'published' %}
-  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page — print it on signage, add it to a flyer, or hand it out." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+<div class="pl-qr-share-block" data-help-key="teach.class-qr">
+{% if offering.marketing_unlocked %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page. Print it on signage, add it to a flyer, or hand it out." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+{% elif can_print_marketing %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
 {% else %}
-  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it's published. You can print it now — the link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url locked_note=offering.MARKETING_LOCKED_REASON %}
 {% endif %}
-{# A print-ready one-page flyer (hero photo + QR) — opens in its own tab for browser Print → Save as PDF. #}
-<a class="hub-btn hub-btn--sm hub-btn--primary pl-qr-share__flyer" data-help-key="teach.class-qr" href="{% url 'classes:class_flyer' offering.pk %}" target="_blank" rel="noopener">Open printable flyer</a>
+{% if can_print_marketing %}
+{# A print-ready one-page flyer (hero photo + QR) that opens in its own tab for browser Print, then Save as PDF. #}
+<a class="hub-btn hub-btn--sm hub-btn--primary pl-qr-share__flyer" href="{% url 'classes:class_flyer' offering.pk %}" target="_blank" rel="noopener">Open printable flyer</a>
+{% endif %}
+</div>

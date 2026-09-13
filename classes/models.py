@@ -1009,6 +1009,21 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         return render_png(self.qr_url)
 
+    MARKETING_LOCKED_REASON = "The printable flyer and QR downloads unlock once this class is approved and published."
+
+    @property
+    def marketing_unlocked(self) -> bool:
+        """True once the class may be marketed in print: the flyer and the QR downloads.
+
+        Published is the end of the review pipeline (the guild lead and admin gates both
+        cleared), so a flyer never advertises a class that could still be changed or
+        refused. :attr:`MARKETING_LOCKED_REASON` is the one sentence the refused views and
+        the share card both show, so the explanation cannot drift between them. Admins may
+        still open a draft's flyer; that override is a request concern and lives in
+        ``membership.permissions.can_print_class_marketing``.
+        """
+        return self.status == self.Status.PUBLISHED
+
     @property
     def welcome_email_ready(self) -> bool:
         """True when the instructor welcome email is enabled and has subject + body.
