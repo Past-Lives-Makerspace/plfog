@@ -24,7 +24,9 @@
  *
  * A refusal renders the repo's field error markup (components/form_field.html)
  * right under the control, with aria-invalid and aria-describedby on the
- * control, and clears the moment the control validates again. A control inside
+ * control, and clears the moment the control validates again. A message the
+ * server already rendered under that same control is taken down first, so one
+ * reason is on screen at a time and one aria-invalid owns it. A control inside
  * a collapsed section asks that section to open first (composer-reveal-field,
  * answered by collapsible_field.html), and focus waits two frames because
  * Alpine reveals an x-show pane on the next animation frame.
@@ -108,8 +110,26 @@
         window.requestAnimationFrame(function () { window.requestAnimationFrame(callback); });
     }
 
+    // A bounced save renders Django's own .pl-field-errors under the control
+    // (components/form_field.html, and the two hand written field templates that
+    // copy it) and adds an aria-describedby token of its own, `<id>_error`. The
+    // live reason replaces that rather than stacking above it: two lists under
+    // one control is two messages fighting over one aria-invalid, and clear()
+    // would then take the flag off while the server's message stayed on screen.
+    // Scope is the anchor's own wrapper, which holds exactly one field. The next
+    // server render brings the server's message back, as it always did.
+    function dropServerErrors(el) {
+        var parent = anchorFor(el).parentElement;
+        if (!parent) return;
+        Array.prototype.forEach.call(Array.prototype.slice.call(parent.children), function (node) {
+            if (node.classList.contains("pl-field-errors") && !node.hasAttribute(LIST_ATTR)) node.remove();
+        });
+        removeToken(el, "aria-describedby", el.id + "_error");
+    }
+
     function flag(el) {
         var id = errorId(el);
+        dropServerErrors(el);
         var list = listFor(el);
         if (!list) {
             list = document.createElement("ul");

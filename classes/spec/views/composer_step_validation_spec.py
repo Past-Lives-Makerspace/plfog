@@ -273,6 +273,24 @@ def describe_what_next_never_blocks_on():
             discount = _by_name(controls[3], "member_discount_pct")
             assert discount.required and discount.attrs.get("min") == "0" and "max" not in discount.attrs, mode
 
+    def it_never_refuses_a_youtube_link_typed_without_a_scheme(composer):
+        # <input type="url"> demands a scheme; the server does not. forms.URLField normalises
+        # "youtube.com/watch?v=…" to https (assume_scheme) and _validate_youtube_url takes what
+        # it is handed. The rendered control is the client's whole rule book, so a URL input
+        # would make Next refuse a link the very next save accepts. inputmode keeps the URL
+        # keyboard on a phone; dropping the type is what stops the browser gating it.
+        typed = "youtube.com/watch?v=dQw4w9WgXcQ"
+        for mode, html in composer.pages.items():
+            video = _by_name(_parse(html).controls[2], "video_url")
+            assert video.kind == "text", (mode, video.attrs.get("type"))
+            assert video.attrs.get("inputmode") == "url", mode
+            assert not video.required, mode
+        # The other side of the same rule: the server still takes that exact string.
+        form = composer.form_class(data={"video_url": typed})
+        form.is_valid()  # the rest of the form is empty on purpose; this field is the subject
+        assert "video_url" not in form.errors
+        assert form.cleaned_data["video_url"] == f"https://{typed}"
+
     def it_never_ties_the_private_name_to_the_private_toggle(admin_user, client):
         # The server does not either: private_for_name is blank=True with no clean() rule behind
         # is_private, so a private class with no name saves. The client has nothing to mirror.

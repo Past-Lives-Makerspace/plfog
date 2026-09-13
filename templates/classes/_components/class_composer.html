@@ -109,6 +109,7 @@ Do not merge them.
          this.$nextTick(() => window.plComposerValidation.flag(control));
          return false;
        },
+       {# check is undefined for the few hundred ms a boosted arrival takes to run the body script; Next advances during that window and the server is still the gate on an invalid save. #}
        validateStep(n) {
          const check = window.plComposerValidation;
          const found = check ? check.firstInvalidStep(this.$root, n) : null;

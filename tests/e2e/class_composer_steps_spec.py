@@ -19,6 +19,7 @@ from django.urls import reverse
 from playwright.sync_api import expect
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
+from classes.forms import PRICE_FLOOR_MESSAGE
 from classes.models import ClassOffering
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
@@ -63,6 +64,13 @@ def _tab(page, n: int):
 
 def _live_error(page, control_id: str):
     return page.locator(f'[data-live-error="{control_id}-error"] .pl-field-error')
+
+
+def _errors_under(page, control_id: str):
+    """Every field error under that control, whoever wrote it: Django renders its list as a
+    sibling of the input and the live one is inserted as a sibling too, so one selector sees
+    both and a count of two is the stacking bug."""
+    return page.locator(f"#{control_id} ~ .pl-field-errors .pl-field-error")
 
 
 def _open_create(page, live_server) -> None:
@@ -283,3 +291,39 @@ def describe_formset_rows():
         expect(answer).to_have_attribute("aria-invalid", "true")
         expect(answer.locator("xpath=following-sibling::ul[1]/li")).to_have_text(REQUIRED)
         assert offering.faqs.count() == 0
+
+
+def describe_a_server_message_and_a_live_one():
+    def it_keeps_one_reason_under_the_control_instead_of_stacking_them(live_server, page, login_via_code):
+        # The $1.00 floor is a server rule with no rendered attribute behind it, so 50c passes
+        # the client and comes back as Django's own message under the price. Clearing the field
+        # and pressing Next replaces that message rather than inserting a second list above it:
+        # two lists is two reasons fighting over one aria-invalid, and clearing the live one
+        # would drop the flag while the server's text stayed on screen.
+        offering = _seed_ready_draft(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        page.locator("#id_price_cents").fill("0.5")
+
+        page.locator(SAVE_DRAFT).click()
+
+        expect(page.locator(".pl-composer-errors")).to_be_visible()
+        expect(_step(page, 1)).to_be_visible()
+        expect(_errors_under(page, "id_price_cents")).to_have_text([PRICE_FLOOR_MESSAGE])
+        expect(page.locator("#id_price_cents")).to_have_attribute("aria-invalid", "true")
+
+        page.locator("#id_price_cents").fill("")
+        page.locator(NEXT).click()
+        _settle(page)
+
+        _expect_refused_on(page, 1, "id_price_cents")
+        expect(_errors_under(page, "id_price_cents")).to_have_text([REQUIRED])
+        # Django's own describedby token went with its message; only the live one is left.
+        expect(page.locator("#id_price_cents")).not_to_have_attribute(
+            "aria-describedby", re.compile(r"\bid_price_cents_error\b")
+        )
+
+        page.locator("#id_price_cents").fill("80")
+
+        _expect_clean(page, "id_price_cents")
+        expect(_errors_under(page, "id_price_cents")).to_have_count(0)
