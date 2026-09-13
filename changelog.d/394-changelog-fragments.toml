@@ -1,0 +1,5 @@
+# The change that created this directory. Internal: the version and changelog moved out of
+# plfog/version.py, which members will never see. Announcing nothing is the correct outcome,
+# and it took no judgement call to arrive at — see changelog.d/README.md.
+bump = "patch"
+audience = "internal"

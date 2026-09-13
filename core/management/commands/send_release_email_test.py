@@ -27,7 +27,10 @@ class Command(BaseCommand):
             "--lines",
             type=str,
             default="",
-            help="Comma-separated MAJOR.MINOR lines to span, e.g. 0.20,0.21. Default: the current line of VERSION.",
+            help=(
+                "Comma-separated MAJOR.MINOR lines of ALREADY-SWEPT releases to span, e.g. 0.20,0.21. "
+                "Default: everything shipped since the last sweep (changelog.d/)."
+            ),
         )
 
     def handle(self, *args: Any, **options: Any) -> None:

@@ -8,7 +8,10 @@
             {% for entry in changelog %}
             <div class="changelog-entry">
                 <div class="changelog-entry__header">
-                    <span class="changelog-entry__version">v{{ entry.version }}</span>
+                    {# Only swept history carries a version number; a changelog.d/ entry has a
+                       date and no number, so the badge is omitted rather than rendering a bare "v".
+                       See plfog/changelog.py for why a fragment cannot know its own release number. #}
+                    {% if entry.version %}<span class="changelog-entry__version">v{{ entry.version }}</span>{% endif %}
                     <span class="changelog-entry__date">{{ entry.date }}</span>
                 </div>
                 <h3 class="changelog-entry__title">{{ entry.title }}</h3>

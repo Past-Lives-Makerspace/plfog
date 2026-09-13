@@ -1,39 +1,67 @@
 name: Release
 
+# Tags the release and announces it to Discord, from one plan, on one trigger.
+#
+# This used to be two workflows. `release.yml` read the VERSION literal and pushed a tag;
+# `discord-notify.yml` re-read the same literal, filtered CHANGELOG for entries stamped at it,
+# and ran `release_guard.py` to fail a push that edited plfog/version.py without moving the
+# literal. All of that machinery existed to defend a hand-written number against the PRs
+# editing it. There is no number to defend now: `changelog.d/` holds one fragment per change,
+# the version is folded from them (plfog/changelog.py), and what gets announced is the set of
+# fragments THIS PUSH ADDED rather than whatever matches a string.
+#
+# Consequences worth knowing:
+#   - Editing a fragment that already shipped re-announces nothing. It is not an added file.
+#   - A release carrying only `audience = "internal"` fragments tags and announces nothing,
+#     without anyone deciding to withhold an entry.
+#   - A push that adds no fragment moves no version, so the tag already exists and this is a
+#     no-op with a warning. The pull-request check (ci.yml) is where that is caught, before
+#     Render has deployed anything.
+#   - A manual run re-announces the newest member-facing fragment. That is the escape hatch
+#     for a post that failed to send. Look before pulling it: a Discord post cannot be unsent.
+
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  tag:
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
+          # Full history, so the plan can diff against `github.event.before` — the tip of main
+          # before the push. A shallow clone only reaches HEAD^, and a rebase merge pushes every
+          # commit of the PR at once, so HEAD^ is a commit from inside the PR.
           fetch-depth: 0
 
-      - name: Read version
-        id: version
-        run: |
-          VERSION=$(python -c "import sys; sys.path.insert(0, '.'); from plfog.version import VERSION; print(VERSION)")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
-      - name: Check if tag already exists
-        id: tag_check
-        run: |
-          if git ls-remote --tags origin "refs/tags/v${{ steps.version.outputs.version }}" | grep -q .; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Plan the release
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: python .github/scripts/release_plan.py
 
       - name: Create tag
-        if: steps.tag_check.outputs.exists == 'false'
+        if: steps.plan.outputs.tag_exists == 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.plan.outputs.tag }}"
+          git push origin "${{ steps.plan.outputs.tag }}"
+
+      - name: Post release announcement to Discord
+        if: steps.plan.outputs.announce == 'true'
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ANNOUNCE_PATH: ${{ steps.plan.outputs.announce_path }}
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: python .github/scripts/discord_release_notify.py

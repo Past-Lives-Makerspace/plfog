@@ -3,9 +3,11 @@
 The release email is *derived data* — no DB model. It is assembled from three
 sources:
 
-- ``plfog/version.py::CHANGELOG`` — the structured feature list (title + bullets)
-  for the current ``MAJOR.MINOR`` release line. Each entry may name an optional
-  ``screenshot`` slug pointing at a :class:`FeaturePage`.
+- ``plfog/version.py::CHANGELOG`` — the structured feature list (title + bullets).
+  The default scope is the current batch: everything in ``changelog.d/`` that has not
+  been swept into ``changelog/history.json`` yet (:func:`current_release_entries`).
+  ``--lines 0.20,0.21`` reaches back into already-swept release lines instead. Each
+  entry may name an optional ``screenshot`` slug pointing at a :class:`FeaturePage`.
 - :data:`FEATURE_PAGES` — the curated registry of member-hub pages we screenshot
   for release emails. It drives both the capture harness (what to shoot) and the
   composer's per-card screenshot ``<select>`` (what an admin can pick).
@@ -194,22 +196,39 @@ def _minor(version: str) -> str:
 
 
 def line_entries(lines: list[str]) -> list[dict[str, str | list[str]]]:
-    """CHANGELOG entries whose ``MAJOR.MINOR`` line is in ``lines`` (newest first).
+    """**Swept** CHANGELOG entries whose ``MAJOR.MINOR`` line is in ``lines`` (newest first).
 
-    Preserves CHANGELOG order (already newest-first), so an email spanning several
-    lines interleaves them exactly as the changelog lists them. Generalizes
-    :func:`current_line_entries` from one line to a set — so one email can cover the
-    0.20 *and* 0.21 feature batches at once.
+    Preserves CHANGELOG order (already newest-first), so an email spanning several lines
+    interleaves them exactly as the changelog lists them — one email can cover the 0.20 *and*
+    0.21 feature batches at once.
+
+    Only entries frozen into ``changelog/history.json`` carry a version number; a fragment
+    does not, for the reason ``plfog.changelog`` gives. So this reaches releases already
+    swept, which is what re-sending an old release email needs, and skips the current batch
+    rather than crashing on it. The current batch is :func:`current_release_entries`.
     """
     from plfog.version import CHANGELOG
 
     wanted = set(lines)
-    return [e for e in CHANGELOG if _minor(str(e["version"])) in wanted]
+    return [e for e in CHANGELOG if "version" in e and _minor(str(e["version"])) in wanted]
 
 
-def current_line_entries(version: str) -> list[dict[str, str | list[str]]]:
-    """The CHANGELOG entries sharing ``version``'s ``MAJOR.MINOR`` line (newest first)."""
-    return line_entries([_minor(version)])
+def current_release_entries() -> list[dict[str, str | list[str]]]:
+    """Everything shipped since the last sweep, newest first — the current release batch.
+
+    An entry with no ``version`` key came from ``changelog.d/``, so this set is exactly the
+    features that have gone out since ``changelog/base.json`` last moved. That is what the
+    ``MAJOR.MINOR`` line used to mean for this email, with one difference worth knowing: the
+    batch is now closed by a deliberate housekeeping PR (the sweep) instead of by whoever
+    happened to bump the minor digit, so an admin composing a release email gets the features
+    members have not been emailed about rather than an arbitrary slice.
+
+    Reads ``CHANGELOG`` lazily, inside the call, so a spec can patch ``plfog.version.CHANGELOG``
+    with a fixture.
+    """
+    from plfog.version import CHANGELOG
+
+    return [e for e in CHANGELOG if "version" not in e]
 
 
 def parse_lines(raw: str) -> list[str]:
@@ -238,7 +257,7 @@ def build_release_cards(version: str, lines: list[str] | None = None) -> list[Ca
     later overrides ``included`` / ``screenshot_url`` per card.
     """
     cards: list[Card] = []
-    entries = current_line_entries(version) if lines is None else line_entries(lines)
+    entries = current_release_entries() if lines is None else line_entries(lines)
     for entry in entries:
         # ``screenshot`` is a genuinely optional, additive key — absent on every
         # legacy entry — so a default here is correct, not a silent-fallback bug.
@@ -298,9 +317,11 @@ def render_release_email(
     email still reads "v0.21" with the latest date). The ``.txt`` part mirrors the HTML
     so the two never drift.
     """
-    entries = current_line_entries(version) if lines is None else line_entries(lines)
-    # Version badge: the current line by default; when spanning lines, the NEWEST
-    # selected entry (CHANGELOG is newest-first) drives it — a 0.20+0.21 email reads "v0.21".
+    entries = current_release_entries() if lines is None else line_entries(lines)
+    # Version badge: the app's current version by default; when spanning swept lines, the
+    # NEWEST selected entry (CHANGELOG is newest-first) drives it — a 0.20+0.21 email reads
+    # "v0.21". A current-batch entry has no version of its own, so ``version`` stands, which
+    # is right: the batch ships as the version the app is on.
     badge_version = version if lines is None else (str(entries[0]["version"]) if entries else version)
     minor_label = "v" + _minor(badge_version)
     release_date = str(entries[0]["date"]) if entries else ""

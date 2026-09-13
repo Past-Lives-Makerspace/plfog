@@ -35,14 +35,63 @@ All configuration via environment variables. See `plfog/settings.py` for availab
 
 ## Versioning & Changelog
 
-Every PR bumps `VERSION` in `plfog/version.py`. The `CHANGELOG` is the **member-facing release notes** for the Discord announcement — curate it by *feature*, NOT one entry per PR.
+**A PR adds one file to `changelog.d/` and never touches a version number.** That is the whole
+release ritual. `changelog.d/README.md` is the authoring contract; read it before writing one.
 
-- **Group by net-new feature, not per-change.** Within an unreleased release line (the current `MAJOR.MINOR`, not yet on production) there should be ONE changelog entry per member-facing feature. If your change refines, polishes, or fixes a feature that already has an entry in the current line, **edit that entry** — update its bullets, bump its `version`/`date` to your new `VERSION`, and move it to the top. Do **NOT** add a second entry. The Discord workflow posts *only* the entry/entries stamped at the exact current `VERSION`, so everything you want announced together must be folded under that one version — and a pile of per-fix entries at older versions would simply never go out (and the curated entry stays clean).
-- **Drop intra-cycle fixes to unshipped work entirely.** A dark-mode tweak, a "now it actually sends," a "no more double email" on a feature introduced *earlier in the same unreleased line* is invisible to members — give it no changelog entry at all (the git commit is the record).
-- **A fix to something already live on production IS member-facing** (they lived with the bug) — that gets its own plain-language entry.
-- **A member-facing release keeps one entry whose `version == VERSION`** — that's the feature entry you just edited and re-stamped. A release that carried nothing member-facing (a test or tooling PR that still bumped `VERSION` per the rule above) legitimately has no entry at its `VERSION`: Discord then announces nothing, which is correct. Do NOT invent an entry to satisfy the rule. `announce_release` raises on such a version, so give it an explicit `--release-version` for the last member-facing release, or skip it.
-- Entries are **plain, member-friendly language** — no jargon, PR numbers, or commit hashes.
-- The GitHub Actions workflow (`.github/workflows/discord-notify.yml`) posts only the `CHANGELOG` entry/entries whose `version` equals the current `VERSION` (what just shipped) as one announcement, the first matching entry's title as the headline. Multiple entries can share that `VERSION` (features released together) and all post; older entries in the same `MAJOR.MINOR` line are not re-announced. It fires **automatically** on a push to main that changes `plfog/version.py` and bumps `VERSION`, and can still be run by hand (`gh workflow run discord-notify.yml`, or the Actions "Run workflow" button). Git history is the granular per-PR trail; the changelog is the curated highlights.
+```toml
+# changelog.d/394-composer-drafts.toml
+bump = "minor"          # patch | minor | major
+date = "2026-09-13"
+title = "The class composer keeps what you typed"
+changes = [
+  "If the page reloads while writing a class, your next visit offers back what you had typed.",
+]
+```
+
+`VERSION` and `CHANGELOG` in `plfog/version.py` are **computed at import** from
+`changelog/base.json` (the version the fold starts from), `changelog.d/*.toml` (one fragment
+per unreleased change) and `changelog/history.json` (258 releases frozen at v1.62.1). The
+machinery and the reasoning live in `plfog/changelog.py`.
+
+This replaced a rule where every PR hand-edited the `VERSION` literal at line 5 of a 3,412-line
+`plfog/version.py` and inserted an entry at the head of its `CHANGELOG` list. Two PRs open at
+once collided at both spots: 15 of the 60 merges before this change — 25% — had to resolve that
+file, about 2.4 renumber events a week. **If you find a doc, skill or profile still telling you
+to bump `VERSION`, it is stale; fix it.**
+
+- **The version is folded, never written.** Count the bumps in `changelog.d/`, apply them to
+  the base. Order-independent by construction, which is what makes a rebase safe — a PR that
+  merges late cannot renumber a release that already shipped. Nothing in a PR names a number,
+  so nothing in a PR can be stale or collide.
+- **One fragment per feature, and edit your own.** A refinement to something still sitting
+  unreleased in `changelog.d/` edits that fragment — it is your file, nothing else claims it,
+  and the combined result goes out once. A fix to something **already live** is its own
+  fragment with `bump = "patch"`: members lived with the bug, so it is news.
+- **`audience = "internal"` is the tooling release.** `bump` and nothing else — no title, no
+  bullets. It moves the version and announces nothing. This used to be a judgement call
+  ("do NOT invent an entry to satisfy the rule") and is now a declaration.
+- **Entries are plain, member-friendly language** — no jargon, PR numbers, or commit hashes.
+- **Only swept history carries version numbers.** A fragment cannot know its own release
+  number without merge order, which the tree does not record, so new entries are identified by
+  date and the changelog modal renders the version badge only when there is one. Frozen
+  entries keep the numbers they shipped under.
+- **Sweeping** moves fragments into `changelog/history.json` and `changelog/base.json` forward.
+  It is deliberate housekeeping, usually right after the release email goes out, and it is a
+  prerequisite for cutting a second major. Nothing breaks if you never do it.
+
+### Was this really impossible before?
+
+Issue #358 concluded that `VERSION` had to stay a hand-edited literal because **a workflow
+cannot push to `main`**. That half is true and still is: the ruleset on the default branch has
+an empty bypass list, and both `GITHUB_TOKEN` and `BOT_PAT` are rejected with `GH013`.
+
+The conclusion drawn from it was wrong. The version does not have to live on the branch — and
+`release.yml` had been pushing a **tag** on every single merge, with plain `GITHUB_TOKEN`, the
+entire time. Here the version lives on no ref at all: it is a pure function of files on disk.
+Issue #365 (the fragments child) declined itself over a cost that only exists if the literal
+stays — "a PR would name the version number twice... the fragment's stamp can silently go
+stale on a rebase" — so it declined a crippled design rather than this one. **Retest the
+premise before you inherit a conclusion from it.**
 
 ## Automated PR review
 
@@ -78,28 +127,58 @@ automatically, and approved if it has no blockers. Nobody has to ask for it.
 
 ## Discord Notifications
 
-A GitHub Actions workflow posts a release announcement to the Past Lives Discord channel. It reads the `CHANGELOG` from `plfog/version.py` and posts only the entry/entries whose `version` equals the current `VERSION` (what just went live) — not the whole `MAJOR.MINOR` line. It fires **automatically** when a push to main changes `VERSION`, and can also be run by hand with `gh workflow run discord-notify.yml` or the Actions "Run workflow" button. It used to re-post the whole `MAJOR.MINOR` line on every hotfix, which is why it was manual for a while; it now posts only the current `VERSION`'s entries, so one merge means one announcement. When `VERSION` has no entry of its own, an automatic run posts nothing; a manual run still re-sends the newest entry, which is the deliberate escape hatch. The script chunks the post under Discord's 4096-char embed limit and fails loudly on a rejected post.
+`.github/workflows/release.yml` tags the release and posts the announcement, on one trigger,
+from one plan. It **announces the fragments the push added** (`git diff --diff-filter=A`
+against the tip of main before the push), not the entries matching a version string.
 
-### The release guard
+That difference closes the last way a release could go quiet. The old workflow filtered
+`CHANGELOG` for entries stamped at the exact current `VERSION`, and an entry stamped at the
+wrong number deployed, announced nothing, and went green — indistinguishable from a tooling
+release that deliberately carried no entry. The planner now knows which it is, because the PR
+said so in its fragment.
 
-**A push to main that edits `plfog/version.py` but leaves `VERSION` where it was now FAILS the Discord Notifications workflow.** That is exactly how #348 shipped the lobby slideshow to production and announced it to nobody: the post step was skipped and the run stayed green. The check is `.github/scripts/release_guard.py` (specced in `tests/scripts/release_guard_spec.py`), and it compares `VERSION` against the tip of main before the push, not `HEAD^`, because a rebase merge pushes several commits at once. Replayed over every first-parent commit on main that touched `plfog/version.py`, it fires twice in 222 — #348 and the handwritten 0.23.39 repair — and both were real.
+Consequences worth knowing:
 
-**A red X on the Actions tab is the whole alert.** Nothing is posted, filed or notified outside GitHub. That is a deliberate choice, not an omission.
+- **Editing a fragment that already shipped re-announces nothing.** It is not an added file.
+  This used to be a rule a maintainer had to hold in their head; it is now a property of the
+  diff.
+- **A release carrying only `audience = "internal"` fragments tags and announces nothing**,
+  without anyone deciding to withhold an entry.
+- **A push that adds no fragment moves no version**, so the tag already exists and the run is a
+  no-op with a `::warning`. Not a red X: a PR carrying the `no-changelog` label legitimately
+  adds none.
+- The post is chunked under Discord's 4096-char embed limit and **fails loudly** on a rejected
+  post.
 
-**It closes the #348 shape, not the whole class**, and the gaps are bigger than the catch:
+### The check that replaced the release guard
 
-- **A merge that never touches `plfog/version.py` at all does not fail anything.** The workflow's `paths:` filter means it never runs, so there is no red X — there is not even a run. That is the ordinary "forgot to bump" mistake, and it is out of reach on purpose: the broader predicate would have fired on 41 *more* commits in this history, almost all of them deliberate batched releases.
-- **A release that moves `VERSION` but stamps its entry at the wrong number** still deploys, still announces nothing, and still goes green. From the workflow's side that is indistinguishable from a tooling release that deliberately carries no entry, which is a thing this repo does on purpose.
+`.github/scripts/release_guard.py` is gone. It caught exactly one shape — a push that edited
+`plfog/version.py` and left the literal alone — and its own docstring admitted the shape it
+could not reach: "a merge that never touches `plfog/version.py` at all does not fail anything...
+that is the ordinary forgot-to-bump mistake."
 
-Curating the entry at the right number is still on you. The guard catches one shape: edited the file, left the literal.
+**`.github/scripts/check_changelog_fragment.py` now fails the pull request** that adds no
+fragment and carries no `no-changelog` label, and rejects a malformed one. It runs in `ci.yml`
+on `pull_request`. That is both earlier and wider than the guard: it catches the mistake the
+guard could not see, on a branch nobody has deployed, instead of on main after Render has.
 
-#### Recovering a missed announcement
+The `#348` shape it replaced is no longer expressible. There is no literal to leave alone.
 
-The release is live and members heard nothing. The lever already exists: `gh workflow run discord-notify.yml`. A manual run posts unconditionally, whatever `VERSION` says, and the guard never blocks one.
+### Recovering a missed announcement
 
-**Look before you pull it.** The guard fires on any edit to `plfog/version.py` that leaves the literal alone — a reflow or a typo fix on an entry an earlier release already announced included — so check whether members have already seen the entry sitting at the stuck `VERSION`. Re-posting one they have seen announces the wrong release, and a Discord post cannot be unsent. Nothing may be owed at all: a tooling release legitimately carries no entry, and then the answer is to run nothing and bump `VERSION` in the next PR as usual. That judgment is a human's, and there is deliberately no rule here that makes it for you — three attempts at writing one each produced a different way to double-post to members.
+The release is live and members heard nothing. The lever is `gh workflow run release.yml`,
+which re-announces the **newest member-facing fragment** in `changelog.d/`.
 
-`python manage.py announce_release` is **not** a companion to the manual run. It sends the release **email**, but `release.published` is registered on the in-app, email *and* Discord channels (`core/events/registry.py:638`), so it posts to Discord too — run both and members get the same release announced twice.
+**Look before you pull it.** It re-announces whatever is newest, which is right when a post
+failed to send and wrong when the post landed and something else went quiet. Re-posting one
+members have seen announces the wrong release, and a Discord post cannot be unsent. Nothing may
+be owed at all. That judgment is a human's, and there is deliberately no rule here that makes
+it for you — three attempts at writing one each produced a different way to double-post.
+
+`python manage.py announce_release` is **not** a companion to the manual run. It sends the
+release **email**, but `release.published` is registered on the in-app, email *and* Discord
+channels (`core/events/registry.py:638`), so it posts to Discord too — run both and members get
+the same release announced twice.
 
 ---
 

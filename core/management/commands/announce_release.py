@@ -3,7 +3,7 @@
 Reads the newest entry from ``plfog/version.py`` ``CHANGELOG`` and fires the
 ``release.published`` event: an in-app bell row + an opt-out email to everyone with a
 login (∪ active members ∪ admins), plus a single Discord broadcast. Mirrors the
-existing GitHub-Actions Discord changelog post (``.github/workflows/discord-notify.yml``)
+existing GitHub-Actions Discord changelog post (``.github/workflows/release.yml``)
 — that workflow stays; this is the in-app + email companion.
 
 VERSION-TRIGGERED, NOT TIME-TRIGGERED. Run this **once, post-deploy** (the deploy that
@@ -27,9 +27,27 @@ from plfog.version import CHANGELOG, VERSION
 
 
 def _entry_for(version: str) -> dict[str, Any]:
-    """Return the CHANGELOG entry for ``version``. Raises ``CommandError`` if absent."""
+    """The CHANGELOG entry to announce for ``version``. Raises ``CommandError`` if absent.
+
+    An explicit ``--release-version`` names an already-swept release and is found by its
+    number. The default — the current ``VERSION`` — has no numbered entry to find: the
+    current batch lives in ``changelog.d/`` and a fragment carries no version of its own
+    (``plfog.changelog`` says why), so what just shipped is the newest unswept entry.
+
+    Falling through to the numbered search rather than failing in the first branch matters
+    immediately after a sweep, when the batch is empty and ``VERSION`` names the frozen
+    entry the sweep just wrote.
+    """
+    from core.release_email import current_release_entries
+
+    if version == VERSION:
+        current = current_release_entries()
+        if current:
+            return current[0]
     for entry in CHANGELOG:
-        if str(entry["version"]) == version:
+        # Only swept entries carry a version; skipping the rest is what makes an explicit
+        # --release-version mean "a release that has already been folded into history".
+        if str(entry.get("version", "")) == version:
             return entry
     raise CommandError(f"No CHANGELOG entry found for version {version!r}.")
 

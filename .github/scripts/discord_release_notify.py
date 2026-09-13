@@ -1,51 +1,37 @@
-"""Post the just-shipped version's changelog to Discord — chunked under the embed limit.
+"""Post what this release shipped to Discord — chunked under the embed limit.
 
-Posts ONLY the CHANGELOG entry/entries stamped at the current ``VERSION`` (what just
-went live) to the ``DISCORD_WEBHOOK_URL`` webhook — not the whole MAJOR.MINOR release
-line. Features now ship one merge → one deploy → one announce, so re-posting every
-patch entry in the line each time would spam members with things already announced.
-Several entries can still share one VERSION (two features released together), so a
-single announcement may exceed Discord's 4096-char embed-description limit — this
-splits it across as many embeds/messages as needed and FAILS LOUDLY on a rejected
-post (the old inline ``curl`` had no ``--fail``, so a 400 looked like success and the
-0.19 release silently never posted).
+Reads the entries to announce from the JSON file ``release_plan.py`` wrote (its path arrives
+in ``ANNOUNCE_PATH``) rather than filtering ``CHANGELOG`` by an exact ``VERSION`` string.
+That filter was the last place a release could go quiet: an entry stamped at the wrong number
+deployed, announced nothing, and went green, because "no entry at this version" is also what a
+deliberate tooling release looks like. The planner passes the fragments the push **added**, so
+the two cases are now distinguishable at the source and neither is inferred from a number.
 
-Run from the repo root (so ``plfog.version`` imports). Reads the webhook from the
-``DISCORD_WEBHOOK_URL`` env var; a blank webhook is a no-op (the "disabled when blank"
-idiom), logged so it is never silent.
+Fails loudly on a rejected post. The original inline ``curl`` had no ``--fail``, so a 400
+looked like success and the 0.19 release silently never posted.
+
+Reads the webhook from ``DISCORD_WEBHOOK_URL``; a blank webhook is a no-op (the "disabled when
+blank" idiom), logged so it is never silent.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 import urllib.error
 import urllib.request
-
-sys.path.insert(0, ".")
-from plfog.version import CHANGELOG, VERSION  # noqa: E402
 
 _EMBED_COLOR = 3066993  # the workflow's original green
 _DESC_LIMIT = 4000  # Discord's hard cap is 4096; leave headroom
 
 
-def _release_entries() -> list[dict[str, object]]:
-    """Only the CHANGELOG entry/entries for the version being announced (what just went live).
-
-    No entry stamped at ``VERSION`` means different things depending on who asked. On an
-    automatic push it means the release carried nothing member-facing (a test or tooling fix
-    that still bumped ``VERSION`` per the every-PR rule), so there is nothing to announce, and
-    falling back to the newest entry would re-post an already-shipped release to members. A
-    manual run is the documented escape hatch for re-sending an announcement, so there the
-    fallback stands. ``FORCE_ANNOUNCE`` is set by the workflow on ``workflow_dispatch``.
-    """
-    entries = [e for e in CHANGELOG if str(e["version"]) == VERSION]
-    if entries:
-        return entries
-    if os.environ.get("FORCE_ANNOUNCE", "").strip().lower() == "true":
-        return [CHANGELOG[0]]
-    return []
+def _entries() -> list[dict[str, object]]:
+    """The entries to announce, as written by ``release_plan.py``."""
+    path = pathlib.Path(os.environ["ANNOUNCE_PATH"])
+    entries: list[dict[str, object]] = json.loads(path.read_text(encoding="utf-8"))
+    return entries
 
 
 def _bullets(entries: list[dict[str, object]]) -> list[str]:
@@ -99,14 +85,15 @@ def main() -> None:
         print("DISCORD_WEBHOOK_URL is blank — skipping Discord release post.")
         return
 
-    entries = _release_entries()
+    entries = _entries()
     if not entries:
-        print(f"No changelog entry stamped at v{VERSION}, nothing member-facing to announce.")
+        print("Nothing member-facing in this release; announcing nothing.")
         return
 
+    version = os.environ["VERSION"]
     title = str(entries[0]["title"])
     chunks = _chunks(_bullets(entries))
-    footer = {"text": f"Past Lives Member Portal v{VERSION}"}
+    footer = {"text": f"Past Lives Member Portal v{version}"}
 
     for index, description in enumerate(chunks):
         embed: dict[str, object] = {"description": description, "color": _EMBED_COLOR, "footer": footer}
@@ -116,7 +103,7 @@ def main() -> None:
             embed["title"] = f"…continued ({index + 1}/{len(chunks)})"
         _post(webhook, {"embeds": [embed]})
 
-    print(f"Posted v{VERSION} release notes to Discord in {len(chunks)} message(s).")
+    print(f"Posted v{version} release notes to Discord in {len(chunks)} message(s).")
 
 
 if __name__ == "__main__":
