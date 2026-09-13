@@ -5,7 +5,7 @@ The three personas:
 1. **Returning student (non-member)** — has a past confirmed registration and an
    upcoming one. Logs into ``book.pastlives.space``.
 2. **Instructor** — owns three classes: one in the past (with confirmed
-   registrants), one current free class (with two registrants), one upcoming
+   registrants), one current intro class (with two registrants), one upcoming
    paid class (with one confirmed + one pending registration). Logs into the
    instructor portal.
 3. **Guest** — no User account, just a single confirmed registration with a
@@ -101,8 +101,8 @@ SHOWCASE_HERO_REL_PATH = "assets/images/woodshop+portland+oregon+makerspace+past
 # Believable descriptions for the other demo classes so the prod catalog does not show
 # placeholder jargon next to real classes during a demo. They keep their [DEMO] titles
 # (they exist to demo management flows) but read like real listings.
-DESC_FREE_INTRO = (
-    "A relaxed, free hour in the studio to see the space, meet a few makers, and find out what you "
+DESC_STUDIO_INTRO = (
+    "A relaxed hour in the studio to see the space, meet a few makers, and find out what you "
     "can make here. Drop in, look around, and ask anything. Perfect if you are brand new and just "
     "want a feel for the place before you commit."
 )
@@ -186,11 +186,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE("Seeding demo data..."))
         category = self._ensure_category()
         instructor = self._ensure_instructor(password=password)
-        past_class, current_free_class, future_paid_class = self._ensure_classes(category, instructor)
+        past_class, current_intro_class, future_paid_class = self._ensure_classes(category, instructor)
         student = self._ensure_student(password=password)
         self._ensure_student_registrations(student, past_class, future_paid_class)
-        self._ensure_instructor_class_rosters(past_class, current_free_class, future_paid_class)
-        self._ensure_guest_registration(current_free_class)
+        self._ensure_instructor_class_rosters(past_class, current_intro_class, future_paid_class)
+        self._ensure_guest_registration(current_intro_class)
         self._ensure_discount_codes()
 
         # Everything below is local-dev only. Registration questions are global
@@ -202,7 +202,7 @@ class Command(BaseCommand):
         if settings.DEBUG:
             self._ensure_registration_questions()
             self._attach_images(
-                current_free_class,
+                current_intro_class,
                 hero="hero_intro.jpg",
                 gallery=("gallery_1.jpg", "gallery_2.jpg", "gallery_3.jpg", "gallery_4.jpg"),
             )
@@ -380,16 +380,15 @@ class Command(BaseCommand):
             session_start=now - timedelta(days=14),
             description=DESC_PAST,
         )
-        current_free = self._upsert_class(
+        current_intro = self._upsert_class(
             slug=f"{DEMO_SLUG_PREFIX}free-intro",
-            title="[DEMO] Free Studio Intro",
+            title="[DEMO] Studio Intro",
             category=category,
             instructor=instructor,
-            price_cents=0,
-            member_discount_pct=0,
+            price_cents=1500,
             capacity=8,
             session_start=now + timedelta(days=3),
-            description=DESC_FREE_INTRO,
+            description=DESC_STUDIO_INTRO,
         )
         future_paid = self._upsert_class(
             slug=f"{DEMO_SLUG_PREFIX}future-advanced",
@@ -401,7 +400,7 @@ class Command(BaseCommand):
             session_start=now + timedelta(days=21),
             description=DESC_ADVANCED,
         )
-        return past, current_free, future_paid
+        return past, current_intro, future_paid
 
     def _upsert_class(
         self,
@@ -466,7 +465,7 @@ class Command(BaseCommand):
     def _ensure_instructor_class_rosters(
         self,
         past_class: ClassOffering,
-        current_free_class: ClassOffering,
+        current_intro_class: ClassOffering,
         future_paid_class: ClassOffering,
     ) -> None:
         # Past class: 2 extra registrants alongside the student
@@ -481,16 +480,16 @@ class Command(BaseCommand):
                 confirmed_at=timezone.now() - timedelta(days=15),
                 amount_paid_cents=past_class.price_cents,
             )
-        # Current free class: 1 extra confirmed registrant (+ guest added later)
+        # Current intro class: 1 extra confirmed registrant (+ guest added later)
         self._upsert_registration(
-            offering=current_free_class,
+            offering=current_intro_class,
             order_number="PL-DMC2-26",
             email=f"current1@{DEMO_EMAIL_DOMAIN}",
             first_name="Current",
             last_name="Chen",
             status=Registration.Status.CONFIRMED,
             confirmed_at=timezone.now() - timedelta(days=1),
-            amount_paid_cents=0,
+            amount_paid_cents=current_intro_class.price_cents,
         )
         # Future paid class: 1 extra pending registrant alongside the student's confirmed
         self._upsert_registration(
@@ -503,16 +502,16 @@ class Command(BaseCommand):
             amount_paid_cents=0,
         )
 
-    def _ensure_guest_registration(self, current_free_class: ClassOffering) -> None:
+    def _ensure_guest_registration(self, current_intro_class: ClassOffering) -> None:
         self._upsert_registration(
-            offering=current_free_class,
+            offering=current_intro_class,
             order_number=GUEST_ORDER_NUMBER,
             email=PERSONA_GUEST_EMAIL,
             first_name="Demo",
             last_name="Guest",
             status=Registration.Status.CONFIRMED,
             confirmed_at=timezone.now() - timedelta(hours=6),
-            amount_paid_cents=0,
+            amount_paid_cents=current_intro_class.price_cents,
         )
 
     def _ensure_full_waitlist_class(self, category: Category, instructor: Any) -> ClassOffering:

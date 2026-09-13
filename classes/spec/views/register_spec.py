@@ -450,6 +450,47 @@ def describe_register_with_a_sale():
         mock_checkout.assert_not_called()
 
 
+def describe_a_total_that_reaches_zero_through_discounts():
+    # #368 item 5 removed the free option from the composer. A $0 total is still reachable through
+    # discounts, and it still confirms on the spot without Stripe.
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_confirms_without_stripe_on_a_full_discount_code(mock_checkout, paid_offering, client):
+        from classes.factories import DiscountCodeFactory
+
+        DiscountCodeFactory(code="ONTHEHOUSE", discount_pct=100)
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            data=_post_data(discount_code="ONTHEHOUSE"),
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("classes:register_success", kwargs={"slug": paid_offering.slug})
+        registration = Registration.objects.get(class_offering=paid_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert registration.amount_paid_cents == 0
+        mock_checkout.assert_not_called()
+
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_confirms_without_stripe_on_a_full_member_discount(mock_checkout, paid_offering, client, member_user):
+        from allauth.account.models import EmailAddress
+
+        EmailAddress.objects.update_or_create(
+            user=member_user, email="member@example.com", defaults={"verified": True, "primary": True}
+        )
+        paid_offering.member_discount_pct = 100
+        paid_offering.save(update_fields=["member_discount_pct"])
+        response = client.post(
+            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            data=_post_data(email="member@example.com"),
+        )
+        assert response.status_code == 302
+        assert response.url == reverse("classes:register_success", kwargs={"slug": paid_offering.slug})
+        registration = Registration.objects.get(class_offering=paid_offering)
+        assert registration.status == Registration.Status.CONFIRMED
+        assert registration.amount_paid_cents == 0
+        mock_checkout.assert_not_called()
+
+
 def describe_client_ip():
     def it_extracts_ip_from_x_forwarded_for_header(db, client):
         """When X-Forwarded-For is present, the first IP is used — verified via registration."""

@@ -156,9 +156,8 @@ Do not merge them.
       {% include "components/form_field.html" with field=form.description %}
       {% comment %}The price lives here, not on step 3: it is the one field a draft row cannot be saved without, so a Save Draft from step 1 has to carry it.{% endcomment %}
       <div class="pl-compose-section" data-help-key="teach.class-pricing">
-        <h3 class="pl-compose-section__title">Free Or Paid</h3>
-        <p class="pl-compose-section__note">Tick free for a no cost workshop. Otherwise set the full price. The member discount is on step 3.</p>
-        {% include "components/form_field.html" with field=form.is_free %}
+        <h3 class="pl-compose-section__title">What It Costs</h3>
+        <p class="pl-compose-section__note">Set the full price. Every class costs at least $1.00. The member discount is on step 3.</p>
         {% include "components/form_field.html" with field=form.price_cents %}
       </div>
     </div>

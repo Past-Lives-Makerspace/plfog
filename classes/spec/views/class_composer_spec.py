@@ -189,7 +189,6 @@ def _full_payload(category, **extra) -> dict:
         "age_guardian_note": "Guardians welcome.",
         "price_cents": "80.00",
         "member_discount_pct": "15",
-        "is_free": "",
         "capacity": "8",
         "scheduling_model": "flexible",
         "scheduling_type": "series_package",
@@ -306,8 +305,8 @@ def describe_teach_composer_get():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
         step_one = html[html.index('data-composer-step="1"') : html.index('data-composer-step="2"')]
-        assert "Free Or Paid" in step_one
-        assert 'name="price_cents"' in step_one and 'name="is_free"' in step_one
+        assert "What It Costs" in step_one
+        assert 'name="price_cents"' in step_one and 'name="is_free"' not in step_one
         assert 'data-help-key="teach.class-pricing"' in step_one
         step_three = html[html.index('data-composer-step="3"') : html.index('data-composer-step="4"')]
         assert 'name="member_discount_pct"' in step_three and 'name="capacity"' in step_three
@@ -532,18 +531,6 @@ def describe_teach_composer_post():
         assert resp.status_code == 302
         _assert_crop_followed_the_downsize(ClassOffering.objects.get(title="Round Trip"))
 
-    def it_round_trips_the_free_toggle(instructor_fixture, client):
-        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
-        client.force_login(instructor_fixture.user)
-        resp = client.post(
-            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _full_payload(offering.category, is_free="on", price_cents=""),
-        )
-        assert resp.status_code == 302
-        offering.refresh_from_db()
-        assert offering.price_cents == 0
-        assert offering.member_discount_pct == 0
-
     def it_clears_the_card_focus_when_matching_the_banner(instructor_fixture, client):
         offering = ClassOfferingFactory(
             instructor=instructor_fixture, status=Status.DRAFT, card_focus_x=1, card_focus_y=2
@@ -600,19 +587,20 @@ def describe_teach_composer_post():
         assert 'goTo(3)">Dates, Seats And Price: Capacity</button>' in html
 
     def it_saves_a_draft_from_step_one_alone(instructor_fixture, client):
-        # Title, guild type, description, and the free tick are the whole of step 1. Steps 2 to 4
-        # are untouched: the POST is exactly what a browser submits from the rendered page (every
+        # Title, guild type, description, and the price are the whole of step 1. Steps 2 to 4 are
+        # untouched: the POST is exactly what a browser submits from the rendered page (every
         # field with its default, parsed from the GET), plus step 1. capacity, scheduling_model,
-        # and scheduling_type are required form fields with model defaults, so they ride along as
-        # the composer renders them; a literal four field POST is not what a browser sends.
+        # scheduling_type, and member_discount_pct are required form fields with model defaults,
+        # so they ride along as the composer renders them; a literal four field POST is not what
+        # a browser sends.
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
         assert untouched["capacity"] == "6"
         assert untouched["scheduling_model"] == "fixed"
         assert untouched["scheduling_type"] == "single_session"
+        assert untouched["member_discount_pct"] == "10"
         assert untouched["price_cents"] == ""
-        assert "is_free" not in untouched
         resp = client.post(
             reverse("classes:teach_class_create"),
             {
@@ -621,7 +609,7 @@ def describe_teach_composer_post():
                 "title": "Step One Draft",
                 "category": cat.pk,
                 "description": "Just the pitch for now.",
-                "is_free": "on",
+                "price_cents": "45.00",
                 "action": "save",
                 "step": "1",
             },
@@ -629,36 +617,14 @@ def describe_teach_composer_post():
         assert resp.status_code == 302, _visible_text(resp.content.decode())[:600]
         created = ClassOffering.objects.get(title="Step One Draft")
         assert created.status == Status.DRAFT
-        assert created.price_cents == 0
+        assert created.price_cents == 4500
+        assert created.member_discount_pct == 10
         assert created.capacity == 6
         assert created.scheduling_model == "fixed"
         assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": created.pk}) + "?step=1"
         assert "Draft saved." in _messages(resp)
 
-    def it_saves_a_paid_draft_from_step_one_alone(instructor_fixture, client):
-        cat = CategoryFactory()
-        client.force_login(instructor_fixture.user)
-        untouched = _untouched_form_values(client.get(reverse("classes:teach_class_create")).content.decode())
-        resp = client.post(
-            reverse("classes:teach_class_create"),
-            {
-                **untouched,
-                **_management(),
-                "title": "Paid Step One Draft",
-                "category": cat.pk,
-                "description": "Just the pitch for now.",
-                "price_cents": "45.00",
-                "action": "save",
-                "step": "1",
-            },
-        )
-        assert resp.status_code == 302, _visible_text(resp.content.decode())[:600]
-        created = ClassOffering.objects.get(title="Paid Step One Draft")
-        assert created.status == Status.DRAFT
-        assert created.price_cents == 4500
-        assert created.capacity == 6
-
-    def it_bounces_a_step_one_save_with_no_price_and_no_free_tick_to_step_one(instructor_fixture, client):
+    def it_bounces_a_step_one_save_with_no_price_to_step_one(instructor_fixture, client):
         # The price is the one thing a draft cannot be saved without, and it is on step 1.
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
@@ -671,6 +637,7 @@ def describe_teach_composer_post():
         html = resp.content.decode()
         assert "phase: 1," in html
         assert "errorSteps: [1]," in html
+        assert "This field is required." in html
         assert not ClassOffering.objects.filter(title="No Price").exists()
 
     def it_lands_a_bad_card_focus_on_the_photos_step(instructor_fixture, client):
@@ -704,6 +671,7 @@ def describe_admin_composer():
         html = client.get(reverse("classes:admin_class_create")).content.decode()
         assert 'name="instructor"' in html
         assert 'name="is_private"' in html and 'name="private_for_name"' in html
+        assert 'name="is_free"' not in html
         assert "Publish This Class?" in html
         assert "open-confirm', 'submit-class')\">Publish</button>" in html
         assert "Submit for Review" not in html
@@ -900,18 +868,6 @@ def describe_live_sale_guard_through_the_composers():
         offering.refresh_from_db()
         assert offering.price_cents == 10000 and offering.sale_is_active is True
 
-    def it_refuses_the_free_tick_on_the_teach_composer(instructor_fixture, client):
-        offering = _on_fixed_sale(instructor=instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        resp = client.post(
-            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _full_payload(offering.category, is_free="on", price_cents=""),
-        )
-        assert resp.status_code == 200
-        assert "before making it free." in resp.content.decode()
-        offering.refresh_from_db()
-        assert offering.price_cents == 10000 and offering.sale_is_active is True
-
     def it_saves_a_raised_price_on_the_teach_composer(instructor_fixture, client):
         offering = _on_fixed_sale(instructor=instructor_fixture)
         client.force_login(instructor_fixture.user)
@@ -1045,17 +1001,15 @@ def describe_a_failed_save_with_a_whole_dollar_price():
         assert resp.status_code == 200
         assert _price_input_value(resp.content.decode()) == "8000"
 
-    def it_keeps_a_blank_price_blank_and_the_free_tick_ticked_on_create(instructor_fixture, client):
+    def it_keeps_a_blank_price_blank_on_create(instructor_fixture, client):
         cat = CategoryFactory()
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_create"),
-            _full_payload(cat, title="", price_cents="", is_free="on"),
+            _full_payload(cat, title="", price_cents=""),
         )
         assert resp.status_code == 200
-        html = resp.content.decode()
-        assert _price_input_value(html) == ""
-        assert re.search(r'name="is_free"[^>]*\bchecked', html)
+        assert _price_input_value(resp.content.decode()) == ""
 
 
 def describe_a_failed_save_with_a_typed_zero_price():
@@ -1067,21 +1021,93 @@ def describe_a_failed_save_with_a_typed_zero_price():
             _full_payload(offering.category, title="", price_cents="0"),
         )
         assert resp.status_code == 200
-        assert _price_input_value(resp.content.decode()) == "0"
+        html = resp.content.decode()
+        assert _price_input_value(html) == "0"
+        assert "Classes cost at least $1.00." in html
 
 
-def describe_a_failed_save_with_a_blank_price_and_the_free_tick_on_a_saved_draft():
+# ── Issue #368 item 5: no free option; every class costs at least $1.00, from either portal ──
+
+
+def describe_the_price_floor_through_the_composers():
+    FLOOR = "Classes cost at least $1.00."
+
+    @pytest.fixture(params=["teach", "admin"])
+    def portal(request):
+        return request.param
+
+    @pytest.fixture(params=["create", "edit"])
+    def mode(request):
+        return request.param
+
+    @pytest.fixture
+    def composer(portal, mode, instructor_fixture, admin_user, client):
+        """(post, saved): post(price) submits this portal's composer in this mode; saved is the edit target."""
+        cat = CategoryFactory()
+        if portal == "teach":
+            client.force_login(instructor_fixture.user)
+            saved = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, price_cents=5000)
+            url = (
+                reverse("classes:teach_class_create")
+                if mode == "create"
+                else reverse("classes:teach_class_edit", kwargs={"pk": saved.pk})
+            )
+        else:
+            client.force_login(admin_user)
+            saved = ClassOfferingFactory(status=Status.DRAFT, price_cents=5000)
+            url = (
+                reverse("classes:admin_class_create")
+                if mode == "create"
+                else reverse("classes:admin_class_edit", kwargs={"pk": saved.pk})
+            )
+
+        def post(price: str):
+            if portal == "teach":
+                return client.post(url, _full_payload(cat, price_cents=price, step="3"))
+            return client.post(url, _admin_payload(cat, saved.instructor, price_cents=price, step="3"))
+
+        return post, saved
+
+    def _refused_on_step_one(resp, reason: str, saved: ClassOffering) -> None:
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert "phase: 1," in html and "errorSteps: [1]," in html
+        assert reason in html
+        assert 'goTo(1)">The Basics: Price</button>' in html
+        saved.refresh_from_db()
+        assert saved.price_cents == 5000
+        assert not ClassOffering.objects.filter(title="Round Trip").exists()
+
+    def it_refuses_zero(composer):
+        post, saved = composer
+        _refused_on_step_one(post("0"), FLOOR, saved)
+
+    def it_refuses_ninety_nine_cents(composer):
+        post, saved = composer
+        _refused_on_step_one(post("0.99"), FLOOR, saved)
+
+    def it_refuses_a_blank(composer):
+        post, saved = composer
+        _refused_on_step_one(post(""), "This field is required.", saved)
+
+    def it_accepts_exactly_one_dollar(composer):
+        post, _saved = composer
+        resp = post("1.00")
+        assert resp.status_code == 302, _visible_text(resp.content.decode())[:600]
+        assert ClassOffering.objects.get(title="Round Trip").price_cents == 100
+
+
+def describe_a_failed_save_with_a_blank_price_on_a_saved_draft():
     def it_re_renders_the_teach_composer_instead_of_crashing(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _full_payload(offering.category, title="", price_cents="", is_free="on"),
+            _full_payload(offering.category, title="", price_cents=""),
         )
         assert resp.status_code == 200
         html = resp.content.decode()
         assert _price_input_value(html) == ""
-        assert re.search(r'name="is_free"[^>]*\bchecked', html)
         assert "phase: 1," in html and "errorSteps: [1]," in html
 
     def it_re_renders_the_admin_composer_instead_of_crashing(admin_user, client, db):
@@ -1089,21 +1115,23 @@ def describe_a_failed_save_with_a_blank_price_and_the_free_tick_on_a_saved_draft
         client.force_login(admin_user)
         resp = client.post(
             reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
-            _admin_payload(offering.category, offering.instructor, title="", price_cents="", is_free="on"),
+            _admin_payload(offering.category, offering.instructor, title="", price_cents=""),
         )
         assert resp.status_code == 200
         assert "phase: 1," in resp.content.decode()
 
-    def it_is_the_bound_form_nulling_the_instance_price(db):
-        # Mechanism: ModelForm._post_clean runs construct_instance even when another field failed,
-        # so the in-memory row carries price_cents=None after the POST. The card preview frames used
-        # to read that row and raise; they now read the row as saved (next spec).
+    def it_no_longer_nulls_the_instance_price(db):
+        # Mechanism, before #368 item 5: ModelForm._post_clean runs construct_instance even when
+        # another field failed, and a blank price (allowed by the free tick) reached it as None, so
+        # the in-memory row carried price_cents=None and the card preview frames raised. A required
+        # price never reaches cleaned_data when blank, so the row keeps what was saved. The chrome
+        # and the card read the saved row regardless (next spec).
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=5000)
         form = TeachClassOfferingForm(
-            data=_full_payload(offering.category, title="", price_cents="", is_free="on"), instance=offering
+            data=_full_payload(offering.category, title="", price_cents=""), instance=offering
         )
         assert form.is_valid() is False
-        assert offering.price_cents is None
+        assert offering.price_cents == 5000
 
     def it_shows_the_saved_class_in_the_chrome_and_the_card_not_the_rejected_post(instructor_fixture, client):
         offering = ClassOfferingFactory(
@@ -1112,7 +1140,7 @@ def describe_a_failed_save_with_a_blank_price_and_the_free_tick_on_a_saved_draft
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _full_payload(offering.category, title="", price_cents="", is_free="on", member_discount_pct="50"),
+            _full_payload(offering.category, title="", price_cents="", member_discount_pct="50"),
         )
         assert resp.status_code == 200
         html = resp.content.decode()

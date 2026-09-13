@@ -65,7 +65,7 @@ def describe_composer_steps():
         assert [step.key for step in COMPOSER_STEPS] == ["basics", "photos", "dates", "details", "review"]
 
     def it_places_every_form_field_on_exactly_one_step(form_class):
-        # Meta.fields plus the injected is_free, hero_crop, and card_focus: every one, once.
+        # Meta.fields plus the injected hero_crop and card_focus: every one, once.
         for name in form_class().fields:
             owners = [step.number for step in COMPOSER_STEPS if name in step.fields]
             assert len(owners) == 1, f"{name} appears on steps {owners}"
@@ -97,13 +97,17 @@ def describe_step_for_field():
         assert step_for_field("title") == 1
         assert step_for_field("card_focus") == 2
         assert step_for_field("price_cents") == 1
-        assert step_for_field("is_free") == 1
         assert step_for_field("member_discount_pct") == 3
         assert step_for_field("age_minimum") == 4
 
     def it_raises_on_an_unknown_field():
         with pytest.raises(KeyError):
             step_for_field("sale_percent")
+
+    def it_raises_on_the_retired_free_tick():
+        # #368 item 5 removed the free option; nothing maps it to a step any more.
+        with pytest.raises(KeyError):
+            step_for_field("is_free")
 
 
 def describe_clamp_step():

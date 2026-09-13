@@ -1,4 +1,9 @@
-"""BDD specs for the `is_free` checkbox on ClassOffering forms."""
+"""BDD specs for the composer forms (ClassOfferingForm, TeachClassOfferingForm).
+
+The price floor (#368 item 5): there is no free option. Both forms require a price and a
+member discount, and refuse any price under $1.00 with one plain message. The hero crop
+mixin, the session form, and the slug collision handling share the POST helpers below.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,9 @@ from classes.forms import ClassOfferingForm, ClassSessionForm, TeachClassOfferin
 from classes.models import ClassOffering
 
 pytestmark = pytest.mark.django_db
+
+FLOOR = "Classes cost at least $1.00."
+REQUIRED = "This field is required."
 
 
 def _admin_post_data(**overrides) -> dict:
@@ -45,61 +53,9 @@ def _admin_post_data(**overrides) -> dict:
     return data
 
 
-def describe_ClassOfferingForm():
-    def describe_is_free_checkbox():
-        def it_zeroes_price_and_discount_when_checked():
-            form = ClassOfferingForm(
-                data=_admin_post_data(is_free="on", price_cents="", member_discount_pct=""),
-            )
-            assert form.is_valid(), form.errors
-            offering = form.save()
-            assert offering.price_cents == 0
-            assert offering.member_discount_pct == 0
-
-        def it_keeps_paid_pricing_when_unchecked():
-            form = ClassOfferingForm(data=_admin_post_data(price_cents="25.00", member_discount_pct="15"))
-            assert form.is_valid(), form.errors
-            offering = form.save()
-            assert offering.price_cents == 2500
-            assert offering.member_discount_pct == 15
-
-        def it_requires_a_price_when_not_free():
-            form = ClassOfferingForm(data=_admin_post_data(price_cents="", member_discount_pct=""))
-            assert not form.is_valid()
-            assert "price_cents" in form.errors
-
-        def describe_minimum_paid_price():
-            def it_rejects_paid_price_below_one_dollar():
-                form = ClassOfferingForm(data=_admin_post_data(price_cents="0.99"))
-                assert not form.is_valid()
-                assert "price_cents" in form.errors
-                assert any("$1.00" in e for e in form.errors["price_cents"])
-
-            def it_accepts_paid_price_at_exactly_one_dollar():
-                form = ClassOfferingForm(data=_admin_post_data(price_cents="1.00"))
-                assert form.is_valid(), form.errors
-
-            def it_still_allows_zero_when_marked_free():
-                form = ClassOfferingForm(
-                    data=_admin_post_data(is_free="on", price_cents="", member_discount_pct=""),
-                )
-                assert form.is_valid(), form.errors
-                assert form.save().price_cents == 0
-
-        def it_pre_checks_for_existing_free_class():
-            offering = ClassOfferingFactory(price_cents=0, member_discount_pct=0)
-            form = ClassOfferingForm(instance=offering)
-            assert form.fields["is_free"].initial is True
-
-        def it_pre_unchecks_for_existing_paid_class():
-            offering = ClassOfferingFactory(price_cents=4500)
-            form = ClassOfferingForm(instance=offering)
-            assert form.fields["is_free"].initial is False
-
-
 def _instructor_post_data(**overrides) -> dict:
     data = {
-        "title": "Free Demo",
+        "title": "Studio Demo",
         "category": str(CategoryFactory().pk),
         "description": "A walkthrough.",
         "prerequisites": "",
@@ -108,8 +64,8 @@ def _instructor_post_data(**overrides) -> dict:
         "safety_requirements": "",
         "age_minimum": "",
         "age_guardian_note": "",
-        "price_cents": "",
-        "member_discount_pct": "",
+        "price_cents": "20.00",
+        "member_discount_pct": "10",
         "capacity": "6",
         "scheduling_model": ClassOffering.SchedulingModel.FIXED,
         "sale_kind": "percent",
@@ -123,37 +79,92 @@ def _instructor_post_data(**overrides) -> dict:
     return data
 
 
-def describe_TeachClassOfferingForm():
-    def describe_is_free_checkbox():
-        def it_zeroes_pricing_when_checked():
-            instructor = InstructorFactory()
-            form = TeachClassOfferingForm(
-                data=_instructor_post_data(is_free="on"),
-                teaching_member=instructor,
-            )
-            assert form.is_valid(), form.errors
-            offering = form.save()
-            assert offering.price_cents == 0
-            assert offering.member_discount_pct == 0
+@pytest.fixture(params=[TeachClassOfferingForm, ClassOfferingForm], ids=["teach", "admin"])
+def form_class(request):
+    return request.param
 
-        def it_requires_price_for_paid_class():
-            instructor = InstructorFactory()
-            form = TeachClassOfferingForm(
-                data=_instructor_post_data(),
-                teaching_member=instructor,
-            )
-            assert not form.is_valid()
-            assert "price_cents" in form.errors
 
-        def it_rejects_paid_price_below_one_dollar():
-            instructor = InstructorFactory()
-            form = TeachClassOfferingForm(
-                data=_instructor_post_data(price_cents="0.50"),
-                teaching_member=instructor,
-            )
+def _form(form_class, instance: ClassOffering | None = None, **overrides):
+    """A bound form of either class, valid unless an override says otherwise."""
+    if form_class is ClassOfferingForm:
+        return ClassOfferingForm(data=_admin_post_data(**overrides), instance=instance)
+    return TeachClassOfferingForm(
+        data=_instructor_post_data(**overrides), teaching_member=InstructorFactory(), instance=instance
+    )
+
+
+def describe_the_price_floor():
+    def it_has_no_free_checkbox(form_class):
+        assert "is_free" not in form_class().fields
+
+    def it_requires_a_price(form_class):
+        form = _form(form_class, price_cents="")
+        assert not form.is_valid()
+        assert form.errors["price_cents"] == [REQUIRED]
+
+    def it_refuses_zero(form_class):
+        form = _form(form_class, price_cents="0")
+        assert not form.is_valid()
+        assert form.errors["price_cents"] == [FLOOR]
+
+    def it_refuses_ninety_nine_cents(form_class):
+        form = _form(form_class, price_cents="0.99")
+        assert not form.is_valid()
+        assert form.errors["price_cents"] == [FLOOR]
+
+    def it_accepts_exactly_one_dollar(form_class):
+        form = _form(form_class, price_cents="1.00")
+        assert form.is_valid(), form.errors
+        assert form.save().price_cents == 100
+
+    def it_keeps_pricing_as_typed(form_class):
+        form = _form(form_class, price_cents="25.00", member_discount_pct="15")
+        assert form.is_valid(), form.errors
+        offering = form.save()
+        assert offering.price_cents == 2500
+        assert offering.member_discount_pct == 15
+
+    def describe_on_an_existing_class():
+        def it_refuses_an_edit_under_the_floor(form_class):
+            offering = ClassOfferingFactory(price_cents=5000)
+            form = _form(form_class, instance=offering, price_cents="0.50")
             assert not form.is_valid()
-            assert "price_cents" in form.errors
-            assert any("$1.00" in e for e in form.errors["price_cents"])
+            assert form.errors["price_cents"] == [FLOOR]
+            offering.refresh_from_db()
+            assert offering.price_cents == 5000
+
+        def it_leaves_the_instance_price_alone_when_the_price_is_blank(form_class):
+            # A blank used to reach construct_instance and null the in-memory row (the 500 behind
+            # #368 item 3a). A required field never reaches cleaned_data, so the row is untouched.
+            offering = ClassOfferingFactory(price_cents=5000)
+            form = _form(form_class, instance=offering, price_cents="")
+            assert not form.is_valid()
+            assert offering.price_cents == 5000
+
+        def it_moves_a_legacy_zero_priced_class_up_to_the_floor_or_not_at_all(form_class):
+            # Existing $0 rows stay as they are until someone edits them; the edit then needs a price.
+            offering = ClassOfferingFactory(price_cents=0, member_discount_pct=0)
+            refused = _form(form_class, instance=offering, price_cents="0")
+            assert not refused.is_valid()
+            assert refused.errors["price_cents"] == [FLOOR]
+            accepted = _form(form_class, instance=offering, price_cents="1.00")
+            assert accepted.is_valid(), accepted.errors
+            assert accepted.save().price_cents == 100
+
+
+def describe_the_member_discount():
+    def it_is_required(form_class):
+        form = _form(form_class, member_discount_pct="")
+        assert not form.is_valid()
+        assert form.errors["member_discount_pct"] == [REQUIRED]
+
+    def it_starts_at_the_model_default_on_a_new_class(form_class):
+        assert form_class().fields["member_discount_pct"].initial == 10
+
+    def it_accepts_zero(form_class):
+        form = _form(form_class, member_discount_pct="0")
+        assert form.is_valid(), form.errors
+        assert form.save().member_discount_pct == 0
 
 
 def describe_HeroCropMixin():
@@ -180,49 +191,35 @@ def describe_HeroCropMixin():
 
     def describe_clean_hero_crop():
         def it_rejects_malformed_json():
-            form = ClassOfferingForm(
-                data=_admin_post_data(is_free="on", price_cents="", member_discount_pct="", hero_crop="not-json"),
-            )
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop="not-json"))
             assert not form.is_valid()
             assert "hero_crop" in form.errors
 
         def it_rejects_crop_with_missing_keys():
-            form = ClassOfferingForm(
-                data=_admin_post_data(
-                    is_free="on", price_cents="", member_discount_pct="", hero_crop=json.dumps({"x": 0, "y": 0})
-                ),
-            )
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop=json.dumps({"x": 0, "y": 0})))
             assert not form.is_valid()
             assert "hero_crop" in form.errors
 
         def it_rejects_crop_with_zero_width():
             crop = json.dumps({"x": 0, "y": 0, "w": 0, "h": 100})
-            form = ClassOfferingForm(
-                data=_admin_post_data(is_free="on", price_cents="", member_discount_pct="", hero_crop=crop),
-            )
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop=crop))
             assert not form.is_valid()
             assert "hero_crop" in form.errors
 
         def it_rejects_crop_with_negative_x():
             crop = json.dumps({"x": -1, "y": 0, "w": 100, "h": 100})
-            form = ClassOfferingForm(
-                data=_admin_post_data(is_free="on", price_cents="", member_discount_pct="", hero_crop=crop),
-            )
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop=crop))
             assert not form.is_valid()
             assert "hero_crop" in form.errors
 
         def it_accepts_valid_crop_and_returns_int_dict():
             crop = json.dumps({"x": 5, "y": 10, "w": 200, "h": 150})
-            form = ClassOfferingForm(
-                data=_admin_post_data(is_free="on", price_cents="", member_discount_pct="", hero_crop=crop),
-            )
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop=crop))
             assert form.is_valid(), form.errors
             assert form.cleaned_data["hero_crop"] == {"x": 5, "y": 10, "w": 200, "h": 150}
 
         def it_returns_none_when_hero_crop_is_blank():
-            form = ClassOfferingForm(
-                data=_admin_post_data(is_free="on", price_cents="", member_discount_pct="", hero_crop=""),
-            )
+            form = ClassOfferingForm(data=_admin_post_data(hero_crop=""))
             assert form.is_valid(), form.errors
             assert form.cleaned_data["hero_crop"] is None
 
@@ -266,14 +263,11 @@ def describe_ClassSessionForm():
 def describe_TeachClassOfferingForm_slug_collision():
     def it_generates_a_unique_slug_when_title_collides():
         instructor = InstructorFactory()
-        # _instructor_post_data uses title="Free Demo" → base slug "free-demo".
-        # Pre-occupy that slug so the form must increment to "free-demo-2".
-        ClassOfferingFactory(title="Free Demo", slug="free-demo")
-        form = TeachClassOfferingForm(
-            data=_instructor_post_data(is_free="on"),
-            teaching_member=instructor,
-        )
+        # _instructor_post_data uses title="Studio Demo" → base slug "studio-demo".
+        # Pre-occupy that slug so the form must increment to "studio-demo-2".
+        ClassOfferingFactory(title="Studio Demo", slug="studio-demo")
+        form = TeachClassOfferingForm(data=_instructor_post_data(), teaching_member=instructor)
         assert form.is_valid(), form.errors
         offering = form.save()
-        assert offering.slug != "free-demo"
-        assert offering.slug.startswith("free-demo")
+        assert offering.slug != "studio-demo"
+        assert offering.slug.startswith("studio-demo")

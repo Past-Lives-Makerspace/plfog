@@ -95,7 +95,7 @@ the parent's x-init runs, so a synchronous dispatch would fire into the void.{% 
         {% endif %}
         {% if request.view_as.actual_is_admin and lifecycle != 'cancelled' and lifecycle != 'archived' and lifecycle != 'completed' %}
             {% if offering.price_cents == 0 %}
-                <span class="pl-sale-note">A free class cannot go on sale.</span>
+                <span class="pl-sale-note">A class priced at $0 cannot go on sale. Give it a price first.</span>
             {% elif offering.sale_is_active %}
                 <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'class-sale')">Edit the Sale</button>
             {% else %}

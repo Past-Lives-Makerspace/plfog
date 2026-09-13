@@ -104,17 +104,16 @@ def describe_ClassSaleForm():
             assert saved.sale_amount_cents == 1500
             assert saved.sale_price_cents == 8500
 
-    def describe_a_free_class():
+    def describe_a_class_priced_at_zero():
         def it_cannot_go_on_sale(db):
-            # The page never offers the modal on a free class; a crafted POST still gets the mixin's
-            # check, surfaced at the form level because the modal has no price field to hang it on.
-            free = ClassOfferingFactory(price_cents=0, member_discount_pct=0)
-            form = _form(free, sale_kind="percent", sale_percent="20")
+            # Only legacy rows are priced at $0 now, and the page never offers the modal on one; a
+            # crafted POST still gets the mixin's check, surfaced at the form level because the
+            # modal has no price field to hang it on.
+            zero = ClassOfferingFactory(price_cents=0, member_discount_pct=0)
+            form = _form(zero, sale_kind="percent", sale_percent="20")
             assert not form.is_valid()
             assert "price_cents" not in form.errors
-            assert form.non_field_errors() == [
-                "A free class can't be on sale. Uncheck the free option or turn the sale off."
-            ]
+            assert form.non_field_errors() == ["Set a price before putting this class on sale."]
 
     def describe_stripe_floor():
         def it_rejects_a_percent_sale_landing_between_one_and_forty_nine_cents(db):
