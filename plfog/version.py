@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.54.3"
+VERSION = "1.55.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -45,11 +45,25 @@ VERSION = "1.54.3"
 # stops a misconfigured deploy is repo tooling, invisible to members. It is not the bump 1.54.1's
 # note is waiting for either; that deferral still stands for the next member-facing release.
 #
+# 1.55.0 is the skip link entry below. It is not the top bar confirm 1.54.1's note is waiting
+# for either; that deferral still stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.55.0",
+        "date": "2026-09-12",
+        "title": "Skip past the menus with the keyboard",
+        "changes": [
+            "Press Tab on any page and a link appears at the top that jumps past the sidebar and "
+            "menus straight to the page content. Screen readers announce it too.",
+            "The calendar's arrow buttons now tell screen readers what they do: previous week, "
+            "next week, previous month, next month.",
+        ],
+    },
     {
         "version": "1.54.0",
         "date": "2026-09-10",
