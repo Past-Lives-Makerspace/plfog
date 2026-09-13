@@ -78,8 +78,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "Next now stops on the step you are on when a required field is empty, moves you to "
             "that field, and says what is missing right beside it. The message clears as soon as "
             "you fill it in. Back and the step tabs are never blocked.",
-            "Save Draft, Submit and Publish check every step first and take you to the first gap "
-            "instead of quietly doing nothing.",
+            "Saving a draft, sending a class for review, or publishing it now checks every step "
+            "first and takes you to the first gap instead of quietly doing nothing.",
         ],
     },
     {
