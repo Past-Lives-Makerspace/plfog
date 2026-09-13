@@ -64,6 +64,11 @@ def _settle_before_the_database_is_truncated(page, live_server, transactional_db
     the flake back by forgetting the line. A Playwright error is swallowed on purpose: this
     is housekeeping, and a page left broken by a failing assertion must not turn that
     failure into a confusing teardown error.
+
+    This leans on the hub chrome doing no polling: no ``setInterval``, ``EventSource``,
+    ``WebSocket`` or ``hx-trigger="every"`` on these pages. Add one and ``networkidle``
+    never arrives, every teardown quietly eats the timeout below, and the file goes from
+    about a minute to about four with nothing reported. Wait for a different signal then.
     """
     yield
     try:

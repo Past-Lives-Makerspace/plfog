@@ -52,13 +52,20 @@
     var REQUIRED_MESSAGE = "This field is required.";
     var counter = 0;
 
-    // Unnamed means unposted: the form data set skips a control with an empty name,
-    // so nothing the server validates can be behind it and no save could ever be
-    // refused for it. Skipping it here is what keeps the pane's rule book to the
-    // fields the form actually rendered. It takes the scheduler's date, time and
-    // duration pickers out of the walk (session_calendar.html: pure Alpine UI that
-    // writes the hidden sessions-N-* inputs, and a half typed date there reports
-    // badInput), along with every other helper control on a pane.
+    // The rule this walk enforces: hold the step only where the value the browser
+    // would post is one the server would refuse. An unnamed control posts nothing,
+    // so it can never be that, and it is skipped. That takes the scheduler's date,
+    // time and duration pickers out of the walk (session_calendar.html: pure Alpine
+    // UI that writes the hidden sessions-N-* inputs, and a half typed date there
+    // reports badInput), along with every other helper control on a pane.
+    //
+    // One named control is still stricter than the server: the Details step's
+    // optional whole number box. Type "1e" into it and the browser posts a blank,
+    // which the form accepts, while reporting badInput, so this holds the step.
+    // Left that way deliberately. The characters the person typed are going to be
+    // dropped on save either way, and saying so beside the box beats discarding
+    // them in silence. (No field named here on purpose: the guard spec keeps every
+    // field name out of this file, so the step map stays the only mapping.)
     function firstInvalid(pane) {
         var all = pane.querySelectorAll(CONTROLS);
         for (var i = 0; i < all.length; i++) {
