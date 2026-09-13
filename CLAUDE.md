@@ -50,7 +50,7 @@ changes = [
 
 `VERSION` and `CHANGELOG` in `plfog/version.py` are **computed at import** from
 `changelog/base.json` (the version the fold starts from), `changelog.d/*.toml` (one fragment
-per unreleased change) and `changelog/history.json` (258 releases frozen at v1.62.1). The
+per unreleased change) and `changelog/history.json` (259 releases frozen at v1.63.0). The
 machinery and the reasoning live in `plfog/changelog.py`.
 
 This replaced a rule where every PR hand-edited the `VERSION` literal at line 5 of a 3,412-line
@@ -75,10 +75,11 @@ to bump `VERSION`, it is stale; fix it.**
   number without merge order, which the tree does not record, so new entries are identified by
   date and the changelog modal renders the version badge only when there is one. Frozen
   entries keep the numbers they shipped under.
-- **Sweeping** moves fragments into `changelog/history.json` and `changelog/base.json` forward.
-  It is deliberate housekeeping, usually right after the release email goes out, and it is a
-  the thing that keeps a second major's number exact. Nothing breaks if you never do it:
-  the fold approximates rather than failing, because it runs at app import.
+- **Sweeping** moves fragments into `changelog/history.json` and moves `changelog/base.json`
+  forward. It is deliberate housekeeping, usually right after the release email goes out, and
+  it is what keeps a second major's number exact. Nothing breaks if you never sweep: two
+  unswept majors are approximated rather than rejected, because the fold runs at app import
+  and refusing there would stop the app booting.
 
 ### Was this really impossible before?
 

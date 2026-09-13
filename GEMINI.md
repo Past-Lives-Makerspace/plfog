@@ -9,7 +9,7 @@ This file contains team-shared conventions, architecture, and repo guidance for 
 - **Explicit over Implicit**: Use environment variables with clear names; no magic defaults.
 - **Type Everything**: All functions must have full type annotations, including `-> None`.
 - **Test Everything**: 100% coverage target. Use BDD-style tests with `pytest-describe`.
-- **Versioning**: Bump version in `plfog/version.py` and add a member-friendly changelog entry for every PR.
+- **Versioning**: Never bump a version. Add one `changelog.d/<pr>-<slug>.toml` fragment per PR declaring `bump` (`patch`/`minor`/`major`) plus member-friendly `title`/`changes`; `VERSION` is folded from the fragments at import. Repo tooling takes `audience = "internal"`. See `changelog.d/README.md`.
 
 ## Architecture
 

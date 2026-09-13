@@ -370,3 +370,35 @@ def describe_the_repos_own_files():
 
         for entry in load_history(HISTORY_PATH):
             assert {"version", "date", "title", "changes"} <= set(entry), entry
+
+    def it_never_folds_below_a_release_that_already_shipped():
+        """The invariant a stale snapshot breaks, and the only one that is not self-evident.
+
+        ``changelog/history.json`` holds releases that are tagged, deployed and announced.
+        If ``changelog/base.json`` is ever behind the newest of them — a branch cut before a
+        merge, a sweep that moved one file and not the other — the fold produces a version
+        BELOW what production is running: the footer, the changelog modal and the release
+        email badge all drop under what members saw yesterday, and ``release_plan.py`` pushes
+        a tag onto a commit newer than the tag above it. Nothing else in the machinery catches
+        that; a tag collision is a no-op, not a regression.
+
+        Caught for real on this PR's own rebase, when #392 shipped v1.63.0 while the branch
+        was open and the snapshot still said 1.62.1.
+        """
+        from plfog.version import BASE_VERSION, HISTORY_PATH, VERSION
+
+        newest_shipped = max(parse_version(str(e["version"])) for e in load_history(HISTORY_PATH))
+        assert parse_version(BASE_VERSION) >= newest_shipped, (
+            f"changelog/base.json is {BASE_VERSION}, behind the newest frozen release. "
+            f"Rebase and move base.json forward."
+        )
+        assert parse_version(VERSION) >= newest_shipped
+
+    def it_never_freezes_an_entry_at_a_version_above_the_base():
+        # The other direction of the same mistake: a sweep that appended entries without
+        # moving base.json leaves history claiming releases the fold cannot reach.
+        from plfog.version import BASE_VERSION, HISTORY_PATH
+
+        base = parse_version(BASE_VERSION)
+        for entry in load_history(HISTORY_PATH):
+            assert parse_version(str(entry["version"])) <= base, entry["version"]

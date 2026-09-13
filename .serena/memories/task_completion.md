@@ -12,6 +12,7 @@ Before a coding task is done:
 - Do PR work in an isolated `git worktree` (other sessions may mutate the primary checkout).
 
 ## Versioning
-- Bump `VERSION` in `plfog/version.py` on every PR.
-- CHANGELOG in `plfog/version.py`: one entry per member-facing feature per release line. Edit existing entries for fixes/polish to already-unshipped features — do NOT add a new entry. See CLAUDE.md for full rules.
-- Discord announce fires automatically on merge when VERSION changes; curate the entry before merging.
+- **Never bump `VERSION`.** It is computed at import by folding `changelog.d/*.toml` over `changelog/base.json`. Do not edit `plfog/version.py`, `changelog/base.json` or `changelog/history.json` in a feature PR.
+- Add one fragment: `changelog.d/<pr-number>-<slug>.toml` with `bump` (`patch`/`minor`/`major`), plus `date`, `title`, `changes` for anything members see. Repo tooling and tests take `audience = "internal"` and nothing else. CI fails a PR with no fragment and no `no-changelog` label. See `changelog.d/README.md`.
+- One fragment per feature: polish to something still unswept edits that fragment rather than adding a second.
+- Discord announce fires automatically on merge, posting the fragments that push ADDED; curate the fragment before merging.

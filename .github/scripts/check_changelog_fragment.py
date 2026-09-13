@@ -97,6 +97,10 @@ def main() -> None:
 
     changed = _changed_fragments(os.environ["BASE_SHA"], os.environ["HEAD_SHA"])
     if not changed:
+        # The defaults below are deliberate, unlike the os.environ[...] reads above. These two
+        # only fill in the example fragment inside a message that is already an error, so a
+        # missing one costs a less specific suggestion rather than hiding a bug; failing here
+        # would replace a useful message with a traceback.
         sys.exit(
             _MISSING.format(
                 number=os.environ.get("PR_NUMBER", "123"),
