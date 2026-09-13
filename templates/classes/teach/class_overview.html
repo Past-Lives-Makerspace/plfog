@@ -71,10 +71,10 @@ that modal so the error shows inside it. The dispatch waits a tick: the child mo
         {% if offering.status == 'draft' %}
             {% with blocker=offering.submit_blocker %}
             {% if blocker %}
-                {# Gated the way the composer gates its own Submit: disabled, with the checklist as the hint. #}
-                <span class="pl-help">
-                    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-label="Submit for review: {{ blocker }}">{% if pipeline.is_bounced %}Fix and resubmit{% else %}Submit for review{% endif %}</button>
-                    <span class="pl-help__bubble" role="tooltip">{{ blocker }}</span>
+                {# Gated like the composer's own Submit, with the reason written beside it: a disabled button cannot open a hover bubble for keyboard or phone users. #}
+                <span class="pl-submit-gate">
+                    <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-describedby="submit-gate-{{ offering.pk }}">{% if pipeline.is_bounced %}Fix and resubmit{% else %}Submit for review{% endif %}</button>
+                    <span id="submit-gate-{{ offering.pk }}" class="pl-field-hint">{{ blocker }}</span>
                 </span>
             {% else %}
             <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">

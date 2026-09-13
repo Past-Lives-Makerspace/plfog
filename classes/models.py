@@ -12,6 +12,7 @@ from html import unescape
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator
 from django.db import IntegrityError, models, transaction
 from django.db.models import Case, CheckConstraint, Exists, F, IntegerField, Max, OuterRef, Q, Value, When
@@ -363,10 +364,11 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         starting from now on exists) are the only facts readiness needs beyond the row itself.
         Annotations are a snapshot: read them off a row whose sessions you then change and
         they are stale, so this belongs on read-only lists, never on the composer's own
-        lookup. Calling this twice is safe.
+        lookup. Calling this twice is safe: an already annotated queryset comes back as an
+        unchanged clone.
         """
         if "has_future_session" in self.query.annotations:
-            return self
+            return self.all()
         return self.annotate(
             has_gallery_photo=Exists(ClassImage.objects.filter(class_offering=OuterRef("pk"))),
             has_future_session=Exists(
@@ -687,6 +689,19 @@ def readiness_error_text(items: list[ReadinessItem], verb: str) -> str:
     """The one-line error naming every failing item: "Not ready to submit: Add at least one date."."""
     hints = " ".join(item.hint for item in items if not item.ok)
     return f"Not ready to {verb}: {hints}"
+
+
+class ClassNotReadyError(ValidationError):
+    """A submit or publish refused by the readiness checklist.
+
+    Carries the checklist it was computed from, so the view can land on the first step still
+    owing an item without reading readiness a second time. To every caller that only wants
+    the message it is a plain ``ValidationError``.
+    """
+
+    def __init__(self, items: list[ReadinessItem], verb: str) -> None:
+        super().__init__(readiness_error_text(items, verb))
+        self.items = items
 
 
 @dataclass(frozen=True)
@@ -1201,10 +1216,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
-        if not self.is_ready:
-            from django.core.exceptions import ValidationError
-
-            raise ValidationError(self.readiness_error("submit"))
+        items = self.readiness()
+        if not all(item.ok for item in items):
+            raise ClassNotReadyError(items, "submit")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
         # Clear out any stale approval rows from a prior submission cycle, then
@@ -1298,12 +1312,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         deliberately, not by oversight.
 
         Raises:
-            ValidationError: When :attr:`is_ready` is False, naming every failing item.
+            ClassNotReadyError: When :attr:`is_ready` is False, naming every failing item.
         """
-        if not self.is_ready:
-            from django.core.exceptions import ValidationError
-
-            raise ValidationError(self.readiness_error("publish"))
+        items = self.readiness()
+        if not all(item.ok for item in items):
+            raise ClassNotReadyError(items, "publish")
         from classes import activity
 
         self.status = self.Status.PUBLISHED

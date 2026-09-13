@@ -95,6 +95,7 @@ from classes.models import (
     Category,
     ClassApproval,
     ClassImage,
+    ClassNotReadyError,
     ClassOffering,
     ClassSettings,
     CmsActivity,
@@ -1432,16 +1433,18 @@ def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResp
     return redirect(url)
 
 
-def _unready_redirect(url_name: str, offering: ClassOffering) -> HttpResponse:
+def _unready_redirect(url_name: str, offering: ClassOffering, items: Iterable[ReadinessItem]) -> HttpResponse:
     """Back to the composer on the first step still missing something, with the checklist showing.
 
     A readiness refusal names things on steps 1 to 3, and the POST came from the Review step
     (or from a list, with no step at all), so the landing step is read from the saved row,
     not from the POST. ``missing=1`` tells the composer to render the Still Missing notice
-    on arrival; the toast alone dismisses itself before anyone has read it twice.
+    on arrival; the toast alone dismisses itself before anyone has read it twice. ``items`` is
+    the checklist the refusal was computed from (:attr:`ClassNotReadyError.items`), so one
+    refusal reads readiness exactly once.
     """
     url = reverse(url_name, kwargs={"pk": offering.pk})
-    return redirect(f"{url}?step={first_unready_step(offering.readiness())}&missing=1")
+    return redirect(f"{url}?step={first_unready_step(items)}&missing=1")
 
 
 def _missing_context(items: Iterable[ReadinessItem], verb: str) -> dict[str, Any]:
@@ -1487,7 +1490,10 @@ def _composer_context(
     error_step_numbers = [step.number for step, _labels in summary]
     readiness = saved.readiness() if saved is not None else None
     verb = "publish" if is_admin else "submit"
-    missing = readiness if readiness is not None and request.GET.get("missing") else []
+    # Only a draft can be refused, so only a draft shows the notice: a bookmarked or Back
+    # navigated ?missing=1 on a class since submitted or published says nothing.
+    is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
+    missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
         cancel_name = "classes:admin_class_detail" if is_admin else "classes:teach_class_detail"
         cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
@@ -1585,10 +1591,10 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
             if submit_now:
                 try:
                     offering.submit_for_review()
-                except ValidationError as exc:
+                except ClassNotReadyError as exc:
                     # The draft is saved; the refusal lands where the gap is, not on step 1.
                     messages.error(request, exc.messages[0])
-                    return _unready_redirect("classes:teach_class_edit", offering)
+                    return _unready_redirect("classes:teach_class_edit", offering, exc.items)
                 messages.success(request, _submitted_message(offering))
                 if offering.needs_photo_nudge:
                     messages.info(request, _PHOTO_NUDGE_MESSAGE)
@@ -1632,10 +1638,10 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             try:
                 offering.submit_for_review()
-            except ValidationError as exc:
+            except ClassNotReadyError as exc:
                 # Everything typed is saved; the refusal lands where the gap is, not on the POST's step.
                 messages.error(request, exc.messages[0])
-                return _unready_redirect("classes:teach_class_edit", offering)
+                return _unready_redirect("classes:teach_class_edit", offering, exc.items)
             messages.success(request, _submitted_message(offering))
             if offering.needs_photo_nudge:
                 messages.info(request, _PHOTO_NUDGE_MESSAGE)
@@ -1733,6 +1739,7 @@ def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 @teaching_member_required
+@require_POST
 def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """The quick Submit for review on Manage My Classes and the class page: DRAFT to PENDING.
 
@@ -1742,16 +1749,14 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
-    if request.method != "POST":
-        return redirect("classes:teach_dashboard")
     if offering.status != ClassOffering.Status.DRAFT:
         messages.info(request, _already_submitted_message(offering))
         return redirect("classes:teach_class_detail", pk=offering.pk)
     try:
         offering.submit_for_review()
-    except ValidationError as exc:
+    except ClassNotReadyError as exc:
         messages.error(request, exc.messages[0])
-        return _unready_redirect("classes:teach_class_edit", offering)
+        return _unready_redirect("classes:teach_class_edit", offering, exc.items)
     messages.success(request, _submitted_message(offering))
     if offering.needs_photo_nudge:
         messages.info(request, _PHOTO_NUDGE_MESSAGE)
@@ -3006,9 +3011,9 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 return _composer_redirect("classes:admin_class_edit", offering.pk, request)
             try:
                 offering.publish(cast("User", request.user))
-            except ValidationError as exc:
+            except ClassNotReadyError as exc:
                 messages.error(request, exc.messages[0])
-                return _unready_redirect("classes:admin_class_edit", offering)
+                return _unready_redirect("classes:admin_class_edit", offering, exc.items)
             messages.success(request, f"{offering.title} is published.")
             return redirect("classes:admin_class_detail", pk=offering.pk)
         messages.success(request, "Class updated.")

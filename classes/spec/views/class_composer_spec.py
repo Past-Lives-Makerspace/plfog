@@ -1330,3 +1330,48 @@ def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
         assert "This class was archived after you opened this page, so nothing here was saved." in resp.content.decode()
         offering.refresh_from_db()
         assert offering.title == "Before"
+
+
+def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():
+    # Only a draft can be refused, so only a draft shows the Still Missing notice: a bookmarked or
+    # Back navigated landing URL on a class since submitted or published says nothing.
+    def it_renders_no_notice_on_a_pending_class(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.PENDING, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        html = client.get(url).content.decode()
+        assert _still_missing(html) == ""
+        assert "Not ready to submit yet." not in html
+        assert "phase: 2," in html
+
+    def it_renders_no_notice_on_a_published_class(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, gallery=0)
+        client.force_login(admin_user)
+        url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        html = client.get(url).content.decode()
+        assert _still_missing(html) == ""
+        assert "Not ready to publish yet." not in html
+
+    def it_still_renders_the_notice_on_a_draft(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        assert "Add one gallery photo." in _still_missing(client.get(url).content.decode())
+
+
+def describe_a_cancelled_class_post_that_also_has_field_errors():
+    def it_leads_with_the_nothing_saved_notice_above_the_error_summary(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED, title="Before")
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="", action="submit", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        notice_at = html.find("so nothing here was saved.")
+        errors_at = html.find("Some Things Need Fixing")
+        assert notice_at != -1 and errors_at != -1
+        assert notice_at < errors_at
+        offering.refresh_from_db()
+        assert offering.title == "Before"

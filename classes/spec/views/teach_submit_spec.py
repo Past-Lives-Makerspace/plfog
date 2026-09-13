@@ -36,15 +36,14 @@ def describe_instructor_class_submit():
         assert draft.status == ClassOffering.Status.PENDING
 
     def it_ignores_get_requests(instructor_fixture, client):
-        draft = ClassOfferingFactory(
-            instructor=instructor_fixture,
-            status=ClassOffering.Status.DRAFT,
-        )
+        # @require_POST: a GET is a 405 even for a READY draft, so a link or a prefetch can never
+        # submit a class. An unready draft would be refused anyway and prove nothing.
+        draft = ClassOfferingFactory(instructor=instructor_fixture, status=ClassOffering.Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
         response = client.get(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
-        assert response.status_code == 302
+        assert response.status_code == 405
         draft.refresh_from_db()
-        assert draft.status == ClassOffering.Status.DRAFT  # unchanged on GET
+        assert draft.status == ClassOffering.Status.DRAFT
 
 
 def describe_instructor_class_create_form():
@@ -151,15 +150,18 @@ def describe_the_quick_submit_button():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_dashboard")).content.decode()
         assert reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}) not in html
-        assert 'disabled aria-label="Submit for review: Not ready to submit: Add one gallery photo."' in html
-        assert '<span class="pl-help__bubble" role="tooltip">Not ready to submit: Add one gallery photo.</span>' in html
+        assert f'disabled aria-describedby="submit-gate-{draft.pk}">Submit for review</button>' in html
+        assert (
+            f'<span id="submit-gate-{draft.pk}" class="pl-field-hint">Not ready to submit: Add one gallery photo.</span>'
+            in html
+        )
 
     def it_posts_from_the_list_once_the_draft_is_ready(instructor_fixture, client):
         draft = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_dashboard")).content.decode()
         assert f'action="{reverse("classes:teach_class_submit", kwargs={"pk": draft.pk})}"' in html
-        assert 'disabled aria-label="Submit for review' not in html
+        assert "pl-submit-gate" not in html
 
     def it_is_gated_the_same_way_on_the_class_page(instructor_fixture, client):
         unready = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
@@ -167,10 +169,14 @@ def describe_the_quick_submit_button():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": unready.pk})).content.decode()
         assert reverse("classes:teach_class_submit", kwargs={"pk": unready.pk}) not in html
-        assert 'disabled aria-label="Submit for review: Not ready to submit: Add one gallery photo."' in html
+        assert f'disabled aria-describedby="submit-gate-{unready.pk}">Submit for review</button>' in html
+        assert (
+            f'<span id="submit-gate-{unready.pk}" class="pl-field-hint">Not ready to submit: Add one gallery photo.</span>'
+            in html
+        )
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": ready.pk})).content.decode()
         assert f'action="{reverse("classes:teach_class_submit", kwargs={"pk": ready.pk})}"' in html
-        assert 'disabled aria-label="Submit for review' not in html
+        assert "pl-submit-gate" not in html
 
     def it_costs_the_list_no_extra_queries_per_draft(instructor_fixture, client):
         from django.db import connection
@@ -186,7 +192,7 @@ def describe_the_quick_submit_button():
             ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, gallery=0)
         with CaptureQueriesContext(connection) as ctx:
             html = client.get(reverse("classes:teach_dashboard")).content.decode()
-        assert html.count('disabled aria-label="Submit for review') == 6
+        assert html.count("pl-submit-gate--end") == 6
         assert len(ctx) == at_one
 
 
@@ -249,3 +255,38 @@ def describe_a_quick_submit_on_a_class_that_is_no_longer_a_draft():
         assert "This class has already been submitted and is waiting for review." in _messages(second)
         offering.refresh_from_db()
         assert offering.status == Status.PENDING
+
+
+def describe_the_reason_beside_the_disabled_quick_submit():
+    def it_is_in_the_page_body_not_only_in_a_hover_bubble(instructor_fixture, client):
+        # A disabled button cannot take focus, so a hover or focus revealed bubble is unreadable
+        # from a keyboard or a phone. The reason is written next to the button, and the button
+        # points at it for screen readers.
+        draft = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        reason = "Not ready to submit: Add one gallery photo."
+        for url in (
+            reverse("classes:teach_dashboard"),
+            reverse("classes:teach_class_detail", kwargs={"pk": draft.pk}),
+        ):
+            html = client.get(url).content.decode()
+            assert f'<span id="submit-gate-{draft.pk}" class="pl-field-hint">{reason}</span>' in html, url
+            assert f'aria-describedby="submit-gate-{draft.pk}"' in html, url
+            assert f'role="tooltip">{reason}' not in html, url
+
+
+def describe_a_refusal_reads_the_checklist_once():
+    def it_touches_the_gallery_and_the_sessions_one_time_each(instructor_fixture, client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        # The model raises ClassNotReadyError carrying the checklist it computed; the redirect
+        # lands on the first unready step from those same items instead of reading them again.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        with CaptureQueriesContext(connection) as ctx:
+            resp = client.post(reverse("classes:teach_class_submit", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 302
+        sql = [query["sql"] for query in ctx.captured_queries]
+        assert sum("classes_classimage" in statement for statement in sql) == 1
+        assert sum("classes_classsession" in statement for statement in sql) == 1

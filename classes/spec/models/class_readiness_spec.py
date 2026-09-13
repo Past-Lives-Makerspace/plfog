@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, READY_DESCRIPTION
-from classes.models import ClassOffering, CmsActivity
+from classes.models import ClassNotReadyError, ClassOffering, CmsActivity
 
 
 def _items(offering: ClassOffering) -> dict[str, bool]:
@@ -167,9 +167,11 @@ def describe_with_readiness_inputs():
         assert row.has_future_session is False
         assert row.is_ready is False
 
-    def it_is_idempotent(db):
+    def it_returns_an_unchanged_clone_when_already_annotated(db):
         qs = ClassOffering.objects.with_readiness_inputs()
-        assert qs.with_readiness_inputs() is qs
+        again = qs.with_readiness_inputs()
+        assert again is not qs
+        assert str(again.query) == str(qs.query)
 
     def it_still_queries_the_relations_for_a_row_that_was_not_annotated(db):
         from django.db import connection
@@ -179,3 +181,21 @@ def describe_with_readiness_inputs():
         with CaptureQueriesContext(connection) as ctx:
             assert offering.is_ready is True
         assert len(ctx) == 2
+
+
+def describe_a_refused_submit_or_publish():
+    def it_raises_a_class_not_ready_error_carrying_the_checklist(db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True, gallery=0)
+        with pytest.raises(ClassNotReadyError) as excinfo:
+            offering.submit_for_review()
+        assert isinstance(excinfo.value, ValidationError)
+        assert excinfo.value.messages == ["Not ready to submit: Add one gallery photo."]
+        assert [item.label for item in excinfo.value.items if not item.ok] == ["Gallery photo"]
+        assert len(excinfo.value.items) == 5
+
+    def it_raises_the_same_error_from_publish(db):
+        offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True, image="")
+        with pytest.raises(ClassNotReadyError) as excinfo:
+            offering.publish(None)
+        assert excinfo.value.messages == ["Not ready to publish: Add a hero photo."]
+        assert [item.hint for item in excinfo.value.items if not item.ok] == ["Add a hero photo."]

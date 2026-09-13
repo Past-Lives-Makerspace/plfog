@@ -5252,6 +5252,19 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     text-align: left;
     text-decoration: underline;
 }
+/* The quick Submit on Manage My Classes and the class page while a draft is unready: the reason is
+   written beside the disabled button, never only in a hover bubble a disabled control cannot open. */
+.pl-submit-gate {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+    max-width: 18rem;
+}
+.pl-submit-gate--end {
+    align-items: flex-end;
+    text-align: right;
+}
 /* The sale modal body (classes/_components/sale_form.html). */
 .pl-sale-form__intro { margin: 0 0 1rem; }
 .pl-sale-form__field { display: block; }
