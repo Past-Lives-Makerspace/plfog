@@ -24,6 +24,7 @@ from classes.factories import (
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
 from classes.models import ClassApproval, ClassOffering, CmsActivity
+from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 
 Status = ClassOffering.Status
 
@@ -1460,12 +1461,19 @@ def describe_the_composer_draft_notice():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
         notice = _draft_notice(html)
-        assert '<div class="pl-composer-draft" data-composer-draft role="status" hidden>' in html
+        assert '<div class="pl-composer-draft" data-composer-draft hidden>' in html
         assert 'data-composer-draft-line="offer" hidden>We kept what you typed in this browser' in notice
         assert 'data-composer-draft-line="kept" hidden>Kept in this browser' in notice
         assert 'data-composer-draft-line="blocked" hidden>This browser will not let us keep' in notice
-        # The honest half: files cannot live in localStorage, so the notice says so.
-        assert notice.count("Photos and files") == 2
+        # The honest half. Files cannot live in localStorage at all, and the session dates,
+        # the ticks and any row added after load are widget state this deliberately skips, so
+        # the sentence has to cover all of them rather than name photos and stop there.
+        assert "Photos, dates and anything you added or ticked were not." in notice
+        assert "Photos, dates and anything you add or tick are not," in notice
+        # The announcement is its own region OUTSIDE the notice: a live region inside a subtree
+        # toggled with `hidden` announces nothing when it is revealed.
+        assert 'role="status"' not in notice
+        assert '<p class="sr-only" role="status" data-composer-draft-live></p>' in html
         assert "data-composer-draft-restore hidden>Restore It</button>" in notice
         assert "data-composer-draft-discard hidden>Discard It</button>" in notice
 
@@ -1542,3 +1550,51 @@ def describe_the_composer_draft_notice():
         )
         assert resp.status_code == 302
         assert 'data-composer-draft-saved="1"' in client.get(resp["Location"]).content.decode()
+
+    def it_marks_a_refused_save_as_unsaved_so_the_browser_trusts_none_of_it(instructor_fixture, client):
+        # Every value on a refused save's page came from the POST and none of it is in the
+        # database, so composer_draft.js must not read the page as a safe baseline: doing so
+        # would shrink the browser copy to whatever was edited after the refusal, and the
+        # refresh that followed would bring back that one field and nothing else.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        refused = client.post(edit_url, _full_payload(offering.category, video_url="https://vimeo.com/12345"))
+        assert refused.status_code == 200
+        assert 'data-composer-draft-unsaved="1"' in refused.content.decode()
+        # A GET renders the saved row, which is exactly what a baseline is meant to be.
+        assert "data-composer-draft-unsaved" not in client.get(edit_url).content.decode()
+
+    def it_remembers_every_save_that_never_landed_on_a_composer(admin_user, client, db):
+        # The admin composer's plain Save with no step goes to the class page, not back here, so
+        # the entry waits. One slot per session would let the second save overwrite the first,
+        # and that class would then offer text it has already saved for the rest of the session.
+        first = ClassOfferingFactory(status=Status.DRAFT)
+        second = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        for offering in (first, second):
+            resp = client.post(
+                reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+                _admin_payload(offering.category, offering.instructor, step=""),
+            )
+            assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        for offering in (first, second):
+            url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+            assert 'data-composer-draft-saved="1"' in client.get(url).content.decode(), offering.pk
+            assert "data-composer-draft-saved" not in client.get(url).content.decode(), offering.pk
+
+    def it_caps_how_many_it_remembers_so_a_long_session_cannot_grow_without_bound(rf):
+        request = rf.get("/")
+        request.session = {}
+        for pk in range(1, COMPOSER_SAVED_LIMIT + 6):
+            _mark_composer_saved(request, ClassOffering(pk=pk))
+        kept = request.session[COMPOSER_SAVED_SESSION_KEY]
+        assert kept == list(range(6, COMPOSER_SAVED_LIMIT + 6))
+        assert len(kept) == COMPOSER_SAVED_LIMIT
+
+    def it_keeps_one_entry_per_class_however_often_it_is_saved(rf):
+        request = rf.get("/")
+        request.session = {}
+        for _ in range(3):
+            _mark_composer_saved(request, ClassOffering(pk=7))
+        assert request.session[COMPOSER_SAVED_SESSION_KEY] == [7]

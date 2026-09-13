@@ -93,7 +93,7 @@ Do not merge them.
 {% endif %}
 
 <div class="hub-card pl-composer"
-     data-composer-draft-key="{{ composer_draft_key }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}
+     data-composer-draft-key="{{ composer_draft_key }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1"{% endif %}
      x-data="{
        phase: {{ initial_phase }},
        errorSteps: {{ error_steps_json }},
@@ -167,15 +167,17 @@ Do not merge them.
   fills the time; nothing here is visible until it has something true to say, so a browser
   that refuses to keep anything shows the last line instead of a promise it cannot keep.
   {% endcomment %}
-  <div class="pl-composer-draft" data-composer-draft role="status" hidden>
-    <p class="pl-composer-draft__line" data-composer-draft-line="offer" hidden>We kept what you typed in this browser<span data-composer-draft-when></span>. Photos and files were not kept. Want it back?</p>
-    <p class="pl-composer-draft__line" data-composer-draft-line="kept" hidden>Kept in this browser<span data-composer-draft-when></span>, on this device only. Photos and files are not kept, so save your draft for those.</p>
+  <div class="pl-composer-draft" data-composer-draft hidden>
+    <p class="pl-composer-draft__line" data-composer-draft-line="offer" hidden>We kept what you typed in this browser<span data-composer-draft-when></span>. Photos, dates and anything you added or ticked were not. Want it back?</p>
+    <p class="pl-composer-draft__line" data-composer-draft-line="kept" hidden>Kept in this browser<span data-composer-draft-when></span>, on this device only. Photos, dates and anything you add or tick are not, so save your draft for those.</p>
     <p class="pl-composer-draft__line" data-composer-draft-line="blocked" hidden>This browser will not let us keep what you type, so save your draft often.</p>
     <span class="pl-composer-draft__actions">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-composer-draft-restore hidden>Restore It</button>
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-composer-draft-discard hidden>Discard It</button>
     </span>
   </div>
+  {# The announcement lives outside the notice: a live region inside a subtree toggled with hidden announces nothing. #}
+  <p class="sr-only" role="status" data-composer-draft-live></p>
 
   {# novalidate stays on purpose: the server is the gate, and the browser's own bubble cannot point at a control inside a hidden step (it refuses silently). The per step check (static/js/composer_validation.js, next() / saveDraft() / confirmSubmit() above) reads the same rendered attributes and points at the field itself. #}
   <form method="post" enctype="multipart/form-data" id="composer-form" x-ref="composerForm" novalidate>

@@ -29,6 +29,7 @@ ROOT = ".pl-composer[data-composer-draft-key]"
 NOTICE = "[data-composer-draft]"
 OFFER = '[data-composer-draft-line="offer"]'
 KEPT = '[data-composer-draft-line="kept"]'
+BLOCKED = '[data-composer-draft-line="blocked"]'
 RESTORE = "[data-composer-draft-restore]"
 DISCARD = "[data-composer-draft-discard]"
 NEXT = "#composer-form .pl-composer-bar button:has-text('Next')"
@@ -36,6 +37,10 @@ SAVE_DRAFT = '#composer-form button[type="submit"]'
 TITLE = "A Forge of One's Own"
 DESCRIPTION = "Two evenings at the forge, starting from a cold anvil and a bar of mild steel."
 VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+# A URL the browser is happy with and the server refuses: video_url takes YouTube only, and
+# the per step check reads the rendered constraint attributes, which say nothing about hosts.
+# This is the only way to reach a server refusal from a form the client considers complete.
+REFUSED_VIDEO = "https://vimeo.com/12345"
 
 
 def _seed_instructor(email: str = EMAIL) -> Member:
@@ -101,7 +106,7 @@ def _stored(page) -> dict:
     return page.evaluate("(key) => JSON.parse(window.localStorage.getItem(key) || 'null')", key)
 
 
-def _type_a_class(page) -> None:
+def _type_a_class(page, video: str = VIDEO) -> None:
     """Fill step 1 and step 2, so a restore has to reach across a pane that is not on screen."""
     page.locator("#id_title").fill(TITLE)
     page.locator("#id_category").select_option(index=1)
@@ -110,8 +115,21 @@ def _type_a_class(page) -> None:
     page.locator(NEXT).click()
     _settle(page)
     expect(_step(page, 2)).to_be_visible()
-    page.locator("#id_video_url").fill(VIDEO)
+    page.locator("#id_video_url").fill(video)
     _kept(page)
+
+
+def _wait_for_kept_value(page, key: str, name: str, value: str) -> None:
+    """Wait until the copy in this browser holds that value, rather than sleeping past the debounce."""
+    page.wait_for_function(
+        """([key, name, value]) => {
+            const raw = window.localStorage.getItem(key);
+            if (!raw) return false;
+            const record = JSON.parse(raw);
+            return !!record && record.values[name] === value;
+        }""",
+        arg=[key, name, value],
+    )
 
 
 def _expect_the_class_is_back(page) -> None:
@@ -129,6 +147,7 @@ def describe_a_refresh_mid_wizard():
         login_via_code(EMAIL)
         _open_create(page, live_server)
         _type_a_class(page)
+        kept_at = _stored(page)["at"]
 
         page.reload()
         expect(_step(page, 1)).to_be_visible()
@@ -137,13 +156,19 @@ def describe_a_refresh_mid_wizard():
         expect(page.locator("#id_title")).to_have_value("")
         expect(page.locator(OFFER)).to_be_visible()
         expect(page.locator(OFFER)).to_contain_text("We kept what you typed in this browser at")
-        expect(page.locator(OFFER)).to_contain_text("Photos and files were not kept.")
+        # The line names everything this does not keep, not just the photos: the session dates,
+        # the ticks and any row added after load are widget state and go the same way.
+        expect(page.locator(OFFER)).to_contain_text("Photos, dates and anything you added or ticked were not.")
 
         page.locator(RESTORE).click()
 
         _expect_the_class_is_back(page)
         expect(page.locator(OFFER)).to_be_hidden()
         expect(page.locator(KEPT)).to_be_visible()
+        # Restoring writes there and then rather than leaving it to the debounce the restore
+        # itself armed, so the time on that line is the time on the copy, not one that
+        # silently changes 400ms after it is read.
+        assert _stored(page)["at"] > kept_at
 
     def it_takes_down_a_stale_reason_under_a_field_it_fills_in(live_server, page, login_via_code):
         # The per step check flags the empty title the reload left behind; restoring fills it,
@@ -246,13 +271,56 @@ def describe_discard():
         expect(page.locator("#id_title")).to_have_value("")
 
 
+def describe_a_save_the_server_refuses():
+    def it_keeps_the_copy_it_is_not_offering_and_hands_all_of_it_back_later(live_server, page, login_via_code):
+        # The render behind a refused save is bound to the POST: nothing is in the database and
+        # the page shows every value the copy holds. Both halves matter and only the second one
+        # is a bug when it is wrong. Not offered, because there is nothing to put back. Not
+        # deleted, because this page IS the unsaved work and the copy is its only backup: a
+        # refresh here without it loses the lot, which is the whole point of the feature.
+        _seed_instructor()
+        CategoryFactory()
+        login_via_code(EMAIL)
+        _open_create(page, live_server)
+        create_key = page.locator(ROOT).get_attribute("data-composer-draft-key")
+        _type_a_class(page, video=REFUSED_VIDEO)
+
+        page.locator(SAVE_DRAFT).click()
+        expect(page.locator(".pl-composer-errors")).to_be_visible()
+
+        assert page.locator(ROOT).get_attribute("data-composer-draft-key") == create_key
+        expect(page.locator(OFFER)).to_be_hidden()
+        expect(page.locator(KEPT)).to_be_visible()
+        assert page.evaluate("(key) => window.localStorage.getItem(key)", create_key) is not None
+
+        # And it stays a copy of the WHOLE page while the named field is fixed. A copy that
+        # read this render as saved would keep only the field just edited, and the refresh
+        # below would bring back the video and an empty class around it.
+        page.locator("#id_video_url").fill(VIDEO)
+        _wait_for_kept_value(page, create_key, "video_url", VIDEO)
+
+        _open_create(page, live_server)
+        expect(page.locator(OFFER)).to_be_visible()
+        page.locator(RESTORE).click()
+
+        _expect_the_class_is_back(page)
+
+
 def describe_a_boosted_arrival():
     def it_keeps_working_on_a_composer_that_arrived_as_a_body_swap(live_server, page, login_via_code):
         # hub/base.html boosts the body, so Manage My Classes to Edit is an htmx swap and the
-        # script tag runs again on each arrival. The re-run has to re-point the one set of
-        # document listeners at the page that just arrived; a second closure would leave them
-        # bound to the page that left, and nothing typed here would ever be kept. That is
-        # issue #378's failure mode, and only a real second arrival shows it.
+        # script tag runs again on each arrival. The re-run has to do two things: hand back to
+        # the one copy already loaded, AND re-boot it against the DOM that just arrived.
+        #
+        # This scenario is the second half. Guarding the way composer_validation.js does, an
+        # early return when the global is already set, leaves the loaded copy pointing at the
+        # page that left, and nothing typed on this one is ever kept. Measured against that
+        # mutant: this scenario fails, and so do both save scenarios above.
+        #
+        # The first half is caught elsewhere, not here. Dropping the guard altogether passes
+        # this scenario, because each arrival's own closure boots itself and its listeners are
+        # the newest bound. Measured: it fails only the save scenario above, where the copy
+        # that the save should have cleared is offered back on the page the save lands on.
         offering = _seed_draft(_seed_instructor())
         login_via_code(EMAIL)
         edit_path = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
@@ -269,6 +337,80 @@ def describe_a_boosted_arrival():
 
         _kept(page)
         assert _stored(page)["values"]["title"] == TITLE
+
+
+def describe_a_copy_it_cannot_use():
+    def it_drops_a_record_it_did_not_write_and_one_that_has_gone_stale(live_server, page, login_via_code):
+        _seed_instructor()
+        CategoryFactory()
+        login_via_code(EMAIL)
+        _open_create(page, live_server)
+        key = page.locator(ROOT).get_attribute("data-composer-draft-key")
+
+        # `values` as a string passes a bare truthiness check and then renders an offer
+        # reading "at Invalid Date" with a Restore button that puts nothing back.
+        page.evaluate(
+            "(key) => window.localStorage.setItem(key, JSON.stringify({ v: 1, at: 'now', values: 'abc' }))",
+            key,
+        )
+        page.reload()
+        expect(page.locator(NOTICE)).to_be_hidden()
+        assert page.evaluate("(key) => window.localStorage.getItem(key)", key) is None
+
+        # A fortnight on, nobody is coming back for it, and a machine the whole shop uses
+        # should not still be holding what somebody typed into a composer that long ago.
+        page.evaluate(
+            """(key) => window.localStorage.setItem(key, JSON.stringify({
+                v: 1, at: Date.now() - 15 * 24 * 60 * 60 * 1000, values: { title: 'Long Gone' },
+            }))""",
+            key,
+        )
+        page.reload()
+        expect(page.locator(NOTICE)).to_be_hidden()
+        assert page.evaluate("(key) => window.localStorage.getItem(key)", key) is None
+
+
+def describe_a_browser_with_no_room_left():
+    def it_says_so_and_leaves_the_copy_it_already_had_alone(live_server, page, login_via_code):
+        # Reclaiming our own entry is the one bit of room we may take, and only if the write
+        # that follows lands. Trading a good copy for a write that then fails as well would
+        # lose exactly the work the copy was holding.
+        _seed_instructor()
+        CategoryFactory()
+        login_via_code(EMAIL)
+        _open_create(page, live_server)
+        key = page.locator(ROOT).get_attribute("data-composer-draft-key")
+        page.locator("#id_title").fill(TITLE)
+        _kept(page)
+        previous = page.evaluate("(key) => window.localStorage.getItem(key)", key)
+
+        left_behind = page.evaluate(
+            """([key, previous]) => {
+                const real = window.localStorage;
+                // Full for anything new, which is what a quota looks like from in here.
+                const full = {
+                    data: { [key]: previous },
+                    getItem(k) { return k in this.data ? this.data[k] : null },
+                    removeItem(k) { delete this.data[k] },
+                    setItem(k, v) {
+                        if (v !== previous) throw new DOMException('full', 'QuotaExceededError');
+                        this.data[k] = v;
+                    },
+                };
+                Object.defineProperty(window, 'localStorage', { configurable: true, get: () => full });
+                try {
+                    window.plComposerDraft.save();
+                } finally {
+                    Object.defineProperty(window, 'localStorage', { configurable: true, get: () => real });
+                }
+                return full.data[key] === undefined ? null : full.data[key];
+            }""",
+            [key, previous],
+        )
+
+        assert left_behind == previous
+        expect(page.locator(BLOCKED)).to_be_visible()
+        expect(page.locator(KEPT)).to_be_hidden()
 
 
 def describe_a_shared_browser():

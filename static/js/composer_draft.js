@@ -16,9 +16,10 @@
  * since this copy was written. Overwriting that silently is worse than one click, so
  * a stored draft renders as an offer with a Restore button and the time it was kept.
  *
- * WHAT IS STORED. Named text boxes, dropdowns and text areas inside the composer form,
- * and only where the value differs from what the server rendered. Everything else is
- * skipped on purpose:
+ * WHAT IS STORED. Named text boxes, dropdowns and text areas inside the composer form, and
+ * only where the value differs from the baseline, which is what the database holds (see
+ * boot: usually the rendered page, and nothing at all on a render the server marked
+ * unsaved). Everything else is skipped on purpose:
  *   - file inputs (the hero photo and the gallery) cannot live in localStorage at all,
  *     and the notice says so rather than pretending otherwise;
  *   - hidden inputs belong to a widget, not to the person. The hero crop box, the
@@ -44,12 +45,27 @@
  * 80 coming back as 80.00) means comparing values cannot tell that on its own. Create
  * mode redirects to the edit URL under a different key, so the key that was in flight
  * rides along in sessionStorage and is forgotten by the page that arrives. A Discard
- * click forgets it too; typing again starts a new copy, and the line says so.
+ * click forgets it too; typing again starts a new copy, and the line says so. A copy that
+ * matches the page is not offered but is NOT deleted: a save the server refuses re-renders
+ * the composer bound to the POST, and there the copy is the only backup of it. That render
+ * carries data-composer-draft-unsaved, which tells this file not to trust anything on the
+ * page as saved.
  *
- * Loads in <body>, so hx-boost re-runs it on every arrival. The re-run hands straight
- * back to the copy already here and re-boots it against the swapped in DOM: a second
- * closure would leave the document listeners bound to the first one's page, which is
- * exactly how a body script goes quiet after an in-app navigation.
+ * Two ways a copy outlives the composer that wrote it. A class published while an
+ * instructor still has a draft for it moves to the light edit form
+ * (classes/teach/class_form_published.html), which renders no composer and so no draft key:
+ * that copy is orphaned and nothing will ever offer it again. And a copy nobody comes back
+ * to is simply stale. Both are swept the same way, by dropping any record older than a
+ * fortnight at boot, which also keeps a shared machine (the lobby kiosk) from holding an
+ * admin composer's private client name indefinitely.
+ *
+ * Loads in <body>, so hx-boost re-runs it on every arrival, and the re-run has to do BOTH
+ * halves of the handover: hand back to the copy already loaded, and re-boot that copy
+ * against the DOM that just arrived. Guarding the way composer_validation.js does, an early
+ * return, does only the first half and leaves the listeners pointing at the page that left,
+ * so nothing typed after an in-app navigation is ever kept. Dropping the guard does only the
+ * second and stacks up a closure per arrival. Both are covered in
+ * tests/e2e/class_composer_draft_spec.py, which records which scenario catches which.
  */
 (function () {
     "use strict";
@@ -60,15 +76,18 @@
 
     var ROOT = ".pl-composer[data-composer-draft-key]";
     var SAVED_ATTR = "data-composer-draft-saved";
+    var UNSAVED_ATTR = "data-composer-draft-unsaved";
     var PENDING_KEY = "plfog.composer.pending";
     var NOTICE = "[data-composer-draft]";
     var LINE = "[data-composer-draft-line]";
     var WHEN = "[data-composer-draft-when]";
     var RESTORE = "[data-composer-draft-restore]";
     var DISCARD = "[data-composer-draft-discard]";
+    var LIVE = "[data-composer-draft-live]";
     var MANAGEMENT = /-(?:TOTAL|INITIAL|MIN_NUM|MAX_NUM)_FORMS$/;
     var TEXTISH = ["text", "email", "url", "number", "tel", "search", "date", "time"];
     var DEBOUNCE_MS = 400;
+    var MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
     var VERSION = 1;
 
     var page = null;
@@ -104,8 +123,10 @@
         }
     }
 
-    // One retry after dropping our own entry: the quota is usually full of someone
-    // else's data, but our own previous copy is the one thing we may reclaim.
+    // One retry after dropping our own entry: the quota is usually full of someone else's
+    // data (htmx keeps its history cache here too), and our own previous copy is the one
+    // thing we may reclaim. If the retry fails as well the old copy goes back: a good copy
+    // is never traded for nothing, which would lose the very work it was holding.
     function write(name, key, value) {
         var store = box(name);
         if (!store) return false;
@@ -113,14 +134,29 @@
             store.setItem(key, value);
             return true;
         } catch (err) {
-            forget(name, key);
+            /* Out of room; the previous copy is still there, untouched. */
         }
+        var previous = read(name, key);
+        forget(name, key);
         try {
             store.setItem(key, value);
             return true;
         } catch (err) {
+            if (previous === null) return false;
+            try {
+                store.setItem(key, previous);
+            } catch (err2) {
+                /* The room we just freed went to someone else. Nothing left to do. */
+            }
             return false;
         }
+    }
+
+    function isValues(values) {
+        // A string passes a bare truthiness check and then renders an offer reading
+        // "at Invalid Date" with a Restore button that does nothing. Anything that is not
+        // a plain object is a record we did not write, or one we no longer understand.
+        return typeof values === "object" && values !== null && !Array.isArray(values);
     }
 
     function load(key) {
@@ -132,7 +168,14 @@
         } catch (err) {
             record = null;
         }
-        if (!record || record.v !== VERSION || !record.values) {
+        if (!record || record.v !== VERSION || typeof record.at !== "number" || !isValues(record.values)) {
+            forget("localStorage", key);
+            return null;
+        }
+        // Nothing typed into a composer is worth holding for a fortnight, and a shared
+        // machine (the lobby kiosk) would otherwise keep an admin's private client name
+        // in storage forever.
+        if (Date.now() - record.at > MAX_AGE_MS) {
             forget("localStorage", key);
             return null;
         }
@@ -161,13 +204,17 @@
         return values;
     }
 
-    /* Only what differs from what the server rendered. A draft that matches the page is
-     * nothing to restore, so it is never written and never offered. */
+    /* Only what differs from the baseline, which is what the database holds. A copy that
+     * matches it restores nothing, so it is never written and never offered.
+     *
+     * A field the baseline says nothing about counts as empty, which is what makes the
+     * empty baseline of an unsaved render (see boot) mean "keep the whole page". */
     function changes(form, baseline) {
         var values = {};
         var any = false;
         fields(form).forEach(function (el) {
-            if (el.value === baseline[el.name]) return;
+            var was = Object.prototype.hasOwnProperty.call(baseline, el.name) ? baseline[el.name] : "";
+            if (el.value === was) return;
             values[el.name] = el.value;
             any = true;
         });
@@ -193,6 +240,13 @@
         if (restore) restore.hidden = state !== "offer";
         if (discard) discard.hidden = state !== "offer" && state !== "kept";
         page.notice.hidden = !state;
+        // The notice is toggled with `hidden`, and a live region inside a hidden subtree
+        // announces nothing, so the announcement is its own always present region next to
+        // it, reading back whichever line is on screen. One source of copy, two audiences.
+        if (page.live) {
+            var line = state ? page.notice.querySelector('[data-composer-draft-line="' + state + '"]') : null;
+            page.live.textContent = line ? line.textContent : "";
+        }
     }
 
     function save() {
@@ -241,7 +295,13 @@
             el.dispatchEvent(new Event("input", { bubbles: true }));
             el.dispatchEvent(new Event("change", { bubbles: true }));
         });
-        show("kept", record.at);
+        // Write now rather than let the debounce those events just armed do it: the notice
+        // would otherwise show the old kept time and silently change it 400ms later.
+        if (timer) {
+            window.clearTimeout(timer);
+            timer = null;
+        }
+        save();
     }
 
     function discard() {
@@ -261,7 +321,22 @@
         var form = root.querySelector("form");
         var key = root.getAttribute("data-composer-draft-key");
         if (!form || !key) return;
-        page = { root: root, form: form, key: key, notice: root.querySelector(NOTICE), baseline: snapshot(form) };
+        /* The baseline is what the DATABASE holds, which is usually what the page renders.
+         * On a render the server marked unsaved (a save it refused, re-rendered from the
+         * POST) it holds none of this, so the baseline is empty and the whole page counts as
+         * work to keep. Reading the rendered values as safe there would quietly shrink the
+         * copy on the next keystroke: every field that matched the re-render would drop out
+         * of it, and the refresh that followed would bring back only the field last edited. */
+        var unsaved = root.hasAttribute(UNSAVED_ATTR);
+        page = {
+            root: root,
+            form: form,
+            key: key,
+            unsaved: unsaved,
+            notice: root.querySelector(NOTICE),
+            live: root.querySelector(LIVE),
+            baseline: unsaved ? {} : snapshot(form),
+        };
 
         // Whatever was in flight when this page's form was submitted. Read once per
         // arrival and dropped either way: a failed save re-renders the same composer,
@@ -287,10 +362,13 @@
             return el && el.value !== record.values[name];
         });
         if (!differs) {
-            // The page already shows every value the copy holds: nothing to offer, and
-            // keeping it would only pester the next visit.
-            forget("localStorage", key);
-            show(null);
+            // Nothing to offer: the page already shows every value the copy holds. The copy
+            // itself STAYS. A save the server refuses re-renders the composer bound to the
+            // POST, which matches the copy exactly, and that is the render where the copy is
+            // the only backup there is: deleting it here would lose the work on the next
+            // refresh, which is the whole thing this file exists to stop. On that render the
+            // notice says so, since a page of unsaved work being backed up is worth saying.
+            show(page.unsaved ? "kept" : null, record.at);
             return;
         }
         show("offer", record.at);

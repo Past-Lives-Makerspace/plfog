@@ -1426,35 +1426,51 @@ def _composer_step(request: HttpRequest) -> int:
     return clamp_step(source.get("step"))
 
 
-# A successful composer save leaves this on the session, carrying the class it saved. The next
-# composer GET for that class takes it back off and stamps data-composer-draft-saved on the page,
-# which is how static/js/composer_draft.js learns the browser held copy of what was typed is now
-# redundant and forgets it (issue #368, item 3c). A session flag rather than a query parameter
-# because not every save lands back on the composer: an admin publish goes to the class page. And
-# a flag rather than comparing values, because the server normalises some of them: a price typed
-# as 80 comes back as 80.00, which is the same work saved, not a draft worth offering back.
-COMPOSER_SAVED_SESSION_KEY = "composer_saved_pk"
+# A successful composer save leaves the class it saved on this session list. The next composer
+# GET for that class takes it back off and stamps data-composer-draft-saved on the page, which is
+# how static/js/composer_draft.js learns the browser held copy of what was typed is now redundant
+# and forgets it (issue #368, item 3c). A session flag rather than a query parameter because not
+# every save lands back on the composer: an admin publish goes to the class page. And a flag
+# rather than comparing values, because the server normalises some of them: a price typed as 80
+# comes back as 80.00, which is the same work saved, not a draft worth offering back.
+#
+# A LIST, not one pk, for exactly that reason: a save that never lands on a composer leaves its
+# entry waiting, and a single slot would let the next such save overwrite it. The first class
+# would then keep offering text it has already saved for as long as the session lasts (its price
+# alone would force it, since 80.00 in comes back as 80). Capped, so a long session cannot grow
+# the session record without bound; twenty unvisited saves is already far past real use.
+COMPOSER_SAVED_SESSION_KEY = "composer_saved_pks"
+COMPOSER_SAVED_LIMIT = 20
+
+
+def _composer_saved_pks(request: HttpRequest) -> list[int]:
+    """The classes saved but not yet seen again in a composer. Absent means none, not a bug."""
+    return list(request.session.get(COMPOSER_SAVED_SESSION_KEY, []))
 
 
 def _mark_composer_saved(request: HttpRequest, offering: ClassOffering) -> None:
     """Record that this class's composer work reached the database, for the next composer render."""
-    request.session[COMPOSER_SAVED_SESSION_KEY] = offering.pk
+    pending = [pk for pk in _composer_saved_pks(request) if pk != offering.pk]
+    pending.append(offering.pk)
+    request.session[COMPOSER_SAVED_SESSION_KEY] = pending[-COMPOSER_SAVED_LIMIT:]
 
 
 def _composer_draft_saved(request: HttpRequest, saved: ClassOffering | None) -> bool:
     """True on the first composer GET after this class was saved, and only that once.
 
     Read on a GET only. A failed save re-renders the composer from the POST, and the typed
-    values are then held nowhere but this page and the browser's copy, so a flag left over
+    values are then held nowhere but this page and the browser's copy, so an entry left over
     from an earlier save must not reach that render and clear the copy.
 
-    Popped, so a later visit that types something new and then refreshes is offered its draft
-    instead of having it cleared by a stale flag. A flag for a class whose composer is never
-    opened again just sits there until the next save overwrites it.
+    Taken off the list once read, so a later visit that types something new and then refreshes
+    is offered its draft instead of having it cleared by a stale entry.
     """
-    if saved is None or request.method != "GET" or request.session.get(COMPOSER_SAVED_SESSION_KEY) != saved.pk:
+    if saved is None or request.method != "GET":
         return False
-    del request.session[COMPOSER_SAVED_SESSION_KEY]
+    pending = _composer_saved_pks(request)
+    if saved.pk not in pending:
+        return False
+    request.session[COMPOSER_SAVED_SESSION_KEY] = [pk for pk in pending if pk != saved.pk]
     return True
 
 
@@ -1573,6 +1589,10 @@ def _composer_context(
         # typing under, and the one shot signal that the database now has it.
         "composer_draft_key": _composer_draft_key(request, saved, is_admin=is_admin),
         "composer_draft_saved": _composer_draft_saved(request, saved),
+        # A bound form here means a save this view refused: every value on the page came from
+        # the POST and none of it is in the database, so the browser must not read any of it
+        # as a safe baseline. Every successful save redirects, so bound is exactly "unsaved".
+        "composer_draft_unsaved": form.is_bound,
         # The Share & Print card shows the flyer button and QR downloads only when this
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),

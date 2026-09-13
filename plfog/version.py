@@ -79,8 +79,9 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "changes": [
             "If the page reloads or you close the tab while writing a class, your next visit "
             "offers back what you had typed, with the time it was kept and a button to throw it "
-            "away. It is kept in your own browser, so photos and files are not part of it.",
-            "Once a class saves, the kept copy is cleared, so you are never offered stale text.",
+            "away. It is kept in your own browser, so photos, dates and anything you tick are "
+            "not part of it. Save your draft for those.",
+            "Once a class saves, the kept copy is cleared.",
         ],
     },
     {
