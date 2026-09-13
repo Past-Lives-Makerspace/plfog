@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import cast
 from urllib.parse import unquote, urlsplit
@@ -41,24 +43,52 @@ COLLAPSED_WIDTH = 200
 
 
 @pytest.fixture
-def serve_media(page):
-    """Answer ``/media/`` requests from ``MEDIA_ROOT``.
+def serve_media(page, live_server):
+    """Answer the live server's ``/media/`` requests from ``MEDIA_ROOT``.
 
     The live server has no media route (production serves uploads from R2) and the
     cropper only mounts once the preview img has pixels, so the browser has to be able
-    to fetch the photo the factory wrote to disk.
+    to fetch the photo the factory wrote to disk. Scoped to the live server's own origin
+    so it never answers for ``cross_origin_media``.
     """
     root = Path(settings.MEDIA_ROOT)
+    media_path = urlsplit(settings.MEDIA_URL).path
 
     def _serve(route, request):
-        relative = unquote(urlsplit(request.url).path.removeprefix(settings.MEDIA_URL))
+        relative = unquote(urlsplit(request.url).path.removeprefix(media_path))
         path = root / relative
         if path.is_file():
             route.fulfill(path=str(path))
         else:
             route.fulfill(status=404, body="")
 
-    page.route(f"**{settings.MEDIA_URL}**", _serve)
+    page.route(f"{live_server.url}{media_path}**", _serve)
+
+
+@pytest.fixture
+def cross_origin_media():
+    """A second origin serving ``MEDIA_ROOT`` with no CORS header, the way the R2 bucket does.
+
+    A real socket on 127.0.0.1 (the live server is on localhost, a different origin to
+    the browser), not a Playwright route: a routed reply is accepted cross origin, so the
+    block production hits only reproduces against a real response with no
+    ``Access-Control-Allow-Origin``. Yields the origin; point ``MEDIA_URL`` at it.
+    """
+    root = Path(settings.MEDIA_ROOT)
+
+    class Handler(SimpleHTTPRequestHandler):
+        def translate_path(self, path: str) -> str:
+            return str(root / unquote(urlsplit(path).path.removeprefix("/media/")))
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
 
 
 def _seed_instructor() -> Member:
@@ -299,3 +329,27 @@ def describe_hero_cropper():
         assert page.locator(FRAME).count() == 1
         assert page.locator(PREVIEW).count() == 1
         assert _width(page, FRAME) > COLLAPSED_WIDTH
+
+    def it_frames_a_photo_served_from_another_origin_with_no_cors_header(
+        live_server, page, login_via_code, cross_origin_media, settings
+    ):
+        # Production serves uploads from R2: another origin, no CORS headers. Cropper.js's
+        # default checkCrossOrigin fetched its working copy of such a photo with
+        # crossorigin="anonymous" and a cache-busting ?timestamp=, the browser refused it,
+        # and the frame never appeared (issue #379). The cropper only ever reads the crop
+        # box, never pixels, so a plain img load is all it needs.
+        offering = _seed_draft_with_square_photo(_seed_instructor())
+        settings.MEDIA_URL = f"{cross_origin_media}/media/"
+        assert offering.hero_image_url.startswith(cross_origin_media), offering.hero_image_url
+        requests: list[str] = []
+        page.on("request", lambda request: requests.append(request.url))
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+
+        frame = page.locator(FRAME)
+        expect(frame).to_be_visible()
+        _wait_ready(page)
+        assert page.locator(FRAME).count() == 1
+        assert _width(page, FRAME) > COLLAPSED_WIDTH
+        busted = [url for url in requests if "timestamp=" in url]
+        assert not busted, busted

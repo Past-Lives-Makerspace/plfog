@@ -153,6 +153,15 @@
                 zoomable: false,
                 scalable: false,
                 rotatable: false,
+                // We never read pixels (no getCroppedCanvas), only the crop box, so
+                // Cropper must not fetch the photo cross origin: with the defaults it
+                // loads its working copy with crossorigin="anonymous" and a cache
+                // busting ?timestamp=, and the R2 bucket sends no CORS headers, so the
+                // copy errors and no frame ever appears. A plain img load needs no
+                // CORS. checkOrientation is already forced off by rotatable and
+                // scalable being false; stated here so the intent is visible.
+                checkCrossOrigin: false,
+                checkOrientation: false,
                 ready: function () {
                     // Restore a saved crop; write nothing for an untouched one.
                     if (initial && initial.w && initial.h) {
