@@ -15,10 +15,17 @@
  * inside a hidden step pane: a display:none mount reads as 200x100 and stays
  * that size after the pane opens. The composer announces every reveal as a
  * window event, composer-step-shown {step: N}
- * (templates/classes/_components/class_composer.html). The first reveal of
- * the pane this field lives in mounts the cropper; every later reveal resizes
- * it, which also repairs a window resize that happened while it was hidden.
+ * (templates/classes/_components/class_composer.html). Every reveal of the
+ * pane this field lives in mounts the cropper afresh from the crop the input
+ * holds. Not resize(): Cropper's own window resize handler keeps running while
+ * the pane is display:none, where the mount measures as 0x0, and it scales the
+ * canvas and crop box to nothing; a resize() on reveal would only multiply
+ * those zeros. cropend persisted every drag, so a rebuild loses nothing.
  * A field that is already on screen when Cropper.js arrives mounts at once.
+ *
+ * htmx snapshots the page before a boosted navigation and restores that DOM
+ * on Back, so the frame is taken down on htmx:beforeHistorySave and any frame
+ * a snapshot still carries is stripped before mounting.
  *
  * The template's own inline scripts own the file pick (an instant upload on a
  * saved class, a FileReader preview before the first save). They replace the
@@ -117,10 +124,22 @@
             try {
                 old.destroy();
             } catch (err) {
-                // The img it was mounted on was replaced while Cropper was still
-                // loading its copy; there is nothing left in the DOM to tear down.
+                // Only reachable for an instance that never got ready: Cropper
+                // 1.6.1's uncreate() -> stop() removes its working copy of the img
+                // through parentNode with no null check, and a second pick that
+                // wiped the mount while that copy was still loading leaves it
+                // detached. (A ready instance tears down cleanly: unbuild() checks.)
                 console.warn("Hero cropper teardown skipped:", err);
             }
+        }
+
+        /* A restored history snapshot can carry the frame Cropper injected before
+         * the page was left; it is inert markup now, and the img under it still
+         * wears the class Cropper hid it with. */
+        function clearStaleFrames() {
+            mount.querySelectorAll(".cropper-container").forEach(function (stale) { stale.remove(); });
+            var preview = currentPreview();
+            if (preview) preview.classList.remove("cropper-hidden");
         }
 
         function mountOn(preview) {
@@ -134,6 +153,15 @@
                 zoomable: false,
                 scalable: false,
                 rotatable: false,
+                // We never read pixels (no getCroppedCanvas), only the crop box, so
+                // Cropper must not fetch the photo cross origin: with the defaults it
+                // loads its working copy with crossorigin="anonymous" and a cache
+                // busting ?timestamp=, and the R2 bucket sends no CORS headers, so the
+                // copy errors and no frame ever appears. A plain img load needs no
+                // CORS. checkOrientation is already forced off by rotatable and
+                // scalable being false; stated here so the intent is visible.
+                checkCrossOrigin: false,
+                checkOrientation: false,
                 ready: function () {
                     // Restore a saved crop; write nothing for an untouched one.
                     if (initial && initial.w && initial.h) {
@@ -151,6 +179,7 @@
          * loaded and only while the mount is actually laid out. */
         function init() {
             destroy();
+            clearStaleFrames();
             var preview = currentPreview();
             if (!preview || !preview.getAttribute("src") || !isVisible()) return;
             pending = preview;
@@ -163,7 +192,8 @@
 
         function onStepShown(step) {
             if (step !== stepOf(container)) return;
-            if (instance) { instance.resize(); } else { init(); }
+            // A fresh mount every time, never resize(): see the header comment.
+            init();
         }
 
         function handleStepShown(event) {
@@ -179,7 +209,11 @@
         // Already on screen (?step=2, or a page with no step panes): mount now.
         init();
 
-        return { refresh: init };
+        return {
+            refresh: init,
+            teardown: destroy,
+            isConnected: function () { return container.isConnected; },
+        };
     }
 
     function boot() {
@@ -197,6 +231,17 @@
             // Cropper failed to load: the plain file input still works.
             console.warn("Hero cropper failed to load:", err);
         });
+
+        /* htmx snapshots the page right after this event and restores that DOM
+         * on Back; take the frame down first so the snapshot holds the bare img.
+         * The listener lets go once every field it knew has left the page. */
+        function teardownForHistory() {
+            fields.forEach(function (field) { field.teardown(); });
+            if (!fields.some(function (field) { return field.isConnected(); })) {
+                document.body.removeEventListener("htmx:beforeHistorySave", teardownForHistory);
+            }
+        }
+        document.body.addEventListener("htmx:beforeHistorySave", teardownForHistory);
 
         /* The template's inline upload scripts call this after swapping in a new
          * preview img. Defined at boot, before Cropper.js has arrived, so a pick

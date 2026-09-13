@@ -118,10 +118,24 @@ def describe_normalize_field_if_uploaded():
         holder = Holder()
         holder.field = upload
 
-        normalize_field_if_uploaded(holder, "field", max_long_edge=1200)
+        scale = normalize_field_if_uploaded(holder, "field", max_long_edge=1200)
 
         img = Image.open(holder.field)
         assert max(img.size) == 1200
+        # 3000 wide became 1200 wide: pixel coordinates measured on the original shrink by the same factor.
+        assert scale == 0.4
+
+    def it_reports_no_change_for_an_upload_within_the_cap():
+        class Holder:
+            field = None
+
+        holder = Holder()
+        holder.field = SimpleUploadedFile("hero.png", _png_bytes((900, 600)), content_type="image/png")
+
+        scale = normalize_field_if_uploaded(holder, "field", max_long_edge=1200)
+
+        assert Image.open(holder.field).size == (900, 600)
+        assert scale == 1.0
 
     def it_leaves_committed_files_alone():
         class FakeStoredFile:
@@ -134,9 +148,10 @@ def describe_normalize_field_if_uploaded():
         holder = Holder()
         original = holder.field
 
-        normalize_field_if_uploaded(holder, "field", max_long_edge=100)
+        scale = normalize_field_if_uploaded(holder, "field", max_long_edge=100)
 
         assert holder.field is original
+        assert scale == 1.0
 
     def it_no_ops_when_field_is_falsy():
         class Holder:
@@ -144,9 +159,23 @@ def describe_normalize_field_if_uploaded():
 
         holder = Holder()
 
-        normalize_field_if_uploaded(holder, "field", max_long_edge=100)
+        scale = normalize_field_if_uploaded(holder, "field", max_long_edge=100)
 
         assert holder.field is None
+        assert scale == 1.0
+
+    def it_leaves_an_unreadable_upload_alone():
+        class Holder:
+            field = None
+
+        holder = Holder()
+        holder.field = SimpleUploadedFile("hero.png", b"not an image at all", content_type="image/png")
+        original = holder.field
+
+        scale = normalize_field_if_uploaded(holder, "field", max_long_edge=100)
+
+        assert holder.field is original
+        assert scale == 1.0
 
 
 def describe_content_addressed_storage():

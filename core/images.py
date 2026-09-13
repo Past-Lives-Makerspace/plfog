@@ -45,6 +45,22 @@ def normalize_image(
     to ``format`` at ``quality``. The returned file's name preserves the
     source basename with the new extension.
     """
+    return _normalize(source, max_long_edge=max_long_edge, format=format, quality=quality)[0]
+
+
+def _normalize(
+    source,
+    *,
+    max_long_edge: int,
+    format: str = "JPEG",
+    quality: int = 85,
+) -> tuple[ContentFile, float]:
+    """:func:`normalize_image`, plus the factor the pixel dimensions were multiplied by.
+
+    The factor is ``1.0`` when the image already fit within ``max_long_edge`` and
+    below ``1.0`` when it was downscaled, so a caller holding pixel coordinates
+    measured on the original (a hero crop box) can scale them the same way.
+    """
     if hasattr(source, "seek"):
         source.seek(0)
     opened = Image.open(source)
@@ -56,8 +72,10 @@ def normalize_image(
     elif img.mode != "RGB":
         img = img.convert("RGB")
     w, h = img.size
+    scale = 1.0
     if max(w, h) > max_long_edge:
         img.thumbnail((max_long_edge, max_long_edge), Image.Resampling.LANCZOS)
+        scale = max(img.size) / max(w, h)
     buffer = io.BytesIO()
     save_kwargs: dict = {"format": format, "optimize": True}
     if format in ("JPEG", "WEBP"):
@@ -66,10 +84,10 @@ def normalize_image(
     buffer.seek(0)
     base = Path(getattr(source, "name", "image")).stem or "image"
     ext = "jpg" if format == "JPEG" else format.lower()
-    return ContentFile(buffer.read(), name=f"{base}.{ext}")
+    return ContentFile(buffer.read(), name=f"{base}.{ext}"), scale
 
 
-def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -> None:
+def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -> float:
     """If the named ImageField holds a fresh upload, replace it with a normalized version.
 
     Call from ``Model.save()`` BEFORE ``super().save()``. Detects fresh uploads
@@ -77,10 +95,16 @@ def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -
     ``_committed == False``. Already-stored files (loaded from storage) keep
     ``_committed == True`` and are left alone, so re-saving an existing row
     does not re-normalize and re-encode the file.
+
+    Returns the factor the image's pixel dimensions were multiplied by: ``1.0``
+    when the file was left alone (already stored, unreadable, or within the
+    cap) and below ``1.0`` when a fresh upload was downscaled to fit
+    ``max_long_edge``. A caller that stores pixel coordinates measured on the
+    original file (the hero crop box) scales them by it.
     """
     file = getattr(instance, field_name)
     if not file:
-        return
+        return 1.0
     # FieldFile: _committed=False means an UploadedFile was just assigned via
     # the form/descriptor and not yet written to storage. Already-stored files
     # have _committed=True. Raw UploadedFile (no descriptor) has no _committed
@@ -88,16 +112,17 @@ def normalize_field_if_uploaded(instance, field_name: str, max_long_edge: int) -
     is_raw_upload = isinstance(file, UploadedFile)
     is_uncommitted_field = hasattr(file, "_committed") and not file._committed
     if not (is_raw_upload or is_uncommitted_field):
-        return
+        return 1.0
     try:
-        new = normalize_image(file, max_long_edge=max_long_edge)
+        new, scale = _normalize(file, max_long_edge=max_long_edge)
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         # Pillow couldn't read the bytes (corrupt, unsupported format, or a
         # test using a header-only stub). Leave the field alone; the actual
         # ImageField/form validators will reject genuinely bad uploads.
         logger.warning("normalize_image skipped for %s.%s: %s", type(instance).__name__, field_name, exc)
-        return
+        return 1.0
     setattr(instance, field_name, new)
+    return scale
 
 
 _CONTENT_ADDRESSED_RE = re.compile(r"^[0-9a-f]{64}\.[A-Za-z0-9]+$")

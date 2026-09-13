@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.56.0"
+VERSION = "1.56.1"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -49,6 +49,11 @@ VERSION = "1.56.0"
 # for either; that deferral still stands.
 #
 # 1.56.0 is the hero cropper fix below. Not the top bar confirm either; the deferral stands.
+#
+# 1.56.1 - the cropper's review fixes take it with no entry, deliberately: 1.56.0 merged before
+# its fix round landed, and the three fixes (a create mode crop that follows the 2400px downsize,
+# a rebuild on reveal instead of resize, no stacked frame after Back) ship minutes later. Members
+# never lived with them, and re-stamping 1.56.0's entry would announce the cropper twice.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for

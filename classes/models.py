@@ -1062,7 +1062,10 @@ class ClassOffering(HeroCropMixin, models.Model):
                 self.hero_crop_y = None
                 self.hero_crop_w = None
                 self.hero_crop_h = None
-        normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        scale = normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        # The composer's create mode crops the photo the browser showed, the original
+        # file; once that upload is downsized to the cap, the box shrinks with it.
+        self.scale_hero_crop(scale)
 
         # Keep the catalog grouping key in sync with the title/category so every
         # run of the same class — single one-offs AND multi-session series alike —

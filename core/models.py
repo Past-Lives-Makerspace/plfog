@@ -53,6 +53,22 @@ class HeroCropMixin(models.Model):
     def get_hero_image_field_name(self) -> str:
         raise NotImplementedError("Subclasses must implement get_hero_image_field_name()")
 
+    def scale_hero_crop(self, factor: float) -> None:
+        """Shrink or grow a pixel crop box to follow a resize of its source image.
+
+        The hero cropper measures the photo the browser showed. When ``save()`` then
+        downsizes a fresh upload to the long-edge cap, the box has to follow or the
+        stored centre points at the wrong part of the stored photo. Focal-point crops
+        (x and y as percentages, no width or height) and unset crops are left alone,
+        and a box never rounds below one pixel.
+        """
+        if not (self.hero_crop_w and self.hero_crop_h):
+            return
+        self.hero_crop_x = round((self.hero_crop_x or 0) * factor)
+        self.hero_crop_y = round((self.hero_crop_y or 0) * factor)
+        self.hero_crop_w = max(1, round(self.hero_crop_w * factor))
+        self.hero_crop_h = max(1, round(self.hero_crop_h * factor))
+
     @property
     def hero_object_position(self) -> str:
         """CSS ``object-position`` value to keep the cropped focal point centered.
