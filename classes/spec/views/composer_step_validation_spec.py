@@ -260,7 +260,13 @@ def describe_what_next_never_blocks_on():
             capacity = _by_name(parsed.controls[3], "capacity")
             assert capacity.required and capacity.attrs.get("min") == "0", mode
             for control_id in ("session-add-date", "session-add-time", "session-add-duration"):
-                assert not _by_id(parsed.controls[3], control_id).required, (mode, control_id)
+                helper = _by_id(parsed.controls[3], control_id)
+                assert not helper.required, (mode, control_id)
+                # And no name at all: the browser never posts these, they only drive the Alpine
+                # scheduler that writes the hidden sessions-N-* inputs. That is the contract the
+                # client leans on to skip them, which is what keeps a half typed date (badInput
+                # on a type=date control) from holding Next on a step no save could refuse.
+                assert "name" not in helper.attrs, (mode, control_id)
 
     def it_leaves_the_price_floor_and_the_discount_cap_to_the_server(composer):
         # Deliberate: the $1.00 floor and the 100% cap live in _PricingRulesMixin.clean_*, not in

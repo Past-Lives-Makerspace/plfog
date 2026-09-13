@@ -16,6 +16,12 @@
  * changes what Next enforces with no second list to keep in step. The
  * step map stays in classes/composer.py, once.
  *
+ * A control with no name is skipped for the same reason: the browser never posts
+ * it, so no server rule can reach it and no save can be refused for it. That is
+ * what the scheduler's own date, time and duration pickers are (they write the
+ * hidden sessions-N-* inputs), and a half typed date in that picker reports
+ * badInput, which would otherwise hold Next on a step the server would take.
+ *
  * Formset rows (gallery, sessions, FAQ) carry no constraint attributes: Django
  * builds every formset form with use_required_attribute=False, and the
  * scheduler posts its rows as hidden inputs. So an added row left blank never
@@ -46,9 +52,17 @@
     var REQUIRED_MESSAGE = "This field is required.";
     var counter = 0;
 
+    // Unnamed means unposted: the form data set skips a control with an empty name,
+    // so nothing the server validates can be behind it and no save could ever be
+    // refused for it. Skipping it here is what keeps the pane's rule book to the
+    // fields the form actually rendered. It takes the scheduler's date, time and
+    // duration pickers out of the walk (session_calendar.html: pure Alpine UI that
+    // writes the hidden sessions-N-* inputs, and a half typed date there reports
+    // badInput), along with every other helper control on a pane.
     function firstInvalid(pane) {
         var all = pane.querySelectorAll(CONTROLS);
         for (var i = 0; i < all.length; i++) {
+            if (!all[i].name) continue;
             if (all[i].willValidate && !all[i].checkValidity()) return all[i];
         }
         return null;

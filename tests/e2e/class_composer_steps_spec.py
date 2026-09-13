@@ -15,7 +15,9 @@ from __future__ import annotations
 import re
 from typing import cast
 
+import pytest
 from django.urls import reverse
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
@@ -43,6 +45,31 @@ def _seed_ready_draft(instructor: Member) -> ClassOffering:
     return cast(
         ClassOffering, ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.DRAFT, ready=True)
     )
+
+
+@pytest.fixture(autouse=True)
+def _settle_before_the_database_is_truncated(page, live_server, transactional_db):
+    """Let the browser go quiet before the teardown truncates the tables.
+
+    Step 5 lazy loads a preview iframe and Save Draft posts the form, so a scenario can end
+    with a request still in flight. The live server thread still holds that request's row
+    locks when ``transactional_db`` truncates, and the truncate is the one that loses:
+    ``psycopg.errors.DeadlockDetected``, surfaced as an ERROR with no assertion failure. It
+    is timing rather than ordering, so it reproduces on some machines and not others, and CI
+    runs this file on every PR.
+
+    Depending on ``transactional_db`` is what orders this: pytest finalises a fixture before
+    the ones it depends on, so the settle always runs before the truncate. It lives in a
+    teardown rather than at the end of each scenario so a scenario added later cannot bring
+    the flake back by forgetting the line. A Playwright error is swallowed on purpose: this
+    is housekeeping, and a page left broken by a failing assertion must not turn that
+    failure into a confusing teardown error.
+    """
+    yield
+    try:
+        page.wait_for_load_state("networkidle", timeout=15_000)
+    except PlaywrightError:
+        pass
 
 
 def _settle(page) -> None:
@@ -136,6 +163,27 @@ def describe_next():
             _settle(page)
             expect(_step(page, n)).to_be_visible()
             expect(_step(page, n - 1)).to_be_hidden()
+        expect(page.locator("[data-live-invalid]")).to_have_count(0)
+
+    def it_never_blocks_on_a_half_typed_date_in_the_scheduler(live_server, page, login_via_code):
+        # session-add-date is the scheduler's own picker: no name, never posted, it only feeds
+        # the hidden sessions-N-* inputs. A half typed date makes it report badInput, and that
+        # is exactly what an interrupted person leaves behind on the row they add dates with.
+        # No save can be refused for it, so Next must not stop for it either.
+        offering = _seed_ready_draft(_seed_instructor())
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        _tab(page, 3).click()
+        expect(_step(page, 3)).to_be_visible()
+        page.locator("#session-add-date").type("12")
+        # Not vacuous: the control really is invalid, the walk simply has no business reading it.
+        assert page.evaluate("() => document.getElementById('session-add-date').validity.badInput")
+
+        page.locator(NEXT).click()
+        _settle(page)
+
+        expect(_step(page, 4)).to_be_visible()
+        expect(_step(page, 3)).to_be_hidden()
         expect(page.locator("[data-live-invalid]")).to_have_count(0)
 
     def it_never_blocks_on_a_short_description(live_server, page, login_via_code):
