@@ -8,6 +8,11 @@ Params:
                        origin proxy), "" when it has none
   crop_field         — bound hidden hero_crop CharField (optional; enables cropper)
   offering           — the ClassOffering instance (needed for AJAX upload URL)
+
+Both branches render #hero-preview as the cropper's mount. The inline scripts own the
+file pick: they swap a fresh <img data-hero-cropper-preview> into #hero-preview, clear
+the crop input (a new photo has no crop yet), then call window.initHeroCropper(), which
+static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has loaded.
 {% endcomment %}
 <div class="pl-form-group" data-hero-image-field>
     <label class="pl-form-label" style="display:inline-flex;align-items:center;gap:0.4rem;">
@@ -83,10 +88,10 @@ Params:
                     // The upload replaced an imported photo: its note no longer applies.
                     const legacyNote = document.getElementById('hero-legacy-note');
                     if (legacyNote) legacyNote.remove();
-                    // Clear old crop data since image changed
+                    // A new photo has no crop yet; the server cleared its copy on upload.
                     const cropInput = document.querySelector('[data-hero-crop-input]');
                     if (cropInput) cropInput.value = '';
-                    // Re-init cropper if available
+                    // Mount the cropper on the new photo once it has loaded.
                     if (window.initHeroCropper) window.initHeroCropper();
                 })
                 .catch(() => alert('Upload failed.'))
@@ -117,6 +122,10 @@ Params:
             reader.onload = function(e) {
                 preview.innerHTML = '<img src="' + e.target.result + '" alt="Hero image preview" data-hero-cropper-preview style="max-width:100%;max-height:320px;object-fit:contain;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">';
                 zone.querySelector('.cls-image-upload-label').textContent = 'Replace image';
+                // A new photo has no crop yet.
+                const cropInput = document.querySelector('[data-hero-crop-input]');
+                if (cropInput) cropInput.value = '';
+                // Mount the cropper on the new photo once it has loaded.
                 if (window.initHeroCropper) window.initHeroCropper();
             };
             reader.readAsDataURL(this.files[0]);

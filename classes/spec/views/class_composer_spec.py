@@ -231,6 +231,33 @@ def describe_teach_composer_get():
         assert html.count("data-composer-step=") == 5
         assert '@composer-goto-step.window="goTo($event.detail.step)"' in html
 
+    def it_announces_every_step_reveal_for_widgets_that_measure_their_pane(instructor_fixture, client):
+        # The hero cropper (static/js/hero_cropper.js) can only size itself inside a pane that is
+        # on screen, so the root dispatches composer-step-shown after each phase change has
+        # painted, and once for the opening step so a ?step=2 load is announced too.
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        x_data = _composer_x_data(html)
+        assert (
+            "this.$watch('phase', (step) => this.$nextTick(() => this.$dispatch('composer-step-shown', { step })))"
+            in x_data
+        )
+        assert "this.$nextTick(() => this.$dispatch('composer-step-shown', { step: this.phase }))" in x_data
+
+    def it_clears_the_crop_before_remounting_the_cropper_on_a_new_photo_in_both_modes(instructor_fixture, client):
+        # Both branches of hero_image_field.html swap a new img into #hero-preview, forget the
+        # old crop box, and then hand the img to window.initHeroCropper() (hero_cropper.js).
+        client.force_login(instructor_fixture.user)
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        pages = {
+            "create": client.get(reverse("classes:teach_class_create")).content.decode(),
+            "edit": client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode(),
+        }
+        for mode, html in pages.items():
+            field = html.split("data-hero-image-field")[1].split("</script>")[0]
+            assert 'id="hero-preview"' in field, mode
+            assert field.index("cropInput.value = ''") < field.index("window.initHeroCropper()"), mode
+
     def it_puts_the_price_on_the_first_step(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()

@@ -28,7 +28,11 @@ frame (steps 2 and 5, and the create mode skeleton) shows the new title before t
 
 Each step pane carries data-composer-step="N" and the root listens for a window event
 composer-goto-step {step: N}: that is how anything outside Alpine (the guided tour in
-static/js/pl_tour.js) reveals a pane before pointing at something inside it.
+static/js/pl_tour.js) reveals a pane before pointing at something inside it. The reverse
+direction is composer-step-shown {step: N}, dispatched from the root after every phase
+change has painted (and once for the opening step): that is how a widget that has to
+measure its box (the hero cropper in static/js/hero_cropper.js) learns its pane is on
+screen, since a display:none pane measures as nothing.
 
 The step tabs ("how much of the form have I filled in?") and the review pipeline card
 ("where is my class with the reviewers?") are two components with two meanings (§C.4).
@@ -68,6 +72,10 @@ Do not merge them.
        cardPosition: '{{ offering.card_object_position|default:'50% 50%'|escapejs }}',
        liveTitle: '',
        previewLoaded: false,
+       init() {
+         this.$watch('phase', (step) => this.$nextTick(() => this.$dispatch('composer-step-shown', { step })));
+         this.$nextTick(() => this.$dispatch('composer-step-shown', { step: this.phase }));
+       },
        goTo(n) {
          this.phase = n;
          this.$nextTick(() => {
