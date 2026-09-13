@@ -1575,15 +1575,9 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
         return _owner_redirect(slot.orientation_type)
-    # The member surface swapped this slot's Request button for an outside link (issue
-    # #368), but a page opened before the lead flipped the switch, or a crafted POST,
-    # still lands here. Refuse it, and say where signing up actually happens. Staff
-    # adding someone by hand go through orientation_add_member, which is untouched —
-    # that is the only way an externally-run orientation gets recorded as completed.
-    external_url = slot.orientation_type.resolved_external_signup_url
-    if external_url:
-        messages.error(request, f"Signing up for this orientation happens on another site: {external_url}")
-        return _owner_redirect(slot.orientation_type)
+    # An off-site-signup refusal arrives as ExternalSignupRequiredError from
+    # OrientationSlot.ensure_bookable_for — the choke point every booking road shares —
+    # and the OrientationError handler below turns it into the member-facing sentence.
     try:
         if slot.orientation_type.is_paid:
             checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
@@ -2214,7 +2208,9 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
     form = OrientationAddMemberForm(request.POST, slot_queryset=_manageable_slots(request))
     if form.is_valid():
         try:
-            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"])
+            # by_staff: seating someone on an orientation whose signups happen off site is
+            # exactly what this form is for — it is the manual completion path (issue #368).
+            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True)
             messages.success(request, f"Added {form.cleaned_data['member'].display_name} — they've been emailed.")
         except OrientationError as exc:
             messages.error(request, str(exc))

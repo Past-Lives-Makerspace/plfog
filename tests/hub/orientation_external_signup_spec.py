@@ -23,13 +23,23 @@ from hub.forms import (
     OrientationCustomRequestForm,
     OrientationTypeForm,
 )
-from membership.models import Guild, GuildOrientationSettings, Member, OrientationBooking, OrientationSlot
+from membership.models import (
+    ExternalSignupRequiredError,
+    Guild,
+    GuildOrientationSettings,
+    Member,
+    OrientationBooking,
+    OrientationError,
+    OrientationSlot,
+)
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildOrientationSettingsFactory,
+    MemberFactory,
     MembershipPlanFactory,
+    OrientationAvailabilityBlockFactory,
     OrientationBookingFactory,
     OrientationSlotFactory,
     OrientationTypeFactory,
@@ -358,7 +368,10 @@ def describe_the_guild_orientation_settings_editor():
         assert EXTERNAL_SIGNUP_URL_WARNING in content
         # All three steps, in the order they have to happen — the slot is created on this
         # tab, not on the dashboard, and an external guild usually has no slots at all.
-        assert "add a time under Upcoming Slots on the Orientation tab" in content
+        # "on this tab" and not a tab name: the guild editor labels it Orientations and the
+        # equipment panel labels it Orientation, and one constant has to be true on both.
+        assert "add a time under Upcoming Slots on this tab" in content
+        assert "Orientation tab" not in EXTERNAL_SIGNUP_URL_WARNING
         assert "add the member to that time from the Orientations dashboard" in content
         assert "tick Completed on their row there" in content
         # And the switch that has to stay on for members to see the link at all.
@@ -480,13 +493,48 @@ def describe_the_orientation_type_editors():
         assert orientation_type.external_signup_url == ""
 
 
-def describe_booking_a_slot_whose_type_signs_up_elsewhere():
-    """The member surface hides the slot, so the endpoint has to refuse it too.
+def describe_the_booking_choke_point():
+    """``OrientationSlot.ensure_bookable_for`` is where the refusal lives, not the views.
 
-    A page opened before the lead flipped the switch, or a crafted POST, still reaches
-    ``hub_orientation_book``. The staff path (``hub_orientation_add_member``) stays open:
-    it is the only way an externally-run orientation ever gets recorded as completed.
+    Every member road into a booking funnels through it — the slot button, an
+    availability block, a custom time, the slash command, and both paid variants — so
+    one guard covers all of them and a new road cannot forget it. ``by_staff=True`` is
+    the single escape, carried only by the dashboard's add-a-member form: an outside
+    form cannot write back, so a staffer seating someone by hand is the manual
+    completion path and must keep working.
     """
+
+    def it_raises_the_domain_error_for_a_member():
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url=GUILD_LINK)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        with pytest.raises(ExternalSignupRequiredError) as exc:
+            slot.ensure_bookable_for(MemberFactory())
+        assert exc.value.url == GUILD_LINK
+        assert "happens on another site" in str(exc.value)
+
+    def it_is_an_orientation_error_so_every_road_renders_it_kindly():
+        assert issubclass(ExternalSignupRequiredError, OrientationError)
+
+    def it_lets_a_staff_add_through():
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url=GUILD_LINK)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        slot.ensure_bookable_for(MemberFactory(), by_staff=True)  # no raise
+
+    def it_still_enforces_every_other_guard_for_staff():
+        # by_staff licenses the off-site check and nothing else.
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url=GUILD_LINK)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        slot.mark_cancelled()
+        with pytest.raises(OrientationError) as exc:
+            slot.ensure_bookable_for(MemberFactory(), by_staff=True)
+        assert not isinstance(exc.value, ExternalSignupRequiredError)
+
+
+def describe_road_one_the_slot_button():
+    """``hub_orientation_book`` — the Request button on the guild and equipment pages."""
 
     def it_refuses_a_member_self_booking_and_says_where_signup_happens(client: Client):
         user = _login(client, "xb1")
@@ -532,6 +580,67 @@ def describe_booking_a_slot_whose_type_signs_up_elsewhere():
             {"member": str(attendee.member.pk), "slot": str(slot.pk)},
         )
         assert OrientationBooking.objects.filter(member=attendee.member, slot=slot).count() == 1
+
+
+def describe_road_two_an_availability_block():
+    """``hub_orientation_block_book`` — the Pick a Time windows from issue #283.
+
+    The guild page renders the block list inside the internal branch, so the reachable
+    cases are the stale open page and the crafted POST, exactly as for the slot button.
+    """
+
+    def _block_with_type(**type_kwargs):
+        block = OrientationAvailabilityBlockFactory()
+        orientation_type = OrientationTypeFactory(guild=block.guild, **type_kwargs)
+        return block, orientation_type
+
+    def _start(block) -> str:
+        return timezone.localtime(block.starts_at).strftime("%Y-%m-%dT%H:%M")
+
+    def it_refuses_a_member_on_a_type_with_its_own_link(client: Client):
+        user = _login(client, "xk1")
+        block, orientation_type = _block_with_type(external_signup_url=TYPE_LINK)
+        response = client.post(
+            reverse("hub_orientation_block_book", args=[block.pk]),
+            {"orientation_type": str(orientation_type.pk), "starts_at": _start(block), "note": ""},
+        )
+        assert OrientationBooking.objects.filter(member=user.member).count() == 0
+        notes = [str(m) for m in get_messages(response.wsgi_request)]
+        assert any("happens on another site" in note and TYPE_LINK in note for note in notes)
+        assert not any("Orientation requested!" in note for note in notes)
+
+    def it_refuses_a_paid_type_before_any_checkout_starts(client: Client):
+        user = _login(client, "xk2")
+        block, orientation_type = _block_with_type(price_cents=1500, external_signup_url=TYPE_LINK)
+        response = client.post(
+            reverse("hub_orientation_block_book", args=[block.pk]),
+            {"orientation_type": str(orientation_type.pk), "starts_at": _start(block), "note": ""},
+        )
+        # Straight back to the guild page, no Stripe redirect, no seat-holding hold.
+        assert response.status_code == 302
+        assert "stripe" not in response["Location"].lower()
+        assert OrientationBooking.objects.filter(member=user.member).count() == 0
+
+    def it_still_books_a_type_with_no_link(client: Client):
+        user = _login(client, "xk3")
+        block, orientation_type = _block_with_type()
+        client.post(
+            reverse("hub_orientation_block_book", args=[block.pk]),
+            {"orientation_type": str(orientation_type.pk), "starts_at": _start(block), "note": ""},
+        )
+        assert OrientationBooking.objects.filter(member=user.member, orientation_type=orientation_type).count() == 1
+
+    def it_refuses_a_guild_wide_link_too(client: Client):
+        user = _login(client, "xk4")
+        block, orientation_type = _block_with_type()
+        settings_obj = GuildOrientationSettings.objects.get(guild=block.guild)
+        settings_obj.external_signup_url = GUILD_LINK
+        settings_obj.save(update_fields=["external_signup_url"])
+        client.post(
+            reverse("hub_orientation_block_book", args=[block.pk]),
+            {"orientation_type": str(orientation_type.pk), "starts_at": _start(block), "note": ""},
+        )
+        assert OrientationBooking.objects.filter(member=user.member).count() == 0
 
 
 def describe_marking_someone_oriented_by_hand():

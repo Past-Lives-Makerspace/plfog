@@ -301,9 +301,15 @@ def _slot_disambiguation(
     Falls back to the custom-time hint when custom requests are allowed, or a guild-page
     pointer when neither posted times nor custom requests are available — never a dead end.
     """
-    slots = list(
-        guild.orientation_slots.bookable().select_related("orientation_type").order_by("starts_at")[:_SLOT_LIST_CAP]
-    )
+    # An orientation whose signups happen off site has no bookable time to offer here:
+    # ensure_bookable_for would refuse the slot: pk anyway, so printing it is a dead end.
+    slots = [
+        slot
+        for slot in guild.orientation_slots.bookable()
+        .select_related("orientation_type__guild__orientation_settings")
+        .order_by("starts_at")[:_SLOT_LIST_CAP]
+        if not slot.orientation_type.resolved_external_signup_url
+    ]
     if slots:
         lines = [
             f"{prefix}Here are **{guild.name}**'s open orientation times — re-run "

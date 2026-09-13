@@ -112,6 +112,29 @@ def describe_gates():
         assert "You're already oriented" in content
         assert "https://forms.gle/blacksmithing" not in content
 
+    def it_refuses_a_posted_slot_whose_type_has_its_own_link(linked_member):
+        # Road three (issue #368). No guild-wide link, so the short circuit above does not
+        # fire: the refusal comes from the shared choke point, ensure_bookable_for.
+        member = linked_member()
+        guild = _guild()
+        orientation_type = OrientationTypeFactory(guild=guild, name="Lathe", external_signup_url="https://forms.gle/l")
+        slot = OrientationSlotFactory(guild=guild, orientation_type=orientation_type, enabled_settings=False)
+        content = _content(member, guild=guild, slot=str(slot.pk))
+        assert OrientationBooking.objects.count() == 0
+        assert "Orientation requested" not in content
+        assert "happens on another site" in content
+
+    def it_never_lists_an_external_types_times(linked_member):
+        member = linked_member()
+        guild = _guild()
+        external = OrientationTypeFactory(guild=guild, name="Lathe", external_signup_url="https://forms.gle/l")
+        internal = OrientationTypeFactory(guild=guild, name="Shop Basics", sort_order=1)
+        hidden = OrientationSlotFactory(guild=guild, orientation_type=external, enabled_settings=False)
+        shown = OrientationSlotFactory(guild=guild, orientation_type=internal, enabled_settings=False)
+        content = _content(member, guild=guild)  # no options → the slot list
+        assert f"`{shown.pk}`" in content
+        assert f"`{hidden.pk}`" not in content
+
     def it_still_says_a_request_is_already_in_at_a_guild_with_a_link(linked_member):
         member = linked_member()
         guild = _guild(external_signup_url="https://forms.gle/blacksmithing")

@@ -255,12 +255,17 @@ def _lock_equipment_row(equipment: Equipment) -> Equipment:
     return Equipment.objects.select_for_update().get(pk=equipment.pk)
 
 
-def request_orientation(slot: OrientationSlot, member: Member, *, note: str = "") -> OrientationBooking:
+def request_orientation(
+    slot: OrientationSlot, member: Member, *, note: str = "", by_staff: bool = False
+) -> OrientationBooking:
     """Book a slot (REQUESTED) and fan out the request emails, activity, and orienter notification.
 
     An equipment-owned slot books under the Equipment row lock (guard + create in
     one ``transaction.atomic()``), so it can never double book a machine against a
     reservation landing at the same moment. Guild-owned slots are untouched.
+
+    ``by_staff=True`` is the dashboard's add-a-member path seating someone by hand; it
+    licenses only the off-site-signup guard (see :meth:`OrientationSlot.ensure_bookable_for`).
 
     Raises:
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
@@ -268,9 +273,9 @@ def request_orientation(slot: OrientationSlot, member: Member, *, note: str = ""
     if slot.orientation_type.is_equipment_owned:
         with transaction.atomic():
             _lock_equipment_row(cast("Equipment", slot.orientation_type.equipment))
-            booking = slot.book(member, note=note)
+            booking = slot.book(member, note=note, by_staff=by_staff)
     else:
-        booking = slot.book(member, note=note)
+        booking = slot.book(member, note=note, by_staff=by_staff)
     _fan_out_request(booking)
     return booking
 

@@ -1782,7 +1782,7 @@ class MeetingAttachmentForm(forms.ModelForm):
 EXTERNAL_SIGNUP_URL_WARNING = (
     "Signups that go through this link are not recorded here, so finishing one does not mark "
     "anyone oriented. To mark someone oriented by hand, do three things in order: add a time "
-    "under Upcoming Slots on the Orientation tab, add the member to that time from the "
+    "under Upcoming Slots on this tab, add the member to that time from the "
     "Orientations dashboard, then tick Completed on their row there."
 )
 GUILD_EXTERNAL_SIGNUP_HINT = (
