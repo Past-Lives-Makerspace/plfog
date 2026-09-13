@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.58.0"
+VERSION = "1.59.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -59,11 +59,27 @@ VERSION = "1.58.0"
 #
 # 1.58.0 is the flyer lock below. Not the top bar confirm either; the deferral stands.
 #
+# 1.59.0 is the composer submit fixes below. Not the top bar confirm either; the deferral stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.59.0",
+        "date": "2026-09-12",
+        "title": "The class composer keeps your work and says what is still missing",
+        "changes": [
+            "When a class is not ready to submit, you now land on the step that needs attention "
+            "with a Still Missing list, and each line jumps to the field. Before, you could end "
+            "up on step one with only a short notice that faded.",
+            "Submit for review on Manage My Classes is available once the class is ready and "
+            "says what is missing when it is not. Pressing it twice no longer drops you on the list.",
+            "A failed save keeps the price you typed and any date you had started entering. If a "
+            "class is cancelled while you are editing it, what you typed stays on screen.",
+        ],
+    },
     {
         "version": "1.58.0",
         "date": "2026-09-12",
