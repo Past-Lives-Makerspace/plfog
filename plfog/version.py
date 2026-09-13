@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.55.0"
+VERSION = "1.56.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -48,11 +48,26 @@ VERSION = "1.55.0"
 # 1.55.0 is the skip link entry below. It is not the top bar confirm 1.54.1's note is waiting
 # for either; that deferral still stands.
 #
+# 1.56.0 is the hero cropper fix below. Not the top bar confirm either; the deferral stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.56.0",
+        "date": "2026-09-12",
+        "title": "The class photo cropper works again",
+        "changes": [
+            "On step 2 of the class composer, the crop frame for your main photo now appears at "
+            "full size the first time you open the step and every time you come back to it. "
+            "Before, it stayed a small box, or never appeared at all while creating a new class.",
+            "Pick a new photo and the frame appears as soon as the photo has loaded, whether the "
+            "class is new or already saved.",
+            "A crop is saved only when you drag the frame. A photo you never cropped stays uncropped.",
+        ],
+    },
     {
         "version": "1.55.0",
         "date": "2026-09-12",
