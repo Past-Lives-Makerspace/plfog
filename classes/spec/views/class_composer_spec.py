@@ -148,6 +148,21 @@ def _price_input_value(html: str) -> str:
     return match.group(1) if match else ""
 
 
+def _draft_key(html: str) -> str:
+    """The localStorage key the composer told the browser to keep its in flight typing under."""
+    match = re.search(r'data-composer-draft-key="([^"]+)"', html)
+    assert match is not None, "the composer rendered no draft key"
+    return match.group(1)
+
+
+def _draft_notice(html: str) -> str:
+    """The draft persistence notice's markup, or "" when the composer rendered none."""
+    opener = '<div class="pl-composer-draft" '
+    if opener not in html:
+        return ""
+    return html.partition(opener)[2].partition("</div>")[0]
+
+
 def _still_missing(html: str) -> str:
     """The Still Missing notice's markup, or "" when the composer rendered none."""
     opener = '<section class="pl-composer-missing '
@@ -1419,3 +1434,111 @@ def describe_a_cancelled_class_post_that_also_has_field_errors():
         assert notice_at < errors_at
         offering.refresh_from_db()
         assert offering.title == "Before"
+
+
+def describe_the_composer_draft_notice():
+    """Draft persistence (issue #368, item 3c): the browser held copy of the in flight typing.
+
+    static/js/composer_draft.js does the keeping and the offering; what the server owes it is a
+    key nobody else's draft can collide with, a place to say what is kept, and a one shot signal
+    that a save landed so the copy can be dropped. These specs pin those three.
+    """
+
+    def it_loads_the_draft_script_on_both_composers(instructor_fixture, admin_user, client):
+        client.force_login(instructor_fixture.user)
+        teach = client.get(reverse("classes:teach_class_create")).content.decode()
+        client.force_login(admin_user)
+        admin = client.get(reverse("classes:admin_class_create")).content.decode()
+        for html in (teach, admin):
+            assert '<script src="/static/js/composer_draft.js" defer></script>' in html
+            # In <body> with the other per page boot scripts, never in the head with Alpine's
+            # component registrations: it registers no component and needs the fresh DOM.
+            assert html.count("js/composer_draft.js") == 1
+            assert html.index("js/composer_draft.js") > html.index("js/composer_validation.js")
+
+    def it_renders_the_notice_hidden_with_every_line_and_both_controls(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        notice = _draft_notice(html)
+        assert '<div class="pl-composer-draft" data-composer-draft role="status" hidden>' in html
+        assert 'data-composer-draft-line="offer" hidden>We kept what you typed in this browser' in notice
+        assert 'data-composer-draft-line="kept" hidden>Kept in this browser' in notice
+        assert 'data-composer-draft-line="blocked" hidden>This browser will not let us keep' in notice
+        # The honest half: files cannot live in localStorage, so the notice says so.
+        assert notice.count("Photos and files") == 2
+        assert "data-composer-draft-restore hidden>Restore It</button>" in notice
+        assert "data-composer-draft-discard hidden>Discard It</button>" in notice
+
+    def it_sits_above_the_form_so_it_shows_on_every_step(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert html.index("data-composer-draft ") < html.index('id="composer-form"')
+
+    def it_keys_the_copy_by_class_so_two_drafts_never_collide(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        create = _draft_key(client.get(reverse("classes:teach_class_create")).content.decode())
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        edit = _draft_key(client.get(edit_url).content.decode())
+        assert create.endswith(".teach.new")
+        assert edit.endswith(f".teach.{offering.pk}")
+
+    def it_keys_the_copy_by_person_so_a_shared_browser_never_leaks_one(instructor_fixture, client, db):
+        other = InstructorFactory(user=UserFactory(username="second-teacher@example.com"))
+        url = reverse("classes:teach_class_create")
+        client.force_login(instructor_fixture.user)
+        mine = _draft_key(client.get(url).content.decode())
+        client.force_login(other.user)
+        theirs = _draft_key(client.get(url).content.decode())
+        assert mine != theirs
+        assert str(instructor_fixture.user.pk) in mine and str(other.user.pk) in theirs
+
+    def it_keys_the_copy_by_portal_so_the_two_composers_do_not_share_one(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _draft_key(html).endswith(f".admin.{offering.pk}")
+
+    def it_stamps_the_saved_signal_on_the_render_after_a_save_and_takes_it_back_off(instructor_fixture, client):
+        # The redirect target is where the browser learns its copy is redundant: the database
+        # has the work now. One render only, so typing again on that same page is kept afresh.
+        cat = CategoryFactory()
+        client.force_login(instructor_fixture.user)
+        resp = client.post(reverse("classes:teach_class_create"), _full_payload(cat))
+        assert resp.status_code == 302
+        first = client.get(resp["Location"]).content.decode()
+        assert 'data-composer-draft-saved="1"' in first
+        second = client.get(resp["Location"]).content.decode()
+        assert "data-composer-draft-saved" not in second
+
+    def it_stamps_it_for_the_class_that_was_saved_and_no_other(instructor_fixture, client):
+        cat = CategoryFactory()
+        other = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        client.post(reverse("classes:teach_class_create"), _full_payload(cat))
+        other_url = reverse("classes:teach_class_edit", kwargs={"pk": other.pk})
+        assert "data-composer-draft-saved" not in client.get(other_url).content.decode()
+
+    def it_never_stamps_it_on_a_failed_save(instructor_fixture, client):
+        # A failed save re-renders from the POST, and what was typed then lives nowhere but this
+        # page and the browser's copy. Clearing the copy there would be the loss this feature exists
+        # to stop, so the signal is read on a GET only and waits for the next one.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        client.post(edit_url, _full_payload(offering.category))  # leaves the flag on the session
+        refused = client.post(edit_url, _full_payload(offering.category, title=""))
+        assert refused.status_code == 200
+        assert "data-composer-draft-saved" not in refused.content.decode()
+        # Still there for the GET that comes next: the save it belongs to really did happen.
+        assert 'data-composer-draft-saved="1"' in client.get(edit_url).content.decode()
+
+    def it_stamps_a_submit_that_was_refused_for_readiness_because_the_draft_still_saved(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True, gallery=0)
+        client.force_login(instructor_fixture.user)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, action="submit", step="5"),
+        )
+        assert resp.status_code == 302
+        assert 'data-composer-draft-saved="1"' in client.get(resp["Location"]).content.decode()

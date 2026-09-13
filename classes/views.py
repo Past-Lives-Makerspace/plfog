@@ -1426,6 +1426,49 @@ def _composer_step(request: HttpRequest) -> int:
     return clamp_step(source.get("step"))
 
 
+# A successful composer save leaves this on the session, carrying the class it saved. The next
+# composer GET for that class takes it back off and stamps data-composer-draft-saved on the page,
+# which is how static/js/composer_draft.js learns the browser held copy of what was typed is now
+# redundant and forgets it (issue #368, item 3c). A session flag rather than a query parameter
+# because not every save lands back on the composer: an admin publish goes to the class page. And
+# a flag rather than comparing values, because the server normalises some of them: a price typed
+# as 80 comes back as 80.00, which is the same work saved, not a draft worth offering back.
+COMPOSER_SAVED_SESSION_KEY = "composer_saved_pk"
+
+
+def _mark_composer_saved(request: HttpRequest, offering: ClassOffering) -> None:
+    """Record that this class's composer work reached the database, for the next composer render."""
+    request.session[COMPOSER_SAVED_SESSION_KEY] = offering.pk
+
+
+def _composer_draft_saved(request: HttpRequest, saved: ClassOffering | None) -> bool:
+    """True on the first composer GET after this class was saved, and only that once.
+
+    Read on a GET only. A failed save re-renders the composer from the POST, and the typed
+    values are then held nowhere but this page and the browser's copy, so a flag left over
+    from an earlier save must not reach that render and clear the copy.
+
+    Popped, so a later visit that types something new and then refreshes is offered its draft
+    instead of having it cleared by a stale flag. A flag for a class whose composer is never
+    opened again just sits there until the next save overwrites it.
+    """
+    if saved is None or request.method != "GET" or request.session.get(COMPOSER_SAVED_SESSION_KEY) != saved.pk:
+        return False
+    del request.session[COMPOSER_SAVED_SESSION_KEY]
+    return True
+
+
+def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None, *, is_admin: bool) -> str:
+    """The ``localStorage`` key the in flight composer mirrors its typed fields into.
+
+    Per signed in person, so a shared browser never offers one member's draft to the next;
+    per portal and per class, so the admin composer, the instructor composer, and a new class
+    that has no row yet each keep their own copy.
+    """
+    portal = "admin" if is_admin else "teach"
+    return f"plfog.composer.v1.{request.user.pk}.{portal}.{saved.pk if saved is not None else 'new'}"
+
+
 def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResponse:
     """Back to the composer on the step the user was looking at, when the POST said which one."""
     url = reverse(url_name, kwargs={"pk": pk})
@@ -1526,6 +1569,10 @@ def _composer_context(
         "is_ready": readiness is not None and all(item.ok for item in readiness),
         "cancel_url": cancel_url,
         "save_label": "Save" if is_published else "Save Draft",
+        # Draft persistence (issue #368, item 3c): the key the browser keeps the in flight
+        # typing under, and the one shot signal that the database now has it.
+        "composer_draft_key": _composer_draft_key(request, saved, is_admin=is_admin),
+        "composer_draft_saved": _composer_draft_saved(request, saved),
         # The Share & Print card shows the flyer button and QR downloads only when this
         # request may print them: published, or an admin looking at a draft.
         "can_print_marketing": saved is not None and can_print_class_marketing(request, saved),
@@ -1588,6 +1635,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
             offering.delete()  # roll back the half-created offering
             form.add_error(None, exc.messages[0])
         else:
+            _mark_composer_saved(request, offering)
             submit_now = request.POST.get("action") == "submit"
             if submit_now:
                 try:
@@ -1635,6 +1683,7 @@ def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         offering = form.save()  # type: ignore[assignment]  # django-stubs infers an annotated row type for offering
         formset.save()
         faq_formset.save()
+        _mark_composer_saved(request, offering)
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             try:
@@ -2912,6 +2961,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
                 _discard_half_created_offering(offering)
                 form.add_error(None, exc.messages[0])
             else:
+                _mark_composer_saved(request, offering)
                 messages.success(request, f"{offering.title} is published." if publish_now else "Draft saved.")
                 return _composer_redirect("classes:admin_class_edit", offering.pk, request)
 
@@ -3003,6 +3053,7 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
         form.save()
         session_formset.save()
         faq_formset.save()
+        _mark_composer_saved(request, offering)
         if request.POST.get("action") == "publish":
             # publish() checks readiness, not status: a crafted publish on a live class would
             # re-stamp published_at and announce again, and one on a class still in review

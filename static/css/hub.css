@@ -5222,6 +5222,36 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0;
     color: var(--hub-text-muted);
 }
+/* What the browser is holding for you (issue #368, item 3c): the offer to restore a draft this
+   device kept, or the line saying it is being kept, plus the way to drop it. Rendered hidden and
+   only shown by static/js/composer_draft.js, which is why the [hidden] overrides are here: the
+   container sets display:flex and .hub-btn sets display:inline-block, and both would otherwise
+   beat the browser's own [hidden] rule. */
+.pl-composer-draft {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+    font-size: 0.9rem;
+    color: var(--hub-text-muted);
+}
+.pl-composer-draft[hidden] { display: none; }
+.pl-composer-draft__line {
+    flex: 1 1 18rem;
+    margin: 0;
+}
+.pl-composer-draft__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.pl-composer-draft .hub-btn[hidden] { display: none; }
+
 /* The one action bar, outside every step, sticky. Opaque so page content never shows through. */
 .pl-composer-bar {
     position: sticky;
