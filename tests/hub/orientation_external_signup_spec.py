@@ -12,6 +12,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -187,6 +188,37 @@ def describe_the_guild_page():
         )
         assert "Request a custom time" not in section
 
+    def it_hides_the_custom_time_request_when_every_type_carries_its_own_link(client: Client):
+        # No guild-wide link at all, a link on each active type. The guild-level guard
+        # missed this and rendered an empty dropdown that refused whatever you submitted.
+        _login(client, "xg8")
+        settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
+        OrientationTypeFactory(guild=settings_obj.guild, name="Lathe", external_signup_url=TYPE_LINK)
+        OrientationTypeFactory(guild=settings_obj.guild, name="Mill", sort_order=1, external_signup_url=TYPE_LINK)
+        section = _orientation_section(
+            client.get(reverse("hub_guild_detail", args=[settings_obj.guild.slug])).content.decode()
+        )
+        assert "Request a custom time" not in section
+        assert settings_obj.external_signup_url == ""  # the guild-level field is genuinely blank
+
+    def it_shows_the_hold_state_over_the_link(client: Client):
+        user = _login(client, "xg9")
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url=GUILD_LINK)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild, price_cents=1500)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        OrientationBookingFactory(
+            slot=slot,
+            member=user.member,
+            status=OrientationBooking.Status.PENDING_PAYMENT,
+            amount_paid_cents=1500,
+        )
+        section = _orientation_section(
+            client.get(reverse("hub_guild_detail", args=[settings_obj.guild.slug])).content.decode()
+        )
+        assert "Finishing Your Booking" in section
+        assert "Resume payment" in section
+        assert "Sign up for this orientation" not in section
+
     def it_keeps_the_custom_time_request_when_only_one_type_went_outside(client: Client):
         _login(client, "xg7")
         settings_obj = GuildOrientationSettingsFactory(allow_custom_requests=True)
@@ -225,6 +257,27 @@ def describe_the_equipment_page():
         assert "Signing up for this orientation happens on another site." not in section
         assert ">Request<" in section
 
+    def it_shows_the_hold_state_over_the_link(client: Client):
+        user = _login(client, "xe4")
+        equipment = EquipmentFactory()
+        orientation_type = OrientationTypeFactory(
+            equipment_owned=True, equipment=equipment, price_cents=1500, external_signup_url=TYPE_LINK
+        )
+        slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        OrientationBookingFactory(
+            slot=slot,
+            member=user.member,
+            guild=None,
+            status=OrientationBooking.Status.PENDING_PAYMENT,
+            amount_paid_cents=1500,
+        )
+        section = _equipment_section(
+            client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        )
+        assert "Finishing Your Booking" in section
+        assert "Resume payment" in section
+        assert "Sign up for this orientation" not in section
+
     def it_keeps_showing_a_members_live_booking_over_the_link(client: Client):
         user = _login(client, "xe3")
         equipment = EquipmentFactory()
@@ -238,6 +291,30 @@ def describe_the_equipment_page():
         )
         assert "Confirmed" in section
         assert "Sign up for this orientation" not in section
+
+
+def describe_the_equipment_requirements_banner():
+    """The CTA must not promise booking here when the destination sends you elsewhere."""
+
+    def _blocked_equipment(username: str, client: Client, **type_kwargs):
+        user = _login(client, username)
+        equipment = EquipmentFactory()
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, **type_kwargs)
+        equipment.required_orientation = orientation_type
+        equipment.save(update_fields=["required_orientation"])
+        return user, equipment
+
+    def it_reads_see_how_to_sign_up_when_the_required_type_is_external(client: Client):
+        _, equipment = _blocked_equipment("xn1", client, external_signup_url=TYPE_LINK)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "See How to Sign Up" in content
+        assert "Book the Orientation" not in content
+
+    def it_still_reads_book_the_orientation_otherwise(client: Client):
+        _, equipment = _blocked_equipment("xn2", client)
+        content = client.get(reverse("hub_equipment_detail", args=[equipment.slug])).content.decode()
+        assert "Book the Orientation" in content
+        assert "See How to Sign Up" not in content
 
 
 def describe_the_custom_time_request_form():
@@ -256,6 +333,19 @@ def describe_the_custom_time_request_form():
         OrientationTypeFactory(guild=settings_obj.guild)
         form = OrientationCustomRequestForm(guild=settings_obj.guild)
         assert list(form.fields["orientation_type"].queryset) == []
+        assert form.has_internal_types is False
+
+    def it_reports_no_internal_types_when_every_type_carries_its_own_link():
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, name="Lathe", external_signup_url=TYPE_LINK)
+        OrientationTypeFactory(guild=settings_obj.guild, name="Mill", sort_order=1, external_signup_url=TYPE_LINK)
+        assert OrientationCustomRequestForm(guild=settings_obj.guild).has_internal_types is False
+
+    def it_reports_internal_types_when_one_still_books_here():
+        settings_obj = GuildOrientationSettingsFactory()
+        OrientationTypeFactory(guild=settings_obj.guild, name="Lathe", external_signup_url=TYPE_LINK)
+        OrientationTypeFactory(guild=settings_obj.guild, name="Shop Basics", sort_order=1)
+        assert OrientationCustomRequestForm(guild=settings_obj.guild).has_internal_types is True
 
 
 def describe_the_guild_orientation_settings_editor():
@@ -266,7 +356,13 @@ def describe_the_guild_orientation_settings_editor():
         content = client.get(reverse("hub_guild_edit", args=[guild.pk]), {"tab": "orientations"}).content.decode()
         assert "External signup link" in content
         assert EXTERNAL_SIGNUP_URL_WARNING in content
-        assert "mark people oriented by hand on the Orientations dashboard" in content
+        # All three steps, in the order they have to happen — the slot is created on this
+        # tab, not on the dashboard, and an external guild usually has no slots at all.
+        assert "add a time under Upcoming Slots on the Orientation tab" in content
+        assert "add the member to that time from the Orientations dashboard" in content
+        assert "tick Completed on their row there" in content
+        # And the switch that has to stay on for members to see the link at all.
+        assert "leave the booking switch above turned on" in content
 
     def it_saves_a_link(client: Client):
         guild = GuildFactory()
@@ -384,6 +480,60 @@ def describe_the_orientation_type_editors():
         assert orientation_type.external_signup_url == ""
 
 
+def describe_booking_a_slot_whose_type_signs_up_elsewhere():
+    """The member surface hides the slot, so the endpoint has to refuse it too.
+
+    A page opened before the lead flipped the switch, or a crafted POST, still reaches
+    ``hub_orientation_book``. The staff path (``hub_orientation_add_member``) stays open:
+    it is the only way an externally-run orientation ever gets recorded as completed.
+    """
+
+    def it_refuses_a_member_self_booking_and_says_where_signup_happens(client: Client):
+        user = _login(client, "xb1")
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url=GUILD_LINK)
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        response = client.post(reverse("hub_orientation_book", args=[slot.pk]))
+        assert response.status_code == 302
+        assert OrientationBooking.objects.filter(member=user.member).count() == 0
+        notes = [str(m) for m in get_messages(response.wsgi_request)]
+        assert any("happens on another site" in note and GUILD_LINK in note for note in notes)
+
+    def it_refuses_a_paid_type_before_any_checkout_starts(client: Client):
+        user = _login(client, "xb2")
+        settings_obj = GuildOrientationSettingsFactory()
+        orientation_type = OrientationTypeFactory(
+            guild=settings_obj.guild, price_cents=1500, external_signup_url=TYPE_LINK
+        )
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        response = client.post(reverse("hub_orientation_book", args=[slot.pk]))
+        # A redirect back to the guild page, not off to Stripe.
+        assert response.status_code == 302
+        assert "stripe" not in response["Location"].lower()
+        assert OrientationBooking.objects.filter(member=user.member).count() == 0
+
+    def it_still_books_a_type_with_no_link(client: Client):
+        user = _login(client, "xb3")
+        settings_obj = GuildOrientationSettingsFactory()
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        slot = OrientationSlotFactory(guild=settings_obj.guild, orientation_type=orientation_type)
+        client.post(reverse("hub_orientation_book", args=[slot.pk]))
+        assert OrientationBooking.objects.filter(member=user.member, slot=slot).count() == 1
+
+    def it_lets_staff_add_a_member_to_that_same_slot_by_hand(client: Client):
+        guild = GuildFactory()
+        GuildOrientationSettingsFactory(guild=guild, external_signup_url=GUILD_LINK)
+        orientation_type = OrientationTypeFactory(guild=guild)
+        slot = OrientationSlotFactory(guild=guild, orientation_type=orientation_type)
+        _lead_login(client, "xb4", guild)
+        attendee = _member_user("xb4attendee")
+        client.post(
+            reverse("hub_orientation_add_member"),
+            {"member": str(attendee.member.pk), "slot": str(slot.pk)},
+        )
+        assert OrientationBooking.objects.filter(member=attendee.member, slot=slot).count() == 1
+
+
 def describe_marking_someone_oriented_by_hand():
     """An outside form cannot write back, so the existing manual path has to still work.
 
@@ -431,12 +581,14 @@ def describe_marking_someone_oriented_by_hand():
 
 
 def describe_the_forms_themselves():
-    def it_trims_surrounding_whitespace_on_the_guild_link():
+    def it_names_the_two_schemes_when_the_link_is_ftp():
+        # forms.URLField's own validator allows ftp and ftps, so without the form-level
+        # scheme check this would only fail later, in the model's post-clean.
         form = GuildOrientationSettingsForm(
-            data={"is_enabled": "on", "info": "", "closed_message": "", "external_signup_url": f"  {GUILD_LINK}  "}
+            data={"is_enabled": "on", "info": "", "closed_message": "", "external_signup_url": "ftp://example.com"}
         )
-        assert form.is_valid(), form.errors
-        assert form.cleaned_data["external_signup_url"] == GUILD_LINK
+        assert form.is_valid() is False
+        assert form.errors["external_signup_url"] == ["Enter a link that starts with http:// or https://."]
 
     def it_leaves_a_blank_link_blank_on_the_type_form():
         form = OrientationTypeForm(

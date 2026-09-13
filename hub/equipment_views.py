@@ -476,6 +476,11 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "required_orientation_is_equipment_owned": (
                 orientation_type.is_equipment_owned if orientation_type is not None else False
             ),
+            # The banner's CTA reads "See How to Sign Up" instead of "Book the Orientation"
+            # when the destination is going to hand the member an outside link (issue #368).
+            "required_orientation_is_external": (
+                bool(orientation_type.resolved_external_signup_url) if orientation_type is not None else False
+            ),
             "orientation_sections": _equipment_orientation_sections(equipment, member),
             "can_manage": manages,
         },

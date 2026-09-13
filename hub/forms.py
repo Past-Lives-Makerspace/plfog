@@ -1781,11 +1781,14 @@ class MeetingAttachmentForm(forms.ModelForm):
 # guild and equipment tabs) render it as the field hint, so it cannot drift between them.
 EXTERNAL_SIGNUP_URL_WARNING = (
     "Signups that go through this link are not recorded here, so finishing one does not mark "
-    "anyone oriented. Someone has to mark people oriented by hand on the Orientations dashboard."
+    "anyone oriented. To mark someone oriented by hand, do three things in order: add a time "
+    "under Upcoming Slots on the Orientation tab, add the member to that time from the "
+    "Orientations dashboard, then tick Completed on their row there."
 )
 GUILD_EXTERNAL_SIGNUP_HINT = (
     "Send signups to an outside form, e.g. a Google Form. Members see this link where the "
-    f"orientation times used to be. Leave blank to keep booking here. {EXTERNAL_SIGNUP_URL_WARNING}"
+    "orientation times used to be, so leave the booking switch above turned on or there is no "
+    f"orientation section to show it in. Leave blank to keep booking here. {EXTERNAL_SIGNUP_URL_WARNING}"
 )
 TYPE_EXTERNAL_SIGNUP_HINT = (
     "Sends signups for this orientation only to an outside form. Overrides the guild's link. "
@@ -1793,15 +1796,15 @@ TYPE_EXTERNAL_SIGNUP_HINT = (
 )
 
 
-def clean_external_signup_url(raw: str) -> str:
-    """Trim and scheme-check an orientation signup link; blank stays blank.
+def clean_external_signup_url(url: str) -> str:
+    """Scheme-check an orientation signup link; blank stays blank.
 
     ``forms.URLField`` accepts ftp and ftps out of the box (its validator's default
     scheme list), so without this the only thing catching ``ftp://…`` would be the
     model's validator during post-clean. Running it here puts the failure on the field
-    with the message the lead should read.
+    with the message the lead should read. No trimming: ``forms.URLField`` is a
+    ``CharField`` with ``strip=True``, so whitespace is already gone by now.
     """
-    url = (raw or "").strip()
     if url:
         validate_signup_url(url)
     return url
@@ -2558,6 +2561,11 @@ class OrientationCustomRequestForm(forms.Form):
     )
     note = forms.CharField(label="Note (optional)", required=False, widget=forms.Textarea(attrs={"rows": 2}))
 
+    #: False whenever the picker would be empty, so the page can hide the whole block
+    #: rather than offer a dropdown with nothing in it. Guild-level and per-type links
+    #: both land here, which a template check on the guild's own field would miss.
+    has_internal_types = False
+
     def __init__(self, *args: Any, guild: Guild | None = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if guild is not None:
@@ -2569,6 +2577,7 @@ class OrientationCustomRequestForm(forms.Form):
             internal_pks = [t.pk for t in active if not t.resolved_external_signup_url]
             type_field.queryset = OrientationType.objects.filter(pk__in=internal_pks)
             type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
+            self.has_internal_types = bool(internal_pks)
             first_type = type_field.queryset.first()
             if first_type is not None:
                 type_field.initial = first_type.pk

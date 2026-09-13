@@ -191,8 +191,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
     </div>
     {% endfor %}
 
-    {# A guild-wide external link sends every orientation outside, so there is nothing to propose a time for. #}
-    {% if orientation.allow_custom_requests and not orientation_all_done and not orientation.external_signup_url %}
+    {# has_internal_types is false once every remaining orientation signs up elsewhere, guild-wide link or per type. #}
+    {% if orientation.allow_custom_requests and not orientation_all_done and custom_request_form.has_internal_types %}
     {% if user.is_authenticated %}
     <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showCustom" @click="showCustom = true">

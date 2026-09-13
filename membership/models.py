@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, Self, cast
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
 from django.db import IntegrityError, models, transaction
@@ -9158,16 +9159,26 @@ class OrientationType(models.Model):
         equipment-owned type has no guild settings row to fall back to, so its own link
         is the only one it can have. Callers that render a list of types should
         ``select_related("guild__orientation_settings")`` — this reads that cache.
+
+        The scheme is re-checked here, not only on the way in: a write path that skips
+        ``full_clean`` must not be able to put a ``javascript:`` value in an href.
         """
-        if self.external_signup_url:
-            return self.external_signup_url
-        if self.is_equipment_owned:
+        url = self.external_signup_url
+        if not url and not self.is_equipment_owned:
+            try:
+                url = cast(Guild, self.guild).orientation_settings.external_signup_url
+            except GuildOrientationSettings.DoesNotExist:
+                return ""
+        if not url:
             return ""
         try:
-            settings_obj = cast(Guild, self.guild).orientation_settings
-        except GuildOrientationSettings.DoesNotExist:
+            validate_signup_url(url)
+        except ValidationError:
+            # Defence in depth: queryset .update() and raw SQL skip full_clean, and this
+            # value goes straight into a member-facing href. A stored bad scheme reads as
+            # "no link" and the built-in booking flow stays up, rather than rendering it.
             return ""
-        return settings_obj.external_signup_url
+        return url
 
     def owner_page_path(self) -> str:
         """The relative hub path of the owner's page — for redirects and in-app URLs."""

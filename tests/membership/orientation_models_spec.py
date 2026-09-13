@@ -1019,6 +1019,35 @@ def describe_OrientationType_resolved_external_signup_url():
             assert orientation_type.resolved_external_signup_url == ""
 
 
+def describe_a_bad_scheme_that_skipped_full_clean():
+    """Defence in depth: ``.update()`` and raw SQL bypass validators, and this lands in an href."""
+
+    def it_reads_as_no_link_when_forced_onto_the_type():
+        from membership.models import OrientationType as OT
+
+        orientation_type = OrientationTypeFactory(guild=GuildOrientationSettingsFactory().guild)
+        OT.objects.filter(pk=orientation_type.pk).update(external_signup_url="javascript:alert(1)")
+        orientation_type.refresh_from_db()
+        assert orientation_type.external_signup_url == "javascript:alert(1)"  # the row really is poisoned
+        assert orientation_type.resolved_external_signup_url == ""
+
+    def it_reads_as_no_link_when_forced_onto_the_guild():
+        from membership.models import GuildOrientationSettings as GOS
+
+        settings_obj = GuildOrientationSettingsFactory()
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        GOS.objects.filter(pk=settings_obj.pk).update(external_signup_url="javascript:alert(1)")
+        assert orientation_type.resolved_external_signup_url == ""
+
+    def it_does_not_swallow_a_good_link_forced_the_same_way():
+        from membership.models import OrientationType as OT
+
+        orientation_type = OrientationTypeFactory(guild=GuildOrientationSettingsFactory().guild)
+        OT.objects.filter(pk=orientation_type.pk).update(external_signup_url="https://forms.gle/ok")
+        orientation_type.refresh_from_db()
+        assert orientation_type.resolved_external_signup_url == "https://forms.gle/ok"
+
+
 def describe_external_signup_url_scheme_validation():
     """http and https only, on BOTH models — a member clicks whatever a lead pastes."""
 

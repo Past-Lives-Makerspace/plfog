@@ -101,6 +101,26 @@ def describe_gates():
         assert "https://forms.gle/blacksmithing" in content
         assert OrientationBooking.objects.count() == 0
 
+    def it_still_says_already_oriented_at_a_guild_with_a_link(linked_member):
+        # The external reply sits BELOW these two guards: someone who is already done, or
+        # already waiting, should not be sent off to a form they have no use for.
+        member = linked_member()
+        guild = _guild(external_signup_url="https://forms.gle/blacksmithing")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        OrientationBookingFactory(slot=slot, member=member, guild=guild, is_completed=True)
+        content = _content(member, guild=guild)
+        assert "You're already oriented" in content
+        assert "https://forms.gle/blacksmithing" not in content
+
+    def it_still_says_a_request_is_already_in_at_a_guild_with_a_link(linked_member):
+        member = linked_member()
+        guild = _guild(external_signup_url="https://forms.gle/blacksmithing")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        OrientationBookingFactory(slot=slot, member=member, guild=guild, status=OrientationBooking.Status.REQUESTED)
+        content = _content(member, guild=guild)
+        assert "You already have an orientation request in" in content
+        assert "https://forms.gle/blacksmithing" not in content
+
     def it_reports_when_the_member_is_already_oriented(linked_member):
         member = linked_member()
         guild = _guild()

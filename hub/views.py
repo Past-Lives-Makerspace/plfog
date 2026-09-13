@@ -1568,10 +1568,21 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     from membership import orientations
     from membership.models import OrientationError, OrientationSlot
 
-    slot = get_object_or_404(OrientationSlot.objects.select_related("guild", "orientation_type"), pk=slot_pk)
+    slot = get_object_or_404(
+        OrientationSlot.objects.select_related("guild", "orientation_type", "guild__orientation_settings"), pk=slot_pk
+    )
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
+        return _owner_redirect(slot.orientation_type)
+    # The member surface swapped this slot's Request button for an outside link (issue
+    # #368), but a page opened before the lead flipped the switch, or a crafted POST,
+    # still lands here. Refuse it, and say where signing up actually happens. Staff
+    # adding someone by hand go through orientation_add_member, which is untouched —
+    # that is the only way an externally-run orientation gets recorded as completed.
+    external_url = slot.orientation_type.resolved_external_signup_url
+    if external_url:
+        messages.error(request, f"Signing up for this orientation happens on another site: {external_url}")
         return _owner_redirect(slot.orientation_type)
     try:
         if slot.orientation_type.is_paid:
