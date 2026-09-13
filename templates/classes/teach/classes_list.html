@@ -33,10 +33,20 @@
                     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_detail' pk=offering.pk %}">Open</a>
                 {% endif %}
                 {% if offering.status == 'draft' %}
+                    {% with blocker=offering.submit_blocker %}
+                    {% if blocker %}
+                        {# Gated the way the composer gates its own Submit: disabled, with the checklist as the hint. #}
+                        <span class="pl-help pl-help--right">
+                            <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" disabled aria-label="Submit for review: {{ blocker }}">Submit for review</button>
+                            <span class="pl-help__bubble" role="tooltip">{{ blocker }}</span>
+                        </span>
+                    {% else %}
                     <form method="post" action="{% url 'classes:teach_class_submit' pk=offering.pk %}" style="display:inline;">
                         {% csrf_token %}
                         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Submit for review</button>
                     </form>
+                    {% endif %}
+                    {% endwith %}
                 {% endif %}
                 {% if offering.status == 'pending' %}
                     {% url 'classes:teach_class_withdraw' pk=offering.pk as withdraw_url %}

@@ -355,6 +355,25 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
         )
 
+    def with_readiness_inputs(self) -> "ClassOfferingQuerySet":
+        """Annotate the two relation facts :meth:`ClassOffering.readiness` reads, so a list can
+        gate every draft's quick Submit button with no per-row queries.
+
+        ``has_gallery_photo`` (a gallery row exists) and ``has_future_session`` (a session
+        starting from now on exists) are the only facts readiness needs beyond the row itself.
+        Annotations are a snapshot: read them off a row whose sessions you then change and
+        they are stale, so this belongs on read-only lists, never on the composer's own
+        lookup. Calling this twice is safe.
+        """
+        if "has_future_session" in self.query.annotations:
+            return self
+        return self.annotate(
+            has_gallery_photo=Exists(ClassImage.objects.filter(class_offering=OuterRef("pk"))),
+            has_future_session=Exists(
+                ClassSession.objects.filter(class_offering=OuterRef("pk"), starts_at__gte=timezone.now())
+            ),
+        )
+
     def awaiting_admin(self) -> "ClassOfferingQuerySet":
         """PENDING classes with no open guild-lead gate: the admin's own queue.
 
@@ -1976,6 +1995,22 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.approvals.filter(decision__in=_BOUNCE_DECISIONS).exists()
 
     @property
+    def _has_gallery_photo(self) -> bool:
+        """A gallery row exists; reads the ``with_readiness_inputs`` annotation when present."""
+        annotated = getattr(self, "has_gallery_photo", None)
+        if annotated is not None:
+            return bool(annotated)
+        return self.gallery_images.exists()
+
+    @property
+    def _has_future_session(self) -> bool:
+        """A session starts from now on; reads the ``with_readiness_inputs`` annotation when present."""
+        annotated = getattr(self, "has_future_session", None)
+        if annotated is not None:
+            return bool(annotated)
+        return self.sessions.filter(starts_at__gte=timezone.now()).exists()
+
+    @property
     def latest_bounce_row(self) -> "ClassApproval | None":
         """The most recent CHANGES_REQUESTED / DENIED row, if any.
 
@@ -2060,11 +2095,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         """The submit checklist: five things a class needs before a reviewer sees it."""
         return readiness_items(
             has_hero=self.has_hero_photo,
-            has_gallery=self.gallery_images.exists(),
+            has_gallery=self._has_gallery_photo,
             description=self.description,
             scheduling_model=self.scheduling_model,
             flexible_note=self.flexible_note,
-            has_future_session=self.sessions.filter(starts_at__gte=timezone.now()).exists(),
+            has_future_session=self._has_future_session,
             capacity=self.capacity,
         )
 
@@ -2075,6 +2110,17 @@ class ClassOffering(HeroCropMixin, models.Model):
     def readiness_error(self, verb: str) -> str:
         """The one-line error naming every failing readiness item: "Not ready to submit: Add at least one date."."""
         return readiness_error_text(self.readiness(), verb)
+
+    def submit_blocker(self) -> str:
+        """Why the quick Submit button is disabled: the readiness error, or "" when the class is ready.
+
+        One ``readiness()`` read for both the decision and the hint, so a list row costs no
+        more than the checklist itself (nothing at all on a ``with_readiness_inputs`` queryset).
+        """
+        items = self.readiness()
+        if all(item.ok for item in items):
+            return ""
+        return readiness_error_text(items, "submit")
 
     @property
     def first_gate_label(self) -> str:

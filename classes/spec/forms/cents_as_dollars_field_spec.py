@@ -29,6 +29,25 @@ def describe_CentsAsDollarsField():
             field = CentsAsDollarsField()
             assert field.prepare_value(1250) == Decimal("12.50")
 
+        def it_leaves_a_whole_dollar_string_alone():
+            # A bound field hands the raw POST string back through here on a failed save, and that
+            # string is already dollars: "80" used to re-render as 0.8.
+            field = CentsAsDollarsField()
+            assert field.prepare_value("80") == "80"
+
+        def it_leaves_a_single_dollar_string_alone():
+            # "1" used to come back as 0.01 and then trip the $1.00 floor on the next save.
+            field = CentsAsDollarsField()
+            assert field.prepare_value("1") == "1"
+
+        def it_leaves_a_decimal_string_alone():
+            field = CentsAsDollarsField()
+            assert field.prepare_value("80.00") == "80.00"
+
+        def it_leaves_a_typed_zero_string_alone():
+            field = CentsAsDollarsField()
+            assert field.prepare_value("0") == "0"
+
     def describe_clean():
         def it_converts_dollars_to_cents():
             field = CentsAsDollarsField(required=True)

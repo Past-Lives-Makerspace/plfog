@@ -140,7 +140,9 @@ def describe_teach_class_submit_photo_gate():
         client.force_login(instructor_fixture.user)
         response = client.post(reverse("classes:teach_class_submit", kwargs={"pk": draft.pk}))
         assert response.status_code == 302
-        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": draft.pk})
+        # The factory's one line description fails on step 1 before the photos fail on step 2, so the
+        # refusal lands on step 1 with the checklist showing every gap.
+        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": draft.pk}) + "?step=1&missing=1"
         draft.refresh_from_db()
         assert draft.status == ClassOffering.Status.DRAFT
         assert any(_ERROR_FRAGMENT in m for m in _messages(response))
@@ -173,6 +175,7 @@ def describe_teach_class_create_photo_gate():
         assert response.status_code == 302
         offering = ClassOffering.objects.get(title="Gate Class")
         assert offering.status == ClassOffering.Status.DRAFT
+        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
         assert any(_ERROR_FRAGMENT in m for m in _messages(response))
 
     def it_submits_and_nudges_with_fewer_than_three_photos(instructor_fixture, client):
@@ -215,7 +218,7 @@ def describe_teach_class_edit_photo_gate():
             _edit_payload(offering),
         )
         assert response.status_code == 302
-        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.DRAFT
         assert any(_ERROR_FRAGMENT in m for m in _messages(response))

@@ -125,3 +125,57 @@ def describe_submit_for_review_guard():
         offering.submit_for_review()
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.PENDING
+
+
+def describe_submit_blocker():
+    def it_is_empty_for_a_ready_class(db):
+        assert ClassOfferingFactory(ready=True).submit_blocker() == ""
+
+    def it_is_the_readiness_error_for_an_unready_class(db):
+        offering = ClassOfferingFactory(ready=True, image="", gallery=0)
+        assert offering.submit_blocker() == "Not ready to submit: Add a hero photo. Add one gallery photo."
+
+
+def describe_with_readiness_inputs():
+    def it_reads_the_gallery_and_the_dates_off_the_annotations_with_no_per_row_queries(db):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        ready = ClassOfferingFactory(ready=True, title="Ready")
+        no_gallery = ClassOfferingFactory(ready=True, gallery=0, title="No Gallery")
+        no_dates = ClassOfferingFactory(description=READY_DESCRIPTION, title="No Dates")
+        rows = {
+            row.title: row
+            for row in ClassOffering.objects.with_readiness_inputs().filter(
+                pk__in=[ready.pk, no_gallery.pk, no_dates.pk]
+            )
+        }
+        with CaptureQueriesContext(connection) as ctx:
+            blockers = {title: row.submit_blocker() for title, row in rows.items()}
+        assert len(ctx) == 0
+        assert blockers == {
+            "Ready": "",
+            "No Gallery": "Not ready to submit: Add one gallery photo.",
+            "No Dates": "Not ready to submit: Add at least one date.",
+        }
+
+    def it_ignores_a_session_that_has_already_started(db):
+        offering = ClassOfferingFactory(description=READY_DESCRIPTION)
+        start = timezone.now() - timedelta(hours=1)
+        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
+        row = ClassOffering.objects.with_readiness_inputs().get(pk=offering.pk)
+        assert row.has_future_session is False
+        assert row.is_ready is False
+
+    def it_is_idempotent(db):
+        qs = ClassOffering.objects.with_readiness_inputs()
+        assert qs.with_readiness_inputs() is qs
+
+    def it_still_queries_the_relations_for_a_row_that_was_not_annotated(db):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        offering = ClassOfferingFactory(ready=True)
+        with CaptureQueriesContext(connection) as ctx:
+            assert offering.is_ready is True
+        assert len(ctx) == 2

@@ -220,6 +220,8 @@ def describe_create_class():
         response = client.post(
             reverse("classes:admin_class_create"),
             {
+                # Only action=publish publishes from the admin composer; anything else is a draft save.
+                "action": "publish",
                 "title": "New Class",
                 "slug": "new-class",
                 "category": cat.pk,

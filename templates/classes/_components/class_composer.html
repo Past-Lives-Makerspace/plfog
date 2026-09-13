@@ -18,6 +18,11 @@ Context (from _composer_context in classes/views.py, plus the form context):
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
   anchor_steps_json — DOM id -> step number, for goToField()
   pipeline, readiness, is_ready — only present once the class has a pk
+  missing_items / missing_verb — the failing readiness items behind a refused submit or
+                    publish (?missing=1 after the redirect, or the admin create preflight),
+                    rendered as the Still Missing checklist: not a form error, the form validated
+  composer_notice — a page level refusal that is not a form error (the class was cancelled
+                    while this page was open, so nothing was saved)
   card_group      — the genuine CatalogGroup for a saved class (None on create); the
                     card preview frames on steps 2 and 5 render the REAL catalog card
                     through it
@@ -127,6 +132,18 @@ Do not merge them.
         {% endfor %}
       </ul>
     </div>
+    {% endif %}
+    {% if composer_notice %}
+    {# Nothing was saved and no field is at fault: the class changed state under this page. #}
+    <div class="pl-field-errors pl-wizard-errors" role="alert"><p class="pl-field-error">{{ composer_notice }}</p></div>
+    {% endif %}
+    {% if missing_items %}
+    {# A refused submit or publish: the form validated, these readiness items are what is still missing. Each line jumps to its field. #}
+    <section class="pl-composer-missing pl-wizard-errors" role="status">
+      <p class="pl-composer-missing__title">Still Missing</p>
+      <p class="pl-composer-missing__lead">Not ready to {{ missing_verb }} yet. Tap a line to jump to it.</p>
+      {% include "classes/_components/readiness_list.html" with readiness=missing_items link_hints=True jump=True %}
+    </section>
     {% endif %}
 
     {# ── Step 1 ── #}
