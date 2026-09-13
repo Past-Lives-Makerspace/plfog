@@ -7,20 +7,20 @@
 
 {# Week navigation #}
 <div class="pl-calendar-nav" x-show="calView === 'week'">
-    <button class="pl-calendar-nav__btn"
+    <button type="button" class="pl-calendar-nav__btn" aria-label="Previous week"
             hx-get="{{ events_url }}?week_offset={{ week_offset|add:-1 }}&amp;month_offset={{ month_offset }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
     <span class="pl-calendar-nav__label">{{ week_label }}</span>
-    <button class="pl-calendar-nav__btn"
+    <button type="button" class="pl-calendar-nav__btn" aria-label="Next week"
             hx-get="{{ events_url }}?week_offset={{ week_offset|add:1 }}&amp;month_offset={{ month_offset }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
 </div>
 
@@ -63,20 +63,20 @@
 
 {# Month navigation #}
 <div class="pl-calendar-nav" x-show="calView === 'month'">
-    <button class="pl-calendar-nav__btn"
+    <button type="button" class="pl-calendar-nav__btn" aria-label="Previous month"
             hx-get="{{ events_url }}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset|add:-1 }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
     </button>
     <span class="pl-calendar-nav__label">{{ month_label }}</span>
-    <button class="pl-calendar-nav__btn"
+    <button type="button" class="pl-calendar-nav__btn" aria-label="Next month"
             hx-get="{{ events_url }}?week_offset={{ week_offset }}&amp;month_offset={{ month_offset|add:1 }}"
             hx-target="#pl-calendar-events-area"
             hx-swap="innerHTML"
             hx-indicator="#pl-calendar-loading">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
     </button>
 </div>
 
