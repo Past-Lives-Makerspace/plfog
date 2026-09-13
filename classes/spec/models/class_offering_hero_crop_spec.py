@@ -54,6 +54,12 @@ def describe_scale_hero_crop():
         offering.scale_hero_crop(0.4)
         assert _box(offering) == (1, 0, 1, 1)
 
+    def it_rounds_to_nearest_not_down():
+        # 5 * 0.3 = 1.5 rounds to 2; a floor would give 1 and shift the box a pixel in.
+        offering = ClassOffering(hero_crop_x=5, hero_crop_y=5, hero_crop_w=5, hero_crop_h=5)
+        offering.scale_hero_crop(0.3)
+        assert _box(offering) == (2, 2, 2, 2)
+
     def it_leaves_a_focal_point_alone():
         # x and y are percentages when there is no box; scaling them would move the point.
         offering = ClassOffering(hero_crop_x=10, hero_crop_y=10)
