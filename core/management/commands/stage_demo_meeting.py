@@ -25,8 +25,8 @@ broadcast back from the makerspace Discord channel.
 Hero and gallery photos reuse storage keys that other rows already reference, so
 no upload happens and no orphan cleanup can strand another class's picture.
 
-``--remove`` drops the staged classes (and their registrations); it leaves the
-personas alone.
+``--remove`` drops the staged classes (and their registrations) and the demo guild
+type they sit under; it leaves the personas alone.
 """
 
 from __future__ import annotations
@@ -48,8 +48,14 @@ from membership.models import AdminCapability, Guild, GuildMembership, Member
 PACIFIC = ZoneInfo("America/Los_Angeles")
 
 #: Every staged class lives under this category so the guild-lead review stage routes
-#: to the Cartographers Guild lead (the ``+guildlead`` persona).
+#: to the Cartographers Guild lead (the ``+guildlead`` persona). The row is created by
+#: staging and dropped by ``--remove``: a demo-only guild type has no business sitting
+#: in the composer's Guild Type dropdown between demos, where instructors would see it
+#: alongside the real guilds.
 CATEGORY_SLUG = "demo-cart-category"
+CATEGORY_NAME = "[DEMO] Cartography"
+#: Sorts below every real guild type (they all sit at 0 and order by name).
+CATEGORY_SORT_ORDER = 900
 GUILD_SLUG = "cartographers-guild"
 
 MEMBER_EMAIL = "counciltreasurer+member@pastlives.space"
@@ -162,7 +168,25 @@ class Command(BaseCommand):
                 offering.sessions.all().delete()
                 offering.activity.all().delete()
                 offering.delete()
+            self._remove_category()
         self.stdout.write(self.style.SUCCESS("Removed the staged classes."))
+
+    def _remove_category(self) -> None:
+        """Drop the demo guild type, unless something else was filed under it.
+
+        A class outside ``STAGED_SLUGS`` pointing here means someone re-filed real
+        content into it; ``category`` is PROTECT, so deleting would raise anyway.
+        Leave it and say so rather than failing the teardown.
+        """
+        category = Category.objects.filter(slug=CATEGORY_SLUG).first()
+        if category is None:
+            return
+        holdouts = category.classes.count()
+        if holdouts:
+            self.stdout.write(f"  kept guild type {category.name}: {holdouts} class(es) still filed under it")
+            return
+        category.delete()
+        self.stdout.write(f"  removed guild type {CATEGORY_NAME}")
 
     # --- staging ------------------------------------------------------------
 
@@ -171,8 +195,13 @@ class Command(BaseCommand):
             self.stdout.write("[dry-run] staging is all-or-nothing; re-run without --dry-run to apply")
             return
         with transaction.atomic():
-            category = Category.objects.get(slug=CATEGORY_SLUG)
             guild = Guild.objects.get(slug=GUILD_SLUG)
+            category, created = Category.objects.get_or_create(
+                slug=CATEGORY_SLUG,
+                defaults={"name": CATEGORY_NAME, "sort_order": CATEGORY_SORT_ORDER, "guild": guild},
+            )
+            if created:
+                self.stdout.write(f"  created guild type {category.name}")
 
             member = self._reset_member_persona()
             instructor = self._ensure_instructor_persona(guild)

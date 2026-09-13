@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.62.0"
+VERSION = "1.63.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -65,7 +65,18 @@ VERSION = "1.62.0"
 #
 # 1.61.0 is the per step validation below. Not the top bar confirm either; the deferral stands.
 #
-# 1.62.0 is the composer draft keeping below. Not the top bar confirm either; the deferral stands.
+# 1.62.1 - the demo meeting command owning its own guild type takes it with no entry, correctly:
+# it is staging tooling for a live walkthrough, invisible to members. It reserved 1.62.0 for the
+# composer draft persistence branch, which was cut first and still open at the time.
+#
+# 1.62.0 was never used. That reservation only worked if the draft branch merged first, and it
+# did not: 1.62.1 went to production while the draft branch was still in review, so taking 1.62.0
+# afterwards would have moved VERSION backwards, tagged a release below the one already live, and
+# announced it as the newer of the two. The draft branch took 1.63.0 instead. Reserving a number
+# for a branch you do not control the merge order of does not work; take the next free number at
+# merge time.
+#
+# 1.63.0 is the composer draft keeping below. Not the top bar confirm either; the deferral stands.
 #
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
@@ -73,7 +84,7 @@ VERSION = "1.62.0"
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
     {
-        "version": "1.62.0",
+        "version": "1.63.0",
         "date": "2026-09-13",
         "title": "The class composer keeps what you typed",
         "changes": [
