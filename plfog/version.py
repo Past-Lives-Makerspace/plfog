@@ -68,8 +68,8 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
         "title": "Pages opened from inside the app now work on arrival",
         "changes": [
             "Opening a page from a link inside the app could leave some controls dead until you "
-            "refreshed. The class composer's photo tools were the clearest case. Every page now "
-            "works the same on arrival as it does after a refresh.",
+            "refreshed. The class composer's photo tools were the clearest case. Pages you open "
+            "from inside the app now work on arrival, no refresh needed.",
         ],
     },
     {
