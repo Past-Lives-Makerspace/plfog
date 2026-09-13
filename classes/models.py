@@ -81,7 +81,7 @@ A Page Worth Sharing: Your workshop gets its own page with a wide banner photo, 
 Your Words, Your Photos: Write it the way you would say it. Add a banner and as many gallery shots as you like, and choose which part of each photo shows.
 Sign Ups That Run Themselves: When it fills up, people join a waitlist. The moment a seat opens, the next person is offered it and held for three days.
 Everyone On One Screen: See who is coming, mark someone as paid, move a person to another date, and email the whole group without leaving the page.
-Free, Paid, Or On Sale: Run it free, set a price with a member discount, or put it on sale and the new price shows up everywhere on its own.
+Paid Or On Sale: Set a price with a member discount, or put it on sale and the new price shows up everywhere on its own.
 Run It Again In One Click: Went well? Make a copy with new dates and keep everything else exactly as it was."""
 
 # The three prose sections are stored as the HTML the rich editor saves (what Quill
@@ -114,12 +114,13 @@ DEFAULT_TEACH_PAGE_FAQ = (
     "<h3>How Long Until I Hear Back?</h3>"
     "<p>An admin usually gets to it within a week. You can check this page any time to see where things stand.</p>"
     "<h3>Can I Charge for It?</h3>"
-    "<p>Yes. You set the price and an optional member discount when you build the page. You can also run it free.</p>"
+    "<p>Yes. You set the price and an optional member discount when you build the page. Every class costs at least "
+    "$1.00.</p>"
     "<h3>What If Nobody Signs Up?</h3>"
     "<p>You can cancel from your dashboard and everyone who signed up is told automatically. Nothing is stuck.</p>"
 )
 
-DEFAULT_TEACH_PAGE_SPLIT_NOTE = "Every paid class splits the same way. Run it free and there is nothing to split."
+DEFAULT_TEACH_PAGE_SPLIT_NOTE = "Every class splits the same way."
 
 DEFAULT_TEACH_PAGE_CTA_TITLE = "Got Something to Share?"
 

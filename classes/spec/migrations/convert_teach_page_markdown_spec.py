@@ -17,7 +17,7 @@ from django.db.migrations.executor import MigrationExecutor
 _APP = "classes"
 _BEFORE = "0061_teach_page_money_split_and_rich_text"
 _AFTER = "0062_convert_teach_page_markdown"
-_HEAD = "0062_convert_teach_page_markdown"
+_HEAD = "0063_teach_page_no_free_option"
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 PROSE_FIELDS = _migration.PROSE_FIELDS

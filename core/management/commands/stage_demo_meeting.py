@@ -357,6 +357,9 @@ class Command(BaseCommand):
         )
         offering.published_at = offering.published_at or timezone.now()
         offering.save(update_fields=["published_at"])
+        # The class has a real price, but these seeded seats record no payment: the money
+        # reports select every registration with amount_paid_cents > 0, and a demo seat must
+        # never read as revenue.
         for local, first, last in OPEN_SEATS:
             self._upsert_registration(
                 offering,
@@ -364,7 +367,7 @@ class Command(BaseCommand):
                 first=first,
                 last=last,
                 status=Registration.Status.CONFIRMED,
-                amount_paid_cents=offering.price_cents,
+                amount_paid_cents=0,
             )
         return offering
 

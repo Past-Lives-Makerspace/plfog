@@ -480,7 +480,9 @@ class Command(BaseCommand):
                 confirmed_at=timezone.now() - timedelta(days=15),
                 amount_paid_cents=past_class.price_cents,
             )
-        # Current intro class: 1 extra confirmed registrant (+ guest added later)
+        # Current intro class: 1 extra confirmed registrant (+ guest added later). The class has
+        # a real price, but its seeded seats record no payment: the money reports select every
+        # registration with amount_paid_cents > 0, and a demo seat must never read as revenue.
         self._upsert_registration(
             offering=current_intro_class,
             order_number="PL-DMC2-26",
@@ -489,7 +491,7 @@ class Command(BaseCommand):
             last_name="Chen",
             status=Registration.Status.CONFIRMED,
             confirmed_at=timezone.now() - timedelta(days=1),
-            amount_paid_cents=current_intro_class.price_cents,
+            amount_paid_cents=0,
         )
         # Future paid class: 1 extra pending registrant alongside the student's confirmed
         self._upsert_registration(
@@ -511,7 +513,7 @@ class Command(BaseCommand):
             last_name="Guest",
             status=Registration.Status.CONFIRMED,
             confirmed_at=timezone.now() - timedelta(hours=6),
-            amount_paid_cents=current_intro_class.price_cents,
+            amount_paid_cents=0,  # a demo seat, never revenue (see _ensure_instructor_class_rosters)
         )
 
     def _ensure_full_waitlist_class(self, category: Category, instructor: Any) -> ClassOffering:

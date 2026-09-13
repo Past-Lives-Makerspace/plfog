@@ -76,6 +76,8 @@ STRIPE_MIN_CHARGE_CENTS = 50  # Stripe's minimum USD charge is $0.50.
 MIN_PAID_PRICE_CENTS = 100  # Floor for every class ($1.00). There is no free option (#368 item 5).
 PRICE_FLOOR_MESSAGE = "Classes cost at least $1.00."
 PRICE_HELP_TEXT = "In dollars, e.g. 80.00 for $80. Every class costs at least $1.00."
+MAX_MEMBER_DISCOUNT_PCT = 100  # A percentage; the model field only bounds it below.
+MEMBER_DISCOUNT_RANGE_MESSAGE = "Member discount must be between 0 and 100."
 
 
 class CentsAsDollarsField(forms.DecimalField):
@@ -202,13 +204,15 @@ class _CardFocusMixin:
         offering.card_focus_y = focus["y"]
 
 
-class _PriceFloorMixin:
-    """Every class costs at least $1.00 (:data:`MIN_PAID_PRICE_CENTS`), from either portal.
+class _PricingRulesMixin:
+    """The pricing rules both composer forms share, from either portal.
 
-    There is no free option: a $0 total is something a discount reaches at registration,
-    never a price an instructor or admin can set. ``price_cents`` is a required field, so a
-    blank is refused by Django before this runs; this refuses anything typed under the floor,
-    on the price field, in plain words. Django finds ``clean_<field>`` through the MRO.
+    Every class costs at least $1.00 (:data:`MIN_PAID_PRICE_CENTS`). There is no free
+    option: a $0 total is something a discount reaches at registration, never a price an
+    instructor or admin can set. ``price_cents`` is a required field, so a blank is refused
+    by Django before this runs; this refuses anything typed under the floor, on the price
+    field, in plain words. The member discount is a percentage, so it is capped at 100 here
+    (the model field only bounds it below). Django finds ``clean_<field>`` through the MRO.
     """
 
     def clean_price_cents(self) -> int:
@@ -216,6 +220,12 @@ class _PriceFloorMixin:
         if price < MIN_PAID_PRICE_CENTS:
             raise forms.ValidationError(PRICE_FLOOR_MESSAGE)
         return price
+
+    def clean_member_discount_pct(self) -> int:
+        pct: int = self.cleaned_data["member_discount_pct"]  # type: ignore[attr-defined]
+        if pct > MAX_MEMBER_DISCOUNT_PCT:
+            raise forms.ValidationError(MEMBER_DISCOUNT_RANGE_MESSAGE)
+        return pct
 
 
 class _SaleMixin:
@@ -347,7 +357,7 @@ class _SchedulingTypeMixin:
 
 
 class ClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _PriceFloorMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
 
@@ -406,7 +416,7 @@ class ClassOfferingForm(
 
 
 class TeachClassOfferingForm(
-    _HeroCropMixin, _CardFocusMixin, _PriceFloorMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
+    _HeroCropMixin, _CardFocusMixin, _PricingRulesMixin, _LiveSaleGuardMixin, _SchedulingTypeMixin, forms.ModelForm
 ):
     """Class form for teaching members — no `instructor`, no `is_private`, slug auto-generated.
 

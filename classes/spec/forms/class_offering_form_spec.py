@@ -166,6 +166,22 @@ def describe_the_member_discount():
         assert form.is_valid(), form.errors
         assert form.save().member_discount_pct == 0
 
+    def it_accepts_one_hundred(form_class):
+        form = _form(form_class, member_discount_pct="100")
+        assert form.is_valid(), form.errors
+        assert form.save().member_discount_pct == 100
+
+    def it_refuses_more_than_one_hundred(form_class):
+        # A percentage: the model field only bounds it below, so the form caps it above.
+        form = _form(form_class, member_discount_pct="101")
+        assert not form.is_valid()
+        assert form.errors["member_discount_pct"] == ["Member discount must be between 0 and 100."]
+
+    def it_refuses_a_negative_number(form_class):
+        form = _form(form_class, member_discount_pct="-1")
+        assert not form.is_valid()
+        assert "member_discount_pct" in form.errors
+
 
 def describe_HeroCropMixin():
     def describe_add_hero_crop_field():

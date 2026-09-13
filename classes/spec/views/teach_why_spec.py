@@ -290,7 +290,7 @@ def describe_teach_why():
             content = client.get(reverse("classes:teach_why")).content.decode()
             assert MONEY_TITLE in content
             assert 'data-help-key="teach.money-split"' in content
-            assert "Every paid class splits the same way. Run it free and there is nothing to split." in content
+            assert "Every class splits the same way." in content
             assert 'aria-label="70 percent to you, 20 percent to Past Lives, 10 percent to the guild"' in content
             assert 'class="pl-teach-split__seg pl-teach-split__seg--you" style="flex-basis: 70%">70%</span>' in content
             assert (

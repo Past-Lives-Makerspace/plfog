@@ -312,6 +312,15 @@ def describe_teach_composer_get():
         assert 'name="member_discount_pct"' in step_three and 'name="capacity"' in step_three
         assert 'name="price_cents"' not in step_three
 
+    def it_leaves_validation_to_the_server(instructor_fixture, client):
+        # Every step's fields are in the DOM and a hidden step cannot be focused, so a browser side
+        # required check refuses silently from any step but the field's own. novalidate keeps the
+        # server path (it_bounces_a_step_one_save_with_no_price_to_step_one and the price floor specs)
+        # the one that refuses, until per step validation (#368 item 1) lands.
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert re.search(r'<form[^>]*id="composer-form"[^>]*\bnovalidate\b', html)
+
     def it_renders_the_five_tabs_and_lands_on_step_one(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
@@ -677,6 +686,12 @@ def describe_admin_composer():
         assert "Submit for Review" not in html
         assert "Publish when it is ready." in html
         assert f'href="{reverse("classes:admin_classes")}">Cancel</a>' in html
+
+    def it_leaves_validation_to_the_server(admin_user, client, db):
+        # Same shared composer template, same reason as the teach spec of this name.
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_create")).content.decode()
+        assert re.search(r'<form[^>]*id="composer-form"[^>]*\bnovalidate\b', html)
 
     def it_keeps_the_admin_discount_code_urls(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)

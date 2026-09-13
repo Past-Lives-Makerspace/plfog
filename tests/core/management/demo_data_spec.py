@@ -74,6 +74,18 @@ def describe_demo_data_seed():
         for c in demo_classes:
             assert c.sessions.count() >= 1
 
+    def it_keeps_the_intro_class_seats_out_of_the_money_reports():
+        # The intro class has a real price (there is no free option any more), but a seeded seat
+        # must never read as revenue: the money reports select every registration with
+        # amount_paid_cents > 0 and have no demo exclusion yet.
+        call_command("demo_data")
+
+        intro = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}free-intro")
+        assert intro.price_cents >= 100
+        seats = intro.registrations.filter(status=Registration.Status.CONFIRMED)
+        assert seats.count() == 2  # the Chen seat and the guest
+        assert set(seats.values_list("amount_paid_cents", flat=True)) == {0}
+
     def it_does_not_inflate_member_count():
         from membership.models import Member
 
