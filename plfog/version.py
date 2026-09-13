@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.61.0"
+VERSION = "1.62.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -65,11 +65,24 @@ VERSION = "1.61.0"
 #
 # 1.61.0 is the per step validation below. Not the top bar confirm either; the deferral stands.
 #
+# 1.62.0 is the composer draft keeping below. Not the top bar confirm either; the deferral stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.62.0",
+        "date": "2026-09-13",
+        "title": "The class composer keeps what you typed",
+        "changes": [
+            "If the page reloads or you close the tab while writing a class, your next visit "
+            "offers back what you had typed, with the time it was kept and a button to throw it "
+            "away. It is kept in your own browser, so photos and files are not part of it.",
+            "Once a class saves, the kept copy is cleared, so you are never offered stale text.",
+        ],
+    },
     {
         "version": "1.61.0",
         "date": "2026-09-13",
