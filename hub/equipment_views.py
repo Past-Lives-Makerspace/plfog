@@ -72,7 +72,14 @@ def equipment_feature_required(view_func: Any) -> Any:
 def _equipment_queryset() -> EquipmentQuerySet:
     """The base queryset every equipment view reads — FKs prefetched, no per-row queries."""
     return Equipment.objects.select_related(
-        "guild", "space", "required_orientation", "required_orientation__guild", "required_orientation__equipment"
+        "guild",
+        "space",
+        "required_orientation",
+        "required_orientation__guild",
+        # The banner asks a guild-owned required orientation whether its signups go off
+        # site, which falls back to the guild's settings row — one extra read without this.
+        "required_orientation__guild__orientation_settings",
+        "required_orientation__equipment",
     ).prefetch_related("owned_orientation_types")
 
 
@@ -475,6 +482,11 @@ def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "required_orientation_paused": required_orientation_paused,
             "required_orientation_is_equipment_owned": (
                 orientation_type.is_equipment_owned if orientation_type is not None else False
+            ),
+            # The banner's CTA reads "See How to Sign Up" instead of "Book the Orientation"
+            # when the destination is going to hand the member an outside link (issue #368).
+            "required_orientation_is_external": (
+                bool(orientation_type.resolved_external_signup_url) if orientation_type is not None else False
             ),
             "orientation_sections": _equipment_orientation_sections(equipment, member),
             "can_manage": manages,

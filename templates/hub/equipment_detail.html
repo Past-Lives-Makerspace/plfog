@@ -59,7 +59,8 @@
   <p style="margin:0;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here. Orientation bookings for this tool are paused. Check back soon.</p>
   {% else %}
   <p style="margin:0 0 0.75rem;">You need the {{ equipment.required_orientation.name }} orientation before you can book time here.</p>
-  <a href="{{ orientation_url }}" class="pl-btn pl-btn--primary">Book the Orientation</a>
+  {# Signing up for this one happens on another site, so the CTA must not promise booking here. #}
+  <a href="{{ orientation_url }}" class="pl-btn pl-btn--primary">{% if required_orientation_is_external %}See How to Sign Up{% else %}Book the Orientation{% endif %}</a>
   {% endif %}
 </div>
 {% elif access_state == "needs_guild" %}

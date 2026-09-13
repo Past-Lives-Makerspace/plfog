@@ -627,7 +627,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     show_orientation = orientation is not None and orientation.is_enabled
     # Per-type booking state (issue #282): the tab renders one section per active
     # orientation type — a member can be oriented for one type while booking another.
-    orientation_types = list(guild.orientation_types.active()) if show_orientation else []
+    # select_related the settings row: OrientationType.resolved_external_signup_url falls
+    # back to the guild's link, so without it the section builder costs a query per type.
+    orientation_types = (
+        list(guild.orientation_types.active().select_related("guild__orientation_settings")) if show_orientation else []
+    )
     member_bookings = (
         list(member.orientation_bookings.filter(guild=guild).select_related("slot", "slot__orienter"))
         if member is not None and show_orientation
@@ -1564,11 +1568,16 @@ def orientation_book(request: HttpRequest, slot_pk: int) -> HttpResponse:
     from membership import orientations
     from membership.models import OrientationError, OrientationSlot
 
-    slot = get_object_or_404(OrientationSlot.objects.select_related("guild", "orientation_type"), pk=slot_pk)
+    slot = get_object_or_404(
+        OrientationSlot.objects.select_related("guild", "orientation_type", "guild__orientation_settings"), pk=slot_pk
+    )
     member = _get_member(request)
     if member is None:
         messages.error(request, "You need a member profile to book an orientation.")
         return _owner_redirect(slot.orientation_type)
+    # An off-site-signup refusal arrives as ExternalSignupRequiredError from
+    # OrientationSlot.ensure_bookable_for — the choke point every booking road shares —
+    # and the OrientationError handler below turns it into the member-facing sentence.
     try:
         if slot.orientation_type.is_paid:
             checkout_url = orientations.start_orientation_checkout(slot, member, note=request.POST.get("note", ""))
@@ -2199,7 +2208,9 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
     form = OrientationAddMemberForm(request.POST, slot_queryset=_manageable_slots(request))
     if form.is_valid():
         try:
-            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"])
+            # by_staff: seating someone on an orientation whose signups happen off site is
+            # exactly what this form is for — it is the manual completion path (issue #368).
+            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True)
             messages.success(request, f"Added {form.cleaned_data['member'].display_name} — they've been emailed.")
         except OrientationError as exc:
             messages.error(request, str(exc))

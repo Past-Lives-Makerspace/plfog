@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.63.0"
+VERSION = "1.64.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -78,11 +78,25 @@ VERSION = "1.63.0"
 #
 # 1.63.0 is the composer draft keeping below. Not the top bar confirm either; the deferral stands.
 #
+# 1.64.0 is the external orientation link below. Not the top bar confirm either; it still stands.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.64.0",
+        "date": "2026-09-13",
+        "title": "Guilds can send orientation signups to their own form",
+        "changes": [
+            "A guild lead can point orientation signups at an outside form, such as a Google "
+            "Form. Members then see that link where the booking times used to be, and it opens "
+            "in a new tab. Each orientation type can have its own link too.",
+            "Signups made on an outside form are not recorded here, so someone marks people "
+            "oriented by hand on the Orientations dashboard. The setting says so where you set it.",
+        ],
+    },
     {
         "version": "1.63.0",
         "date": "2026-09-13",

@@ -73,6 +73,11 @@ An inactive pinned type renders its state block only — never a slot list.
     {% elif not sec.type.is_active %}
     <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">This orientation is paused.</p>
 
+    {% elif sec.type.resolved_external_signup_url %}
+    {# External signup (issue #368): the outside link stands in for the whole booking UI. #}
+    <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Signing up for this orientation happens on another site.</p>
+    <a href="{{ sec.type.resolved_external_signup_url }}" class="hub-btn hub-btn--sm hub-btn--primary" target="_blank" rel="noopener">Sign up for this orientation</a>
+
     {% else %}
     {% if sec.type.is_paid %}
     <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">You pay when you book. If it can't happen, you get an automatic full refund.</p>

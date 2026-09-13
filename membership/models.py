@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, Self, cast
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
 from django.db import IntegrityError, models, transaction
@@ -8893,6 +8894,28 @@ class OrientationError(Exception):
     """Raised when an orientation booking can't be made or transitioned."""
 
 
+class ExternalSignupRequiredError(OrientationError):
+    """Raised when a member tries to book an orientation whose signups happen off site.
+
+    An :class:`OrientationError` so every existing ``except OrientationError`` on the
+    booking roads already renders it as friendly copy instead of a 500; its own class so
+    a caller that wants the link rather than the sentence can reach ``url``.
+    """
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+        super().__init__(f"Signing up for this orientation happens on another site: {url}")
+
+
+# Orientation signup links are admin-authored and member-clicked, so the scheme list is
+# pinned: only http and https. Django's own URLField would otherwise accept ftp and ftps,
+# and a scheme like javascript: or data: is refused outright by the URL grammar.
+validate_signup_url = URLValidator(
+    schemes=["http", "https"],
+    message="Enter a link that starts with http:// or https://.",
+)
+
+
 class GuildOrientationSettings(models.Model):
     """Per-guild orientation configuration plus the lead-editable thank-you email.
 
@@ -8921,6 +8944,17 @@ class GuildOrientationSettings(models.Model):
     is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
     closed_message = models.CharField(
         max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
+    )
+    external_signup_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        validators=[validate_signup_url],
+        help_text=(
+            "Send orientation signups to an outside form, e.g. a Google Form, instead of the built-in "
+            "booking flow. Members see this link where the booking times used to be. Leave blank to keep "
+            "booking here. An orientation type can set its own link to override this one."
+        ),
     )
     thankyou_email_enabled = models.BooleanField(
         default=True,
@@ -9066,6 +9100,17 @@ class OrientationType(models.Model):
         default=True,
         help_text="Offer this type to members. An inactive type keeps its history but takes no new bookings.",
     )
+    external_signup_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        validators=[validate_signup_url],
+        help_text=(
+            "Send signups for this orientation to an outside form instead of the built-in booking flow. "
+            "Overrides the guild's link when both are set, and is the only way to point an "
+            "equipment-owned orientation outside. Leave blank to follow the guild."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = OrientationTypeQuerySet.as_manager()
@@ -9117,6 +9162,36 @@ class OrientationType(models.Model):
     def owner_name(self) -> str:
         """The owner's display name, whichever kind it is."""
         return self.owner.name
+
+    @property
+    def resolved_external_signup_url(self) -> str:
+        """The outside signup link members follow for this type, or "" when booking stays in the app.
+
+        The type's own link wins over its guild's, so one orientation can point at an
+        outside form while the rest of the guild keeps the built-in booking flow. An
+        equipment-owned type has no guild settings row to fall back to, so its own link
+        is the only one it can have. Callers that render a list of types should
+        ``select_related("guild__orientation_settings")`` — this reads that cache.
+
+        The scheme is re-checked here, not only on the way in: a write path that skips
+        ``full_clean`` must not be able to put a ``javascript:`` value in an href.
+        """
+        url = self.external_signup_url
+        if not url and not self.is_equipment_owned:
+            try:
+                url = cast(Guild, self.guild).orientation_settings.external_signup_url
+            except GuildOrientationSettings.DoesNotExist:
+                return ""
+        if not url:
+            return ""
+        try:
+            validate_signup_url(url)
+        except ValidationError:
+            # Defence in depth: queryset .update() and raw SQL skip full_clean, and this
+            # value goes straight into a member-facing href. A stored bad scheme reads as
+            # "no link" and the built-in booking flow stays up, rather than rendering it.
+            return ""
+        return url
 
     def owner_page_path(self) -> str:
         """The relative hub path of the owner's page — for redirects and in-app URLs."""
@@ -9829,8 +9904,14 @@ class OrientationSlot(models.Model):
         settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
         return settings_obj is not None and settings_obj.is_accepting
 
-    def ensure_bookable_for(self, member: Member) -> None:
+    def ensure_bookable_for(self, member: Member, *, by_staff: bool = False) -> None:
         """Raise :class:`OrientationError` unless ``member`` may take a seat on this slot.
+
+        ``by_staff=True`` licenses exactly one thing: it lets a lead, orienter or admin
+        seat someone on an orientation whose signups happen off site (issue #368). That
+        is the whole manual completion story — an outside form cannot write back, so a
+        staffer adds the member to a time and ticks Completed. It relaxes nothing else;
+        every seat, duplicate and cancellation guard below still applies.
 
         The duplicate guard runs at the ``seat_holding()`` scope — a member with a
         live ``PENDING_PAYMENT`` checkout is caught here with a friendly error, never
@@ -9850,6 +9931,14 @@ class OrientationSlot(models.Model):
         # carries a ``seat_holding_count`` snapshot that would let a second book() on
         # the same object overbook the last seat. Drop the snapshot before the check.
         self.__dict__.pop("seat_holding_count", None)
+        # The member surface replaced this slot's booking UI with an outside link, so
+        # every member road into it — the slot button, an availability block, a custom
+        # time, the slash command — has to refuse, not just the one with a template
+        # check. A page opened before the lead flipped the switch still POSTs here.
+        if not by_staff:
+            external_url = self.orientation_type.resolved_external_signup_url
+            if external_url:
+                raise ExternalSignupRequiredError(external_url)
         if not self.is_bookable:
             if not self.is_cancelled and not self.has_started and self.is_full and self.pending_hold_count > 0:
                 raise OrientationError(
@@ -9866,12 +9955,14 @@ class OrientationSlot(models.Model):
         if member.active_orientation_for_type(self.orientation_type) is not None:
             raise OrientationError("You already have a pending booking for this orientation.")
 
-    def book(self, member: Member, *, note: str = "") -> OrientationBooking:
+    def book(self, member: Member, *, note: str = "", by_staff: bool = False) -> OrientationBooking:
         """Create a requested booking for ``member`` on this slot.
 
         Args:
             member: The member requesting the orientation.
             note: Optional free-text note the member adds.
+            by_staff: A staffer is seating this member by hand — see
+                :meth:`ensure_bookable_for` for the one guard that relaxes.
 
         Returns:
             The newly created (REQUESTED) OrientationBooking.
@@ -9880,7 +9971,7 @@ class OrientationSlot(models.Model):
             OrientationError: If the slot can't be booked, or the member already
                 completed or already has a live booking for this slot's orientation type.
         """
-        self.ensure_bookable_for(member)
+        self.ensure_bookable_for(member, by_staff=by_staff)
         return OrientationBooking.objects.create(
             slot=self,
             guild=self.guild,

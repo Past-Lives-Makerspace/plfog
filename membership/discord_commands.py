@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, datetime, timedelta
+from itertools import islice
 from math import ceil
 from typing import TYPE_CHECKING, cast
 
@@ -301,8 +302,19 @@ def _slot_disambiguation(
     Falls back to the custom-time hint when custom requests are allowed, or a guild-page
     pointer when neither posted times nor custom requests are available — never a dead end.
     """
+    # An orientation whose signups happen off site has no bookable time to offer here:
+    # ensure_bookable_for would refuse the slot: pk anyway, so printing it is a dead end.
+    # Drop those BEFORE the cap: filtering a capped page would answer "no posted times"
+    # to a guild whose next ten slots are all an external type's while internal ones
+    # wait behind them, which is a wrong answer rather than a short one.
+    bookable = (
+        guild.orientation_slots.bookable()
+        .select_related("orientation_type__guild__orientation_settings")
+        .order_by("starts_at")
+        .iterator()
+    )
     slots = list(
-        guild.orientation_slots.bookable().select_related("orientation_type").order_by("starts_at")[:_SLOT_LIST_CAP]
+        islice((slot for slot in bookable if not slot.orientation_type.resolved_external_signup_url), _SLOT_LIST_CAP)
     )
     if slots:
         lines = [
@@ -415,6 +427,15 @@ def _schedule_orientation(interaction: Interaction, member: Member | None) -> di
     if member.active_orientation_for(guild) is not None:
         return reply(
             f"You already have an orientation request in for **{guild.name}** — the lead will confirm it.\nSee {guild_url}",
+            ephemeral=True,
+        )
+    # Guild-coarse for the same reason (issue #368): a guild-wide external link sends every
+    # type outside, so booking one in here would land a request they take elsewhere. Below
+    # the two guards above, so someone already oriented or already waiting still hears that
+    # instead of being sent to a form they do not need.
+    if settings_obj.external_signup_url:
+        return reply(
+            f"**{guild.name}** takes orientation signups on their own form:\n{settings_obj.external_signup_url}",
             ephemeral=True,
         )
 

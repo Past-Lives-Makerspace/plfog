@@ -85,6 +85,11 @@ Member-facing orientation section on the guild page, grouped by orientation type
       {% endif %}
       {% endwith %}
 
+      {% elif sec.type.resolved_external_signup_url %}
+      {# External signup (issue #368): the outside link stands in for the whole booking UI. #}
+      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">Signing up for this orientation happens on another site.</p>
+      <a href="{{ sec.type.resolved_external_signup_url }}" class="hub-btn hub-btn--sm hub-btn--primary" target="_blank" rel="noopener">Sign up for this orientation</a>
+
       {% else %}
       {% if sec.type.is_paid %}
       <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">You pay when you book. If the guild can't make it work, you get an automatic full refund.</p>
@@ -186,7 +191,8 @@ Member-facing orientation section on the guild page, grouped by orientation type
     </div>
     {% endfor %}
 
-    {% if orientation.allow_custom_requests and not orientation_all_done %}
+    {# has_internal_types is false once every remaining orientation signs up elsewhere, guild-wide link or per type. #}
+    {% if orientation.allow_custom_requests and not orientation_all_done and custom_request_form.has_internal_types %}
     {% if user.is_authenticated %}
     <div x-data="{ showCustom: false }" style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--hub-border);" data-help-key="orientation.request-custom-time">
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-show="!showCustom" @click="showCustom = true">

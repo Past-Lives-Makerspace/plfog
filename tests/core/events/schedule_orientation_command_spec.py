@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 import httpx
 import pytest
 import respx
+from django.utils import timezone
 
 from core.events.discord_commands import dispatch
 from membership.discord_commands import SCHEDULE_ORIENTATION, _schedule_orientation
@@ -90,6 +92,85 @@ def describe_gates():
         member = linked_member()
         guild = _guild(is_closed=True)
         assert "isn't taking orientation requests" in _content(member, guild=guild)
+
+    def it_hands_back_the_guilds_own_signup_form_when_one_is_set(linked_member):
+        # Issue #368: a guild-wide external link sends every type outside, so booking
+        # one in here would land a request they have said they take somewhere else.
+        member = linked_member()
+        guild = _guild(external_signup_url="https://forms.gle/blacksmithing")
+        content = _content(member, guild=guild)
+        assert "takes orientation signups on their own form" in content
+        assert "https://forms.gle/blacksmithing" in content
+        assert OrientationBooking.objects.count() == 0
+
+    def it_still_says_already_oriented_at_a_guild_with_a_link(linked_member):
+        # The external reply sits BELOW these two guards: someone who is already done, or
+        # already waiting, should not be sent off to a form they have no use for.
+        member = linked_member()
+        guild = _guild(external_signup_url="https://forms.gle/blacksmithing")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        OrientationBookingFactory(slot=slot, member=member, guild=guild, is_completed=True)
+        content = _content(member, guild=guild)
+        assert "You're already oriented" in content
+        assert "https://forms.gle/blacksmithing" not in content
+
+    def it_refuses_a_posted_slot_whose_type_has_its_own_link(linked_member):
+        # Road three (issue #368). No guild-wide link, so the short circuit above does not
+        # fire: the refusal comes from the shared choke point, ensure_bookable_for.
+        member = linked_member()
+        guild = _guild()
+        orientation_type = OrientationTypeFactory(guild=guild, name="Lathe", external_signup_url="https://forms.gle/l")
+        slot = OrientationSlotFactory(guild=guild, orientation_type=orientation_type, enabled_settings=False)
+        content = _content(member, guild=guild, slot=str(slot.pk))
+        assert OrientationBooking.objects.count() == 0
+        assert "Orientation requested" not in content
+        assert "happens on another site" in content
+
+    def it_never_lists_an_external_types_times(linked_member):
+        member = linked_member()
+        guild = _guild()
+        external = OrientationTypeFactory(guild=guild, name="Lathe", external_signup_url="https://forms.gle/l")
+        internal = OrientationTypeFactory(guild=guild, name="Shop Basics", sort_order=1)
+        hidden = OrientationSlotFactory(guild=guild, orientation_type=external, enabled_settings=False)
+        shown = OrientationSlotFactory(guild=guild, orientation_type=internal, enabled_settings=False)
+        content = _content(member, guild=guild)  # no options → the slot list
+        assert f"`{shown.pk}`" in content
+        assert f"`{hidden.pk}`" not in content
+
+    def it_finds_an_internal_time_behind_a_screenful_of_external_ones(linked_member):
+        # The cap is applied after the external types are dropped. Filtering a capped page
+        # would answer "no posted times" to a guild whose next ten slots all sign up off
+        # site while an internal one waits behind them, which is wrong, not merely short.
+        member = linked_member()
+        guild = _guild()
+        external = OrientationTypeFactory(guild=guild, name="Lathe", external_signup_url="https://forms.gle/l")
+        internal = OrientationTypeFactory(guild=guild, name="Shop Basics", sort_order=1)
+        start = timezone.now() + timedelta(days=1)
+        for offset in range(12):
+            OrientationSlotFactory(
+                guild=guild,
+                orientation_type=external,
+                enabled_settings=False,
+                starts_at=start + timedelta(hours=offset),
+            )
+        behind = OrientationSlotFactory(
+            guild=guild,
+            orientation_type=internal,
+            enabled_settings=False,
+            starts_at=start + timedelta(hours=99),
+        )
+        content = _content(member, guild=guild)
+        assert f"`{behind.pk}`" in content
+        assert "No posted times right now" not in content
+
+    def it_still_says_a_request_is_already_in_at_a_guild_with_a_link(linked_member):
+        member = linked_member()
+        guild = _guild(external_signup_url="https://forms.gle/blacksmithing")
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        OrientationBookingFactory(slot=slot, member=member, guild=guild, status=OrientationBooking.Status.REQUESTED)
+        content = _content(member, guild=guild)
+        assert "You already have an orientation request in" in content
+        assert "https://forms.gle/blacksmithing" not in content
 
     def it_reports_when_the_member_is_already_oriented(linked_member):
         member = linked_member()
