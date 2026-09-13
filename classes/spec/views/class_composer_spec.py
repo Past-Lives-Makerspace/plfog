@@ -313,10 +313,11 @@ def describe_teach_composer_get():
         assert 'name="price_cents"' not in step_three
 
     def it_leaves_validation_to_the_server(instructor_fixture, client):
-        # Every step's fields are in the DOM and a hidden step cannot be focused, so a browser side
-        # required check refuses silently from any step but the field's own. novalidate keeps the
-        # server path (it_bounces_a_step_one_save_with_no_price_to_step_one and the price floor specs)
-        # the one that refuses, until per step validation (#368 item 1) lands.
+        # Every step's fields are in the DOM and a hidden step cannot be focused, so the browser's
+        # own required check refuses silently from any step but the field's own. novalidate keeps
+        # the server path (it_bounces_a_step_one_save_with_no_price_to_step_one and the price floor
+        # specs) the one that refuses; the per step check (composer_step_validation_spec.py) reads
+        # the same rendered attributes and points at the field, which the browser's bubble cannot.
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
         assert re.search(r'<form[^>]*id="composer-form"[^>]*\bnovalidate\b', html)
@@ -435,7 +436,7 @@ def describe_teach_composer_get():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "Finish the checklist above first." not in html
-        assert "open-confirm', 'submit-class')\">Submit for Review</button>" in html
+        assert "confirmSubmit('submit-class')\">Submit for Review</button>" in html
 
     def it_relabels_submit_on_a_bounced_class(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, ready=True)
@@ -682,7 +683,7 @@ def describe_admin_composer():
         assert 'name="is_private"' in html and 'name="private_for_name"' in html
         assert 'name="is_free"' not in html
         assert "Publish This Class?" in html
-        assert "open-confirm', 'submit-class')\">Publish</button>" in html
+        assert "confirmSubmit('submit-class')\">Publish</button>" in html
         assert "Submit for Review" not in html
         assert "Publish when it is ready." in html
         assert f'href="{reverse("classes:admin_classes")}">Cancel</a>' in html

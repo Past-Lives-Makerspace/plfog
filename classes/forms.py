@@ -66,6 +66,22 @@ def _validate_youtube_url(url: str) -> str:
     return cleaned
 
 
+def _video_url_widget() -> forms.TextInput:
+    """The composer's YouTube link as a plain text control, never ``<input type="url">``.
+
+    ``forms.URLField`` accepts a link typed without a scheme and normalises it
+    (``assume_scheme="https"``), and :func:`_validate_youtube_url` then takes
+    ``youtube.com/watch?v=…`` exactly as it is handed over. Chromium's ``type="url"``
+    refuses that same string in the browser. The composer's per step check reads the
+    rendered control as its rule book (``static/js/composer_validation.js``), so a URL
+    input would make Next block input the server accepts and normalises: the rendered
+    DOM has to stay the single rule book. ``inputmode="url"`` keeps the URL keyboard on
+    a phone without the constraint. A fresh widget per call, so two form classes never
+    share one instance.
+    """
+    return forms.TextInput(attrs={"inputmode": "url"})
+
+
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
@@ -387,6 +403,7 @@ class ClassOfferingForm(
             "image",
             "video_url",
         ]
+        widgets = {"video_url": _video_url_widget()}
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -446,6 +463,7 @@ class TeachClassOfferingForm(
             "image",
             "video_url",
         ]
+        widgets = {"video_url": _video_url_widget()}
 
     def __init__(self, *args, teaching_member: "Member | None" = None, **kwargs) -> None:
         self.teaching_member = teaching_member
