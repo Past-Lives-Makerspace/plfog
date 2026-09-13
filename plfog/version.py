@@ -79,7 +79,7 @@ CHANGELOG: list[dict[str, str | list[str]]] = [
             "that field, and says what is missing right beside it. The message clears as soon as "
             "you fill it in. Back and the step tabs are never blocked.",
             "Saving a draft, sending a class for review, or publishing it now checks every step "
-            "first and takes you to the first gap instead of quietly doing nothing.",
+            "first and takes you to the first gap before anything is sent.",
         ],
     },
     {
