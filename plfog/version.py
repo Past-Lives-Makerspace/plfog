@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION = "1.64.0"
+VERSION = "1.65.0"
 
 # Neither 1.49.0 nor 1.50.0 carries an entry, and each gap has its own reason. Read this before
 # picking a version: the same slot has now been claimed twice by accident, which cost the
@@ -80,11 +80,27 @@ VERSION = "1.64.0"
 #
 # 1.64.0 is the external orientation link below. Not the top bar confirm either; it still stands.
 #
+# 1.65.0 is the video providers below, and it closes the class composer round. The top bar
+# confirm from 1.54.1 is STILL waiting on a real iPhone; it outlived eleven releases. Whoever
+# takes the next number, that deferral is yours.
+#
 # 1.51.0 is that announcement, finally: the slideshow entry below, re-stamped, now describing the
 # What's On list and the per-guild slides that replaced the first cut. Do not invent entries for
 # 1.49.0 or 1.50.0 to fill the gaps — a VERSION with no matching entry announces nothing, which
 # is what both of those releases wanted.
 CHANGELOG: list[dict[str, str | list[str]]] = [
+    {
+        "version": "1.65.0",
+        "date": "2026-09-13",
+        "title": "Add an Instagram or Facebook video to your class",
+        "changes": [
+            "A class video no longer has to be from YouTube. Instagram and Facebook links are "
+            "accepted too, on class pages and on guild and Help FAQs.",
+            "A YouTube video still plays right on the class page. An Instagram or Facebook link "
+            "shows a card that opens the video on their site, so their tracking scripts stay off "
+            "our pages.",
+        ],
+    },
     {
         "version": "1.64.0",
         "date": "2026-09-13",
