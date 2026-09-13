@@ -87,8 +87,8 @@ def describe_google_analytics_coverage():
         response = client.get("/classes/")
 
         body = response.content.decode()
-        # Counted on the GA sender itself, not on "htmx:afterSettle" — hub/base.html has its
-        # own unrelated afterSettle listener for Alpine. Two senders here would fire page_view
-        # twice on every hx-boost navigation.
+        # Counted on the GA sender itself, not on "htmx:afterSettle", which other scripts
+        # listen for too. Two senders here would fire page_view twice on every hx-boost
+        # navigation.
         assert body.count("gtag('event', 'page_view'") == 1
         assert body.count("function trackPageView()") == 1

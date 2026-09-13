@@ -68,6 +68,34 @@
             };
         })();
     </script>
+    {# Read by hub_boot.js for the X-CSRFToken header on every htmx request. Django masks the token per render, so head-support swaps this tag on each boosted arrival and the header always carries a fresh one. #}
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    {% comment %}
+        htmx, Alpine and everything that binds once live here, deferred, and nowhere in <body>.
+        hx-boost swaps <body>, and head-support keeps every <head> tag the next page also
+        carries, so a boosted navigation never re-runs these: one htmx (one history handler),
+        one Alpine (one component registry), document listeners bound once. Every script that
+        registers an Alpine.data component is here too, even a single page's (card_focus,
+        space_map): Alpine initialises a swapped page a microtask after htmx inserts it, before
+        any script the page itself loads could arrive, so a component has to be registered
+        before the navigation starts. Order matters: head-support needs htmx, and every
+        registration and the boot wiring must run before alpine.min.js starts Alpine.
+        tests/hub/base_scripts_spec.py pins this list. Issue #378.
+    {% endcomment %}
+    <script defer src="{% static 'js/htmx.min.js' %}"></script>
+    <script defer src="{% static 'js/htmx-ext-head-support.js' %}"></script>
+    <script defer src="{% static 'js/hub_boot.js' %}"></script>
+    <script defer src="{% static 'js/hero_placement.js' %}"></script>
+    <script defer src="{% static 'js/session_calendar.js' %}"></script>
+    <script defer src="{% static 'js/card_focus.js' %}"></script>
+    <script defer src="{% static 'js/space_map.js' %}"></script>
+    <script defer src="{% static 'js/pl_help.js' %}"></script>
+    <script defer src="{% static 'js/alpine.min.js' %}"></script>
+    {% comment %}Biometric sign in for the native app. This document is not a child of
+    base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices
+    settings card both live on hub pages. The file no-ops in a browser and in an app build
+    without the plugin, and guards against running twice.{% endcomment %}
+    <script defer src="{% static 'js/biometric-auth.js' %}"></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
@@ -617,41 +645,6 @@
 
     {% include "includes/changelog_modal.html" %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
-    <script src="{% static 'js/htmx.min.js' %}"></script>
-    {% comment %}
-        head-support: makes hx-boost merge <head> contents (per-page styles, link tags) — without it,
-        page-specific <link>/<style> in extra_head silently disappear on boosted navigations.
-    {% endcomment %}
-    <script src="{% static 'js/htmx-ext-head-support.js' %}"></script>
-    <script>
-        document.body.addEventListener('htmx:configRequest', function(event) {
-            event.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
-        });
-
-        // When hx-boost follows a redirect to the login page, do a full page
-        // load instead of a partial swap — the login page uses different CSS
-        // and layout so a swap would render it completely unstyled.
-        document.addEventListener('htmx:beforeSwap', function(event) {
-            var url = event.detail.xhr && event.detail.xhr.responseURL;
-            if (url && url.includes('/accounts/login/')) {
-                event.detail.shouldSwap = false;
-                window.location.href = url;
-            }
-        });
-    </script>
-    <script defer src="{% static 'js/alpine.min.js' %}"></script>
-    <script>
-        document.addEventListener('alpine:init', () => {
-            Alpine.store('theme', { light: window.__plTheme === 'light' });
-        });
-    </script>
-    <script>
-        document.addEventListener('htmx:afterSettle', function(event) {
-            if (window.Alpine) {
-                Alpine.initTree(event.detail.elt);
-            }
-        });
-    </script>
     {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
     {# `showToast` key reaches the toast script (components/toast.html) as `show-toast`. #}
     <script>
@@ -714,18 +707,13 @@
             };
         }
     </script>
+    {% comment %}
+        Scripts below this line sit in <body>, so hx-boost re-runs them on every boosted
+        navigation (htmx duplicates a swapped page's script tags and the browser executes the
+        copies). Anything here must be safe to run again: a plain function definition, or a
+        guarded IIFE. Scripts that must run exactly once belong in <head> above.
+    {% endcomment %}
     {% block extra_js %}{% endblock %}
-    <script src="{% static 'js/hero_placement.js' %}?v=1.1"></script>
-    {% comment %}Lifts every .pl-help bubble out of overflow clipping ancestors (table wraps,
-    scrolling panels) on desktop by positioning it against the viewport. Delegated listeners
-    only, so no defer and nothing to re-run under hx-boost.{% endcomment %}
-    <script src="{% static 'js/pl_help.js' %}"></script>
-    <script src="{% static 'js/session_calendar.js' %}"></script>
-    {% comment %}Biometric sign in for the native app. This document is not a child of
-    base.html, so the hub needs its own copy: the enrollment offer and the Signed In Devices
-    settings card both live on hub pages. The file no-ops in a browser, no-ops in an app
-    build without the plugin, and refuses to run twice under hx-boost.{% endcomment %}
-    <script src="{% static 'js/biometric-auth.js' %}" defer></script>
     {% block tour_runtime %}{% include "hub/partials/_tour.html" %}{% endblock %}
 </body>
 </html>

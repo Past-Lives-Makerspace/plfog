@@ -487,7 +487,13 @@ Quill, the eager notes Quills, and the savestate pill's full §5.2 error contrac
 {% endif %}
 
 <script>
-document.addEventListener('alpine:init', () => {
+// Registered on whichever side of alpine:init this script lands: before Alpine starts on a
+// hard load, after it on a boosted arrival (hub/base.html loads Alpine once, from <head>,
+// so that event never fires again and a plain alpine:init listener would leave the
+// workspace dead). Inline body scripts run as htmx inserts the page, before Alpine
+// initialises it, so registering here is early enough.
+(function () {
+function definePlMeetingWorkspace() {
   Alpine.data('plMeetingWorkspace', () => ({
     openItem: null,
     deleteConfirm: { open: false, pk: null, url: '', actionCount: 0 },
@@ -737,6 +743,12 @@ document.addEventListener('alpine:init', () => {
       this.save(this.meetingSaveUrl, field, html, this.$el);
     },
   }));
-});
+}
+if (window.Alpine && window.Alpine.data) {
+  definePlMeetingWorkspace();
+} else {
+  document.addEventListener('alpine:init', definePlMeetingWorkspace);
+}
+})();
 </script>
 {% endblock %}

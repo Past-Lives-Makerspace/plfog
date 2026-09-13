@@ -323,7 +323,14 @@
     }
 
     window.plMap = plMap;
-    document.addEventListener('alpine:init', function () {
+    // On a hard load this runs before Alpine starts and alpine:init registers it; on a
+    // boosted arrival Alpine is already running and that event never comes again.
+    function registerComponent() {
         window.Alpine.data('plMap', plMap);
-    });
+    }
+    if (window.Alpine) {
+        registerComponent();
+    } else {
+        document.addEventListener('alpine:init', registerComponent);
+    }
 })();
