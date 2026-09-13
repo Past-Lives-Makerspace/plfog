@@ -407,6 +407,13 @@ def _schedule_orientation(interaction: Interaction, member: Member | None) -> di
     settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
     if settings_obj is None or not settings_obj.is_accepting:
         return reply(f"**{guild.name}** isn't taking orientation requests right now.\n{guild_url}", ephemeral=True)
+    # Guild-coarse like the two guards below (issue #282): a guild-wide external link sends
+    # every type outside, so booking one in here would land a request they take elsewhere.
+    if settings_obj.external_signup_url:
+        return reply(
+            f"**{guild.name}** takes orientation signups on their own form:\n{settings_obj.external_signup_url}",
+            ephemeral=True,
+        )
     # Both guards stay deliberately guild-coarse (issue #282): the slash command is the
     # simple surface. Booking a second orientation TYPE at a guild you're already
     # oriented for (or booked at) happens on the guild page, which is per-type.

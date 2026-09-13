@@ -8893,6 +8893,15 @@ class OrientationError(Exception):
     """Raised when an orientation booking can't be made or transitioned."""
 
 
+# Orientation signup links are admin-authored and member-clicked, so the scheme list is
+# pinned: only http and https. Django's own URLField would otherwise accept ftp and ftps,
+# and a scheme like javascript: or data: is refused outright by the URL grammar.
+validate_signup_url = URLValidator(
+    schemes=["http", "https"],
+    message="Enter a link that starts with http:// or https://.",
+)
+
+
 class GuildOrientationSettings(models.Model):
     """Per-guild orientation configuration plus the lead-editable thank-you email.
 
@@ -8921,6 +8930,17 @@ class GuildOrientationSettings(models.Model):
     is_closed = models.BooleanField(default=False, help_text="Temporarily stop taking orientation bookings.")
     closed_message = models.CharField(
         max_length=300, blank=True, default="", help_text="Shown while closed, e.g. 'On vacation till Sept 8'."
+    )
+    external_signup_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        validators=[validate_signup_url],
+        help_text=(
+            "Send orientation signups to an outside form, e.g. a Google Form, instead of the built-in "
+            "booking flow. Members see this link where the booking times used to be. Leave blank to keep "
+            "booking here. An orientation type can set its own link to override this one."
+        ),
     )
     thankyou_email_enabled = models.BooleanField(
         default=True,
@@ -9066,6 +9086,17 @@ class OrientationType(models.Model):
         default=True,
         help_text="Offer this type to members. An inactive type keeps its history but takes no new bookings.",
     )
+    external_signup_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        validators=[validate_signup_url],
+        help_text=(
+            "Send signups for this orientation to an outside form instead of the built-in booking flow. "
+            "Overrides the guild's link when both are set, and is the only way to point an "
+            "equipment-owned orientation outside. Leave blank to follow the guild."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = OrientationTypeQuerySet.as_manager()
@@ -9117,6 +9148,26 @@ class OrientationType(models.Model):
     def owner_name(self) -> str:
         """The owner's display name, whichever kind it is."""
         return self.owner.name
+
+    @property
+    def resolved_external_signup_url(self) -> str:
+        """The outside signup link members follow for this type, or "" when booking stays in the app.
+
+        The type's own link wins over its guild's, so one orientation can point at an
+        outside form while the rest of the guild keeps the built-in booking flow. An
+        equipment-owned type has no guild settings row to fall back to, so its own link
+        is the only one it can have. Callers that render a list of types should
+        ``select_related("guild__orientation_settings")`` — this reads that cache.
+        """
+        if self.external_signup_url:
+            return self.external_signup_url
+        if self.is_equipment_owned:
+            return ""
+        try:
+            settings_obj = cast(Guild, self.guild).orientation_settings
+        except GuildOrientationSettings.DoesNotExist:
+            return ""
+        return settings_obj.external_signup_url
 
     def owner_page_path(self) -> str:
         """The relative hub path of the owner's page — for redirects and in-app URLs."""

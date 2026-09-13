@@ -69,6 +69,7 @@ from membership.models import (
     WikiPageFact,
     WikiWantedPage,
     normalize_wiki_ask,
+    validate_signup_url,
 )
 
 
@@ -1775,6 +1776,37 @@ class MeetingAttachmentForm(forms.ModelForm):
         return cleaned
 
 
+# The consequence of pointing signups outside, stated on the field the lead edits rather
+# than only in the ticket. Both editors (guild settings, and each orientation type on the
+# guild and equipment tabs) render it as the field hint, so it cannot drift between them.
+EXTERNAL_SIGNUP_URL_WARNING = (
+    "Signups that go through this link are not recorded here, so finishing one does not mark "
+    "anyone oriented. Someone has to mark people oriented by hand on the Orientations dashboard."
+)
+GUILD_EXTERNAL_SIGNUP_HINT = (
+    "Send signups to an outside form, e.g. a Google Form. Members see this link where the "
+    f"orientation times used to be. Leave blank to keep booking here. {EXTERNAL_SIGNUP_URL_WARNING}"
+)
+TYPE_EXTERNAL_SIGNUP_HINT = (
+    "Sends signups for this orientation only to an outside form. Overrides the guild's link. "
+    f"Leave blank to follow the guild. {EXTERNAL_SIGNUP_URL_WARNING}"
+)
+
+
+def clean_external_signup_url(raw: str) -> str:
+    """Trim and scheme-check an orientation signup link; blank stays blank.
+
+    ``forms.URLField`` accepts ftp and ftps out of the box (its validator's default
+    scheme list), so without this the only thing catching ``ftp://…`` would be the
+    model's validator during post-clean. Running it here puts the failure on the field
+    with the message the lead should read.
+    """
+    url = (raw or "").strip()
+    if url:
+        validate_signup_url(url)
+    return url
+
+
 class GuildOrientationSettingsForm(forms.ModelForm):
     """Edit a guild's guild-wide orientation switches.
 
@@ -1791,10 +1823,12 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "info",
             "is_closed",
             "closed_message",
+            "external_signup_url",
         ]
         widgets = {
             "info": forms.Textarea(attrs={"rows": 4}),
             "closed_message": forms.TextInput(attrs={"placeholder": "On vacation till Sept 8"}),
+            "external_signup_url": forms.URLInput(attrs={"placeholder": "https://forms.gle/your-form"}),
         }
         labels = {
             "is_enabled": "Offer orientation booking on this guild's page",
@@ -1802,7 +1836,12 @@ class GuildOrientationSettingsForm(forms.ModelForm):
             "info": "Orientation info",
             "is_closed": "Temporarily closed for orientations",
             "closed_message": "Closed message",
+            "external_signup_url": "External signup link",
         }
+        help_texts = {"external_signup_url": GUILD_EXTERNAL_SIGNUP_HINT}
+
+    def clean_external_signup_url(self) -> str:
+        return clean_external_signup_url(self.cleaned_data["external_signup_url"])
 
 
 class OrientationTypeForm(forms.ModelForm):
@@ -1832,10 +1871,12 @@ class OrientationTypeForm(forms.ModelForm):
             "default_location",
             "sort_order",
             "is_active",
+            "external_signup_url",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"placeholder": "Shop Basics"}),
             "description": forms.Textarea(attrs={"rows": 2}),
+            "external_signup_url": forms.URLInput(attrs={"placeholder": "https://forms.gle/your-form"}),
         }
         labels = {
             "name": "Name",
@@ -1845,12 +1886,17 @@ class OrientationTypeForm(forms.ModelForm):
             "default_location": "Location",
             "sort_order": "Sort order",
             "is_active": "Active",
+            "external_signup_url": "External signup link",
         }
+        help_texts = {"external_signup_url": TYPE_EXTERNAL_SIGNUP_HINT}
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if self.instance.pk and self.instance.price_cents:
             self.fields["price"].initial = Decimal(self.instance.price_cents) / 100
+
+    def clean_external_signup_url(self) -> str:
+        return clean_external_signup_url(self.cleaned_data["external_signup_url"])
 
     def clean_price(self) -> int:
         """Normalize the dollar input to cents — blank means free."""
@@ -2492,7 +2538,10 @@ class OrientationCustomRequestForm(forms.Form):
     """A member proposing their own orientation time when no posted slot works.
 
     ``orientation_type`` picks which of the guild's orientations they want — its
-    duration and price size the one-off slot and the checkout (issue #282).
+    duration and price size the one-off slot and the checkout (issue #282). An
+    orientation whose signups go to an outside form is not in the picker at all
+    (issue #368): proposing a time in here would land a request the guild has
+    already said it takes somewhere else.
     """
 
     orientation_type = forms.ModelChoiceField(
@@ -2513,9 +2562,14 @@ class OrientationCustomRequestForm(forms.Form):
         super().__init__(*args, **kwargs)
         if guild is not None:
             type_field = cast(forms.ModelChoiceField, self.fields["orientation_type"])
-            type_field.queryset = OrientationType.objects.filter(guild=guild).active()
+            # The resolver is the one source of truth for "does this type go outside",
+            # so the filter runs in Python over one select_related read rather than
+            # restating guild-overrides-type as a second query.
+            active = OrientationType.objects.filter(guild=guild).active().select_related("guild__orientation_settings")
+            internal_pks = [t.pk for t in active if not t.resolved_external_signup_url]
+            type_field.queryset = OrientationType.objects.filter(pk__in=internal_pks)
             type_field.error_messages["invalid_choice"] = "Pick one of this guild's orientations."
-            first_type = guild.first_active_orientation_type()
+            first_type = type_field.queryset.first()
             if first_type is not None:
                 type_field.initial = first_type.pk
 

@@ -969,3 +969,80 @@ def describe_departed_manager_gate():
         slot = OrientationSlotFactory(equipment_owned=True)
         assert slot.orienter is None
         _assert_bookable(slot, True)
+
+
+def describe_OrientationType_resolved_external_signup_url():
+    """Issue #368 item 7: the type's outside signup link wins over its guild's."""
+
+    def it_is_blank_when_nothing_points_outside():
+        settings_obj = GuildOrientationSettingsFactory()
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        assert orientation_type.resolved_external_signup_url == ""
+
+    def it_falls_back_to_the_guilds_link():
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url="https://forms.gle/guild")
+        orientation_type = OrientationTypeFactory(guild=settings_obj.guild)
+        assert orientation_type.resolved_external_signup_url == "https://forms.gle/guild"
+
+    def it_uses_the_types_own_link_when_the_guild_has_none():
+        settings_obj = GuildOrientationSettingsFactory()
+        orientation_type = OrientationTypeFactory(
+            guild=settings_obj.guild, external_signup_url="https://forms.gle/lathe"
+        )
+        assert orientation_type.resolved_external_signup_url == "https://forms.gle/lathe"
+
+    def it_prefers_the_type_over_the_guild_when_both_are_set():
+        settings_obj = GuildOrientationSettingsFactory(external_signup_url="https://forms.gle/guild")
+        orientation_type = OrientationTypeFactory(
+            guild=settings_obj.guild, external_signup_url="https://forms.gle/lathe"
+        )
+        assert orientation_type.resolved_external_signup_url == "https://forms.gle/lathe"
+
+    def it_is_blank_for_a_guild_that_never_configured_orientations():
+        # No GuildOrientationSettings row at all — the reverse one-to-one raises, and
+        # the resolver answers "" rather than blowing up a member-facing page.
+        orientation_type = OrientationTypeFactory(guild=GuildFactory())
+        assert orientation_type.resolved_external_signup_url == ""
+
+    def describe_an_equipment_owned_type():
+        def it_uses_its_own_link():
+            orientation_type = OrientationTypeFactory(
+                equipment_owned=True, external_signup_url="https://forms.gle/planer"
+            )
+            assert orientation_type.resolved_external_signup_url == "https://forms.gle/planer"
+
+        def it_has_no_guild_to_fall_back_to():
+            # The whole reason the field lives on the type as well: an equipment-owned
+            # type has guild=None, so a guild-level link could never cover it.
+            GuildOrientationSettingsFactory(external_signup_url="https://forms.gle/guild")
+            orientation_type = OrientationTypeFactory(equipment_owned=True)
+            assert orientation_type.resolved_external_signup_url == ""
+
+
+def describe_external_signup_url_scheme_validation():
+    """http and https only, on BOTH models — a member clicks whatever a lead pastes."""
+
+    @pytest.fixture
+    def rows():
+        settings_obj = GuildOrientationSettingsFactory()
+        return settings_obj, OrientationTypeFactory(guild=settings_obj.guild)
+
+    @pytest.mark.parametrize("url", ["https://forms.gle/abc", "http://example.com/signup", ""])
+    def it_accepts_a_web_link_or_blank(rows, url):
+        settings_obj, orientation_type = rows
+        for row in (settings_obj, orientation_type):
+            row.external_signup_url = url
+            row.full_clean()  # no raise
+
+    @pytest.mark.parametrize(
+        "url", ["javascript:alert(1)", "javascript://%0aalert(1)", "data:text/html;base64,AAAA", "ftp://example.com"]
+    )
+    def it_refuses_any_other_scheme(rows, url):
+        from django.core.exceptions import ValidationError
+
+        settings_obj, orientation_type = rows
+        for row in (settings_obj, orientation_type):
+            row.external_signup_url = url
+            with pytest.raises(ValidationError) as exc:
+                row.full_clean()
+            assert "external_signup_url" in exc.value.error_dict

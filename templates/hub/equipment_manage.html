@@ -221,6 +221,7 @@
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.default_location %}</div>
             <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=row.sort_order %}</div>
           </div>
+          {% include "components/form_field.html" with field=row.external_signup_url %}
           {% include "components/form_field.html" with field=row.is_active %}
           {% if row.instance.pk %}
             {# Real delete button: flips the hidden DELETE field and saves the whole form so no work is lost. #}
@@ -253,6 +254,7 @@
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.default_location %}</div>
               <div class="pl-equip-hours-row__field">{% include "components/form_field.html" with field=empty_row.sort_order %}</div>
             </div>
+            {% include "components/form_field.html" with field=empty_row.external_signup_url %}
             {% include "components/form_field.html" with field=empty_row.is_active %}
             <div style="display:none;">{{ empty_row.DELETE }}</div>
             <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" style="margin-top:0.75rem;" onclick="this.closest('.hub-card').remove();">Remove</button>

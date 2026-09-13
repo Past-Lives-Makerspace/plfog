@@ -627,7 +627,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     show_orientation = orientation is not None and orientation.is_enabled
     # Per-type booking state (issue #282): the tab renders one section per active
     # orientation type — a member can be oriented for one type while booking another.
-    orientation_types = list(guild.orientation_types.active()) if show_orientation else []
+    # select_related the settings row: OrientationType.resolved_external_signup_url falls
+    # back to the guild's link, so without it the section builder costs a query per type.
+    orientation_types = (
+        list(guild.orientation_types.active().select_related("guild__orientation_settings")) if show_orientation else []
+    )
     member_bookings = (
         list(member.orientation_bookings.filter(guild=guild).select_related("slot", "slot__orienter"))
         if member is not None and show_orientation

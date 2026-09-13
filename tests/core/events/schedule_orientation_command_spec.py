@@ -91,6 +91,16 @@ def describe_gates():
         guild = _guild(is_closed=True)
         assert "isn't taking orientation requests" in _content(member, guild=guild)
 
+    def it_hands_back_the_guilds_own_signup_form_when_one_is_set(linked_member):
+        # Issue #368: a guild-wide external link sends every type outside, so booking
+        # one in here would land a request they have said they take somewhere else.
+        member = linked_member()
+        guild = _guild(external_signup_url="https://forms.gle/blacksmithing")
+        content = _content(member, guild=guild)
+        assert "takes orientation signups on their own form" in content
+        assert "https://forms.gle/blacksmithing" in content
+        assert OrientationBooking.objects.count() == 0
+
     def it_reports_when_the_member_is_already_oriented(linked_member):
         member = linked_member()
         guild = _guild()
