@@ -249,7 +249,14 @@ def describe_release_published():
     # carries nothing member-facing legitimately has none (see CLAUDE.md) - which turned this
     # block red on main the moment a test-only PR bumped VERSION. Pinning to the newest entry
     # keeps the subject under test the fan out, and never goes stale.
-    announced_version = str(CHANGELOG[0]["version"])
+    #
+    # The newest entry that CARRIES a version, specifically. CHANGELOG[0] is a changelog.d/
+    # fragment as soon as anyone merges a member-facing one, and a fragment has no version key
+    # at all (plfog.changelog says why), so reading CHANGELOG[0]["version"] here would raise a
+    # KeyError at COLLECTION time and take this whole module down - on someone else's PR, for a
+    # reason having nothing to do with their change. --release-version reaches swept history,
+    # which is exactly the set searched below.
+    announced_version = str(next(e["version"] for e in CHANGELOG if "version" in e))
 
     def it_announces_to_everyone_with_a_login(linked_member):
         member = linked_member()

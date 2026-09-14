@@ -27,7 +27,10 @@ class Command(BaseCommand):
             "--lines",
             type=str,
             default="",
-            help="Comma-separated MAJOR.MINOR lines to span, e.g. 0.20,0.21. Default: the current line of VERSION.",
+            help=(
+                "Comma-separated MAJOR.MINOR lines of ALREADY-SWEPT releases to span, e.g. 0.20,0.21. "
+                "Default: everything shipped since the last sweep (changelog.d/)."
+            ),
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -46,7 +49,7 @@ class Command(BaseCommand):
             except ValueError as exc:
                 raise CommandError(str(exc))
 
-        cards = build_release_cards(VERSION, lines=lines)
+        cards = build_release_cards(lines=lines)
         subject = (
             f"Heads-Up: New Member Portal Features — {cards[0].title}"
             if cards

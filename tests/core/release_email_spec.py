@@ -17,6 +17,7 @@ from core.release_email import (
     feature_page_url,
     feature_shot_choices,
     feature_shot_key,
+    current_release_entries,
     line_entries,
     parse_lines,
     render_release_email,
@@ -25,21 +26,29 @@ from core.release_email import (
     send_release_test,
 )
 
-# A changelog that spans two release lines and includes an entry with a screenshot
-# slug (real entries gain their slug later) so the renderer paths are exercised.
+# A changelog in both of its halves. The first two entries are the CURRENT BATCH — unswept
+# changelog.d/ fragments, which carry a date and no version number, because a fragment cannot
+# know its own release number without merge order (see plfog.changelog). Below them is swept
+# history, carrying the numbers those releases shipped under. The release email covers the
+# batch by default and reaches back into the numbered lines only when given ``--lines``.
+# One batch entry has a screenshot slug so the renderer paths are exercised.
 FIXTURE_CHANGELOG: list[dict[str, object]] = [
     {
-        "version": "0.20.5",
         "date": "2026-07-10",
         "title": "A home base when you sign in",
         "changes": ["See what's coming up.", "Jump to everywhere you go."],
         "screenshot": "home",
     },
     {
-        "version": "0.20.4",
         "date": "2026-07-09",
         "title": "One place for how our space works",
         "changes": ["Map, parking, and the code of conduct."],
+    },
+    {
+        "version": "0.20.5",
+        "date": "2026-07-08",
+        "title": "A release already swept into history",
+        "changes": ["Folded into changelog/history.json, so it keeps its number."],
     },
     {
         "version": "0.19.9",
@@ -95,7 +104,7 @@ def fake_storage(monkeypatch):
 
 @pytest.fixture
 def fixture_changelog(monkeypatch):
-    """Point the renderer at FIXTURE_CHANGELOG (read lazily inside current_line_entries)."""
+    """Point the renderer at FIXTURE_CHANGELOG (read lazily inside current_release_entries)."""
     monkeypatch.setattr("plfog.version.CHANGELOG", FIXTURE_CHANGELOG)
 
 
@@ -213,24 +222,40 @@ def describe_feature_shot_choices():
 
 
 def describe_line_entries():
-    def it_filters_to_a_single_line_newest_first(fixture_changelog):
-        assert [str(e["title"]) for e in line_entries(["0.20"])] == [
-            "A home base when you sign in",
-            "One place for how our space works",
-        ]
+    def it_filters_to_a_single_line(fixture_changelog):
+        assert [str(e["title"]) for e in line_entries(["0.20"])] == ["A release already swept into history"]
 
     def it_spans_several_lines_preserving_changelog_order(fixture_changelog):
         titles = [str(e["title"]) for e in line_entries(["0.20", "0.19"])]
-        # CHANGELOG order (newest-first) is preserved across the union — the older
-        # 0.19 line lands last, after both 0.20 entries.
-        assert titles == [
-            "A home base when you sign in",
-            "One place for how our space works",
-            "An older release line",
-        ]
+        # CHANGELOG order (newest-first) is preserved across the union.
+        assert titles == ["A release already swept into history", "An older release line"]
 
     def it_returns_empty_for_a_line_with_no_entries(fixture_changelog):
         assert line_entries(["3.0"]) == []
+
+    def it_skips_the_current_batch_rather_than_crashing_on_it(fixture_changelog):
+        # Batch entries have no version key at all. Reading one as ``e["version"]`` would
+        # raise, which would take down every release email the moment anything was unswept.
+        assert all("home base" not in str(e["title"]) for e in line_entries(["0.20", "0.19"]))
+
+
+def describe_current_release_entries():
+    def it_returns_everything_not_yet_swept_newest_first(fixture_changelog):
+        assert [str(e["title"]) for e in current_release_entries()] == [
+            "A home base when you sign in",
+            "One place for how our space works",
+        ]
+
+    def it_excludes_swept_history(fixture_changelog):
+        titles = [str(e["title"]) for e in current_release_entries()]
+        assert "A release already swept into history" not in titles
+
+    def it_is_empty_right_after_a_sweep(monkeypatch):
+        monkeypatch.setattr(
+            "plfog.version.CHANGELOG",
+            [{"version": "1.62.1", "date": "2026-09-13", "title": "All swept", "changes": []}],
+        )
+        assert current_release_entries() == []
 
 
 def describe_parse_lines():
@@ -251,33 +276,34 @@ def describe_parse_lines():
 
 
 def describe_build_release_cards():
-    def it_yields_one_card_per_current_line_entry_newest_first(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+    def it_yields_one_card_per_current_batch_entry_newest_first(db, fixture_changelog, fake_storage):
+        cards = build_release_cards()
         assert [c.title for c in cards] == [
             "A home base when you sign in",
             "One place for how our space works",
         ]
 
-    def it_excludes_other_major_minor_lines(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+    def it_excludes_anything_already_swept(db, fixture_changelog, fake_storage):
+        cards = build_release_cards()
         assert all("older release line" not in c.title for c in cards)
+        assert all("already swept" not in c.title for c in cards)
 
     def describe_when_given_explicit_lines():
         # These run against the REAL CHANGELOG (no fixture) so the 0.20 + 0.21 batches
         # are both present — that is exactly the span the release email needs to cover.
         def it_spans_both_named_lines(db, fake_storage):
-            titles = [c.title for c in build_release_cards("0.21.4", lines=["0.20", "0.21"])]
+            titles = [c.title for c in build_release_cards(lines=["0.20", "0.21"])]
             assert "A home base when you sign in" in titles  # a 0.20 feature
             assert "Your notifications, cleaned up" in titles  # a 0.21 feature
 
         def it_scopes_to_only_the_named_line(db, fake_storage):
-            titles = [c.title for c in build_release_cards("0.21.4", lines=["0.21"])]
+            titles = [c.title for c in build_release_cards(lines=["0.21"])]
             assert "Your notifications, cleaned up" in titles
             assert "A home base when you sign in" not in titles  # 0.20 is out of scope
 
     def it_links_the_title_when_the_slug_maps_to_a_feature_page(db, fixture_changelog, fake_storage, settings):
         settings.MEMBER_BASE_URL = "https://members.example"
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         assert cards[0].feature_url == "https://members.example/home/"
         assert cards[1].feature_url == ""  # no screenshot slug → plain title
 
@@ -285,7 +311,7 @@ def describe_build_release_cards():
 def describe_render_release_email():
     def it_renders_the_preheader_hero_cards_and_cta(db, fixture_changelog, fake_storage):
         fake_storage.existing.add("email/features/home.png")
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         html, _text = render_release_email(
             "0.20.5",
             subject="What's new",
@@ -307,19 +333,19 @@ def describe_render_release_email():
 
     def it_renders_an_image_for_a_captured_card_with_alt(db, fixture_changelog, fake_storage):
         fake_storage.existing.add("email/features/home.png")
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert 'src="https://cdn.example/email/features/home.png"' in html
         assert 'alt="A home base when you sign in"' in html
 
     def it_renders_a_text_only_card_when_there_is_no_screenshot(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")  # nothing captured → no image on either card
+        cards = build_release_cards()  # nothing captured → no image on either card
         html, _text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert "One place for how our space works" in html  # card still appears
         assert "email/features/" not in html  # but no feature-card screenshot (the Play badge img is always present)
 
     def it_keeps_the_text_part_in_sync_with_the_html(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         _html, text = render_release_email(
             "0.20.5",
             subject="What's new at Past Lives",
@@ -338,7 +364,7 @@ def describe_render_release_email():
         assert "unsubscribe" in text
 
     def it_omits_a_card_that_is_not_included(db, fixture_changelog, fake_storage):
-        cards = build_release_cards("0.20.5")
+        cards = build_release_cards()
         cards[1].included = False
         html, text = render_release_email("0.20.5", subject="s", preheader="p", intro="", cards=cards)
         assert "A home base when you sign in" in html
@@ -348,7 +374,7 @@ def describe_render_release_email():
     def describe_when_spanning_lines():
         # Real CHANGELOG so 0.20 + 0.21 both exist; the badge tracks the newest line.
         def it_badges_the_newest_selected_line(db, fake_storage):
-            cards = build_release_cards("0.21.4", lines=["0.20", "0.21"])
+            cards = build_release_cards(lines=["0.20", "0.21"])
             html, _text = render_release_email(
                 "0.21.4", subject="s", preheader="p", intro="", cards=cards, lines=["0.20", "0.21"]
             )

@@ -1,0 +1,59 @@
+name: Changelog
+
+# Every PR adds one file to changelog.d/. That file is the only thing that moves VERSION and
+# the only thing that gets announced, so a PR without one ships a release nobody hears about.
+# This is the check that replaced .github/scripts/release_guard.py: the guard ran on main after
+# Render had already deployed, and could not see this mistake at all — it only noticed an edit
+# to plfog/version.py that left the literal alone. Catching it on the branch costs a red X
+# nobody has deployed.
+#
+# `labeled` and `unlabeled` are load-bearing, and this workflow is separate from ci.yml FOR
+# them. The documented remedy for a PR that legitimately ships no release — a README typo, a
+# comment — is to add the `no-changelog` label, and three places tell an author so, all of them
+# AFTER the check has already failed. With ci.yml's default trigger
+# (`[opened, synchronize, reopened]`) adding a label fires nothing, and re-running the failed
+# job by hand replays the original event payload, which still has no label. The only way past
+# the gate would have been to push a commit — which is exactly what a README-typo PR has
+# nothing left to push. `.github/workflows/bot-review.yml` already relies on the same pattern
+# so its `bot-review` label can trigger a re-review.
+#
+# Keeping this out of ci.yml means label churn re-runs a seven-second check rather than the
+# hour-long test job.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+# One check per PR at a time; adding and removing a label in quick succession should settle on
+# the last state rather than race.
+concurrency:
+  group: changelog-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  fragment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The merge base has to be reachable to tell an added fragment from an existing one.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Every PR ships a changelog fragment
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # github.sha is the merge commit this job checked out, which is reachable for fork
+          # PRs too — the PR head branch itself is not.
+          HEAD_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          export TODAY="$(date -u +%F)"
+          python .github/scripts/check_changelog_fragment.py

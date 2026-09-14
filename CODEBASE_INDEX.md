@@ -154,7 +154,9 @@ Root `conftest.py` provides:
 
 ## Version & Changelog
 
-`plfog/version.py` contains `VERSION` and `CHANGELOG`. Must be bumped on every PR. Discord workflow reads CHANGELOG on merge to main.
+`VERSION` and `CHANGELOG` are **computed at import** in `plfog/version.py`, folded by `plfog/changelog.py` from `changelog/base.json` + `changelog.d/*.toml` + `changelog/history.json`. Nothing hand-edits a version number.
+
+Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor" | "major"` (`changelog.d/README.md` is the contract); CI fails a PR without one. `release.yml` folds the version, pushes the tag, and announces the fragments that push **added**.
 
 ## Deployment
 
