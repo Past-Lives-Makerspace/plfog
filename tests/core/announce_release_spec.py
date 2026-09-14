@@ -99,15 +99,20 @@ def describe_period_for():
         other = {**_BATCH, "title": "A different feature"}
         assert _period_for(_BATCH) != _period_for(other)
 
-    def it_does_not_change_when_the_app_version_moves():
+    def it_does_not_change_when_the_app_version_moves(monkeypatch):
         """The property the whole fix exists for.
 
         A tooling release moves VERSION and changes nothing about what there is to announce.
         If the key moved with VERSION, the ledger would see a fresh period and re-send the
         previous feature's email, bell row and Discord post to every member.
+
+        VERSION is actually moved between the two calls, so this fails if anyone reintroduces
+        a read of it. An earlier draft compared two identical calls with nothing changed in
+        between and passed for any implementation at all.
         """
+        monkeypatch.setattr("plfog.version.VERSION", "1.64.0")
         before = _period_for(_BATCH)
-        # Nothing about the entry changed; only the release around it did.
+        monkeypatch.setattr("plfog.version.VERSION", "1.64.1")
         assert _period_for(_BATCH) == before
 
 

@@ -104,7 +104,7 @@ def fake_storage(monkeypatch):
 
 @pytest.fixture
 def fixture_changelog(monkeypatch):
-    """Point the renderer at FIXTURE_CHANGELOG (read lazily inside current_line_entries)."""
+    """Point the renderer at FIXTURE_CHANGELOG (read lazily inside current_release_entries)."""
     monkeypatch.setattr("plfog.version.CHANGELOG", FIXTURE_CHANGELOG)
 
 

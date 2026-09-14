@@ -88,3 +88,11 @@ release email goes out, since the email offers exactly the unswept fragments as 
 
 Nothing breaks if you never sweep. It is tidiness, plus what keeps a second major's number
 exact.
+
+## Entries that are owed but deliberately unwritten
+
+A member-facing fix can ship with no fragment on purpose, when the fix cannot be confirmed
+yet and announcing it is the step a revert cannot undo. That is a debt, not a decision, and
+it needs somewhere to live: **file an issue.** The old `VERSION` literal carried these as a
+comment block above it, which is exactly how one nearly got deleted when the literal did
+(#397, the v1.54.1 top bar phone fix, still owed pending a real-iPhone confirm).

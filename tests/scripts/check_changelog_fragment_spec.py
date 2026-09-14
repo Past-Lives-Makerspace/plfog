@@ -47,8 +47,12 @@ class _Completed:
         self.stderr = stderr
 
 
-def _fake_diff(module: ModuleType, monkeypatch, result: _Completed) -> list[list[str]]:
-    """Replace ``subprocess.run`` with a fake, recording the argv it was called with."""
+def _fake_diff(monkeypatch, result: _Completed) -> list[list[str]]:
+    """Replace ``subprocess.run`` with a fake, recording the argv it was called with.
+
+    Patches ``subprocess.run`` where the script imported it, so it needs no handle on the
+    loaded module.
+    """
     calls: list[list[str]] = []
 
     def _run(argv: list[str], **kwargs: object) -> _Completed:
@@ -147,7 +151,7 @@ def describe_labels():
 def describe_changed_fragments():
     def it_asks_git_for_the_merge_base_range_and_the_fragment_pathspec(monkeypatch):
         module = _load_script()
-        calls = _fake_diff(module, monkeypatch, _Completed(0, ""))
+        calls = _fake_diff(monkeypatch, _Completed(0, ""))
         module._changed_fragments(_BASE, _HEAD)
         assert calls == [
             [
@@ -163,7 +167,7 @@ def describe_changed_fragments():
 
     def it_lists_the_fragments_the_branch_touched(monkeypatch):
         module = _load_script()
-        _fake_diff(module, monkeypatch, _Completed(0, "changelog.d/394-a.toml\nchangelog.d/395-b.toml\n"))
+        _fake_diff(monkeypatch, _Completed(0, "changelog.d/394-a.toml\nchangelog.d/395-b.toml\n"))
         assert module._changed_fragments(_BASE, _HEAD) == [
             "changelog.d/394-a.toml",
             "changelog.d/395-b.toml",
@@ -171,14 +175,14 @@ def describe_changed_fragments():
 
     def it_returns_nothing_when_the_branch_touched_none(monkeypatch):
         module = _load_script()
-        _fake_diff(module, monkeypatch, _Completed(0, "\n"))
+        _fake_diff(monkeypatch, _Completed(0, "\n"))
         assert module._changed_fragments(_BASE, _HEAD) == []
 
     def it_exits_when_git_fails(monkeypatch):
         # Treating a failed diff as "no fragments" would fail every PR; treating it as "fine"
         # would pass every PR. Neither is an answer, so it exits.
         module = _load_script()
-        _fake_diff(module, monkeypatch, _Completed(128, "", "fatal: bad object"))
+        _fake_diff(monkeypatch, _Completed(128, "", "fatal: bad object"))
         with pytest.raises(SystemExit, match="Could not diff"):
             module._changed_fragments(_BASE, _HEAD)
 
@@ -187,14 +191,14 @@ def describe_main():
     def it_passes_when_the_pr_adds_a_fragment(monkeypatch, capsys):
         module = _load_script()
         _env(monkeypatch, labels=[])
-        _fake_diff(module, monkeypatch, _Completed(0, "changelog.d/394-a.toml\n"))
+        _fake_diff(monkeypatch, _Completed(0, "changelog.d/394-a.toml\n"))
         module.main()
         assert "changelog.d/394-a.toml" in capsys.readouterr().out
 
     def it_reports_the_version_the_tree_folds_to(monkeypatch, capsys):
         module = _load_script()
         _env(monkeypatch, labels=[])
-        _fake_diff(module, monkeypatch, _Completed(0, "changelog.d/394-a.toml\n"))
+        _fake_diff(monkeypatch, _Completed(0, "changelog.d/394-a.toml\n"))
         module.main()
         assert f"folding to v{module.VERSION}" in capsys.readouterr().out
 
@@ -202,7 +206,7 @@ def describe_main():
         def it_fails(monkeypatch):
             module = _load_script()
             _env(monkeypatch, labels=[])
-            _fake_diff(module, monkeypatch, _Completed(0, ""))
+            _fake_diff(monkeypatch, _Completed(0, ""))
             with pytest.raises(SystemExit) as exit_info:
                 module.main()
             assert "No changelog fragment in this pull request" in str(exit_info.value)
@@ -212,7 +216,7 @@ def describe_main():
             # convention is new and the error is most people's first encounter with it.
             module = _load_script()
             _env(monkeypatch, labels=[])
-            _fake_diff(module, monkeypatch, _Completed(0, ""))
+            _fake_diff(monkeypatch, _Completed(0, ""))
             with pytest.raises(SystemExit) as exit_info:
                 module.main()
             message = str(exit_info.value)
