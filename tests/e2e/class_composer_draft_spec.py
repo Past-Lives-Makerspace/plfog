@@ -37,8 +37,9 @@ SAVE_DRAFT = '#composer-form button[type="submit"]'
 TITLE = "A Forge of One's Own"
 DESCRIPTION = "Two evenings at the forge, starting from a cold anvil and a bar of mild steel."
 VIDEO = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-# A URL the browser is happy with and the server refuses: video_url takes YouTube only, and
-# the per step check reads the rendered constraint attributes, which say nothing about hosts.
+# A URL the browser is happy with and the server refuses: video_url takes YouTube, Instagram
+# and Facebook links only, and the per step check reads the rendered constraint attributes,
+# which say nothing about hosts.
 # This is the only way to reach a server refusal from a form the client considers complete.
 REFUSED_VIDEO = "https://vimeo.com/12345"
 ADMIN_DESCRIPTION = "Rewritten by an admin while the instructor was away from the page."

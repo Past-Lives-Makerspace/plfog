@@ -839,6 +839,33 @@ a.cp-detail__cat-chip:hover { background: #f5ca6e; color: var(--color-navy); tex
   border: 0;
 }
 
+/* ── Linked video card (Instagram, Facebook) ───
+   Neither platform embeds without its own script, which we do not run on a member
+   facing page, so the video is offered as a card that opens on their site. Same
+   class name as the hub copy in hub.css; this one uses the public surface's tokens. */
+.pl-video-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text);
+  text-decoration: none;
+}
+.cp-page a.pl-video-card { color: var(--text); }
+.cp-page a.pl-video-card:hover { border-color: var(--gold-text); background: var(--bg4); text-decoration: none; }
+.pl-video-card__provider {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold-text);
+}
+.pl-video-card__title { font-weight: 700; }
+.pl-video-card__hint { font-size: 13px; color: var(--text2); word-break: break-all; }
+
 /* ── Schedule ────────────────────────────────── */
 .cp-detail__sessions {
   list-style: none;

@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Iterable
 from django import template
 from django.http import QueryDict
 
+from classes.video_providers import YOUTUBE, VideoLink, recognize
+
 if TYPE_CHECKING:
     from classes.models import ClassApproval, ClassOffering, DiscountApprover, DiscountCode
 
@@ -29,15 +31,6 @@ def review_pipeline(offering: ClassOffering) -> dict:
 def review_pipeline_text(offering: ClassOffering) -> dict:
     """The one-line bracketed pipeline plus headline for text emails."""
     return {"pipeline": offering.review_pipeline()}
-
-
-_YOUTUBE_PATTERNS = (
-    re.compile(r"(?:youtube\.com/watch\?(?:[^&]+&)*v=)([A-Za-z0-9_-]{11})"),
-    re.compile(r"(?:youtu\.be/)([A-Za-z0-9_-]{11})"),
-    re.compile(r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})"),
-    re.compile(r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})"),
-    re.compile(r"(?:youtube-nocookie\.com/embed/)([A-Za-z0-9_-]{11})"),
-)
 
 
 @register.filter
@@ -70,16 +63,26 @@ def approvable_by(code: DiscountCode, approver: DiscountApprover) -> bool:
 def youtube_embed_id(url: str | None) -> str:
     """Extract the 11-char video ID from any common YouTube URL form.
 
-    Returns an empty string when the URL is missing or doesn't parse — the
-    detail template uses this to skip rendering the iframe.
+    Returns an empty string when the URL is missing, is not YouTube, or doesn't
+    parse — a template uses this to skip rendering the iframe. Recognition lives in
+    :mod:`classes.video_providers`; this filter is the YouTube-only view of it, kept
+    for the surfaces that embed a YouTube link and nothing else (a guild's video).
     """
-    if not url:
+    link = recognize(url)
+    if link is None or link.provider is not YOUTUBE:
         return ""
-    for pat in _YOUTUBE_PATTERNS:
-        m = pat.search(url)
-        if m:
-            return m.group(1)
-    return ""
+    return link.video_id
+
+
+@register.filter
+def video_link(url: str | None) -> VideoLink | None:
+    """Resolve ``url`` to the provider that owns it, or None when nothing does.
+
+    Templates use the result twice: as the truth test for whether there is a video
+    section at all, and as the context for ``components/video_embed.html``, which
+    renders the iframe or the linked card the provider asks for.
+    """
+    return recognize(url)
 
 
 @register.inclusion_tag("components/table_sort_header.html")
