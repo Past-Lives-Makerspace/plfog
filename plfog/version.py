@@ -7,7 +7,7 @@ edit a shared file to ship a release:
   never touches it.
 - ``changelog.d/*.toml`` — one fragment per unreleased change, each declaring ``patch``,
   ``minor`` or ``major``. A PR adds exactly one, under a filename nothing else claims.
-- ``changelog/history.json`` — the 259 releases frozen at v1.63.0, read-only.
+- ``changelog/history.json`` — every release frozen by the last sweep, read-only.
 
 ``plfog.changelog`` holds the machinery and the reasoning, including why the version is folded
 rather than written and why new entries carry no version number of their own. Read that before

@@ -7,37 +7,6 @@ on:
     branches: [main]
 
 jobs:
-  # Every PR adds one file to changelog.d/. That file is the only thing that moves VERSION
-  # and the only thing that gets announced, so a PR without one ships a release nobody hears
-  # about. This is the check that replaced .github/scripts/release_guard.py: the guard ran on
-  # main after Render had already deployed and could not see this mistake at all (it only
-  # noticed an edit to plfog/version.py that left the literal alone). Catching it on the
-  # branch costs a red X nobody has deployed.
-  changelog:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # The merge base has to be reachable to tell an added fragment from an existing one.
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Every PR ships a changelog fragment
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          # github.sha is the merge commit this job checked out, which is reachable for fork
-          # PRs too — the PR head branch itself is not.
-          HEAD_SHA: ${{ github.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-        run: |
-          export TODAY="$(date -u +%F)"
-          python .github/scripts/check_changelog_fragment.py
-
   test:
     runs-on: ubuntu-latest
     env:

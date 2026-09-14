@@ -50,7 +50,7 @@ changes = [
 
 `VERSION` and `CHANGELOG` in `plfog/version.py` are **computed at import** from
 `changelog/base.json` (the version the fold starts from), `changelog.d/*.toml` (one fragment
-per unreleased change) and `changelog/history.json` (259 releases frozen at v1.63.0). The
+per unreleased change) and `changelog/history.json` (every release frozen by the last sweep). The
 machinery and the reasoning live in `plfog/changelog.py`.
 
 This replaced a rule where every PR hand-edited the `VERSION` literal at line 5 of a 3,412-line
@@ -63,9 +63,12 @@ to bump `VERSION`, it is stale; fix it.**
   the base. Order-independent by construction, which is what makes a rebase safe — a PR that
   merges late cannot renumber a release that already shipped. Nothing in a PR names a number,
   so nothing in a PR can be stale or collide.
-- **One fragment per feature, and edit your own.** A refinement to something still sitting
-  unreleased in `changelog.d/` edits that fragment — it is your file, nothing else claims it,
-  and the combined result goes out once. A fix to something **already live** is its own
+- **A fragment is announced when its own PR merges**, because `release.yml` announces what a
+  push *added*. So the window for editing it is before your PR merges, not before the next
+  sweep: inside your own PR, refine the fragment rather than adding a second one and the
+  combined result goes out once. After it merges the fragment is spent — editing it corrects
+  the in-app changelog and announces nothing, so never fold a new bullet into a merged
+  fragment expecting members to see it. A fix to something **already live** is its own
   fragment with `bump = "patch"`: members lived with the bug, so it is news.
 - **`audience = "internal"` is the tooling release.** `bump` and nothing else — no title, no
   bullets. It moves the version and announces nothing. This used to be a judgement call

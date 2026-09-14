@@ -59,16 +59,25 @@ That is the whole file. It needs no title and no bullets, because inventing pros
 release that gets published nowhere is how entries end up stamped at versions Discord never
 posts.
 
-## Refining something that has not shipped yet
+## Refining a fragment
 
-**Edit your own fragment.** A dark-mode tweak or a "now it actually sends" on a feature still
-sitting in `changelog.d/` is not news to members — it is a correction to an announcement they
-have not received. Update the bullets in the fragment that is already there and let the
-combined result go out once.
+**A fragment is announced the moment its own PR merges.** That is the fact everything below
+hangs on: `release.yml` announces whatever a push *added*, so the window in which editing a
+fragment changes what members hear is the window before your PR merges — not "before the next
+sweep".
 
-You can edit a fragment freely right up until it ships. After it ships, editing it changes the
-in-app changelog and re-announces nothing, because `release.yml` announces only the fragments
-a push **adds**.
+**Inside your own PR, edit the fragment rather than adding a second one.** A reviewer asks for
+another bullet, you fix something on the branch: update the fragment that is already there and
+the combined result goes out once, when the PR merges.
+
+**After your PR merges, that fragment is spent.** Editing it corrects the in-app changelog and
+announces nothing at all — not the edit, not the original again. So a polish fix to a feature
+that shipped last week needs its own fragment if members should hear about it, and needs
+nothing if they should not. Do not fold a real new bullet into a merged fragment expecting
+members to see it; they will not.
+
+A fix to something already live on production is its own `bump = "patch"` fragment — members
+lived with the bug, so it is news.
 
 ## Sweeping
 

@@ -70,6 +70,56 @@ def _env(monkeypatch, *, labels: list[str] | None = None) -> None:
         monkeypatch.setenv("PR_LABELS", json.dumps(labels))
 
 
+def _workflow() -> str:
+    """``.github/workflows/changelog.yml``, with whole-line comments stripped.
+
+    The comment block above the trigger talks ABOUT `labeled` and about `no-changelog` at
+    length, so an unfiltered substring check passes with the trigger itself deleted — the same
+    trap ``release_guard_spec.py`` documented for ``fetch-depth``.
+    """
+    text = (pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "changelog.yml").read_text()
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def describe_the_workflow_wiring():
+    """Where this particular gap lives: the script was right and nothing ran it.
+
+    The script is thoroughly specced below, and was, while the `no-changelog` label it tells
+    authors to reach for could not actually trigger it. ``ci.yml``'s bare ``pull_request:``
+    defaults to ``[opened, synchronize, reopened]``; adding a label fires none of them, and
+    re-running the failed job by hand replays the original payload, which still has no label.
+    The only way past the gate was to push a commit — which is precisely what the README-typo
+    PR the label exists for has nothing left to push.
+    """
+
+    def it_runs_the_check():
+        assert "python .github/scripts/check_changelog_fragment.py" in _workflow()
+
+    def it_fires_on_labeled_so_the_escape_hatch_works():
+        assert "labeled" in _workflow()
+
+    def it_fires_on_unlabeled_so_removing_the_label_restores_the_gate():
+        # Otherwise a PR could take the label to go green, drop it, and merge unchecked.
+        assert "unlabeled" in _workflow()
+
+    def it_still_fires_on_the_ordinary_pull_request_events():
+        workflow = _workflow()
+        for event in ("opened", "synchronize", "reopened"):
+            assert event in workflow, event
+
+    def it_forwards_the_label_names_the_script_reads():
+        assert "PR_LABELS:" in _workflow()
+
+    def it_checks_out_enough_history_to_find_the_merge_base():
+        # A shallow clone makes `{base}...{head}` unresolvable, and the diff would come back
+        # empty — indistinguishable from "this PR added no fragment", failing every PR.
+        assert "fetch-depth: 0" in _workflow()
+
+    def it_does_not_live_in_ci_yml_where_a_label_cannot_reach_it():
+        ci = (pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text()
+        assert "check_changelog_fragment" not in ci
+
+
 def describe_labels():
     def it_reads_the_label_names_the_workflow_forwards(monkeypatch):
         module = _load_script()

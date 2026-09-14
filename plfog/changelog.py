@@ -27,7 +27,7 @@ safe. See :func:`fold_version` for the one case that is not commutative and how 
 **Why fragments carry no version of their own.** A fragment's *own* release number would need
 merge order, and the tree does not record merge order — only git does, and only in CI. Rather
 than encode a guess that drifts when a stale PR merges late, new entries are identified by
-their date. The 259 frozen entries in ``changelog/history.json`` keep the version numbers they
+their date. The frozen entries in ``changelog/history.json`` keep the version numbers they
 shipped under; ``templates/includes/changelog_modal.html`` renders the badge only when one is
 present.
 
@@ -261,7 +261,7 @@ def load_base(path: pathlib.Path) -> str:
 
 
 def load_history(path: pathlib.Path) -> list[dict[str, Any]]:
-    """The frozen entries — 259 releases up to and including v1.63.0, newest first.
+    """Every release frozen by the last sweep, newest first.
 
     Read-only history. New changes are fragments; this file is appended to only by a sweep.
     """

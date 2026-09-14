@@ -174,8 +174,7 @@ announces nothing, which is correct.
 
 `VERSION` and `CHANGELOG` in [`plfog/version.py`](plfog/version.py) are **computed at import**,
 folded from the fragments over [`changelog/base.json`](changelog/base.json) plus the frozen
-[`changelog/history.json`](changelog/history.json) (259 releases frozen at v1.63.0). Nothing
-writes the number down, so two PRs
+[`changelog/history.json`](changelog/history.json). Nothing writes the number down, so two PRs
 open at once cannot collide over it and a rebase cannot leave one stale. The machinery and the
 reasoning are in [`plfog/changelog.py`](plfog/changelog.py).
 
