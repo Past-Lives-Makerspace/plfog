@@ -596,6 +596,45 @@ def describe_GuildEditForm():
         )
         assert form.is_valid(), form.errors
 
+    def it_refuses_a_guild_video_from_another_provider():
+        # The guild's own video embeds a player, so it stays YouTube only even though the
+        # FAQ rows on the same page now take three providers. Before #396 this field had
+        # no validator at all: the template filter was the gate, so a non YouTube link
+        # saved happily and the page then showed nothing (#396 review item 2).
+        form = GuildEditForm(
+            data={
+                "name": "Painters",
+                "calendar_color": "#4B9FEE",
+                "youtube_url": "https://www.instagram.com/reel/CxYzAbCdEfG/",
+            }
+        )
+        assert not form.is_valid()
+        assert form.errors["youtube_url"] == [
+            "Only YouTube videos play here. Enter a YouTube link, for example https://www.youtube.com/watch?v=\u2026"
+        ]
+
+    def it_refuses_a_guild_video_link_no_provider_owns():
+        form = GuildEditForm(
+            data={"name": "Painters", "calendar_color": "#4B9FEE", "youtube_url": "https://vimeo.com/12345"}
+        )
+        assert not form.is_valid()
+        assert "youtube_url" in form.errors
+
+    def it_still_takes_a_music_youtube_link():
+        # A shape the pre-registry regex accepted; it must not start failing now.
+        form = GuildEditForm(
+            data={
+                "name": "Painters",
+                "calendar_color": "#4B9FEE",
+                "youtube_url": "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+            }
+        )
+        assert form.is_valid(), form.errors
+
+    def it_lets_a_blank_guild_video_through():
+        form = GuildEditForm(data={"name": "Painters", "calendar_color": "#4B9FEE", "youtube_url": ""})
+        assert form.is_valid(), form.errors
+
     def it_saves_a_custom_faq_label():
         guild = GuildFactory(name="Ceramics")
         form = GuildEditForm(
@@ -838,6 +877,17 @@ def describe_guild_faq_save():
         client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data)
         faq = GuildFAQItem.objects.get(guild=guild)
         assert faq.video_url == "https://www.facebook.com/watch/?v=1234567890"
+
+    def it_rejects_a_backslash_authority_on_an_answer_video(client: Client):
+        # The same shape the class forms refuse: instagram.com to Python, evil.test to a
+        # browser. The FAQ card is a link too, so this surface needs the same gate.
+        _user_with_role("faq_slash", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        client.login(username="faq_slash", password="pass")
+        data = _faq_post(**{"faq-0-video_url": r"https://evil.test\@www.instagram.com/reel/CxYzAbCdEfG/"})
+        response = client.post(reverse("hub_guild_faq_save", args=[guild.pk]), data=data, follow=True)
+        assert any("Couldn't save the FAQ" in str(m) for m in response.context["messages"])
+        assert not GuildFAQItem.objects.filter(guild=guild).exists()
 
     def it_rejects_a_video_from_an_unsupported_provider(client: Client):
         _user_with_role("faq_vidbad", fog_role=Member.FogRole.ADMIN)

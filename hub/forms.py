@@ -275,6 +275,18 @@ class GuildEditForm(forms.ModelForm):
         # so the FAQ section always has a visible title.
         return (self.cleaned_data.get("faq_label") or "").strip() or "FAQ"
 
+    def clean_youtube_url(self) -> str:
+        """Accept only a YouTube link (or blank) for the guild's own video.
+
+        This field embeds a player, so unlike the FAQ rows next to it (which take any
+        provider the registry knows and link out to the rest), an Instagram or Facebook
+        link here has nothing to render. Without this the page just showed nothing:
+        the template filter was the only gate, and it fails silently.
+        """
+        from classes.video_providers import validate_youtube_url
+
+        return validate_youtube_url(self.cleaned_data.get("youtube_url"))
+
     def clean_discord_webhook_url(self) -> str:
         """Validate the webhook is a Discord webhook URL (or blank).
 

@@ -69,7 +69,8 @@ def describe_public_class_video():
             assert 'target="_blank"' in markup
             assert 'rel="noopener noreferrer"' in markup
             assert "Watch this video on Instagram" in markup
-            assert "Opens Instagram in a new tab." in markup
+            # The hint shows the real destination, so the card cannot borrow a name.
+            assert "Opens www.instagram.com/reel/CxYzAbCdEfG in a new tab." in markup
             assert "instagram.com/embed" not in body
             assert "<iframe" not in body
 
@@ -86,7 +87,7 @@ def describe_public_class_video():
             markup = card.group(0)
             assert f'href="{FACEBOOK_URL}"' in markup
             assert "Watch this video on Facebook" in markup
-            assert "Opens Facebook in a new tab." in markup
+            assert "Opens www.facebook.com/watch in a new tab." in markup
             assert "<iframe" not in body
 
     def describe_when_there_is_no_video():

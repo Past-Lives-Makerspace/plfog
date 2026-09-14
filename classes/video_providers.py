@@ -25,6 +25,7 @@ from django.core.exceptions import ValidationError
 
 _ID = r"[A-Za-z0-9_-]{11}"  # YouTube's video id is always 11 of these.
 _HAS_SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://")
+_DESTINATION_MAX_CHARS = 48  # The card's hint line stays one short line on a phone.
 
 
 @dataclass(frozen=True)
@@ -68,11 +69,17 @@ class VideoProvider:
 
 @dataclass(frozen=True)
 class VideoLink:
-    """A recognised video link, ready to render."""
+    """A recognised video link, ready to render.
+
+    ``host`` and ``route`` are the parsed pieces recognition already worked out, kept
+    so the card can show a reader where the link actually goes without re-parsing it.
+    """
 
     provider: VideoProvider
     url: str
     video_id: str
+    host: str
+    route: str
 
     @property
     def is_embed(self) -> bool:
@@ -86,8 +93,24 @@ class VideoLink:
             return ""
         return self.provider.embed_template.format(video_id=self.video_id)
 
+    @property
+    def destination(self) -> str:
+        """Where the link goes, short enough to read: the host and a trimmed path.
 
-_YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com"})
+        A linked card carries a provider's name, so the reader is owed the actual host
+        before they click. The query string is dropped (tracking params, nothing a
+        reader checks) and a long path is cut with an ellipsis.
+        """
+        path = self.route.split("?")[0].rstrip("/")
+        shown = f"{self.host}{path}"
+        if len(shown) <= _DESTINATION_MAX_CHARS:
+            return shown
+        return f"{shown[: _DESTINATION_MAX_CHARS - 1]}…"
+
+
+# music.youtube.com plays through the same embed and the pre-registry regex took it,
+# so host strictness must not quietly drop it (#396 review).
+_YOUTUBE_HOSTS = frozenset({"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"})
 _YOUTU_BE_HOSTS = frozenset({"youtu.be", "www.youtu.be"})
 _NOCOOKIE_HOSTS = frozenset({"youtube-nocookie.com", "www.youtube-nocookie.com"})
 _INSTAGRAM_HOSTS = frozenset({"instagram.com", "www.instagram.com", "m.instagram.com"})
@@ -128,12 +151,12 @@ FACEBOOK = VideoProvider(
     name="Facebook",
     example="https://www.facebook.com/watch/?v=…",
     rules=(
-        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/watch/?\?(?:[^&]+&)*v=(?P<id>\d+)(?:&.*)?")),
-        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/video\.php\?(?:[^&]+&)*v=(?P<id>\d+)(?:&.*)?")),
-        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/[A-Za-z0-9_.-]+/videos/(?P<id>\d+)/?(?:\?.*)?")),
-        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/[A-Za-z0-9_.-]+/videos/[A-Za-z0-9_-]+/(?P<id>\d+)/?(?:\?.*)?")),
-        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/reel/(?P<id>\d+)/?(?:\?.*)?")),
-        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/share/[a-z]/(?P<id>[A-Za-z0-9]+)/?(?:\?.*)?")),
+        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/watch/?\?(?:[^&]+&)*v=(?P<id>[0-9]+)(?:&.*)?")),
+        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/video\.php\?(?:[^&]+&)*v=(?P<id>[0-9]+)(?:&.*)?")),
+        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/[A-Za-z0-9_.-]+/videos/(?P<id>[0-9]+)/?(?:\?.*)?")),
+        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/[A-Za-z0-9_.-]+/videos/[A-Za-z0-9_-]+/(?P<id>[0-9]+)/?(?:\?.*)?")),
+        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/reel/(?P<id>[0-9]+)/?(?:\?.*)?")),
+        UrlRule(_FACEBOOK_HOSTS, re.compile(r"/share/v/(?P<id>[A-Za-z0-9]+)/?(?:\?.*)?")),
         UrlRule(_FB_WATCH_HOSTS, re.compile(r"/(?P<id>[A-Za-z0-9_-]+)/?(?:\?.*)?")),
     ),
 )
@@ -147,9 +170,19 @@ def _host_and_route(url: str) -> tuple[str, str] | None:
     A link typed without a scheme (``youtube.com/watch?v=…``) is read as https, which is
     what ``forms.URLField`` would have made of it anyway. Anything that is not http(s),
     or carries no host, returns None.
+
+    A URL carrying a backslash is refused outright, because this is the one character
+    Python and every browser disagree about. WHATWG ends the authority at ``\\`` exactly
+    as at ``/``; :func:`urlsplit` does not, and reads everything after the last ``@`` as
+    the host. So ``https://evil.test\\@www.instagram.com/reel/x`` parses here as
+    instagram.com while a browser goes to evil.test, which on a linked card would put a
+    provider's name over somebody else's destination. No provider URL has a backslash in
+    it, so the whole shape goes.
     """
     cleaned = url.strip()
     if not cleaned:
+        return None
+    if "\\" in cleaned:
         return None
     if not _HAS_SCHEME.match(cleaned):
         cleaned = f"https://{cleaned}"
@@ -183,7 +216,7 @@ def recognize(url: str | None) -> VideoLink | None:
     for provider in PROVIDERS:
         video_id = provider.match(host, route)
         if video_id is not None:
-            return VideoLink(provider=provider, url=url.strip(), video_id=video_id)
+            return VideoLink(provider=provider, url=url.strip(), video_id=video_id, host=host, route=route)
     return None
 
 
@@ -213,4 +246,21 @@ def validate_video_url(url: str | None) -> str:
         return ""
     if recognize(cleaned) is None:
         raise ValidationError(unsupported_video_message())
+    return cleaned
+
+
+def validate_youtube_url(url: str | None) -> str:
+    """Return the stripped URL, raising ValidationError unless YouTube owns it.
+
+    For a field that embeds a player itself rather than offering whatever the registry
+    takes: a guild's own video. Recognition is the same registry, so the two fields can
+    never disagree about what a YouTube link is, and a lead who pastes an Instagram reel
+    into this one is told at save time instead of finding a blank space on the page.
+    """
+    cleaned = (url or "").strip()
+    if not cleaned:
+        return ""
+    link = recognize(cleaned)
+    if link is None or link.provider is not YOUTUBE:
+        raise ValidationError(f"Only YouTube videos play here. Enter a YouTube link, for example {YOUTUBE.example}")
     return cleaned

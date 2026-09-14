@@ -52,6 +52,15 @@ def describe_class_form_video_url():
         assert _errors(form_class, "https://instagram.com.evil.test/reel/CxYzAbCdEfG/") == [unsupported_video_message()]
 
     @pytest.mark.parametrize("form_class", FORMS, ids=lambda cls: cls.__name__)
+    def it_refuses_a_backslash_authority_that_browsers_read_as_another_host(form_class, db):
+        # URLField passes this through untouched and Python's urlsplit calls the host
+        # instagram.com, while a browser navigates to evil.test. The card would carry
+        # Instagram's name over somebody else's page, so clean_video_url is the gate.
+        assert _errors(form_class, r"https://evil.test\@www.instagram.com/reel/CxYzAbCdEfG/") == [
+            unsupported_video_message()
+        ]
+
+    @pytest.mark.parametrize("form_class", FORMS, ids=lambda cls: cls.__name__)
     def it_lets_a_blank_link_through(form_class, db):
         assert _errors(form_class, "") == []
 
