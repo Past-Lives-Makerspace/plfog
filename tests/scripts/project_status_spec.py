@@ -111,8 +111,7 @@ def _status(name: str | None) -> dict:
     """
     if name is not None:
         name = _COLUMNS.get(name, name)
-    nodes = [{}] if name is None else [{"name": name, "field": {"id": _FIELD_ID}}]
-    return {"node": {"fieldValueByName": {"nodes": nodes}}}
+    return {"node": {"fieldValueByName": None if name is None else {"name": name}}}
 
 
 class _Server:
@@ -132,7 +131,7 @@ class _Server:
         ("pullRequest(number:", "pr"),
         ("addProjectV2ItemById(input:", "add"),
         ("updateProjectV2ItemFieldValue", "set"),
-        ("fieldValues(first:", "item_status"),
+        ("fieldValueByName(name:", "item_status"),
     )
 
     def __call__(self, request, timeout=None) -> _FakeResponse:
@@ -288,18 +287,24 @@ def describe_project_status():
         def it_returns_the_board_column_verbatim(module, serve):
             # The board's own spelling, not the phase. move() does the translating.
             serve(item_status=_status("Present"))
-            assert module.current_status(_ITEM_ID, _FIELD_ID, "tok") == "Present / In Review"
+            assert module.current_status(_ITEM_ID, "tok") == "Present / In Review"
+
+        def it_asks_for_the_status_field_by_name_rather_than_paging_every_value(module, serve):
+            # A paged fieldValues(first: N) read "unset" once a card carried more than N values.
+            server = serve(item_status=_status("Present"))
+            module.current_status(_ITEM_ID, "tok")
+            assert server.sent("item_status") == [{"item": _ITEM_ID, "name": "Status"}]
 
         def describe_when_the_field_is_unset():
             def it_returns_none(module, serve):
                 serve(item_status=_status(None))
-                assert module.current_status(_ITEM_ID, _FIELD_ID, "tok") is None
+                assert module.current_status(_ITEM_ID, "tok") is None
 
-        def describe_when_the_card_carries_another_single_select_field():
-            def it_ignores_it(module, serve):
-                nodes = [{"name": "P1", "field": {"id": "PVTSSF_priority"}}]
-                serve(item_status={"node": {"fieldValueByName": {"nodes": nodes}}})
-                assert module.current_status(_ITEM_ID, _FIELD_ID, "tok") is None
+        def describe_when_the_card_was_deleted_mid_run():
+            def it_raises_rather_than_crashing(module, serve):
+                serve(item_status={"node": None})
+                with pytest.raises(module.ProjectStatusError, match="vanished"):
+                    module.current_status(_ITEM_ID, "tok")
 
     def describe_the_column_names():
         def it_maps_every_phase_to_a_column(module):
@@ -540,6 +545,12 @@ def describe_project_status():
                 monkeypatch.setenv("PROJECT_NUMBER", "")
                 assert module.main(["--issue", "357", "--status", "Plan"]) == 1
                 assert "PROJECT_NUMBER is not set" in capsys.readouterr().err
+
+        def describe_when_the_board_number_is_not_a_number():
+            def it_fails_with_an_annotation_not_a_traceback(module, serve, env, monkeypatch, capsys):
+                monkeypatch.setenv("PROJECT_NUMBER", "four")
+                assert module.main(["--issue", "357", "--status", "Plan"]) == 1
+                assert "PROJECT_NUMBER must be the board's number, got 'four'" in capsys.readouterr().err
 
         def describe_when_the_repository_is_not_owner_slash_repo():
             def it_fails(module, serve, env, monkeypatch, capsys):

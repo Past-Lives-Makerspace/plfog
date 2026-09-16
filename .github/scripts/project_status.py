@@ -263,38 +263,41 @@ mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
 }
 """
 
-# `$field` is deliberately NOT a variable here. The field is filtered for in Python below,
-# and GraphQL rejects a document that declares a variable it never references.
+# Asked for by name, the same name `load_board` resolves the field by. An earlier version paged
+# `fieldValues(first: 20)` and filtered in Python, which silently read "unset" once a card
+# carried more than twenty values, and an unset status ranks below everything, so the
+# forward-only rule would have stopped holding without a word.
 _ITEM_STATUS_QUERY = """
-query($item: ID!) {
+query($item: ID!, $name: String!) {
   node(id: $item) {
     ... on ProjectV2Item {
-      fieldValueByName: fieldValues(first: 20) {
-        nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { id } } } }
-      }
+      fieldValueByName(name: $name) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
     }
   }
 }
 """
 
 
-def current_status(item_id: str, field_id: str, token: str) -> str | None:
+def current_status(item_id: str, token: str) -> str | None:
     """The card's current column name, or ``None`` if the field is unset.
 
     Args:
         item_id: The card.
-        field_id: The ``Status`` field.
         token: A token carrying the ``project`` scope.
 
     Returns:
         The column name, or ``None`` when the card has no status yet.
+
+    Raises:
+        ProjectStatusError: If the card no longer exists, e.g. it was removed from the board
+            between finding it and reading it.
     """
-    data = graphql(_ITEM_STATUS_QUERY, {"item": item_id}, token)
-    for node in data["node"]["fieldValueByName"]["nodes"]:
-        # Non-single-select values come back as empty objects from the inline fragment.
-        if node and node["field"]["id"] == field_id:
-            return node["name"]
-    return None
+    data = graphql(_ITEM_STATUS_QUERY, {"item": item_id, "name": _STATUS_FIELD}, token)
+    node = data["node"]
+    if node is None:
+        raise ProjectStatusError(f"Card {item_id} vanished from the board before its status could be read.")
+    value = node["fieldValueByName"]
+    return None if value is None else value["name"]
 
 
 def move(
@@ -338,7 +341,7 @@ def move(
         present = None
         added = " (added to the board)"
     else:
-        column = current_status(item_id, field_id, token)
+        column = current_status(item_id, token)
         # A board column that is not one of ours is legitimate: somebody can add "Icebox" in
         # the UI at any time. `.get` with a fallback is correct here precisely because the key
         # may honestly be absent, and an unknown column ranks below everything so the move
@@ -466,7 +469,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         token = _env("PROJECT_PAT")
         org = _env("PROJECT_OWNER")
-        project_number = int(_env("PROJECT_NUMBER"))
+        raw_number = _env("PROJECT_NUMBER")
+        if not raw_number.isdigit():
+            raise ProjectStatusError(f"PROJECT_NUMBER must be the board's number, got '{raw_number}'.")
+        project_number = int(raw_number)
         owner, _, repo = _env("GITHUB_REPOSITORY").partition("/")
         if not repo:
             raise ProjectStatusError("GITHUB_REPOSITORY is not in 'owner/repo' form.")

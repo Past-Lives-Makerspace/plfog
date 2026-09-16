@@ -60,9 +60,14 @@ on:
         type: boolean
         default: false
 
-# The card is one row on one board; two events racing to set it would have one silently win.
+# Keyed by branch, so a push and the pull request opened from that branch queue behind each
+# other instead of both reading the card before either writes it. That is the common race.
+# What this does NOT cover: an issue closing (keyed by its number) against the merge that
+# closed it, and a third event on a busy branch, which GitHub resolves by cancelling the run
+# still pending in the group. Both leave the card one column short, never past where it should be,
+# and the next event or a hand move corrects it.
 concurrency:
-  group: delivery-board-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}
+  group: delivery-board-${{ github.event.issue.number || github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -139,8 +144,11 @@ jobs:
           PROJECT_OWNER: ${{ github.repository_owner }}
           PROJECT_NUMBER: ${{ vars.PROJECT_NUMBER }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          # Through the environment, never interpolated into the script: `issue` is free text.
+          INPUT_ISSUE: ${{ inputs.issue }}
+          INPUT_STATUS: ${{ inputs.status }}
+          INPUT_FORCE: ${{ inputs.force }}
         run: |
-          python .github/scripts/project_status.py \
-            --issue "${{ inputs.issue }}" \
-            --status "${{ inputs.status }}" \
-            ${{ inputs.force && '--force' || '' }}
+          force=()
+          if [ "$INPUT_FORCE" = "true" ]; then force=(--force); fi
+          python .github/scripts/project_status.py --issue "$INPUT_ISSUE" --status "$INPUT_STATUS" "${force[@]}"
