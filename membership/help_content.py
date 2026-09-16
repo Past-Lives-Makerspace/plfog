@@ -1091,7 +1091,7 @@ The classes admin lives at `/classes/admin/`. Reach it from **Class Catalog** in
 The Overview's **Needs Attention** card lists everything waiting on you, under **Waiting on You**. Each row has two buttons:
 
 - **Approve** records your admin approval on the spot.
-- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Send Response** records it and emails the instructor.
+- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit** records it and emails the instructor.
 
 When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
@@ -1768,7 +1768,7 @@ The review page shows everything the class will publish with: description, sessi
 
 ### Make the Call
 
-Pick one of three responses and click **Send Response**:
+Pick one of three responses and click **Submit**:
 
 - **Approve.** You're vouching for the class; it moves on to the admin gate.
 - **Ask for changes.** Notes are required so the instructor knows what to work on. The class goes back to draft; they edit and resubmit, and a fresh review round starts with you.
