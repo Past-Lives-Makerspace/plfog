@@ -1883,6 +1883,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.sale_banner_text.strip() or DEFAULT_SALE_BANNER_TEXT
 
     @property
+    def has_imported_photo_only(self) -> bool:
+        """True when the class's only photo is one imported from the legacy class site.
+
+        The composer's crop box cannot position such a photo (the saved box is read
+        against an uploaded file's dimensions), so the editor withholds it and points at
+        Adjust on the preview instead, and the form does not pre-fill a saved box.
+        """
+        return bool(self.legacy_image_url) and not self.image.name
+
+    @property
     def hero_image_url(self) -> str:
         """The class's own hero photo as a URL, or "" when it has none.
 

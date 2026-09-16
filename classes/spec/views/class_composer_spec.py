@@ -10,6 +10,7 @@ from html import unescape
 from html.parser import HTMLParser
 
 import pytest
+from django.contrib.contenttypes.models import ContentType
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
@@ -178,6 +179,40 @@ def _still_missing(html: str) -> str:
     if opener not in html:
         return ""
     return html.partition(opener)[2].partition("</section>")[0]
+
+
+LEGACY_PHOTO = "https://classes.pastlives.space/sites/default/files/glen.jpg"
+
+IMPORTED_PHOTO_NOTE = (
+    "This photo came over from the old class site, so the crop box is off for it. "
+    "To choose which part shows on the banner, click Preview and use Adjust under the photo. "
+    "Upload a new photo to crop it here."
+)
+
+
+def _hero_preview_img(html: str) -> str:
+    """The opening tag of the photo inside #hero-preview, or "" when the preview is empty."""
+    preview = html.partition('id="hero-preview"')[2].partition("</div>")[0]
+    match = re.search(r"<img[^>]*>", preview)
+    return match.group(0) if match else ""
+
+
+def _legacy_note_text(html: str) -> str:
+    """The imported photo note's text with whitespace collapsed, or "" when none rendered."""
+    match = re.search(r'<p[^>]*id="hero-legacy-note"[^>]*>(.*?)</p>', html, re.DOTALL)
+    return " ".join(match.group(1).split()) if match else ""
+
+
+def _crop_hint_tag(html: str) -> str:
+    """The opening tag of the banner pane's crop hint."""
+    match = re.search(r'<p[^>]*id="hero-crop-hint"[^>]*>', html)
+    assert match is not None, "no crop hint rendered"
+    return match.group(0)
+
+
+def _hero_crop_value(html: str) -> str:
+    """The value the rendered hidden hero_crop input would post back."""
+    return _untouched_form_values(html)["hero_crop"]
 
 
 @pytest.fixture
@@ -390,26 +425,42 @@ def describe_teach_composer_get():
         assert "Add a photo above and the sliders appear." not in html
 
     def it_says_an_imported_photo_counts_on_the_photos_step(instructor_fixture, client):
-        """A legacy only class has its own hero: the note, the preview, and a ticked checklist."""
+        """A legacy only class has its own hero: the note, the preview, and a ticked checklist.
+
+        The crop box cannot position an imported photo, so the preview carries no cropper
+        hook, the box hint is hidden, and the note sends the editor to Adjust instead.
+        """
         offering = ClassOfferingFactory(
             instructor=instructor_fixture,
             status=Status.DRAFT,
             ready=True,
             image="",
-            legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
+            legacy_image_url=LEGACY_PHOTO,
         )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert (
-            "This photo came over from the old class site. Everything here works the same. "
-            "Upload a new one to replace it." in html
-        )
-        hero = html.split('id="hero-preview"')[1].split("</div>")[0]
+        assert _legacy_note_text(html) == IMPORTED_PHOTO_NOTE
+        assert "Everything here works the same." not in html
+        hero = _hero_preview_img(html)
         assert "_legacy-image/?url=https%3A%2F%2Fclasses.pastlives.space" in hero
-        assert "data-hero-cropper-preview" in hero
+        assert unescape(re.search(r'src="([^"]*)"', hero).group(1)) == offering.hero_image_url  # type: ignore[union-attr]
+        assert "data-hero-cropper-preview" not in hero
+        assert re.search(r"\bhidden\b", _crop_hint_tag(html))
         assert "Replace image" in html
         assert "Add a hero photo." not in html
         assert html.count("pl-phase-tab--done") == 3
+
+    def it_offers_the_crop_box_on_an_uploaded_photo(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-hero-cropper-preview" in _hero_preview_img(html)
+        assert not re.search(r"\bhidden\b", _crop_hint_tag(html))
+
+    def it_shows_the_crop_hint_before_the_first_save(instructor_fixture, client):
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        assert not re.search(r"\bhidden\b", _crop_hint_tag(html))
 
     def it_says_nothing_about_the_old_site_for_an_uploaded_photo(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
@@ -549,6 +600,43 @@ def describe_teach_composer_post():
             180,
         )
         assert "Draft saved." in _messages(resp)
+
+    def it_keeps_an_adjust_focal_point_on_an_imported_photo_through_a_composer_save(instructor_fixture, client):
+        """A Save from a composer opened before an Adjust must not write the dead box back."""
+        offering = ClassOfferingFactory(
+            instructor=instructor_fixture,
+            status=Status.DRAFT,
+            image="",
+            legacy_image_url=LEGACY_PHOTO,
+            hero_crop_x=100,
+            hero_crop_y=50,
+            hero_crop_w=800,
+            hero_crop_h=450,
+            card_focus_x=None,
+            card_focus_y=None,
+        )
+        # The saved box is ignored on an imported photo: the bug as reported.
+        assert offering.card_object_position == "50% 50%"
+        client.force_login(instructor_fixture.user)
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        rendered_crop = _hero_crop_value(client.get(edit).content.decode())
+
+        adjust = client.post(
+            reverse("hub_hero_adjust"),
+            {
+                "content_type_id": ContentType.objects.get_for_model(ClassOffering).pk,
+                "object_id": offering.pk,
+                "crop": {"x": 30, "y": 70, "w": 0, "h": 0},
+            },
+            content_type="application/json",
+        )
+        assert adjust.status_code == 200
+
+        resp = client.post(edit, _full_payload(CategoryFactory(), hero_crop=rendered_crop, card_focus=""))
+        assert resp.status_code == 302
+        offering.refresh_from_db()
+        assert offering.hero_object_position == "30% 70%"
+        assert offering.card_object_position == "30% 70%"
 
     def it_shrinks_a_create_mode_crop_with_the_downsized_upload(instructor_fixture, client, settings):
         # Create mode crops the original file (the FileReader preview); save() then caps the long
@@ -725,6 +813,16 @@ def describe_admin_composer():
         assert reverse("classes:admin_discount_code_create") in html
         assert reverse("classes:teach_discount_code_create") not in html
         assert f'href="{reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})}">Cancel</a>' in html
+
+    def it_withholds_the_crop_box_on_an_imported_photo(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT, image="", legacy_image_url=LEGACY_PHOTO)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        hero = _hero_preview_img(html)
+        assert unescape(re.search(r'src="([^"]*)"', hero).group(1)) == offering.hero_image_url  # type: ignore[union-attr]
+        assert "data-hero-cropper-preview" not in hero
+        assert _legacy_note_text(html) == IMPORTED_PHOTO_NOTE
+        assert re.search(r"\bhidden\b", _crop_hint_tag(html))
 
     def it_says_save_and_offers_no_publish_on_a_live_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED)
