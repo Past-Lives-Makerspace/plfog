@@ -36,13 +36,13 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
             {% if current_image_url %}
             <img src="{{ current_image_url }}"
                  alt="Current hero image"
-                 data-hero-cropper-preview
+                 {% if not offering.has_imported_photo_only %}data-hero-cropper-preview{% endif %}
                  style="max-width:100%;max-height:320px;object-fit:contain;border-radius:6px;border:1px solid var(--hub-border,#1a4568);display:block;">
             {% endif %}
         </div>
-        {% if offering.legacy_image_url and not offering.image %}
-        {# An imported photo is the class's own photo; the cropper mounts on it exactly as on an upload. #}
-        <p class="pl-field-hint" id="hero-legacy-note">This photo came over from the old class site. Everything here works the same. Upload a new one to replace it.</p>
+        {% if offering.has_imported_photo_only %}
+        {# The crop box cannot position an imported photo, so it is withheld; Adjust on the preview can. #}
+        <p class="pl-field-hint" id="hero-legacy-note">This photo came over from the old class site, so the crop box is off for it. To choose which part shows on the banner, click Preview and use Adjust under the photo. Upload a new photo to crop it here.</p>
         {% endif %}
         <label class="cls-image-upload-zone" id="hero-upload-zone" style="margin-bottom:0.5rem;">
             <input type="file" accept="image/*" id="hero-file-input" style="display:none;">
@@ -88,6 +88,9 @@ static/js/hero_cropper.js defines to mount Cropper.js on the new img once it has
                     // The upload replaced an imported photo: its note no longer applies.
                     const legacyNote = document.getElementById('hero-legacy-note');
                     if (legacyNote) legacyNote.remove();
+                    // The new photo gets the crop box, so its hint shows again.
+                    const cropHint = document.getElementById('hero-crop-hint');
+                    if (cropHint) cropHint.hidden = false;
                     // A new photo has no crop yet; the server cleared its copy on upload.
                     const cropInput = document.querySelector('[data-hero-crop-input]');
                     if (cropInput) cropInput.value = '';

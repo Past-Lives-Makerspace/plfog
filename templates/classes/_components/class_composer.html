@@ -238,7 +238,7 @@ Do not merge them.
         <div class="pl-crop-pair">
           <div class="pl-crop-pane">
             <p class="pl-crop-pane__label">Class Page Banner</p>
-            <p class="pl-crop-pane__hint">Drag the box. Everything outside it is cut off.</p>
+            <p class="pl-crop-pane__hint" id="hero-crop-hint"{% if offering.has_imported_photo_only %} hidden{% endif %}>Drag the box. Everything outside it is cut off.</p>
             {% include "classes/_components/hero_image_field.html" with field=form.image current_image_url=offering.hero_image_url crop_field=form.hero_crop offering=offering %}
           </div>
           <div class="pl-crop-pane">

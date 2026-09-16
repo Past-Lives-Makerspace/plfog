@@ -199,6 +199,22 @@ def describe_HeroCropMixin():
             parsed = json.loads(initial)
             assert parsed == {"x": 10, "y": 20, "w": 300, "h": 200}
 
+        def it_leaves_initial_empty_on_a_class_whose_only_photo_is_imported():
+            # The composer withholds the crop box on an imported photo; pre-filling the
+            # saved box would let a Save write it back over a focal point set with Adjust.
+            offering = ClassOfferingFactory(
+                price_cents=5000,
+                member_discount_pct=10,
+                image="",
+                legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
+                hero_crop_x=10,
+                hero_crop_y=20,
+                hero_crop_w=300,
+                hero_crop_h=200,
+            )
+            form = ClassOfferingForm(instance=offering)
+            assert form.fields["hero_crop"].initial == ""
+
         def it_leaves_initial_empty_when_crop_dimensions_are_zero():
             offering = ClassOfferingFactory(price_cents=5000, member_discount_pct=10)
             # hero_crop_w and hero_crop_h default to 0 — no saved crop

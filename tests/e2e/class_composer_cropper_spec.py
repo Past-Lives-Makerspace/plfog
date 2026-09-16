@@ -13,6 +13,7 @@ Run with ``pytest -m e2e``.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import threading
@@ -97,6 +98,12 @@ def _seed_draft_with_square_photo(instructor: Member) -> ClassOffering:
 def _png(path: Path, width: int, height: int) -> Path:
     Image.new("RGB", (width, height), (40, 90, 160)).save(path, "PNG")
     return path
+
+
+def _png_bytes(width: int, height: int) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (160, 90, 40)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 def _open_photos_step(page, live_server, url_name: str, **kwargs) -> None:
@@ -330,3 +337,63 @@ def describe_hero_cropper():
         assert _width(page, FRAME) > COLLAPSED_WIDTH
         busted = [url for url in requests if "timestamp=" in url]
         assert not busted, busted
+
+    def it_withholds_the_frame_on_an_imported_photo_until_a_new_photo_is_uploaded(
+        live_server, page, login_via_code, serve_media, tmp_path
+    ):
+        # A saved box cannot position an imported photo (issue #378), so the composer
+        # offers no frame on one and points at Adjust instead. The proxy is same origin,
+        # so a routed reply stands in for the old class site and the photo really loads.
+        # Routed on the context, not the page: the hub's service worker fetches images
+        # itself, and a page route never sees a request the worker makes.
+        offering = cast(
+            ClassOffering,
+            ClassOfferingFactory(
+                instructor=_seed_instructor(),
+                status=ClassOffering.Status.DRAFT,
+                ready=True,
+                image="",
+                legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
+            ),
+        )
+        imported = _png_bytes(1200, 1200)
+        page.context.route(
+            re.compile(r"/_legacy-image/\?"), lambda route: route.fulfill(content_type="image/png", body=imported)
+        )
+        page.add_init_script(
+            "window.addEventListener('composer-step-shown', e => {"
+            " window.__stepsShown = (window.__stepsShown || []).concat(e.detail.step); });"
+        )
+        login_via_code(EMAIL)
+        _open_photos_step(page, live_server, "classes:teach_class_edit", pk=offering.pk)
+
+        # Wait for everything a frame needs: the photo's pixels, the Photos step's
+        # reveal, and Cropper.js itself. Where the frame is offered, the mount sets
+        # img.cropper synchronously at that point, so its absence now is a real absence.
+        page.wait_for_function(
+            """() => {
+                const img = document.querySelector('#hero-preview img');
+                return !!(img && img.complete && img.naturalWidth > 0
+                    && (window.__stepsShown || []).includes(2) && window.Cropper);
+            }"""
+        )
+        page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        mounted = page.evaluate(
+            """() => ({
+                cropper: !!document.querySelector('#hero-preview img').cropper,
+                frames: document.querySelectorAll('.cropper-container').length,
+            })"""
+        )
+        assert mounted == {"cropper": False, "frames": 0}
+        expect(page.locator("#hero-legacy-note")).to_be_visible()
+        expect(page.locator("#hero-crop-hint")).to_be_hidden()
+
+        page.locator("#hero-file-input").set_input_files(str(_png(tmp_path / "replacement.png", 900, 600)))
+
+        expect(page.locator("#hero-legacy-note")).to_have_count(0)
+        expect(page.locator("#hero-crop-hint")).to_be_visible()
+        frame = page.locator(f"#hero-preview {FRAME}")
+        expect(frame).to_have_count(1)
+        expect(frame).to_be_visible()
+        offering.refresh_from_db()
+        assert "replacement" in offering.image.name

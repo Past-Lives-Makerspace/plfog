@@ -123,7 +123,15 @@ class _HeroCropMixin:
     def add_hero_crop_field(self) -> None:
         instance = getattr(self, "instance", None)
         initial = ""
-        if instance and instance.pk and instance.hero_crop_w and instance.hero_crop_h:
+        # No box is offered on an imported photo, so none is pre-filled: posting it back
+        # would overwrite a focal point set with Adjust on the preview.
+        if (
+            instance
+            and instance.pk
+            and instance.hero_crop_w
+            and instance.hero_crop_h
+            and not instance.has_imported_photo_only
+        ):
             initial = json.dumps(
                 {
                     "x": instance.hero_crop_x or 0,
