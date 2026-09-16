@@ -59,7 +59,7 @@ def clear_selectors(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("core", "0076_biometriccredential"),
+        ("core", "0084_alter_siteconfiguration_signage_show_calendar_and_more"),
     ]
 
     operations = [
