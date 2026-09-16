@@ -6923,10 +6923,9 @@ def _activated_member_count() -> int:
 
 def _release_announcement_initial() -> dict[str, str]:
     """Prefilled subject / preheader / intro for a fresh Release-mode draft."""
-    from core.release_email import current_line_entries
-    from plfog.version import VERSION
+    from core.release_email import current_release_entries
 
-    entries = current_line_entries(VERSION)
+    entries = current_release_entries()
     latest_title = str(entries[0]["title"]) if entries else "What's new"
     return {
         "subject": f"Heads-Up: New Member Portal Features — {latest_title}",

@@ -2,8 +2,9 @@
 
 The all-members twin of ``send_release_email_test`` (which sends only to one inbox).
 It mirrors ``send_site_announcement``'s emit-to-all fan-out but carries the RELEASE-email
-content: a multi-line span of the CHANGELOG (``--lines 0.20,0.21`` covers both feature
-batches in one email), each feature's screenshot from R2, and the branded hybrid layout.
+content: by default every feature shipped since the last changelog sweep, each feature's
+screenshot from R2, and the branded hybrid layout. ``--lines 0.20,0.21`` reaches back into
+already-swept release lines instead, for re-sending an old email.
 The pre-rendered HTML rides as a per-channel EMAIL override so the spine does not
 autoescape it (same trust boundary as ``send_site_announcement``).
 
@@ -11,13 +12,15 @@ SAFETY GUARD — this is a send-to-EVERY-activated-member capability, so it neve
 accident. Without ``--confirm`` it sends NOTHING: it renders the email, resolves the
 audience READ-ONLY (the same resolver the real send uses, so the count matches), and
 prints what it WOULD do. Only ``--confirm`` actually emits. The ``period`` is derived
-from the VERSION + selected lines (not a timestamp), so a confirmed retry with the same
+from the VERSION + selected scope (not a timestamp), so a confirmed retry with the same
 scope is idempotent — the delivery ledger dedupes it and no member is emailed twice.
 
 Usage (Render one-off job):
     # Dry run — prints the subject, card count, and recipient count; sends nothing:
-    python manage.py send_release_email --lines 0.20,0.21
-    # Real send (spans the 0.20 + 0.21 feature batches in one email):
+    python manage.py send_release_email
+    # Real send (everything shipped since the last sweep):
+    python manage.py send_release_email --confirm
+    # Re-send an old, already-swept pair of release lines:
     python manage.py send_release_email --lines 0.20,0.21 --confirm
 """
 
@@ -42,7 +45,10 @@ class Command(BaseCommand):
             "--lines",
             type=str,
             default="",
-            help="Comma-separated MAJOR.MINOR lines to span, e.g. 0.20,0.21. Default: the current line of VERSION.",
+            help=(
+                "Comma-separated MAJOR.MINOR lines of ALREADY-SWEPT releases to span, e.g. 0.20,0.21. "
+                "Default: everything shipped since the last sweep (changelog.d/)."
+            ),
         )
         parser.add_argument(
             "--subject",
@@ -73,7 +79,7 @@ class Command(BaseCommand):
         from core.events.emit import emit
         from core.events.registry import get_event
         from core.release_email import build_release_cards, parse_lines, render_release_email
-        from plfog.version import VERSION
+        from plfog.version import BASE_VERSION, VERSION
 
         lines = None
         if options["lines"]:
@@ -82,10 +88,10 @@ class Command(BaseCommand):
             except ValueError as exc:
                 raise CommandError(str(exc))
 
-        cards = build_release_cards(VERSION, lines=lines)
+        cards = build_release_cards(lines=lines)
         if not cards:
-            scope = ", ".join(lines) if lines else _current_minor(VERSION)
-            raise CommandError(f"No changelog entries for line(s) {scope} — nothing to send.")
+            scope = ", ".join(lines) if lines else f"since v{BASE_VERSION}"
+            raise CommandError(f"No changelog entries for {scope} — nothing to send.")
 
         subject = (options["subject"] or "").strip() or f"Heads-Up: New Member Portal Features — {cards[0].title}"
         intro = self._resolve_intro(options["intro"])
@@ -102,7 +108,7 @@ class Command(BaseCommand):
         # dry-run count equals the send count. Resolving recipients does not send anything.
         event = get_event("site_announcement")
         recipient_count = len(resolvers.resolve(event.recipient, {}))
-        scope_label = ", ".join(lines) if lines else f"current ({_current_minor(VERSION)})"
+        scope_label = ", ".join(lines) if lines else f"current batch (since v{BASE_VERSION})"
 
         if not options["confirm"]:
             self.stdout.write("DRY RUN — no email sent. Re-run with --confirm to send.")
@@ -122,7 +128,7 @@ class Command(BaseCommand):
         )
         # Deterministic period keyed to the release + scope: a retry with the same args
         # reuses these delivery slots, so the ledger dedupes it — no member is double-sent.
-        period = f"release:{VERSION}:{'+'.join(lines) if lines else _current_minor(VERSION)}"
+        period = f"release:{VERSION}:{'+'.join(lines) if lines else 'current'}"
         result = emit(
             "site_announcement",
             context={
@@ -152,8 +158,3 @@ class Command(BaseCommand):
         """A one-line in-app/Discord body listing the features (the full copy rides the email)."""
         titles = "; ".join(card.title for card in cards[:5])
         return f"Here's what's new: {titles}."
-
-
-def _current_minor(version: str) -> str:
-    """The ``MAJOR.MINOR`` line of a full version string (``"0.21.4"`` → ``"0.21"``)."""
-    return ".".join(version.split(".")[:2])

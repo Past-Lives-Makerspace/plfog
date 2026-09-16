@@ -3507,7 +3507,7 @@ class ReleaseAnnouncementForm(forms.Form):
         from plfog.version import VERSION
 
         self.version = version or VERSION
-        self.cards = build_release_cards(self.version)
+        self.cards = build_release_cards()
         # Captured *before* any per-card override mutates screenshot_url: True when the
         # changelog named a shot for this card but it hasn't been captured yet — drives
         # the composer's "hasn't been captured" note.

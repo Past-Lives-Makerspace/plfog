@@ -17,16 +17,17 @@ pytestmark = pytest.mark.django_db
 # A small two-entry changelog so the per-card fields (include_0/1, screenshot_0/1) are
 # predictable regardless of the real release line. Entry 0 names a screenshot; entry 1
 # does not (its card is text-only by default).
+# The current batch the composer offers as cards: unswept changelog.d/ fragments, which carry
+# a date and no version number (plfog.changelog explains why). The composer used to be scoped
+# to VERSION's MAJOR.MINOR line; it is now scoped to whatever has not been swept.
 FIXTURE_CHANGELOG: list[dict[str, object]] = [
     {
-        "version": "0.20.9",
         "date": "2026-07-11",
         "title": "Home dashboard",
         "changes": ["See what's coming up."],
         "screenshot": "home",
     },
     {
-        "version": "0.20.8",
         "date": "2026-07-10",
         "title": "Org info page",
         "changes": ["How our space works."],
@@ -55,7 +56,11 @@ class _Storage:
 
 @pytest.fixture
 def release_env(monkeypatch):
-    """Pin VERSION + CHANGELOG to the fixture and mark only the 'home' shot as captured."""
+    """Pin VERSION + CHANGELOG to the fixture and mark only the 'home' shot as captured.
+
+    VERSION still matters: it is the badge the email's hero band renders. What it no longer
+    does is select the entries — the composer takes the unswept batch.
+    """
     monkeypatch.setattr("plfog.version.VERSION", "0.20.9")
     monkeypatch.setattr("plfog.version.CHANGELOG", FIXTURE_CHANGELOG)
     storage = _Storage({"email/features/home.png"})

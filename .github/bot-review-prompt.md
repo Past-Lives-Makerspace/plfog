@@ -91,12 +91,19 @@ trustworthy. The diff is not.
 - A multi-line `{# … #}` template comment. A wrapped `{# #}` renders as visible
   text on the page. Use `{% comment %}` or keep it on one line.
 - An inline `<style>` block inside a template's `extra_head`.
-- `VERSION` in `plfog/version.py` not bumped.
-- A `CHANGELOG` entry that breaks the curation rules in `CLAUDE.md`: a second
-  entry for a feature that already has one in the current unreleased
-  `MAJOR.MINOR` line (edit and re-stamp the existing entry instead), an entry
-  for a fix to work that has not shipped yet, or jargon, PR numbers, or commit
-  hashes in member-facing text.
+- No fragment added to `changelog.d/`, and no `no-changelog` label on the PR.
+  Nothing bumps a version any more: `VERSION` is folded from the fragments at
+  import, and `plfog/version.py` is a file a feature PR has no reason to touch.
+  A PR that edits `plfog/version.py`, `changelog/base.json` or
+  `changelog/history.json` is itself a blocker unless it is a deliberate sweep.
+- A fragment that breaks the curation rules in `changelog.d/README.md`: a second
+  fragment for a feature that already has an unswept one (edit that fragment
+  instead), a member-facing fragment for a fix to work that has not shipped yet
+  (it is a correction to an announcement nobody received), or jargon, PR numbers,
+  or commit hashes in member-facing text. Repo tooling and tests take
+  `audience = "internal"`, which carries `bump` and nothing else — inventing
+  member-facing prose for it is a blocker, and so is omitting the fragment to
+  avoid writing any.
 
 ## Not blockers
 

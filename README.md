@@ -154,28 +154,41 @@ suite. All of it must be green to merge.
 
 ## Versioning & changelog
 
-Every change that ships bumps the version in [`plfog/version.py`](plfog/version.py) (`VERSION`).
-Anything a member would notice also gets a `CHANGELOG` entry; a tooling or test change that
-members will never see deliberately gets none, and then nothing is announced, which is correct.
-That changelog is the **source of truth for the Discord release announcement**, so write entries
-in plain, member-friendly language — no jargon, PR numbers, or commit hashes. Members read these.
+**Every PR adds one file to [`changelog.d/`](changelog.d/) and never touches a version number.**
 
-**Editing `plfog/version.py` without moving `VERSION` fails the build, on purpose.** That exact
-shape once deployed a feature to production and announced it to nobody on a green Actions tab, so
-the **Discord Notifications** workflow now fails on it instead of skipping the announcement
-quietly. A red X on the Actions tab is the only alert; nothing is sent anywhere else.
+```toml
+# changelog.d/394-composer-drafts.toml
+bump = "minor"          # patch | minor | major
+date = "2026-09-13"
+title = "The class composer keeps what you typed"
+changes = [
+  "If the page reloads while writing a class, your next visit offers back what you had typed.",
+]
+```
 
-It is a narrow check, deliberately. A merge that does not touch `plfog/version.py` at all is not
-caught — the workflow does not even run — and neither is a release that bumps `VERSION` but stamps
-its entry at the wrong number. Getting the entry onto the right number is still a human job.
+[`changelog.d/README.md`](changelog.d/README.md) is the authoring contract. Entries are the
+**source of truth for the Discord release announcement**, so write them in plain, member-friendly
+language — no jargon, PR numbers, or commit hashes. Members read these. A tooling or test change
+members will never see takes `audience = "internal"` and nothing else: it moves the version and
+announces nothing, which is correct.
 
-To recover, run `gh workflow run discord-notify.yml`: a manual run posts unconditionally, whatever
-`VERSION` says. Check first whether members have already seen the entry sitting at the stuck
-`VERSION`, because the guard also fires on a typo fix to an entry that already went out, and a
-Discord post cannot be unsent. That call is a human's. `python manage.py announce_release` is
-**not** a companion to it — `release.published` is registered on Discord as well as email, so
-running both announces the same release twice. See [`CLAUDE.md`](CLAUDE.md) under "The release
-guard".
+`VERSION` and `CHANGELOG` in [`plfog/version.py`](plfog/version.py) are **computed at import**,
+folded from the fragments over [`changelog/base.json`](changelog/base.json) plus the frozen
+[`changelog/history.json`](changelog/history.json). Nothing writes the number down, so two PRs
+open at once cannot collide over it and a rebase cannot leave one stale. The machinery and the
+reasoning are in [`plfog/changelog.py`](plfog/changelog.py).
+
+**A pull request with no fragment and no `no-changelog` label fails CI.** That check replaced a
+post-merge guard that could only catch a narrower mistake, and only after Render had already
+deployed it.
+
+On merge, [`release.yml`](.github/workflows/release.yml) folds the version, pushes the tag, and
+announces **the fragments that push added** — so editing one that already shipped re-announces
+nothing. To re-send a post that failed, `gh workflow run release.yml`; check first whether members
+have already seen it, because a Discord post cannot be unsent. `python manage.py announce_release`
+is **not** a companion to it: `release.published` is registered on Discord as well as email, so
+running both announces the same release twice. See [`CLAUDE.md`](CLAUDE.md) under "Versioning &
+Changelog".
 
 ---
 

@@ -64,7 +64,13 @@ def describe_app_version():
         result = app_version(request)
         assert isinstance(result["changelog"], list)
         assert len(result["changelog"]) >= 1
-        assert result["changelog"][0]["version"] == CHANGELOG[0]["version"]
+        # Identity, not the version key: CHANGELOG[0] is a changelog.d/ fragment as soon as one
+        # member-facing fragment exists, and a fragment carries no version (plfog.changelog says
+        # why). Reading ["version"] here would raise a KeyError on the next feature PR anyone
+        # merges. What this spec is actually about is that the processor hands the template the
+        # composed list unaltered.
+        assert result["changelog"] == CHANGELOG
+        assert result["changelog"][0]["title"] == CHANGELOG[0]["title"]
 
 
 def describe_feature_flags():
