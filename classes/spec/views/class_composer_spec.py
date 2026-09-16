@@ -443,9 +443,11 @@ def describe_teach_composer_get():
         assert "Everything here works the same." not in html
         hero = _hero_preview_img(html)
         assert "_legacy-image/?url=https%3A%2F%2Fclasses.pastlives.space" in hero
-        assert unescape(re.search(r'src="([^"]*)"', hero).group(1)) == offering.hero_image_url  # type: ignore[union-attr]
+        src = re.search(r'src="([^"]*)"', hero)
+        assert src is not None, "no src on the hero preview"
+        assert unescape(src.group(1)) == offering.hero_image_url
         assert "data-hero-cropper-preview" not in hero
-        assert re.search(r"\bhidden\b", _crop_hint_tag(html))
+        assert _crop_hint_tag(html).endswith(" hidden>")
         assert "Replace image" in html
         assert "Add a hero photo." not in html
         assert html.count("pl-phase-tab--done") == 3
@@ -455,12 +457,12 @@ def describe_teach_composer_get():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "data-hero-cropper-preview" in _hero_preview_img(html)
-        assert not re.search(r"\bhidden\b", _crop_hint_tag(html))
+        assert not _crop_hint_tag(html).endswith(" hidden>")
 
     def it_shows_the_crop_hint_before_the_first_save(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        assert not re.search(r"\bhidden\b", _crop_hint_tag(html))
+        assert not _crop_hint_tag(html).endswith(" hidden>")
 
     def it_says_nothing_about_the_old_site_for_an_uploaded_photo(instructor_fixture, client):
         offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
@@ -819,10 +821,12 @@ def describe_admin_composer():
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
         hero = _hero_preview_img(html)
-        assert unescape(re.search(r'src="([^"]*)"', hero).group(1)) == offering.hero_image_url  # type: ignore[union-attr]
+        src = re.search(r'src="([^"]*)"', hero)
+        assert src is not None, "no src on the hero preview"
+        assert unescape(src.group(1)) == offering.hero_image_url
         assert "data-hero-cropper-preview" not in hero
         assert _legacy_note_text(html) == IMPORTED_PHOTO_NOTE
-        assert re.search(r"\bhidden\b", _crop_hint_tag(html))
+        assert _crop_hint_tag(html).endswith(" hidden>")
 
     def it_says_save_and_offers_no_publish_on_a_live_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED)

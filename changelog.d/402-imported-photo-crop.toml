@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-16"
+title = "Positioning a photo from the old class site"
+changes = [
+  "A class photo that came over from the old class site is now positioned from the class page: click Preview and use Adjust under the photo. The crop box in the class editor never moved these photos, so it no longer shows for them, and saving your class no longer undoes a spot you picked with Adjust.",
+  "Upload your own photo and the crop box comes back as usual.",
+]
