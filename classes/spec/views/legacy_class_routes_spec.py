@@ -193,6 +193,39 @@ def describe_a_post_to_a_legacy_path():
         assert offering.faqs.count() == 1
         assert offering.faqs.first().question == "What should I bring?"
 
+    def it_saves_a_welcome_email_posted_to_the_legacy_emails_path(admin_user, client, db):
+        # ``admin_class_emails`` is the second of the three legacy paths that take a POST
+        # without ``@require_POST``, so a RedirectView here would silently drop the body an
+        # instructor had just written. Posting through the LEGACY name is the point: a test
+        # that posts to the merged name passes even if this entry is rewired to a redirect.
+        offering = ClassOfferingFactory(slug="legacy-emails", status=Status.PUBLISHED)
+        client.force_login(admin_user)
+        response = client.post(
+            reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}),
+            {
+                "welcome_email_enabled": "on",
+                "welcome_email_subject": "Welcome to the class",
+                "welcome_email_body": "Bring an apron and closed-toe shoes.",
+            },
+        )
+        assert response.status_code == 302
+        offering.refresh_from_db()
+        assert offering.welcome_email_subject == "Welcome to the class"
+        assert offering.welcome_email_body == "Bring an apron and closed-toe shoes."
+
+    def it_creates_the_new_run_posted_to_the_legacy_duplicate_path(admin_user, client, db):
+        # ``admin_class_duplicate_run`` is the third. A GET of it only redirects, so the
+        # created run is the only proof the POST executed rather than being bounced.
+        offering = ClassOfferingFactory(slug="legacy-duplicate", status=Status.PUBLISHED)
+        client.force_login(admin_user)
+        before = ClassOffering.objects.count()
+        response = client.post(reverse("classes:admin_class_duplicate_run", kwargs={"pk": offering.pk}))
+        assert response.status_code == 302
+        assert ClassOffering.objects.count() == before + 1
+        run = ClassOffering.objects.exclude(pk=offering.pk).latest("pk")
+        assert run.status == Status.DRAFT
+        assert response["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": run.pk})
+
     def it_dispatches_a_cancel_post_rather_than_bouncing_it(admin_user, client, db):
         offering = ClassOfferingFactory(slug="legacy-cancel", status=Status.PUBLISHED)
         starts = timezone.now() + timedelta(days=10)

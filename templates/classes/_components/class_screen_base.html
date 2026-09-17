@@ -71,7 +71,7 @@ sentence says the class is in the guild rather than naming the reader a lead, wh
 a lead, a staffer and an officer alike.{% endcomment %}
 <div class="pl-class-context">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="pl-class-context__icon"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-    <span>{% if offering.category.guild %}This class is in the <strong>{{ offering.category.guild.name }}</strong> guild, so you can edit it and write its welcome email.{% else %}You can edit this class and write its welcome email.{% endif %} Sign-ups, the waitlist and cancelling belong to {% if offering.instructor %}<strong>{{ offering.instructor.display_name }}</strong>, who teaches it{% else %}whoever teaches it{% endif %}.</span>
+    <span>{% if guild_grants_access %}This class is in the <strong>{{ offering.category.guild.name }}</strong> guild, so you can edit it and write its welcome email.{% else %}You can edit this class and write its welcome email.{% endif %} Sign-ups, the waitlist and cancelling belong to {% if offering.instructor %}<strong>{{ offering.instructor.display_name }}</strong>, who teaches it{% else %}whoever teaches it{% endif %}.</span>
 </div>
 {% endif %}
 {% block detail_content %}{% endblock %}

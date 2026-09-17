@@ -83,7 +83,6 @@ class ClassAccess:
 
     role: str
     shell: str
-    landing_tab: str
     can_view_overview: bool
     can_view_registrations: bool
     can_view_waitlist: bool
@@ -110,7 +109,6 @@ def _admin_access() -> ClassAccess:
     return ClassAccess(
         role=ROLE_ADMIN,
         shell=ADMIN_SHELL,
-        landing_tab=TAB_OVERVIEW,
         can_view_overview=True,
         can_view_registrations=True,
         can_view_waitlist=True,
@@ -135,7 +133,6 @@ def _reviewer_access() -> ClassAccess:
     return ClassAccess(
         role=ROLE_REVIEWER,
         shell=ADMIN_SHELL,
-        landing_tab=TAB_OVERVIEW,
         can_view_overview=True,
         can_view_registrations=False,
         can_view_waitlist=False,
@@ -160,7 +157,6 @@ def _instructor_access() -> ClassAccess:
     return ClassAccess(
         role=ROLE_INSTRUCTOR,
         shell=TEACH_SHELL,
-        landing_tab=TAB_OVERVIEW,
         can_view_overview=True,
         can_view_registrations=True,
         can_view_waitlist=True,
@@ -184,7 +180,6 @@ def _guild_access() -> ClassAccess:
     return ClassAccess(
         role=ROLE_GUILD,
         shell=TEACH_SHELL,
-        landing_tab=TAB_EMAILS,
         can_view_overview=False,
         can_view_registrations=False,
         can_view_waitlist=False,
@@ -200,7 +195,7 @@ def _guild_access() -> ClassAccess:
     )
 
 
-def _leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
+def leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
     """Ruling 23's population: the lead or a staffer of the class's category guild.
 
     This does **not** decide admission — :func:`membership.permissions.can_edit_class`
@@ -255,7 +250,7 @@ def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
        should see what a member sees.
     3. Teaching access and the class's instructor — the instructor set.
     4. :func:`membership.permissions.can_edit_class`, plus either teaching access or
-       ruling 23's waiver (:func:`_leads_or_staffs`) — the guild set. Legs 1 and 3 have
+       ruling 23's waiver (:func:`leads_or_staffs`) — the guild set. Legs 1 and 3 have
        already caught admins and the instructor, so what this leg adds is exactly guild
        lead-or-staff.
 
@@ -283,7 +278,7 @@ def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
         return _reviewer_access()
     if member.can_create_classes and offering.instructor_id == member.pk:
         return _instructor_access()
-    if can_edit_class(request, offering) and (member.can_create_classes or _leads_or_staffs(member, offering)):
+    if can_edit_class(request, offering) and (member.can_create_classes or leads_or_staffs(member, offering)):
         return _guild_access()
     return None
 
@@ -299,14 +294,28 @@ def class_screen_required(view_func: _ViewFunc) -> _ViewFunc:
     get back out; a bare ``HttpResponseForbidden`` strands them on unstyled plain text.
     A 404 also declines to confirm that the class exists.
 
-    The offering is fetched plainly — the per-view prefetches stay in the views, where
-    each screen knows what it is about to render.
+    The fetch follows the two forward keys the *shared* chrome reads, and nothing else.
+    Every tab now extends ``class_screen_base.html``, whose header names the instructor and
+    the category, so fetching plainly cost Registrations, Waitlist, Discount Codes and
+    Emails two extra queries each — the pre-merge headers on those tabs named neither.
+    ``select_related`` is a join on a fetch that happens anyway, so it costs nothing on the
+    action routes that never render a header.
+
+    ``sessions`` is deliberately NOT prefetched. For a single object a prefetch is one query
+    either way, so it would save the header nothing and would add a query to every POST-only
+    route under this decorator — ``teach_submit_spec``'s "one sessions query" budget catches
+    exactly that. Anything a single tab needs beyond the header stays that tab's business:
+    the Overview re-fetches through ``_class_screen_offering`` for its sessions and its
+    registration count.
     """
 
     @wraps(view_func)
     @login_required
     def wrapper(request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
-        offering = get_object_or_404(ClassOffering, pk=pk)
+        offering = get_object_or_404(
+            ClassOffering.objects.select_related("instructor", "category__guild"),
+            pk=pk,
+        )
         access = class_access(request, offering)
         if access is None:
             raise Http404("No class management screen for this viewer.")

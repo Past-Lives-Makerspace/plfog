@@ -56,9 +56,11 @@ from hub.view_as import classes_review_access_required, refund_authority_require
 
 from classes.access import (
     ADMIN_SHELL,
+    ROLE_GUILD,
     ROLE_INSTRUCTOR,
     TEACH_SHELL,
     ClassAccess,
+    leads_or_staffs,
     class_access,
     class_screen_required,
 )
@@ -1360,10 +1362,7 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
     )
     queue: list[dict] = []
     for offering in offerings:
-        gl_row = next(
-            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
-            None,
-        )
+        gl_row = offering.open_guild_lead_approval
         if gl_row is not None:
             queue.append({"offering": offering, "token": gl_row.token})
     return queue
@@ -1616,8 +1615,8 @@ def _composer_context(
     is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
     missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
-        cancel_name = "classes:teach_class_detail" if is_admin else "classes:teach_class_detail"
-        cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
+        # One screen now, so Cancel goes to the same place for every role.
+        cancel_url = reverse("classes:teach_class_detail", kwargs={"pk": saved.pk})
     else:
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
     from membership.permissions import can_print_class_marketing
@@ -2146,14 +2145,16 @@ def _class_screen_context(request: HttpRequest, offering: ClassOffering, subtab:
     the instructor's own "My Classes" tab are now two rows of one strip and so need two keys.
     """
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    viewer = getattr(request.user, "member", None)
     return {
         "active_tab": "classes" if access.can_administer else "my_classes",
         "active_subtab": subtab,
         "access": access,
         "screen_shell": access.shell,
-        "instructor": getattr(request.user, "member", None),
+        "instructor": viewer,
         "offering": offering,
         "can_edit_now": _class_is_editable_now(access, offering),
+        "guild_grants_access": (access.role == ROLE_GUILD and viewer is not None and leads_or_staffs(viewer, offering)),
         **_class_workspace_counts(offering),
     }
 

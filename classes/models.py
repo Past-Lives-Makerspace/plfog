@@ -2025,6 +2025,37 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").exists()
 
     @property
+    def open_guild_lead_approval(self) -> ClassApproval | None:
+        """This class's undecided ``GUILD_LEAD`` approval row, or None.
+
+        The row carries the token a guild lead follows to review the class without admin
+        access, so both review queues — the teaching dashboard's and the guild page's —
+        need the row itself rather than the existence check ``_has_open_guild_gate``
+        makes. Read from ``approvals.all()`` so a caller that prefetched pays no query.
+        """
+        return next(
+            (a for a in self.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
+            None,
+        )
+
+    @property
+    def guild_lead_approved_at(self) -> datetime | None:
+        """When this class's guild-lead gate was approved, or None if it has not been.
+
+        The other half of :attr:`open_guild_lead_approval`: once the lead has decided, the
+        guild page shows when, on the row that is now waiting on an admin.
+        """
+        row = next(
+            (
+                a
+                for a in self.approvals.all()
+                if a.role == ClassApproval.Role.GUILD_LEAD and a.decision == ClassApproval.Decision.APPROVED
+            ),
+            None,
+        )
+        return row.decided_at if row is not None else None
+
+    @property
     def _is_bounced(self) -> bool:
         annotated = getattr(self, "bounced", None)
         if annotated is not None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any, cast
 
@@ -30,7 +30,7 @@ from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
-from classes.models import Category, ClassApproval, ClassOffering
+from classes.models import Category, ClassOffering
 from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
@@ -827,19 +827,6 @@ def _orientation_split_percents() -> dict[str, Any]:
     }
 
 
-def _guild_lead_approved_at(offering: ClassOffering) -> datetime | None:
-    """When this class's guild-lead gate was approved, read from the prefetched rows."""
-    row = next(
-        (
-            a
-            for a in offering.approvals.all()
-            if a.role == ClassApproval.Role.GUILD_LEAD and a.decision == ClassApproval.Decision.APPROVED
-        ),
-        None,
-    )
-    return row.decided_at if row is not None else None
-
-
 def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, Any]:
     """The guild edit page's Needs Attention section: class reviews waiting on this guild.
 
@@ -892,16 +879,13 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
     can_open = sample is not None and _can_edit_offering(request, sample)
     review: list[dict[str, Any]] = []
     for offering in pending:
-        gate = next(
-            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
-            None,
-        )
+        gate = offering.open_guild_lead_approval
         if gate is not None:
             review.append(
                 {"offering": offering, "token": gate.token, "submitted_at": gate.created_at, "can_open": can_open}
             )
     awaiting = [
-        {"offering": offering, "approved_at": _guild_lead_approved_at(offering), "can_open": can_open}
+        {"offering": offering, "approved_at": offering.guild_lead_approved_at, "can_open": can_open}
         for offering in approved
     ]
     return {

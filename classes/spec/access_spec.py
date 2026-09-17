@@ -21,8 +21,6 @@ from classes.access import (
     ROLE_GUILD,
     ROLE_INSTRUCTOR,
     ROLE_REVIEWER,
-    TAB_EMAILS,
-    TAB_OVERVIEW,
     TEACH_SHELL,
     ClassAccess,
     class_access,
@@ -110,9 +108,6 @@ def describe_the_admin_capability_set():
     def it_renders_in_the_admin_shell(admin_access):
         assert admin_access.shell == ADMIN_SHELL
 
-    def it_lands_on_overview(admin_access):
-        assert admin_access.landing_tab == TAB_OVERVIEW
-
     def it_can_view_overview(admin_access):
         assert admin_access.can_view_overview is True
 
@@ -167,9 +162,6 @@ def describe_the_reviewer_capability_set():
     def it_renders_in_the_admin_shell(reviewer_access):
         assert reviewer_access.shell == ADMIN_SHELL
 
-    def it_lands_on_overview(reviewer_access):
-        assert reviewer_access.landing_tab == TAB_OVERVIEW
-
     def it_can_view_overview(reviewer_access):
         assert reviewer_access.can_view_overview is True
 
@@ -217,9 +209,6 @@ def describe_the_instructor_capability_set():
 
     def it_renders_in_the_teaching_shell(instructor_access):
         assert instructor_access.shell == TEACH_SHELL
-
-    def it_lands_on_overview(instructor_access):
-        assert instructor_access.landing_tab == TAB_OVERVIEW
 
     def it_can_view_overview(instructor_access):
         assert instructor_access.can_view_overview is True
@@ -291,10 +280,6 @@ def describe_the_guild_capability_set():
 
     def it_renders_in_the_teaching_shell(guild_access):
         assert guild_access.shell == TEACH_SHELL
-
-    def it_lands_on_emails(guild_access):
-        # Ruling 12: no Overview on a class they do not teach, so Emails is the landing tab.
-        assert guild_access.landing_tab == TAB_EMAILS
 
     def it_cannot_view_overview(guild_access):
         assert guild_access.can_view_overview is False
@@ -425,7 +410,6 @@ def describe_a_guild_lead_who_is_also_the_instructor():
         assert access.can_view_overview is True
         assert access.can_view_registrations is True
         assert access.can_submit is True
-        assert access.landing_tab == TAB_OVERVIEW
 
 
 def describe_a_class_approver_who_is_not_an_admin():
@@ -696,7 +680,7 @@ def describe_a_class_whose_category_has_no_guild():
 
     def it_denies_a_fog_guild_officer_without_teaching_access(db):
         # Ruling 6: the waiver cannot cover them, and a NULL guild is exactly where
-        # _leads_or_staffs would raise if it read guild.guild_lead_id unguarded.
+        # leads_or_staffs would raise if it read guild.guild_lead_id unguarded.
         user, _member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
         assert class_access(_request(user), offering) is None

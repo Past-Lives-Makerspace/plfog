@@ -205,6 +205,7 @@ def describe_context_processor():
             "label": "Host a Workshop",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
+            "teaches": False,
         }
         _unlock(plain_user)
         request.user = type(plain_user).objects.get(pk=plain_user.pk)
@@ -214,6 +215,7 @@ def describe_context_processor():
             "label": "Teaching",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
+            "teaches": True,
         }
 
     def it_gives_anonymous_visitors_no_teach_entry(rf):
@@ -259,11 +261,15 @@ def describe_host_a_workshop_switch():
         request.user = plain_user
         assert hub_sidebar(request)["teach_nav"]["label"] == "Host a Workshop"
 
-    def it_drops_the_invitation_for_a_member_who_cannot_teach_while_off(plain_user, rf):
+    def it_marks_the_invitation_as_the_branch_the_switch_hides(plain_user, rf):
+        # The switch is applied in the sidebar template, against the ``host_a_workshop_enabled``
+        # that ``core.context_processors.feature_flags`` already supplies — reading it here too
+        # would cost a query on every page in the app. ``teaches`` is what the template gates on,
+        # and ``it_removes_the_rendered_sidebar_entry_when_off`` below asserts what a member sees.
         _turn_host_a_workshop(False)
         request = rf.get("/")
         request.user = plain_user
-        assert hub_sidebar(request)["teach_nav"] is None
+        assert hub_sidebar(request)["teach_nav"]["teaches"] is False
 
     def it_keeps_the_teaching_entry_for_an_instructor_while_on(plain_user, rf):
         _unlock(plain_user)

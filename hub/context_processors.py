@@ -112,20 +112,27 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
     ``SiteConfiguration.host_a_workshop_enabled`` hides the entry, and can only reach the
     NON-teaching branch: a member who cannot teach yet loses the invitation, an instructor
     keeps the portal. Gating both would lock every instructor out of their own teaching
-    pages, which is not what a visibility switch is for.
+    pages, which is not what a visibility switch is for. That is what ``teaches`` says, and
+    the template pairs it with the flag.
+
+    The flag is deliberately NOT read here. ``core.context_processors.feature_flags``
+    already puts ``host_a_workshop_enabled`` in the same context, and
+    ``SiteConfiguration.load()`` is an uncached ``get_or_create`` — reading it a second time
+    costs one extra query on EVERY page in the app, for every member who cannot teach yet,
+    which is most of them. ``tests/hub/wiki_views_spec.py``'s home-page query budget catches
+    it. So this returns the entry and the one fact the template cannot derive, and the
+    sidebar renders it against the flag it was already given.
     """
     from django.urls import reverse
 
-    from core.models import SiteConfiguration
-
     if member is None or member.status != Member.Status.ACTIVE:
-        return None
-    if not member.can_create_classes and not SiteConfiguration.load().host_a_workshop_enabled:
         return None
     return {
         "label": "Teaching" if member.can_create_classes else "Host a Workshop",
         "url": reverse("classes:teach_overview"),
         "is_active": request.path.startswith("/classes/teach/") and not admin_nav_active,
+        # False means this is the "Host a Workshop" invitation, which host_a_workshop_enabled hides.
+        "teaches": member.can_create_classes,
     }
 
 
