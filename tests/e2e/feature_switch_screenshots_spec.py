@@ -22,6 +22,15 @@ from tests.features import coming_soon, hide, turn_on
 
 SHOT_DIR = Path("docs/screenshots/405")
 VIEWPORT = {"width": 1280, "height": 900}
+# The sidebar rail plus a sliver of page, identical across every sidebar shot so the states
+# can be compared without allowing for a different crop.
+SIDEBAR_CLIP = {"x": 0, "y": 0, "width": 460, "height": 900}
+
+
+def _set_theme(page, live_server, theme: str) -> None:
+    """Pin the viewer's theme via the pl_theme cookie base.html's inline script reads."""
+    # url OR path, never both — Playwright rejects a cookie carrying the pair.
+    page.context.add_cookies([{"name": "pl_theme", "value": theme, "url": live_server.url}])
 
 
 def _save(page, name: str, **kwargs) -> Path:
@@ -85,25 +94,32 @@ def describe_feature_switch_screenshots():
         saved = _save(admin_page, "03-coming-soon-hover", clip={"x": 0, "y": 0, "width": 460, "height": 900})
         print(f"\nSaved {saved}")
 
-    def it_captures_a_hidden_feature_next_to_the_entries_that_remain(admin_page, live_server):
-        """Shot 3 — Meetings hidden, so the absence is visible beside the entries that stay."""
+    @pytest.mark.parametrize("theme", ["dark", "light"])
+    def it_captures_a_hidden_feature_next_to_the_entries_that_remain(admin_page, live_server, theme):
+        """Shot 3 — Meetings hidden and Voting coming soon, so both off states read against the
+        live entries around them. Shot in BOTH themes: the Coming soon colour is a sidebar-scale
+        de-emphasis and has to be visibly quieter on the light rail as well as the dark one."""
         for key in ("spaces", "equipment", "directory", "teach", "wiki"):
             turn_on(key)
         hide("meetings")
         coming_soon("voting", "Launching Sept 30th!")
 
+        _set_theme(admin_page, live_server, theme)
         admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
         admin_page.wait_for_timeout(400)
-        saved = _save(admin_page, "04-hidden-and-soon-sidebar", clip={"x": 0, "y": 0, "width": 460, "height": 900})
+        saved = _save(admin_page, f"04-hidden-and-soon-sidebar-{theme}", clip=SIDEBAR_CLIP)
         print(f"\nSaved {saved}")
 
-    def it_captures_the_sidebar_with_everything_on_for_comparison(admin_page, live_server):
-        """Shot 4 — the control. Every feature On, which must look exactly like today."""
+    @pytest.mark.parametrize("theme", ["dark", "light"])
+    def it_captures_the_sidebar_with_everything_on_for_comparison(admin_page, live_server, theme):
+        """Shot 4 — the control. Every feature On, which must look exactly like today. Paired
+        with shot 3 at the same size and theme so the two can be read side by side."""
         from core.features import FEATURES
 
         for feature in FEATURES:
             turn_on(feature.key)
+        _set_theme(admin_page, live_server, theme)
         admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
         admin_page.wait_for_timeout(400)
-        saved = _save(admin_page, "05-all-on-control", clip={"x": 0, "y": 0, "width": 460, "height": 900})
+        saved = _save(admin_page, f"05-all-on-control-{theme}", clip=SIDEBAR_CLIP)
         print(f"\nSaved {saved}")

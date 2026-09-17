@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from core.models import SiteConfiguration
+from tests.features import hide, turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import (
     GuildFactory,
@@ -25,10 +25,7 @@ _HTMX = {"HTTP_HX_REQUEST": "true"}
 
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
-    return config
+    return turn_on("wiki")
 
 
 def _member_user(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -173,8 +170,7 @@ def describe_the_permission_gate():
         assert client.post(reverse("hub_wiki_verify", args=["nope"]), **_HTMX).status_code == 404
 
     def it_404s_while_the_wiki_is_off(db, client, _wiki_on):
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+        hide("wiki")
         user = _login(client, "verify_view_flagoff")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)

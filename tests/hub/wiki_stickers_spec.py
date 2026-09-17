@@ -15,7 +15,7 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from core.models import SiteConfiguration
+from tests.features import hide, turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import (
     EquipmentFactory,
@@ -31,10 +31,7 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
     """Every spec here runs with the wiki turned on; the flag-off case is explicit."""
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
-    return config
+    return turn_on("wiki")
 
 
 def _member_user(username: str, *, fog_role: str = Member.FogRole.MEMBER, status: str = Member.Status.ACTIVE) -> User:
@@ -115,14 +112,12 @@ def describe_the_sticker_scan_route():
         def it_404s_a_known_code_while_the_wiki_is_off(client, db, _wiki_on):
             _login(client, "scanner@example.com")
             page = WikiPageFactory(title="Table Saw")
-            _wiki_on.wiki_enabled = False
-            _wiki_on.save()
+            hide("wiki")
             assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code == 404
 
         def it_404s_for_a_signed_out_scan_too(client, db, _wiki_on):
             page = WikiPageFactory(title="Table Saw")
-            _wiki_on.wiki_enabled = False
-            _wiki_on.save()
+            hide("wiki")
             assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code == 404
 
     def describe_the_public_book_surface():
@@ -179,8 +174,7 @@ def describe_the_page_qr_download():
 
     def it_404s_while_the_wiki_is_off(client, db, page, _wiki_on):
         _login(client, "editor@example.com")
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+        hide("wiki")
         assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 404
 
 
@@ -342,8 +336,7 @@ def describe_the_sticker_sheet():
 
         def it_404s_while_the_wiki_is_off(client, db, machine_page, _wiki_on):
             _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
-            _wiki_on.wiki_enabled = False
-            _wiki_on.save()
+            hide("wiki")
             assert client.get(reverse("hub_wiki_stickers")).status_code == 404
 
 

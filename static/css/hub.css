@@ -109,6 +109,12 @@ img {
     --hub-sidebar-bg: #0d0f15;
     --hub-sidebar-text: #F4EFDD;
     --hub-sidebar-muted: rgba(244, 239, 221, 0.60);
+    /* A "Coming soon" nav entry (#405). Deliberately the SAME cream as a live entry, just
+       quieter — a de-emphasis on the sidebar's own scale, not a swap to the page text scale.
+       --hub-text-muted is a different hue here and byte-identical to --hub-sidebar-muted in
+       light mode, which made a Coming soon entry pixel-identical to a live one at rest.
+       6.40:1 live vs 3.47:1 here: visibly quieter, still above the 3:1 UI floor. */
+    --hub-sidebar-soon: rgba(244, 239, 221, 0.40);
     --hub-sidebar-hover: rgba(255, 255, 255, 0.06);
     --hub-sidebar-border: rgba(255, 255, 255, 0.08);
 
@@ -192,6 +198,8 @@ img {
     --hub-sidebar-bg: #ffffff;
     --hub-sidebar-text: #1D1E1E;
     --hub-sidebar-muted: #5b6675;
+    /* Same de-emphasis on the light rail: 5.83:1 live vs 3.50:1 here. */
+    --hub-sidebar-soon: #7f8a9a;
     --hub-sidebar-hover: rgba(9, 46, 75, 0.06);
     --hub-sidebar-border: #e2e6ec;
 
@@ -383,7 +391,7 @@ a:hover { color: var(--hub-link-hover); }
    the sidebar row's own left-aligned layout. (This shipped wrong once; the screenshot caught
    an entry floating in the middle of the sidebar.) */
 .hub-sidebar__link--soon.pl-help {
-    color: var(--hub-text-muted, #96ACBB);
+    color: var(--hub-sidebar-soon);
     cursor: default;
     display: flex;
     justify-content: flex-start;
@@ -392,7 +400,14 @@ a:hover { color: var(--hub-link-hover); }
 
 .hub-sidebar__link--soon.pl-help:hover {
     background-color: transparent;
-    color: var(--hub-text-muted, #96ACBB);
+    color: var(--hub-sidebar-soon);
+}
+
+/* The icon rides the text colour. Every nav icon is stroke="currentColor", so this is
+   inherited rather than set — but .hub-sidebar__link.active svg overrides colour for the
+   active entry, which proves the icon is reachable by a rule, so pin the intent here. */
+.hub-sidebar__link--soon.pl-help svg {
+    color: inherit;
 }
 
 /* The bubble is anchored to a full-width row here rather than a 1.1rem "?" icon, so it hangs
