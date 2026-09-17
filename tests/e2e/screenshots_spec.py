@@ -106,14 +106,15 @@ def _members_pages(d: dict[str, object]) -> list[tuple[str, str]]:
         ("Admin — overview", reverse("classes:admin_overview")),
         ("Admin — all classes", reverse("classes:admin_classes")),
         ("Admin — new class", reverse("classes:admin_class_create")),
-        ("Admin — class detail", reverse("classes:admin_class_detail", kwargs={"pk": pub_pk})),
-        ("Admin — edit class", reverse("classes:admin_class_edit", kwargs={"pk": pub_pk})),
-        ("Admin — class preview", reverse("classes:class_preview", kwargs={"pk": pub_pk})),
-        ("Admin — class registrations", reverse("classes:admin_class_registrations", kwargs={"pk": pub_pk})),
-        ("Admin — class waitlist", reverse("classes:admin_class_waitlist", kwargs={"pk": pub_pk})),
-        ("Admin — class discount codes", reverse("classes:admin_class_discount_codes", kwargs={"pk": pub_pk})),
-        ("Admin — email class", reverse("classes:admin_class_email", kwargs={"pk": pub_pk})),
-        ("Admin — class emails (welcome)", reverse("classes:admin_class_emails", kwargs={"pk": pub_pk})),
+        # The per-class screens are one screen now, reached at the teaching paths whoever you
+        # are; the old /classes/admin/<pk>/… paths 302 onto them. Shot where they live.
+        ("Class screen — overview", reverse("classes:teach_class_detail", kwargs={"pk": pub_pk})),
+        ("Class screen — edit", reverse("classes:teach_class_edit", kwargs={"pk": pub_pk})),
+        ("Class screen — preview", reverse("classes:class_preview", kwargs={"pk": pub_pk})),
+        ("Class screen — registrations", reverse("classes:teach_class_registrations", kwargs={"pk": pub_pk})),
+        ("Class screen — waitlist", reverse("classes:teach_class_waitlist", kwargs={"pk": pub_pk})),
+        ("Class screen — discount codes", reverse("classes:teach_class_discount_codes", kwargs={"pk": pub_pk})),
+        ("Class screen — emails (welcome)", reverse("classes:teach_class_emails", kwargs={"pk": pub_pk})),
         ("Admin — all registrations", reverse("classes:admin_registrations")),
         (
             "Admin — registration detail",

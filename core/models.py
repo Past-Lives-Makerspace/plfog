@@ -661,6 +661,15 @@ class SiteConfiguration(models.Model):
         verbose_name="Equipment page",
         help_text="Show the Equipment page in the sidebar and allow reservations.",
     )
+    host_a_workshop_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Show Host a Workshop in the sidebar",
+        help_text="Show the Host a Workshop entry — the invitation to start teaching — to members "
+        "who cannot teach yet. Turn it off to stop recruiting instructors for a while. Instructors "
+        "keep their Teaching entry either way, so the teaching portal is never locked. The page "
+        "itself stays live at its own link, and its copy is still edited under Classes admin → "
+        "Settings → Teaching Marketing Page.",
+    )
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",

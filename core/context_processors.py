@@ -58,6 +58,7 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
         "wiki_link_enabled": config.wiki_link_enabled,
         "wiki_enabled": config.wiki_enabled,
         "equipment_page_enabled": config.equipment_page_enabled,
+        "host_a_workshop_enabled": config.host_a_workshop_enabled,
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
     }

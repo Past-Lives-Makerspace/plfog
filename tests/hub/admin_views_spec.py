@@ -929,6 +929,15 @@ def describe_admin_site_settings_features():
         assert b"Member wiki" in panel
         assert b"Show old wiki link" in panel
 
+    def it_renders_the_host_a_workshop_toggle_in_the_features_panel(client):
+        # A sidebar-visibility switch belongs beside the other sidebar switches, as a real
+        # toggle in Features — not as a bare checkbox falling through the General catch-all.
+        _create_superuser(client)
+        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
+        panel = _features_panel(response)
+        assert b'id="id_host_a_workshop_enabled"' in panel
+        assert b"Show Host a Workshop in the sidebar" in panel
+
     def it_renders_the_member_wiki_toggle_in_the_features_panel(client):
         # The flag the whole wiki round is gated on has to be a real toggle in Features,
         # not a bare checkbox in General (spec A section 4.7, FRONTEND.md rule 3).
@@ -948,6 +957,7 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_wiki_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
+        assert response.content.count(b'id="id_host_a_workshop_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
         _create_superuser(client)

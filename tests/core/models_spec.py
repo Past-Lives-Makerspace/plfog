@@ -73,6 +73,12 @@ def describe_SiteConfiguration():
             config = SiteConfiguration.load()
             assert config.guild_welcome_email_enabled is True
 
+        def it_defaults_host_a_workshop_enabled_to_true():
+            # On by default so the switch ships in today's behaviour: every active member
+            # keeps the Host a Workshop invitation until an admin decides otherwise.
+            config = SiteConfiguration.load()
+            assert config.host_a_workshop_enabled is True
+
 
 def describe_Invite():
     @pytest.fixture()

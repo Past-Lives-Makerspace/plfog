@@ -1412,6 +1412,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes.emails import _absolute_url
         from core.events.emit import emit
 
+        # The LEGACY name on purpose, and it must stay that way. This URL is stamped into a
+        # persisted ``Notification.url`` / ``EventDelivery.url`` CharField at creation and into
+        # an email nobody can recall, so it outlives the deploy that wrote it. Reversed to the
+        # merged name, every notice minted while this change is live would carry
+        # /classes/teach/classes/<pk>/… — and after a revert that path is instructor-scoped, so
+        # the admin it was addressed to taps it out of the push tray and gets the marketing
+        # page or a 404. The legacy name costs one 302 hop while live and resolves natively
+        # after a revert.
         registrations_path = reverse("classes:admin_class_registrations", kwargs={"pk": self.pk})
         emit(
             "class_cancelled_admin_notice",
@@ -1479,6 +1487,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             actor=actor,
             payload={"note": note[:200]},
         )
+        # The legacy name, for the same reason as ``registrations_path`` above: this one is
+        # stamped into a persisted notification URL and an unrecallable email.
         edit_path = reverse("classes:admin_class_edit", kwargs={"pk": self.pk})
         emit(
             "class_change_requested",
