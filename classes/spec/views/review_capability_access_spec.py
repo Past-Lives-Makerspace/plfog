@@ -144,11 +144,11 @@ def describe_review_capability_access():
 
         @pytest.fixture
         def lead_with_the_grant(db, guilded_pending_offering):
-            from membership.models import AdminCapability, Member
+            from membership.models import AdminCapability
 
             lead = guilded_pending_offering.category.guild.guild_lead
-            Member.objects.filter(pk=lead.pk).update(instructor_oriented_at=None)
             lead.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+            lead.refresh_from_db()
             return lead
 
         def it_opens_the_overview_on_its_own_guilds_class(lead_with_the_grant, guilded_pending_offering, client):
@@ -161,8 +161,11 @@ def describe_review_capability_access():
             html = client.get(
                 reverse("classes:teach_class_detail", kwargs={"pk": guilded_pending_offering.pk})
             ).content.decode()
+            # Both controls by URL rather than by label: every hub page carries the whole
+            # CHANGELOG in its context, so a copy assertion here could be satisfied one day
+            # by a release note rather than by the button.
             assert reverse("classes:admin_class_approve", kwargs={"pk": guilded_pending_offering.pk}) in html
-            assert "Review with notes" in html
+            assert reverse("classes:admin_class_review", kwargs={"pk": guilded_pending_offering.pk}) in html
 
         def it_can_approve_and_publish(lead_with_the_grant, guilded_pending_offering, client):
             client.force_login(lead_with_the_grant.user)

@@ -284,7 +284,14 @@ def leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
 # last clause is the instructor check, so anyone merely *named* instructor of a class would
 # reach it without ever being granted teaching. PLAN.md §2 named the first of those as the
 # reason the precondition existed, and ruling 6 — do not widen anyone's access in this
-# ticket — still governs everyone ruling 23 does not name. Both stay denied.
+# ticket — still governs everyone ruling 23 does not name.
+#
+# What the precondition actually denies is the second of those two: a named-but-ungranted
+# instructor. It does NOT deny the first, because a site-wide guild officer who holds the
+# teaching grant satisfies ``member.can_create_classes`` outright and so reaches this leg on
+# every class. That is not new and not a widening — before #399 ``editable_by`` returned the
+# whole catalog for an officer — but do not read this paragraph as a claim that they are
+# refused here. They are not.
 #
 # The instructor leg keeps its ``can_create_classes`` precondition unconditionally, which
 # is the real predicate behind ``teaching_member_required``.

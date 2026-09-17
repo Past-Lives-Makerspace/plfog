@@ -578,7 +578,11 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
 
         Asserted against :func:`classes.access._reviewer_access` itself rather than against
         a hand-copied list, so ``_with_reviewer_grant`` cannot go stale: give the reviewer
-        row a capability it does not have today and these go red until the union follows.
+        row a capability it does not have today and the guild-side assertions go red until
+        the union follows. The guild row is where that guard bites, because it is the sparse
+        one — the instructor row already carries all but two of the capabilities, so its
+        subset check can only ever catch a missing ``can_approve``. It is kept as the
+        statement of the rule for both sets, not as the guard.
         """
 
         def _capabilities(access: ClassAccess) -> set[str]:
@@ -650,8 +654,10 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             assert approving_officer.can_submit is False
 
         def it_composes_the_same_way_on_a_guild_less_category(db):
-            # The 86 production classes under a NULL guild: leads_or_staffs must not raise
-            # and the union must still hold.
+            # The 86 production classes under a NULL guild. The officer reaches the leg
+            # through is_effective_staff, so the union must hold there too. (The NULL guard
+            # in leads_or_staffs is covered by it_denies_a_fog_guild_officer_without_teaching_access
+            # below, which is the case that actually calls it.)
             user, member = _user_with_member(
                 fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now()
             )
@@ -666,6 +672,33 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
             member.admin_capabilities.create(capability=CLASS_APPROVER)
             offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
+            assert _access_or_fail(_request(user), offering) == reviewer_access
+
+    def describe_the_standalone_row_is_not_status_scoped():
+        """The premise the union rests on, pinned rather than asserted in prose.
+
+        :func:`_with_reviewer_grant` hands the Overview to a composed viewer unconditionally,
+        and that widens nothing only because the grant standing alone already opens the
+        Overview on every class in the catalog whatever state it is in. Scope the standalone
+        row later — to pending classes, say, which is a plausible reading of a grant whose
+        contract is approve/validate — and the composed sets would quietly be the wider of
+        the two. These go red first.
+        """
+
+        @pytest.mark.parametrize(
+            "status",
+            [
+                ClassOffering.Status.DRAFT,
+                ClassOffering.Status.PENDING,
+                ClassOffering.Status.PUBLISHED,
+                ClassOffering.Status.CANCELLED,
+                ClassOffering.Status.ARCHIVED,
+            ],
+        )
+        def it_opens_the_overview_on_a_class_in_any_state(db, reviewer_access, status):
+            user, member = _user_with_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            offering = ClassOfferingFactory(category=CategoryFactory(guild=None), status=status)
             assert _access_or_fail(_request(user), offering) == reviewer_access
 
     def describe_and_is_neither():
@@ -696,9 +729,12 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             assert _access_or_fail(_request(user), offering) == reviewer_access
 
     def describe_and_is_previewing_a_lower_role():
-        def it_grants_no_approve_on_the_composed_guild_set(db):
+        def it_composes_nothing_onto_the_guild_set(db):
             # The grant is read once, before the legs, so the preview suppression governs
-            # the composed set too: they edit as a guild lead and approve nothing.
+            # the composed set too: they edit as a guild lead, and they get neither half of
+            # the reviewer row. Both halves are asserted, because a refactor that keeps the
+            # suppression on can_approve while hoisting can_view_overview out of the branch
+            # would hand a previewing admin the Overview on someone else's class.
             user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
             member.admin_capabilities.create(capability=CLASS_APPROVER)
             offering = _guild_class(member)
@@ -706,6 +742,7 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             assert access.role == ROLE_GUILD
             assert access.can_edit is True
             assert access.can_approve is False
+            assert access.can_view_overview is False
 
         def it_grants_no_approve_on_the_composed_instructor_set(db):
             user, member = _user_with_member(
