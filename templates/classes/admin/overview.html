@@ -22,13 +22,20 @@
     <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ stats.needs_attention }})</span></h2>
 
     {% if waiting_on_you %}
-    {# PENDING classes with no open guild-lead gate. Approve opens the publish confirm. #}
+    {% comment %}Every PENDING class whose admin lane is open, including the ones a guild
+    lead is also looking at: both lanes open at submit and neither waits for the other, so a
+    class with both open is the admin's to answer now. Approve opens the publish confirm,
+    which says when publishing would close a lead's open review.{% endcomment %}
     <div class="pl-attention-group">
       <h3 class="overview-subtitle pl-attention-group__title">Waiting on You <span class="overview-title__count">({{ stats.awaiting_you }})</span></h3>
       {% for c in waiting_on_you %}
         {% url 'classes:admin_class_approve' pk=c.pk as approve_url %}
         {% concat "publish-class-" c.pk as publish_modal_id %}
-        {% concat "“" c.title "” goes live in the catalog right away. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
+        {% if c.open_guild_lead_approval %}
+          {% concat "“" c.title "” goes live in the catalog right away. The guild lead has not answered yet, and publishing closes their review without their answer. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Open Review to ask for changes, or to approve and hold for the guild lead's room check." as publish_message %}
+        {% else %}
+          {% concat "“" c.title "” goes live in the catalog right away. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
+        {% endif %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
@@ -45,9 +52,14 @@
     {% endif %}
 
     {% if with_guild_leads %}
-    {# The lead holds the gate; admins may nudge them or step in. #}
+    {% comment %}Classes an admin already approved and held for the guild lead's room check.
+    A class whose admin lane is still open is in "Waiting on You" above and NOT here, so no
+    class appears in both groups and the card's count is a count of classes. This group is
+    the one state where a guild lead is the last gate, which is why it keeps Remind lead.
+    {% endcomment %}
     <div class="pl-attention-group">
-      <h3 class="overview-subtitle pl-attention-group__title">With Guild Leads <span class="overview-title__count">({{ stats.with_leads }})</span></h3>
+      <h3 class="overview-subtitle pl-attention-group__title">Held For The Room Check <span class="overview-title__count">({{ stats.with_leads }})</span></h3>
+      <p class="pl-attention-group__hint">You approved these. They go live as soon as the guild lead confirms the room is free.</p>
       {% for item in with_guild_leads %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
@@ -119,7 +131,7 @@
     <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:stretch;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;flex:1;min-width:240px;">
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.awaiting_you }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">awaiting you</div></div>
-        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.with_leads }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">with leads</div></div>
+        <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.with_leads }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">held for a lead</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.new_regs }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">new sign-ups</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.active_registrations }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">confirmed registrations</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.collected|cents_as_dollars }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">collected</div></div>

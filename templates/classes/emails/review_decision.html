@@ -11,6 +11,7 @@
     <tr><td style="padding:24px 28px 8px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.18em;color:#0d4876;">
         {% if fully_approved %}Published
+        {% elif held_for_room_check %}Approved, waiting on the space
         {% elif approval.decision == 'approved' %}{{ approval.get_role_display }} approved
         {% elif approval.decision == 'changes_requested' %}Changes requested
         {% else %}Declined
@@ -26,13 +27,18 @@
         <p style="margin:18px 0;">
           <a href="{{ public_url }}" style="display:inline-block;padding:12px 22px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">View public page</a>
         </p>
+      {% elif held_for_room_check %}
+        <p style="margin:0 0 10px;color:#33424f;font-size:15px;line-height:1.55;">
+          An admin approved your class and is holding it for the space check. It goes live as soon
+          as the guild lead confirms the room is free on your dates. Nothing is needed from you.
+        </p>
       {% elif approval.decision == 'approved' %}
         <p style="margin:0 0 10px;color:#33424f;font-size:15px;line-height:1.55;">
           {{ approval.get_role_display }} approved your class.
           {% if pending_rows %}
-            Waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+            Still waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.
           {% else %}
-            That was the last gate.
+            That was the last approval it needed.
           {% endif %}
         </p>
       {% elif approval.decision == 'changes_requested' %}

@@ -79,6 +79,7 @@ modal's @open-modal.window listener is not bound yet when this x-init runs.
             {% endif %}
             <div class="pl-teach-hero__actions">
                 {% if application_state == 'pending' %}
+                    {# A teaching application, not a class: it borrows the class badge's gold "in review" pill on purpose. #}
                     <span class="pl-lifecycle-badge pl-lifecycle-badge--awaiting_admin">Note Sent</span>
                     {% if example_url %}
                     <a class="pl-btn pl-btn--primary" href="{{ example_url }}" target="_blank" rel="noopener">See an Example Class Page</a>

@@ -115,6 +115,17 @@ def _members_pages(d: dict[str, object]) -> list[tuple[str, str]]:
         ("Class screen — waitlist", reverse("classes:teach_class_waitlist", kwargs={"pk": pub_pk})),
         ("Class screen — discount codes", reverse("classes:teach_class_discount_codes", kwargs={"pk": pub_pk})),
         ("Class screen — emails (welcome)", reverse("classes:teach_class_emails", kwargs={"pk": pub_pk})),
+        # The published class draws a finished strip, so it cannot show the two review lanes
+        # side by side. These two are the only shots where the fork is visible at all: one with
+        # both lanes open, one with the admin lane approved and holding for the room check.
+        (
+            "Class screen — in review (both lanes)",
+            reverse("classes:teach_class_detail", kwargs={"pk": d["pending_both"].pk}),
+        ),
+        (
+            "Class screen — in review (held for the room check)",
+            reverse("classes:teach_class_detail", kwargs={"pk": d["pending_held"].pk}),
+        ),
         ("Admin — all registrations", reverse("classes:admin_registrations")),
         (
             "Admin — registration detail",

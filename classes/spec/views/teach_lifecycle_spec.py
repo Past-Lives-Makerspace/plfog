@@ -269,13 +269,13 @@ def describe_workspace_overview_card():
 
 
 def describe_honest_submit_messages():
-    def it_names_the_guild_lead_on_quick_submit(instructor_fixture, client):
+    def it_names_both_reviewers_on_quick_submit(instructor_fixture, client):
         offering = ClassOfferingFactory(
             ready=True, instructor=instructor_fixture, title="Forge", status=Status.DRAFT, category=_guilded_category()
         )
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_submit", kwargs={"pk": offering.pk}))
-        assert "Submitted “Forge” for review by the guild lead (Woodshop)." in _messages(resp)
+        assert "Submitted “Forge” for review by the guild lead (Woodshop) and an admin." in _messages(resp)
 
     def it_names_an_admin_on_quick_submit_without_a_lead(instructor_fixture, client):
         offering = ClassOfferingFactory(ready=True, instructor=instructor_fixture, title="Solo", status=Status.DRAFT)
@@ -289,7 +289,7 @@ def describe_honest_submit_messages():
         resp = client.post(reverse("classes:teach_class_submit", kwargs={"pk": offering.pk}))
         assert "Not ready to submit: Write a short description. Add at least one date." in _messages(resp)
 
-    def it_names_the_guild_lead_on_the_edit_page_submit(instructor_fixture, client):
+    def it_names_both_reviewers_on_the_edit_page_submit(instructor_fixture, client):
         cat = _guilded_category("Glass")
         offering = ClassOfferingFactory(instructor=instructor_fixture, title="Bead", status=Status.DRAFT, category=cat)
         client.force_login(instructor_fixture.user)
@@ -298,9 +298,9 @@ def describe_honest_submit_messages():
             _edit_payload(offering, cat),
         )
         assert resp.status_code == 302
-        assert "Submitted “Bead” for review by the guild lead (Glass)." in _messages(resp)
+        assert "Submitted “Bead” for review by the guild lead (Glass) and an admin." in _messages(resp)
 
-    def it_names_the_first_gate_on_the_create_page_submit(instructor_fixture, client):
+    def it_names_both_reviewers_on_the_create_page_submit(instructor_fixture, client):
         from io import BytesIO
 
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -319,4 +319,4 @@ def describe_honest_submit_messages():
         client.force_login(instructor_fixture.user)
         resp = client.post(reverse("classes:teach_class_create"), payload)
         assert resp.status_code == 302
-        assert "Submitted “Anvil” for review by the guild lead (Metal)." in _messages(resp)
+        assert "Submitted “Anvil” for review by the guild lead (Metal) and an admin." in _messages(resp)

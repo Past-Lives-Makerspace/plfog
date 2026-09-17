@@ -39,12 +39,20 @@ class FacetRow:
 
 ALL_FACET = Facet("", "All", lambda qs: qs)
 
-# Admin Classes list: every lifecycle state plus the two-stage review rollup.
+# Admin Classes list: every lifecycle state plus the parallel-review rollup.
+#
+# "With guild lead" and "Awaiting admin" OVERLAP, deliberately. Both review lanes open at
+# submit and neither waits for the other, so a class with both lanes open is genuinely in
+# both queues and its count belongs in both chips. Making them exclusive would mean picking
+# a reviewer to hide the class from, which is the hand-off this design removed. "Held for
+# the room check" is the narrow slice inside "With guild lead" where the admin has already
+# said yes and only the guild lead is left.
 ADMIN_FACETS: tuple[Facet, ...] = (
     ALL_FACET,
     Facet("needs_review", "Needs review", lambda qs: qs.pending_review()),
     Facet("awaiting_guild_lead", "With guild lead", lambda qs: qs.awaiting_guild_lead_any()),
     Facet("awaiting_admin", "Awaiting admin", lambda qs: qs.awaiting_admin()),
+    Facet("awaiting_admin_held", "Held for the room check", lambda qs: qs.awaiting_admin_held()),
     Facet("draft", "Drafts", lambda qs: qs.with_lifecycle_inputs().filter(status="draft", bounced=False)),  # type: ignore[misc]  # django-stubs can't see annotate() aliases
     Facet("changes_requested", "Changes requested", lambda qs: qs.changes_requested()),
     Facet("upcoming", "Upcoming", lambda qs: qs.upcoming_published()),

@@ -7,13 +7,21 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, UserFactory
+from classes.factories import (
+    CategoryFactory,
+    ClassApprovalFactory,
+    ClassOfferingFactory,
+    ClassSessionFactory,
+    UserFactory,
+)
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.models import ClassApproval, ClassOffering
 from tests.membership.factories import GuildFactory, MemberFactory
 
 Lifecycle = ClassOffering.Lifecycle
 Status = ClassOffering.Status
+Decision = ClassApproval.Decision
+Role = ClassApproval.Role
 
 
 def _guilded_category(guild_name: str = "Woodshop"):
@@ -43,17 +51,67 @@ def describe_lifecycle():
     def it_reads_cancelled(db):
         assert ClassOfferingFactory(status=Status.CANCELLED).lifecycle == Lifecycle.CANCELLED
 
-    def it_reads_with_guild_lead_while_the_guild_gate_is_open(db):
+    def it_reads_with_guild_lead_when_only_the_guild_gate_is_open(db):
+        """The admin has approved and held: only the lead is left, so only the lead is named."""
         offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
-        ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN, decision=Decision.APPROVED)
         assert offering.lifecycle == Lifecycle.AWAITING_GUILD_LEAD
         assert offering.lifecycle_label == "With guild lead (Woodshop)"
         assert offering.lifecycle_note == "Woodshop"
 
+    def it_reads_awaiting_both_while_both_lanes_are_open(db):
+        offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN)
+        assert offering.lifecycle == Lifecycle.AWAITING_BOTH
+        assert offering.lifecycle_label == "With guild lead (Woodshop) and admin"
+        assert offering.lifecycle_note == "Woodshop"
+
+    def it_falls_back_to_the_plain_both_label_without_a_guild_name(db):
+        # A guild-less category cannot open a guild lane in practice; a stale row can.
+        offering = ClassOfferingFactory(status=Status.PENDING, category=CategoryFactory(guild=None))
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN)
+        assert offering.lifecycle_label == "With guild lead and admin"
+
     def it_reads_awaiting_admin_with_an_open_admin_row(db):
         offering = ClassOfferingFactory(status=Status.PENDING)
-        ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN)
         assert offering.lifecycle == Lifecycle.AWAITING_ADMIN
+
+    def it_reads_awaiting_admin_once_the_lead_has_approved(db):
+        offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD, decision=Decision.APPROVED)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN)
+        assert offering.lifecycle == Lifecycle.AWAITING_ADMIN
+        assert offering.lifecycle_label == "Awaiting admin"
+
+    def it_reads_upcoming_for_a_published_class_whose_guild_lane_was_overridden(db):
+        offering = ClassOfferingFactory(status=Status.PUBLISHED, category=_guilded_category())
+        _session(offering, 2)
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD, decision=Decision.OVERRIDDEN_BY_ADMIN)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN, decision=Decision.APPROVED)
+        assert offering.lifecycle == Lifecycle.UPCOMING
+        # Nothing on the guild page may claim the lead signed this off.
+        assert offering.guild_lead_approved_at is None
+
+    def it_reads_awaiting_admin_when_an_admin_overrode_the_guild_lane(db):
+        """An overridden lane is closed, so the class is not "with the guild lead" any more."""
+        offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD, decision=Decision.OVERRIDDEN_BY_ADMIN)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN)
+        assert offering.lifecycle == Lifecycle.AWAITING_ADMIN
+
+    def it_reads_the_stale_rows_on_a_draft_as_a_draft(db):
+        """Every lifecycle branch that reads an approval row is behind a status check."""
+        offering = ClassOfferingFactory(status=Status.DRAFT, category=_guilded_category())
+        ClassApprovalFactory(class_offering=offering, role=Role.GUILD_LEAD)
+        ClassApprovalFactory(class_offering=offering, role=Role.ADMIN)
+        assert offering.lifecycle == Lifecycle.DRAFT
+        assert ClassOffering.objects.awaiting_admin().count() == 0
+        assert ClassOffering.objects.awaiting_guild_lead_any().count() == 0
+        assert ClassOffering.objects.awaiting_admin_held().count() == 0
 
     def it_reads_awaiting_admin_with_zero_rows(db):
         offering = ClassOfferingFactory(status=Status.PENDING)
@@ -165,6 +223,7 @@ def describe_lifecycle():
                 "archived": ClassOfferingFactory(status=Status.ARCHIVED),
                 "cancelled": ClassOfferingFactory(status=Status.CANCELLED),
                 "guild": ClassOfferingFactory(status=Status.PENDING, category=_guilded_category("Glass")),
+                "both": ClassOfferingFactory(status=Status.PENDING, category=_guilded_category("Forge")),
                 "admin": ClassOfferingFactory(status=Status.PENDING),
                 "bounced": ClassOfferingFactory(status=Status.DRAFT),
                 "draft": ClassOfferingFactory(status=Status.DRAFT),
@@ -172,7 +231,11 @@ def describe_lifecycle():
                 "completed": ClassOfferingFactory(status=Status.PUBLISHED),
                 "undated": ClassOfferingFactory(status=Status.PUBLISHED),
             }
-            ClassApproval.objects.create(class_offering=rows["guild"], role=ClassApproval.Role.GUILD_LEAD)
+            # "guild" is held: the admin has approved, only the lead is left.
+            ClassApprovalFactory(class_offering=rows["guild"], role=Role.GUILD_LEAD)
+            ClassApprovalFactory(class_offering=rows["guild"], role=Role.ADMIN, decision=Decision.APPROVED)
+            ClassApprovalFactory(class_offering=rows["both"], role=Role.GUILD_LEAD)
+            ClassApprovalFactory(class_offering=rows["both"], role=Role.ADMIN)
             _bounce(rows["bounced"], ClassApproval.Role.ADMIN, ClassApproval.Decision.CHANGES_REQUESTED)
             _session(rows["upcoming"], 2)
             _session(rows["completed"], -2)
@@ -192,10 +255,13 @@ def describe_lifecycle():
         def it_orders_by_lifecycle(mixed_set):
             ordered = list(ClassOffering.objects.with_lifecycle_inputs().order_by("lifecycle_order", "pk"))
             keys = [o.lifecycle for o in ordered]
+            # AWAITING_BOTH shares bucket 2 with AWAITING_GUILD_LEAD — a class both are
+            # looking at sorts with the rest of the guild lead's queue, where it also appears.
             assert keys == [
                 Lifecycle.DRAFT,
                 Lifecycle.CHANGES_REQUESTED,
                 Lifecycle.AWAITING_GUILD_LEAD,
+                Lifecycle.AWAITING_BOTH,
                 Lifecycle.AWAITING_ADMIN,
                 Lifecycle.UPCOMING,
                 Lifecycle.UPCOMING,
@@ -207,10 +273,16 @@ def describe_lifecycle():
     def describe_queryset_methods():
         @pytest.fixture
         def rows(db):
+            # Held: the admin approved and is waiting on the guild lead's room check.
             guild_pending = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category("Metal"))
-            ClassApproval.objects.create(class_offering=guild_pending, role=ClassApproval.Role.GUILD_LEAD)
+            ClassApprovalFactory(class_offering=guild_pending, role=Role.GUILD_LEAD)
+            ClassApprovalFactory(class_offering=guild_pending, role=Role.ADMIN, decision=Decision.APPROVED)
+            # Both lanes open — in the guild lead's queue AND the admin's, deliberately.
+            both_pending = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category("Forge"))
+            ClassApprovalFactory(class_offering=both_pending, role=Role.GUILD_LEAD)
+            ClassApprovalFactory(class_offering=both_pending, role=Role.ADMIN)
             admin_pending = ClassOfferingFactory(status=Status.PENDING)
-            ClassApproval.objects.create(class_offering=admin_pending, role=ClassApproval.Role.ADMIN)
+            ClassApprovalFactory(class_offering=admin_pending, role=Role.ADMIN)
             rowless_pending = ClassOfferingFactory(status=Status.PENDING)
             bounced = ClassOfferingFactory(status=Status.DRAFT)
             _bounce(bounced, ClassApproval.Role.GUILD_LEAD, ClassApproval.Decision.DENIED)
@@ -227,6 +299,7 @@ def describe_lifecycle():
             archived = ClassOfferingFactory(status=Status.ARCHIVED)
             return {
                 "guild_pending": guild_pending,
+                "both_pending": both_pending,
                 "admin_pending": admin_pending,
                 "rowless_pending": rowless_pending,
                 "bounced": bounced,
@@ -240,10 +313,29 @@ def describe_lifecycle():
             }
 
         def it_awaiting_admin_includes_the_open_admin_row_and_the_rowless_pending_class(rows):
-            assert set(ClassOffering.objects.awaiting_admin()) == {rows["admin_pending"], rows["rowless_pending"]}
+            assert set(ClassOffering.objects.awaiting_admin()) == {
+                rows["admin_pending"],
+                rows["rowless_pending"],
+                rows["both_pending"],
+            }
 
-        def it_awaiting_guild_lead_any_lists_only_open_guild_gates(rows):
-            assert list(ClassOffering.objects.awaiting_guild_lead_any()) == [rows["guild_pending"]]
+        def it_awaiting_admin_excludes_a_class_whose_admin_lane_is_closed(rows):
+            assert rows["guild_pending"] not in ClassOffering.objects.awaiting_admin()
+
+        def it_awaiting_guild_lead_any_lists_every_open_guild_gate(rows):
+            assert set(ClassOffering.objects.awaiting_guild_lead_any()) == {
+                rows["guild_pending"],
+                rows["both_pending"],
+            }
+
+        def it_overlaps_the_two_review_queues_on_a_both_lanes_open_class(rows):
+            """The overlap is the point: neither reviewer waits on the other."""
+            both = rows["both_pending"]
+            assert both in ClassOffering.objects.awaiting_guild_lead_any()
+            assert both in ClassOffering.objects.awaiting_admin()
+
+        def it_awaiting_admin_held_lists_only_the_approved_and_waiting_class(rows):
+            assert list(ClassOffering.objects.awaiting_admin_held()) == [rows["guild_pending"]]
 
         def it_changes_requested_lists_only_bounced_drafts(rows):
             assert list(ClassOffering.objects.changes_requested()) == [rows["bounced"]]
@@ -264,10 +356,11 @@ def describe_lifecycle():
         def it_facets_map_to_the_queryset_methods_with_counts(rows):
             base = ClassOffering.objects.all()
             chips = {row.key: row for row in facet_rows(ADMIN_FACETS, base, ADMIN_FACETS[0], lambda key: f"?s={key}")}
-            assert chips[""].count == 11
-            assert chips["needs_review"].count == 3
-            assert chips["awaiting_guild_lead"].count == 1
-            assert chips["awaiting_admin"].count == 2
+            assert chips[""].count == 12
+            assert chips["needs_review"].count == 4
+            assert chips["awaiting_guild_lead"].count == 2
+            assert chips["awaiting_admin"].count == 3
+            assert chips["awaiting_admin_held"].count == 1
             assert chips["draft"].count == 1
             assert chips["changes_requested"].count == 1
             assert chips["upcoming"].count == 3
@@ -281,7 +374,7 @@ def describe_lifecycle():
             base = ClassOffering.objects.all()
             chips = {row.key: row for row in facet_rows(INSTRUCTOR_FACETS, base, INSTRUCTOR_FACETS[1], lambda k: k)}
             assert chips["needs_attention"].count == 2
-            assert chips["in_review"].count == 3
+            assert chips["in_review"].count == 4
             assert chips["needs_attention"].is_selected is True
 
         def it_resolves_an_unknown_facet_key_to_all(db):
@@ -290,9 +383,9 @@ def describe_lifecycle():
 
 
 def describe_first_gate_label():
-    def it_names_the_guild_lead_when_the_category_has_one(db):
+    def it_names_both_reviewers_when_the_category_has_a_lead(db):
         offering = ClassOfferingFactory(category=_guilded_category("Textiles"))
-        assert offering.first_gate_label == "the guild lead (Textiles)"
+        assert offering.first_gate_label == "the guild lead (Textiles) and an admin"
 
     def it_names_an_admin_otherwise(db):
         assert ClassOfferingFactory().first_gate_label == "an admin"

@@ -46,7 +46,7 @@ def describe_ClassApproval():
             ]
 
     def describe_submit_for_review():
-        def it_opens_only_the_guild_lead_gate_when_a_lead_exists(db):
+        def it_opens_both_gates_when_a_lead_exists(db):
             lead = MemberFactory()
             guild = GuildFactory(guild_lead=lead)
             offering = ClassOfferingFactory(
@@ -55,10 +55,9 @@ def describe_ClassApproval():
                 status=ClassOffering.Status.DRAFT,
             )
             rows = offering.submit_for_review()
-            assert len(rows) == 1
-            assert rows[0].role == ClassApproval.Role.GUILD_LEAD
-            assert rows[0].decision == ""
-            assert rows[0].token
+            assert [row.role for row in rows] == [ClassApproval.Role.GUILD_LEAD, ClassApproval.Role.ADMIN]
+            assert {row.decision for row in rows} == {""}
+            assert all(row.token for row in rows)
 
         def it_clears_stale_rows_on_resubmit(db):
             offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
@@ -93,10 +92,10 @@ def describe_ClassApproval():
                 category=CategoryFactory(guild=guild),
                 status=ClassOffering.Status.DRAFT,
             )
-            (gl_row,) = offering.submit_for_review()
+            gl_row, _admin_row = offering.submit_for_review()
             gl_row.decide(ClassApproval.Decision.APPROVED, user=lead_user)
             offering.refresh_from_db()
-            # Guild lead approved → admin gate opens but the class is not yet live.
+            # Guild lead approved; the admin lane is still open, so the class is not yet live.
             assert offering.status == ClassOffering.Status.PENDING
             assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists()
 

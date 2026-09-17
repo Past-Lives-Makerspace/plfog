@@ -66,6 +66,29 @@ Read these before writing code. **Re-verify every line number** — the file is 
 
 ### DECISION 1 — Sequential vs. parallel approval: **Option A (true sequential). RECOMMENDED.**
 
+> ## ⚠️ SUPERSEDED by ticket 404 (Two-lane class review), 2026-09-17
+>
+> **This decision no longer describes the system. Class review is PARALLEL again.** Submitting
+> a class opens both lanes at once: the guild leadership and the CMS Administrators are
+> notified at the same moment and can act in either order. A CMS Administrator has two approve
+> actions — **Approve and publish** takes the class live immediately even if the guild lead has
+> not answered, and **Approve, hold for the room check** records the approval but publishes
+> nothing until the guild lead also approves.
+>
+> **Why the premise below was wrong.** DECISION 1 rejected parallel because it "would leave the
+> admin able to publish before the Guild Lead has weighed in." That is only a problem if the
+> guild lead's lane is an authority gate. It is not. It is a **room-availability check**: is the
+> space free on that date. Two questions that do not depend on each other need no order, and
+> serialising them only made the instructor wait.
+>
+> **This behaviour has now moved three times.** It shipped as parallel in `367df959`
+> (2026-06-06), was made sequential by this plan in `bdd37c4e` (2026-06-23, 17 days later), and
+> is deliberately parallel again as of ticket 404. If you are about to make it sequential a
+> second time, the argument above is the one you have to beat first.
+>
+> Everything below is left intact as the record of what was decided in June and why. Do not
+> implement it.
+
 The spec is explicit and transactional: Stage 1 is the Guild Lead, Stage 2 ("when the Guild Lead approves") is the Admin. Option B (keep parallel, only bolt on the missing panel + a second email) would leave the admin able to publish before the Guild Lead has weighed in, which directly contradicts "when the Guild Lead approves, a SECOND event notifies Admin." The refactor is **contained** — it touches three methods in `classes/models.py` (`submit_for_review`, a small helper, `on_review_decision_recorded`) and one email function (`send_class_review_requests`), all of which already exist. We are changing *when* rows/emails are created, not the row model or the decision plumbing.
 
 **Trade-off accepted:** Slightly more churn in `on_review_decision_recorded` (it now creates the admin row + fires the stage-2 escalation on guild-lead approval) versus Option B's lower churn. We take the churn because correctness-to-spec is the whole point of the feature, and the blast radius is one file plus its specs.

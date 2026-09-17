@@ -163,6 +163,24 @@ class ClassImageFactory(DjangoModelFactory):
     sort_order = 0
 
 
+class ClassApprovalFactory(DjangoModelFactory):
+    """One reviewer gate. Defaults to an undecided ADMIN row — the shape submit opens.
+
+    Pass ``decision=`` for a decided row and ``decided_at`` follows automatically, because a
+    decided row with no stamp orders differently everywhere that ranks review history. Specs
+    that exercise the unstamped-legacy-row path pass ``decided_at=None`` explicitly.
+    """
+
+    class Meta:
+        model = models.ClassApproval
+
+    class_offering = factory.SubFactory(ClassOfferingFactory)
+    role = models.ClassApproval.Role.ADMIN
+    decision = ""
+    notes = ""
+    decided_at = factory.LazyAttribute(lambda o: timezone.now() if o.decision else None)
+
+
 class ClassFaqFactory(DjangoModelFactory):
     class Meta:
         model = models.ClassFaq

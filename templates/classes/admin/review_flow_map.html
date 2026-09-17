@@ -1,0 +1,97 @@
+{% extends "classes/admin/base.html" %}
+
+{% comment %}
+The review flow map. Every word of the table below is resolved in classes/review_map.py from
+ClassOffering.review_pipeline() (the steps), the event registry (the audience and the email
+opt-out) and the sender function itself, so this template holds layout and nothing a reader
+could mistake for a fact. Do NOT hand-write a step, an audience or an email here: the whole
+point of the page is that it cannot drift from what actually sends.
+
+The strip is the shared classes/_components/review_pipeline.html, drawn for a sample draft, so
+it is the same strip the review screen and every review email carry. It reads "Not submitted
+yet" because a draft has not been: that is the state a class starts in, and both review lanes
+sit level because neither of them goes first.
+{% endcomment %}
+
+{% block title %}Manage All Classes — Review Flow{% endblock %}
+
+{% block tab_content %}
+<div class="pl-flowmap">
+
+  <section class="hub-card pl-flowmap__intro">
+    <h2 class="overview-title">How Class Review Works</h2>
+    <p class="pl-flowmap__lead">
+      A submitted class opens two reviews at the same moment, and either reviewer can answer first.
+      The guild lead answers whether the space is free on those dates. The admin answers whether the
+      class belongs on the public calendar, and can either publish it or approve it and hold it for
+      the room check.
+    </p>
+    {% include "classes/_components/review_pipeline.html" with pipeline=pipeline %}
+    <p class="pl-flowmap__caption">
+      The strip above is drawn empty, the way a class starts, and the two reviews sit level
+      because neither of them goes first.
+      Every step below lists what it sends, who receives it, and the function that sends it.
+      All of it is read from the live pipeline and the notification registry, so this page says
+      what the app does rather than what somebody once wrote down.
+      <a href="{{ gallery_url }}" target="_blank" rel="noopener">See every email the app can send ↗</a>
+    </p>
+  </section>
+
+  {% for stage in stages %}
+  <section class="hub-card pl-flowmap__stage">
+    <h2 class="pl-flowmap__stage-title">
+      <span class="pl-flowmap__stage-number" aria-hidden="true">{{ forloop.counter }}</span>
+      {{ stage.step.label }}
+    </h2>
+
+    {% if stage.notices %}
+    <ol class="pl-flowmap__notices">
+      {% for notice in stage.notices %}
+      <li class="pl-flowmap__notice">
+        <div class="pl-flowmap__notice-head">
+          <h3 class="pl-flowmap__notice-title">{{ notice.title }}</h3>
+          <span class="pl-flowmap__chips">
+            <span class="pl-flowmap__chip">Email</span>
+            {% if notice.in_app %}<span class="pl-flowmap__chip pl-flowmap__chip--in-app">In-app</span>{% endif %}
+          </span>
+        </div>
+
+        <p class="pl-flowmap__trigger">{{ notice.trigger }}</p>
+
+        <dl class="pl-flowmap__meta">
+          <div class="pl-flowmap__meta-row">
+            <dt>Goes to</dt>
+            <dd>{{ notice.audience }}</dd>
+          </div>
+          <div class="pl-flowmap__meta-row">
+            <dt>Sent by</dt>
+            <dd><code class="pl-flowmap__code">{{ notice.sender }}</code></dd>
+          </div>
+          <div class="pl-flowmap__meta-row">
+            <dt>Event{{ notice.events|length|pluralize }}</dt>
+            <dd>
+              {% for event in notice.events %}
+              <span class="pl-flowmap__event">
+                <code class="pl-flowmap__code">{{ event.key }}</code>
+                <span class="pl-flowmap__event-label">{{ event.label }}, email default {{ event.email_default }}</span>
+              </span>
+              {% endfor %}
+            </dd>
+          </div>
+        </dl>
+
+        {% if notice.note %}<p class="pl-flowmap__note">{{ notice.note }}</p>{% endif %}
+
+        <a class="hub-btn hub-btn--sm hub-btn--ghost pl-flowmap__preview"
+           href="{{ notice.preview_url }}" target="_blank" rel="noopener">Preview this email ↗</a>
+      </li>
+      {% endfor %}
+    </ol>
+    {% else %}
+    <p class="pl-flowmap__empty">No email or in-app notice of its own.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+</div>
+{% endblock %}

@@ -2,9 +2,18 @@
 
 {{ offering.title }}
 
-Your class submission is being reviewed. View status below.
+Your class is now with {{ offering.first_gate_label }}.
 
+{% if has_guild_lead_lane %}Both of them read it at the same time, so neither is waiting on the
+other. The guild lead checks that the space is free on your dates. An
+admin checks that the class belongs on the public calendar.
+{% else %}An admin checks that the class belongs on the public calendar. Nobody
+else needs to sign off.
+{% endif %}
 {% review_pipeline_text offering %}
+We will email you as soon as anyone answers. You do not need to do
+anything until then.
+
 View status:
 {{ instructor_url }}
 {% include "membership/emails/_footer.txt" %}

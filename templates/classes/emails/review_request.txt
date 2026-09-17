@@ -2,16 +2,21 @@
 
 {{ offering.title }}
 by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}
-Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
+Price {{ offering.price_cents|cents_as_price }} · Capacity {{ offering.capacity }}
 {% if offering.member_discount_pct %}{{ offering.member_discount_pct }}% member discount{% endif %}
 
-An instructor submitted this class for review, and you've been asked
-to approve the date. Open the review page to see details.
-
+{% if approval.role == 'guild_lead' %}An instructor wants to teach this class. Your part is the
+space: check that the room, the kit and the guild calendar are free on
+these dates. An admin is reading the class at the same time, so you do
+not have to wait for them.
+{% else %}An instructor submitted this class. You decide whether it belongs on the
+public calendar. {% if guild_lead_status %}{{ guild_lead_status }} You can approve and publish
+now, or approve and wait for their answer on the space.{% else %}No guild lead reviews this
+one, so yours is the only approval it needs.{% endif %}
+{% endif %}
 {% review_pipeline_text offering %}
 Open the review page:
 {{ review_url }}
 
-You're receiving this email because you're a {{ role_label }} at
-Past Lives Makerspace.
+You are getting this because you review classes at Past Lives Makerspace.
 {% include "membership/emails/_footer.txt" %}

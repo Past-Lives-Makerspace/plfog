@@ -67,26 +67,45 @@
     {% endif %}
   </dl>
 
-  {# Already-decided summary, a not-awaiting-review notice, OR the decision form #}
-  {% if approval.decision %}
-    <div style="padding:14px 16px;background:rgba(123,200,143,0.10);border:1px solid var(--color-success);border-radius:8px;margin-bottom:1.25rem;">
-      <div style="font-weight:700;color:var(--hub-text);margin-bottom:4px;">
+  {% comment %}Already-decided summary, a lane an admin closed by publishing, a
+  not-awaiting-review notice, the sign-in notice a tokenized admin link lands on, OR the
+  decision form. An overridden lane gets its own box on purpose: "You already decided this
+  overridden by admin" is a sentence about a decision this reviewer never made, and the
+  green success panel around it would read as their yes.{% endcomment %}
+  {% if approval.decision == 'overridden_by_admin' %}
+    <div class="pl-review-decided pl-review-decided--closed">
+      <div class="pl-review-decided__title">This review was closed when an admin published the class.</div>
+      <div class="pl-review-decided__meta">
+        You did not decide it. An admin gave the class final approval on {{ approval.decided_at|date:"M j, Y, g:i A" }}, which took it live and closed this review.
+      </div>
+    </div>
+  {% elif approval.decision %}
+    <div class="pl-review-decided">
+      <div class="pl-review-decided__title">
         You already decided this {{ approval.get_decision_display|lower }}.
       </div>
-      <div style="color:var(--hub-text-muted);font-size:0.9rem;">
+      <div class="pl-review-decided__meta">
         Decided {{ approval.decided_at|date:"M j, Y, g:i A" }}
         {% if approval.decided_by %} by {{ approval.decided_by.get_full_name|default:approval.decided_by.email }}{% endif %}.
       </div>
       {% if approval.notes %}
-        <div style="margin-top:10px;padding:10px 12px;background:var(--hub-bg);border-radius:6px;font-size:0.9rem;white-space:pre-wrap;">{{ approval.notes }}</div>
+        <div class="pl-review-decided__notes">{{ approval.notes }}</div>
       {% endif %}
     </div>
   {% elif not is_reviewable %}
-    <div style="padding:14px 16px;background:var(--hub-surface);border:1px solid var(--hub-border);border-radius:8px;margin-bottom:1.25rem;">
-      <div style="font-weight:700;color:var(--hub-text);margin-bottom:4px;">This class is not awaiting review.</div>
-      <div style="color:var(--hub-text-muted);font-size:0.9rem;">
+    <div class="pl-review-decided pl-review-decided--closed">
+      <div class="pl-review-decided__title">This class is not awaiting review.</div>
+      <div class="pl-review-decided__meta">
         It is currently {{ offering.get_status_display|lower }}. Decisions can only be recorded while a class is pending review.
       </div>
+    </div>
+  {% elif token_admin_readonly %}
+    <div class="pl-review-decided pl-review-decided--closed">
+      <div class="pl-review-decided__title">Sign in to record an admin decision.</div>
+      <div class="pl-review-decided__meta">
+        Approving as an admin publishes the class, and that closes the guild lead's review whether or not they have answered. An admin makes that call signed in, on the review page in the hub, so the app can say who made it.
+      </div>
+      <p style="margin:12px 0 0;"><a class="hub-btn hub-btn--sm hub-btn--primary" href="{{ signed_in_review_url }}">Open the review page</a></p>
     </div>
   {% else %}
     {# Readiness: what the class still needs. A red item never disables the form; Approve carries a hint. #}
@@ -118,6 +137,7 @@
               {{ radio.tag }}
               <span style="font-size:15px;font-weight:600;">{{ radio.choice_label }}</span>
               {% if radio.data.value == 'approved' and not is_ready %}<span class="pl-readiness-hint" style="font-size:0.8rem;color:var(--hub-text-muted);">This class is not ready to publish yet.</span>{% endif %}
+              {% if radio.data.value == 'approved_hold' %}<span class="pl-readiness-hint" style="font-size:0.8rem;color:var(--hub-text-muted);">{{ form.HOLD_HELP_TEXT }}</span>{% endif %}
             </label>
           {% endfor %}
         </div>

@@ -145,6 +145,9 @@ urlpatterns = [
     # Admin — /classes/admin/ is the Overview dashboard; the classes list moves to /admin/classes/.
     path("admin/", views.admin_overview, name="admin_overview"),
     path("admin/classes/", views.admin_classes, name="admin_classes"),
+    # The review flow map. A static path, so it must precede nothing that eats it: every other
+    # per-class admin route under admin/ takes an <int:pk>, which "review-flow" never matches.
+    path("admin/review-flow/", views.admin_review_flow_map, name="admin_review_flow_map"),
     # Teaching applications queue actions (the overview card).
     path(
         "admin/teaching-applications/<int:pk>/approve/",

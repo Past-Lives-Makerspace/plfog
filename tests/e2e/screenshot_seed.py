@@ -8,21 +8,27 @@ same representative dataset. Not a spec file — pytest never collects it.
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from classes.factories import (
     CategoryFactory,
+    ClassApprovalFactory,
     ClassOfferingFactory,
     ClassSessionFactory,
     DiscountCodeFactory,
     RegistrationFactory,
 )
-from classes.models import ClassOffering, Registration, RegistrationQuestion
+from classes.models import Category, ClassApproval, ClassOffering, Registration, RegistrationQuestion
 from membership.models import Member, MembershipPlan
 
+if TYPE_CHECKING:
+    from django.contrib.auth.models import AbstractBaseUser
+
 ADMIN_EMAIL = "studio.lead@example.com"
+GUILD_LEAD_EMAIL = "guild.lead@example.com"
 
 
 def _seed() -> dict[str, object]:
@@ -30,13 +36,17 @@ def _seed() -> dict[str, object]:
 
     One member is the admin *and* the instructor of the seeded classes, so a
     single login reaches every dashboard. Pages are populated (a published
-    class with sign-ups, one awaiting approval, a category, discount codes, a
-    registration question) so the copy is reviewed against realistic content
-    rather than empty states.
+    class with sign-ups, three classes in review — one per state the two review
+    lanes can be in — a category, discount codes, a registration question) so the
+    copy is reviewed against realistic content rather than empty states.
     """
     plan, _ = MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
 
-    user, _ = get_user_model().objects.get_or_create(username=ADMIN_EMAIL, defaults={"email": ADMIN_EMAIL})
+    # First and last name matter: the review strip names whoever decided a lane, and with
+    # a nameless user it falls back to printing their email address.
+    user, _ = get_user_model().objects.get_or_create(
+        username=ADMIN_EMAIL, defaults={"email": ADMIN_EMAIL, "first_name": "Robin", "last_name": "Maker"}
+    )
     member, _ = Member.objects.update_or_create(
         user=user,
         defaults={
@@ -52,6 +62,7 @@ def _seed() -> dict[str, object]:
     )
 
     category = CategoryFactory(name="Metalworking", slug="metalworking")
+    lead = _seed_guild_lead(category, plan)
 
     published = ClassOfferingFactory(
         title="Intro to Lost-Wax Casting",
@@ -70,18 +81,23 @@ def _seed() -> dict[str, object]:
     base = timezone.now() + timedelta(days=10)
     ClassSessionFactory(class_offering=published, starts_at=base, ends_at=base + timedelta(hours=3))
 
-    # A class awaiting approval, so the admin overview / classes list show a
-    # non-published state with its own copy.
-    ClassOfferingFactory(
-        title="Beginner Forge Welding",
-        slug="beginner-forge-welding",
-        category=category,
-        instructor=member,
-        status=ClassOffering.Status.PENDING,
-        is_private=False,
-        price_cents=6000,
-        description="Heat, hammer, and join steel at the forge. Safety gear and steel stock included.",
+    # The strip on a live class reads its approval rows, so give the published one the two
+    # decided lanes a class actually goes live with. Without rows both lanes still tick, but
+    # with no "Approved by" detail behind them.
+    ClassApprovalFactory(
+        class_offering=published,
+        role=ClassApproval.Role.GUILD_LEAD,
+        decision=ClassApproval.Decision.APPROVED,
+        decided_by=lead.user,
     )
+    ClassApprovalFactory(
+        class_offering=published,
+        role=ClassApproval.Role.ADMIN,
+        decision=ClassApproval.Decision.APPROVED,
+        decided_by=user,
+    )
+
+    in_review = _seed_classes_in_review(category, member, admin_user=user, lead=lead)
 
     # A spread of registration states populates the registration list pages.
     RegistrationFactory(
@@ -110,13 +126,139 @@ def _seed() -> dict[str, object]:
 
     return {
         "instructor": member,
+        "guild_lead": lead,
         "category": category,
         "published": published,
         "registration": confirmed or waitlisted,
         "global_code": global_code,
         "class_code": class_code,
         "question": question,
+        **in_review,
     }
+
+
+def _seed_guild_lead(category: Category, plan: MembershipPlan) -> Member:
+    """Give the seeded category a guild with a lead, and return that lead.
+
+    A class opens a guild-lead review lane only when its category links a guild that has a
+    lead (``ClassOffering.required_review_roles``). Without one, every seeded class reviewed
+    on the admin lane alone and the pipeline strip drew a single line, so no screenshot could
+    show the two lanes at all. The lead is a real member with a user account because the
+    strip names whoever decided a lane.
+    """
+    from tests.membership.factories import GuildFactory
+
+    user, _ = get_user_model().objects.get_or_create(
+        username=GUILD_LEAD_EMAIL,
+        defaults={"email": GUILD_LEAD_EMAIL, "first_name": "Wren", "last_name": "Alvarez"},
+    )
+    lead, _ = Member.objects.update_or_create(
+        user=user,
+        defaults={
+            "full_legal_name": "Wren Alvarez",
+            "membership_plan": plan,
+            "status": Member.Status.ACTIVE,
+            "about_me": "Leads the Metalworking Guild. Forge, foundry, and the fabrication bay.",
+        },
+    )
+    guild = GuildFactory(
+        name="Metalworking Guild",
+        about="Forge, foundry, and the fabrication bay.",
+        guild_lead=lead,
+    )
+    category.guild = guild
+    category.save(update_fields=["guild"])
+    return lead
+
+
+def _pending_class(
+    category: Category,
+    instructor: Member,
+    *,
+    title: str,
+    slug: str,
+    price_cents: int,
+    description: str,
+    days_out: int,
+) -> ClassOffering:
+    """One PENDING class with a real date on it, ready for its approval rows."""
+    offering = ClassOfferingFactory(
+        title=title,
+        slug=slug,
+        category=category,
+        instructor=instructor,
+        status=ClassOffering.Status.PENDING,
+        is_private=False,
+        price_cents=price_cents,
+        description=description,
+    )
+    start = timezone.now() + timedelta(days=days_out)
+    ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=3))
+    return offering
+
+
+def _seed_classes_in_review(
+    category: Category, instructor: Member, *, admin_user: "AbstractBaseUser", lead: Member
+) -> dict[str, ClassOffering]:
+    """One PENDING class per state the two review lanes can be in.
+
+    Both lanes open together at submit and neither waits for the other, so a class in review
+    is in one of three shapes: nobody has answered yet, the admin said yes and held it for the
+    guild lead's room check, or the guild lead cleared the room and the admin has yet to look.
+    Seeding all three is what lets the admin overview, the classes list and a class screen
+    show a difference at all — the single row-less pending class this replaced rendered
+    identically before and after the two-lane change.
+
+    Rows are written directly rather than through ``submit_for_review`` so seeding sends no
+    review email and logs no submission activity.
+    """
+    both = _pending_class(
+        category,
+        instructor,
+        title="Beginner Forge Welding",
+        slug="beginner-forge-welding",
+        price_cents=6000,
+        description="Heat, hammer, and join steel at the forge. Safety gear and steel stock included.",
+        days_out=21,
+    )
+    ClassApprovalFactory(class_offering=both, role=ClassApproval.Role.GUILD_LEAD)
+    ClassApprovalFactory(class_offering=both, role=ClassApproval.Role.ADMIN)
+
+    held = _pending_class(
+        category,
+        instructor,
+        title="Bronze Sand Casting",
+        slug="bronze-sand-casting",
+        price_cents=7500,
+        description="Pack the flask, pull the pattern, and pour bronze into your own sand mold.",
+        days_out=28,
+    )
+    ClassApprovalFactory(class_offering=held, role=ClassApproval.Role.GUILD_LEAD)
+    ClassApprovalFactory(
+        class_offering=held,
+        role=ClassApproval.Role.ADMIN,
+        decision=ClassApproval.Decision.APPROVED,
+        decided_by=admin_user,
+    )
+
+    cleared = _pending_class(
+        category,
+        instructor,
+        title="Chasing and Repoussé",
+        slug="chasing-and-repousse",
+        price_cents=5500,
+        description="Raise a relief in sheet copper with punches, pitch, and a chasing hammer.",
+        days_out=35,
+    )
+    ClassApprovalFactory(
+        class_offering=cleared,
+        role=ClassApproval.Role.GUILD_LEAD,
+        decision=ClassApproval.Decision.APPROVED,
+        decided_by=lead.user,
+    )
+    ClassApprovalFactory(class_offering=cleared, role=ClassApproval.Role.ADMIN)
+
+    return {"pending_both": both, "pending_held": held, "pending_guild_cleared": cleared}
 
 
 def _seed_member_hub(member: Member) -> None:

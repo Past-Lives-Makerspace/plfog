@@ -1,19 +1,34 @@
 {% comment %}
-Review pipeline strip (page version): Submitted, Guild lead (when required), Admin, Live.
+Review pipeline strip (page version): Submitted, the review column, Live.
 
   {% include "classes/_components/review_pipeline.html" with pipeline=offering.review_pipeline %}
 
+The review column holds ONE lane for a category with no guild lead and TWO when it has one,
+because both gates open together at submit and neither waits for the other. Two lanes draw as
+a fork off the track and a join back into it, so the strip never reads as a queue.
+
+Every marker comes from ``PipelineStep.marker``, which the text email reads too, so the page
+and the email can never disagree about what a lane's state looks like. The overridden marker
+is a dash, never a tick: that lane was closed when an admin published, not answered.
+
 The email version is the {% review_pipeline offering %} tag; both read the same
-ClassOffering.review_pipeline() so they never disagree. The aria-label sentence
-equals the headline. Under 480px the strip stacks with the fill running down the left.
+ClassOffering.review_pipeline() so they never disagree. The aria-label sentence equals the
+headline, which names every reviewer the class is waiting on rather than just the first.
+Under 480px the strip stacks with the fill running down the left.
 {% endcomment %}
 <div class="pl-pipeline-wrap">
   <ol class="pl-pipeline{% if pipeline.muted %} pl-pipeline--muted{% endif %}{% if pipeline.is_bounced %} pl-pipeline--bounced{% endif %}" aria-label="{{ pipeline.headline }}" style="--pl-pipeline-fill: {{ pipeline.fill_percent }}%;">
     <li class="pl-pipeline__track" aria-hidden="true"><div class="pl-pipeline__fill" style="width: {{ pipeline.fill_percent }}%;"></div></li>
-    {% for step in pipeline.steps %}
-      <li class="pl-pipeline__step pl-pipeline__step--{{ step.state }}" data-step="{{ step.key }}">
-        <span class="pl-pipeline__dot" aria-hidden="true">{% if step.state == 'done' %}&#10003;{% elif step.state == 'changes_requested' %}&#8617;{% elif step.state == 'current' %}&#9679;{% endif %}</span>
-        <span class="pl-pipeline__label">{{ step.label }}{% if step.detail %} <span class="pl-pipeline__detail">{{ step.detail }}</span>{% endif %}</span>
+    {% for column in pipeline.columns %}
+      <li class="pl-pipeline__col{% if column.is_parallel %} pl-pipeline__col--parallel{% endif %}" data-column="{{ column.key }}">
+        <div class="pl-pipeline__lanes">
+          {% for lane in column.lanes %}
+            <span class="pl-pipeline__step pl-pipeline__step--{{ lane.state }}" data-step="{{ lane.key }}">
+              <span class="pl-pipeline__dot" aria-hidden="true">{{ lane.marker }}</span>
+              <span class="pl-pipeline__label">{{ lane.label }}{% if lane.detail %} <span class="pl-pipeline__detail">{{ lane.detail }}</span>{% endif %}</span>
+            </span>
+          {% endfor %}
+        </div>
       </li>
     {% endfor %}
   </ol>

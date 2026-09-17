@@ -216,8 +216,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.submit-for-review": {
         "title": "Submit a class for review",
         "short_text": (
-            "Submitting sends your draft to its guild lead (if the guild has one), then an admin. "
-            "It publishes only when every reviewer approves."
+            "Submitting sends your draft to an admin and to its guild lead (if the guild has one) "
+            "at the same moment. Either can answer first."
         ),
         "article_slug": "become-an-instructor",
         "anchor": "teach-submit-for-review",
@@ -260,8 +260,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "admin.review-queue": {
         "title": "The class review queue",
         "short_text": (
-            "Classes waiting on review. The guild lead's gate (when there is one) comes before yours; "
-            "a class publishes only when every gate approves."
+            "Classes waiting on review. The guild lead's review (when there is one) runs alongside "
+            "yours: approve and publish now, or hold until the lead confirms the space is free."
         ),
         "article_slug": "reviewing-classes-admin",
         "anchor": "admin-review-queue",
@@ -413,8 +413,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "guild.approve-classes": {
         "title": "Approve guild classes",
         "short_text": (
-            "Classes in your guild's categories wait on your review first. Approving sends "
-            "the class on to an admin; it publishes only after both say yes."
+            "Classes in your guild's categories reach you and an admin at the same moment. "
+            "Your check is the space: is it free on those dates?"
         ),
         "article_slug": "approving-classes",
         "anchor": "guild-approve-classes",

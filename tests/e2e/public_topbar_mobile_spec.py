@@ -54,7 +54,7 @@ import pytest
 from django.urls import reverse
 
 from classes.factories import ClassOfferingFactory
-from classes.models import ClassOffering
+from classes.models import ClassApproval, ClassOffering
 
 # 320 is the width the horizontal-overflow assertion is real at; 390 is the
 # reporter's iPhone and the width the clipping was photographed at; 768 is iPad
@@ -107,10 +107,17 @@ NAV_MARKERS = [
 
 
 def _review_token() -> str:
-    """A class sitting in review, and the token its approval row carries."""
+    """A class sitting in review, and the token the admin's review row carries.
+
+    Submitting opens every review lane at once and hands back a row per lane, so the row is
+    picked by role rather than unpacked from a list of one. This factory's category links no
+    guild, so that list is the admin row alone today; the unpack would break the day the
+    fixture grew a guild with a lead, and the page under test does not care which.
+    """
     offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
-    (row,) = offering.submit_for_review()
-    return row.token
+    rows = offering.submit_for_review()
+    admin_row = next(row for row in rows if row.role == ClassApproval.Role.ADMIN)
+    return admin_row.token
 
 
 def _assert_brand_fits_one_line(page, label: str, width: int) -> None:

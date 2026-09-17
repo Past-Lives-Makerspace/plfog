@@ -1,0 +1,11 @@
+bump = "minor"
+date = "2026-09-17"
+title = "Your class goes to both reviewers at once"
+changes = [
+  "When you send a class for review, your guild lead and an admin both get it straight away. Before, the admin only saw it once the guild lead had finished, so a class could sit for days waiting on one person.",
+  "The two reviewers answer different questions. Your guild lead checks that the room, the tools and the calendar can take the class. The admin checks that it belongs on the public class list.",
+  "An admin can publish a class the moment they say yes, or say yes and leave it waiting on the guild lead's room check. When they leave it waiting, the guild lead saying yes is what puts the class live.",
+  "Your class page now shows both reviews side by side, so you can see who has answered and who is still looking.",
+  "The emails about a class in review were redesigned and rewritten. Each one says where the class is and what you need to do next.",
+  "Admins have a new page that maps the whole review process: every step, the emails each step sends, and who receives them.",
+]

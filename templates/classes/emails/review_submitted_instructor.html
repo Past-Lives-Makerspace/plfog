@@ -14,9 +14,23 @@
     </td></tr>
     <tr><td style="padding:14px 28px;">
       <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
-        Your class submission is being reviewed. Click below to view status.
+        Your class is now with {{ offering.first_gate_label }}.
       </p>
+      {% if has_guild_lead_lane %}
+      <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
+        Both of them read it at the same time, so neither is waiting on the other. The guild lead
+        checks that the space is free on your dates. An admin checks that the class belongs on the
+        public calendar.
+      </p>
+      {% else %}
+      <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
+        An admin checks that the class belongs on the public calendar. Nobody else needs to sign off.
+      </p>
+      {% endif %}
       {% review_pipeline offering %}
+      <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
+        We will email you as soon as anyone answers. You do not need to do anything until then.
+      </p>
       <p style="margin:18px 0;">
         <a href="{{ instructor_url }}"
            style="display:inline-block;padding:12px 22px;background:#0d4876;color:#FFFFFF;font-weight:800;letter-spacing:0.04em;text-decoration:none;border-radius:6px;font-size:13px;text-transform:uppercase;">

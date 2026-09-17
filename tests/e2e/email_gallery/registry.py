@@ -310,19 +310,40 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
     ),
     GalleryEmail(
         key="review_request",
-        name="Class review request (reviewer)",
+        name="Class review request (guild lead)",
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when an instructor submits a class for review. Goes to the category's guild lead and "
-            "staff (or to admins when the category has no guild lead), with a tokenized review link."
+            "Sent when an instructor submits a class in a guild that has a lead. Goes to that guild's "
+            "lead and staff, with a tokenized review link so they can answer without a hub login. "
+            "Their lane is the space: is the room free on those dates. The admin's lane opens at the "
+            "same moment and neither waits for the other."
         ),
         edit_pointer=_tpl("classes/emails", "review_request"),
-        audience="The guild's lead + staff, or admins for lead-less categories.",
+        audience="The guild's lead + staff.",
         event_keys=frozenset({"class_review_requested"}),
         text_template="classes/emails/review_request.txt",
         html_template="classes/emails/review_request.html",
         context_builder="review_request_context",
+    ),
+    GalleryEmail(
+        key="admin_review_request",
+        name="Class review request (admin)",
+        section="Teaching",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when an instructor submits ANY class — the admin lane opens at submit alongside the "
+            "guild lead's, not after it. Goes to the CMS Administrators and links the logged-in review "
+            "screen, never a bearer token. Rides the same 'Class needs executive validation' opt-out as "
+            "the lead-approved email below. The same template pair as the guild lead's card, with the "
+            "admin's copy branch."
+        ),
+        edit_pointer=_tpl("classes/emails", "review_request"),
+        audience="The CMS Administrators (CLASS_APPROVER holders).",
+        event_keys=frozenset({"class_validation_requested"}),
+        text_template="classes/emails/review_request.txt",
+        html_template="classes/emails/review_request.html",
+        context_builder="admin_review_request_context",
     ),
     GalleryEmail(
         key="review_submitted_instructor",
@@ -330,8 +351,9 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when an instructor submits a class for review — explains what happens next. "
-            "Goes to the submitting instructor."
+            "Sent once when an instructor submits a class for review — names both reviewers and "
+            "explains what each of them checks. Goes to the submitting instructor. One email per "
+            "submission, not one per reviewer."
         ),
         edit_pointer=_tpl("classes/emails", "review_submitted_instructor"),
         audience="The submitting instructor.",
@@ -342,12 +364,13 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
     ),
     GalleryEmail(
         key="admin_validation_request",
-        name="Executive validation request",
+        name="Last approval needed (admin)",
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when a guild lead approves a class and the admin (executive) gate opens. "
-            "Goes to the CMS Administrators (CLASS_APPROVER holders), with a tokenized review link."
+            "Sent when a guild lead approves a class while the admin's lane is still open — the admin "
+            "is the only approval left. Goes to the CMS Administrators and links the logged-in review "
+            "screen."
         ),
         edit_pointer=_tpl("classes/emails", "admin_validation_request"),
         audience="The CMS Administrators (CLASS_APPROVER holders).",
@@ -362,9 +385,9 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when any reviewer decides on a submitted class — approved, live, changes requested, "
-            "or declined (the subject line varies by outcome; the gallery shows the fully-approved "
-            "outcome). Goes to the class's instructor."
+            "Sent when any reviewer decides on a submitted class — approved, live, approved and held "
+            "for the space check, changes requested, or declined (the subject line varies by outcome; "
+            "the gallery shows the fully-approved outcome). Goes to the class's instructor."
         ),
         edit_pointer=_tpl("classes/emails", "review_decision"),
         audience="The class's instructor.",

@@ -9217,8 +9217,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     background: rgba(139, 151, 168, 0.18);
     color: var(--hub-text-muted);
 }
+/* The three review states share one gold: a class with both lanes open is in review the
+   same way a class with one is, and giving AWAITING_BOTH a tone of its own would say the
+   two-reviewer case is a different KIND of waiting. Its label already names both. */
 .pl-lifecycle-badge--awaiting_guild_lead,
-.pl-lifecycle-badge--awaiting_admin {
+.pl-lifecycle-badge--awaiting_admin,
+.pl-lifecycle-badge--awaiting_both {
     background: rgba(238, 180, 75, 0.16);
     color: var(--pl-lifecycle-review);
 }
@@ -9249,22 +9253,30 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     font-weight: 400;
 }
 
-/* Review pipeline strip: circles joined by a track that fills to the current step. */
+/* Review pipeline strip: three columns joined by a track that fills to the current step.
+   The middle column carries BOTH review lanes when the category has a guild lead, because
+   both open at submit and neither waits for the other, so the strip forks into two lanes
+   and joins back into Live. Every lane is one row — dot, then label — which is what lets
+   the parallel column stack its pair symmetrically about the track. Column order and count
+   come from ``ReviewPipeline.columns``, which is always exactly three; that is what the
+   third in the track's right offset is. */
 .pl-pipeline {
     position: relative;
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0;
     margin: 0.75rem 0 0.5rem;
     padding: 0;
     list-style: none;
 }
+/* Runs from the first dot's centre to the last one's, so ``fill_percent`` lands on a dot
+   rather than somewhere past it: 50% is the review column, 100% is Live. */
 .pl-pipeline__track {
     position: absolute;
-    top: 0.9rem;
+    top: 50%;
     left: 0.9rem;
-    right: 0.9rem;
+    right: calc(100% / 3 - 0.9rem);
+    transform: translateY(-50%);
     height: 3px;
     background: var(--hub-border);
     border-radius: 2px;
@@ -9277,19 +9289,47 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-pipeline--bounced .pl-pipeline__fill {
     background: var(--hub-blue);
 }
-.pl-pipeline__step {
+.pl-pipeline__col {
     position: relative;
     z-index: 1;
     flex: 1;
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.35rem;
     min-width: 0;
-    text-align: center;
+    padding-right: 0.75rem;
 }
+.pl-pipeline__lanes {
+    position: relative;
+    display: grid;
+    grid-auto-rows: 1fr;
+    gap: 0.5rem;
+    min-width: 0;
+}
+/* The fork and the join: one rail between the two lanes' dots, crossed by the track at its
+   midpoint. Equal rows (``grid-auto-rows: 1fr``) put every dot's centre half a row from its
+   own edge, so the inset is a quarter of the pair's height once the gap is taken out — which
+   holds however many lines a lane's detail wraps to. */
+.pl-pipeline__col--parallel .pl-pipeline__lanes::before {
+    content: "";
+    position: absolute;
+    left: calc(0.9rem - 1.5px);
+    top: calc((100% - 0.5rem) / 4);
+    bottom: calc((100% - 0.5rem) / 4);
+    width: 3px;
+    background: var(--hub-border);
+    border-radius: 2px;
+}
+.pl-pipeline__step {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+/* Dot and label both carry the card background on purpose: they punch the holes that stop
+   the track running through a lane, the way the dot alone always has. */
 .pl-pipeline__dot {
+    position: relative;
     box-sizing: border-box;
+    flex: none;
     width: 1.8rem;
     height: 1.8rem;
     border-radius: 50%;
@@ -9317,11 +9357,25 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     border-color: var(--hub-blue);
     color: #fff;
 }
+/* The lane an admin shut by publishing over it. Hollow, dashed, muted, and never the live
+   green: the gate is closed, but nobody in the guild answered, and a filled tick here would
+   credit them with a yes they never gave. The dash is the same marker the text email draws. */
+.pl-pipeline__step--overridden .pl-pipeline__dot {
+    background: var(--hub-surface);
+    border-style: dashed;
+    border-color: var(--hub-border-strong);
+    color: var(--hub-text-muted);
+}
 .pl-pipeline__label {
+    position: relative;
+    min-width: 0;
+    padding: 0.1rem 0.6rem 0.1rem 0.5rem;
+    border-radius: 0.6rem;
+    background: var(--hub-card-bg);
     font-size: 0.78rem;
     font-weight: 600;
     color: var(--hub-text-muted);
-    line-height: 1.2;
+    line-height: 1.25;
 }
 .pl-pipeline__step--done .pl-pipeline__label,
 .pl-pipeline__step--current .pl-pipeline__label {
@@ -9331,7 +9385,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     color: var(--hub-blue);
 }
 .pl-pipeline__detail {
+    display: block;
     font-size: 0.7rem;
+    font-weight: 400;
     color: var(--hub-text-muted);
 }
 .pl-pipeline--muted {
@@ -9345,18 +9401,20 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-pipeline__headline--muted {
     color: var(--hub-text-muted);
 }
+/* Stacked: the columns become rows on one vertical rail, and the fork's own rail sits on
+   the same line, so the two review lanes simply read as two stops next to each other. */
 @media (max-width: 480px) {
     .pl-pipeline {
         flex-direction: column;
         align-items: stretch;
-        gap: 0.9rem;
-        padding-left: 0;
+        gap: 0.5rem;
     }
     .pl-pipeline__track {
         top: 0.9rem;
         bottom: 0.9rem;
-        left: 0.8rem;
+        left: calc(0.9rem - 1.5px);
         right: auto;
+        transform: none;
         width: 3px;
         height: auto;
     }
@@ -9364,12 +9422,199 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
         width: 100%;
         height: var(--pl-pipeline-fill, 0%);
     }
-    .pl-pipeline__step {
-        flex-direction: row;
-        align-items: center;
-        text-align: left;
-        gap: 0.75rem;
+    .pl-pipeline__col {
+        padding-right: 0;
     }
+    .pl-pipeline__lanes {
+        width: 100%;
+    }
+}
+
+/* ── Review flow map (classes/admin/review_flow_map.html) ──────────────────────────────────
+   The admin reference page for the two-lane flow: the strip above (.pl-pipeline, unchanged),
+   then one card per lane listing every notice that lane fires. Nothing here is state — the map
+   draws a sample draft — so there is no done/current/ahead vocabulary in this block; the only
+   colour is the accent bar that separates one notice from the next. Tokens only, so both
+   themes follow without a second rule. */
+.pl-flowmap {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+.pl-flowmap__lead {
+    max-width: 62ch;
+    margin: 0 0 0.25rem;
+    color: var(--hub-text);
+}
+.pl-flowmap__caption {
+    max-width: 62ch;
+    margin: 0.75rem 0 0;
+    font-size: 0.9rem;
+    color: var(--hub-text-muted);
+}
+.pl-flowmap__stage-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0 0 0.9rem;
+    font-size: 1.15rem;
+    /* PipelineStep.label is generated ("Guild lead"), so the heading is title-cased here
+       rather than by retitling a string the pipeline owns. */
+    text-transform: capitalize;
+    color: var(--hub-text);
+}
+.pl-flowmap__stage-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.6rem;
+    height: 1.6rem;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: none;
+}
+.pl-flowmap__notices {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.pl-flowmap__notice {
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--hub-border);
+    border-left: 3px solid var(--hub-blue);
+    border-radius: 8px;
+    background: var(--hub-surface);
+}
+.pl-flowmap__notice-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.pl-flowmap__notice-title {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+.pl-flowmap__chips {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+.pl-flowmap__chip {
+    padding: 0.1rem 0.5rem;
+    border: 1px solid var(--hub-border-strong);
+    border-radius: 9999px;
+    background: var(--hub-elevated);
+    color: var(--hub-text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+.pl-flowmap__chip--in-app {
+    border-color: var(--hub-blue);
+    color: var(--hub-blue);
+}
+.pl-flowmap__trigger {
+    margin: 0.5rem 0 0.75rem;
+    max-width: 70ch;
+    color: var(--hub-text);
+}
+.pl-flowmap__meta {
+    margin: 0;
+    font-size: 0.9rem;
+}
+.pl-flowmap__meta-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.3rem;
+}
+.pl-flowmap__meta-row dt {
+    flex: 0 0 5.5rem;
+    color: var(--hub-text-muted);
+    font-weight: 600;
+}
+.pl-flowmap__meta-row dd {
+    flex: 1 1 18rem;
+    margin: 0;
+    color: var(--hub-text);
+}
+.pl-flowmap__code {
+    padding: 0.05rem 0.35rem;
+    border-radius: 4px;
+    background: var(--hub-bg);
+    color: var(--hub-blue);
+    font-size: 0.82rem;
+    word-break: break-word;
+}
+.pl-flowmap__event {
+    display: block;
+    margin: 0 0 0.2rem;
+}
+.pl-flowmap__event-label {
+    color: var(--hub-text-muted);
+}
+.pl-flowmap__note {
+    margin: 0.75rem 0 0;
+    max-width: 70ch;
+    font-size: 0.88rem;
+    color: var(--hub-text-muted);
+}
+.pl-flowmap__preview {
+    margin-top: 1rem;
+}
+.pl-flowmap__empty {
+    margin: 0;
+    color: var(--hub-text-muted);
+}
+@media (max-width: 640px) {
+    .pl-flowmap__meta-row dt {
+        flex: 0 0 100%;
+    }
+}
+
+/* The reviewer's own row on the review page, once it carries a decision — and the same
+   panel for every state that replaces the decision form. Green is reserved for a verdict a
+   human actually gave: a lane an admin closed by publishing, a class that is not awaiting
+   review, and the sign-in notice all take the neutral variant, because none of them is a
+   yes anyone said. */
+.pl-review-decided {
+    padding: 14px 16px;
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--color-success);
+    border-radius: 8px;
+    background: var(--color-success-bg);
+}
+.pl-review-decided--closed {
+    border-color: var(--hub-border);
+    background: var(--hub-surface);
+}
+.pl-review-decided__title {
+    margin-bottom: 4px;
+    font-weight: 700;
+    color: var(--hub-text);
+}
+.pl-review-decided__meta {
+    font-size: 0.9rem;
+    color: var(--hub-text-muted);
+}
+.pl-review-decided__notes {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--hub-bg);
+    font-size: 0.9rem;
+    white-space: pre-wrap;
 }
 
 /* Reviewer's note on a bounced class, on the edit page and workspace overview. */

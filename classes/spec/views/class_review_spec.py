@@ -6,8 +6,27 @@ import pytest
 from django.test import override_settings
 from django.urls import reverse
 
-from classes.factories import ClassOfferingFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering
+from tests.membership.factories import GuildFactory
+
+
+def _guilded_pending(**kwargs) -> tuple[ClassOffering, ClassApproval, ClassApproval]:
+    """A submitted class under a guild with a lead: both lanes open, lead row first.
+
+    Nearly every case here needs the GUILD_LEAD lane, because that is the one a token still
+    decides. An ungilded class submits with the ADMIN lane alone, and that lane's token is
+    read-only now (see ``describe_an_admin_token``).
+    """
+    from membership.models import Member
+
+    lead_user = UserFactory(first_name="Lena", last_name="Lead")
+    guild = GuildFactory(name="Woodshop", guild_lead=Member.objects.get(user=lead_user))
+    offering = ClassOfferingFactory(
+        ready=True, status=ClassOffering.Status.DRAFT, category=CategoryFactory(guild=guild), **kwargs
+    )
+    lead_row, admin_row = offering.submit_for_review()
+    return offering, lead_row, admin_row
 
 
 def describe_class_review():
@@ -18,9 +37,8 @@ def describe_class_review():
         assert response.status_code == 200
 
     def it_wraps_the_notes_field_in_a_themed_wrapper(client, db):
-        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
-        (row,) = offering.submit_for_review()
-        response = client.get(reverse("classes:class_review", kwargs={"token": row.token}))
+        _offering, lead_row, _admin_row = _guilded_pending()
+        response = client.get(reverse("classes:class_review", kwargs={"token": lead_row.token}))
         # The notes control is rendered through components/form_field.html, so it sits in the
         # theme-correct .pl-form-group wrapper instead of falling through to a bare white textarea.
         assert b"pl-form-group" in response.content
@@ -43,61 +61,120 @@ def describe_class_review():
         assert response.status_code == 200
 
     def it_records_approved_decision_on_post(client, db):
-        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
-        (row,) = offering.submit_for_review()
+        """The lead's yes closes their lane and leaves the class with the admin, not live."""
+        offering, lead_row, admin_row = _guilded_pending()
         response = client.post(
-            reverse("classes:class_review", kwargs={"token": row.token}),
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
             {"decision": ClassApproval.Decision.APPROVED, "notes": ""},
         )
         assert response.status_code == 302
-        row.refresh_from_db()
-        assert row.decision == ClassApproval.Decision.APPROVED
+        lead_row.refresh_from_db()
+        assert lead_row.decision == ClassApproval.Decision.APPROVED
+        admin_row.refresh_from_db()
+        assert admin_row.decision == ""
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+
+    def it_publishes_when_the_lead_approves_a_class_an_admin_held(client, db, admin_user):
+        """The other half of the hold: the admin already said yes, so the lead's yes is the one
+        that takes it live."""
+        offering, lead_row, admin_row = _guilded_pending()
+        admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user, publish_now=False)
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+
+        response = client.post(
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
+            {"decision": ClassApproval.Decision.APPROVED, "notes": ""},
+        )
+        assert response.status_code == 302
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.PUBLISHED
 
     def it_records_denial_on_post(client, db):
-        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
-        (row,) = offering.submit_for_review()
+        offering, lead_row, _admin_row = _guilded_pending()
         response = client.post(
-            reverse("classes:class_review", kwargs={"token": row.token}),
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
             {"decision": ClassApproval.Decision.DENIED, "notes": "Not suitable."},
         )
         assert response.status_code == 302
-        row.refresh_from_db()
-        assert row.decision == ClassApproval.Decision.DENIED
+        lead_row.refresh_from_db()
+        assert lead_row.decision == ClassApproval.Decision.DENIED
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.DRAFT
 
     def it_shows_the_notes_error_once_when_declining_without_notes(client, db):
-        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
-        (row,) = offering.submit_for_review()
+        _offering, lead_row, _admin_row = _guilded_pending()
         response = client.post(
-            reverse("classes:class_review", kwargs={"token": row.token}),
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
             {"decision": ClassApproval.Decision.DENIED, "notes": ""},
         )
         assert response.status_code == 200
         # form_field.html renders the notes error inline; the top-of-form loop is scoped to
         # `decision` only, so the notes error must appear exactly once (not duplicated, not orphaned).
         assert response.content.decode().count("Please leave a note so the instructor knows what to change.") == 1
-        row.refresh_from_db()
-        assert row.decision == ""
+        lead_row.refresh_from_db()
+        assert lead_row.decision == ""
 
     def it_ignores_post_when_decision_already_recorded(client, db):
-        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
-        (row,) = offering.submit_for_review()
+        _offering, lead_row, _admin_row = _guilded_pending()
         # Record first decision
         client.post(
-            reverse("classes:class_review", kwargs={"token": row.token}),
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
             {"decision": ClassApproval.Decision.APPROVED, "notes": ""},
         )
         # Second POST: decision guard blocks it; view re-renders (200) rather than redirecting
         response = client.post(
-            reverse("classes:class_review", kwargs={"token": row.token}),
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
             {"decision": ClassApproval.Decision.DENIED, "notes": "Changed my mind"},
         )
         assert response.status_code == 200
-        row.refresh_from_db()
-        assert row.decision == ClassApproval.Decision.APPROVED
+        lead_row.refresh_from_db()
+        assert lead_row.decision == ClassApproval.Decision.APPROVED
+
+
+def describe_an_admin_token():
+    """The emailed ADMIN link still opens the class. It no longer decides it.
+
+    Every admin link already in an inbox took the publish-and-override branch by default,
+    which is how a lead's open review got closed by whoever still had the email.
+    """
+
+    def it_resolves_the_link_and_shows_the_class_without_a_decision_form(client, db):
+        offering, _lead_row, admin_row = _guilded_pending(title="Kiln Basics")
+        html = client.get(reverse("classes:class_review", kwargs={"token": admin_row.token})).content.decode()
+        assert "Kiln Basics" in html
+        assert "Review Pipeline" in html
+        assert 'name="decision"' not in html
+        assert "Sign in to record an admin decision." in html
+        assert reverse("classes:admin_class_review", kwargs={"pk": offering.pk}) in html
+
+    def it_refuses_the_decision_and_sends_the_reader_to_the_signed_in_page(client, db):
+        offering, lead_row, admin_row = _guilded_pending()
+        response = client.post(
+            reverse("classes:class_review", kwargs={"token": admin_row.token}),
+            {"decision": ClassApproval.Decision.APPROVED, "notes": ""},
+        )
+        assert response.status_code == 302
+        assert response["Location"] == reverse("classes:admin_class_review", kwargs={"pk": offering.pk})
+        admin_row.refresh_from_db()
+        lead_row.refresh_from_db()
+        assert admin_row.decision == ""
+        assert lead_row.decision == ""
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+
+    def it_leaves_the_guild_leads_own_token_working(client, db):
+        offering, lead_row, _admin_row = _guilded_pending()
+        response = client.post(
+            reverse("classes:class_review", kwargs={"token": lead_row.token}),
+            {"decision": ClassApproval.Decision.CHANGES_REQUESTED, "notes": "Add the price."},
+        )
+        assert response.status_code == 302
+        lead_row.refresh_from_db()
+        assert lead_row.decision == ClassApproval.Decision.CHANGES_REQUESTED
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.DRAFT
 
 
 def describe_class_review_preview():
@@ -131,9 +208,8 @@ def describe_the_review_page_layout():
     """Pipeline and details lead, the decision follows, the preview closes the page."""
 
     def _review_html(client, db) -> str:
-        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT, title="Kiln Basics")
-        (row,) = offering.submit_for_review()
-        return client.get(reverse("classes:class_review", kwargs={"token": row.token})).content.decode()
+        _offering, lead_row, _admin_row = _guilded_pending(title="Kiln Basics")
+        return client.get(reverse("classes:class_review", kwargs={"token": lead_row.token})).content.decode()
 
     def it_puts_the_pipeline_and_details_above_the_decision_and_the_preview_last(client, db):
         html = _review_html(client, db)
@@ -158,7 +234,7 @@ def describe_the_review_page_layout():
         # A class can only be submitted once it is ready, so build the pending review row
         # directly to reach the readiness card while the class is still awaiting a decision.
         offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING, title="Grid Readiness")
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         html = client.get(reverse("classes:class_review", kwargs={"token": row.token})).content.decode()
         assert "pl-readiness--grid" in html
         assert "pl-readiness-count" in html

@@ -1,4 +1,4 @@
-{% load classes_tags %}{% if fully_approved %}PUBLISHED{% elif approval.decision == 'approved' %}{{ approval.get_role_display|upper }} APPROVED{% elif approval.decision == 'changes_requested' %}CHANGES REQUESTED{% else %}DECLINED{% endif %}
+{% load classes_tags %}{% if fully_approved %}PUBLISHED{% elif held_for_room_check %}APPROVED, WAITING ON THE SPACE{% elif approval.decision == 'approved' %}{{ approval.get_role_display|upper }} APPROVED{% elif approval.decision == 'changes_requested' %}CHANGES REQUESTED{% else %}DECLINED{% endif %}
 
 {{ offering.title }}
 
@@ -7,7 +7,10 @@
 
 View public page:
 {{ public_url }}
-{% elif approval.decision == 'approved' %}{{ approval.get_role_display }} approved your class. {% if pending_rows %}Waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% else %}That was the last gate.{% endif %}
+{% elif held_for_room_check %}An admin approved your class and is holding it for the space check. It
+goes live as soon as the guild lead confirms the room is free on your
+dates. Nothing is needed from you.
+{% elif approval.decision == 'approved' %}{{ approval.get_role_display }} approved your class. {% if pending_rows %}Still waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% else %}That was the last approval it needed.{% endif %}
 {% elif approval.decision == 'changes_requested' %}{{ approval.get_role_display }} reviewed your class and asked for changes before approving. The class is back in Draft so you can edit and resubmit.
 
 {% if approval.notes %}Reviewer notes:

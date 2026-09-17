@@ -33,10 +33,15 @@ class SampleData:
     lead: Any  # membership.models.Member — the guild's lead
     guild: Any  # membership.models.Guild
     offering: Any  # classes.models.ClassOffering (published, welcome email authored)
+    in_review: Any  # classes.models.ClassOffering (pending, both review lanes open)
+    lead_approved: Any  # classes.models.ClassOffering (pending, guild lead done, admin still open)
     registration: Any  # classes.models.Registration (confirmed)
     waitlisted: Any  # classes.models.Registration (waitlisted)
     approval_pending: Any  # classes.models.ClassApproval (guild-lead gate, pending)
     approval_decided: Any  # classes.models.ClassApproval (admin gate, approved)
+    in_review_lead: Any  # classes.models.ClassApproval (in_review's guild-lead lane, open)
+    in_review_admin: Any  # classes.models.ClassApproval (in_review's admin lane, open)
+    lead_approved_admin: Any  # classes.models.ClassApproval (lead_approved's admin lane, open)
     booking: Any  # membership.models.OrientationBooking
     charge: Any  # billing.models.TabCharge (with entries)
 
@@ -87,7 +92,10 @@ def build_sample_data() -> SampleData:
         instructor_slug="robin-vale",
         about_me="Longtime metalsmith and studio lead. Teaches casting and fabrication.",
     )
-    category = CategoryFactory(name="Ceramics", slug="ceramics")
+    # Guild-linked on purpose: the review emails read ``category.guild`` to decide whether the
+    # class has a guild-lead lane at all, so a guild-less category would draw every review card
+    # as a one-lane admin-only flow and hide the shape these cards exist to show.
+    category = CategoryFactory(name="Ceramics", slug="ceramics", guild=guild)
     offering = _published_offering(category=category, instructor=instructor)
     base = timezone.now() + timedelta(days=10)
     ClassSessionFactory(class_offering=offering, starts_at=base, ends_at=base + timedelta(hours=3))
@@ -122,6 +130,34 @@ def build_sample_data() -> SampleData:
     offering.status = ClassOffering.Status.PUBLISHED
     offering.save(update_fields=["status"])
 
+    # Review is parallel: both lanes open at submit and neither waits for the other. The strip
+    # is drawn from the offering's OWN status and rows, so a published class can only ever draw
+    # a finished flow. These two carry the states the review emails actually go out in — both
+    # lanes open, and one lane done with the other still open — so the cards show the branch
+    # rather than a row of ticks.
+    in_review = _review_offering(
+        category=category,
+        instructor=instructor,
+        title="Raku Firing Weekend",
+        slug="raku-firing-weekend",
+    )
+    in_review_lead = ClassApproval.objects.create(class_offering=in_review, role=ClassApproval.Role.GUILD_LEAD)
+    in_review_admin = ClassApproval.objects.create(class_offering=in_review, role=ClassApproval.Role.ADMIN)
+
+    lead_approved = _review_offering(
+        category=category,
+        instructor=instructor,
+        title="Slab-Built Planters",
+        slug="slab-built-planters",
+    )
+    ClassApproval.objects.create(
+        class_offering=lead_approved,
+        role=ClassApproval.Role.GUILD_LEAD,
+        decision=ClassApproval.Decision.APPROVED,
+        decided_at=timezone.now(),
+    )
+    lead_approved_admin = ClassApproval.objects.create(class_offering=lead_approved, role=ClassApproval.Role.ADMIN)
+
     slot = OrientationSlotFactory(
         guild=guild,
         starts_at=timezone.now() + timedelta(days=4),
@@ -141,12 +177,34 @@ def build_sample_data() -> SampleData:
         lead=lead,
         guild=guild,
         offering=offering,
+        in_review=in_review,
+        lead_approved=lead_approved,
         registration=registration,
         waitlisted=waitlisted,
         approval_pending=approval_pending,
         approval_decided=approval_decided,
+        in_review_lead=in_review_lead,
+        in_review_admin=in_review_admin,
+        lead_approved_admin=lead_approved_admin,
         booking=booking,
         charge=charge,
+    )
+
+
+def _review_offering(**kwargs: Any) -> Any:
+    """A PENDING class in the Ceramics Guild, for the cards that draw a review in flight."""
+    from classes.factories import ClassOfferingFactory
+    from classes.models import ClassOffering
+
+    return ClassOfferingFactory(
+        status=ClassOffering.Status.PENDING,
+        is_private=False,
+        price_cents=6500,
+        capacity=10,
+        description=(
+            "Build, glaze and fire your own pieces over one weekend. Bring an apron; everything else is provided."
+        ),
+        **kwargs,
     )
 
 
@@ -246,46 +304,78 @@ def instructor_new_registration_context(data: SampleData) -> dict[str, Any]:
 
 
 def review_request_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``classes.emails._emit_review_request`` (guild-lead gate)."""
-    from classes.emails import _absolute_url
+    """Mirrors ``classes.emails.send_guild_lead_review_request`` — the guild-lead lane at submit.
 
-    row = data.approval_pending
+    Drawn against the class with both lanes open, which is the state this email actually goes
+    out in, so the card shows the guild lead and the admin side by side rather than a finished
+    row of ticks.
+    """
+    from classes.emails import _token_review_url
+
+    row = data.in_review_lead
     return {
-        "subject": f"Review request: {data.offering.title}",
+        "subject": f"Review request: {data.in_review.title}",
         "template_context": {
-            "offering": data.offering,
+            "offering": data.in_review,
             "approval": row,
-            "review_url": _absolute_url(reverse("classes:class_review", kwargs={"token": row.token})),
+            "review_url": _token_review_url(row),
             "role_label": "Guild Lead",
+            "guild_lead_status": "",
+        },
+    }
+
+
+def admin_review_request_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_admin_review_request`` — the admin lane at submit.
+
+    Same shell as the guild lead's card, addressed to the other lane: no bearer token, a
+    logged-in ``/classes/admin/<pk>/review/`` link, and the line naming where the guild lead's
+    room check stands.
+    """
+    from classes.emails import _absolute_url, _admin_review_url, _guild_lead_lane_status
+
+    return {
+        "subject": f"Review request: {data.in_review.title}",
+        "template_context": {
+            "offering": data.in_review,
+            "approval": data.in_review_admin,
+            "review_url": _absolute_url(_admin_review_url(data.in_review)),
+            "role_label": "Admin",
+            "guild_lead_status": _guild_lead_lane_status(data.in_review),
         },
     }
 
 
 def review_submitted_instructor_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``classes.emails._emit_instructor_review_explainer``."""
+    """Mirrors ``classes.emails._emit_instructor_review_explainer`` — one email, both reviewers."""
     from classes.emails import _absolute_url
+    from classes.models import ClassApproval
 
     return {
-        "subject": f"Your class '{data.offering.title}' is in review",
+        "subject": f"Your class '{data.in_review.title}' is in review",
         "template_context": {
-            "offering": data.offering,
-            "approvals": [data.approval_pending],
-            "instructor_url": _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": data.offering.pk})),
+            "offering": data.in_review,
+            "approvals": [data.in_review_admin],
+            "instructor_url": _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": data.in_review.pk})),
+            "has_guild_lead_lane": ClassApproval.Role.GUILD_LEAD in data.in_review.required_review_roles,
         },
     }
 
 
 def admin_validation_request_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``classes.emails.send_admin_validation_request``."""
-    from classes.emails import _absolute_url
+    """Mirrors ``classes.emails.send_admin_validation_request`` — the guild lead has signed off.
 
-    row = data.approval_pending
+    Drawn against the class whose guild-lead lane is done and whose admin lane is still open,
+    so the strip shows one half of the review column settled.
+    """
+    from classes.emails import _absolute_url, _admin_review_url
+
     return {
-        "subject": f"Executive validation needed: {data.offering.title}",
+        "subject": f"Last approval needed: {data.lead_approved.title}",
         "template_context": {
-            "offering": data.offering,
-            "approval": row,
-            "review_url": _absolute_url(reverse("classes:class_review", kwargs={"token": row.token})),
+            "offering": data.lead_approved,
+            "approval": data.lead_approved_admin,
+            "review_url": _absolute_url(_admin_review_url(data.lead_approved)),
             "guild_lead_name": data.lead.display_name,
             "instructor_name": data.instructor.display_name,
         },
@@ -306,6 +396,7 @@ def review_decision_context(data: SampleData) -> dict[str, Any]:
             "public_url": public_url,
             "fully_approved": True,
             "pending_rows": [],
+            "held_for_room_check": False,
         },
     }
 

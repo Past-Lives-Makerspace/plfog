@@ -34,6 +34,7 @@ permission decorator is the real gate; this only decides whether the tab is offe
     {% if actually_admin %}
     <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}"{% if active_tab == 'classes' %} aria-current="page"{% endif %}>Classes</a>
     <a href="{% url 'classes:admin_activity' %}" class="vote-tab{% if active_tab == 'activity' %} vote-tab--active{% endif %}"{% if active_tab == 'activity' %} aria-current="page"{% endif %}>Catalog Activity</a>
+    <a href="{% url 'classes:admin_review_flow_map' %}" class="vote-tab{% if active_tab == 'review_flow' %} vote-tab--active{% endif %}"{% if active_tab == 'review_flow' %} aria-current="page"{% endif %}>Review Flow</a>
     <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}"{% if active_tab in settings_tabs.split %} aria-current="page"{% endif %}>Settings</a>
     {% endif %}
 </nav>

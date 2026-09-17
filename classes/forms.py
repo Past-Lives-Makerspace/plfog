@@ -729,7 +729,23 @@ class ClassReviewDecisionForm(forms.Form):
 
     Notes are required when the decision is changes_requested or denied so
     the instructor gets actionable feedback. They're optional on approve.
+
+    ``allow_hold`` adds the admin's second approve action, "Approve, hold for the room
+    check". It is a FORM value and not a fourth reviewer verdict: the view maps it to an
+    ordinary ``APPROVED`` decision recorded with ``publish_now=False``, so
+    ``ClassApproval.Decision`` never grows a verdict that means "yes, but".
+
+    The hold is only offered where it means something — the admin's own lane, with the
+    guild lead's lane still open. On the guild lead's lane, or on a class whose lead has
+    already answered, there is nothing left to hold for, and offering it would be an
+    action that silently does what plain Approve does.
     """
+
+    #: The radio value for the admin's hold. Not a ``ClassApproval.Decision`` member.
+    HOLD = "approved_hold"
+
+    #: Human-approved, verbatim. The line under the hold option, saying what holding costs.
+    HOLD_HELP_TEXT = "The class stays unpublished until the guild lead confirms the room is free."
 
     decision = forms.ChoiceField(
         choices=[
@@ -749,6 +765,22 @@ class ClassReviewDecisionForm(forms.Form):
         help_text="Optional when you approve. Required when you ask for changes or decline, "
         "so the instructor knows what to work on.",
     )
+
+    def __init__(self, *args, allow_hold: bool = False, **kwargs) -> None:
+        """Build the choice set for this lane.
+
+        Without ``allow_hold`` the form is exactly what it was. With it, plain Approve says
+        what it does — it publishes, over the guild lead's open lane — and the hold sits
+        beside it as the other way to say yes.
+        """
+        super().__init__(*args, **kwargs)
+        if allow_hold:
+            self.fields["decision"].choices = [  # type: ignore[attr-defined]  # django-stubs types fields as base Field
+                ("approved", "Approve and publish"),
+                (self.HOLD, "Approve, hold for the room check"),
+                ("changes_requested", "Ask for changes"),
+                ("denied", "Decline"),
+            ]
 
     def clean(self) -> dict:
         data = super().clean() or {}

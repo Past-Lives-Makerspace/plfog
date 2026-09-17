@@ -95,7 +95,16 @@ an admin reading a queue wants the glance.{% endcomment %}
 {% url 'classes:admin_class_approve' pk=offering.pk as approve_url %}
 {% url 'classes:teach_class_withdraw' pk=offering.pk as withdraw_url %}
 {% url 'classes:teach_class_duplicate_run' pk=offering.pk as run_again_url %}
-{% concat "“" offering.title "” goes live in the catalog right away. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
+{% comment %}
+Same Approve button as the admin overview's, so it carries the same warning: this is the
+"Approve and publish" path, and on a class whose guild lead has not answered it closes
+their review without their answer. The two modals must not disagree.
+{% endcomment %}
+{% if offering.open_guild_lead_approval %}
+    {% concat "“" offering.title "” goes live in the catalog right away. The guild lead has not answered yet, and publishing closes their review without their answer. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Open Review with notes to ask for changes, or to approve and hold for the guild lead's room check." as publish_message %}
+{% else %}
+    {% concat "“" offering.title "” goes live in the catalog right away. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
+{% endif %}
 <div class="pl-class-actions">
     {% if access.can_approve and offering.status == 'pending' %}
         <button type="button" class="hub-btn hub-btn--sm hub-btn--success" @click="$dispatch('open-confirm', 'publish-class')">Approve</button>

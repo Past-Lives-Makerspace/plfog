@@ -151,3 +151,171 @@ def describe_admin_class_approve():
         offering.refresh_from_db()
         assert offering.status == ClassOffering.Status.PUBLISHED
         assert not offering.approvals.filter(decision="").exists()
+
+
+def _both_lanes_open(**kwargs) -> tuple[ClassOffering, ClassApproval, ClassApproval]:
+    """A submitted class under a guild with a lead: both lanes open, lead row first."""
+    offering = ClassOfferingFactory(
+        ready=True, status=ClassOffering.Status.DRAFT, category=_make_guilded_category(None), **kwargs
+    )
+    lead_row, admin_row = offering.submit_for_review()
+    return offering, lead_row, admin_row
+
+
+HOLD_HELP_TEXT = "The class stays unpublished until the guild lead confirms the room is free."
+
+
+def describe_the_admins_two_approvals():
+    """Approve and publish, or approve and hold for the room check.
+
+    The hold is a FORM value, not a fourth reviewer verdict: it records an ordinary APPROVED
+    row with ``publish_now=False``, so nothing in the data model means "yes, but".
+    """
+
+    def it_offers_the_hold_only_while_the_guild_lane_is_open(admin_user, client, db):
+        offering, _lead_row, _admin_row = _both_lanes_open()
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert "Approve and publish" in html
+        assert "Approve, hold for the room check" in html
+        assert 'value="approved_hold"' in html
+        # Human-approved copy, verbatim: it says exactly what holding costs.
+        assert HOLD_HELP_TEXT in html
+
+    def it_offers_no_hold_when_the_category_has_no_guild_lead(admin_user, client, db):
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
+        offering.submit_for_review()
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert "Approve, hold for the room check" not in html
+        assert HOLD_HELP_TEXT not in html
+        assert 'value="approved"' in html
+
+    def it_offers_no_hold_once_the_guild_lead_has_answered(admin_user, client, db):
+        offering, lead_row, _admin_row = _both_lanes_open()
+        lead_row.decide(ClassApproval.Decision.APPROVED)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert "Approve, hold for the room check" not in html
+
+    def it_offers_no_hold_on_the_guild_leads_own_lane(client, db):
+        _offering, lead_row, _admin_row = _both_lanes_open()
+        html = client.get(reverse("classes:class_review", kwargs={"token": lead_row.token})).content.decode()
+        assert "Approve, hold for the room check" not in html
+        assert 'value="approved"' in html
+
+    def it_records_the_hold_as_an_approval_that_publishes_nothing(admin_user, client, db):
+        offering, lead_row, admin_row = _both_lanes_open()
+        client.force_login(admin_user)
+        response = client.post(
+            reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
+            {"decision": "approved_hold", "notes": ""},
+        )
+        assert response.status_code == 302
+        admin_row.refresh_from_db()
+        lead_row.refresh_from_db()
+        assert admin_row.decision == ClassApproval.Decision.APPROVED
+        # The lane being held for stays open — it is not overridden, and it is not decided.
+        assert lead_row.decision == ""
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PENDING
+
+    def it_publishes_and_closes_the_open_lane_on_approve_and_publish(admin_user, client, db):
+        offering, lead_row, admin_row = _both_lanes_open()
+        client.force_login(admin_user)
+        response = client.post(
+            reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
+            {"decision": ClassApproval.Decision.APPROVED, "notes": ""},
+        )
+        assert response.status_code == 302
+        offering.refresh_from_db()
+        lead_row.refresh_from_db()
+        admin_row.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PUBLISHED
+        assert admin_row.decision == ClassApproval.Decision.APPROVED
+        assert lead_row.decision == ClassApproval.Decision.OVERRIDDEN_BY_ADMIN
+
+
+def describe_a_held_class():
+    def it_reuses_the_decided_admin_row_instead_of_minting_a_second(admin_user, client, db):
+        """The GET row-creator used to mint a second ADMIN row on a held class.
+
+        With two rows, one decided and one open, ``awaiting_admin()`` reported the admin lane
+        open again on a class an admin had already answered, and the overview listed it back
+        in "Waiting on You".
+        """
+        offering, _lead_row, admin_row = _both_lanes_open()
+        admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user, publish_now=False)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+
+        assert offering.approvals.filter(role=ClassApproval.Role.ADMIN).count() == 1
+        assert not ClassOffering.objects.awaiting_admin().filter(pk=offering.pk).exists()
+        assert ClassOffering.objects.awaiting_admin_held().filter(pk=offering.pk).exists()
+        # The page shows the decision it already carries rather than a second blank form.
+        assert "You already decided this approved." in html
+        assert 'name="decision"' not in html
+
+
+def describe_an_overridden_guild_lead_lane():
+    """A lane an admin shut by publishing over it is never drawn as a yes the guild gave."""
+
+    def it_tells_the_lead_the_admin_closed_it_rather_than_that_they_decided_it(admin_user, client, db):
+        offering, lead_row, _admin_row = _both_lanes_open()
+        offering.approve(admin_user)
+        lead_row.refresh_from_db()
+        assert lead_row.decision == ClassApproval.Decision.OVERRIDDEN_BY_ADMIN
+
+        html = client.get(reverse("classes:class_review", kwargs={"token": lead_row.token})).content.decode()
+        assert "This review was closed when an admin published the class." in html
+        assert "You already decided this" not in html
+        assert "overridden by admin" not in html
+        # Neutral panel, not the green one every real verdict gets.
+        assert "pl-review-decided--closed" in html
+
+    def it_draws_the_lane_on_the_strip_without_a_tick(admin_user, client, db):
+        offering, lead_row, _admin_row = _both_lanes_open()
+        offering.approve(admin_user)
+        html = client.get(reverse("classes:class_review", kwargs={"token": lead_row.token})).content.decode()
+        assert "pl-pipeline__step--overridden" in html
+        assert "Closed when an admin published" in html
+
+
+def describe_the_two_lane_strip():
+    def it_forks_the_review_column_and_names_both_reviewers(admin_user, client, db):
+        offering, _lead_row, _admin_row = _both_lanes_open()
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        headline = "Waiting on the guild lead (Test Guild for Review) and an admin"
+        assert "pl-pipeline__col--parallel" in html
+        assert 'data-column="review"' in html
+        assert f'aria-label="{headline}"' in html
+        # Criterion 26: the sentence read out loud is the sentence printed under the strip.
+        assert f'<p class="pl-pipeline__headline">{headline}</p>' in html
+
+    def it_draws_one_lane_for_a_category_with_no_guild_lead(admin_user, client, db):
+        offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
+        offering.submit_for_review()
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert "pl-pipeline__col--parallel" not in html
+        assert 'data-step="admin"' in html
+        assert 'data-step="guild_lead"' not in html
+
+    def it_is_included_on_every_surface_that_draws_it():
+        """Four include statements across three templates.
+
+        ``templates/classes/admin/class_detail.html`` was the fourth surface and was deleted
+        with #403; the count is of includes, not of files, because the class overview draws
+        the strip twice (carded for the instructor, bare for everyone else).
+        """
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[3] / "templates"
+        surfaces = [
+            root / "classes" / "_components" / "class_composer.html",
+            root / "classes" / "admin" / "class_review.html",
+            root / "classes" / "teach" / "class_overview.html",
+        ]
+        includes = sum(p.read_text().count('include "classes/_components/review_pipeline.html"') for p in surfaces)
+        assert includes == 4

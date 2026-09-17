@@ -78,6 +78,7 @@ from classes.composer import COMPOSER_STEPS, anchor_steps, clamp_step, error_sum
 from classes.grouping import CatalogGroup, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
+from classes.review_map import GALLERY_URL, reference_pipeline, review_flow
 from classes.table import prepare_table
 from classes.templatetags.classes_tags import member_price_cents as compute_member_price_cents
 from classes.forms import (
@@ -1923,7 +1924,12 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _submitted_message(offering: ClassOffering) -> str:
-    """The honest submit message, naming who actually reviews first (create, edit, and submit paths)."""
+    """The honest submit message, naming everyone it actually went to (create, edit, and submit paths).
+
+    Both gates open at submit, so ``first_gate_label`` names both reviewers and this sentence
+    names both with it. It used to promise one first reviewer, which was a queue the class no
+    longer stands in.
+    """
     return f"Submitted “{offering.title}” for review by {offering.first_gate_label}."
 
 
@@ -2824,8 +2830,12 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     if range_start is not None:
         registrations = registrations.filter(registered_at__gte=range_start)
 
-    # Two-stage queue: what waits on the admin (PENDING with no open guild-lead gate,
-    # including a PENDING class with zero rows) and what is still with a guild lead.
+    # One class, one row. Both lanes open at submit, so "waiting on an admin" and "still with
+    # the guild lead" describe the same class for most of a review, and listing both would put
+    # it on the screen twice and count it twice. What is left for the lead ALONE is exactly the
+    # class an admin already approved and held for the room check, so that is what the second
+    # queue holds. The two are disjoint by construction: the first needs an open admin row (or
+    # no rows at all), the second an approved one, and a cycle carries one admin row.
     waiting_on_you = list(
         ClassOffering.objects.awaiting_admin().select_related("instructor", "category").order_by("created_at")
     )
@@ -2883,6 +2893,9 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     stats = {
         "awaiting_you": len(waiting_on_you),
         "with_leads": len(with_guild_leads),
+        # Both sums count classes, not rows on a screen, because the two review queues no
+        # longer overlap: a class with both lanes open is the admin's to decide and appears
+        # once, under "Waiting on You".
         "pending": len(waiting_on_you) + len(with_guild_leads),
         # The merged "Needs Attention" card's own count: all three of its queues together.
         "needs_attention": len(waiting_on_you) + len(with_guild_leads) + len(teaching_applications),
@@ -2941,7 +2954,7 @@ def _teaching_application_queue(now: Any) -> list[_TeachingApplicationRow]:
 
 
 class _GuildLeadQueueRow(TypedDict):
-    """One "With Guild Leads" row on the admin overview."""
+    """One "Held for the room check" row on the admin overview."""
 
     offering: ClassOffering
     row: ClassApproval
@@ -2951,7 +2964,12 @@ class _GuildLeadQueueRow(TypedDict):
 
 
 def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
-    """Every PENDING class whose guild-lead gate is open, with who holds it and for how long.
+    """Every class an admin approved and held, with the lead it is waiting on and for how long.
+
+    The hold invented this state and it is the only one where a guild lead is the last gate:
+    the admin has said yes, the class is not live, and the lead's own approval is what will
+    publish it. Every other class with an open guild-lead lane still has an open admin lane
+    too, and belongs in the admin's own queue rather than in a second copy of itself here.
 
     ``leadless`` marks a guild whose lead and staff have all gone (nobody to remind), so
     the row offers "Review it yourself" instead of Remind lead.
@@ -2959,7 +2977,7 @@ def _with_guild_leads_queue(now: Any) -> list[_GuildLeadQueueRow]:
     from classes.emails import _guild_leadership_recipients
 
     offerings = (
-        ClassOffering.objects.awaiting_guild_lead_any()
+        ClassOffering.objects.awaiting_admin_held()
         .select_related("instructor", "category__guild__guild_lead")
         .prefetch_related("approvals")
         .order_by("created_at")
@@ -3463,12 +3481,17 @@ def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
 
 @class_screen_required
 def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
-    """Quick-approve from the class screen.
+    """Quick-approve from the class screen: the one-click "Approve and publish".
 
-    Records an admin-role decision via ClassApproval. Admin approval is final:
-    the offering publishes immediately, closing any still-open guild-lead gate.
-    For request-changes / decline with notes, use the dedicated review page
-    at /classes/admin/<pk>/review/.
+    This is the SAME action as "Approve and publish" on the review page, and not a third
+    behaviour of its own: it records an admin-role decision with ``publish_now=True``, so the
+    offering publishes immediately and any still-open guild-lead lane closes as overridden.
+    The confirm modal in front of it says so, because closing a lead's open review is not a
+    thing to discover after the fact.
+
+    An admin who wants the lead's room check first has the other action, on the review page:
+    "Approve, hold for the room check". For request-changes / decline with notes, use the
+    same review page at /classes/admin/<pk>/review/.
 
     ``can_approve`` is the gate, so it admits a ``CLASS_APPROVER`` reviewer as well as an
     admin — approving is the reviewer's whole contract — and refuses a guild lead who does
@@ -3598,6 +3621,30 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
     )
 
 
+@classes_review_access_required
+def admin_review_flow_map(request: HttpRequest) -> HttpResponse:
+    """The review flow map: the two lanes, and every notice each of them fires.
+
+    Gated like the review screen itself rather than like the rest of the classes admin, because
+    the people who need to know what a decision sends are the people who make the decisions.
+
+    Reads :func:`classes.review_map.reference_pipeline` for the shape and
+    :func:`classes.review_map.review_flow` for the notices, so the page cannot drift from what
+    actually sends. Both are pure: no class is loaded and no query runs.
+    """
+    pipeline = reference_pipeline()
+    return render(
+        request,
+        "classes/admin/review_flow_map.html",
+        {
+            "active_tab": "review_flow",
+            "pipeline": pipeline,
+            "stages": review_flow(pipeline),
+            "gallery_url": GALLERY_URL,
+        },
+    )
+
+
 @class_screen_required
 def admin_class_review(request: HttpRequest, pk: int) -> HttpResponse:
     """Full reviewer page for admins and CMS Administrators. Mirrors the tokenized public review page."""
@@ -3650,10 +3697,24 @@ def _class_review_view(
     plain "not awaiting review" state instead of the form. This keeps a stale
     review link (or a direct URL hit) from publishing a DRAFT, re-publishing an
     ARCHIVED class, or bouncing a live class back to DRAFT.
+
+    An ADMIN row's token still resolves here — the reader sees the class, the strip and the
+    history — but it cannot record the decision. An admin approval publishes, and publishing
+    closes the guild lead's lane over their head; that is an act to take signed in, on a page
+    that can name who took it. The GUILD_LEAD lane keeps its token exactly as it was: it is
+    that lead's only door, and their approval publishes nothing an admin has not already
+    approved.
     """
     is_reviewable = offering.status == ClassOffering.Status.PENDING
+    token_admin_readonly = token is not None and role == ClassApproval.Role.ADMIN
+    if request.method == "POST" and token_admin_readonly:
+        return redirect("classes:admin_class_review", pk=offering.pk)
     if approval is None:
-        approval = offering.approvals.filter(role=role, decision="").order_by("-created_at").first()
+        # The latest row for this role WHATEVER it decided, and a new one only when the cycle
+        # has none. Filtering to the undecided ones minted a second ADMIN row on a held class,
+        # and ``awaiting_admin()`` then reported the admin lane open again on a class an admin
+        # had already answered.
+        approval = offering.approvals.filter(role=role).order_by("-created_at").first()
         if approval is None and is_reviewable:
             approval = ClassApproval.objects.create(class_offering=offering, role=role)
     settings_obj = ClassSettings.load()
@@ -3663,7 +3724,10 @@ def _class_review_view(
         history_qs = history_qs.exclude(pk=approval.pk)
     history = list(history_qs)
 
-    form = ClassReviewDecisionForm(request.POST or None)
+    # The hold is the admin's second yes, and it only means anything while the guild lead's
+    # lane is open — that open lane is the thing being held for.
+    allow_hold = role == ClassApproval.Role.ADMIN and offering.open_guild_lead_approval is not None
+    form = ClassReviewDecisionForm(request.POST or None, allow_hold=allow_hold)
     if (
         request.method == "POST"
         and is_reviewable
@@ -3671,11 +3735,16 @@ def _class_review_view(
         and not approval.decision
         and form.is_valid()
     ):
+        # "Approve, hold for the room check" is an ordinary APPROVED row that publishes
+        # nothing: the form value is the only place the hold exists, and it maps to
+        # ``publish_now=False`` here rather than to a fourth reviewer verdict.
+        held = form.cleaned_data["decision"] == ClassReviewDecisionForm.HOLD
         try:
             approval.decide(
-                form.cleaned_data["decision"],
+                ClassApproval.Decision.APPROVED if held else form.cleaned_data["decision"],
                 user=request.user if request.user.is_authenticated else None,
                 notes=form.cleaned_data.get("notes", ""),
+                publish_now=not held,
             )
         except ValidationError as exc:
             # The publishing decision refused an unready class; show the failing
@@ -3705,6 +3774,8 @@ def _class_review_view(
             "is_reviewable": is_reviewable,
             "upcoming_sessions": upcoming_sessions,
             "is_tokenized": token is not None,
+            "token_admin_readonly": token_admin_readonly,
+            "signed_in_review_url": reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
             "active_tab": "classes",
             "pipeline": offering.review_pipeline(),
             "readiness": readiness,

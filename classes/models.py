@@ -318,14 +318,20 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     # --- Derived lifecycle (one property, one badge) -------------------------
 
     def with_lifecycle_inputs(self) -> "ClassOfferingQuerySet":
-        """Annotate the three inputs :attr:`ClassOffering.lifecycle` needs, so lists resolve
-        every row's badge with no per-row queries.
+        """Annotate the facts :attr:`ClassOffering.lifecycle` needs, so lists resolve every
+        row's badge with no per-row queries.
 
-        ``last_session_at`` (the latest session end), ``open_guild_gate`` (an undecided
-        GUILD_LEAD row exists) and ``bounced`` (a CHANGES_REQUESTED / DENIED row exists)
-        are the only facts the property reads beyond the row itself; ``lifecycle_order``
-        is the same resolution folded into one integer so a list can sort on it. Calling
-        this twice is safe: an already-annotated queryset is returned unchanged.
+        ``last_session_at`` (the latest session end), ``open_guild_gate`` / ``open_admin_gate``
+        (an undecided row exists for that reviewer), ``has_approval_rows`` (this class has any
+        review row at all) and ``bounced`` (a CHANGES_REQUESTED / DENIED row exists) are the
+        only facts the property reads beyond the row itself; ``lifecycle_order`` is the same
+        resolution folded into one integer so a list can sort on it. Calling this twice is
+        safe: an already-annotated queryset is returned unchanged.
+
+        Every ``Case`` branch below is guarded on ``status``, so the undecided rows left on a
+        DRAFT class by an old cycle can never pull it into a review bucket. A class with both
+        lanes open (``AWAITING_BOTH``) sorts in bucket 2 with the rest of the guild lead's
+        queue, which is where it also appears as a chip — no branch of its own.
         """
         if "lifecycle_order" in self.query.annotations:
             return self
@@ -333,10 +339,16 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         open_guild = ClassApproval.objects.filter(
             class_offering=OuterRef("pk"), role=ClassApproval.Role.GUILD_LEAD, decision=""
         )
+        open_admin = ClassApproval.objects.filter(
+            class_offering=OuterRef("pk"), role=ClassApproval.Role.ADMIN, decision=""
+        )
+        any_row = ClassApproval.objects.filter(class_offering=OuterRef("pk"))
         bounced = ClassApproval.objects.filter(class_offering=OuterRef("pk"), decision__in=_BOUNCE_DECISIONS)
         return self.annotate(
             last_session_at=Max("sessions__ends_at"),
             open_guild_gate=Exists(open_guild),
+            open_admin_gate=Exists(open_admin),
+            has_approval_rows=Exists(any_row),
             bounced=Exists(bounced),
         ).annotate(
             lifecycle_order=Case(
@@ -378,12 +390,35 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         )
 
     def awaiting_admin(self) -> "ClassOfferingQuerySet":
-        """PENDING classes with no open guild-lead gate: the admin's own queue.
+        """PENDING classes whose admin lane is open, whatever the guild lane is doing.
+
+        Both lanes open at submit and neither waits for the other, so a class still with its
+        guild lead is the admin's business too: this queue and :meth:`awaiting_guild_lead_any`
+        deliberately overlap.
 
         A PENDING class with zero approval rows still lands here, so nothing waits on
-        nobody.
+        nobody — documented behaviour the ``open_admin_gate`` annotation alone would drop.
         """
-        return self.with_lifecycle_inputs().filter(status=ClassOffering.Status.PENDING, open_guild_gate=False)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+        return (
+            self.with_lifecycle_inputs()
+            .filter(status=ClassOffering.Status.PENDING)
+            .filter(Q(open_admin_gate=True) | Q(has_approval_rows=False))
+        )
+
+    def awaiting_admin_held(self) -> "ClassOfferingQuerySet":
+        """PENDING classes an admin approved and held for the guild lead's room check.
+
+        The admin has already said yes; the class is not live because the guild-lead lane is
+        still open, and that lead's approval is what will publish it. Each ``.filter()`` call
+        joins ``approvals`` separately on purpose: one approved ``admin`` row AND one
+        undecided ``guild_lead`` row must both exist.
+        """
+        return (
+            self.filter(status=ClassOffering.Status.PENDING)
+            .filter(approvals__role=ClassApproval.Role.ADMIN, approvals__decision=ClassApproval.Decision.APPROVED)
+            .filter(approvals__role=ClassApproval.Role.GUILD_LEAD, approvals__decision="")
+            .distinct()
+        )
 
     def awaiting_guild_lead_any(self) -> "ClassOfferingQuerySet":
         """PENDING classes whose guild-lead gate is still open, for any guild."""
@@ -440,6 +475,10 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         until an admin publishes or bounces it, instead of silently vanishing.
         Each ``.filter()`` call joins ``approvals`` separately on purpose: one
         approved ``guild_lead`` row AND one undecided ``admin`` row must exist.
+
+        Needs nothing from the two-lane change: a guild-lead lane an admin overrode carries
+        ``overridden_by_admin``, which does not match ``approved``, so an overridden lane can
+        never put a class in a lead's "they are validating it" list.
         """
         return (
             self.filter(status="pending", category__guild__in=member.staffed_guilds)
@@ -636,6 +675,12 @@ DEFAULT_SALE_BANNER_TEXT = "🔥 Limited-time sale — save on this class while 
 # rows reads "Changes requested" everywhere instead of masquerading as a fresh draft.
 _BOUNCE_DECISIONS: tuple[str, ...] = ("changes_requested", "denied")
 
+# The note an admin's "Approve and publish" writes on the guild-lead lane it closes. The
+# literal is load-bearing rather than decorative: it is what
+# ``backfill_override_decisions`` matches on to find the rows written before
+# ``OVERRIDDEN_BY_ADMIN`` existed, so changing it strands them.
+ADMIN_OVERRIDE_NOTE = "Approved automatically when an admin gave final approval."
+
 # The shortest description that counts as "a real description" for readiness.
 READINESS_MIN_DESCRIPTION_CHARS = 40
 
@@ -707,11 +752,15 @@ class ClassNotReadyError(ValidationError):
 
 @dataclass(frozen=True)
 class PipelineStep:
-    """One step of the review pipeline strip (Submitted, Guild lead, Admin, Live).
+    """One lane of the review pipeline strip (Submitted, Guild lead, Admin, Live).
 
-    ``state`` is one of ``done`` / ``current`` / ``ahead`` / ``changes_requested``;
-    ``detail`` is the tooltip line ("Approved by Sam, Sep 3") and ``note`` carries the
-    reviewer's notes when the step is the bouncing one.
+    ``state`` is one of ``done`` / ``current`` / ``ahead`` / ``changes_requested`` /
+    ``overridden``; ``detail`` is the tooltip line ("Approved by Sam, Sep 3") and ``note``
+    carries the reviewer's notes when the lane is the bouncing one.
+
+    ``overridden`` is the guild-lead lane an admin shut by publishing over it. It never
+    draws a tick: the gate is closed, but nobody in the guild said yes, and a tick there
+    would credit them with an answer they never gave.
     """
 
     key: str
@@ -722,20 +771,61 @@ class PipelineStep:
 
     @property
     def marker(self) -> str:
-        """The plain-text marker for this step, shared by the text email and the page."""
-        return {"done": "✓", "current": "●", "changes_requested": "↩"}.get(self.state, " ")
+        """The plain-text marker for this lane, shared by the text email and the page."""
+        markers = {"done": "✓", "current": "●", "changes_requested": "↩", "overridden": "–"}
+        return markers.get(self.state, " ")
+
+
+@dataclass(frozen=True)
+class PipelineColumn:
+    """One column of the strip: a single lane, or the two review lanes side by side.
+
+    Both review lanes open together at submit (see :meth:`ClassOffering.submit_for_review`),
+    so the guild lead and the admin share one column rather than queueing one behind the
+    other. A single-lane column still carries a one-item tuple, so a template walks
+    ``column.lanes`` the same way whatever the shape.
+    """
+
+    key: str
+    lanes: tuple[PipelineStep, ...]
+
+    @property
+    def is_parallel(self) -> bool:
+        """True when this column draws two reviewers at once."""
+        return len(self.lanes) > 1
+
+    @property
+    def label(self) -> str:
+        """The column heading: the lane's label, or both joined — "Guild lead + Admin"."""
+        return " + ".join(lane.label for lane in self.lanes)
+
+    @property
+    def state(self) -> str:
+        """This column's own state, for a surface that draws one dot per column.
+
+        A bouncing lane wins (the class is back with the instructor), then an open one (the
+        column is still a gate the class waits on), then one not yet reached. The column is
+        ``done`` only once every lane in it has closed — overridden counts as closed.
+        """
+        states = {lane.state for lane in self.lanes}
+        for state in ("changes_requested", "current", "ahead"):
+            if state in states:
+                return state
+        return "done"
 
 
 @dataclass(frozen=True)
 class ReviewPipeline:
     """The review pipeline for one class: the strip every page and every review email draws.
 
-    ``muted`` is True for cancelled and archived classes, which render their last known
-    strip under a muted headline. ``fill_percent`` is how far the connector fills (up to
-    the current or bouncing step).
+    ``columns`` is the shape — Submitted, the review column (the admin alone, or the guild
+    lead and the admin side by side), Live — and :attr:`steps` flattens it for the surfaces
+    that draw a plain row of dots (the email table, :attr:`text_line`). ``muted`` is True
+    for cancelled and archived classes, which render their last known strip under a muted
+    headline.
     """
 
-    steps: tuple[PipelineStep, ...]
+    columns: tuple[PipelineColumn, ...]
     headline: str
     note: str
     is_live: bool
@@ -743,15 +833,32 @@ class ReviewPipeline:
     muted: bool = False
 
     @property
+    def steps(self) -> tuple[PipelineStep, ...]:
+        """Every lane in column order: the flat strip the email table and text line draw."""
+        return tuple(lane for column in self.columns for lane in column.lanes)
+
+    @property
     def fill_percent(self) -> int:
-        reached = [i for i, step in enumerate(self.steps) if step.state != "ahead"]
-        if not reached or len(self.steps) < 2:
+        """How far the connector fills: up to the current column, plus its settled share.
+
+        The parallel review column fills halfway once one of its two lanes has closed, so a
+        guild lead who has already approved sees their half of the strip done while the
+        admin's is not — which a plain column count would flatten away.
+        """
+        if len(self.columns) < 2:
             return 0
-        return round(100 * max(reached) / (len(self.steps) - 1))
+        reached = [i for i, column in enumerate(self.columns) if column.state != "ahead"]
+        if not reached:
+            return 0
+        last = max(reached)
+        column = self.columns[last]
+        closed = [lane for lane in column.lanes if lane.state in ("done", "overridden")]
+        within = 0.0 if column.state == "done" else len(closed) / len(column.lanes)
+        return round(100 * (last + within) / (len(self.columns) - 1))
 
     @property
     def text_line(self) -> str:
-        """The one-line bracketed strip for text emails: ``[✓] Submitted  [●] Guild lead  [ ] Admin  [ ] Live``."""
+        """The bracketed strip for text emails: ``[✓] Submitted  [●] Guild lead  [●] Admin  [ ] Live``."""
         return "  ".join(f"[{step.marker}] {step.label}" for step in self.steps)
 
 
@@ -770,6 +877,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         CHANGES_REQUESTED = "changes_requested", "Changes requested"
         AWAITING_GUILD_LEAD = "awaiting_guild_lead", "With guild lead"
         AWAITING_ADMIN = "awaiting_admin", "Awaiting admin"
+        AWAITING_BOTH = "awaiting_both", "With guild lead and admin"
         UPCOMING = "upcoming", "Upcoming"
         COMPLETED = "completed", "Completed"
         CANCELLED = "cancelled", "Cancelled"
@@ -1204,19 +1312,29 @@ class ClassOffering(HeroCropMixin, models.Model):
         return roles
 
     def submit_for_review(self) -> list["ClassApproval"]:
-        """Move from DRAFT to PENDING and open only the first-stage review gate.
+        """Move from DRAFT to PENDING and open every review gate this class needs, at once.
 
-        Approval is sequential: the first stage is the Guild Lead when the
-        class's category links a guild with a lead, otherwise the Admin. The
-        Admin gate is only created later, once the Guild Lead approves (see
-        ``on_review_decision_recorded``). An admin can still step in early —
-        admin approval is final and publishes immediately, closing any open
-        guild-lead gate.
+        Both lanes open together: the Admin always, plus the Guild Lead when the class's
+        category links a guild with a lead. They answer two independent questions — the lead
+        answers whether the guild's room, kit and calendar can carry this class, the admin
+        answers whether it belongs on the public calendar at all — and neither answer depends
+        on the other, so neither waits for the other.
 
-        Notifies the first-stage reviewer (in-app + email) directly from the
-        model so every submit path — quick-submit, create, and edit — fans out
-        the same way. Returns the freshly created approval row(s) so callers
-        can introspect the result.
+        This deliberately reverses DECISION 1 of
+        ``docs/superpowers/plans/2026-06-18-approval-matrix-and-audit.md``, which made the
+        guild lead stage one and the admin stage two. That reading treated the guild-lead
+        gate as an authority the admin ratifies. It is a room-availability check, and making
+        it a queue bought an extra hand-off and bought nothing else. Re-decided knowingly:
+        the design shipped once before and was reverted, and this is the third look at it.
+
+        The admin keeps the last word either way. "Approve and publish" takes the class live
+        over a still-open guild-lead lane, closing it ``OVERRIDDEN_BY_ADMIN`` rather than
+        approved; "Approve, hold for the room check" records the approval, publishes nothing,
+        and lets the lead's own approval be what goes live.
+
+        Notifies both reviewers (in-app + email) directly from the model so every submit path
+        — quick-submit, create, and edit — fans out the same way. Returns the freshly created
+        approval rows so callers can introspect the result.
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
@@ -1225,73 +1343,75 @@ class ClassOffering(HeroCropMixin, models.Model):
             raise ClassNotReadyError(items, "submit")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
-        # Clear out any stale approval rows from a prior submission cycle, then
-        # open only the first-stage gate for this fresh round.
+        # Clear out any stale approval rows from a prior submission cycle, then open every
+        # gate this fresh round needs.
         self.approvals.all().delete()
-        row = self._create_first_stage_approval()
+        rows = self._create_review_gates()
         from classes import activity
 
         activity.log(
             CmsActivity.Kind.CLASS_SUBMITTED,
             class_offering=self,
-            payload={"required_roles": list(self.required_review_roles), "first_stage": row.role},
+            payload={
+                "required_roles": list(self.required_review_roles),
+                "opened_gates": [row.role for row in rows],
+            },
         )
-        self._notify_first_stage_reviewer(row)
-        return [row]
+        self._notify_reviewers(rows)
+        return rows
 
-    def _create_first_stage_approval(self) -> "ClassApproval":
-        """Create the single approval row that opens stage one of review.
+    def _create_review_gates(self) -> list["ClassApproval"]:
+        """Open one undecided approval row per required reviewer role.
 
-        Guild Lead when the category's guild has a lead; Admin otherwise.
+        Guild lead first, so the returned list reads in the order the pipeline strip draws
+        the two lanes. The order is presentation only: the rows are equals and neither
+        blocks the other.
         """
         roles = self.required_review_roles
-        first_role = (
-            ClassApproval.Role.GUILD_LEAD if ClassApproval.Role.GUILD_LEAD in roles else ClassApproval.Role.ADMIN
-        )
-        return ClassApproval.objects.create(class_offering=self, role=first_role)
+        ordered = (ClassApproval.Role.GUILD_LEAD, ClassApproval.Role.ADMIN)
+        return [ClassApproval.objects.create(class_offering=self, role=role) for role in ordered if role in roles]
 
-    def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
-        """Fan out the stage-one notification + email for a freshly opened gate.
+    def _notify_reviewers(self, rows: list["ClassApproval"]) -> None:
+        """Fan out the notification + email for every gate this submission opened.
 
-        The guild-lead branch routes through :func:`classes.emails.send_guild_lead_review_request`
-        and the admin branch through :func:`classes.emails.send_admin_review_request`. Each now
-        fires a single ``class_review_requested`` event that owns BOTH the dedicated
-        ``review_request`` email and (for the guild-lead branch) the in-app row to the guild's
-        leadership — so opted-in leadership receive exactly one email and one bell row, never the
-        old dispatch + dedicated-send pair. The admin branch stays email-only, as today.
+        One call, because the instructor's explainer has to be emitted exactly once no
+        matter how many lanes opened: :func:`classes.emails.send_review_requests` sends each
+        lane its own request through its own event and its own audience, then sends the
+        single explainer keyed on the admin row. Fanning out per row here instead would
+        land two identical "Your class is in review" emails on every guilded submit.
         """
         from classes import emails
 
-        if row.role == ClassApproval.Role.GUILD_LEAD:
-            emails.send_guild_lead_review_request(self, row)
-        else:
-            emails.send_admin_review_request(self, row)
+        emails.send_review_requests(self, rows)
 
-    def approve(self, admin_user) -> "ClassApproval":
+    def approve(self, admin_user, *, publish_now: bool = True) -> "ClassApproval":
         """Record an admin approval via the ClassApproval pathway.
 
-        Maintained for callers (views, tests) that already used this name.
-        Creates a fresh ADMIN approval row if one doesn't exist for the
-        current cycle and decides it APPROVED on the admin's behalf. Returns
-        the decided row so callers can email the instructor the outcome.
+        ``publish_now`` is the admin's two actions, not a flag anyone toggles idly. True is
+        "Approve and publish": the class goes live, and a still-open guild-lead lane closes
+        as overridden. False is "Approve, hold for the room check": the approval is recorded,
+        nothing is published, and the guild lead's later approval is what takes it live.
+
+        Reuses this cycle's ADMIN row whatever it already decided, and mints one only when
+        the cycle has none. A held class already carries a decided ADMIN row, and a second
+        one would report the admin lane open again in every queue that reads it. Returns the
+        decided row so callers can email the instructor the outcome.
         """
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
-        if not self.is_ready:
-            # Refuse BEFORE minting the admin row: a stranded open ADMIN row would stop
-            # the guild lead's later approval from escalating (it only opens the admin
-            # gate when none exists yet).
-            from django.core.exceptions import ValidationError
-
+        if publish_now and not self.is_ready:
+            # Refuse BEFORE touching the admin row: the reviewer sees the failing readiness
+            # items as a form error rather than an approval stranded on a class that then
+            # stays PENDING. Holding needs no such guard — holding publishes nothing.
             raise ValidationError(self.readiness_error("publish"))
-        row = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first() or ClassApproval.objects.create(
+        row = self.approvals.filter(role=ClassApproval.Role.ADMIN).first() or ClassApproval.objects.create(
             class_offering=self, role=ClassApproval.Role.ADMIN
         )
         # Pin the offering instance so the lifecycle hook (which may publish)
         # mutates *this* object's status. The filter path would otherwise load
         # a separate ClassOffering instance, leaving self.status stale.
         row.class_offering = self
-        row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        row.decide(ClassApproval.Decision.APPROVED, user=admin_user, publish_now=publish_now)
         return row
 
     def publish(self, actor: "User | None") -> None:
@@ -1684,19 +1804,39 @@ class ClassOffering(HeroCropMixin, models.Model):
         )
         return next_up
 
-    def on_review_decision_recorded(self, row: "ClassApproval") -> None:
+    def _decision_publishes(self, row: "ClassApproval", *, publish_now: bool) -> bool:
+        """Whether approving ``row`` is the decision that takes this class live.
+
+        Either lane can be the last gate now, so this is not "is the reviewer an admin".
+        An admin publishes when they chose to; a guild lead publishes when the admin has
+        already approved and held for exactly this answer.
+        """
+        if not publish_now:
+            return False
+        if row.role == ClassApproval.Role.ADMIN:
+            return True
+        return self.approvals.filter(role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED).exists()
+
+    def on_review_decision_recorded(self, row: "ClassApproval", *, publish_now: bool = True) -> None:
         """Lifecycle hook: called by ClassApproval.decide.
 
-        APPROVED by an admin: publish immediately — admin approval is final
-        (owner decision), even when another gate is still open. Any remaining
-        undecided approval rows are closed as approved with a system note so
-        nothing lingers in reviewer queues; the rows stay as history.
-        APPROVED by a guild lead: escalate to the admin gate without
-        publishing — publication always waits for the admin.
-        CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
-        can edit and resubmit. Per the locked decision in PLAN.md §14,
-        a guild-lead denial is recoverable (returns to DRAFT) rather than
-        archival; admin-level archival is a separate explicit action.
+        Both review lanes are open from submit, so either can be the one that publishes:
+
+        * APPROVED by an admin who chose to publish: the class goes live, and any lane still
+          open closes as ``OVERRIDDEN_BY_ADMIN`` so nothing lingers in a reviewer queue. The
+          row stays as history, and it says overridden rather than approved because nobody in
+          the guild answered.
+        * APPROVED by an admin holding for the room check (``publish_now=False``): the row is
+          recorded and nothing else happens. The guild lead's approval publishes.
+        * APPROVED by a guild lead while the admin lane is open: tell the admins the lead has
+          signed off and they are the last gate. Nothing is created — submit opened that row.
+        * APPROVED by a guild lead on a class whose admin already approved and held: publish,
+          attributed to the admin who approved it.
+
+        CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor can edit and
+        resubmit. Per the locked decision in PLAN.md §14, a guild-lead denial is recoverable
+        (returns to DRAFT) rather than archival; admin-level archival is a separate explicit
+        action.
         """
         from classes import activity
 
@@ -1707,31 +1847,10 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role},
             )
-            # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
-            # Admin gate (if admin review is still required and not yet open)
-            # and notifies staff for executive validation. We do not publish on
-            # this branch — publication waits for the admin to sign off.
-            if (
-                row.role == ClassApproval.Role.GUILD_LEAD
-                and ClassApproval.Role.ADMIN in self.required_review_roles
-                and not self.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
-            ):
-                admin_row = ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
-                self._escalate_to_admin(admin_row, guild_lead=row.decided_by)
-            if row.role == ClassApproval.Role.ADMIN:
-                # Admin approval is final: close any still-open gates (e.g. an
-                # undecided guild-lead row) as approved with a system note so the
-                # class drops out of every reviewer queue. The rows are kept as
-                # history — decided_by stays NULL because no human decided them.
-                self.approvals.filter(decision="").exclude(pk=row.pk).update(
-                    decision=ClassApproval.Decision.APPROVED,
-                    notes="Approved automatically when an admin gave final approval.",
-                    decided_at=timezone.now(),
-                )
-                # ``ClassApproval.decide`` already refused an unready class before saving
-                # the row, so this publish cannot raise on readiness in practice; the guard
-                # inside ``publish`` is defense in depth for any other caller.
-                self.publish(row.decided_by)
+            if row.role == ClassApproval.Role.GUILD_LEAD:
+                self._on_guild_lead_approved(row, publish_now=publish_now)
+            else:
+                self._on_admin_approved(row, publish_now=publish_now)
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -1755,13 +1874,49 @@ class ClassOffering(HeroCropMixin, models.Model):
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
 
+    def _on_guild_lead_approved(self, row: "ClassApproval", *, publish_now: bool) -> None:
+        """A guild lead approved: nudge an open admin lane, or publish a held one.
+
+        The guard is the admin row being *open*, not absent. Submit opens both lanes, so
+        "no admin row at all" is a shape a current cycle never has, and guarding on absence
+        would mean this escalation never fired again.
+        """
+        open_admin = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first()
+        if open_admin is not None:
+            self._escalate_to_admin(open_admin, guild_lead=row.decided_by)
+            return
+        held = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED).first()
+        if held is not None and publish_now:
+            # The admin approved and held for this very answer, so the lead's yes is what
+            # publishes — but the class goes live under the admin who approved it, because
+            # they are the one who signed it off for the calendar.
+            self.publish(held.decided_by)
+
+    def _on_admin_approved(self, row: "ClassApproval", *, publish_now: bool) -> None:
+        """An admin approved: publish now, or hold the approval for the room check."""
+        if not publish_now:
+            return
+        # Publishing is final: close any lane still open as overridden so the class drops
+        # out of every reviewer queue. The rows are kept as history — ``decided_by`` stays
+        # NULL because no human decided them, and the decision says overridden rather than
+        # approved so no surface can render a yes the guild never gave.
+        self.approvals.filter(decision="").exclude(pk=row.pk).update(
+            decision=ClassApproval.Decision.OVERRIDDEN_BY_ADMIN,
+            notes=ADMIN_OVERRIDE_NOTE,
+            decided_at=timezone.now(),
+        )
+        # ``ClassApproval.decide`` already refused an unready class before saving the row,
+        # so this publish cannot raise on readiness in practice; the guard inside
+        # ``publish`` is defense in depth for any other caller.
+        self.publish(row.decided_by)
+
     def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
-        """Fire the stage-two admin escalation after a Guild Lead approves.
+        """Tell the admins the guild lead has signed off and they are the last gate.
 
         Emits the executive-validation request as one ``class_validation_requested``
         event (admin email + FOG_ADMINS in-app) via
-        :func:`classes.emails.send_admin_validation_request`. The Guild Lead is named
-        in the copy so admins know who already vouched for the class.
+        :func:`classes.emails.send_admin_validation_request`, against the admin row submit
+        already opened. The Guild Lead is named in the copy so admins know who vouched.
         """
         from classes import emails
 
@@ -2025,6 +2180,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").exists()
 
     @property
+    def _has_open_admin_gate(self) -> bool:
+        """An undecided ADMIN row exists; reads the ``with_lifecycle_inputs`` annotation when present."""
+        annotated = getattr(self, "open_admin_gate", None)
+        if annotated is not None:
+            return bool(annotated)
+        return self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists()
+
+    @property
     def open_guild_lead_approval(self) -> ClassApproval | None:
         """This class's undecided ``GUILD_LEAD`` approval row, or None.
 
@@ -2044,6 +2207,10 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         The other half of :attr:`open_guild_lead_approval`: once the lead has decided, the
         guild page shows when, on the row that is now waiting on an admin.
+
+        Matches ``approved`` exactly, so a lane an admin closed by publishing over it
+        (``overridden_by_admin``) reads as no approval at all — the guild page's "the guild
+        approved these" must never claim a yes the lead never gave.
         """
         row = next(
             (
@@ -2096,12 +2263,16 @@ class ClassOffering(HeroCropMixin, models.Model):
     def lifecycle(self) -> "ClassOffering.Lifecycle":
         """Where this class is, resolved from status, approval rows, and sessions.
 
-        Resolution order: ARCHIVED, CANCELLED, PENDING with an open guild-lead row
-        (AWAITING_GUILD_LEAD), other PENDING (AWAITING_ADMIN), DRAFT with a bouncing row
-        (CHANGES_REQUESTED), other DRAFT, PUBLISHED dated and finished (COMPLETED), other
-        PUBLISHED (UPCOMING). A flexible published class never completes on its own, and
-        a dated published class with no sessions reads Upcoming with a "No dates yet"
-        note while ``bookable()`` keeps it out of the catalog.
+        Resolution order: ARCHIVED, CANCELLED, PENDING with both lanes open (AWAITING_BOTH),
+        PENDING with only the guild-lead row open (AWAITING_GUILD_LEAD), other PENDING
+        (AWAITING_ADMIN), DRAFT with a bouncing row (CHANGES_REQUESTED), other DRAFT,
+        PUBLISHED dated and finished (COMPLETED), other PUBLISHED (UPCOMING). A flexible
+        published class never completes on its own, and a dated published class with no
+        sessions reads Upcoming with a "No dates yet" note while ``bookable()`` keeps it out
+        of the catalog.
+
+        Every branch that reads an approval row is behind a ``status`` check, so the
+        undecided rows an old cycle left on a DRAFT class cannot pull it into a review state.
         """
         status = self.status
         if status == self.Status.ARCHIVED:
@@ -2109,7 +2280,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         if status == self.Status.CANCELLED:
             return self.Lifecycle.CANCELLED
         if status == self.Status.PENDING:
-            return self.Lifecycle.AWAITING_GUILD_LEAD if self._has_open_guild_gate else self.Lifecycle.AWAITING_ADMIN
+            if not self._has_open_guild_gate:
+                return self.Lifecycle.AWAITING_ADMIN
+            return self.Lifecycle.AWAITING_BOTH if self._has_open_admin_gate else self.Lifecycle.AWAITING_GUILD_LEAD
         if status == self.Status.DRAFT:
             return self.Lifecycle.CHANGES_REQUESTED if self._is_bounced else self.Lifecycle.DRAFT
         if self.scheduling_model == self.SchedulingModel.FIXED:
@@ -2126,17 +2299,24 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     @property
     def lifecycle_label(self) -> str:
-        """The badge text: the lifecycle label, naming the guild while a lead holds the class."""
+        """The badge text: the lifecycle label, naming the guild while a lead holds the class.
+
+        A class with both lanes open names both reviewers, because both are genuinely
+        looking at it and neither is waiting on the other.
+        """
         lifecycle = self.lifecycle
-        if lifecycle == self.Lifecycle.AWAITING_GUILD_LEAD and self._guild_name:
-            return f"With guild lead ({self._guild_name})"
+        if self._guild_name:
+            if lifecycle == self.Lifecycle.AWAITING_GUILD_LEAD:
+                return f"With guild lead ({self._guild_name})"
+            if lifecycle == self.Lifecycle.AWAITING_BOTH:
+                return f"With guild lead ({self._guild_name}) and admin"
         return str(lifecycle.label)
 
     @property
     def lifecycle_note(self) -> str:
         """The stage detail behind the badge: guild name, reviewer note, end date, or no-dates note."""
         lifecycle = self.lifecycle
-        if lifecycle == self.Lifecycle.AWAITING_GUILD_LEAD:
+        if lifecycle in (self.Lifecycle.AWAITING_GUILD_LEAD, self.Lifecycle.AWAITING_BOTH):
             return self._guild_name
         if lifecycle == self.Lifecycle.CHANGES_REQUESTED:
             row = self.latest_bounce_row
@@ -2190,12 +2370,30 @@ class ClassOffering(HeroCropMixin, models.Model):
             return ""
         return readiness_error_text(items, "submit")
 
+    def _reviewer_phrase(self, roles: Sequence[str]) -> str:
+        """Name reviewers in prose: "the guild lead (Woodshop)", "an admin", or both joined.
+
+        Shared by the submit message and the pipeline headline so the two can never name a
+        different set of people for the same class.
+        """
+        names = []
+        for role in roles:
+            if role == ClassApproval.Role.GUILD_LEAD:
+                names.append(f"the guild lead ({self._guild_name})" if self._guild_name else "the guild lead")
+            else:
+                names.append("an admin")
+        return " and ".join(names)
+
     @property
     def first_gate_label(self) -> str:
-        """Who reviews first, for the honest submit message: "the guild lead (Woodshop)" or "an admin"."""
-        if ClassApproval.Role.GUILD_LEAD in self.required_review_roles:
-            return f"the guild lead ({self._guild_name})"
-        return "an admin"
+        """Who reviews this, for the honest submit message.
+
+        Both gates open at submit, so a guilded class names both — "the guild lead (Woodshop)
+        and an admin" — rather than promising a queue that no longer exists. A category with
+        no guild lead still names only the admin.
+        """
+        roles = [ClassApproval.Role.GUILD_LEAD] if ClassApproval.Role.GUILD_LEAD in self.required_review_roles else []
+        return self._reviewer_phrase([*roles, ClassApproval.Role.ADMIN])
 
     # --- Review pipeline ------------------------------------------------------
 
@@ -2210,10 +2408,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         """Tooltip text for a decided row: "Approved by Sam, Sep 3" / "Waiting since Sep 1"."""
         if not row.decision:
             return f"Waiting since {date_format(localtime(row.created_at), 'M j')}"
+        # Exhaustive over Decision on purpose: the lookup raises on an unmapped value
+        # rather than quietly labelling a decision something it is not.
         verb = {
             ClassApproval.Decision.APPROVED: "Approved",
             ClassApproval.Decision.CHANGES_REQUESTED: "Changes requested",
             ClassApproval.Decision.DENIED: "Declined",
+            ClassApproval.Decision.OVERRIDDEN_BY_ADMIN: "Closed when an admin published",
         }[ClassApproval.Decision(row.decision)]
         who = self._decider_name(row)
         when = date_format(localtime(row.decided_at), "M j") if row.decided_at else ""
@@ -2223,12 +2424,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         return ", ".join(parts)
 
     def review_pipeline(self) -> ReviewPipeline:
-        """The review pipeline strip: Submitted, Guild lead (when required), Admin, Live.
+        """The review pipeline strip: Submitted, the review column, Live.
 
-        Reads only this cycle's approval rows (``submit_for_review`` clears rows on
-        resubmit) and never errors on any status: cancelled and archived classes render
-        their last known strip under a muted headline, and legacy rows from an old
-        cycle are read as they are.
+        The review column holds both lanes when the category's guild has a lead, because both
+        open together at submit and neither waits for the other; otherwise it holds the admin
+        alone. Reads only this cycle's approval rows (``submit_for_review`` clears rows on
+        resubmit) and never errors on any status: cancelled and archived classes render their
+        last known strip under a muted headline, and legacy rows from an old cycle are read as
+        they are.
         """
         status = self.status
         is_pending = status == self.Status.PENDING
@@ -2244,24 +2447,24 @@ class ClassOffering(HeroCropMixin, models.Model):
         guild_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles or guild_row is not None
 
         submitted_state = "done" if (is_pending or was_live or bounce is not None or rows) else "current"
-        steps = [PipelineStep("submitted", "Submitted", submitted_state)]
-
-        guild_open = guild_row is not None and not guild_row.decision
+        lanes: list[PipelineStep] = []
         if guild_required:
-            steps.append(self._pipeline_step("guild_lead", "Guild lead", guild_row, was_live, is_pending or muted))
-        if admin_row is None and is_pending and not guild_open:
-            admin_step = PipelineStep("admin", "Admin", "current", detail="Waiting on an admin")
+            lanes.append(self._pipeline_step("guild_lead", "Guild lead", guild_row, was_live, is_pending or muted))
+        if admin_row is None and is_pending:
+            # A pending class whose admin row was never written still waits on an admin.
+            lanes.append(PipelineStep("admin", "Admin", "current", detail="Waiting on an admin"))
         else:
-            admin_step = self._pipeline_step("admin", "Admin", admin_row, was_live, is_pending or muted)
-            if admin_step.state == "current" and guild_open and not was_live:
-                admin_step = PipelineStep("admin", "Admin", "ahead")
-        steps.append(admin_step)
-        steps.append(PipelineStep("live", "Live", "done" if was_live else "ahead"))
+            lanes.append(self._pipeline_step("admin", "Admin", admin_row, was_live, is_pending or muted))
+        columns = (
+            PipelineColumn("submitted", (PipelineStep("submitted", "Submitted", submitted_state),)),
+            PipelineColumn("review", tuple(lanes)),
+            PipelineColumn("live", (PipelineStep("live", "Live", "done" if was_live else "ahead"),)),
+        )
 
-        headline = self._pipeline_headline(steps, bounce if bounced else None, was_live, muted)
+        headline = self._pipeline_headline(columns, bounce if bounced else None)
         note = " ".join((bounce.notes or "").split()) if bounced and bounce is not None else ""
         return ReviewPipeline(
-            steps=tuple(steps),
+            columns=columns,
             headline=headline,
             note=note,
             is_live=status == self.Status.PUBLISHED,
@@ -2277,11 +2480,15 @@ class ClassOffering(HeroCropMixin, models.Model):
         was_live: bool,
         may_be_current: bool,
     ) -> PipelineStep:
-        """Resolve one reviewer step from its row: done, current, changes requested, or ahead."""
+        """Resolve one reviewer lane from its row: bounced, overridden, done, current, or ahead."""
         if row is not None and row.decision in _BOUNCE_DECISIONS:
             return PipelineStep(
                 key, label, "changes_requested", self._pipeline_detail(row), " ".join(row.notes.split())
             )
+        if row is not None and row.decision == ClassApproval.Decision.OVERRIDDEN_BY_ADMIN:
+            # Read before ``was_live``, which would otherwise tick every lane on a live class:
+            # an admin publishing shut this gate, and a tick would credit a yes nobody gave.
+            return PipelineStep(key, label, "overridden", self._pipeline_detail(row))
         if was_live or (row is not None and row.decision == ClassApproval.Decision.APPROVED):
             detail = self._pipeline_detail(row) if row is not None and row.decision else ""
             return PipelineStep(key, label, "done", detail)
@@ -2289,13 +2496,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             return PipelineStep(key, label, "current", self._pipeline_detail(row))
         return PipelineStep(key, label, "ahead")
 
-    def _pipeline_headline(
-        self,
-        steps: list[PipelineStep],
-        bounce: "ClassApproval | None",
-        was_live: bool,
-        muted: bool,
-    ) -> str:
+    def _pipeline_headline(self, columns: tuple[PipelineColumn, ...], bounce: "ClassApproval | None") -> str:
+        """The sentence under the strip. Names every reviewer the class is actually waiting on."""
         if self.status == self.Status.CANCELLED:
             return "Cancelled"
         if self.status == self.Status.ARCHIVED:
@@ -2307,14 +2509,10 @@ class ClassOffering(HeroCropMixin, models.Model):
             who = "the guild lead" if bounce.role == ClassApproval.Role.GUILD_LEAD else "an admin"
             verb = "Changes requested" if bounce.decision == ClassApproval.Decision.CHANGES_REQUESTED else "Declined"
             return f"{verb} by {who}"
-        current = next((step for step in steps if step.state == "current"), None)
-        if current is None or current.key == "submitted":
+        waiting = [lane for column in columns for lane in column.lanes if lane.state == "current"]
+        if not waiting or waiting[0].key == "submitted":
             return "Not submitted yet"
-        if current.key == "guild_lead":
-            return (
-                f"Waiting on the guild lead ({self._guild_name})" if self._guild_name else "Waiting on the guild lead"
-            )
-        return "Waiting on an admin"
+        return f"Waiting on {self._reviewer_phrase([lane.key for lane in waiting])}"
 
     @property
     def first_upcoming_session_at(self) -> datetime | None:
@@ -2494,16 +2692,15 @@ class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
 class ClassApproval(models.Model):
     """One reviewer gate on a ClassOffering submission.
 
-    When an instructor calls ``ClassOffering.submit_for_review()``, one row
-    is created per required reviewer role (``Role.ADMIN`` always; plus
-    ``Role.GUILD_LEAD`` when the class's category is linked to a guild that
-    has a lead). Each row gets a unique ``token`` so the emailed reviewer
-    can act without a hub login.
+    When an instructor calls ``ClassOffering.submit_for_review()``, one row is created per
+    required reviewer role (``Role.ADMIN`` always; plus ``Role.GUILD_LEAD`` when the class's
+    category is linked to a guild that has a lead) and they open together. Each row gets a
+    unique ``token`` so the emailed reviewer can act without a hub login.
 
-    Rows start with ``decision = ""`` (still pending). Calling ``decide()``
-    on a row records the decision and triggers the lifecycle hook on the
-    offering (publish when the ADMIN row is APPROVED — admin approval is
-    final; back to DRAFT when any reviewer requests changes or denies).
+    Rows start with ``decision = ""`` (still pending). Calling ``decide()`` on a row records
+    the decision and triggers the lifecycle hook on the offering: an admin approval publishes
+    unless it is held for the room check, a guild-lead approval publishes a class the admin
+    already held, and any request for changes or denial sends it back to DRAFT.
     """
 
     class Role(models.TextChoices):
@@ -2514,6 +2711,10 @@ class ClassApproval(models.Model):
         APPROVED = "approved", "Approved"
         CHANGES_REQUESTED = "changes_requested", "Changes Requested"
         DENIED = "denied", "Denied"
+        #: Written by the system, never by a reviewer: the lane an admin shut by publishing
+        #: over it. Distinct from APPROVED so no surface can render a yes the guild never
+        #: gave. ``decide()`` refuses it for exactly that reason.
+        OVERRIDDEN_BY_ADMIN = "overridden_by_admin", "Overridden by Admin"
 
     class_offering = models.ForeignKey(
         "ClassOffering",
@@ -2571,16 +2772,35 @@ class ClassApproval(models.Model):
             self.token = secrets.token_urlsafe(32)
         super().save(*args, **kwargs)
 
-    def decide(self, decision: str, user=None, notes: str = "") -> None:
+    def decide(self, decision: str, user=None, notes: str = "", *, publish_now: bool = True) -> None:
         """Record a reviewer decision and trigger the offering's lifecycle hook.
 
-        Guards on the offering being PENDING *before* saving anything, so a
-        decision can never publish a never-submitted DRAFT, re-publish an
-        ARCHIVED class, overwrite ``approved_by``/``published_at`` on a
-        PUBLISHED one, or bounce a live class back to DRAFT. This is the single
-        choke point for every decision path (tokenized page, admin review page,
-        quick-approve); the review view renders a friendly not-awaiting-review
+        Guards on the offering being PENDING *before* saving anything, so a decision can never
+        publish a never-submitted DRAFT, re-publish an ARCHIVED class, overwrite
+        ``approved_by``/``published_at`` on a PUBLISHED one, or bounce a live class back to
+        DRAFT. This is the single choke point for every decision path (tokenized page, admin
+        review page, quick-approve); the review view renders a friendly not-awaiting-review
         state before a user can ever reach this error.
+
+        ``publish_now=False`` is the admin's "Approve, hold for the room check": the row is
+        recorded and nothing is published.
+
+        ``OVERRIDDEN_BY_ADMIN`` is deliberately absent from the accepted decisions. It is the
+        marker the override path writes on a lane nobody answered, not a verdict a reviewer
+        can record.
+
+        The status read and the write run inside one ``transaction.atomic()`` holding
+        ``select_for_update()`` on the offering row, because two lanes now decide
+        concurrently. Without the lock, a guild lead approving while an admin publishes would
+        fire "Executive validation needed" at a class that is already live, and a guild lead
+        requesting changes while an admin publishes would silently unpublish it. The lock goes
+        into a throwaway local and ``self.class_offering`` is never rebound: ``approve()``
+        deliberately pins the caller's instance so the publish mutates *that* object. The
+        offering row is the first lock every path takes, so no path can invert the order.
+
+        SQLite drops ``select_for_update()`` silently (``has_select_for_update = False``), so
+        the serialization behaviour is specced in ``tests/e2e/`` against Postgres; the unit
+        suite asserts the transaction structure only.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -2588,21 +2808,26 @@ class ClassApproval(models.Model):
             self.Decision.DENIED,
         }:
             raise ValueError(f"Unknown decision: {decision!r}")
-        if self.class_offering.status != ClassOffering.Status.PENDING:
-            raise ValueError(f"Only pending classes can accept review decisions; got {self.class_offering.status}.")
-        if decision == self.Decision.APPROVED and self.role == self.Role.ADMIN and not self.class_offering.is_ready:
-            # The admin's approval is the publishing decision. Refuse BEFORE saving the
-            # row so an unready class never strands an APPROVED admin row on a class
-            # that stays PENDING; the reviewer sees the failing items as a form error.
-            from django.core.exceptions import ValidationError
-
-            raise ValidationError(self.class_offering.readiness_error("publish"))
-        self.decision = decision
-        self.decided_by = user
-        self.notes = notes
-        self.decided_at = timezone.now()
-        self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
-        self.class_offering.on_review_decision_recorded(self)
+        with transaction.atomic():
+            locked = ClassOffering.objects.select_for_update().get(pk=self.class_offering_id)
+            if locked.status != ClassOffering.Status.PENDING:
+                raise ValueError(f"Only pending classes can accept review decisions; got {locked.status}.")
+            if (
+                decision == self.Decision.APPROVED
+                and self.class_offering._decision_publishes(self, publish_now=publish_now)
+                and not self.class_offering.is_ready
+            ):
+                # The approval that takes a class live is the publishing decision, and either
+                # lane can be it. Refuse BEFORE saving the row so an unready class never
+                # strands an APPROVED row on a class that then stays PENDING; the reviewer
+                # sees the failing items as a form error.
+                raise ValidationError(self.class_offering.readiness_error("publish"))
+            self.decision = decision
+            self.decided_by = user
+            self.notes = notes
+            self.decided_at = timezone.now()
+            self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
+            self.class_offering.on_review_decision_recorded(self, publish_now=publish_now)
 
 
 class ClassImage(models.Model):

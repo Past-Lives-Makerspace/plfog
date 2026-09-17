@@ -145,41 +145,85 @@ def _bounced_admin_rows(n: int, start: int = 0) -> None:
         )
 
 
+def _both_lanes_open(title: str, lead_username: str = "lead@example.com", guild: str = "Woodshop") -> ClassOffering:
+    """A submitted class under a guild with a lead: the guild-lead AND admin lanes both open."""
+    offering = ClassOfferingFactory(
+        ready=True,
+        status=Status.DRAFT,
+        title=title,
+        category=CategoryFactory(guild=_guild_with_lead(_lead_user(lead_username), guild)),
+    )
+    offering.submit_for_review()
+    return offering
+
+
+def _held_for_the_room_check(
+    title: str, lead_username: str = "hold-lead@example.com", guild: str = "Glass"
+) -> ClassOffering:
+    """A class an admin approved and held: the admin lane is closed, the lead's is still open."""
+    offering = _both_lanes_open(title, lead_username, guild)
+    admin_row = offering.approvals.get(role=ClassApproval.Role.ADMIN)
+    admin_row.decide(ClassApproval.Decision.APPROVED, publish_now=False)
+    offering.refresh_from_db()
+    return offering
+
+
 def describe_admin_overview_queue():
-    def it_splits_waiting_on_you_from_with_guild_leads(admin_user, client, db):
-        lead_user = _lead_user()
-        guild = _guild_with_lead(lead_user)
-        with_lead = ClassOfferingFactory(
-            title="Lead Holds It", status=Status.PENDING, category=CategoryFactory(guild=guild)
-        )
-        ClassApproval.objects.create(class_offering=with_lead, role=ClassApproval.Role.GUILD_LEAD)
+    def it_lists_each_class_once_and_splits_the_queue_at_the_hold(admin_user, client, db):
+        """A class with both lanes open is the admin's to answer, and appears ONCE.
+
+        The two queues used to be "no open guild gate" and "an open guild gate", which
+        overlapped everywhere once both lanes opened at submit: a class with both open was on
+        the screen twice and in the count twice. The split is now the hold, which is the only
+        state where a guild lead is genuinely the last gate.
+        """
+        both_lanes = _both_lanes_open("Lead And Admin Both Looking")
+        held = _held_for_the_room_check("Held For The Lead")
         rowless = ClassOfferingFactory(title="Rowless Pending", status=Status.PENDING)
-        admin_row = ClassOfferingFactory(title="Admin Gate Open", status=Status.PENDING)
-        ClassApproval.objects.create(class_offering=admin_row, role=ClassApproval.Role.ADMIN)
+        admin_only = ClassOfferingFactory(title="Admin Gate Open", status=Status.PENDING)
+        ClassApproval.objects.create(class_offering=admin_only, role=ClassApproval.Role.ADMIN)
         client.force_login(admin_user)
         resp = client.get(reverse("classes:admin_overview"))
-        assert set(resp.context["waiting_on_you"]) == {rowless, admin_row}
-        assert [item["offering"] for item in resp.context["with_guild_leads"]] == [with_lead]
-        assert resp.context["stats"]["awaiting_you"] == 2
+
+        waiting = set(resp.context["waiting_on_you"])
+        held_rows = [item["offering"] for item in resp.context["with_guild_leads"]]
+        assert waiting == {rowless, admin_only, both_lanes}
+        assert held_rows == [held]
+        assert not waiting.intersection(held_rows)
+        assert resp.context["stats"]["awaiting_you"] == 3
         assert resp.context["stats"]["with_leads"] == 1
+        assert resp.context["stats"]["pending"] == 4
+
         html = resp.content.decode()
         # Both queues are groups inside the one "Needs Attention" card now.
         assert "Needs Attention" in html
-        assert "Waiting on You" in html and "With Guild Leads" in html
+        assert "Waiting on You" in html and "Held For The Room Check" in html
         assert "Lena Lead" in html
-        assert reverse("classes:admin_class_remind_lead", kwargs={"pk": with_lead.pk}) in html
+        # Remind lead belongs to the held row, where the lead really is the last gate. On a
+        # class the admin has not answered yet, the admin's move is to answer it.
+        assert reverse("classes:admin_class_remind_lead", kwargs={"pk": held.pk}) in html
+        assert reverse("classes:admin_class_remind_lead", kwargs={"pk": both_lanes.pk}) not in html
+        # The row says what the state is and how long it has been in it.
+        assert "Held For The Room Check" in html
+        assert "waiting 0 days" in html
+        assert "They go live as soon as the guild lead confirms the room is free." in html
         # Approve opens the publish confirm on the overview row.
         assert "Publish this class?" in html
         assert "New public classes are also posted to the Discord classes channel within about 15 minutes" in html
 
+    def it_warns_that_publishing_closes_an_open_guild_lead_review(admin_user, client, db):
+        """Quick-approve is Approve and publish, and the confirm says what that costs."""
+        _both_lanes_open("Lead Still Looking")
+        ClassOfferingFactory(title="No Guild Here", status=Status.PENDING)
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_overview")).content.decode()
+        assert "The guild lead has not answered yet, and publishing closes their review without their answer." in html
+        # The class with no guild lane keeps the plain confirm: there is no review to close.
+        assert "Use Review with notes to ask for changes instead." in html
+
     def it_counts_every_queue_in_the_merged_card(admin_user, client, db):
         """The card's own count is all three queues together, not just the admin's own."""
-        lead_user = _lead_user()
-        guild = _guild_with_lead(lead_user)
-        with_lead = ClassOfferingFactory(
-            title="Lead Holds It", status=Status.PENDING, category=CategoryFactory(guild=guild)
-        )
-        ClassApproval.objects.create(class_offering=with_lead, role=ClassApproval.Role.GUILD_LEAD)
+        _held_for_the_room_check("Held For The Lead")
         ClassOfferingFactory(title="Rowless Pending", status=Status.PENDING)
         client.force_login(admin_user)
         resp = client.get(reverse("classes:admin_overview"))
@@ -191,7 +235,7 @@ def describe_admin_overview_queue():
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_overview")).content.decode()
         assert "Waiting on You" in html
-        assert "With Guild Leads" not in html
+        assert "Held For The Room Check" not in html
         assert "Interested in Teaching" not in html
         assert html.count('data-help-key="admin.review-queue"') == 1
 
@@ -200,7 +244,7 @@ def describe_admin_overview_queue():
         html = client.get(reverse("classes:admin_overview")).content.decode()
         assert "Needs Attention · all clear" in html
         assert "Waiting on You" not in html
-        assert "With Guild Leads" not in html
+        assert "Held For The Room Check" not in html
         # The anchor admins are mailed, and the admin tour's target, both have to resolve
         # even with nothing waiting — which is why they fall back to the wrapper.
         assert html.count('id="teaching-applications"') == 1
@@ -212,8 +256,10 @@ def describe_admin_overview_queue():
         # The lead exists (so the gate was required) but has no email, and there is no staff.
         silent_lead = MemberFactory(_pre_signup_email="")
         guild = GuildFactory(name="Silent Guild", guild_lead=silent_lead)
-        offering = ClassOfferingFactory(status=Status.PENDING, category=CategoryFactory(guild=guild))
+        offering = ClassOfferingFactory(ready=True, status=Status.PENDING, category=CategoryFactory(guild=guild))
         ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        held = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        held.decide(ClassApproval.Decision.APPROVED, publish_now=False)
         client.force_login(admin_user)
         resp = client.get(reverse("classes:admin_overview"))
         assert resp.context["with_guild_leads"][0]["leadless"] is True
@@ -530,24 +576,40 @@ def describe_readiness_guard_on_approve():
         # Refused before the admin row is minted, so nothing is stranded open.
         assert not offering.approvals.exists()
 
-    def it_refused_quick_approve_does_not_block_the_guild_leads_later_escalation(admin_user, client, db):
+    def it_refused_quick_approve_leaves_the_open_admin_lane_to_escalate_into(admin_user, client, db):
+        """A refused publish must not cost the guild lead their escalation.
+
+        Both lanes open at submit, so the lead's approval escalates into the admin row that is
+        ALREADY open rather than creating one. The refused quick-approve must leave that row
+        alone: one open admin row before, one open admin row after, and the CLASS_APPROVER
+        holder hears about it.
+        """
         from membership.models import AdminCapability, Member
 
         lead_user = _lead_user("escalate-lead@example.com")
         guild = _guild_with_lead(lead_user, "Escalate Guild")
+        # Built straight into PENDING with both lanes open: an unready class cannot be
+        # submitted, and it is the unready publish that has to be refused here.
         offering = ClassOfferingFactory(
             status=Status.PENDING, description="Short", category=CategoryFactory(guild=guild)
         )
         gate = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        admin_row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         holder_user = UserFactory(username="cms-esc@example.com", email="cms-esc@example.com")
         Member.objects.get(user=holder_user).admin_capabilities.create(
             capability=AdminCapability.Capability.CLASS_APPROVER
         )
         client.force_login(admin_user)
-        client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
-        assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+        resp = client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
+        assert any(m.startswith("Not ready to publish:") for m in _messages(resp))
+        # Refused before the row was touched: the lane the lead escalates into is still open.
+        admin_row.refresh_from_db()
+        assert admin_row.decision == ""
+
         mail.outbox = []
         gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+        # Reused, not re-minted: a second admin row would report the lane open twice.
+        assert offering.approvals.filter(role=ClassApproval.Role.ADMIN).count() == 1
         assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
         assert [m for m in mail.outbox if m.to == ["cms-esc@example.com"]]
 
@@ -566,8 +628,20 @@ def describe_readiness_guard_on_approve():
         assert offering.status == Status.PENDING
 
     def it_tokenized_review_page_shows_the_readiness_message_as_a_form_error(client, db):
-        offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        """The guild lead's token is the one that still decides, and the guard reaches it.
+
+        A lead's approval publishes when the admin has already approved and held, so that is
+        the lead's publishing decision and it is refused on an unready class exactly as the
+        admin's is.
+        """
+        lead_user = _lead_user("unready-lead@example.com")
+        guild = _guild_with_lead(lead_user, "Unready Guild")
+        offering = ClassOfferingFactory(
+            status=Status.PENDING, description="Short", category=CategoryFactory(guild=guild)
+        )
+        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
+        held = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        held.decide(ClassApproval.Decision.APPROVED, publish_now=False)
         resp = client.post(
             reverse("classes:class_review", kwargs={"token": row.token}),
             {"decision": ClassApproval.Decision.APPROVED, "notes": ""},

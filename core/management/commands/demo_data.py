@@ -717,12 +717,14 @@ class Command(BaseCommand):
         return member
 
     def _ensure_pending_class(self, category: Category, instructor: Any) -> ClassOffering:
-        """A class the demo instructor submitted that's waiting on admin approval.
+        """A class the demo instructor submitted that's waiting on review.
 
-        Staged directly into PENDING with an open admin ``ClassApproval`` row so
-        it shows in the admin review queue — without firing the review email the
-        real ``submit_for_review`` path would. The QA tester approves it from the
-        admin UI, which fires the instructor-outcome email into Mailpit.
+        Staged directly into PENDING with the same open ``ClassApproval`` rows a real
+        submission would open — both lanes when the category's guild has a lead, the admin
+        alone otherwise — but without firing the review emails ``submit_for_review`` sends.
+        The demo category is guildless, so in practice that is the admin lane on its own.
+        The QA tester approves it from the admin UI, which fires the instructor-outcome
+        email into Mailpit.
         """
         now = timezone.now()
         offering, _ = ClassOffering.objects.update_or_create(
@@ -742,9 +744,16 @@ class Command(BaseCommand):
         offering.sessions.all().delete()
         start = now + timedelta(days=10)
         ClassSession.objects.create(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
-        # One open admin gate (token auto-fills on save). Reset on every re-seed.
+        # Open the gates this class actually needs (tokens auto-fill on save), guild lead
+        # first so the review strip reads in the order it draws the lanes. Reset on every
+        # re-seed. Hard-coding a lone admin row lied about a class under a guild with a lead:
+        # both lanes open together at submit, and a missing guild row reads as a lane nobody
+        # is waiting on.
         offering.approvals.all().delete()
-        ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
+        required = offering.required_review_roles
+        for role in (ClassApproval.Role.GUILD_LEAD, ClassApproval.Role.ADMIN):
+            if role in required:
+                ClassApproval.objects.create(class_offering=offering, role=role)
         return offering
 
     def _attach_committed_hero(self, offering: ClassOffering, rel_path: str) -> None:

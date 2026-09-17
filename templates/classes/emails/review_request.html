@@ -14,10 +14,20 @@
       <div style="color:#55697a;font-size:14px;">by {{ offering.instructor.display_name }}{% if offering.category %} · {{ offering.category.name }}{% endif %}</div>
     </td></tr>
     <tr><td style="padding:14px 28px;">
+      {% if approval.role == 'guild_lead' %}
       <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
-        An instructor submitted a class for review, and you've been asked to approve the date.
-        Open the review page to see details.
+        An instructor wants to teach this class. Your part is the space: check that the room, the kit
+        and the guild calendar are free on these dates. An admin is reading the class at the same
+        time, so you do not have to wait for them.
       </p>
+      {% else %}
+      <p style="margin:0 0 14px;color:#33424f;font-size:15px;line-height:1.55;">
+        An instructor submitted this class. You decide whether it belongs on the public calendar.
+        {% if guild_lead_status %}{{ guild_lead_status }} You can approve and publish now, or approve
+        and wait for their answer on the space.{% else %}No guild lead reviews this one, so yours is
+        the only approval it needs.{% endif %}
+      </p>
+      {% endif %}
       {% review_pipeline offering %}
       <p style="margin:18px 0;">
         <a href="{{ review_url }}"
@@ -35,7 +45,7 @@
       </p>
     </td></tr>
     <tr><td style="padding:18px 28px 24px;border-top:1px solid rgba(13, 72, 118, 0.12);font-size:12px;color:#55697a;">
-      You're receiving this email because you're a {{ role_label }} at Past Lives Makerspace.
+      You are getting this because you review classes at Past Lives Makerspace.
     </td></tr>
   </table>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;">

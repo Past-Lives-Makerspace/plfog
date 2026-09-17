@@ -86,14 +86,14 @@ TRIGGERS: list[Trigger] = [
     Trigger(
         "class_review_requested",
         "Class needs your review",
-        "An instructor submitted a class in a guild you lead — review it.",
+        "An instructor submitted a class in a guild you lead. Check the space is free on those dates.",
         "Teaching",
         email_default=True,
     ),
     Trigger(
         "class_validation_requested",
         "Class needs executive validation",
-        "A guild lead approved a class; it needs admin sign-off to publish.",
+        "An instructor submitted a class. It needs an admin review before it can publish.",
         "Teaching",
         Audience.STAFF_ONLY,
         email_default=True,

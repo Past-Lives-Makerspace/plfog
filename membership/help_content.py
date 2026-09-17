@@ -778,7 +778,7 @@ The guided tour points at the real buttons, right on the teaching portal, in abo
 **Create and publish:**
 
 - **Create a class** — a private draft with your title, description, dates, price, and photos. See [Host a Workshop](/help/teaching/become-an-instructor/).
-- **Submit it for review** — a guild lead (when your category has one) and an admin check it before it goes live. Same guide.
+- **Submit it for review** — a guild lead (when your category has one) and an admin both get it the moment you submit, and either can answer first. Same guide.
 - **Preview as a student** — see the public page exactly as a student will, at any point while you work.
 - **Offer it again on new dates** — one click copies a class into a new draft so you can run it again; the two link to each other on the public page. See [Run Your Class](/help/teaching/run-your-class/).
 
@@ -860,14 +860,16 @@ Not sure what "done" looks like? Study the permanent example class, [Shaker Side
 
 ### Submit It for Review {#teach-submit-for-review}
 
-Click **Submit for Review** on the last step of the form, or **Submit for review** on the class page. Review happens in order:
+Click **Submit for Review** on the last step of the form, or **Submit for review** on the class page. That opens two reviews at once:
 
-- If your class's category belongs to a guild that has a lead, that guild lead reviews it first.
-- Then an admin gives the final yes. No guild lead involved? The admin reviews it directly.
+- An admin reads the class itself.
+- If your class's category belongs to a guild that has a lead, that guild lead checks the space is free on your dates. No guild lead? That review is skipped.
+
+Neither review waits on the other, so they can come back in any order. An admin can publish your class straight away, or hold it until the guild lead has confirmed the space.
 
 Reviewers see your class exactly as a student would, in a full preview of the public page. Each reviewer picks **Approve**, **Ask for changes**, or **Decline**, and has to leave a note when asking for changes or declining, so you always know what to work on. You get an email as each response lands. Going round more than once is normal.
 
-**Ask for changes** and **Decline** send the class back to Draft with the reviewer's notes. Fix it up and submit again; a fresh submission restarts the review from the first gate.
+**Ask for changes** and **Decline** send the class back to Draft with the reviewer's notes. Fix it up and submit again; a fresh submission starts the reviews over.
 
 ### What the Statuses Mean
 
@@ -918,8 +920,8 @@ You never self-publish — every class is reviewed before it appears in the cata
 
 1. You write a **draft**. Drafts are private; only you and admins can see them.
 2. You **submit it for review** when it's ready.
-3. If your class's category belongs to a guild with a lead, that **guild lead** reviews it first.
-4. An **admin** gives the final yes. Only then does it publish.
+3. Submitting opens two reviews at the same time. An **admin** reads the class. If your class's category belongs to a guild with a lead, that **guild lead** checks the space is free on your dates.
+4. Neither review waits on the other. An admin can publish the class right away, or hold it until the guild lead has confirmed the space.
 
 Reviewers can approve, request changes, or decline — and they have to leave a note when sending something back, so you always know what to fix. You get an email as each decision lands.
 
@@ -1091,9 +1093,11 @@ The classes admin lives at `/classes/admin/`. Reach it from **Class Catalog** in
 The Overview's **Needs Attention** card lists everything waiting on you, under **Waiting on You**. Each row has two buttons:
 
 - **Approve** records your admin approval on the spot.
-- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve**, **Ask for changes**, and **Decline**. Notes are optional on approve and required on the other two, so the instructor always knows what to fix. **Submit** records it and emails the instructor.
+- **Review** opens the full review page: the class details, upcoming sessions, a student-eye preview of the public page, and a response form with **Approve and publish**, **Approve, hold for the room check**, **Ask for changes**, and **Decline**. Notes are optional on either approve and required on the other two, so the instructor always knows what to fix. **Submit** records it and emails the instructor.
 
-When the class's category belongs to a guild that has a lead, the guild lead reviews first, through a tokenized link emailed to them (no admin access needed). A guild lead approval hands the class to admins for the final sign off. Your admin approval is final: the moment you approve, the class publishes and opens for sign-ups, even if the guild lead has not weighed in yet (any still-open guild lead review is closed automatically). **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
+Submitting a class opens your review and the guild lead's at the same moment. When the category belongs to a guild that has a lead, that lead gets a tokenized link by email (no admin access needed) and checks one thing: that the space is free on those dates. Neither review waits on the other, and either of you can answer first.
+
+Your two approvals do different things. **Approve and publish** takes the class live and opens sign-ups right away, even if the guild lead has not answered (any still-open guild lead review is closed automatically). **Approve, hold for the room check** records your yes and publishes nothing; the class goes live the moment the guild lead approves too. **Ask for changes** and **Decline** send it back to the instructor as a draft, with your notes.
 
 Admins can also create classes directly from the **Classes** tab; those publish immediately, with no review chain.
 
@@ -1273,7 +1277,7 @@ Open your guild's page and click **Guild Settings**. Every tool below lives on o
 
 **Classes:**
 
-- **Approve classes** — when a class is submitted in your guild's category, you're the first gate before the admin. See [Approving Classes](/help/running-a-guild/approving-classes/).
+- **Approve classes** — when a class is submitted in your guild's category, you and an admin review it at the same time. Your check is the space: is it free on those dates? See [Approving Classes](/help/running-a-guild/approving-classes/).
 
 The two tools you'll reach for most — Announcements and Orientations — are also collected under **Admin Tools**, in the sidebar and on your Home page.
 
@@ -1738,13 +1742,13 @@ Posted notes appear on your guild page for members to read.""",
         "sort_order": 70,
         "related": ["become-an-instructor", "reviewing-classes-admin"],
         "body": """\
-When someone submits a class in a category tied to your guild, you're the first gate. Review is sequential: the class waits on you before an admin ever sees it, and it can't publish until both of you say yes.
+When someone submits a class in a category tied to your guild, you and an admin get it at the same moment. Your question is the space: is it free on those dates? Neither review waits on the other, so either of you can answer first, and an admin can publish the class before you have looked.
 
 <!-- Video slot: paste a Loom embed here — see docs/HELP_AUTHORING.md, Video Walkthroughs. -->
 
 ### How a Review Reaches You
 
-The moment a class is submitted, the guild lead and every staff member get a review-request email, plus an in-app notice. The instructor is told their class is in review. Review is a shared duty: any one of your staff can make the call, and the first decision is the guild's decision.
+The moment a class is submitted, the guild lead and every staff member get a review-request email, plus an in-app notice. The admins are emailed at the same moment, so your review and theirs run side by side. The instructor is told their class is in review. Review is a shared duty: any one of your staff can make the call, and the first decision is the guild's decision.
 
 ### Where to Review {#guild-approve-classes}
 
@@ -1770,15 +1774,15 @@ The review page shows everything the class will publish with: description, sessi
 
 Pick one of three responses and click **Submit**:
 
-- **Approve.** You're vouching for the class; it moves on to the admin gate.
-- **Ask for changes.** Notes are required so the instructor knows what to work on. The class goes back to draft; they edit and resubmit, and a fresh review round starts with you.
+- **Approve.** You're confirming the space is free on those dates.
+- **Ask for changes.** Notes are required so the instructor knows what to work on. The class goes back to draft; they edit and resubmit, and a fresh review round reaches you and the admins together.
 - **Decline.** Notes are required here too. The class also returns to draft; declining isn't permanent, and the instructor can rework and resubmit.
 
 Each review link accepts exactly one response. If you open it again afterwards, or a co-reviewer beat you to it, the page shows what was already decided.
 
 ### What Happens After You Approve
 
-Your approval doesn't publish the class. It opens the admin gate: an admin gets a validation request naming you as the lead who vouched, and only their approval publishes the class and opens sign-ups. The instructor is notified at every step, so you don't need to relay anything.""",
+What your approval does depends on the admins. If an admin has already approved and chosen to wait for your room check, the class publishes the moment you approve. If no admin has answered yet, it waits for one. And an admin can publish a class without waiting for you at all. The instructor is notified at every step, so you don't need to relay anything.""",
         "screenshots": [
             {
                 # The guild-lead persona leads Ceramics Guild, which the capture harness
