@@ -90,7 +90,8 @@ def describe_workspace_action_row():
         offering = _live(instructor_fixture)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        assert "Edit details" in html
+        # Edit sits in the class header now (decision D5); the action row keeps the rest.
+        assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) in html
         assert "Request a change" in html
         assert "Cancel this class?" in html
         assert "Run this class again?" in html
@@ -327,10 +328,10 @@ def describe_run_it_again():
         pending = ClassOfferingFactory(status=Status.PENDING)
         client.force_login(admin_user)
         for offering in (live, gone):
-            html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
             assert "Run this class again?" in html
-            assert reverse("classes:admin_class_duplicate_run", kwargs={"pk": offering.pk}) in html
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": pending.pk})).content.decode()
+            assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": offering.pk}) in html
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": pending.pk})).content.decode()
         assert "Run this class again?" not in html
 
     def it_is_gone_from_both_edit_pages_and_nothing_sits_under_save(admin_user, instructor_fixture, client):
@@ -339,8 +340,8 @@ def describe_run_it_again():
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": draft.pk})).content.decode()
         assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": draft.pk}) not in html
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": draft.pk})).content.decode()
-        assert reverse("classes:admin_class_duplicate_run", kwargs={"pk": draft.pk}) not in html
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": draft.pk})).content.decode()
+        assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": draft.pk}) not in html
         # The Save row is the last thing in the form: no form follows the closing </form>.
         tail = html[html.rindex("</form>") :]
         assert "<form" not in tail
@@ -432,7 +433,7 @@ def describe_the_completed_guard_lives_on_the_model():
         RegistrationFactory(class_offering=offering, email="past@example.com", status=Registration.Status.CONFIRMED)
         mail.outbox.clear()
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Oops"})
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Oops"})
         assert resp.status_code == 302
         assert "This class has already happened." in _messages(resp)
         offering.refresh_from_db()
@@ -456,7 +457,7 @@ def describe_the_completed_guard_lives_on_the_model():
         upcoming = timezone.now() + timedelta(days=2)
         ClassSessionFactory(class_offering=offering, starts_at=upcoming, ends_at=upcoming + timedelta(hours=2))
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Snow"})
+        resp = client.post(reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}), {"reason": "Snow"})
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.status == Status.CANCELLED

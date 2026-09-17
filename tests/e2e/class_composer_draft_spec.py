@@ -463,6 +463,38 @@ def describe_a_browser_with_no_room_left():
         expect(page.locator(KEPT)).to_be_hidden()
 
 
+def describe_a_copy_from_before_the_two_composers_became_one():
+    def it_carries_the_old_key_forward_and_leaves_the_old_copy_where_it_was(live_server, page, login_via_code):
+        """The key dropped its portal segment when the admin and instructor composers merged.
+
+        A copy typed before that deploy sits under the old key, which nothing would look at
+        again, so the server stamps the old keys and boot copies the first live one forward.
+        A COPY: code rolled back to before the merge reads the old key, and must still find
+        the work there.
+        """
+        instructor = _seed_instructor()
+        CategoryFactory()
+        offering = _seed_draft(instructor)
+        login_via_code(EMAIL)
+        _open_edit(page, live_server, offering)
+        legacy = page.locator(ROOT).get_attribute("data-composer-draft-legacy-keys").split(" ")[-1]
+        assert legacy.endswith(f".teach.{offering.pk}")
+
+        page.evaluate(
+            """([key, title]) => window.localStorage.setItem(key, JSON.stringify({
+                v: 1, at: Date.now(), values: { title },
+            }))""",
+            [legacy, TITLE],
+        )
+        page.reload()
+
+        expect(page.locator(OFFER)).to_be_visible()
+        page.locator(RESTORE).click()
+        expect(page.locator("#id_title")).to_have_value(TITLE)
+        # Copied, not moved: the pre-merge key still holds it.
+        assert page.evaluate("(key) => window.localStorage.getItem(key)", legacy) is not None
+
+
 def describe_a_shared_browser():
     def it_never_offers_one_member_the_draft_of_another(live_server, page, login_via_code):
         _seed_instructor()

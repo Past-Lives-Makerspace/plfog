@@ -120,8 +120,9 @@ def describe_teach_overview_tab():
         )
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_class_detail", kwargs={"pk": mine.pk}))
+        # Edit is one button in the class header now (decision D5), not two in the action row.
         assert reverse("classes:teach_class_edit", kwargs={"pk": mine.pk}).encode() in resp.content
-        assert b"Edit details" in resp.content
+        assert b'hub-btn--primary" href="/classes/teach/classes/' in resp.content
 
 
 def describe_teach_registrations_tab():

@@ -811,15 +811,15 @@ def describe_admin_composer():
     def it_keeps_the_admin_discount_code_urls(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert reverse("classes:admin_discount_code_create") in html
         assert reverse("classes:teach_discount_code_create") not in html
-        assert f'href="{reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})}">Cancel</a>' in html
+        assert f'href="{reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})}">Cancel</a>' in html
 
     def it_withholds_the_crop_box_on_an_imported_photo(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, image="", legacy_image_url=LEGACY_PHOTO)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         hero = _hero_preview_img(html)
         src = re.search(r'src="([^"]*)"', hero)
         assert src is not None, "no src on the hero preview"
@@ -831,7 +831,7 @@ def describe_admin_composer():
     def it_says_save_and_offers_no_publish_on_a_live_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert ">Save</button>" in html
         assert "Save Draft" not in html
         assert "submit-class" not in html
@@ -844,7 +844,7 @@ def describe_admin_composer():
         assert resp.status_code == 302
         created = ClassOffering.objects.get(title="Round Trip")
         assert created.status == Status.DRAFT
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": created.pk}) + "?step=2"
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": created.pk}) + "?step=2"
         assert created.instructor_id == inst.pk
         assert created.is_private is True
         assert created.private_for_name == "The Guild"
@@ -868,8 +868,8 @@ def describe_admin_composer():
         cat = CategoryFactory()
         inst = InstructorFactory()
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}), _admin_payload(cat, inst))
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=4"
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _admin_payload(cat, inst))
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=4"
         offering.refresh_from_db()
         _assert_round_trip(offering, cat)
         assert offering.instructor_id == inst.pk
@@ -880,14 +880,14 @@ def describe_admin_composer():
         client.force_login(admin_user)
         payload = _admin_payload(offering.category, offering.instructor)
         payload.pop("step")
-        resp = client.post(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}), payload)
-        assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
 
     def it_publishes_a_ready_draft_from_the_composer(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, ready=True)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -896,7 +896,7 @@ def describe_admin_composer():
                 action="publish",
             ),
         )
-        assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
         assert any("is published." in m for m in _messages(resp))
@@ -908,10 +908,10 @@ def describe_admin_composer():
         offering = ClassOfferingFactory(status=Status.DRAFT, gallery=0)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, action="publish", step="5"),
         )
-        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert resp["Location"] == f"{edit}?step=2&missing=1"
         offering.refresh_from_db()
         assert offering.status == Status.DRAFT
@@ -927,7 +927,7 @@ def describe_admin_composer():
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, instructor="999999", capacity="", step="5"),
         )
         html = resp.content.decode()
@@ -941,7 +941,7 @@ def describe_admin_composer():
         stamped = offering.published_at
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -951,7 +951,7 @@ def describe_admin_composer():
                 step="5",
             ),
         )
-        assert resp["Location"] == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=5"
+        assert resp["Location"] == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=5"
         assert "Only a draft can be published from here." in _messages(resp)
         offering.refresh_from_db()
         assert offering.status == Status.PUBLISHED
@@ -963,7 +963,7 @@ def describe_admin_composer():
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -1026,7 +1026,7 @@ def describe_live_sale_guard_through_the_composers():
         offering = _on_fixed_sale()
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, price_cents="50.00"),
         )
         assert resp.status_code == 200
@@ -1044,7 +1044,7 @@ def describe_live_sale_guard_through_the_composers():
         )
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, price_cents="1.00"),
         )
         assert resp.status_code == 200
@@ -1056,7 +1056,7 @@ def describe_live_sale_guard_through_the_composers():
         offering = _on_fixed_sale()
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, price_cents="150.00"),
         )
         assert resp.status_code == 302
@@ -1137,7 +1137,7 @@ def describe_a_failed_save_with_a_whole_dollar_price():
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, title="", price_cents="8000"),
         )
         assert resp.status_code == 200
@@ -1200,7 +1200,7 @@ def describe_the_price_floor_through_the_composers():
             url = (
                 reverse("classes:admin_class_create")
                 if mode == "create"
-                else reverse("classes:admin_class_edit", kwargs={"pk": saved.pk})
+                else reverse("classes:teach_class_edit", kwargs={"pk": saved.pk})
             )
 
         def post(price: str):
@@ -1256,7 +1256,7 @@ def describe_a_failed_save_with_a_blank_price_on_a_saved_draft():
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(offering.category, offering.instructor, title="", price_cents=""),
         )
         assert resp.status_code == 200
@@ -1373,7 +1373,7 @@ def describe_a_composer_submit_refused_for_readiness():
         offering = ClassOfferingFactory(status=Status.DRAFT, ready=True, gallery=0)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _admin_payload(
                 offering.category,
                 offering.instructor,
@@ -1383,7 +1383,7 @@ def describe_a_composer_submit_refused_for_readiness():
                 step="5",
             ),
         )
-        edit = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert resp["Location"] == f"{edit}?step=2&missing=1"
         html = client.get(resp["Location"]).content.decode()
         assert "phase: 2," in html
@@ -1517,7 +1517,7 @@ def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():
     def it_renders_no_notice_on_a_published_class(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PUBLISHED, gallery=0)
         client.force_login(admin_user)
-        url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) + "?step=2&missing=1"
         html = client.get(url).content.decode()
         assert _still_missing(html) == ""
         assert "Not ready to publish yet." not in html
@@ -1598,8 +1598,8 @@ def describe_the_composer_draft_notice():
         create = _draft_key(client.get(reverse("classes:teach_class_create")).content.decode())
         edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         edit = _draft_key(client.get(edit_url).content.decode())
-        assert create.endswith(".teach.new")
-        assert edit.endswith(f".teach.{offering.pk}")
+        assert create.endswith(".new")
+        assert edit.endswith(f".{offering.pk}")
 
     def it_keys_the_copy_by_person_so_a_shared_browser_never_leaks_one(instructor_fixture, client, db):
         other = InstructorFactory(user=UserFactory(username="second-teacher@example.com"))
@@ -1611,11 +1611,28 @@ def describe_the_composer_draft_notice():
         assert mine != theirs
         assert str(instructor_fixture.user.pk) in mine and str(other.user.pk) in theirs
 
-    def it_keys_the_copy_by_portal_so_the_two_composers_do_not_share_one(admin_user, client, db):
+    def it_keys_one_copy_per_class_now_that_the_two_composers_are_one_page(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert _draft_key(html).endswith(f".admin.{offering.pk}")
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _draft_key(html).endswith(f".{offering.pk}")
+        assert ".admin." not in _draft_key(html)
+
+    def it_stamps_the_pre_merge_keys_so_a_draft_typed_before_the_merge_is_not_stranded(instructor_fixture, client):
+        # The composer used to keep a copy per portal. Those keys ride along in a data
+        # attribute and composer_draft.js copies the first one still holding something
+        # forward — a copy, so reverted code still finds its own.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        legacy = re.search(r'data-composer-draft-legacy-keys="([^"]+)"', html)
+        assert legacy is not None, "the composer stamped no legacy keys"
+        keys = legacy.group(1).split(" ")
+        user_pk = instructor_fixture.user.pk
+        assert keys == [
+            f"plfog.composer.v1.{user_pk}.admin.{offering.pk}",
+            f"plfog.composer.v1.{user_pk}.teach.{offering.pk}",
+        ]
 
     def it_stamps_the_saved_signal_on_the_render_after_a_save_and_takes_it_back_off(instructor_fixture, client):
         # The redirect target is where the browser learns its copy is redundant: the database
@@ -1684,12 +1701,12 @@ def describe_the_composer_draft_notice():
         client.force_login(admin_user)
         for offering in (first, second):
             resp = client.post(
-                reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
                 _admin_payload(offering.category, offering.instructor, step=""),
             )
-            assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+            assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         for offering in (first, second):
-            url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+            url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
             assert 'data-composer-draft-saved="1"' in client.get(url).content.decode(), offering.pk
             assert "data-composer-draft-saved" not in client.get(url).content.decode(), offering.pk
 

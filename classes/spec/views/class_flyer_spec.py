@@ -142,7 +142,7 @@ def describe_class_flyer():
     def describe_edit_page_link():
         def it_links_the_flyer_from_the_admin_edit_page(admin_user, client, free_offering, db):
             client.force_login(admin_user)
-            body = client.get(reverse("classes:admin_class_edit", args=[free_offering.pk])).content.decode()
+            body = client.get(reverse("classes:teach_class_edit", args=[free_offering.pk])).content.decode()
             assert reverse("classes:class_flyer", args=[free_offering.pk]) in body
             assert "Open printable flyer" in body
 
@@ -253,7 +253,7 @@ def describe_share_card():
 
     def _admin_edit(client, user, offering):
         client.force_login(user)
-        resp = client.get(reverse("classes:admin_class_edit", args=[offering.pk]))
+        resp = client.get(reverse("classes:teach_class_edit", args=[offering.pk]))
         assert resp.status_code == 200
         return resp.content.decode()
 

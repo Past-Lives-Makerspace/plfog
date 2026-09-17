@@ -47,7 +47,7 @@ def describe_review_capability_access():
         client.force_login(cms_admin_user)
         for name, kwargs in [
             ("classes:admin_classes", {}),
-            ("classes:admin_class_detail", {"pk": guilded_pending_offering.pk}),
+            ("classes:teach_class_detail", {"pk": guilded_pending_offering.pk}),
             ("classes:admin_class_review", {"pk": guilded_pending_offering.pk}),
         ]:
             assert client.get(reverse(name, kwargs=kwargs)).status_code == 200, f"CMS Administrator blocked from {name}"
@@ -74,15 +74,15 @@ def describe_review_capability_access():
         ):
             assert client.get(reverse(name)).status_code == 403, f"CMS Administrator wrongly admitted to {name}"
 
-    def it_forbids_a_plain_member(member_user, guilded_pending_offering, client):
+    def it_refuses_a_plain_member(member_user, guilded_pending_offering, client):
         client.force_login(member_user)
         assert client.get(reverse("classes:admin_classes")).status_code == 403
         response = client.post(reverse("classes:admin_class_approve", kwargs={"pk": guilded_pending_offering.pk}))
-        assert response.status_code == 403
+        assert response.status_code == 404
         guilded_pending_offering.refresh_from_db()
         assert guilded_pending_offering.status == ClassOffering.Status.PENDING
 
-    def it_forbids_holders_of_an_unrelated_capability(db, guilded_pending_offering, client):
+    def it_refuses_holders_of_an_unrelated_capability(db, guilded_pending_offering, client):
         from membership.models import AdminCapability, Member
 
         user = UserFactory(username="billing-cap@example.com")
@@ -92,27 +92,32 @@ def describe_review_capability_access():
         assert client.get(reverse("classes:admin_classes")).status_code == 403
         assert (
             client.get(reverse("classes:admin_class_review", kwargs={"pk": guilded_pending_offering.pk})).status_code
-            == 403
+            == 404
         )
 
     def describe_detail_page_controls():
         """Nothing on the detail page dead-ends in a 403 for a CMS Administrator."""
 
         def _admin_only_urls(offering):
+            """The controls a full admin gets and a CMS Administrator must not be shown.
+
+            Six of the eight moved onto the merged per-class routes; the two lifecycle
+            actions that never had a teaching twin kept their own.
+            """
             return [
-                reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
                 reverse("classes:admin_class_duplicate", kwargs={"pk": offering.pk}),
                 reverse("classes:admin_class_archive", kwargs={"pk": offering.pk}),
                 reverse("classes:admin_class_delete", kwargs={"pk": offering.pk}),
-                reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}),
-                reverse("classes:admin_class_waitlist", kwargs={"pk": offering.pk}),
-                reverse("classes:admin_class_discount_codes", kwargs={"pk": offering.pk}),
-                reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_waitlist", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk}),
+                reverse("classes:teach_class_emails", kwargs={"pk": offering.pk}),
             ]
 
         def it_shows_only_approve_and_review_to_a_cms_administrator(cms_admin_user, guilded_pending_offering, client):
             client.force_login(cms_admin_user)
-            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": guilded_pending_offering.pk}))
+            response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": guilded_pending_offering.pk}))
             html = response.content.decode()
             assert reverse("classes:admin_class_approve", kwargs={"pk": guilded_pending_offering.pk}) in html
             assert "Review with notes" in html
@@ -121,7 +126,7 @@ def describe_review_capability_access():
 
         def it_shows_every_control_to_a_full_admin(admin_user, guilded_pending_offering, client):
             client.force_login(admin_user)
-            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": guilded_pending_offering.pk}))
+            response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": guilded_pending_offering.pk}))
             html = response.content.decode()
             assert reverse("classes:admin_class_approve", kwargs={"pk": guilded_pending_offering.pk}) in html
             for url in _admin_only_urls(guilded_pending_offering):

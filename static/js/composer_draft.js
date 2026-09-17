@@ -43,9 +43,18 @@
  *   - anything with no name: the browser never posts it, so no save can carry it.
  *
  * PER PERSON, PER CLASS. The key is rendered by the server (_composer_context in
- * classes/views.py) and carries the signed in user, the portal and the class pk, so a
- * shared browser never offers one member's draft to the next, and the admin composer
- * and the teach composer for the same class keep their own copies.
+ * classes/views.py) and carries the signed in user and the class pk, so a shared browser
+ * never offers one member's draft to the next.
+ *
+ * It used to carry the portal as well, because the admin composer and the instructor
+ * composer were two pages editing the same class. They are one page now, so that segment is
+ * gone and a copy typed before the merge sits under a key nothing would look at. The server
+ * also stamps the old keys (data-composer-draft-legacy-keys) and boot COPIES the first one
+ * that still holds something forward, never moves it: code reverted to before the merge would
+ * look under the old key again and must still find it. The duplicate needs no cleanup of its
+ * own, because the fortnight sweep below drops it. The guarantee is one-directional on
+ * purpose: a draft typed AFTER the merge lives only under the new key, and reverted code
+ * cannot see it. That loss is accepted and bounded by the same sweep.
  *
  * CLEARED WHEN THE WORK IS SAFE. A successful save marks the session server side and
  * the next composer render carries data-composer-draft-saved, which is the signal to
@@ -86,6 +95,7 @@
     var SAVED_ATTR = "data-composer-draft-saved";
     var UNSAVED_ATTR = "data-composer-draft-unsaved";
     var BASELINE_ATTR = "data-composer-draft-baseline";
+    var LEGACY_ATTR = "data-composer-draft-legacy-keys";
     var PENDING_KEY = "plfog.composer.pending";
     var NOTICE = "[data-composer-draft]";
     var LINE = "[data-composer-draft-line]";
@@ -222,6 +232,30 @@
         return isValues(values) ? values : {};
     }
 
+    /* The keys this composer's copy may still be sitting under, from before the two per-class
+     * composers became one. Space separated, oldest first. */
+    function legacyKeys(root) {
+        var raw = root.getAttribute(LEGACY_ATTR);
+        return raw ? raw.split(" ").filter(Boolean) : [];
+    }
+
+    /* Hand an older key's copy forward to the current one, and answer with it.
+     *
+     * A COPY, not a move: the old key keeps its record, so a rollback to the code that wrote
+     * it still finds the work. load() is what decides a record is worth carrying — it drops a
+     * corrupt or fortnight-old one on the way past — and the same sweep eventually clears
+     * whichever of the two copies nobody comes back to. */
+    function carryForward(key, legacy) {
+        for (var i = 0; i < legacy.length; i++) {
+            if (legacy[i] === key) continue;
+            var record = load(legacy[i]);
+            if (!record) continue;
+            write("localStorage", key, JSON.stringify(record));
+            return record;
+        }
+        return null;
+    }
+
     function snapshot(form) {
         var values = {};
         fields(form).forEach(function (el) {
@@ -355,10 +389,12 @@
          * the whole page as changed instead would put every field into the copy, and Restore
          * would then push fields nobody touched back over whatever has been saved since. */
         var unsaved = root.hasAttribute(UNSAVED_ATTR);
+        var legacy = legacyKeys(root);
         page = {
             root: root,
             form: form,
             key: key,
+            legacy: legacy,
             unsaved: unsaved,
             notice: root.querySelector(NOTICE),
             live: root.querySelector(LIVE),
@@ -373,13 +409,18 @@
 
         if (root.hasAttribute(SAVED_ATTR)) {
             forget("localStorage", key);
+            // The pre-merge copies go too, or the next arrival would carry a stale one forward
+            // over work the database now holds.
+            legacy.forEach(function (name) {
+                forget("localStorage", name);
+            });
             // Create mode saves under one key and lands on the edit URL under another.
             if (pending && pending !== key) forget("localStorage", pending);
             show(null);
             return;
         }
 
-        var record = load(key);
+        var record = load(key) || carryForward(key, legacy);
         if (!record) {
             show(null);
             return;

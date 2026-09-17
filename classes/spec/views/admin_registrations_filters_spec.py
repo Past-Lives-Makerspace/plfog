@@ -95,15 +95,26 @@ def describe_admin_registrations_export():
         body = b"".join(response.streaming_content).decode()
         assert "export-me@example.com" in body
 
-    def it_scopes_the_export_to_an_instructors_classes(client):
+    def it_refuses_the_export_to_an_instructor(client):
+        """Ruling 7: the registrations PAGE stays open to an instructor, the CSV does not.
+
+        This used to assert the file came back scoped to their own classes. Carrying a roster
+        of names and email addresses out of the building as a file is an admin's act now, and
+        the button is hidden on the same test, so nothing dead-ends into this refusal.
+        """
         user, offering = _instructor_with_class(username="teach3@example.com", slug="t3")
         RegistrationFactory(class_offering=offering, email="mine-exp@example.com")
-        RegistrationFactory(email="theirs-exp@example.com")
         client.force_login(user)
-        response = client.get(reverse("classes:admin_registrations_export"))
-        body = b"".join(response.streaming_content).decode()
-        assert "mine-exp@example.com" in body
-        assert "theirs-exp@example.com" not in body
+        assert client.get(reverse("classes:admin_registrations")).status_code == 200
+        assert client.get(reverse("classes:admin_registrations_export")).status_code == 403
+
+    def it_hides_the_export_button_from_an_instructor_and_shows_it_to_an_admin(admin_user, client):
+        user, _offering = _instructor_with_class(username="teach3b@example.com", slug="t3b")
+        export = reverse("classes:admin_registrations_export")
+        client.force_login(user)
+        assert export not in client.get(reverse("classes:admin_registrations")).content.decode()
+        client.force_login(admin_user)
+        assert export in client.get(reverse("classes:admin_registrations")).content.decode()
 
     def it_honors_the_status_filter_in_the_export(admin_user, client):
         offering = ClassOfferingFactory(slug="exp-status")

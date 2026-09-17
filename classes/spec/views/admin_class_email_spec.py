@@ -21,19 +21,21 @@ def _email_outbox(settings):
 
 
 def describe_admin_class_email():
-    def it_requires_admin_access(member_user, client):
+    def it_refuses_a_member_with_no_claim_on_the_class(member_user, client):
+        # The merged screen refuses with a 404, not a 403: the 404 page carries the View As
+        # switcher an admin previewing a lower role needs to get back out.
         offering = ClassOfferingFactory()
         client.force_login(member_user)
         response = client.post(
-            reverse("classes:admin_class_email", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_email", kwargs={"pk": offering.pk}),
             data={},
         )
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     def it_rejects_get_requests(admin_user, client):
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_email", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_email", kwargs={"pk": offering.pk}))
         assert response.status_code == 405
 
     def it_sends_and_redirects_on_success(admin_user, client):
@@ -42,7 +44,7 @@ def describe_admin_class_email():
         r2 = RegistrationFactory(class_offering=offering, email="s2@example.com", status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
         response = client.post(
-            reverse("classes:admin_class_email", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_email", kwargs={"pk": offering.pk}),
             data={
                 "subject": "Hello class",
                 "body": "Welcome!",
@@ -52,7 +54,7 @@ def describe_admin_class_email():
         )
         assert response.status_code == 302
         # The email form lives on the Registrations tab, so we return there.
-        assert response["Location"] == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
+        assert response["Location"] == reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk})
         assert len(mail.outbox) == 1
         sent = mail.outbox[0]
         assert sent.subject == "Hello class"
@@ -73,7 +75,7 @@ def describe_admin_class_email():
         )
         client.force_login(admin_user)
         response = client.post(
-            reverse("classes:admin_class_email", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_email", kwargs={"pk": offering.pk}),
             data={
                 "subject": "Hi",
                 "body": "Test",
@@ -88,12 +90,12 @@ def describe_admin_class_email():
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
         response = client.post(
-            reverse("classes:admin_class_email", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_email", kwargs={"pk": offering.pk}),
             data={"subject": "", "body": ""},
         )
         assert response.status_code == 302
         # On error we return to the Registrations tab where the form lives, not Overview.
-        assert response["Location"] == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
+        assert response["Location"] == reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk})
         assert len(mail.outbox) == 0
 
 
@@ -104,7 +106,7 @@ def describe_admin_class_registrations_students():
             class_offering=offering, first_name="Alice", last_name="Smith", status=Registration.Status.CONFIRMED
         )
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"Alice" in response.content
         assert b"Smith" in response.content
@@ -118,6 +120,6 @@ def describe_admin_class_registrations_students():
     def it_shows_empty_state_when_no_registrations(admin_user, client):
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"No registrations yet" in response.content

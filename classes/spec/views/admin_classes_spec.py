@@ -174,7 +174,7 @@ def describe_delete_class():
 
             client.force_login(admin_user)
             offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+            response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
             assert response.status_code == 200
             delete_url = reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
             assert delete_url.encode() in response.content
@@ -186,7 +186,7 @@ def describe_delete_class():
             client.force_login(admin_user)
             offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
             RegistrationFactory(class_offering=offering)
-            response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+            response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
             assert response.status_code == 200
             delete_url = reverse("classes:admin_class_delete", kwargs={"pk": offering.pk})
             assert delete_url.encode() not in response.content
@@ -422,7 +422,7 @@ def describe_edit_class():
 
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
-        response = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
 
     def it_saves_the_edit_on_post(admin_user, client, db):
@@ -431,7 +431,7 @@ def describe_edit_class():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(title="Old Title")
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             {
                 "title": "New Title",
                 "slug": offering.slug,
@@ -480,7 +480,7 @@ def describe_edit_class():
             status=ClassOffering.Status.PUBLISHED,
         )
         response = client.post(
-            reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             {
                 "title": "Renamed To Something Else",
                 "category": CategoryFactory().pk,
@@ -730,7 +730,7 @@ def describe_class_detail():
 
         client.force_login(admin_user)
         offering = ClassOfferingFactory(title="Detailed Class")
-        response = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"Detailed Class" in response.content
 

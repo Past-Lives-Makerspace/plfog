@@ -31,10 +31,12 @@ def describe_admin_class_export_removed():
         resp = client.get(f"/classes/admin/{offering.pk}/registrations/export/")
         assert resp.status_code == 404
 
-    def it_shows_no_export_button_on_admin_registrations(admin_user, client):
+    def it_shows_no_export_button_on_the_class_roster(admin_user, client):
+        # The old admin path is a dispatcher onto the merged screen now, so read the roster
+        # where it actually lives rather than following a hop to assert on its body.
         offering = ClassOfferingFactory()
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk}))
+        resp = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         assert b"Export Data" not in resp.content
 

@@ -45,7 +45,7 @@ def _unpaid(offering, **kwargs) -> Registration:
 
 
 def _admin_reg_url(offering) -> str:
-    return reverse("classes:admin_class_registrations", args=[offering.pk])
+    return reverse("classes:teach_class_registrations", args=[offering.pk])
 
 
 def describe_registration_row_menu():
@@ -287,7 +287,7 @@ def describe_admin_surface():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(capacity=5)
         reg = RegistrationFactory(class_offering=offering, status=Registration.Status.WAITLISTED)
-        content = client.get(reverse("classes:admin_class_waitlist", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()
         menu = menu_region(content, f"wl-row-{reg.pk}")
         assert "pl-row-menu__trigger" in menu
         assert ">Add to Class</button>" in menu

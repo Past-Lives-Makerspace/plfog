@@ -38,7 +38,12 @@
             aria-label="My Classes: shows only registrations for classes where you are the instructor or the class author.">?</span>
       <span class="pl-help__bubble">Shows only registrations for classes where you are the instructor or the class author.</span>
     </span>
+    {% if request.view_as.is_admin %}
+    {% comment %}Ruling 7: carrying a roster of names and emails out as a file is an admin's
+    act. The page itself stays open to instructors and guild leads; only the download is
+    gated.{% endcomment %}
     <a href="{% url 'classes:admin_registrations_export' %}{% if base_params %}?{{ base_params }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">Export CSV</a>
+    {% endif %}
 </form>
 <div class="admin-table-wrap">
 <table>

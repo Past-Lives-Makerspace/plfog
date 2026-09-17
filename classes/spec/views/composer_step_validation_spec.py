@@ -188,7 +188,7 @@ def composer(request, client, instructor, admin_user) -> _Composer:
     else:
         client.force_login(admin_user)
         offering = cast(ClassOffering, ClassOfferingFactory(status=ClassOffering.Status.DRAFT, ready=True))
-        create, edit = "classes:admin_class_create", "classes:admin_class_edit"
+        create, edit = "classes:admin_class_create", "classes:teach_class_edit"
         form_class = ClassOfferingForm
     pages = {
         "create": client.get(reverse(create)).content.decode(),

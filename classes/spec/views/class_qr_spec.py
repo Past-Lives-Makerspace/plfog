@@ -52,7 +52,7 @@ def describe_class_permalink():
 def describe_class_edit_share_section():
     def it_shows_the_qr_share_section_on_the_admin_edit_page(admin_user, client, free_offering, db):
         client.force_login(admin_user)
-        resp = client.get(reverse("classes:admin_class_edit", args=[free_offering.pk]))
+        resp = client.get(reverse("classes:teach_class_edit", args=[free_offering.pk]))
         assert resp.status_code == 200
         assert b"pl-qr-preview" in resp.content
         assert b"Download QR (SVG)" in resp.content

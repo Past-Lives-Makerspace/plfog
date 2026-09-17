@@ -158,14 +158,22 @@ def describe_instructor_gallery_endpoints():
         client.force_login(instructor_fixture.user)
         assert client.get(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})).status_code == 405
 
-    def it_keeps_the_admin_endpoints_admin_only(instructor_fixture, client):
+    def it_answers_the_old_admin_path_with_the_same_merged_endpoint(instructor_fixture, client):
+        # There is one image endpoint per action now. The admin path still resolves, and it
+        # asks the same question of the viewer as the teaching path does.
         offering = _own(instructor_fixture, Status.DRAFT)
         client.force_login(instructor_fixture.user)
-        resp = client.post(reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()})
-        assert resp.status_code == 403
+        resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()})
+        assert resp.status_code == 200
+
+    def it_refuses_a_member_with_no_claim_on_the_class(member_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(member_user)
+        resp = client.post(reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}), {"image": _png()})
+        assert resp.status_code == 404
 
 
-def describe_edit_pages_point_at_the_instructor_endpoints():
+def describe_edit_pages_point_at_the_merged_image_endpoints():
     def it_wires_the_draft_edit_page(instructor_fixture, client):
         offering = _own(instructor_fixture, Status.DRAFT)
         client.force_login(instructor_fixture.user)
@@ -174,8 +182,12 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         assert f'data-reorder-url="{reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})}"' in html
         assert f'data-image-url-base="{_teach_image_base()}"' in html
         assert f'data-upload-url="{reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
+        # The old admin-scoped image paths are gone from the page: there is one set of image
+        # endpoints now, and the composer names it outright rather than falling back to a
+        # hardcoded /classes/admin/ default.
         assert "/classes/admin/images/" not in html
-        assert reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk}) not in html
+        assert f"/classes/admin/{offering.pk}/images/" not in html
+        assert f"/classes/admin/{offering.pk}/hero/" not in html
 
     def it_wires_the_published_edit_page(instructor_fixture, client):
         offering = _own(instructor_fixture, Status.PUBLISHED)
@@ -185,14 +197,16 @@ def describe_edit_pages_point_at_the_instructor_endpoints():
         assert f'data-image-url-base="{_teach_image_base()}"' in html
         assert "/classes/admin/images/" not in html
 
-    def it_keeps_the_admin_edit_page_on_the_admin_endpoints(admin_user, client):
+    def it_wires_the_admin_edit_page_to_the_same_merged_endpoints(admin_user, client):
+        # The gallery component reads these from context with no fallback now, so the admin
+        # composer has to ship them too — before the merge it relied on a hardcoded default.
         offering = ClassOfferingFactory(status=Status.DRAFT)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert f'data-upload-url="{reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})}"' in html
-        admin_base = reverse("classes:admin_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
-        assert f'data-image-url-base="{admin_base}"' in html
-        assert f'data-upload-url="{reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert f'data-upload-url="{reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})}"' in html
+        assert f'data-reorder-url="{reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})}"' in html
+        assert f'data-image-url-base="{_teach_image_base()}"' in html
+        assert f'data-upload-url="{reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})}"' in html
 
 
 def describe_instructor_image_routes_validate_their_input():

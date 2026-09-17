@@ -1,9 +1,51 @@
-from django.urls import path
+from collections.abc import Callable
+from typing import Any
+
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.urls import path, reverse
 from django.views.generic.base import RedirectView
 
 from classes import views, views_legacy_image
 
 app_name = "classes"
+
+
+def legacy_class_route(view: Callable[..., HttpResponse], merged_name: str) -> Callable[..., HttpResponse]:
+    """One door onto the merged per-class screen for an old ``/classes/admin/<pk>/…`` path.
+
+    A GET is answered with a **302** to the merged URL, query string and all, so a bookmark,
+    an old email link and every ``?status=`` / ``?mine=1`` / ``?step=`` filter land where the
+    screen now lives. A 302 and not a 301: a permanent redirect is a one-way door ``git
+    revert`` cannot close, which is why ``core/middleware.py`` chose 302 for the calendar
+    alias too.
+
+    A POST is **dispatched straight to the merged view** rather than redirected.
+    ``RedirectView`` maps ``post = get``, and three of these paths take POSTs
+    (``admin_class_edit``, ``admin_class_emails``, ``admin_class_duplicate_run``) from a
+    composer that posts to the current URL with no ``action`` attribute. An admin who had the
+    composer open across the deploy would press Save, get a 302, and lose every session and
+    FAQ row without an error — ``static/js/composer_draft.js`` keeps no formset rows. A
+    dispatcher removes the question of which verb goes where.
+
+    Args:
+        view: The merged view this path now serves.
+        merged_name: The merged URL name a GET redirects to.
+
+    Returns:
+        A view callable for :func:`django.urls.path`.
+    """
+
+    def dispatch(request: HttpRequest, pk: int, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.method == "POST":
+            return view(request, pk, *args, **kwargs)
+        target = reverse(merged_name, kwargs={"pk": pk})
+        query = request.META.get("QUERY_STRING", "")
+        return HttpResponseRedirect(f"{target}?{query}" if query else target)
+
+    dispatch.__name__ = f"legacy_{merged_name.rsplit(':', 1)[-1]}"
+    dispatch.__qualname__ = dispatch.__name__
+    return dispatch
+
 
 urlpatterns = [
     # Public portal
@@ -115,38 +157,109 @@ urlpatterns = [
         name="admin_teaching_decline",
     ),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
-    path("admin/<int:pk>/", views.admin_class_detail, name="admin_class_detail"),
-    path("admin/<int:pk>/registrations/", views.admin_class_registrations, name="admin_class_registrations"),
-    path(
-        "admin/<int:pk>/registrations/table/",
-        views.admin_class_registrations_table,
-        name="admin_class_registrations_table",
-    ),
-    path("admin/<int:pk>/waitlist/", views.admin_class_waitlist, name="admin_class_waitlist"),
-    path("admin/<int:pk>/discount-codes/", views.admin_class_discount_codes, name="admin_class_discount_codes"),
-    path("admin/<int:pk>/emails/", views.admin_class_emails, name="admin_class_emails"),
     path("admin/<int:pk>/preview/", views.class_preview, name="class_preview"),
-    path("admin/<int:pk>/edit/", views.admin_class_edit, name="admin_class_edit"),
-    path("admin/<int:pk>/email/", views.admin_class_email, name="admin_class_email"),
     path("admin/<int:pk>/approve/", views.admin_class_approve, name="admin_class_approve"),
     path("admin/<int:pk>/review/", views.admin_class_review, name="admin_class_review"),
     # Tokenized review page — emailed reviewers act without a hub login.
     path("review/<str:token>/", views.class_review, name="class_review"),
     path("review/<str:token>/preview/", views.class_review_preview, name="class_review_preview"),
     path("admin/<int:pk>/archive/", views.admin_class_archive, name="admin_class_archive"),
-    path("admin/<int:pk>/cancel/", views.admin_class_cancel, name="admin_class_cancel"),
-    path("admin/<int:pk>/sale/", views.admin_class_sale, name="admin_class_sale"),
     path("admin/<int:pk>/restore/", views.admin_class_restore, name="admin_class_restore"),
     path("admin/<int:pk>/unpublish/", views.admin_class_unpublish, name="admin_class_unpublish"),
     path("admin/<int:pk>/remind-lead/", views.admin_class_remind_lead, name="admin_class_remind_lead"),
     path("admin/<int:pk>/duplicate/", views.admin_class_duplicate, name="admin_class_duplicate"),
-    path("admin/<int:pk>/another-date-set/", views.admin_class_duplicate_run, name="admin_class_duplicate_run"),
     path("admin/<int:pk>/delete/", views.admin_class_delete, name="admin_class_delete"),
-    path("admin/<int:pk>/hero/upload/", views.admin_class_hero_upload, name="admin_class_hero_upload"),
-    path("admin/<int:pk>/images/upload/", views.admin_class_image_upload, name="admin_class_image_upload"),
-    path("admin/<int:pk>/images/reorder/", views.admin_class_image_reorder, name="admin_class_image_reorder"),
-    path("admin/images/<int:pk>/delete/", views.admin_class_image_delete, name="admin_class_image_delete"),
-    path("admin/images/<int:pk>/alt/", views.admin_class_image_alt, name="admin_class_image_alt"),
+    # ── The legacy per-class admin paths ────────────────────────────────────────────────
+    #
+    # These sixteen had a teaching-portal twin, and the twins are one screen now. The paths
+    # and the names stay exactly where they were — every bookmark, every old email link and
+    # every ``classes:admin_class_*`` reverse still resolves — but each is a dispatcher onto
+    # the merged route rather than a second entrance to it (see ``legacy_class_route``).
+    #
+    # They sit BELOW ``class_preview`` on purpose: patterns are first-match, and a broader one
+    # declared above would swallow it. There is deliberately no ``<path:subpath>`` catch-all
+    # here either — it would carry neither ``@xframe_options_sameorigin`` nor the query string,
+    # and the preview iframe needs both.
+    path(
+        "admin/<int:pk>/",
+        legacy_class_route(views.teach_class_detail, "classes:teach_class_detail"),
+        name="admin_class_detail",
+    ),
+    path(
+        "admin/<int:pk>/registrations/",
+        legacy_class_route(views.teach_class_registrations, "classes:teach_class_registrations"),
+        name="admin_class_registrations",
+    ),
+    path(
+        "admin/<int:pk>/registrations/table/",
+        legacy_class_route(views.teach_class_registrations_table, "classes:teach_class_registrations_table"),
+        name="admin_class_registrations_table",
+    ),
+    path(
+        "admin/<int:pk>/waitlist/",
+        legacy_class_route(views.teach_class_waitlist, "classes:teach_class_waitlist"),
+        name="admin_class_waitlist",
+    ),
+    path(
+        "admin/<int:pk>/discount-codes/",
+        legacy_class_route(views.teach_class_discount_codes, "classes:teach_class_discount_codes"),
+        name="admin_class_discount_codes",
+    ),
+    path(
+        "admin/<int:pk>/emails/",
+        legacy_class_route(views.teach_class_emails, "classes:teach_class_emails"),
+        name="admin_class_emails",
+    ),
+    path(
+        "admin/<int:pk>/edit/",
+        legacy_class_route(views.teach_class_edit, "classes:teach_class_edit"),
+        name="admin_class_edit",
+    ),
+    path(
+        "admin/<int:pk>/email/",
+        legacy_class_route(views.teach_class_email, "classes:teach_class_email"),
+        name="admin_class_email",
+    ),
+    path(
+        "admin/<int:pk>/cancel/",
+        legacy_class_route(views.teach_class_cancel, "classes:teach_class_cancel"),
+        name="admin_class_cancel",
+    ),
+    path(
+        "admin/<int:pk>/sale/",
+        legacy_class_route(views.teach_class_sale, "classes:teach_class_sale"),
+        name="admin_class_sale",
+    ),
+    path(
+        "admin/<int:pk>/another-date-set/",
+        legacy_class_route(views.teach_class_duplicate_run, "classes:teach_class_duplicate_run"),
+        name="admin_class_duplicate_run",
+    ),
+    path(
+        "admin/<int:pk>/hero/upload/",
+        legacy_class_route(views.teach_class_hero_upload, "classes:teach_class_hero_upload"),
+        name="admin_class_hero_upload",
+    ),
+    path(
+        "admin/<int:pk>/images/upload/",
+        legacy_class_route(views.teach_class_image_upload, "classes:teach_class_image_upload"),
+        name="admin_class_image_upload",
+    ),
+    path(
+        "admin/<int:pk>/images/reorder/",
+        legacy_class_route(views.teach_class_image_reorder, "classes:teach_class_image_reorder"),
+        name="admin_class_image_reorder",
+    ),
+    path(
+        "admin/images/<int:pk>/delete/",
+        legacy_class_route(views.teach_class_image_delete, "classes:teach_class_image_delete"),
+        name="admin_class_image_delete",
+    ),
+    path(
+        "admin/images/<int:pk>/alt/",
+        legacy_class_route(views.teach_class_image_alt, "classes:teach_class_image_alt"),
+        name="admin_class_image_alt",
+    ),
     path("admin/categories/", views.admin_categories, name="admin_categories"),
     path("admin/categories/guild-tagging/", views.admin_guild_tagging, name="admin_guild_tagging"),
     path("admin/categories/new/", views.admin_category_create, name="admin_category_create"),

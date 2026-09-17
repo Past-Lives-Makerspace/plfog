@@ -264,7 +264,8 @@ def describe_workspace_overview_card():
         )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        assert "Cancelled: Kiln broke" in html
+        # The merged screen carries the fuller line both populations now see.
+        assert "Reason: Kiln broke" in html
 
 
 def describe_honest_submit_messages():

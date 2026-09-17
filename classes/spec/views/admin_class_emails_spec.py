@@ -14,7 +14,7 @@ def describe_admin_class_emails():
     def it_renders_for_an_admin(admin_user, client):
         offering = ClassOfferingFactory(slug="ace-render")
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}))
+        response = client.get(reverse("classes:teach_class_emails", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
         assert b"Welcome email" in response.content
 
@@ -22,7 +22,7 @@ def describe_admin_class_emails():
         offering = ClassOfferingFactory(slug="ace-save")
         client.force_login(admin_user)
         response = client.post(
-            reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_emails", kwargs={"pk": offering.pk}),
             {"welcome_email_enabled": "on", "welcome_email_subject": "Hi", "welcome_email_body": "Bring tools."},
         )
         assert response.status_code == 302
@@ -33,7 +33,7 @@ def describe_admin_class_emails():
         offering = ClassOfferingFactory(slug="ace-invalid")
         client.force_login(admin_user)
         response = client.post(
-            reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_emails", kwargs={"pk": offering.pk}),
             {"welcome_email_enabled": "on", "welcome_email_subject": "", "welcome_email_body": ""},
         )
         assert response.status_code == 200
@@ -44,7 +44,7 @@ def describe_admin_class_emails():
         offering = ClassOfferingFactory(slug="ace-test")
         client.force_login(admin_user)
         client.post(
-            reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_emails", kwargs={"pk": offering.pk}),
             {
                 "welcome_email_enabled": "on",
                 "welcome_email_subject": "Hi",
@@ -55,8 +55,8 @@ def describe_admin_class_emails():
         assert len(mailoutbox) == 1
         assert mailoutbox[0].to == ["admin@example.com"]
 
-    def it_forbids_a_non_admin(member_user, client):
+    def it_refuses_a_member_with_no_claim_on_the_class(member_user, client):
         offering = ClassOfferingFactory(slug="ace-forbid")
         client.force_login(member_user)
-        response = client.get(reverse("classes:admin_class_emails", kwargs={"pk": offering.pk}))
-        assert response.status_code == 403
+        response = client.get(reverse("classes:teach_class_emails", kwargs={"pk": offering.pk}))
+        assert response.status_code == 404
