@@ -2,9 +2,15 @@
 
 The gate in ``classes/access.py`` is first-match-wins and the order is load-bearing, so
 these specs pin each leg AND the order between them: the guest leg before the model-reading
-ones, the reviewer leg before the instructor and guild legs. The four capability sets are
-asserted one ``it_*`` per population per capability, because a matrix that is asserted in
-bulk drifts a row at a time without anything going red.
+ones, the instructor leg before the guild leg. The four capability sets are asserted one
+``it_*`` per population per capability, because a matrix that is asserted in bulk drifts a
+row at a time without anything going red.
+
+The ``CLASS_APPROVER`` grant is the one thing that is NOT a leg (ruling 25): it composes,
+adding ``can_approve`` to whichever set the holder already has on this class, and stands
+alone as the one-tab reviewer set only for a holder who has no other claim on it. Both
+halves of that are pinned below — the composed sets keep every capability they had, and the
+plain holder's set is asserted equal to the untouched reviewer row, field for field.
 """
 
 from __future__ import annotations
@@ -427,6 +433,166 @@ def describe_a_class_approver_who_is_not_an_admin():
         assert [tab.key for tab in access.tabs] == ["overview"]
 
 
+def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
+    """Ruling 25 — the grant composes with the set they already hold, it does not replace it.
+
+    Jo: "A Guild Lead can approve their own class since they don't have the full ability to
+    get the class published; only admins/CMS admins can do that. A CMS Admin can approve
+    their own class too."
+
+    So the assertion is two-sided every time: they KEEP their tabs and their actions, and
+    they GAIN approve. Before ruling 25 the first-match order gave this population the
+    one-tab reviewer set and nothing else — no edit, no roster, no welcome email, on their
+    own class.
+    """
+
+    def describe_and_teaches_the_class():
+        @pytest.fixture
+        def approving_instructor(db) -> ClassAccess:
+            user, member = _teaching_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            return _access_or_fail(_request(user), ClassOfferingFactory(instructor=member))
+
+        def it_keeps_the_instructor_role(approving_instructor):
+            assert approving_instructor.role == ROLE_INSTRUCTOR
+
+        def it_keeps_the_teaching_shell(approving_instructor):
+            assert approving_instructor.shell == TEACH_SHELL
+
+        def it_keeps_every_instructor_tab(approving_instructor):
+            assert [tab.key for tab in approving_instructor.tabs] == [
+                "overview",
+                "registrations",
+                "waitlist",
+                "discount_codes",
+                "emails",
+            ]
+
+        def it_keeps_edit(approving_instructor):
+            assert approving_instructor.can_edit is True
+
+        def it_keeps_the_roster_and_the_waitlist(approving_instructor):
+            assert (approving_instructor.can_view_registrations, approving_instructor.can_view_waitlist) == (True, True)
+
+        def it_keeps_the_mailbox_and_the_composer(approving_instructor):
+            assert (approving_instructor.can_view_emails, approving_instructor.can_send_email) == (True, True)
+
+        def it_keeps_submit_cancel_and_sale(approving_instructor):
+            assert approving_instructor.can_submit is True
+            assert approving_instructor.can_cancel is True
+            assert approving_instructor.can_sale is True
+
+        def it_gains_approve(approving_instructor):
+            # The whole point: the approve button on their own class, which is what the
+            # grant is for. can_approve gates admin_class_approve and admin_class_review.
+            assert approving_instructor.can_approve is True
+
+        def it_gains_nothing_administrative(approving_instructor):
+            # Composing adds exactly one field. Archive, delete, unpublish and the rest
+            # stay admin-only.
+            assert approving_instructor.can_administer is False
+
+    def describe_and_leads_the_classes_guild():
+        @pytest.fixture
+        def approving_lead(db) -> ClassAccess:
+            user, member = _user_with_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            return _access_or_fail(_request(user), _guild_class(member))
+
+        def it_keeps_the_guild_role(approving_lead):
+            assert approving_lead.role == ROLE_GUILD
+
+        def it_keeps_the_teaching_shell(approving_lead):
+            assert approving_lead.shell == TEACH_SHELL
+
+        def it_keeps_edit(approving_lead):
+            # The changelog fragment promises exactly this to guild leads and staff.
+            assert approving_lead.can_edit is True
+
+        def it_keeps_the_emails_tab_and_no_other(approving_lead):
+            assert [tab.key for tab in approving_lead.tabs] == ["emails"]
+
+        def it_gains_approve(approving_lead):
+            assert approving_lead.can_approve is True
+
+        def it_gains_nothing_else(approving_lead):
+            # Ruling 12 and ruling 6: composing widens the guild row by can_approve only.
+            assert approving_lead.can_view_overview is False
+            assert approving_lead.can_view_registrations is False
+            assert approving_lead.can_view_waitlist is False
+            assert approving_lead.can_view_discount_codes is False
+            assert approving_lead.can_administer is False
+            assert approving_lead.can_submit is False
+            assert approving_lead.can_cancel is False
+            assert approving_lead.can_sale is False
+            assert approving_lead.can_send_email is False
+
+    def describe_and_staffs_the_classes_guild():
+        def it_keeps_the_guild_set_and_gains_approve(db):
+            # Ruling 23: staff get the same reach as the lead, here too.
+            user, member = _user_with_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            access = _access_or_fail(_request(user), _guild_class(member, staff=True))
+            assert access.role == ROLE_GUILD
+            assert (access.can_edit, access.can_view_emails, access.can_approve) == (True, True, True)
+
+    def describe_and_is_neither():
+        def it_is_the_untouched_reviewer_set(db, reviewer_access):
+            # The regression: a plain holder still gets _reviewer_access() exactly. Frozen
+            # dataclass equality compares every capability, so this catches a drift of one.
+            user, member = _user_with_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
+            assert _access_or_fail(_request(user), offering) == reviewer_access
+
+        def it_is_the_reviewer_set_on_someone_elses_guilds_class(db, reviewer_access):
+            # Lead of SOME guild, but not this class's: no claim to compose with.
+            user, member = _user_with_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            GuildFactory(guild_lead=member)
+            other = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
+            assert _access_or_fail(_request(user), other) == reviewer_access
+
+        def it_is_the_reviewer_set_for_a_named_instructor_without_teaching_access(db, reviewer_access):
+            # Ruling 6: being named instructor without the teaching grant matches no leg,
+            # so there is nothing to compose and the grant stands alone.
+            user, member = _user_with_member()
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            offering = ClassOfferingFactory(category=CategoryFactory(guild=None), instructor=member)
+            assert _access_or_fail(_request(user), offering) == reviewer_access
+
+    def describe_and_is_previewing_a_lower_role():
+        def it_grants_no_approve_on_the_composed_guild_set(db):
+            # The grant is read once, before the legs, so the preview suppression governs
+            # the composed set too: they edit as a guild lead and approve nothing.
+            user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            offering = _guild_class(member)
+            access = _access_or_fail(_request(user, picked=ROLE_MEMBER), offering)
+            assert access.role == ROLE_GUILD
+            assert access.can_edit is True
+            assert access.can_approve is False
+
+        def it_grants_no_approve_on_the_composed_instructor_set(db):
+            user, member = _user_with_member(
+                fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now()
+            )
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            offering = ClassOfferingFactory(instructor=member)
+            access = _access_or_fail(_request(user, picked=ROLE_MEMBER), offering)
+            assert access.role == ROLE_INSTRUCTOR
+            assert access.can_approve is False
+
+    def describe_and_is_a_full_admin():
+        def it_is_unaffected_because_the_admin_leg_already_grants_everything(db, admin_access):
+            user, member = _user_with_member(fog_role=Member.FogRole.ADMIN)
+            member.admin_capabilities.create(capability=CLASS_APPROVER)
+            offering = _guild_class(member)
+            offering.instructor = member
+            offering.save(update_fields=["instructor"])
+            assert _access_or_fail(_request(user), offering) == admin_access
+
+
 def describe_a_request_that_matches_no_leg():
     """Criteria 6 and 7."""
 
@@ -586,11 +752,14 @@ def describe_where_class_access_and_can_edit_class_disagree():
     whole of the disagreement is "``can_edit_class`` says yes, the screen says no", and it
     has exactly two causes.
 
-    **The reviewer leg shadowing the legs below it.** A non-admin ``CLASS_APPROVER`` holder
-    who is ALSO the instructor or guild lead/staff gets the reviewer set, which has no
-    ``can_edit``. Intended: a reviewer opening a class is reviewing it. New in this ticket.
+    Since ruling 25 there is exactly one cause left. The reviewer grant used to be the
+    other: a non-admin ``CLASS_APPROVER`` holder who was ALSO the instructor or the guild
+    lead/staff got the reviewer set, which has no ``can_edit``, on their own class. It now
+    composes instead, so both of those populations get ``can_edit`` from both answers and
+    the disagreement is gone. Pinned below, and in
+    ``describe_a_class_approver_who_is_also_the_instructor_or_the_guild``.
 
-    **The teaching-grant precondition on leg 4.** ``can_edit_class`` is broader than ruling
+    **The teaching-grant precondition on the guild leg.** ``can_edit_class`` is broader than ruling
     23's population — it short-circuits on ``is_effective_staff`` (every site-wide guild
     officer, on every class) and ends on the instructor check (anyone merely named
     instructor). Ruling 23 waives the precondition for guild leads and staff and for nobody
@@ -603,22 +772,24 @@ def describe_where_class_access_and_can_edit_class_disagree():
     sit in the second bucket and no longer does: they now get ``can_edit`` from both.
     """
 
-    def it_gives_an_instructor_who_holds_class_approver_the_reviewer_set(db):
+    def it_agrees_with_an_instructor_who_also_holds_class_approver(db):
+        # Ruling 25. Before it, this was the ticket's own new disagreement: the reviewer
+        # leg fired first and took can_edit away from the instructor of the class.
         user, member = _teaching_member()
         member.admin_capabilities.create(capability=CLASS_APPROVER)
         offering = ClassOfferingFactory(instructor=member)
         access = _access_or_fail(_request(user), offering)
-        assert access.role == ROLE_REVIEWER
-        assert access.can_edit is False
+        assert access.role == ROLE_INSTRUCTOR
+        assert access.can_edit is True
         assert can_edit_class(_request(user), offering) is True
 
-    def it_gives_a_guild_lead_who_holds_class_approver_the_reviewer_set(db):
+    def it_agrees_with_a_guild_lead_who_also_holds_class_approver(db):
         user, member = _user_with_member()
         member.admin_capabilities.create(capability=CLASS_APPROVER)
         offering = _guild_class(member)
         access = _access_or_fail(_request(user), offering)
-        assert access.role == ROLE_REVIEWER
-        assert access.can_edit is False
+        assert access.role == ROLE_GUILD
+        assert access.can_edit is True
         assert can_edit_class(_request(user), offering) is True
 
     def it_agrees_again_once_the_holder_previews_a_lower_role(db):
@@ -630,6 +801,8 @@ def describe_where_class_access_and_can_edit_class_disagree():
         request = _request(user, picked=ROLE_MEMBER)
         assert _access_or_fail(request, offering).can_edit is True
         assert can_edit_class(request, offering) is True
+        # And the grant is suppressed by the preview, so nothing is composed onto the set.
+        assert _access_or_fail(request, offering).can_approve is False
 
     def it_never_grants_edit_to_anyone_can_edit_class_refuses(db):
         # The divergence is one-directional: every leg that sets can_edit either asks

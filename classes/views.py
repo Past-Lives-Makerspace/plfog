@@ -3471,7 +3471,10 @@ def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
     at /classes/admin/<pk>/review/.
 
     ``can_approve`` is the gate, so it admits a ``CLASS_APPROVER`` reviewer as well as an
-    admin — approving is the reviewer's whole contract — and refuses a guild lead outright.
+    admin — approving is the reviewer's whole contract — and refuses a guild lead who does
+    not hold that grant. A lead or an instructor who *does* hold it keeps it here (ruling
+    25): the grant is the publish-level approval, and holding it does not stop being true
+    on a class of their own.
     """
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     if not access.can_approve:

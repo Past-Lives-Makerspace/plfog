@@ -6,6 +6,14 @@ category — and each of them sees a different strip of tabs and a different set
 actions. :func:`class_access` answers "which of those is this request, on this class"
 exactly once, and :class:`ClassAccess` carries the answer to the view and the template.
 
+**Those four populations are not disjoint, and the sets compose rather than compete.** One
+member can hold the ``CLASS_APPROVER`` grant *and* teach the class, or lead or staff the
+guild behind it. Picking a single set by first match took their own workspace away: one
+Overview tab and an approve button, no roster, no waitlist, no welcome email, no submit, no
+edit. Ruling 25 settles it — whoever they already are on this class, they keep that set and
+gain ``can_approve`` on top of it (:func:`_with_approval`). A ``CLASS_APPROVER`` who is
+neither the instructor nor the guild still gets :func:`_reviewer_access` exactly as before.
+
 A frozen dataclass rather than a dict, deliberately: a typo'd capability raises
 ``AttributeError`` where ``dict.get`` would quietly render an empty tab strip. Failing
 loudly is the whole reason the answer has a shape.
@@ -21,7 +29,7 @@ of them. Nothing in ``membership/permissions.py`` changes; this module composes 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
@@ -76,9 +84,10 @@ class ClassTab:
 class ClassAccess:
     """What one request may see and do on one class.
 
-    Built only by :func:`class_access`, which picks exactly one of the four capability
-    sets below. Every field is spelled out on every set rather than defaulted, so a row
-    of this table can never drift by omission.
+    Built only by :func:`class_access`, which picks one of the four capability sets below
+    and may layer the reviewer grant onto it (:func:`_with_approval`). Every field is
+    spelled out on every set rather than defaulted, so a row of this table can never drift
+    by omission.
     """
 
     role: str
@@ -125,10 +134,14 @@ def _admin_access() -> ClassAccess:
 
 
 def _reviewer_access() -> ClassAccess:
-    """A ``CLASS_APPROVER`` holder who is not an admin: read the class, approve or bounce it.
+    """A ``CLASS_APPROVER`` holder with no other claim on the class: read it, approve or bounce it.
 
     One tab and two buttons. The grant's contract is approve/validate, so it opens no
     roster, no waitlist, no discount codes, no mailbox and no composer.
+
+    This is the grant *standing alone*. A holder who is also the class's instructor, or its
+    guild's lead or staff, gets their own set with ``can_approve`` layered on instead
+    (ruling 25, :func:`_with_approval`) — they do not fall back to this one.
     """
     return ClassAccess(
         role=ROLE_REVIEWER,
@@ -195,6 +208,28 @@ def _guild_access() -> ClassAccess:
     )
 
 
+def _with_approval(access: ClassAccess) -> ClassAccess:
+    """The same capability set, plus publish-level approval. Ruling 25.
+
+    A ``CLASS_APPROVER`` holder who is also the class's instructor, or the lead or a
+    staffer of its guild, keeps the set they already hold and gains the approve button on
+    top of it. Jo: "A Guild Lead can approve their own class since they don't have the full
+    ability to get the class published; only admins/CMS admins can do that. A CMS Admin can
+    approve their own class too."
+
+    ``dataclasses.replace`` on the frozen dataclass, deliberately, rather than a mutable
+    dict of defaults: the composed set is still every field spelled out, and a typo'd
+    capability still raises rather than quietly rendering an empty tab strip.
+
+    Args:
+        access: The set this viewer already holds on this class.
+
+    Returns:
+        The same set with ``can_approve`` granted.
+    """
+    return replace(access, can_approve=True)
+
+
 def leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
     """Ruling 23's population: the lead or a staffer of the class's category guild.
 
@@ -239,20 +274,34 @@ def leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
 def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess | None:
     """The capability set this request holds on this class, or ``None`` for no access.
 
-    First match wins and the order is load-bearing:
+    First match wins among the legs, and the order is load-bearing:
 
     0. Guest (effective) — denied outright. ``can_edit_class`` and ``instructor_id``
        read the *model*, not the preview, so without this leg an admin previewing as
        Guest would still be shown the classes they teach.
     1. Effective admin — the full set.
-    2. Not previewing, and holds ``CLASS_APPROVER`` — the reviewer set. Suppressed while
-       previewing because an admin who genuinely holds the grant and picks "Member"
-       should see what a member sees.
-    3. Teaching access and the class's instructor — the instructor set.
-    4. :func:`membership.permissions.can_edit_class`, plus either teaching access or
-       ruling 23's waiver (:func:`leads_or_staffs`) — the guild set. Legs 1 and 3 have
+    2. Teaching access and the class's instructor — the instructor set.
+    3. :func:`membership.permissions.can_edit_class`, plus either teaching access or
+       ruling 23's waiver (:func:`leads_or_staffs`) — the guild set. Legs 1 and 2 have
        already caught admins and the instructor, so what this leg adds is exactly guild
        lead-or-staff.
+    4. Not previewing, and holds ``CLASS_APPROVER`` — the reviewer set, for a holder who
+       matched none of the legs above.
+
+    **The reviewer grant is read before the legs are walked and applied after one matches**
+    (ruling 25). It is not a leg that beats the two below it: it adds ``can_approve`` to
+    whichever set this member already holds on this class, and stands alone — as the
+    one-tab :func:`_reviewer_access` — only for a holder who is neither the instructor nor
+    the guild. Composing never widens past the union of the two: the instructor and guild
+    sets are unchanged bar that single field, and ``can_administer`` stays admin-only.
+
+    The grant is suppressed while previewing, because an admin who genuinely holds it and
+    picks "Member" should see what a member sees. That is read once, into
+    ``holds_reviewer_grant``, so the suppression governs the composed sets too.
+
+    Reading the grant last costs a grant holder one evaluation of ``can_edit_class`` that
+    the old order short-circuited past — at most one ``is_staffed_by`` query, on a
+    population of a few dozen, on a screen that already fetched the class.
 
     Args:
         request: The incoming request, carrying ``view_as`` from the middleware.
@@ -274,13 +323,18 @@ def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
 
     from membership.models import AdminCapability
 
-    if not view_as.is_previewing and member.has_admin_capability(AdminCapability.Capability.CLASS_APPROVER):
-        return _reviewer_access()
+    holds_reviewer_grant = not view_as.is_previewing and member.has_admin_capability(
+        AdminCapability.Capability.CLASS_APPROVER
+    )
     if member.can_create_classes and offering.instructor_id == member.pk:
-        return _instructor_access()
-    if can_edit_class(request, offering) and (member.can_create_classes or leads_or_staffs(member, offering)):
-        return _guild_access()
-    return None
+        access = _instructor_access()
+    elif can_edit_class(request, offering) and (member.can_create_classes or leads_or_staffs(member, offering)):
+        access = _guild_access()
+    elif holds_reviewer_grant:
+        return _reviewer_access()
+    else:
+        return None
+    return _with_approval(access) if holds_reviewer_grant else access
 
 
 def class_screen_required(view_func: _ViewFunc) -> _ViewFunc:
