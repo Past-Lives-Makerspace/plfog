@@ -24,7 +24,7 @@ def describe_admin_class_hero_upload():
     def it_uploads_and_returns_url(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url, {"image": _tiny_gif()})
 
@@ -37,7 +37,7 @@ def describe_admin_class_hero_upload():
     def it_returns_400_without_a_file(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url)
 
@@ -47,27 +47,27 @@ def describe_admin_class_hero_upload():
     def it_rejects_get_requests(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
 
         response = client.get(url)
 
         assert response.status_code == 405
 
-    def it_requires_admin_access(client, member_user, db):
+    def it_refuses_a_member_with_no_claim_on_the_class(client, member_user, db):
         client.force_login(member_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_hero_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url, {"image": _tiny_gif()})
 
-        assert response.status_code == 403
+        assert response.status_code == 404
 
 
 def describe_admin_class_image_upload():
     def it_creates_a_gallery_image(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, gallery=0)
-        url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url, {"image": _tiny_gif()})
 
@@ -82,7 +82,7 @@ def describe_admin_class_image_upload():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         for i in range(10):
             ClassImageFactory(class_offering=offering, sort_order=i)
-        url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url, {"image": _tiny_gif()})
 
@@ -94,7 +94,7 @@ def describe_admin_class_image_upload():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, gallery=0)
         imgs = [ClassImageFactory(class_offering=offering, sort_order=i) for i in range(10)]
         ClassImage.objects.filter(pk=imgs[0].pk).delete()
-        url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url, {"image": _tiny_gif()})
 
@@ -104,7 +104,7 @@ def describe_admin_class_image_upload():
     def it_returns_400_without_a_file(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})
 
         response = client.post(url)
 
@@ -114,7 +114,7 @@ def describe_admin_class_image_upload():
         settings.MAX_UPLOAD_IMAGE_BYTES = 1024 * 1024  # 1 MB, so the file below is over the limit
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_image_upload", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk})
         big_file = SimpleUploadedFile("big.png", b"\x89PNG" + b"\x00" * (1024 * 1024 + 1), content_type="image/png")
 
         response = client.post(url, {"image": big_file})
@@ -129,7 +129,7 @@ def describe_admin_class_image_reorder():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         img_a = ClassImageFactory(class_offering=offering, sort_order=0)
         img_b = ClassImageFactory(class_offering=offering, sort_order=1)
-        url = reverse("classes:admin_class_image_reorder", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})
 
         response = client.post(
             url,
@@ -146,7 +146,7 @@ def describe_admin_class_image_reorder():
     def it_returns_400_for_invalid_json(admin_user, client, db):
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        url = reverse("classes:admin_class_image_reorder", kwargs={"pk": offering.pk})
+        url = reverse("classes:teach_class_image_reorder", kwargs={"pk": offering.pk})
 
         response = client.post(url, "not json", content_type="application/json")
 
@@ -158,7 +158,7 @@ def describe_admin_class_image_delete():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         img = ClassImageFactory(class_offering=offering)
-        url = reverse("classes:admin_class_image_delete", kwargs={"pk": img.pk})
+        url = reverse("classes:teach_class_image_delete", kwargs={"pk": img.pk})
 
         response = client.post(url)
 
@@ -167,7 +167,7 @@ def describe_admin_class_image_delete():
 
     def it_returns_404_for_nonexistent_image(admin_user, client, db):
         client.force_login(admin_user)
-        url = reverse("classes:admin_class_image_delete", kwargs={"pk": 99999})
+        url = reverse("classes:teach_class_image_delete", kwargs={"pk": 99999})
 
         response = client.post(url)
 
@@ -179,7 +179,7 @@ def describe_admin_class_image_alt():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         img = ClassImageFactory(class_offering=offering, alt_text="")
-        url = reverse("classes:admin_class_image_alt", kwargs={"pk": img.pk})
+        url = reverse("classes:teach_class_image_alt", kwargs={"pk": img.pk})
 
         response = client.post(
             url,
@@ -195,7 +195,7 @@ def describe_admin_class_image_alt():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         img = ClassImageFactory(class_offering=offering)
-        url = reverse("classes:admin_class_image_alt", kwargs={"pk": img.pk})
+        url = reverse("classes:teach_class_image_alt", kwargs={"pk": img.pk})
 
         response = client.post(
             url,
@@ -211,7 +211,7 @@ def describe_admin_class_image_alt():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         img = ClassImageFactory(class_offering=offering)
-        url = reverse("classes:admin_class_image_alt", kwargs={"pk": img.pk})
+        url = reverse("classes:teach_class_image_alt", kwargs={"pk": img.pk})
 
         response = client.post(url, json.dumps({"wrong": "key"}), content_type="application/json")
 

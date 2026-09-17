@@ -203,12 +203,14 @@ def describe_teach_class_sale():
         theirs.refresh_from_db()
         assert theirs.sale_enabled is False
 
-    def it_sends_a_plain_member_to_the_marketing_page(plain_member_user, client, db):
+    def it_refuses_a_plain_member(plain_member_user, client, db):
+        # The merged screen answers 404 to anyone with no claim on the class — it used to
+        # bounce a member who cannot teach to the marketing page, which said more than it
+        # should about a class they have nothing to do with.
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=10000)
         client.force_login(plain_member_user)
         resp = client.post(reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}), _on())
-        assert resp.status_code == 302
-        assert resp["Location"] == reverse("classes:teach_overview")
+        assert resp.status_code == 404
         offering.refresh_from_db()
         assert offering.sale_enabled is False
 
@@ -228,19 +230,19 @@ def describe_admin_class_sale():
     def it_shows_the_trigger_and_the_pill(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=10000, sale_enabled=True, sale_percent=25)
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Edit the Sale" in html
         assert "Sale: 25% off" in html
-        assert f'action="{reverse("classes:admin_class_sale", kwargs={"pk": offering.pk})}"' in html
+        assert f'action="{reverse("classes:teach_class_sale", kwargs={"pk": offering.pk})}"' in html
 
     def it_turns_the_sale_on(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=10000)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_sale", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}),
             _on(sale_kind="fixed", sale_amount_cents="15.00"),
         )
-        assert resp["Location"] == reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})
+        assert resp["Location"] == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         offering.refresh_from_db()
         assert offering.sale_is_active is True
         assert offering.sale_amount_cents == 1500
@@ -248,7 +250,7 @@ def describe_admin_class_sale():
     def it_turns_the_sale_off(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=10000, sale_enabled=True, sale_percent=25)
         client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_class_sale", kwargs={"pk": offering.pk}), {"action": "off"})
+        resp = client.post(reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}), {"action": "off"})
         assert "Sale is off." in _messages(resp)
         offering.refresh_from_db()
         assert offering.sale_enabled is False
@@ -257,7 +259,7 @@ def describe_admin_class_sale():
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=10000)
         client.force_login(admin_user)
         resp = client.post(
-            reverse("classes:admin_class_sale", kwargs={"pk": offering.pk}),
+            reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}),
             _on(sale_kind="fixed", sale_amount_cents="100.00"),
         )
         assert resp.status_code == 200
@@ -265,11 +267,11 @@ def describe_admin_class_sale():
         assert "$dispatch('open-modal', 'class-sale')" in html
         assert "The amount off must be less than the price." in html
 
-    def it_403s_a_member(member_user, client, db):
+    def it_refuses_a_member(member_user, client, db):
         offering = ClassOfferingFactory(status=Status.DRAFT, price_cents=10000)
         client.force_login(member_user)
-        resp = client.post(reverse("classes:admin_class_sale", kwargs={"pk": offering.pk}), _on())
-        assert resp.status_code == 403
+        resp = client.post(reverse("classes:teach_class_sale", kwargs={"pk": offering.pk}), _on())
+        assert resp.status_code == 404
         offering.refresh_from_db()
         assert offering.sale_enabled is False
 
@@ -282,5 +284,5 @@ def describe_admin_class_sale():
         past = timezone.now() - timedelta(days=3)
         ClassSessionFactory(class_offering=offering, starts_at=past, ends_at=past + timedelta(hours=2))
         client.force_login(admin_user)
-        html = client.get(reverse("classes:admin_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         assert "Set Up a Sale" not in html

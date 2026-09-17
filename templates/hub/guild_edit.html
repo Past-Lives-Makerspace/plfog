@@ -11,6 +11,76 @@
   </span>
 </div>
 
+{% comment %}Needs Attention (ruling 10) — the guild's own class-review queue, the FIRST
+section on the page and ABOVE the settings form below, so no control here can ever post it.
+Every control is an anchor for the same reason; if this block is ever moved inside the form,
+keep it that way (or give each control type="button", as the tab strip below already does).
+
+A section, not a thirteenth tab: most guilds have nothing queued most days, and a tab would
+land those visits on a screen holding one line. The tab strip and its default are untouched.
+
+data-help-key="guild.approve-classes" rides this always-rendered wrapper rather than a group
+heading, so the Info View entry and the help screenshots still resolve on exactly the quiet
+day a lead goes looking for the help.
+
+A viewer who neither leads nor staffs this guild renders nothing at all — not the all-clear.
+Both queues are viewer-scoped, so an admin or guild officer on a guild they do not staff has
+two empty lists, and "all clear" would be a lie about a guild that does have work waiting.{% endcomment %}
+{% if guild_attention_visible %}
+<div class="cms-overview pl-guild-attention" data-help-key="guild.approve-classes">
+  {% if guild_attention_count %}
+  <section class="hub-card">
+    <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ guild_attention_count }})</span></h2>
+
+    {% if guild_attention_review %}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">Waiting on Your Review <span class="overview-title__count">({{ guild_attention_review|length }})</span></h3>
+      <p class="pl-attention-group__hint">Classes requested under {{ guild.name }}, waiting on a lead or staff member here.</p>
+      {% for item in guild_attention_review %}
+      <div class="pl-attention-row">
+        {% if item.can_open %}
+        <a class="pl-attention-row__main" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+        {% else %}
+        {# Editing needs the class screen's own gate; without it the title, Edit and View are all dead links. #}
+        <span class="pl-attention-row__main">{{ item.offering.title }}</span>
+        {% endif %}
+        <span class="pl-attention-row__sub">{% if item.offering.instructor %}{{ item.offering.instructor.display_name }} · {% endif %}submitted {{ item.submitted_at|date:"M j" }}</span>
+        <span class="pl-attention-row__actions">
+          {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>{% endif %}
+          {# The tokenized review page is signed and needs no teaching access, so it stays for everyone. #}
+          <a class="hub-btn hub-btn--sm" href="{% url 'classes:class_review' token=item.token %}">Review</a>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if guild_attention_awaiting_admin %}
+    <div class="pl-attention-group">
+      <h3 class="overview-subtitle pl-attention-group__title">Awaiting Admin Validation <span class="overview-title__count">({{ guild_attention_awaiting_admin|length }})</span></h3>
+      <p class="pl-attention-group__hint">{{ guild.name }} approved these. They go live once an admin signs off.</p>
+      {% for item in guild_attention_awaiting_admin %}
+      <div class="pl-attention-row">
+        {% if item.can_open %}
+        <a class="pl-attention-row__main" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+        {% else %}
+        <span class="pl-attention-row__main">{{ item.offering.title }}</span>
+        {% endif %}
+        <span class="pl-attention-row__sub">{% if item.offering.instructor %}{{ item.offering.instructor.display_name }} · {% endif %}approved{% if item.approved_at %} {{ item.approved_at|date:"M j" }}{% endif %}</span>
+        <span class="pl-attention-row__actions">
+          {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">View</a>{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </section>
+  {% else %}
+  {% include "classes/_components/needs_attention_clear.html" %}
+  {% endif %}
+</div>
+{% endif %}
+
 <div style="display:flex; border-bottom:1px solid var(--hub-border); gap:0; margin-bottom:1.5rem; flex-wrap:wrap;" data-help-key="guild.edit-tabs">
   <button type="button" class="vote-tab" :class="section === 'basic' ? 'vote-tab--active' : ''" @click="section = 'basic'">Basic Information</button>
   <button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>

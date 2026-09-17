@@ -1015,6 +1015,7 @@ class SiteSettingsForm(forms.ModelForm):
             "wiki_link_enabled",
             "wiki_enabled",
             "equipment_page_enabled",
+            "host_a_workshop_enabled",
             "guild_welcome_email_enabled",
             "display_demo_classes",
             "display_demo_guild",

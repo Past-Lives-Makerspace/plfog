@@ -1752,17 +1752,17 @@ Two doors lead to the same review page.
 
 **From the email (easiest):** the review request carries a direct review link. It's a signed, personal link that works without logging in, so you can review from anywhere.
 
-**From the teaching area:**
+**From your guild's settings page:**
 
-1. Go to `/classes/teach/` (or click **Class Catalog** in the left menu, then **Manage My Classes**).
-2. On the Overview, find **Waiting on Your Review** inside the **Needs Attention** card at the top. You only see it if you lead or staff a guild.
+1. Open your guild page and click **Guild Settings**.
+2. **Needs Attention** is the first thing on that page. Find **Waiting on Your Review**.
 3. Click **Review** next to the waiting class.
 
-One caveat: the teaching area itself only opens once an admin has given you teaching access. If you have never been granted it, use the email link instead. It works without it.
+You do not need teaching access for any of this. One caveat: only the guild's lead, its staff, and admins see the **Guild Settings** button. If you do not see it, ask your lead to add you as staff, or use the email link. That link works without logging in at all.
 
-![The teaching overview. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
+![The guild settings page. Classes waiting on your review sit at the top.](/static/help/approving-classes/01-review-panel.png)
 
-![The Needs Attention card, with Waiting on Your Review and a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
+![The Needs Attention section, with Waiting on Your Review and a Review button per class.](/static/help/approving-classes/02-review-queue-panel.png)
 
 The review page shows everything the class will publish with: description, sessions, price, capacity, and photos, plus the history of past review rounds.
 
@@ -1781,17 +1781,19 @@ Each review link accepts exactly one response. If you open it again afterwards, 
 Your approval doesn't publish the class. It opens the admin gate: an admin gets a validation request naming you as the lead who vouched, and only their approval publishes the class and opens sign-ups. The instructor is notified at every step, so you don't need to relay anything.""",
         "screenshots": [
             {
+                # The guild-lead persona leads Ceramics Guild, which the capture harness
+                # asserts is pk 1 — the same literal path the your-guild-page shots use.
                 "file": "01-review-panel.png",
-                "page": "classes:teach_overview",
+                "page": "/guilds/1/edit/",
                 "selector": None,
-                "caption": "The teaching overview. Classes waiting on your review sit at the top.",
+                "caption": "The guild settings page. Classes waiting on your review sit at the top.",
                 "as_role": "guild_lead",
             },
             {
                 "file": "02-review-queue-panel.png",
-                "page": "classes:teach_overview",
+                "page": "/guilds/1/edit/",
                 "selector": '[data-help-key="guild.approve-classes"]',
-                "caption": "The Needs Attention card, with Waiting on Your Review and a Review button per class.",
+                "caption": "The Needs Attention section, with Waiting on Your Review and a Review button per class.",
                 "as_role": "guild_lead",
             },
         ],

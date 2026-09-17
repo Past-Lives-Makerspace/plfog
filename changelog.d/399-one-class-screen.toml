@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-09-16"
+title = "One screen for managing a class"
+changes = [
+  "Instructors and admins now manage a class on the same screen. What you can do there depends on who you are, not on which link you followed.",
+  "Guild leads and guild staff can open a class requested under their guild, edit it and write its welcome email, without needing teaching access first.",
+  "Classes waiting on your guild's review now sit at the top of the guild's own settings page instead of inside the teaching area.",
+  "Old links and bookmarks to the admin class pages still work. They take you to the new screen.",
+  "Exporting the whole registrations list to a spreadsheet is now admin only.",
+]

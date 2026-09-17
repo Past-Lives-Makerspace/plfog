@@ -1,0 +1,78 @@
+{% extends screen_shell %}
+{% load classes_tags %}
+
+{% comment %}The one per-class screen, sitting in whichever portal shell the viewer belongs to.
+
+`screen_shell` comes from `request.class_access.shell` and is set by every view that renders a
+per-class tab (see `_class_screen_context` in classes/views.py). ExtendsNode resolves it at
+render time and an unset variable becomes '', which raises TemplateSyntaxError rather than
+degrading — so a render path that forgets it is a 500, not a blank page. That includes the
+bound-invalid-form re-renders that re-open a modal with an error inside it.
+
+`{% load %}` does not inherit across `{% extends %}`, so this file loads what its own markup
+uses. The admin shell wraps in `.cms-admin` and the teach shell does not; the only rule scoped
+to it (`.cms-admin .hub-card`, hub.css:1170) gives a NESTED card a visible dark-theme border,
+and nothing the per-class screen renders is a nested `.hub-card`, so the asymmetry costs
+nothing here.
+
+The tab strip is the shared `.pl-tabs` container. Decision D2: a one-item strip offers no
+choice, so a viewer with fewer than two tabs (the guild lead, who gets Emails alone) gets no
+strip at all. Plain anchors carry `aria-current="page"` and no `role="tablist"` — these are
+links to other pages, not ARIA tabs; `templates/hub/admin/_voting_tabs.html` is the reference
+implementation. `ClassAccess.tabs` carries labels without counts, so the two tabs that show a
+count get it here, off `tab.key`.{% endcomment %}
+{% block tab_content %}
+<div class="pl-class-header">
+    <div class="pl-class-header__main">
+        <h2 class="pl-class-header__title">{{ offering.title }}</h2>
+        <div class="pl-class-header__badges">
+            {% include "classes/_components/lifecycle_badge.html" with offering=offering show_note=True %}
+            {% if offering.sale_is_active %}<span class="pl-lifecycle-badge pl-sale-pill">Sale: {{ offering.sale_savings_display }}</span>{% endif %}
+        </div>
+        <div class="pl-class-meta">
+            {% if offering.instructor %}<span class="pl-class-meta__item">{{ offering.instructor.display_name }}</span>{% endif %}
+            <span class="pl-class-meta__item">{{ offering.category.name }}</span>
+            <span class="pl-class-meta__item">{{ offering.price_cents|cents_as_price }}</span>
+            <span class="pl-class-meta__item">{{ confirmed_registration_count }} / {{ offering.capacity }} registered</span>
+            {% with first_session=offering.sessions.all|first %}{% if first_session %}<span class="pl-class-meta__item">Starts {{ first_session.starts_at|date:"M j" }}</span>{% endif %}{% endwith %}
+        </div>
+    </div>
+    <div class="pl-class-header__actions">
+        {% if can_edit_now %}
+        {# Decision D5: Edit moves out of the action row into the header and takes the gold. #}
+        <a class="hub-btn hub-btn--sm hub-btn--primary" href="{% url 'classes:teach_class_edit' pk=offering.pk %}">Edit</a>
+        {% endif %}
+        {% if access.can_send_email %}
+        {# The affordance and the endpoint read the same object. #}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'hub_compose' %}?audience=class:{{ offering.pk }}&amp;lock=1"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:0.35rem;vertical-align:-2px;"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Send Email</a>
+        {% endif %}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:class_preview' pk=offering.pk %}" target="_blank" rel="noopener">Preview ↗</a>
+    </div>
+</div>
+{% if access.tabs|length > 1 %}
+<nav class="pl-tabs" aria-label="This class">
+    {% for tab in access.tabs %}
+        {% if tab.key == 'overview' %}{% url 'classes:teach_class_detail' pk=offering.pk as tab_url %}{% endif %}
+        {% if tab.key == 'registrations' %}{% url 'classes:teach_class_registrations' pk=offering.pk as tab_url %}{% endif %}
+        {% if tab.key == 'waitlist' %}{% url 'classes:teach_class_waitlist' pk=offering.pk as tab_url %}{% endif %}
+        {% if tab.key == 'discount_codes' %}{% url 'classes:teach_class_discount_codes' pk=offering.pk as tab_url %}{% endif %}
+        {% if tab.key == 'emails' %}{% url 'classes:teach_class_emails' pk=offering.pk as tab_url %}{% endif %}
+        <a href="{{ tab_url }}" class="vote-tab{% if active_subtab == tab.key %} vote-tab--active{% endif %}"{% if active_subtab == tab.key %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.key == 'registrations' %} ({{ confirmed_registration_count }}){% endif %}{% if tab.key == 'waitlist' %} ({{ waitlist_count }}){% endif %}</a>
+    {% endfor %}
+</nav>
+{% endif %}
+{% if access.role == 'guild' %}
+{% comment %}Why this viewer can do some of it and not the rest. Keyed on the role rather than
+on a capability because the sentence is about the role: the guild leg is the only population
+that holds Edit without holding the roster, and the line names the guild that gave it to them.
+Leg 4 of `class_access` also admits a fog officer, whose class may have no guild at all (86 in
+production), so the guild clause drops out rather than leaving a hole in the sentence — and the
+sentence says the class is in the guild rather than naming the reader a lead, which is true for
+a lead, a staffer and an officer alike.{% endcomment %}
+<div class="pl-class-context">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="pl-class-context__icon"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <span>{% if guild_grants_access %}This class is in the <strong>{{ offering.category.guild.name }}</strong> guild, so you can edit it and write its welcome email.{% else %}You can edit this class and write its welcome email.{% endif %} Sign-ups, the waitlist and cancelling belong to {% if offering.instructor %}<strong>{{ offering.instructor.display_name }}</strong>, who teaches it{% else %}whoever teaches it{% endif %}.</span>
+</div>
+{% endif %}
+{% block detail_content %}{% endblock %}
+{% endblock %}

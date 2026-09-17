@@ -827,6 +827,75 @@ def _orientation_split_percents() -> dict[str, Any]:
     }
 
 
+def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, Any]:
+    """The guild edit page's Needs Attention section: class reviews waiting on this guild.
+
+    Ruling 10 moved this queue off the teaching overview, where it forced guild business
+    through the instructor portal and was invisible to anyone without teaching access. It
+    renders as a section above the tab strip rather than a thirteenth tab: most guilds have
+    nothing queued most days, and a tab would land those visits on a screen holding one line.
+
+    The pairing mirrors ``classes.views._guild_lead_review_queue`` — each pending class with
+    the token of its undecided ``GUILD_LEAD`` approval, so Review links to the tokenized page
+    a lead can use without teaching access — rather than importing it: that helper returns
+    every guild the member staffs, and here the guild filter belongs in the query.
+
+    ``guild_attention_visible`` is an explicit "does this viewer lead or staff THIS guild"
+    test, not a row count. Both queues are viewer-scoped through ``staffed_guilds``, so an
+    admin or guild officer looking at a guild they do not staff gets two empty lists — and
+    telling them "all clear" would be a lie about a guild that really does have reviews
+    waiting. They are shown nothing at all instead.
+    """
+    viewer = _get_member(request)
+    if viewer is None or not (guild.guild_lead_id == viewer.pk or guild.is_staffed_by(viewer)):
+        return {
+            "guild_attention_visible": False,
+            "guild_attention_review": [],
+            "guild_attention_awaiting_admin": [],
+            "guild_attention_count": 0,
+        }
+
+    def _rows(queryset: QuerySet[ClassOffering]) -> list[ClassOffering]:
+        # category__guild so the can_edit_class below reads a cached guild instead of
+        # fetching one; approvals so the token and date reads stay off the DB too.
+        return list(
+            queryset.filter(category__guild=guild)
+            .select_related("category__guild", "instructor")
+            .prefetch_related("approvals")
+            .order_by("created_at")
+        )
+
+    pending = _rows(ClassOffering.objects.awaiting_guild_lead(viewer))
+    approved = _rows(ClassOffering.objects.awaiting_admin_validation(viewer))
+    # ``can_open`` decides whether a row's title, Edit and View are live links: all three
+    # point at the class screen, and a viewer who fails its gate would get three dead links.
+    # The gate is ``can_edit_class`` — the leg ``classes.access.class_access`` composes for
+    # guild lead-or-staff, never ``can_create_classes``. It is evaluated ONCE for the whole
+    # section rather than per row: every row is a class in this guild, so its guild leg is
+    # the same lead-or-staff test that made the section visible and gives every row the same
+    # answer, while calling it per row re-runs ``Guild.is_staffed_by`` once per row. The
+    # instructor leg can only widen that answer for a row, never narrow it.
+    sample = next(iter(pending + approved), None)
+    can_open = sample is not None and _can_edit_offering(request, sample)
+    review: list[dict[str, Any]] = []
+    for offering in pending:
+        gate = offering.open_guild_lead_approval
+        if gate is not None:
+            review.append(
+                {"offering": offering, "token": gate.token, "submitted_at": gate.created_at, "can_open": can_open}
+            )
+    awaiting = [
+        {"offering": offering, "approved_at": offering.guild_lead_approved_at, "can_open": can_open}
+        for offering in approved
+    ]
+    return {
+        "guild_attention_visible": True,
+        "guild_attention_review": review,
+        "guild_attention_awaiting_admin": awaiting,
+        "guild_attention_count": len(review) + len(awaiting),
+    }
+
+
 def _guild_edit_context(
     request: HttpRequest,
     guild: Guild,
@@ -908,6 +977,9 @@ def _guild_edit_context(
 
     return {
         **ctx,
+        # Ruling 10's Needs Attention section, above the tab strip. It lands in the shared
+        # context builder so an invalid save re-renders it instead of blanking it.
+        **_guild_attention_context(request, guild),
         "guild": guild,
         "announcement_recipient_count": len(recipients),
         "announcement_recipient_emails": sorted(user.email for user, _reason in recipients),

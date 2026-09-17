@@ -1,0 +1,40 @@
+{% comment %}The Classes portal's one tab strip, rendered by the instructor shell and the admin
+shell alike (ruling 13). Ruling 14: every tab decides for itself whether it is offered, so an
+admin who also teaches gets all of them, and a plain admin gets no empty "My Classes" and no
+"Instructor Profile" — hidden, not blank. The order runs personal first, site-wide last, which
+is why an admin's Registrations now sits one slot earlier than it used to.
+
+Ruling 22: an admin who also teaches KEEPS "My Classes". Ruling 15: the labels are today's —
+"My Classes" for the instructor's own, "Classes" for the whole catalog — and the order is the
+only thing separating them.
+
+The two facts the rows read are about the VIEWER, not about a class, so they come off the
+request rather than from a context key every view would have to remember to set:
+`request.view_as.actual_is_admin` is the same preview-independent admin test the admin pages
+gate on, and `request.user.member.can_create_classes` is the teaching grant itself. A user with
+no linked Member resolves to nothing (Django renders a missing attribute as empty), so the
+teaching rows simply do not render for them.
+
+Catalog Activity sits inside the admin group even though Registrations, which a non-admin with
+catalog access can reach, renders above it: the feed spans the whole catalog. The view's own
+permission decorator is the real gate; this only decides whether the tab is offered.{% endcomment %}
+{% with actually_admin=request.view_as.actual_is_admin teaches=request.user.member.can_create_classes settings_tabs="categories discount_codes questions settings teaching_page" %}
+<nav class="pl-tabs" aria-label="Class management sections">
+    <a href="{% if actually_admin %}{% url 'classes:admin_overview' %}{% else %}{% url 'classes:teach_overview' %}{% endif %}" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+    {% if teaches %}
+    <a href="{% url 'classes:teach_dashboard' %}" class="vote-tab{% if active_tab == 'my_classes' %} vote-tab--active{% endif %}"{% if active_tab == 'my_classes' %} aria-current="page"{% endif %}>My Classes</a>
+    {% endif %}
+    <a href="{% if actually_admin %}{% url 'classes:admin_registrations' %}{% else %}{% url 'classes:teach_registrations' %}{% endif %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}"{% if active_tab == 'registrations' %} aria-current="page"{% endif %}>Registrations</a>
+    {% if teaches and instructor_discount_codes_enabled %}
+    <a href="{% url 'classes:teach_discount_codes' %}" class="vote-tab{% if active_tab == 'my_discount_codes' %} vote-tab--active{% endif %}"{% if active_tab == 'my_discount_codes' %} aria-current="page"{% endif %}>Discount Codes</a>
+    {% endif %}
+    {% if teaches %}
+    <a href="{% url 'classes:teach_profile' %}" class="vote-tab{% if active_tab == 'profile' %} vote-tab--active{% endif %}"{% if active_tab == 'profile' %} aria-current="page"{% endif %}>Instructor Profile</a>
+    {% endif %}
+    {% if actually_admin %}
+    <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}"{% if active_tab == 'classes' %} aria-current="page"{% endif %}>Classes</a>
+    <a href="{% url 'classes:admin_activity' %}" class="vote-tab{% if active_tab == 'activity' %} vote-tab--active{% endif %}"{% if active_tab == 'activity' %} aria-current="page"{% endif %}>Catalog Activity</a>
+    <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}"{% if active_tab in settings_tabs.split %} aria-current="page"{% endif %}>Settings</a>
+    {% endif %}
+</nav>
+{% endwith %}

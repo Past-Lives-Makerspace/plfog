@@ -1,0 +1,9 @@
+{% extends screen_shell %}
+{% comment %}The class composer on an existing class, in whichever portal shell the viewer
+belongs to. The composer itself has always lived in one shared component; what used to differ
+between the teach and admin copies was only the shell they extended and the `is_admin` flag,
+and both of those now come from context. The per-class header and tab strip are deliberately
+absent: the composer is a full-page editor, not another tab of the class screen.{% endcomment %}
+{% block tab_content %}
+{% include "classes/_components/class_composer.html" %}
+{% endblock %}

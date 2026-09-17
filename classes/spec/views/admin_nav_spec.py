@@ -11,7 +11,7 @@ def _tab_strip(html: str) -> str:
     The whole rendered page also carries the CHANGELOG (every hub page's context does), which
     mentions tab names in prose — a bare full-page assertion cannot tell a tab from that noise.
     """
-    start = html.index('role="tablist"')
+    start = html.index('aria-label="Class management sections"')
     return html[start : html.index("</nav>", start)]
 
 

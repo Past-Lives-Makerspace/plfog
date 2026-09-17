@@ -803,12 +803,12 @@ def describe_send_announcement_entry_points():
         assert "Send Announcement" in content
         assert f"audience=guild:{guild.pk}" in content
 
-    def it_shows_a_send_email_button_on_the_admin_class_page(client: Client):
-        # The admin twin lands on the same registrant-addressed composer, so it carries the
-        # same "Send Email" label as the teach-side button.
+    def it_shows_a_send_email_button_on_the_class_page(client: Client):
+        # There is one per-class screen now, and its header carries the "Send Email" button
+        # for whoever may use it. (The old admin path is a 302 onto this one.)
         _login_admin(client)
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        content = client.get(reverse("classes:admin_class_detail", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_detail", args=[offering.pk])).content.decode()
         assert "</svg>Send Email</a>" in content
         assert "Send Announcement" not in content
         assert f"audience=class:{offering.pk}" in content

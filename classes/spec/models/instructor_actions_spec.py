@@ -101,6 +101,9 @@ def describe_request_change():
         bell = Notification.objects.get(trigger="class_change_requested", user=holder_user)
         assert bell.title == "Own Teacher asked for a change to Live Lathe"
         assert bell.body == "Move it to Friday."
+        # Criterion 39: the LEGACY name, deliberately. This URL is persisted on the
+        # Notification row and mailed out, so it has to keep resolving after a revert — one
+        # 302 hop while the merge is live is the cheaper half of that trade.
         assert bell.url == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
         sent = [m for m in mail.outbox if m.to == ["cms-change@example.com"]]
         assert len(sent) == 1 and "Move it to Friday." in sent[0].body
@@ -128,6 +131,7 @@ def describe_instructor_cancel_refund_notice():
         bell = Notification.objects.get(trigger="class_cancelled_admin_notice", user=refund_admin)
         assert bell.title == "Own Teacher cancelled Paid Pots"
         assert bell.body == "2 paid registrations need refunds."
+        # Criterion 39: the legacy name, persisted and mailed — see the note above.
         assert bell.url == reverse("classes:admin_class_registrations", kwargs={"pk": offering.pk})
         sent = [m for m in mail.outbox if m.to == ["refunder@example.com"] and "Refunds needed" in m.subject]
         assert len(sent) == 1

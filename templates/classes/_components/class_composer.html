@@ -1,7 +1,7 @@
 {% load static %}
 {% comment %}
-The five step class composer, shared by templates/classes/teach/class_form.html and
-templates/classes/admin/class_form.html (design spec §C). Built exactly like the
+The five step class composer, shared by templates/classes/class_form.html (the one per-class
+composer) and templates/classes/admin/class_form.html (design spec §C). Built exactly like the
 announcement composer (templates/hub/announcement_compose.html): one page, one <form>,
 one Alpine x-data holding `phase`, x-show per step, and the .pl-phase-tabs bar. No
 per-step POST: every field of every step is in the DOM on every render, so one Save posts
@@ -93,7 +93,7 @@ Do not merge them.
 {% endif %}
 
 <div class="hub-card pl-composer"
-     data-composer-draft-key="{{ composer_draft_key }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1" data-composer-draft-baseline="{{ composer_draft_baseline }}"{% endif %}
+     data-composer-draft-key="{{ composer_draft_key }}" data-composer-draft-legacy-keys="{{ composer_draft_legacy_keys }}"{% if composer_draft_saved %} data-composer-draft-saved="1"{% endif %}{% if composer_draft_unsaved %} data-composer-draft-unsaved="1" data-composer-draft-baseline="{{ composer_draft_baseline }}"{% endif %}
      x-data="{
        phase: {{ initial_phase }},
        errorSteps: {{ error_steps_json }},

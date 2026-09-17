@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
+from core.models import SiteConfiguration
 from hub.context_processors import hub_sidebar
+from hub.view_as import ROLE_MEMBER, ViewAs, compute_actual_roles
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory, UserFactory
 
@@ -202,6 +205,7 @@ def describe_context_processor():
             "label": "Host a Workshop",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
+            "teaches": False,
         }
         _unlock(plain_user)
         request.user = type(plain_user).objects.get(pk=plain_user.pk)
@@ -211,6 +215,7 @@ def describe_context_processor():
             "label": "Teaching",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
+            "teaches": True,
         }
 
     def it_gives_anonymous_visitors_no_teach_entry(rf):
@@ -234,3 +239,139 @@ def describe_context_processor():
         request = rf.get("/classes/")
         request.user = plain_user
         assert hub_sidebar(request)["teach_nav"]["is_active"] is False
+
+
+def _turn_host_a_workshop(on: bool) -> None:
+    config = SiteConfiguration.load()
+    config.host_a_workshop_enabled = on
+    config.save(update_fields=["host_a_workshop_enabled"])
+
+
+def describe_host_a_workshop_switch():
+    """Site Settings → Features → "Show Host a Workshop in the sidebar".
+
+    Visibility only, and only over the branch that reads "Host a Workshop". Gating the
+    instructor's branch too would lock every instructor out of the teaching portal, which is
+    not what a visibility switch is for — so the switch never touches the "Teaching" label.
+    """
+
+    def it_shows_the_invitation_to_a_member_who_cannot_teach_while_on(plain_user, rf):
+        _turn_host_a_workshop(True)
+        request = rf.get("/")
+        request.user = plain_user
+        assert hub_sidebar(request)["teach_nav"]["label"] == "Host a Workshop"
+
+    def it_marks_the_invitation_as_the_branch_the_switch_hides(plain_user, rf):
+        # The switch is applied in the sidebar template, against the ``host_a_workshop_enabled``
+        # that ``core.context_processors.feature_flags`` already supplies — reading it here too
+        # would cost a query on every page in the app. ``teaches`` is what the template gates on,
+        # and ``it_removes_the_rendered_sidebar_entry_when_off`` below asserts what a member sees.
+        _turn_host_a_workshop(False)
+        request = rf.get("/")
+        request.user = plain_user
+        assert hub_sidebar(request)["teach_nav"]["teaches"] is False
+
+    def it_keeps_the_teaching_entry_for_an_instructor_while_on(plain_user, rf):
+        _unlock(plain_user)
+        _turn_host_a_workshop(True)
+        request = rf.get("/")
+        request.user = type(plain_user).objects.get(pk=plain_user.pk)
+        assert hub_sidebar(request)["teach_nav"]["label"] == "Teaching"
+
+    def it_keeps_the_teaching_entry_for_an_instructor_while_off(plain_user, rf):
+        _unlock(plain_user)
+        _turn_host_a_workshop(False)
+        request = rf.get("/")
+        request.user = type(plain_user).objects.get(pk=plain_user.pk)
+        assert hub_sidebar(request)["teach_nav"]["label"] == "Teaching"
+
+    def it_removes_the_rendered_sidebar_entry_when_off(plain_user, client):
+        _turn_host_a_workshop(False)
+        client.force_login(plain_user)
+        assert 'data-nav="teach"' not in _sidebar(client)
+
+    def it_leaves_an_instructors_rendered_entry_alone_when_off(plain_user, client):
+        _unlock(plain_user)
+        _turn_host_a_workshop(False)
+        client.force_login(plain_user)
+        assert ">Teaching" in _teach_label(_sidebar(client))
+
+
+def _nav_request(rf, user, path: str, picked: str | None = None) -> HttpRequest:
+    """A request shaped the way ``ViewAsMiddleware`` shapes one, for the path tests.
+
+    ``picked`` is the view-as override an admin sets from the topbar, so passing
+    ``ROLE_MEMBER`` here is an admin previewing the member's sidebar.
+    """
+    request = rf.get(path)
+    request.user = user
+    request.view_as = ViewAs(compute_actual_roles(user), picked)
+    return request
+
+
+def describe_classes_admin_nav_active():
+    """Criterion 35: the merged per-class screen goes to the right sidebar entry.
+
+    The per-class admin screen moves from ``/classes/admin/<pk>/`` to
+    ``/classes/teach/classes/<pk>/…``, where Teaching would otherwise light. Admin Tools
+    claims it back, but only for a viewer who is effectively an admin — and never the whole
+    ``/classes/teach/`` prefix, so an admin who also instructs keeps Teaching on the portal
+    landing, My Classes and their Instructor Profile.
+    """
+
+    def it_claims_the_old_class_admin_path_for_an_admin(admin_user, rf):
+        ctx = hub_sidebar(_nav_request(rf, admin_user, "/classes/admin/12/"))
+        assert ctx["classes_admin_nav_active"] is True
+        assert ctx["teach_nav"]["is_active"] is False
+
+    def it_claims_the_merged_per_class_path_for_an_admin(admin_user, rf):
+        ctx = hub_sidebar(_nav_request(rf, admin_user, "/classes/teach/classes/12/"))
+        assert ctx["classes_admin_nav_active"] is True
+        assert ctx["teach_nav"]["is_active"] is False
+
+    def it_claims_a_sub_page_of_the_merged_per_class_path_for_an_admin(admin_user, rf):
+        ctx = hub_sidebar(_nav_request(rf, admin_user, "/classes/teach/classes/12/registrations/"))
+        assert ctx["classes_admin_nav_active"] is True
+        assert ctx["teach_nav"]["is_active"] is False
+
+    def it_leaves_the_teaching_portal_landing_to_teaching_for_an_admin(admin_user, rf):
+        ctx = hub_sidebar(_nav_request(rf, admin_user, "/classes/teach/"))
+        assert ctx["classes_admin_nav_active"] is False
+        assert ctx["teach_nav"]["is_active"] is True
+
+    def it_leaves_the_my_classes_list_to_teaching_for_an_admin(admin_user, rf):
+        # No pk — the list is the instructor's own page, not a management screen.
+        ctx = hub_sidebar(_nav_request(rf, admin_user, "/classes/teach/classes/"))
+        assert ctx["classes_admin_nav_active"] is False
+        assert ctx["teach_nav"]["is_active"] is True
+
+    def it_leaves_the_merged_path_to_teaching_for_an_instructor(plain_user, rf):
+        _unlock(plain_user)
+        user = type(plain_user).objects.get(pk=plain_user.pk)
+        ctx = hub_sidebar(_nav_request(rf, user, "/classes/teach/classes/12/"))
+        assert ctx["classes_admin_nav_active"] is False
+        assert ctx["teach_nav"]["is_active"] is True
+
+    def it_gives_an_admin_previewing_as_a_member_the_members_sidebar(admin_user, rf):
+        # Ruling 9: the read is EFFECTIVE, not actual. A preview shows what a member sees.
+        ctx = hub_sidebar(_nav_request(rf, admin_user, "/classes/teach/classes/12/", ROLE_MEMBER))
+        assert ctx["classes_admin_nav_active"] is False
+        assert ctx["teach_nav"]["is_active"] is True
+
+    def it_leaves_the_merged_path_to_teaching_for_a_plain_member(plain_user, rf):
+        ctx = hub_sidebar(_nav_request(rf, plain_user, "/classes/teach/classes/12/"))
+        assert ctx["classes_admin_nav_active"] is False
+        assert ctx["teach_nav"]["is_active"] is True
+
+    def it_is_false_on_a_request_that_never_reached_the_view_as_middleware(admin_user, rf):
+        # A themed 404 renders every context processor before ViewAsMiddleware has run.
+        request = rf.get("/classes/teach/classes/12/")
+        request.user = admin_user
+        assert hub_sidebar(request)["classes_admin_nav_active"] is False
+
+    def it_is_false_for_an_anonymous_visitor(rf):
+        from django.contrib.auth.models import AnonymousUser
+
+        request = rf.get("/classes/admin/12/")
+        request.user = AnonymousUser()
+        assert hub_sidebar(request)["classes_admin_nav_active"] is False

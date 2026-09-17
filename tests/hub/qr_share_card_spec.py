@@ -110,13 +110,15 @@ def describe_class_side_invisible_refactor():
                 offenders.append(str(path.relative_to(REPO)))
         assert offenders == []
 
-    def it_ships_the_share_card_through_the_shared_composer_in_both_class_portals():
-        # Both class form twins are one shared composer now; the Share & Print card renders
-        # on its review step through class_qr_share.html, so neither twin can drop it alone.
+    def it_ships_the_share_card_through_the_shared_composer_on_every_class_form():
+        # The Share & Print card renders on the composer's review step through
+        # class_qr_share.html, so no page that hosts the composer can drop it alone. The two
+        # per-class twins became one page (classes/class_form.html) when the admin and teach
+        # class screens merged; the admin CREATE page is still its own.
         composer = (REPO / "templates/classes/_components/class_composer.html").read_text()
         assert "classes/_components/class_qr_share.html" in composer
-        for twin in ["templates/classes/admin/class_form.html", "templates/classes/teach/class_form.html"]:
-            assert "classes/_components/class_composer.html" in (REPO / twin).read_text()
+        for host in ["templates/classes/admin/class_form.html", "templates/classes/class_form.html"]:
+            assert "classes/_components/class_composer.html" in (REPO / host).read_text()
 
     def it_ships_the_shared_component():
         shared = (REPO / "templates/components/qr_share_card.html").read_text()

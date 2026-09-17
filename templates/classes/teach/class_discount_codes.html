@@ -1,8 +1,13 @@
-{% extends "classes/teach/class_detail_base.html" %}
+{% extends "classes/_components/class_screen_base.html" %}
 {% load classes_tags %}
 {% block detail_content %}
+{% comment %}The two screens this replaces differed in exactly two places, and both survive
+rather than one winning: an admin gets the admin discount-code routes and the Unapprove toggle
+(their approval is reversible), an instructor gets the teach routes and the `approvable_by`
+guard (a self-approver may approve only their own). `access.can_administer` picks between them,
+and it is the same fact the two sets of endpoints are gated on.{% endcomment %}
 <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}?class={{ offering.pk }}">+ New Code</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% if access.can_administer %}{% url 'classes:admin_discount_code_create' %}{% else %}{% url 'classes:teach_discount_code_create' %}{% endif %}?class={{ offering.pk }}">+ New Code</a>
 </div>
 <div class="admin-table-wrap">
 <table>
@@ -21,7 +26,13 @@
     </thead>
     <tbody>
     {% for c in codes %}
-        {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
+        {% if access.can_administer %}
+            {% url 'classes:admin_discount_code_delete' pk=c.pk as code_delete_url %}
+            {% url 'classes:admin_discount_code_edit' pk=c.pk as code_edit_url %}
+        {% else %}
+            {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
+            {% url 'classes:teach_discount_code_edit' pk=c.pk as code_edit_url %}
+        {% endif %}
         {% concat "del-code-" c.pk as code_modal_id %}
         <tr{% if not c.is_approved %} style="background:rgba(248,180,75,0.06);"{% endif %}>
             <td>{{ c.code }}</td>
@@ -46,13 +57,18 @@
             </td>
             <td>
                 <div class="admin-actions">
-                    {% if not c.is_approved and c|approvable_by:approver %}
+                    {% if access.can_administer %}
+                    <form method="post" action="{% url 'classes:admin_discount_code_approve' pk=c.pk %}" style="display:inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="hub-btn hub-btn--sm {% if c.is_approved %}hub-btn--ghost{% else %}hub-btn--success{% endif %}">{% if c.is_approved %}Unapprove{% else %}Approve{% endif %}</button>
+                    </form>
+                    {% elif not c.is_approved and c|approvable_by:approver %}
                     <form method="post" action="{% url 'classes:teach_discount_code_approve' pk=c.pk %}" style="display:inline;">
                         {% csrf_token %}
                         <button type="submit" class="hub-btn hub-btn--sm hub-btn--success">Approve</button>
                     </form>
                     {% endif %}
-                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_discount_code_edit' pk=c.pk %}">Edit</a>
+                    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ code_edit_url }}">Edit</a>
                     <button type="button"
                             class="hub-btn hub-btn--sm hub-btn--danger"
                             @click="$dispatch('open-confirm', '{{ code_modal_id }}')">Delete</button>

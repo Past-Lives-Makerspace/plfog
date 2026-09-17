@@ -31,7 +31,7 @@
         {% concat "“" c.title "” goes live in the catalog right away. Members are not sent an individual notice about it, though the instructor is emailed that their class is live. New public classes are also posted to the Discord classes channel within about 15 minutes. Use Review with notes to ask for changes instead." as publish_message %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-            <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+            <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor.display_name }} · {{ c.category.name }} · waiting {{ c.created_at|timesince }}</span>
           </span>
           <span class="pl-row-actions">
@@ -51,7 +51,7 @@
       {% for item in with_guild_leads %}
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-            <a href="{% url 'classes:admin_class_detail' pk=item.offering.pk %}">{{ item.offering.title }}</a>
+            <a href="{% url 'classes:teach_class_detail' pk=item.offering.pk %}">{{ item.offering.title }}</a>
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">
               {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.display_name|urlencode }}">{{ item.lead.display_name }}</a>{% else %}No lead{% endif %}
               · waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}
@@ -174,7 +174,7 @@
     <h2 class="overview-title">Upcoming Classes This Week</h2>
     {% for c in upcoming_classes %}
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
-        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}">{{ c.title }}</a>
+        <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
         <span style="color:var(--hub-text-muted);white-space:nowrap;">{{ c.next_session_at|date:"D M j, g:i a" }}</span>
       </div>
     {% empty %}
@@ -190,7 +190,7 @@
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <h2 class="overview-title" style="margin:0;">Waitlists</h2>
       {% for c in waitlist_classes %}
-        <a href="{% url 'classes:admin_class_detail' pk=c.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ c.title }} · {{ c.waiting }} waiting</a>
+        <a href="{% url 'classes:teach_class_detail' pk=c.pk %}" class="hub-btn hub-btn--sm hub-btn--ghost">{{ c.title }} · {{ c.waiting }} waiting</a>
       {% empty %}
         <span style="color:var(--hub-text-muted);font-size:0.875rem;">No active waitlists.</span>
       {% endfor %}

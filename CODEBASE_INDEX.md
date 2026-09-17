@@ -96,8 +96,13 @@
 /classes/my/<token>/            Registrant self-serve (manage / cancel)
 /classes/review/<token>/        Tokenized class review (guild lead / admin)
 /classes/teach/                 Instructor dashboard + class management
+/classes/teach/classes/<pk>/    The ONE per-class screen (Overview / Registrations / Waitlist /
+                                Discount Codes / Emails). Admin, CLASS_APPROVER reviewer,
+                                instructor and guild lead all land here; classes/access.py
+                                decides which tabs and actions each of them gets. The old
+                                /classes/admin/<pk>/... paths 302 onto it.
 /classes/admin/                 CMS admin (overview, classes, registrations, categories, discount codes, settings)
-/classes/admin/registrations/export/  Registrations CSV download
+/classes/admin/registrations/export/  Registrations CSV download (admins only)
 /account/                       Book CMS account area (classes.account)
 ```
 

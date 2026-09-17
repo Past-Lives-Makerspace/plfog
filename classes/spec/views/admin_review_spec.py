@@ -39,7 +39,7 @@ def describe_admin_class_review():
         offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)
         client.force_login(member_user)
         response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
-        assert response.status_code == 403
+        assert response.status_code == 404
 
     def describe_non_pending_offerings():
         """Only a PENDING class is reviewable — the page never mints rows or accepts decisions otherwise."""

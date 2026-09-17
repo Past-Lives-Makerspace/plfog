@@ -385,7 +385,7 @@ def describe_waitlist_tab():
         offering = ClassOfferingFactory(price_cents=4500, member_discount_pct=0, capacity=5)
         reg = _waitlisted(offering)
         followup_url = reverse("classes:registration_promote_followup", args=[reg.pk])
-        page = client.get(reverse("classes:admin_class_waitlist", args=[offering.pk])).content.decode()
+        page = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()
         assert f'data-followup-url="{followup_url}"' in page
         swap = client.post(reverse("classes:registration_promote", args=[reg.pk]), headers=HTMX).content.decode()
         assert f'data-followup-url="{followup_url}"' in swap
@@ -394,7 +394,7 @@ def describe_waitlist_tab():
         client.force_login(admin_user)
         offering = ClassOfferingFactory(capacity=5)
         _waitlisted(offering)
-        content = client.get(reverse("classes:admin_class_waitlist", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_waitlist", args=[offering.pk])).content.decode()
         assert "Add to Class" in content
         assert "promote-followup" in content
 
@@ -404,7 +404,7 @@ def describe_roster_tab_surfaces():
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
         reg = _unpaid(offering)
-        content = client.get(reverse("classes:admin_class_registrations", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
         menu = menu_region(content, f"reg-row-{reg.pk}")
         assert ">Send Payment Link</button>" in menu
         assert ">Mark as Paid</button>" in menu
@@ -419,7 +419,7 @@ def describe_roster_tab_surfaces():
             amount_paid_cents=5000,
             stripe_payment_id="pi_admin_tab",
         )
-        content = client.get(reverse("classes:admin_class_registrations", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
         assert reverse("classes:admin_registration_refund_form", args=[reg.pk]) in content
         assert "refund-modal" in content
 
@@ -444,7 +444,7 @@ def describe_roster_tab_surfaces():
         client.force_login(admin_user)
         offering = ClassOfferingFactory()
         reg = _unpaid(offering)
-        content = client.get(reverse("classes:admin_class_registrations_table", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_registrations_table", args=[offering.pk])).content.decode()
         assert f'id="reg-row-{reg.pk}"' in content
 
     def it_shows_the_paid_header_help_bubble(client):
@@ -466,7 +466,7 @@ def describe_roster_tab_surfaces():
             amount_paid_cents=4500,
             email="p@example.com",
         )
-        content = client.get(reverse("classes:admin_class_registrations", args=[offering.pk])).content.decode()
+        content = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
         assert "Unpaid · $45.00" in content
         assert "Paid $45.00" in content
 

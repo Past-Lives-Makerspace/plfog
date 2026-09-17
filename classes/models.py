@@ -1412,6 +1412,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes.emails import _absolute_url
         from core.events.emit import emit
 
+        # The LEGACY name on purpose, and it must stay that way. This URL is stamped into a
+        # persisted ``Notification.url`` / ``EventDelivery.url`` CharField at creation and into
+        # an email nobody can recall, so it outlives the deploy that wrote it. Reversed to the
+        # merged name, every notice minted while this change is live would carry
+        # /classes/teach/classes/<pk>/… — and after a revert that path is instructor-scoped, so
+        # the admin it was addressed to taps it out of the push tray and gets the marketing
+        # page or a 404. The legacy name costs one 302 hop while live and resolves natively
+        # after a revert.
         registrations_path = reverse("classes:admin_class_registrations", kwargs={"pk": self.pk})
         emit(
             "class_cancelled_admin_notice",
@@ -1479,6 +1487,8 @@ class ClassOffering(HeroCropMixin, models.Model):
             actor=actor,
             payload={"note": note[:200]},
         )
+        # The legacy name, for the same reason as ``registrations_path`` above: this one is
+        # stamped into a persisted notification URL and an unrecallable email.
         edit_path = reverse("classes:admin_class_edit", kwargs={"pk": self.pk})
         emit(
             "class_change_requested",
@@ -2013,6 +2023,37 @@ class ClassOffering(HeroCropMixin, models.Model):
         if annotated is not None:
             return bool(annotated)
         return self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").exists()
+
+    @property
+    def open_guild_lead_approval(self) -> ClassApproval | None:
+        """This class's undecided ``GUILD_LEAD`` approval row, or None.
+
+        The row carries the token a guild lead follows to review the class without admin
+        access, so both review queues — the teaching dashboard's and the guild page's —
+        need the row itself rather than the existence check ``_has_open_guild_gate``
+        makes. Read from ``approvals.all()`` so a caller that prefetched pays no query.
+        """
+        return next(
+            (a for a in self.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
+            None,
+        )
+
+    @property
+    def guild_lead_approved_at(self) -> datetime | None:
+        """When this class's guild-lead gate was approved, or None if it has not been.
+
+        The other half of :attr:`open_guild_lead_approval`: once the lead has decided, the
+        guild page shows when, on the row that is now waiting on an admin.
+        """
+        row = next(
+            (
+                a
+                for a in self.approvals.all()
+                if a.role == ClassApproval.Role.GUILD_LEAD and a.decision == ClassApproval.Decision.APPROVED
+            ),
+            None,
+        )
+        return row.decided_at if row is not None else None
 
     @property
     def _is_bounced(self) -> bool:

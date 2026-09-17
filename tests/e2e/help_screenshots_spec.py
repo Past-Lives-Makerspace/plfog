@@ -155,10 +155,11 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     textiles = Guild.objects.get(name="Textiles Guild")
     woodshop = Guild.objects.get(name="Woodshop Guild")
 
-    # The running-a-guild ShotSpecs hardcode /guilds/1/… paths (and /guilds/1/
-    # form-action selectors); Ceramics is the first guild _seed_member_hub
-    # creates, so in this fresh capture DB it must be pk 1. Fail loudly here if
-    # that assumption ever breaks rather than 404ing every guild-lead shot.
+    # The running-a-guild and approving-classes ShotSpecs hardcode /guilds/1/…
+    # paths (and /guilds/1/ form-action selectors); Ceramics is the first guild
+    # _seed_member_hub creates, so in this fresh capture DB it must be pk 1. Fail
+    # loudly here if that assumption ever breaks rather than 404ing every
+    # guild-lead shot.
     assert ceramics.pk == 1, f"Ceramics Guild is pk {ceramics.pk}, not 1 — fix the /guilds/1/… ShotSpecs"
 
     # A guild with a lead and staff — the guild-lead persona's editable surface.
@@ -246,7 +247,8 @@ def _seed_help_extras(personas: dict[str, Member]) -> None:
     OrientationBookingFactory(slot=slot, member=requester)
 
     # A PENDING class in a Ceramics-linked category with the guild lead's review
-    # gate still undecided — the "Waiting on your review" teach-overview panel.
+    # gate still undecided — the "Waiting on Your Review" group of the Needs
+    # Attention section at the top of the Ceramics guild's settings page.
     pending = ClassOfferingFactory(
         title="Glaze Chemistry Basics",
         slug="glaze-chemistry-basics",

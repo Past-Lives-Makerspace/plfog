@@ -49,12 +49,21 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
 
     from classes.forms import PaymentRefundForm, RegistrationMoveForm
-    from classes.models import ClassOfferingQuerySet
     from membership.models import Member
 
 from hub.toast import trigger_toast
 from hub.view_as import classes_review_access_required, refund_authority_required
 
+from classes.access import (
+    ADMIN_SHELL,
+    ROLE_GUILD,
+    ROLE_INSTRUCTOR,
+    TEACH_SHELL,
+    ClassAccess,
+    leads_or_staffs,
+    class_access,
+    class_screen_required,
+)
 from classes.emails import (
     emit_instructor_new_registration,
     send_admin_registration_notification,
@@ -406,7 +415,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     edit_url = None
     if can_edit_offering:
         if is_effective_staff(request):
-            edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+            edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         else:
             # Instructors and guild leads manage the class from the teaching portal.
             edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
@@ -1353,10 +1362,7 @@ def _guild_lead_review_queue(member: Member) -> list[dict]:
     )
     queue: list[dict] = []
     for offering in offerings:
-        gl_row = next(
-            (a for a in offering.approvals.all() if a.role == ClassApproval.Role.GUILD_LEAD and not a.decision),
-            None,
-        )
+        gl_row = offering.open_guild_lead_approval
         if gl_row is not None:
             queue.append({"offering": offering, "token": gl_row.token})
     return queue
@@ -1385,7 +1391,7 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
         request,
         "classes/teach/classes_list.html",
         {
-            "active_tab": "classes",
+            "active_tab": "my_classes",
             "instructor": teaching_member,
             "classes": classes,
             "facets": facets,
@@ -1511,15 +1517,32 @@ def _composer_draft_baseline(form: Any) -> str:
     return json.dumps(values)
 
 
-def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None, *, is_admin: bool) -> str:
+def _composer_draft_key(request: HttpRequest, saved: ClassOffering | None) -> str:
     """The ``localStorage`` key the in flight composer mirrors its typed fields into.
 
-    Per signed in person, so a shared browser never offers one member's draft to the next;
-    per portal and per class, so the admin composer, the instructor composer, and a new class
-    that has no row yet each keep their own copy.
+    Per signed in person, so a shared browser never offers one member's draft to the next, and
+    per class, so a new class that has no row yet keeps its own copy.
+
+    The portal used to be part of the key, because the admin composer and the instructor
+    composer were two pages. They are one page now, so the segment is gone — and a copy typed
+    before this shipped still lives under the old key. :func:`_composer_draft_legacy_keys` is
+    what hands those forward.
     """
-    portal = "admin" if is_admin else "teach"
-    return f"plfog.composer.v1.{request.user.pk}.{portal}.{saved.pk if saved is not None else 'new'}"
+    return f"plfog.composer.v1.{request.user.pk}.{saved.pk if saved is not None else 'new'}"
+
+
+def _composer_draft_legacy_keys(request: HttpRequest, saved: ClassOffering | None) -> str:
+    """The pre-merge keys the browser should look under when the current key holds nothing.
+
+    Both portals' keys, oldest first, space separated for the data attribute.
+    ``static/js/composer_draft.js`` COPIES the first hit forward rather than moving it: code
+    reverted to before the merge would look under the old key again and must still find it.
+    The duplicate is self cleaning, because localStorage already drops anything older than a
+    fortnight. A draft typed AFTER the deploy lives only under the new key, and that one
+    reverted code cannot see; the loss is accepted and bounded by the same sweep.
+    """
+    row = saved.pk if saved is not None else "new"
+    return " ".join(f"plfog.composer.v1.{request.user.pk}.{portal}.{row}" for portal in ("admin", "teach"))
 
 
 def _composer_redirect(url_name: str, pk: int, request: HttpRequest) -> HttpResponse:
@@ -1592,8 +1615,8 @@ def _composer_context(
     is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
     missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
-        cancel_name = "classes:admin_class_detail" if is_admin else "classes:teach_class_detail"
-        cancel_url = reverse(cancel_name, kwargs={"pk": saved.pk})
+        # One screen now, so Cancel goes to the same place for every role.
+        cancel_url = reverse("classes:teach_class_detail", kwargs={"pk": saved.pk})
     else:
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
     from membership.permissions import can_print_class_marketing
@@ -1624,7 +1647,8 @@ def _composer_context(
         "save_label": "Save" if is_published else "Save Draft",
         # Draft persistence (issue #368, item 3c): the key the browser keeps the in flight
         # typing under, and the one shot signal that the database now has it.
-        "composer_draft_key": _composer_draft_key(request, saved, is_admin=is_admin),
+        "composer_draft_key": _composer_draft_key(request, saved),
+        "composer_draft_legacy_keys": _composer_draft_legacy_keys(request, saved),
         "composer_draft_saved": _composer_draft_saved(request, saved),
         # A bound form here means a save this view refused: every value on the page came from
         # the POST and none of it is in the database, so the browser must not read any of it
@@ -1655,9 +1679,10 @@ def _render_teach_class_form(
     saved = offering if offering is not None and offering.pk else None
     return render(
         request,
-        "classes/teach/class_form.html",
+        "classes/class_form.html",
         {
-            "active_tab": "classes",
+            "active_tab": "my_classes",
+            "screen_shell": TEACH_SHELL,
             "instructor": teaching_member,
             "form": form,
             "formset": formset,
@@ -1718,11 +1743,29 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    """The class composer on an existing class — one page for the admin and the instructor alike.
+
+    Two bodies behind one door, because the two really are different forms: an admin edits
+    every fact through :class:`ClassOfferingForm` and publishes from the last step, while the
+    instructor and the guild's staff edit through :class:`TeachClassOfferingForm` and submit
+    for review. ``can_edit`` is the door and ``can_administer`` picks the body; both come from
+    the same capability set the endpoints behind the page are gated on.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_edit:
+        raise Http404("This class is not editable by this viewer.")
+    if access.can_administer:
+        return _admin_composer(request, pk)
+    return _instructor_composer(request, pk)
+
+
+def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The composer as the class's instructor (or its guild's staff) sees it."""
+    teaching_member: Member = request.user.member
     offering = get_object_or_404(
-        ClassOffering.objects.editable_by(teaching_member).prefetch_related("gallery_images"),
+        ClassOffering.objects.prefetch_related("gallery_images"),
         pk=pk,
     )
     if offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}:
@@ -1801,8 +1844,8 @@ def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, tea
 def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
     """The published class edit page: light fields + FAQ + gallery, structural facts locked.
 
-    Keeps ``teach_class_edit``'s ``editable_by`` scope (guild staff who can edit a draft can
-    make light edits too). Saves with one Save button and no submit: nothing to review.
+    Reached only through ``teach_class_edit``, so the capability set has already admitted the
+    instructor or the guild's staff. Saves with one Save button and no submit: nothing to review.
     """
     from membership.permissions import can_print_class_marketing
 
@@ -1817,7 +1860,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
         request,
         "classes/teach/class_form_published.html",
         {
-            "active_tab": "classes",
+            "active_tab": "my_classes",
             "instructor": teaching_member,
             "form": form,
             "faq_formset": faq_formset,
@@ -1835,11 +1878,13 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
-    """Offer one of my classes on another set of dates — clones it as a grouped draft run."""
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+    """Offer this class on another set of dates — clones it as a grouped draft run."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not _may_run_again(access):
+        raise Http404("Another date-set of this class is not this viewer's to make.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if request.method == "POST":
         run = offering.duplicate_as_new_run()
         messages.success(request, "New date-set added as a draft. Add its dates, then submit for review.")
@@ -1847,7 +1892,7 @@ def teach_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_class_edit", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     """The quick Submit for review on Manage My Classes and the class page: DRAFT to PENDING.
@@ -1855,9 +1900,14 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
     A refusal lands in the composer on the first step still missing something, with the
     checklist showing. A class that is no longer a draft (a double click, say) lands on its
     class page with a message; nothing here lands silently on the list.
+
+    One of the three per-class routes with no admin twin: submitting is the instructor's own
+    move, so ``can_submit`` holds it and nobody else — not an admin, not the guild's lead.
     """
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_submit:
+        raise Http404("This class is not this viewer's to submit.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if offering.status != ClassOffering.Status.DRAFT:
         messages.info(request, _already_submitted_message(offering))
         return redirect("classes:teach_class_detail", pk=offering.pk)
@@ -1978,7 +2028,7 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
         request,
         "classes/teach/discount_codes.html",
         {
-            "active_tab": "discount_codes",
+            "active_tab": "my_discount_codes",
             "instructor": teaching_member,
             "own_codes": own_codes,
             "sitewide_codes": sitewide_codes,
@@ -2020,7 +2070,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
         request,
         "classes/teach/discount_code_form.html",
         {
-            "active_tab": "discount_codes",
+            "active_tab": "my_discount_codes",
             "instructor": teaching_member,
             "form": form,
             "mode": "create",
@@ -2044,7 +2094,7 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     return render(
         request,
         "classes/teach/discount_code_form.html",
-        {"active_tab": "discount_codes", "instructor": teaching_member, "form": form, "code": code, "mode": "edit"},
+        {"active_tab": "my_discount_codes", "instructor": teaching_member, "form": form, "code": code, "mode": "edit"},
     )
 
 
@@ -2078,13 +2128,82 @@ def teach_discount_code_approve(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_discount_codes")
 
 
-def _teach_class_or_404(request: HttpRequest, pk: int) -> ClassOffering:
-    """Scope a per-class Workspace lookup to the logged-in teaching member's own class."""
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(ClassOffering.objects.filter(instructor=teaching_member), pk=pk)
+def _class_screen_context(request: HttpRequest, offering: ClassOffering, subtab: str) -> dict[str, Any]:
+    """Everything the merged per-class screen reads, whichever tab and whichever shell.
+
+    ``screen_shell`` is what ``classes/_components/class_screen_base.html`` extends.
+    ``ExtendsNode`` resolves it at render time and an unset variable becomes ``''``, which
+    raises ``TemplateSyntaxError`` — a missing shell is a 500, not a degraded page — so every
+    render path on the screen comes through here, the bound-invalid-form re-renders included.
+
+    ``instructor`` is the VIEWING member, not the class's. The teaching shell reads it for the
+    "View public profile" link and the admin shell ignores it; Django renders a missing
+    variable as empty rather than raising, so a teach-shell render that left it out would lose
+    that link silently rather than loudly.
+
+    ``active_tab`` lights the portal strip, where the admin's whole-catalog "Classes" tab and
+    the instructor's own "My Classes" tab are now two rows of one strip and so need two keys.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    viewer = getattr(request.user, "member", None)
+    return {
+        "active_tab": "classes" if access.can_administer else "my_classes",
+        "active_subtab": subtab,
+        "access": access,
+        "screen_shell": access.shell,
+        "instructor": viewer,
+        "offering": offering,
+        "can_edit_now": _class_is_editable_now(access, offering),
+        "guild_grants_access": (access.role == ROLE_GUILD and viewer is not None and leads_or_staffs(viewer, offering)),
+        **_class_workspace_counts(offering),
+    }
 
 
-def _render_teach_class_overview(
+def _class_is_editable_now(access: ClassAccess, offering: ClassOffering) -> bool:
+    """Whether the Edit button belongs in this class's header for this viewer.
+
+    Capability first, then the class's own state, and the state half is not the same question
+    for both: an admin edits anything that is not archived or cancelled, while the instructor
+    and the guild's staff edit a class still on its way to the catalog or still ahead of its
+    dates. That is exactly what ``teach_class_edit`` will let each of them do, so the button
+    and the page it opens agree.
+    """
+    if not access.can_edit:
+        return False
+    if access.can_administer:
+        return offering.status not in {ClassOffering.Status.ARCHIVED, ClassOffering.Status.CANCELLED}
+    open_to_review = offering.status in {ClassOffering.Status.DRAFT, ClassOffering.Status.PENDING}
+    return open_to_review or offering.lifecycle == ClassOffering.Lifecycle.UPCOMING
+
+
+def _administered_class(request: HttpRequest) -> ClassOffering:
+    """The class, once this request is confirmed to hold the admin capability on it.
+
+    ``class_screen_required`` is admission to the screen and nothing more: a reviewer and a
+    guild lead both get through it. Every lifecycle action behind the screen — approve,
+    archive, restore, unpublish, remind, duplicate, delete — asserts its own capability as
+    well, and this is where the seven that want ``can_administer`` do it. Cancelling and
+    deleting are not undone by a revert, so the endpoint carries the same answer the button
+    does rather than trusting the button.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_administer:
+        raise Http404("This class action is not this viewer's to take.")
+    return request.class_offering  # type: ignore[attr-defined,no-any-return]
+
+
+def _may_run_again(access: ClassAccess) -> bool:
+    """Whether this viewer may spin up another date-set of the class.
+
+    ``can_administer`` is the admin row and ``can_submit`` is the instructor's alone, so the
+    pair is exactly the union of the two views this replaces — an admin, or the class's own
+    instructor — with no third party let in. A guild lead or a reviewer gets neither the
+    button nor the endpoint.
+    """
+    return access.can_administer or access.can_submit
+
+
+def _render_class_overview(
     request: HttpRequest,
     offering: ClassOffering,
     *,
@@ -2092,26 +2211,28 @@ def _render_teach_class_overview(
     change_form: ClassChangeRequestForm | None = None,
     sale_form: ClassSaleForm | None = None,
 ) -> HttpResponse:
-    """The instructor workspace Overview: pipeline card, summary, and the action row by state.
+    """The per-class Overview: pipeline, facts, sessions, and the action row by capability.
 
     The Cancel class, Request a change, and sale modals are server-rendered inline; a bound,
-    invalid form re-renders the page with that modal open and the error inside it.
+    invalid form re-renders the page with that modal open and the error inside it. Those
+    re-renders are the paths most likely to be missed, which is why they all land here rather
+    than assembling context of their own.
     """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/class_overview.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "overview",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
-            "offering": offering,
+            **_class_screen_context(request, offering, "overview"),
             "lifecycle": offering.lifecycle,
             "pipeline": offering.review_pipeline(),
             "cancel_form": cancel_form or ClassCancelForm(),
             "change_form": change_form or ClassChangeRequestForm(),
             "sale_form": sale_form or ClassSaleForm(instance=offering),
+            # Only the Archive button reads it, and only an admin is offered one.
+            "archive_blocker": offering.archive_blocker if access.can_administer else "",
             "paid_registration_count": offering.paid_registration_count,
-            **_class_workspace_counts(offering),
+            "can_duplicate_run": _may_run_again(access),
         },
     )
 
@@ -2136,27 +2257,42 @@ def _save_sale(request: HttpRequest, offering: ClassOffering) -> ClassSaleForm |
     return None
 
 
-@teaching_member_required
+@class_screen_required
+def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
+    """The per-class Overview, for every population that holds it.
+
+    The offering is re-read through :func:`_class_screen_offering` rather than reusing the
+    decorator's plain row: this page joins the instructor, the category's guild and the
+    sessions and counts the registrations, and without that it is an N+1 per session row.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_overview:
+        raise Http404("This class has no Overview for this viewer.")
+    return _render_class_overview(request, _class_screen_offering(pk))
+
+
+@class_screen_required
 @require_POST
 def teach_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
-    """The Put This Class On Sale modal on my own class: turn a sale on, change it, or turn it off."""
-    offering = _teach_class_or_404(request, pk)
+    """The Put This Class On Sale modal: turn a sale on, change it, or turn it off."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_sale:
+        raise Http404("Sales on this class are not this viewer's to set.")
+    offering = _class_screen_offering(pk)
     form = _save_sale(request, offering)
     if form is not None:
-        return _render_teach_class_overview(request, offering, sale_form=form)
+        return _render_class_overview(request, offering, sale_form=form)
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@teaching_member_required
-def teach_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    return _render_teach_class_overview(request, _teach_class_or_404(request, pk))
-
-
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
     """Take back a submission in review: the class goes back to draft, reviewers stop seeing it."""
-    offering = _teach_class_or_404(request, pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_submit:
+        raise Http404("Only the class's own instructor withdraws its submission.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     try:
         offering.withdraw_submission(actor=cast("User", request.user))
     except ValueError as exc:
@@ -2166,14 +2302,22 @@ def teach_class_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
-    """Cancel my own live class with a reason: registrants are told; refunds stay with the admins."""
-    offering = _teach_class_or_404(request, pk)
+    """Cancel a live class with a reason: registrants are emailed, every member gets the bell row.
+
+    Refused for a guild lead and for a reviewer, and for an admin previewing a lower role —
+    :meth:`ClassOffering.cancel` mails every registrant, guests with no account included, and
+    nothing about that is undone by a revert.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_cancel:
+        raise Http404("This class is not this viewer's to cancel.")
+    offering = _class_screen_offering(pk)
     form = ClassCancelForm(request.POST)
     if not form.is_valid():
-        return _render_teach_class_overview(request, offering, cancel_form=form)
+        return _render_class_overview(request, offering, cancel_form=form)
     had_paid = offering.paid_registration_count > 0
     try:
         offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
@@ -2181,21 +2325,24 @@ def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, str(exc))
         return redirect("classes:teach_class_detail", pk=offering.pk)
     message = "Class cancelled. Everyone registered has been told."
-    if had_paid:
+    if had_paid and not access.can_administer:
         message += " An admin will handle refunds."
     messages.success(request, message)
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
     """Ask the admins to change a live class's title, dates, price, or capacity."""
-    offering = _teach_class_or_404(request, pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_submit:
+        raise Http404("Only the class's own instructor asks the admins for a change.")
+    offering = _class_screen_offering(pk)
     form = ClassChangeRequestForm(request.POST)
     if not form.is_valid():
-        return _render_teach_class_overview(request, offering, change_form=form)
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+        return _render_class_overview(request, offering, change_form=form)
+    teaching_member: Member = request.user.member
     try:
         offering.request_change(teaching_member, form.cleaned_data["note"])
     except ValueError as exc:
@@ -2305,26 +2452,30 @@ def _waitlist_context(request: HttpRequest, offering: ClassOffering) -> dict[str
     }
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+    """The class roster."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_registrations:
+        raise Http404("This class's roster is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/class_registrations.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "registrations",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            **_class_screen_context(request, offering, "registrations"),
             **_teach_registrations_context(request, offering),
-            **_class_workspace_counts(offering),
         },
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_registrations_table(request: HttpRequest, pk: int) -> HttpResponse:
     """The registrations table alone — re-fetched by the ``refund-done`` refresh container."""
-    offering = _teach_class_or_404(request, pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_registrations:
+        raise Http404("This class's roster is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/partials/class_registrations_table.html",
@@ -2332,80 +2483,104 @@ def teach_class_registrations_table(request: HttpRequest, pk: int) -> HttpRespon
     )
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
-    """Send a manual email to selected registrants of one of the teaching member's classes.
+    """Send a manual email to selected registrants of one class.
 
-    POST-only sibling of ``teach_registrations_email``, scoped to a single
-    class via ``_teach_class_or_404`` so it slots into the per-class
-    Workspace. Bounces back to the Registrations tab with a flash message on
-    both success and validation error.
+    Bounces back to the Registrations tab with a flash message on both success and validation
+    error. ``can_send_email`` is the same capability the Send Email button reads, so the
+    affordance and the endpoint cannot disagree.
+
+    Two forms, as before the merge and for the same reason: an admin's send is anchored to the
+    class and signed by them (:class:`AdminClassEmailForm`), while an instructor's is bounded
+    to the registrations of classes they actually teach (:class:`TeachEmailForm`), so a
+    hostile client cannot post someone else's registration ids at it.
     """
-    from classes.forms import TeachEmailForm
+    from classes.forms import AdminClassEmailForm, TeachEmailForm
 
-    offering = _teach_class_or_404(request, pk)
-    form = TeachEmailForm(request.POST, teaching_member=request.teaching_member)  # type: ignore[attr-defined]
-    # Bound recipients to THIS class only — the form otherwise spans all of the
-    # teaching member's classes, which would let one class's tab email another class's
-    # registrants (and mis-anchor the audit record).
-    field = form.fields["registration_ids"]
-    field.queryset = field.queryset.filter(class_offering=offering)  # type: ignore[attr-defined]
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_send_email:
+        raise Http404("This class's registrants are not this viewer's to email.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
+    sender: Member | None = getattr(request.user, "member", None)
+    form: AdminClassEmailForm | TeachEmailForm
+    if access.can_administer:
+        form = AdminClassEmailForm(request.POST, offering=offering)
+    else:
+        form = TeachEmailForm(request.POST, teaching_member=sender)
+        # Narrow the instructor's form to THIS class: it otherwise spans every class they
+        # teach, which would let one class's tab email another class's registrants (and
+        # mis-anchor the audit record).
+        field = form.fields["registration_ids"]
+        field.queryset = field.queryset.filter(class_offering=offering)  # type: ignore[attr-defined]
     if not form.is_valid():
-        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn’t send the message."
+        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
         messages.error(request, str(first_error))
         return redirect("classes:teach_class_registrations", pk=offering.pk)
-    message = form.send()
+    message = form.send(sender_member=sender) if isinstance(form, AdminClassEmailForm) else form.send()
     messages.success(
         request,
-        f"Sent ‘{message.subject}’ to {message.recipient_count} recipient(s).",
+        f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
     )
     return redirect("classes:teach_class_registrations", pk=offering.pk)
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+    """The class waitlist, in order, with the promote and notify actions."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_waitlist:
+        raise Http404("This class's waitlist is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return render(
         request,
         "classes/teach/class_waitlist.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "waitlist",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
+            **_class_screen_context(request, offering, "waitlist"),
             **_waitlist_context(request, offering),
-            **_class_workspace_counts(offering),
         },
     )
 
 
-@teaching_member_required
-@instructor_discount_codes_required
+@class_screen_required
 def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _teach_class_or_404(request, pk)
+    """This class's discount codes, plus the global ones that also apply to it.
+
+    The tab itself is conditional for an instructor (the site flag), and
+    ``can_view_discount_codes`` already carries that flag, so the page and the tab strip
+    read one answer.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_discount_codes:
+        if access.role == ROLE_INSTRUCTOR:
+            # The instructor leg follows the site flag, and a soft-launch kill switch is not an
+            # authorization failure: same info message and redirect every other flag gate gives.
+            messages.info(request, "Discount codes are managed by admins. Ask an admin if you need one for your class.")
+            return redirect("classes:teach_dashboard")
+        raise Http404("Discount codes on this class are not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
     return render(
         request,
         "classes/teach/class_discount_codes.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "discount_codes",
-            "instructor": request.teaching_member,  # type: ignore[attr-defined]
-            "offering": offering,
+            **_class_screen_context(request, offering, "discount_codes"),
             "codes": codes,
             # Resolve the acting user's approval capability once (one Member query),
             # reused per row in the template — avoids an N+1 across the code list.
             "approver": DiscountCode.approver_for(request.user),
-            **_class_workspace_counts(offering),
         },
     )
 
 
-@teaching_member_required
+@class_screen_required
 def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
-    """Author the per-class welcome email. Editable by the instructor, the guild's lead, or an admin."""
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offering = get_object_or_404(ClassOffering.objects.editable_by(teaching_member), pk=pk)
+    """Author the per-class welcome email. Editable by the instructor, the guild's staff, or an admin."""
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_view_emails:
+        raise Http404("This class's welcome email is not open to this viewer.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
     if request.method == "POST" and form.is_valid():
         offering = form.save()
@@ -2419,12 +2594,8 @@ def teach_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
         request,
         "classes/teach/class_emails.html",
         {
-            "active_tab": "classes",
-            "active_subtab": "emails",
-            "instructor": teaching_member,
-            "offering": offering,
+            **_class_screen_context(request, offering, "emails"),
             "form": form,
-            **_class_workspace_counts(offering),
         },
     )
 
@@ -2576,7 +2747,7 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
 
     edit_url = None
     if is_admin:
-        edit_url = reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
+        edit_url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
     elif user_member is not None and user_member.can_edit_class(offering):
         # Instructors and guild leads manage the class from the teaching portal.
         # A CMS Administrator gets no edit link — they review, they don't edit.
@@ -3022,7 +3193,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             else:
                 _mark_composer_saved(request, offering)
                 messages.success(request, f"{offering.title} is published." if publish_now else "Draft saved.")
-                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+                return _composer_redirect("classes:teach_class_edit", offering.pk, request)
 
     context: dict[str, Any] = {
         "active_tab": "classes",
@@ -3094,9 +3265,8 @@ def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
     return render(request, "classes/class_flyer.html", {"offering": offering, "qr_svg": offering.qr_svg()})
 
 
-@classes_admin_access_required
-def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """The admin composer, edit mode.
+def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
+    """The composer as an admin sees it: every fact editable, and Publish on the last step.
 
     ``action=publish`` saves and then publishes a draft straight from the composer (the
     admin's step 5 action); an unready class stays a draft and lands on the first step
@@ -3119,25 +3289,26 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
             # would strand the open guild lead row. Only a draft publishes from here.
             if offering.status != ClassOffering.Status.DRAFT:
                 messages.error(request, "Only a draft can be published from here.")
-                return _composer_redirect("classes:admin_class_edit", offering.pk, request)
+                return _composer_redirect("classes:teach_class_edit", offering.pk, request)
             try:
                 offering.publish(cast("User", request.user))
             except ClassNotReadyError as exc:
                 messages.error(request, exc.messages[0])
-                return _unready_redirect("classes:admin_class_edit", offering, exc.items)
+                return _unready_redirect("classes:teach_class_edit", offering, exc.items)
             messages.success(request, f"{offering.title} is published.")
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         messages.success(request, "Class updated.")
         if request.POST.get("step"):
-            return _composer_redirect("classes:admin_class_edit", offering.pk, request)
-        return redirect("classes:admin_class_detail", pk=offering.pk)
+            return _composer_redirect("classes:teach_class_edit", offering.pk, request)
+        return redirect("classes:teach_class_detail", pk=offering.pk)
 
     shown = _saved_row(form, offering)
     return render(
         request,
-        "classes/admin/class_form.html",
+        "classes/class_form.html",
         {
             "active_tab": "classes",
+            "screen_shell": ADMIN_SHELL,
             "form": form,
             "sessions_json": _sessions_json(request, session_formset, shown),
             "initial_forms": session_formset.initial_form_count(),
@@ -3150,6 +3321,10 @@ def admin_class_edit(request: HttpRequest, pk: int) -> HttpResponse:
                 offering=shown,
                 is_admin=True,
             ),
+            # The hero and gallery components read their post targets from context with no
+            # fallback, so the admin path has to supply them too now that both composers post
+            # to the one merged set of image routes.
+            **_teach_gallery_context(offering),
         },
     )
 
@@ -3165,7 +3340,12 @@ def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
     }
 
 
-def _admin_class_detail_offering(pk: int) -> ClassOffering:
+def _class_screen_offering(pk: int) -> ClassOffering:
+    """The Overview's own queryset: the joins and the count that page reads, in one query.
+
+    Without it the sessions table is a query per row and the instructor, guild and capacity
+    lines are three more. The screen's other tabs fetch what they need for themselves.
+    """
     return get_object_or_404(
         ClassOffering.objects.select_related("instructor", "category__guild")
         .prefetch_related("sessions")
@@ -3174,106 +3354,43 @@ def _admin_class_detail_offering(pk: int) -> ClassOffering:
     )
 
 
-def _render_admin_class_detail(
-    request: HttpRequest,
-    offering: ClassOffering,
-    cancel_form: ClassCancelForm,
-    sale_form: ClassSaleForm | None = None,
-) -> HttpResponse:
-    """The admin workspace Overview: pipeline strip, summary, and the action row by state.
-
-    A bound, invalid ``cancel_form`` or ``sale_form`` re-renders the page with that modal
-    open and the error inside it (the modals are server-rendered inline, never fetched).
-    """
-    return render(
-        request,
-        "classes/admin/class_detail.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "overview",
-            "offering": offering,
-            "lifecycle": offering.lifecycle,
-            "pipeline": offering.review_pipeline(),
-            "cancel_form": cancel_form,
-            "sale_form": sale_form or ClassSaleForm(instance=offering),
-            "archive_blocker": offering.archive_blocker,
-            "paid_registration_count": offering.paid_registration_count,
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_review_access_required
-def admin_class_detail(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = _admin_class_detail_offering(pk)
-    return _render_admin_class_detail(request, offering, ClassCancelForm())
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
-    """Cancel a live class with a reason: registrants are emailed, every member gets the bell row."""
-    offering = _admin_class_detail_offering(pk)
-    form = ClassCancelForm(request.POST)
-    if not form.is_valid():
-        return _render_admin_class_detail(request, offering, form)
-    try:
-        offering.cancel(cast("User", request.user), form.cleaned_data["reason"])
-    except ValueError as exc:
-        messages.error(request, str(exc))
-        return redirect("classes:admin_class_detail", pk=offering.pk)
-    messages.success(request, "Class cancelled. Everyone registered has been told.")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_sale(request: HttpRequest, pk: int) -> HttpResponse:
-    """The Put This Class On Sale modal on the admin class page: turn a sale on, change it, or turn it off."""
-    offering = _admin_class_detail_offering(pk)
-    form = _save_sale(request, offering)
-    if form is not None:
-        return _render_admin_class_detail(request, offering, ClassCancelForm(), sale_form=form)
-    return redirect("classes:admin_class_detail", pk=offering.pk)
-
-
-@classes_admin_access_required
+@class_screen_required
 @require_POST
 def admin_class_restore(request: HttpRequest, pk: int) -> HttpResponse:
     """Restore an archived class to a draft. It needs review again before it goes live."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     try:
         offering.restore()
     except ValueError as exc:
         messages.error(request, str(exc))
-        return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:teach_class_detail", pk=offering.pk)
     messages.success(request, f"{offering.title} restored to draft. It needs review again before it goes live.")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
+@class_screen_required
 @require_POST
 def admin_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
     """Take a live class back to draft. Quiet: registrations stand and nobody is emailed."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     try:
         offering.unpublish(actor=request.user)
     except ValueError as exc:
         messages.error(request, str(exc))
-        return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:teach_class_detail", pk=offering.pk)
     messages.success(
         request,
         f"{offering.title} is back to draft and out of the catalog. "
         "Nobody was emailed. It needs review again before it goes live.",
     )
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
+@class_screen_required
 @require_POST
 def admin_class_remind_lead(request: HttpRequest, pk: int) -> HttpResponse:
     """Remind lead (HTMX): re-send the open guild-lead review request, once per day, and toast the outcome."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     response = HttpResponse(status=204)
     gate = offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").order_by("-created_at").first()
     if gate is None or offering.status != ClassOffering.Status.PENDING:
@@ -3344,133 +3461,38 @@ def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect("classes:admin_overview")
 
 
-@classes_admin_access_required
-def admin_class_registrations(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return render(
-        request,
-        "classes/admin/class_registrations.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "registrations",
-            **_teach_registrations_context(request, offering),
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-def admin_class_registrations_table(request: HttpRequest, pk: int) -> HttpResponse:
-    """The admin roster table alone — re-fetched by the ``refund-done`` refresh container."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return render(
-        request,
-        "classes/teach/partials/class_registrations_table.html",
-        _teach_registrations_context(request, offering),
-    )
-
-
-@classes_admin_access_required
-def admin_class_waitlist(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return render(
-        request,
-        "classes/admin/class_waitlist.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "waitlist",
-            **_waitlist_context(request, offering),
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-def admin_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    codes = DiscountCode.objects.filter(Q(class_offering=offering) | Q(class_offering__isnull=True)).order_by("code")
-    return render(
-        request,
-        "classes/admin/class_discount_codes.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "discount_codes",
-            "offering": offering,
-            "codes": codes,
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-def admin_class_emails(request: HttpRequest, pk: int) -> HttpResponse:
-    """Author a class's welcome email from the admin class workspace (any class)."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    form = TeachWelcomeEmailForm(request.POST or None, instance=offering)
-    if request.method == "POST" and form.is_valid():
-        offering = form.save()
-        if "send_test" in request.POST:
-            send_class_welcome_email_test(offering, request.user.email)
-            messages.success(request, f"Saved — and sent a test to {request.user.email}.")
-        else:
-            messages.success(request, "Welcome email saved.")
-        return redirect("classes:admin_class_emails", pk=offering.pk)
-    return render(
-        request,
-        "classes/admin/class_emails.html",
-        {
-            "active_tab": "classes",
-            "active_subtab": "emails",
-            "offering": offering,
-            "form": form,
-            **_class_workspace_counts(offering),
-        },
-    )
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_email(request: HttpRequest, pk: int) -> HttpResponse:
-    from classes.forms import AdminClassEmailForm
-
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    sender_member: Member | None = getattr(request.user, "member", None)
-    form = AdminClassEmailForm(request.POST, offering=offering)
-    if not form.is_valid():
-        first_error = next(iter(form.errors.values()))[0] if form.errors else "Couldn't send the message."
-        messages.error(request, str(first_error))
-        return redirect("classes:admin_class_registrations", pk=pk)
-    message = form.send(sender_member=sender_member)
-    messages.success(
-        request,
-        f"Sent '{message.subject}' to {message.recipient_count} recipient(s).",
-    )
-    return redirect("classes:admin_class_registrations", pk=pk)
-
-
-@classes_review_access_required
+@class_screen_required
 def admin_class_approve(request: HttpRequest, pk: int) -> HttpResponse:
-    """Quick-approve from the admin class detail page.
+    """Quick-approve from the class screen.
 
     Records an admin-role decision via ClassApproval. Admin approval is final:
     the offering publishes immediately, closing any still-open guild-lead gate.
     For request-changes / decline with notes, use the dedicated review page
     at /classes/admin/<pk>/review/.
+
+    ``can_approve`` is the gate, so it admits a ``CLASS_APPROVER`` reviewer as well as an
+    admin — approving is the reviewer's whole contract — and refuses a guild lead who does
+    not hold that grant. A lead or an instructor who *does* hold it keeps it here (ruling
+    25): the grant is the publish-level approval, and holding it does not stop being true
+    on a class of their own.
     """
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_approve:
+        raise Http404("This class is not this viewer's to approve.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     if request.method == "POST":
         try:
             row = offering.approve(request.user)
         except ValueError as exc:
             messages.error(request, str(exc))
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         except ValidationError as exc:
             # An unready class (no dates, no photos, ...) never publishes; say why.
             messages.error(request, exc.messages[0])
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         send_class_review_decision(offering, row)
         messages.success(request, f"{offering.title} is published.")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
 _ACTIVITY_GROUPS = {
@@ -3576,10 +3598,13 @@ def admin_activity(request: HttpRequest) -> HttpResponse:
     )
 
 
-@classes_review_access_required
+@class_screen_required
 def admin_class_review(request: HttpRequest, pk: int) -> HttpResponse:
     """Full reviewer page for admins and CMS Administrators. Mirrors the tokenized public review page."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if not access.can_approve:
+        raise Http404("This class is not this viewer's to review.")
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     return _class_review_view(
         request,
         offering=offering,
@@ -3689,128 +3714,106 @@ def _class_review_view(
     )
 
 
-@classes_admin_access_required
+@class_screen_required
 def admin_class_archive(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    """Take a class out of every list and the catalog. Nobody is notified; registrations stay."""
+    offering = _administered_class(request)
     if request.method == "POST":
         try:
             offering.archive()
         except ValueError as exc:
             # An upcoming class with active registrations must be cancelled, not hidden.
             messages.error(request, str(exc))
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         messages.success(request, f"{offering.title} archived. Nobody was notified.")
         return redirect("classes:admin_classes")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
+@class_screen_required
 def admin_class_duplicate(request: HttpRequest, pk: int) -> HttpResponse:
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    """Copy a class into a fresh draft, dates and all, and open the copy in the composer."""
+    offering = _administered_class(request)
     if request.method == "POST":
         copy = offering.duplicate()
         messages.success(request, "Class duplicated.")
-        return redirect("classes:admin_class_edit", pk=copy.pk)
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+        return redirect("classes:teach_class_edit", pk=copy.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
-def admin_class_duplicate_run(request: HttpRequest, pk: int) -> HttpResponse:
-    """Offer this class on another set of dates — clones it as a grouped draft run."""
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    if request.method == "POST":
-        run = offering.duplicate_as_new_run()
-        messages.success(request, "New date-set added as a draft. Add its dates, then publish when ready.")
-        return redirect("classes:admin_class_edit", pk=run.pk)
-    return redirect("classes:admin_class_detail", pk=offering.pk)
-
-
-@classes_admin_access_required
+@class_screen_required
 def admin_class_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """Hard-delete a class — only when it has no registrations.
 
     Classes with any registration history (even cancelled) are refused to
     preserve the audit record; use Archive instead in that case.
+
+    There is no soft-delete column behind this and no undo: too loose a gate here is strictly
+    worse than too tight, which is why the capability is asserted on the endpoint and not only
+    drawn on the screen.
     """
-    offering = get_object_or_404(ClassOffering, pk=pk)
+    offering = _administered_class(request)
     if request.method == "POST":
         if offering.registrations.exists():
             messages.error(request, "Can't delete — this class has registrations. Archive it instead.")
-            return redirect("classes:admin_class_detail", pk=offering.pk)
+            return redirect("classes:teach_class_detail", pk=offering.pk)
         title = offering.title
         offering.delete()
         messages.success(request, f"Deleted ‘{title}’.")
         return redirect("classes:admin_classes")
-    return redirect("classes:admin_class_detail", pk=offering.pk)
+    return redirect("classes:teach_class_detail", pk=offering.pk)
 
 
-@classes_admin_access_required
-@require_POST
-def admin_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _hero_upload(request, get_object_or_404(ClassOffering, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_upload(request, get_object_or_404(ClassOffering, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_reorder(request, get_object_or_404(ClassOffering, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_delete(get_object_or_404(ClassImage, pk=pk))
-
-
-@classes_admin_access_required
-@require_POST
-def admin_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_alt(request, get_object_or_404(ClassImage, pk=pk))
-
-
-# --- Instructor-scoped image endpoints ----------------------------------------
+# --- Per-class image endpoints -------------------------------------------------
 #
-# The hero and gallery components post instantly (drag, drop, reorder, alt text). The
-# instructor edit pages point them at these routes, which share the admin handlers
-# above but scope the class through the teach portal's ``editable_by`` (the instructor,
-# plus guild staff who may edit the draft); anyone else gets a 404, never a 403.
+# The hero and gallery components post instantly (drag, drop, reorder, alt text), and the
+# composer points them here whoever is editing. Three take a class pk and go through
+# ``class_screen_required``; the last two take an IMAGE pk, so they scope themselves through
+# the image's own class and then ask the same question of it.
 
 
-def _teach_editable_offerings(member: Member) -> "ClassOfferingQuerySet":
-    """The classes this member may edit photos on: their editable set, minus the closed ones.
+def _editable_class_or_404(request: HttpRequest) -> ClassOffering:
+    """The class, once this request is confirmed to hold Edit on it and the class is still open.
 
     ``teach_class_edit`` bounces cancelled and archived classes to an admin, so the image
-    routes behind that page exclude them too. A page gate and a mutation gate that disagree
-    are how an instructor ends up curling a surface the UI never offers.
+    routes behind that page exclude them for everyone but an admin. A page gate and a
+    mutation gate that disagree are how someone ends up curling a surface the UI never offers.
     """
-    return ClassOffering.objects.editable_by(member).exclude(
-        status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED]
-    )
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
+    return _edit_photos_or_404(access, offering)
 
 
-def _teach_editable_offering_or_404(request: HttpRequest, pk: int) -> ClassOffering:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(_teach_editable_offerings(teaching_member), pk=pk)
+def _edit_photos_or_404(access: ClassAccess, offering: ClassOffering) -> ClassOffering:
+    """The shared answer for both shapes of image route: may this viewer change this class's photos?"""
+    closed = offering.status in {ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED}
+    if not access.can_edit or (closed and not access.can_administer):
+        raise Http404("This class's photos are not this viewer's to change.")
+    return offering
 
 
-def _teach_editable_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
-    teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    return get_object_or_404(
-        ClassImage.objects.filter(class_offering__in=_teach_editable_offerings(teaching_member)), pk=pk
-    )
+def _class_image_or_404(request: HttpRequest, pk: int) -> ClassImage:
+    """One gallery image, scoped through the class it belongs to.
+
+    ``class_screen_required`` resolves a CLASS pk and these two routes carry an IMAGE pk, so
+    they cannot wear it. The image names its class, the class answers ``class_access``, and
+    the answer is held to the same capability the class-pk routes assert — one rule, reached
+    two ways, rather than a second rule that can drift.
+    """
+    img = get_object_or_404(ClassImage.objects.select_related("class_offering__category__guild"), pk=pk)
+    access = class_access(request, img.class_offering)
+    if access is None:
+        raise Http404("This class's photos are not this viewer's to change.")
+    _edit_photos_or_404(access, img.class_offering)
+    return img
 
 
 def _teach_gallery_context(offering: ClassOffering, *, with_hero: bool = True) -> dict[str, str]:
-    """The URLs the hero + gallery components post to on the instructor edit pages.
+    """The URLs the hero + gallery components post to, on every page that renders them.
 
-    ``with_hero=False`` for the live-edit page, which renders the gallery but not the hero
-    field: shipping a hero URL a page never posts to only invites drift.
+    The components read these from context with no fallback, so a composer path that omits
+    them posts nowhere at all. ``with_hero=False`` for the live-edit page, which renders the
+    gallery but not the hero field: shipping a hero URL a page never posts to only invites drift.
     """
     hero = (
         {"hero_upload_url": reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})} if with_hero else {}
@@ -3833,34 +3836,34 @@ def teach_image_url_base() -> str:
     return reverse("classes:teach_class_image_delete", kwargs={"pk": 0}).removesuffix("0/delete/")
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_hero_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _hero_upload(request, _teach_editable_offering_or_404(request, pk))
+    return _hero_upload(request, _editable_class_or_404(request))
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_image_upload(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_upload(request, _teach_editable_offering_or_404(request, pk))
+    return _gallery_upload(request, _editable_class_or_404(request))
 
 
-@teaching_member_required
+@class_screen_required
 @require_POST
 def teach_class_image_reorder(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_reorder(request, _teach_editable_offering_or_404(request, pk))
+    return _gallery_reorder(request, _editable_class_or_404(request))
 
 
-@teaching_member_required
+@login_required
 @require_POST
 def teach_class_image_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_delete(_teach_editable_image_or_404(request, pk))
+    return _gallery_delete(_class_image_or_404(request, pk))
 
 
-@teaching_member_required
+@login_required
 @require_POST
 def teach_class_image_alt(request: HttpRequest, pk: int) -> HttpResponse:
-    return _gallery_alt(request, _teach_editable_image_or_404(request, pk))
+    return _gallery_alt(request, _class_image_or_404(request, pk))
 
 
 def _hero_upload(request: HttpRequest, offering: ClassOffering) -> HttpResponse:
@@ -4108,10 +4111,20 @@ def admin_registrations(request: HttpRequest) -> HttpResponse:
 
 
 @classes_registrations_access_required
-def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse:
-    """Download the filtered, role-scoped registrations list as a CSV."""
+def admin_registrations_export(request: HttpRequest) -> StreamingHttpResponse | HttpResponse:
+    """Download the filtered registrations list as a CSV. Admins only (ruling 7).
+
+    The check is here rather than on ``classes_registrations_access_required``, which this
+    shares with ``admin_registrations``: the PAGE stays open to instructors, guild leads and
+    CLASS_APPROVER holders, who need their own classes' sign-ups on screen. Carrying a roster
+    of names and email addresses out of the building as a file is a different act, and it is
+    an admin's. The button is hidden on the same test, so nothing dead-ends.
+    """
     from classes.exports import stream_registrations_query_csv
 
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.is_admin:
+        return HttpResponseForbidden("Exporting registrations requires admin access.")
     registrations = _filter_registrations(request, _scoped_registrations(request))
     return stream_registrations_query_csv(registrations, filename_stem="registrations")
 
@@ -4498,8 +4511,8 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
 
     Gating is stricter than the other roster actions: actual admins may move
     anyone anywhere upcoming, but a non-admin must be the source class's own
-    instructor (``_teach_class_or_404`` semantics — guild leads/officers who can
-    otherwise manage the roster get a 403), and their form only offers other
+    instructor (guild leads/officers who can otherwise manage the roster get a
+    403), and their form only offers other
     upcoming classes they instruct, so a crafted POST at someone else's class
     fails validation. Plain POST + redirect: after a move the row belongs to a
     different roster, so an in-place row swap would render a stale table.
@@ -4529,7 +4542,7 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
         first_error = next(iter(form.errors.values()))[0] if form.errors else "Could not move the student."
         messages.error(request, str(first_error))
     if is_admin:
-        return redirect("classes:admin_class_registrations", pk=source.pk)
+        return redirect("classes:teach_class_registrations", pk=source.pk)
     return redirect("classes:teach_class_registrations", pk=source.pk)
 
 
@@ -4562,7 +4575,7 @@ def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
         form.save()
         messages.success(request, "Discount code created.")
         if scoped_to is not None:
-            return redirect("classes:admin_class_discount_codes", pk=scoped_to.pk)
+            return redirect("classes:teach_class_discount_codes", pk=scoped_to.pk)
         return redirect("classes:admin_discount_codes")
     return render(
         request,

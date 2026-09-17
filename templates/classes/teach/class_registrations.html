@@ -1,4 +1,4 @@
-{% extends "classes/teach/class_detail_base.html" %}
+{% extends "classes/_components/class_screen_base.html" %}
 {% load classes_tags %}
 {% block detail_content %}
 <div>
@@ -9,7 +9,7 @@
         {% include "classes/teach/partials/class_registrations_table.html" %}
     </div>
 
-    {% if registrations %}
+    {% if registrations and access.can_send_email %}
     <div style="margin-top:0.75rem;">
         <a href="{% url 'hub_compose' %}?audience=class:{{ offering.pk }}&amp;lock=1" class="hub-btn hub-btn--sm hub-btn--primary"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right:0.35rem;vertical-align:-2px;"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Send Email</a>
     </div>
