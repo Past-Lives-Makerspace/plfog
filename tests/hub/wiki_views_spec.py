@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import SiteConfiguration
+from tests.features import hide, turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import (
     EquipmentFactory,
@@ -36,8 +37,7 @@ pytestmark = pytest.mark.django_db
 def _wiki_on(db):
     """Every spec in this file runs with the wiki turned on; the off case is explicit."""
     config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
+    turn_on("wiki")
     return config
 
 
@@ -70,13 +70,16 @@ def _preview_as(client: Client, role: str) -> None:
 # the whole point of with_fact_prefetch(), and a regression would blow straight past it.
 # 33 since spec D added the moderator-only Review queue link, whose "may I, and how many
 # are waiting" comes off ONE scope lookup (_review_link) rather than two.
-_HOME_QUERY_BUDGET = 33
+# 34 since #405: the feature_flags context processor reads every feature's state. ONE query
+# for all seven, not one per nav entry — FeatureSwitch.objects.as_context() exists precisely
+# so that a sidebar rendering seven switchable entries costs a single read. If this number
+# ever climbs by seven instead of one, something started asking per feature.
+_HOME_QUERY_BUDGET = 34
 
 
 def describe_the_feature_flag():
     def it_404s_every_route_while_the_wiki_is_off(client: Client, _wiki_on):
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+        hide("wiki")
         _login(client, "wiki_off")
         page = WikiPageFactory()
         for url in (
@@ -90,8 +93,7 @@ def describe_the_feature_flag():
             assert client.get(url).status_code == 404, url
 
     def it_404s_the_write_posts_too(client: Client, _wiki_on):
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+        hide("wiki")
         _login(client, "wiki_off_post")
         page = WikiPageFactory()
         assert client.post(reverse("hub_wiki_confirm", args=[page.slug])).status_code == 404
@@ -111,8 +113,7 @@ def describe_the_sidebar():
 
     def it_shows_no_wiki_link_while_the_flag_is_off(client: Client, _wiki_on, settings):
         settings.MAKERSPACE_WIKI_URL = "https://wiki.example.org/"
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+        hide("wiki")
         _login(client, "wiki_nav_off")
         response = client.get(reverse("hub_home"))
         assert b'href="https://wiki.example.org/"' not in response.content

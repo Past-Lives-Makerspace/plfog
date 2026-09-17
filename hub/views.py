@@ -31,6 +31,7 @@ from django.views.decorators.http import require_POST, require_http_methods
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.models import Category, ClassOffering
+from core.features import is_on
 from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
@@ -50,6 +51,7 @@ from hub.forms import (
     OrgInfoPageForm,
     ProfileSettingsForm,
     ReleaseAnnouncementForm,
+    FeatureSwitchFormSet,
     ScheduledJobStateFormSet,
     SiteSettingsForm,
     SkillSuggestionForm,
@@ -689,11 +691,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # guilds surface does not resolve wiki URLs, so a tab of links nobody can follow is a
     # dead end), and a linked Member — the wiki is login-required. The context builder runs
     # ONLY inside this guard, so a wiki that is off or raising cannot take a guild page down.
-    wiki_tab_enabled = (
-        SiteConfiguration.load().wiki_enabled
-        and getattr(request, "surface", "members") != "guilds"
-        and member is not None
-    )
+    wiki_tab_enabled = is_on("wiki") and getattr(request, "surface", "members") != "guilds" and member is not None
     wiki_tab_context: dict[str, Any] = {}
     if wiki_tab_enabled:
         from hub.wiki_views import guild_wiki_tab_block
@@ -7098,6 +7096,58 @@ def _automation_jobstate_queryset() -> Any:
     return ScheduledJobState.objects.filter(task_key__in=toggleable_keys)
 
 
+def _feature_switch_queryset() -> Any:
+    """State rows for every registry feature, seeding any that are missing first so the formset
+    always has a row to bind (the Automations pattern; the panel is always in the DOM)."""
+    from core.models import FeatureSwitch
+
+    FeatureSwitch.objects.sync_registry()
+    return FeatureSwitch.objects.all()
+
+
+def _build_feature_rows(formset: Any) -> list[dict[str, Any]]:
+    """Pair every registry feature with its bound form, matched by ``feature_key`` and never by
+    position, so the Features tab loops once. ``is_on`` is precomputed because the template needs
+    the CURRENT saved state for the muted styling, which a bound form's raw data does not give."""
+    from core.features import FEATURES, FeatureState
+
+    forms_by_key = {form.instance.feature_key: form for form in formset.forms}
+    rows: list[dict[str, Any]] = []
+    for feature in FEATURES:
+        form = forms_by_key.get(feature.key)
+        is_on = form is not None and form.instance.state == FeatureState.ON
+        rows.append({"feature": feature, "form": form, "is_on": is_on})
+    return rows
+
+
+def _bind_feature_formset(request: HttpRequest) -> tuple[Any, bool]:
+    """Bind the Features formset when its management form is posted, else build an unbound one
+    over the synced rows. Returns ``(formset, was_posted)``."""
+    queryset = _feature_switch_queryset()
+    if "features-TOTAL_FORMS" in request.POST:
+        return FeatureSwitchFormSet(request.POST, queryset=queryset, prefix="features"), True
+    return FeatureSwitchFormSet(queryset=queryset, prefix="features"), False
+
+
+def _save_feature_formset(formset: Any, was_posted: bool, user: Any) -> None:
+    """Save the Features states independently of the main settings save, so a feature-switch
+    issue can never block another tab from saving (the jobstate rule). Stamps ``updated_by`` so
+    the row records who turned a feature off — the question somebody always asks afterwards."""
+    if not (was_posted and formset.is_valid()):
+        return
+    rows = formset.save(commit=False)
+    for row in rows:
+        row.updated_by = user if (user is not None and getattr(user, "pk", None)) else None
+        row.save()
+
+
+def _resolve_feature_context(bound_formset: Any) -> tuple[list[dict[str, Any]], Any]:
+    """The Features tab context: reuse a bound formset from a failed save (preserving what the
+    admin typed), else a fresh one over the synced rows."""
+    formset = bound_formset or FeatureSwitchFormSet(queryset=_feature_switch_queryset(), prefix="features")
+    return _build_feature_rows(formset), formset
+
+
 def _build_automation_rows(formset: Any) -> list[dict[str, Any]]:
     """Pair every registry job with its bound toggle form (matched by ``task_key``, never by
     position — §11 #4) and its latest run, so the Automations panel loops once."""
@@ -7208,10 +7258,10 @@ def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> 
 
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
-) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any, Any]:
+) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any, Any, Any]:
     """Bind + save the settings form, calendar formset, and (Discord tab only) the emoji
     map + per-guild role formsets. Returns ``(redirect_or_none, form, feed_formset,
-    emoji_formset, role_formset)``.
+    emoji_formset, role_formset, jobstate_formset, feature_formset)``.
 
     The Discord formsets are bound + validated + saved ONLY when the Discord tab posted
     (``submitted_tab == "discord"``) so saving any other tab never requires the Discord
@@ -7226,6 +7276,8 @@ def _save_site_settings(
     # it when posted; it's saved independently below so a jobstate hiccup can never block another
     # tab's save (§11 #11).
     jobstate_formset, jobstate_posted = _bind_jobstate_formset(request)
+    # Same deal for the Features tab's state formset (#405).
+    feature_formset, feature_posted = _bind_feature_formset(request)
     if is_discord:
         emoji_formset = DiscordGuildEmojiFormSet(request.POST, queryset=emoji_queryset, prefix="emoji")
         role_formset = GuildRoleFormSet(request.POST, queryset=role_queryset, prefix="guildroles")
@@ -7256,6 +7308,7 @@ def _save_site_settings(
                 emoji_inst.save()
             role_formset.save()
         _save_jobstate_formset(jobstate_formset, jobstate_posted)
+        _save_feature_formset(feature_formset, feature_posted, request.user)
         messages.success(request, "Site settings saved.")
         target_tab = request.POST.get("submitted_tab", active_tab)
         return (
@@ -7265,8 +7318,9 @@ def _save_site_settings(
             emoji_formset,
             role_formset,
             jobstate_formset,
+            feature_formset,
         )
-    return None, form, feed_formset, emoji_formset, role_formset, jobstate_formset
+    return None, form, feed_formset, emoji_formset, role_formset, jobstate_formset, feature_formset
 
 
 _SITE_SETTINGS_TABS = frozenset(
@@ -7325,6 +7379,7 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     release_form: ReleaseAnnouncementForm | None = None
     release_preview: dict[str, object] | None = None
     jobstate_formset: Any = None
+    feature_formset: Any = None
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -7362,8 +7417,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
                 return response
             # else fall through to render (preview, or send with validation errors)
         else:
-            response, form, feed_formset, emoji_formset, role_formset, jobstate_formset = _save_site_settings(
-                request, config, feed_queryset, active_tab
+            response, form, feed_formset, emoji_formset, role_formset, jobstate_formset, feature_formset = (
+                _save_site_settings(request, config, feed_queryset, active_tab)
             )
             if response is not None:
                 return response
@@ -7384,6 +7439,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
     # Automations tab: reuse the bound formset from a failed save (preserves typed toggle state),
     # else build a fresh one over the synced rows. Rows pair each registry job with its form + last run.
     automation_rows, jobstate_formset = _resolve_automation_context(jobstate_formset)
+    # Features tab: same shape — reuse a bound formset from a failed save, else a fresh one.
+    feature_rows, feature_formset = _resolve_feature_context(feature_formset)
 
     from core.events.email_catalogue import build_email_catalogue
 
@@ -7410,6 +7467,8 @@ def admin_site_settings(request: HttpRequest) -> HttpResponse:
             "release_preview": release_preview,
             "automation_rows": automation_rows,
             "jobstate_formset": jobstate_formset,
+            "feature_rows": feature_rows,
+            "feature_formset": feature_formset,
             "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
         },
     )

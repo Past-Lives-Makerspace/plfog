@@ -74,9 +74,9 @@ FEATURE_SHOT_VIEWPORT = {"width": 1200, "height": 800}
 
 def _feature_pages() -> list[tuple[str, str, str]]:
     """(slug, label, path) for each release-email feature page — driven by the registry."""
-    from core.release_email import FEATURE_PAGES
+    from core.release_email import available_feature_pages
 
-    return [(fp.slug, fp.label, fp.path) for fp in FEATURE_PAGES]
+    return [(fp.slug, fp.label, fp.path) for fp in available_feature_pages()]
 
 
 def _seed_signage() -> "object":

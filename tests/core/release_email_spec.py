@@ -187,26 +187,28 @@ def describe_captured_feature_slugs():
 
 
 def describe_feature_shot_choices():
-    def it_leads_with_no_screenshot(fake_storage):
+    # These take `db` since #405: the choice list reads each page's feature state, so a
+    # screenshot of a feature an admin has just hidden is no longer offered.
+    def it_leads_with_no_screenshot(fake_storage, db):
         assert feature_shot_choices()[0] == ("", "No screenshot")
 
-    def it_offers_a_captured_registry_slug_with_its_friendly_label(fake_storage):
+    def it_offers_a_captured_registry_slug_with_its_friendly_label(fake_storage, db):
         fake_storage.existing.add("email/features/home.png")
         choices = feature_shot_choices()
         assert ("home", "Member home dashboard") in choices
 
-    def it_does_not_offer_a_registry_slug_with_no_asset(fake_storage):
+    def it_does_not_offer_a_registry_slug_with_no_asset(fake_storage, db):
         fake_storage.existing.add("email/features/home.png")
         # org-info is in the registry but was never captured → not offered.
         assert all(value != "org-info" for value, _label in feature_shot_choices())
 
-    def it_offers_a_bespoke_captured_slug_after_the_curated_ones(fake_storage):
+    def it_offers_a_bespoke_captured_slug_after_the_curated_ones(fake_storage, db):
         fake_storage.existing.update({"email/features/home.png", "email/features/guild-pages.png"})
         choices = feature_shot_choices()
         # The curated 'home' comes before the bespoke, humanized 'guild-pages'.
         assert choices.index(("home", "Member home dashboard")) < choices.index(("guild-pages", "Guild pages"))
 
-    def it_orders_bespoke_slugs_alphabetically_after_curated(fake_storage):
+    def it_orders_bespoke_slugs_alphabetically_after_curated(fake_storage, db):
         fake_storage.existing.update({"email/features/qr-codes.png", "email/features/guild-pages.png"})
         # Neither is in the registry, so both are appended alphabetically.
         assert feature_shot_choices() == [
@@ -215,7 +217,7 @@ def describe_feature_shot_choices():
             ("qr-codes", "Qr codes"),
         ]
 
-    def it_does_not_duplicate_a_slug_that_is_both_registry_and_captured(fake_storage):
+    def it_does_not_duplicate_a_slug_that_is_both_registry_and_captured(fake_storage, db):
         fake_storage.existing.add("email/features/home.png")
         values = [value for value, _label in feature_shot_choices()]
         assert values.count("home") == 1
@@ -420,3 +422,45 @@ def describe_card():
         assert card.included is True
         assert card.screenshot_url == ""
         assert card.bullets == []
+
+
+def describe_available_feature_pages():
+    """#405 AC 5b: a switched-off feature drops out of the screenshot registry.
+
+    Same bug class as the kiosk slide. The capture job walks this registry and publishes what
+    it finds, so a Spaces page left in the list while Spaces is hidden would have the release
+    email carrying a photograph of its own 404.
+    """
+
+    def it_lists_every_page_while_every_feature_is_on(db):
+        from core.release_email import FEATURE_PAGES, available_feature_pages
+        from tests.features import turn_on
+
+        for key in ("spaces", "directory"):
+            turn_on(key)
+        assert available_feature_pages() == FEATURE_PAGES
+
+    def it_drops_a_hidden_features_page(db):
+        from core.release_email import available_feature_pages
+        from tests.features import hide
+
+        hide("spaces")
+        assert "spaces" not in {page.slug for page in available_feature_pages()}
+
+    def it_drops_a_coming_soon_features_page_too(db):
+        from core.release_email import available_feature_pages
+        from tests.features import coming_soon
+
+        coming_soon("directory", "Launching Sept 30th!")
+        assert "member-directory" not in {page.slug for page in available_feature_pages()}
+
+    def it_keeps_pages_that_belong_to_no_feature(db):
+        from core.features import FEATURES
+        from core.release_email import available_feature_pages
+        from tests.features import hide
+
+        for feature in FEATURES:
+            hide(feature.key)
+        slugs = {page.slug for page in available_feature_pages()}
+        # Home, Help, the guild directory, notifications and the calendar are not switchable.
+        assert {"home", "help", "guild-directory", "notifications", "community-calendar"} <= slugs

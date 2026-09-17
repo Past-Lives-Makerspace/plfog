@@ -15,6 +15,7 @@ from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from core.features import DEFAULT_SOON_MESSAGE, FEATURES, FeatureState, FeatureView
 from core.files import delete_orphan_on_replace
 from core.scheduled_jobs import Trigger
 from core.validators import validate_hex_color, validate_image_size
@@ -650,26 +651,9 @@ class SiteConfiguration(models.Model):
         help_text="Show a link to the old MediaWiki at the bottom of the Wiki home. Turn this off "
         "once the old wiki is retired.",
     )
-    wiki_enabled = models.BooleanField(
-        default=False,
-        verbose_name="Member wiki",
-        help_text="Show the Wiki in the sidebar and let members read and write wiki pages. When off, "
-        "every /wiki/ page and the QR sticker links answer 404.",
-    )
-    equipment_page_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Equipment page",
-        help_text="Show the Equipment page in the sidebar and allow reservations.",
-    )
-    host_a_workshop_enabled = models.BooleanField(
-        default=True,
-        verbose_name="Show Host a Workshop in the sidebar",
-        help_text="Show the Host a Workshop entry — the invitation to start teaching — to members "
-        "who cannot teach yet. Turn it off to stop recruiting instructors for a while. Instructors "
-        "keep their Teaching entry either way, so the teaching portal is never locked. The page "
-        "itself stays live at its own link, and its copy is still edited under Classes admin → "
-        "Settings → Teaching Marketing Page.",
-    )
+    # wiki_enabled, equipment_page_enabled and host_a_workshop_enabled used to live here. They are
+    # FeatureSwitch rows now (see core/features.py) so that all seven member features answer to one
+    # mechanism with three states instead of two, and so that the eighth needs no migration.
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",
@@ -711,7 +695,11 @@ class SiteConfiguration(models.Model):
         verbose_name="Public member directory",
         help_text=(
             "When on, the member directory at /members/ is viewable without signing in (the original "
-            "public-directory behavior). When off, visitors must sign in before the directory shows anything."
+            "public-directory behavior). When off, visitors must sign in before the directory shows anything. "
+            "This is NOT the on/off switch for the directory itself — that is Member Directory in the feature "
+            "list above, and a directory set to Hidden or Coming soon there is gone for everyone regardless of "
+            "this setting. Two switches, two jobs: that one decides whether the feature exists, this one "
+            "decides whether signed-out visitors can see it."
         ),
     )
     member_event_policy = models.CharField(
@@ -2216,6 +2204,86 @@ class ScheduledJobState(models.Model):
     def __str__(self) -> str:
         state = "enabled" if self.enabled else "disabled"
         return f"{self.task_key} ({state})"
+
+
+class FeatureSwitchManager(models.Manager["FeatureSwitch"]):
+    """The current state per member feature, against the ``core.features`` registry.
+
+    Absence of a row means ON, so a database that has never been seeded behaves exactly like
+    the app did before this table existed. That is the property that makes the deploy a no-op.
+    """
+
+    def state_of(self, key: str) -> str:
+        """``key``'s current state, or ON when no row (or no registry entry) exists."""
+        row = self.filter(feature_key=key).first()
+        return row.state if row is not None else FeatureState.ON
+
+    def sync_registry(self) -> None:
+        """Ensure a state row exists for every registry feature so the admin formset always has
+        one to bind, seeded ON. Idempotent; never deletes a row or re-defaults an existing one,
+        so a retired feature's state and an admin's flip both survive."""
+        for feature in FEATURES:
+            self.get_or_create(feature_key=feature.key, defaults={"state": FeatureState.ON})
+
+    def as_context(self) -> dict[str, FeatureView]:
+        """Every feature's live state, keyed by feature key, in ONE query.
+
+        This is what the site-wide context processor delivers, so a page that renders all seven
+        nav entries costs one read rather than seven. Registry order is preserved and a feature
+        with no row still appears, ON — a template never has to test for a missing key.
+        """
+        rows = {row.feature_key: row for row in self.all()}
+        views: dict[str, FeatureView] = {}
+        for feature in FEATURES:
+            row = rows.get(feature.key)
+            state = row.state if row is not None else FeatureState.ON
+            message = (row.message.strip() if row is not None else "") or DEFAULT_SOON_MESSAGE
+            views[feature.key] = FeatureView(key=feature.key, name=feature.name, state=state, message=message)
+        return views
+
+
+class FeatureSwitch(models.Model):
+    """On / Coming soon / Hidden for one member feature, plus the Coming soon hover message.
+
+    One row per ``core.features.FEATURES`` key. The registry owns what a feature IS and what
+    turning it off does; this row owns only the admin's current choice, which is why adding a
+    feature needs no migration.
+    """
+
+    feature_key = models.CharField(
+        max_length=64, unique=True, help_text="Registry key of the feature this state controls."
+    )
+    state = models.CharField(
+        max_length=10,
+        choices=FeatureState.choices,
+        default=FeatureState.ON,
+        help_text="On is normal behaviour. Coming soon leaves the nav entry visible but inert, with the "
+        "message below on hover. Hidden removes the entry. Both off states answer 404 on every page in "
+        "the feature, for everyone including admins.",
+    )
+    message = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text=f"The hover text on a Coming soon entry, e.g. 'Launching Sept 30th!'. "
+        f"Blank shows '{DEFAULT_SOON_MESSAGE}'. Ignored unless the state is Coming soon.",
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this state was last changed.")
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who last changed this feature's state.",
+    )
+
+    objects = FeatureSwitchManager()
+
+    class Meta:
+        ordering = ["feature_key"]
+
+    def __str__(self) -> str:
+        return f"{self.feature_key} ({self.get_state_display()})"
 
 
 # ── TEMPORARY — remove on/after 2026-08-10 ─────────────────────────────────────

@@ -49,24 +49,19 @@ from membership.permissions import can_create_equipment, can_manage_equipment
 
 
 def equipment_feature_required(view_func: Any) -> Any:
-    """404 every equipment view while the Site Settings toggle is off.
+    """404 every equipment view while the Equipment feature is not On.
 
-    A disabled feature is fully dark — member pages, booking POSTs, and manage
-    surfaces alike; Site Settings is where it comes back. Mirrors the
-    ``help_page_enabled`` gate's early-check mechanism, answering 404 instead of a
-    redirect so crafted requests learn nothing.
+    A disabled feature is fully dark — member pages, booking POSTs, and manage surfaces alike;
+    Site Settings is where it comes back. 404 rather than a redirect, so crafted requests learn
+    nothing, and Coming soon is dark in exactly the same way as Hidden.
+
+    The name stays because 17 views carry it; the check is the shared
+    ``core.features.feature_required``, so there is one gate in the app rather than one per
+    feature.
     """
-    from functools import wraps
+    from core.features import feature_required
 
-    @wraps(view_func)
-    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        from core.models import SiteConfiguration
-
-        if not SiteConfiguration.load().equipment_page_enabled:
-            raise Http404("The Equipment page is turned off.")
-        return view_func(request, *args, **kwargs)
-
-    return wrapper
+    return feature_required("equipment")(view_func)
 
 
 def _equipment_queryset() -> EquipmentQuerySet:

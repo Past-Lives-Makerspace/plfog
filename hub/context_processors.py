@@ -127,11 +127,15 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
 
     if member is None or member.status != Member.Status.ACTIVE:
         return None
+    is_active = request.path.startswith("/classes/teach/") and not admin_nav_active
     return {
         "label": "Teaching" if member.can_create_classes else "Host a Workshop",
         "url": reverse("classes:teach_overview"),
-        "is_active": request.path.startswith("/classes/teach/") and not admin_nav_active,
-        # False means this is the "Host a Workshop" invitation, which host_a_workshop_enabled hides.
+        "is_active": is_active,
+        # The same answer as a CSS class, so the entry can be handed to the shared
+        # _sidebar_feature_link.html include — a `with` argument cannot hold an {% if %}.
+        "active_class": "active" if is_active else "",
+        # False means this is the "Host a Workshop" invitation, which features.teach governs.
         "teaches": member.can_create_classes,
     }
 

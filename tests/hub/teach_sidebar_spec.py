@@ -7,7 +7,6 @@ from django.http import HttpRequest
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import SiteConfiguration
 from hub.context_processors import hub_sidebar
 from hub.view_as import ROLE_MEMBER, ViewAs, compute_actual_roles
 from membership.models import Member
@@ -205,6 +204,9 @@ def describe_context_processor():
             "label": "Host a Workshop",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
+            # The same answer as a CSS class, so the entry can be handed to the shared
+            # _sidebar_feature_link.html include (#405).
+            "active_class": "active",
             "teaches": False,
         }
         _unlock(plain_user)
@@ -215,6 +217,7 @@ def describe_context_processor():
             "label": "Teaching",
             "url": reverse("classes:teach_overview"),
             "is_active": True,
+            "active_class": "active",
             "teaches": True,
         }
 
@@ -242,13 +245,13 @@ def describe_context_processor():
 
 
 def _turn_host_a_workshop(on: bool) -> None:
-    config = SiteConfiguration.load()
-    config.host_a_workshop_enabled = on
-    config.save(update_fields=["host_a_workshop_enabled"])
+    from tests.features import hide, turn_on
+
+    turn_on("teach") if on else hide("teach")
 
 
 def describe_host_a_workshop_switch():
-    """Site Settings → Features → "Show Host a Workshop in the sidebar".
+    """Site Settings → Features → Host a Workshop.
 
     Visibility only, and only over the branch that reads "Host a Workshop". Gating the
     instructor's branch too would lock every instructor out of the teaching portal, which is
@@ -262,7 +265,7 @@ def describe_host_a_workshop_switch():
         assert hub_sidebar(request)["teach_nav"]["label"] == "Host a Workshop"
 
     def it_marks_the_invitation_as_the_branch_the_switch_hides(plain_user, rf):
-        # The switch is applied in the sidebar template, against the ``host_a_workshop_enabled``
+        # The switch is applied in the sidebar template, against the ``features.teach`` state
         # that ``core.context_processors.feature_flags`` already supplies — reading it here too
         # would cost a query on every page in the app. ``teaches`` is what the template gates on,
         # and ``it_removes_the_rendered_sidebar_entry_when_off`` below asserts what a member sees.

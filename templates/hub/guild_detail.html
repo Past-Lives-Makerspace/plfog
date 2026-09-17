@@ -128,7 +128,7 @@
     {% if my_tab_enabled and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
-    {% if not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
+    {% if not is_guilds_surface and features.meetings.is_on %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 
@@ -396,7 +396,7 @@
 </div>
 {% endif %}
 
-{% if not is_guilds_surface %}
+{% if not is_guilds_surface and features.meetings.is_on %}
 {# ── Meetings tab (spec §6.4) — a filtered window into the Meetings feature. ── #}
 <div x-show="section === 'meetings'" x-cloak>
     {% include "hub/partials/_guild_meetings_tab.html" %}

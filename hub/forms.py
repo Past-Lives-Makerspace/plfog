@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 
 from core.html_sanitize import sanitize_rich_html
 from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
-from core.models import CalendarFeed, ScheduledJobState, SiteConfiguration
+from core.features import DEFAULT_SOON_MESSAGE
+from core.models import CalendarFeed, FeatureSwitch, ScheduledJobState, SiteConfiguration
 from core.widgets import PageContentEditorWidget, RichTextEditorWidget
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.models import (
@@ -1013,9 +1014,6 @@ class SiteSettingsForm(forms.ModelForm):
             "class_registration_disabled_note",
             "help_page_enabled",
             "wiki_link_enabled",
-            "wiki_enabled",
-            "equipment_page_enabled",
-            "host_a_workshop_enabled",
             "guild_welcome_email_enabled",
             "display_demo_classes",
             "display_demo_guild",
@@ -1081,6 +1079,33 @@ CalendarFeedFormSet = forms.modelformset_factory(
 ScheduledJobStateFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
     ScheduledJobState,
     fields=["enabled"],
+    extra=0,
+)
+
+
+class FeatureSwitchForm(forms.ModelForm):
+    """One feature's card on Site Settings → Features: its state and its Coming soon message.
+
+    The message input is always rendered and always saved — it only *means* anything in the
+    Coming soon state, and keeping the typed text through a trip to Hidden and back is kinder
+    than clearing copy an admin wrote.
+    """
+
+    class Meta:
+        model = FeatureSwitch
+        fields = ["state", "message"]
+        widgets = {
+            "state": forms.RadioSelect(),
+            "message": forms.TextInput(attrs={"placeholder": DEFAULT_SOON_MESSAGE, "maxlength": 200}),
+        }
+
+
+# Site Settings → Features. One card per registry feature, saved by the page's Save. The row set
+# is fixed by ``core.features.FEATURES`` (not user-managed), so ``extra=0`` and no add/delete —
+# admins change a feature's state, they don't add or remove features.
+FeatureSwitchFormSet: type[forms.BaseModelFormSet] = forms.modelformset_factory(
+    FeatureSwitch,
+    form=FeatureSwitchForm,
     extra=0,
 )
 

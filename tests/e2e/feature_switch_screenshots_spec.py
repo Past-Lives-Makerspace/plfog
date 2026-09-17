@@ -1,0 +1,109 @@
+"""Capture the #405 review screenshots: the Features tab and the three sidebar states.
+
+Not a release-email capture — these go to ``docs/screenshots/405/`` in the working tree for a
+human to look at before the PR opens. Run explicitly:
+
+    DATABASE_URL=postgres://plfog:plfog@127.0.0.1:5433/plfog \\
+      .venv/bin/pytest tests/e2e/feature_switch_screenshots_spec.py -m e2e -q --no-cov
+
+Postgres rather than SQLite on purpose: a browser writing through the live server flakes on
+local SQLite with a table lock, which shows up as a 500 in a screenshot and wastes an hour.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from django.urls import reverse
+
+from tests.e2e.screenshot_seed import ADMIN_EMAIL, _seed
+from tests.features import coming_soon, hide, turn_on
+
+SHOT_DIR = Path("docs/screenshots/405")
+VIEWPORT = {"width": 1280, "height": 900}
+
+
+def _save(page, name: str, **kwargs) -> Path:
+    SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    target = SHOT_DIR / f"{name}.png"
+    target.write_bytes(page.screenshot(**kwargs))
+    return target
+
+
+@pytest.fixture()
+def admin_page(live_server, page, login_via_code):
+    _seed()
+    login_via_code(ADMIN_EMAIL)
+    page.set_viewport_size(VIEWPORT)
+    return page
+
+
+def describe_feature_switch_screenshots():
+    def it_captures_the_features_tab(admin_page, live_server):
+        """Shot 1 — Site Settings → Features, with one feature set to Coming soon so its
+        message input is visible in context."""
+        for key in ("meetings", "spaces", "equipment", "directory", "teach", "wiki"):
+            turn_on(key)
+        coming_soon("voting", "Launching Sept 30th!")
+
+        admin_page.goto(
+            f"{live_server.url}{reverse('hub_admin_site_settings')}?tab=features",
+            wait_until="networkidle",
+            timeout=20000,
+        )
+        admin_page.wait_for_timeout(400)
+        saved = _save(admin_page, "01-features-tab", full_page=True)
+        print(f"\nSaved {saved}")
+
+    def it_captures_a_coming_soon_entry_with_its_bubble_open(admin_page, live_server):
+        """Shot 2 — the sidebar Coming soon entry, bubble revealed.
+
+        Revealed by FOCUS, not hover: .pl-help opens on :hover AND :focus-within, and focus is
+        the half of criterion 3 that a mouse screenshot cannot evidence. If this shot shows the
+        bubble, the keyboard path works.
+        """
+        for key in ("meetings", "spaces", "equipment", "directory", "teach", "wiki"):
+            turn_on(key)
+        coming_soon("voting", "Launching Sept 30th!")
+
+        admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
+        admin_page.focus(".hub-sidebar__link--soon")
+        admin_page.wait_for_timeout(400)  # let the bubble's 0.15s transition finish
+        saved = _save(admin_page, "02-coming-soon-focus", clip={"x": 0, "y": 0, "width": 460, "height": 900})
+        print(f"\nSaved {saved}")
+
+    def it_captures_the_same_entry_under_the_mouse(admin_page, live_server):
+        """Shot 2b — the same entry on hover, which is what most people will actually do."""
+        for key in ("meetings", "spaces", "equipment", "directory", "teach", "wiki"):
+            turn_on(key)
+        coming_soon("voting", "Launching Sept 30th!")
+
+        admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
+        admin_page.hover(".hub-sidebar__link--soon")
+        admin_page.wait_for_timeout(400)
+        saved = _save(admin_page, "03-coming-soon-hover", clip={"x": 0, "y": 0, "width": 460, "height": 900})
+        print(f"\nSaved {saved}")
+
+    def it_captures_a_hidden_feature_next_to_the_entries_that_remain(admin_page, live_server):
+        """Shot 3 — Meetings hidden, so the absence is visible beside the entries that stay."""
+        for key in ("spaces", "equipment", "directory", "teach", "wiki"):
+            turn_on(key)
+        hide("meetings")
+        coming_soon("voting", "Launching Sept 30th!")
+
+        admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
+        admin_page.wait_for_timeout(400)
+        saved = _save(admin_page, "04-hidden-and-soon-sidebar", clip={"x": 0, "y": 0, "width": 460, "height": 900})
+        print(f"\nSaved {saved}")
+
+    def it_captures_the_sidebar_with_everything_on_for_comparison(admin_page, live_server):
+        """Shot 4 — the control. Every feature On, which must look exactly like today."""
+        from core.features import FEATURES
+
+        for feature in FEATURES:
+            turn_on(feature.key)
+        admin_page.goto(f"{live_server.url}{reverse('hub_home')}", wait_until="networkidle", timeout=20000)
+        admin_page.wait_for_timeout(400)
+        saved = _save(admin_page, "05-all-on-control", clip={"x": 0, "y": 0, "width": 460, "height": 900})
+        print(f"\nSaved {saved}")

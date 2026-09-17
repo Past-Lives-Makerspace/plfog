@@ -114,6 +114,7 @@ from classes.models import (
     RegistrationQuestion,
     readiness_items,
 )
+from core.features import is_on
 from core.models import SiteConfiguration
 from core.urls_util import book_absolute_url
 
@@ -1235,6 +1236,14 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     if not teaching_member.can_create_classes:
+        # The gate goes HERE, on the branch, not on the URL (#405). This route is one door with
+        # two faces, and ``teaching_member_required`` 302s a locked member onto it precisely so a
+        # deep link lands on the explainer. Gating the URL would 404 that redirect for every
+        # instructor-to-be; gating the branch 404s only the face the switch is about — the
+        # recruiting invitation — while an instructor's dashboard below is untouched in all
+        # three states.
+        if not is_on("teach"):
+            raise Http404("The Host a Workshop feature is turned off.")
         return render(
             request, "classes/teach/why_teach.html", _why_teach_context(teaching_member, TeachingApplicationForm())
         )

@@ -48,6 +48,24 @@ def active_nav(context: dict[str, Any], *args: str | int) -> str:
     return ""
 
 
+@register.simple_tag(takes_context=True)
+def active_path(context: dict[str, Any], prefix: str) -> str:
+    """Return 'active' when the current path starts with ``prefix``.
+
+    The path-prefix companion to :func:`active_nav`, which can only match a reversible URL
+    exactly. A section whose inner pages carry a pk (``/meetings/12/``) cannot be reversed
+    without that pk, so its nav entry has always matched by prefix instead — this puts that
+    test behind ``as`` so it can be handed to an include, which an inline ``{% if %}`` cannot.
+
+    Examples:
+        {% active_path '/meetings/' as meetings_active %}
+    """
+    request = context.get("request")
+    if request is None:
+        return ""
+    return "active" if request.path.startswith(prefix) else ""
+
+
 @register.filter
 def get_item(dictionary: dict, key: str) -> Any:
     """Look up a key in a dict: {{ my_dict|get_item:key }}"""

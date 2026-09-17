@@ -445,18 +445,51 @@
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature Switches</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-          Soft-launch toggles. Leave these on for normal operation; turn one off to hide a feature that isn't ready yet.
+          Soft-launch switches. Every feature below is On for normal operation. <strong>Coming soon</strong> leaves the
+          sidebar entry visible but not clickable, showing your message on hover; <strong>Hidden</strong> removes the entry
+          altogether. Both off states answer 404 on every page in that feature, for everyone including admins — this page
+          is never gated, so you can always switch one back on.
         </p>
       </div>
 
+      {# ── The seven three-state member features (#405) ──────────────────────────────── #}
+      {% comment %}
+        One card per core.features registry entry, in the shape of the Automations tab below:
+        the registry supplies the name and the "what off does" line, the row supplies the state
+        and the message. Adding an eighth feature is a registry entry and no migration, so
+        nothing in this template names a feature.
+      {% endcomment %}
+      {{ feature_formset.management_form }}
+
+      <div class="pl-automation-list">
+        {% for row in feature_rows %}
+        <div class="pl-automation-card pl-automation-card--feature{% if not row.is_on %} pl-automation-card--paused{% endif %}">
+          <div class="pl-automation-main">
+            <div class="pl-automation-name">{{ row.feature.name }}</div>
+            <div class="pl-automation-desc">{{ row.feature.off_description }}</div>
+          </div>
+
+          <div class="pl-automation-cell">
+            <span class="pl-automation-cell-label">State</span>
+            <div style="display:none;">{{ row.form.id }}</div>
+            <div class="pl-feature-states">{{ row.form.state }}</div>
+          </div>
+
+          <div class="pl-automation-cell pl-feature-message">
+            <span class="pl-automation-cell-label">Coming soon message</span>
+            {{ row.form.message }}
+            {% if row.form.message.errors %}<div class="pl-field-error">{{ row.form.message.errors }}</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {# The switches that stay flat booleans by design — they gate a page or a behaviour, not a whole feature family. #}
       {% include "components/form_field.html" with field=form.my_tab_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
       {% include "components/form_field.html" with field=form.help_page_enabled %}
-      {% include "components/form_field.html" with field=form.wiki_enabled %}
       {% include "components/form_field.html" with field=form.wiki_link_enabled %}
-      {% include "components/form_field.html" with field=form.equipment_page_enabled %}
-      {% include "components/form_field.html" with field=form.host_a_workshop_enabled %}
       {% include "components/form_field.html" with field=form.guild_welcome_email_enabled %}
       {% include "components/form_field.html" with field=form.display_demo_classes %}
       {% include "components/form_field.html" with field=form.display_demo_guild %}

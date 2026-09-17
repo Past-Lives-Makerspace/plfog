@@ -46,19 +46,28 @@ def theme(request: HttpRequest) -> dict[str, str]:
 
 
 def feature_flags(request: HttpRequest) -> dict[str, Any]:
-    """Expose the Site Settings → Features toggles site-wide (members + public)."""
-    from core.models import SiteConfiguration
+    """Expose the Site Settings → Features toggles site-wide (members + public).
+
+    ``features`` is the seven three-state member features (``core.features``), keyed by feature
+    key: templates read ``features.voting.is_on`` / ``.is_soon`` / ``.is_hidden`` / ``.message``.
+    It costs ONE query for all seven, which is why ``as_context`` exists rather than seven
+    lookups — a sidebar renders every key on every page in the app.
+
+    The flat booleans below are the switches that stay flat by design (My Tab, class
+    registration, Help, the demo toggles). ``wiki_enabled``, ``equipment_page_enabled`` and
+    ``host_a_workshop_enabled`` used to be among them and are now ``features.wiki``,
+    ``features.equipment`` and ``features.teach``.
+    """
+    from core.models import FeatureSwitch, SiteConfiguration
 
     config = SiteConfiguration.load()
     return {
+        "features": FeatureSwitch.objects.as_context(),
         "my_tab_enabled": config.my_tab_enabled,
         "class_registration_enabled": config.class_registration_enabled,
         "class_registration_disabled_note": config.class_registration_disabled_note,
         "help_page_enabled": config.help_page_enabled,
         "wiki_link_enabled": config.wiki_link_enabled,
-        "wiki_enabled": config.wiki_enabled,
-        "equipment_page_enabled": config.equipment_page_enabled,
-        "host_a_workshop_enabled": config.host_a_workshop_enabled,
         "instructor_discount_codes_enabled": config.instructor_discount_codes_enabled,
         "guild_welcome_email_enabled": config.guild_welcome_email_enabled,
     }

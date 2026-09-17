@@ -61,6 +61,8 @@ screenshots/
 # Empty local test DB artifacts
 test_db.sqlite3
 test.sqlite3
+# Scratch DB for targeted pytest runs (CLAUDE.md's DATABASE_URL=sqlite:///tmp-check.sqlite3)
+tmp-check.sqlite3*
 
 # Email copy gallery build output (scripts/build-email-gallery.sh)
 email-gallery/

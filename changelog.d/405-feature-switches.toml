@@ -1,0 +1,7 @@
+# Admin capability only. Every one of the seven features deploys in exactly the state it is
+# in today (the data migration carries wiki_enabled, equipment_page_enabled and
+# host_a_workshop_enabled onto the new rows), so on merge day members see nothing new and
+# there is nothing honest to announce. The member-visible moment is when an admin flips a
+# feature to Coming soon or Hidden, which is a config change that adds no fragment.
+bump = "minor"
+audience = "internal"

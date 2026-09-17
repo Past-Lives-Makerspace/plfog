@@ -11,6 +11,7 @@ from django.contrib.auth.models import User
 from django.test import Client
 
 from core.models import SiteConfiguration
+from tests.features import turn_on
 from membership.models import Guild, Member
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
@@ -18,8 +19,7 @@ from tests.membership.factories import GuildFactory, MembershipPlanFactory
 def enable_wiki() -> SiteConfiguration:
     """Turn the feature flag on. Every wiki route 404s while it is off."""
     config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
+    turn_on("wiki")
     return config
 
 

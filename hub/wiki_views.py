@@ -18,7 +18,6 @@ safety gate. Two seams still belong to spec B and stay lazily imported until it 
 
 from __future__ import annotations
 
-from functools import wraps
 from typing import Any, cast
 
 from django.conf import settings
@@ -35,6 +34,7 @@ from django.utils.http import urlencode
 from django.utils.timesince import timesince
 from django.views.decorators.http import require_POST
 
+from core.features import feature_required
 from core.models import SiteConfiguration
 from hub.forms import (
     WikiArchiveForm,
@@ -103,20 +103,19 @@ _HOME_DRAFT_LIMIT = 3
 
 
 def wiki_feature_required(view_func: Any) -> Any:
-    """404 every wiki route while the Site Settings toggle is off.
+    """404 every wiki route while the Wiki feature is not On.
 
-    A disabled feature is fully dark — reading pages, write POSTs and sticker links
-    alike — so a crafted request learns nothing about a half-built wiki. Mirrors
-    ``equipment_feature_required``.
+    A disabled feature is fully dark — reading pages, write POSTs and sticker links alike — so a
+    crafted request learns nothing about a half-built wiki. Coming soon is dark in exactly the
+    same way as Hidden; the difference between them is a nav affordance, not an access level.
+
+    The name stays because 37 views carry it, but the check is now the shared
+    ``core.features.feature_required`` — there is one gate in the app, not one per feature. The
+    decorator survives as its own alias rather than folding into ``gated()`` in ``urls.py``
+    because the QR sticker route (``/m/<code>/``) lives outside the ``wiki/`` prefix, so for the
+    wiki the URL block is not the family.
     """
-
-    @wraps(view_func)
-    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        if not SiteConfiguration.load().wiki_enabled:
-            raise Http404("The wiki is turned off.")
-        return view_func(request, *args, **kwargs)
-
-    return wrapper
+    return feature_required("wiki")(view_func)
 
 
 # --- Small shared helpers ------------------------------------------------------------
