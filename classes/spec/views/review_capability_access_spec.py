@@ -132,6 +132,63 @@ def describe_review_capability_access():
             for url in _admin_only_urls(guilded_pending_offering):
                 assert url in html, f"full admin missing control {url}"
 
+    def describe_a_cms_administrator_who_leads_the_classes_guild():
+        """Ruling 25, end to end: the overlap population approves from a page it can open.
+
+        The capability alone is not the ruling. Approve and "Review with notes…" render on
+        the Overview and nowhere else, the CMS Administrator's own queue
+        (``classes/admin/classes_list.html``) links every row to the Overview, and
+        ``admin_class_approve`` redirects back to it on every exit. So the composed set
+        holding ``can_approve`` while the Overview 404s would deliver none of it.
+        """
+
+        @pytest.fixture
+        def lead_with_the_grant(db, guilded_pending_offering):
+            from membership.models import AdminCapability, Member
+
+            lead = guilded_pending_offering.category.guild.guild_lead
+            Member.objects.filter(pk=lead.pk).update(instructor_oriented_at=None)
+            lead.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+            return lead
+
+        def it_opens_the_overview_on_its_own_guilds_class(lead_with_the_grant, guilded_pending_offering, client):
+            client.force_login(lead_with_the_grant.user)
+            url = reverse("classes:teach_class_detail", kwargs={"pk": guilded_pending_offering.pk})
+            assert client.get(url).status_code == 200
+
+        def it_is_shown_the_approve_control(lead_with_the_grant, guilded_pending_offering, client):
+            client.force_login(lead_with_the_grant.user)
+            html = client.get(
+                reverse("classes:teach_class_detail", kwargs={"pk": guilded_pending_offering.pk})
+            ).content.decode()
+            assert reverse("classes:admin_class_approve", kwargs={"pk": guilded_pending_offering.pk}) in html
+            assert "Review with notes" in html
+
+        def it_can_approve_and_publish(lead_with_the_grant, guilded_pending_offering, client):
+            client.force_login(lead_with_the_grant.user)
+            response = client.post(
+                reverse("classes:admin_class_approve", kwargs={"pk": guilded_pending_offering.pk}), follow=True
+            )
+            # follow=True: the redirect target is the Overview, and landing on a 404 would
+            # mean they published without ever seeing that they had.
+            assert response.status_code == 200
+            guilded_pending_offering.refresh_from_db()
+            assert guilded_pending_offering.status == ClassOffering.Status.PUBLISHED
+
+        def it_keeps_the_composer_the_changelog_promises_it(lead_with_the_grant, guilded_pending_offering, client):
+            # "Guild leads and guild staff can open a class requested under their guild,
+            # edit it and write its welcome email, without needing teaching access first."
+            assert lead_with_the_grant.can_create_classes is False
+            client.force_login(lead_with_the_grant.user)
+            for name in ("classes:teach_class_edit", "classes:teach_class_emails"):
+                url = reverse(name, kwargs={"pk": guilded_pending_offering.pk})
+                assert client.get(url).status_code == 200, f"composed guild lead blocked from {name}"
+
+        def it_is_still_refused_the_roster(lead_with_the_grant, guilded_pending_offering, client):
+            client.force_login(lead_with_the_grant.user)
+            url = reverse("classes:teach_class_registrations", kwargs={"pk": guilded_pending_offering.pk})
+            assert client.get(url).status_code == 404
+
     def describe_view_as_preview():
         def it_still_admits_an_admin_previewing_another_role(admin_user, client, db):
             # The admin leg checks the *actual* role — a view-as preview can't revoke it.
