@@ -111,9 +111,10 @@ On create (no pk): multi-file input that submits with the form, with local previ
 {% if offering and offering.pk %}
 <div id="gallery-manager"
      data-help-key="teach.class-gallery"
-     data-upload-url="{% if gallery_upload_url %}{{ gallery_upload_url }}{% else %}{% url 'classes:admin_class_image_upload' pk=offering.pk %}{% endif %}"
-     data-reorder-url="{% if gallery_reorder_url %}{{ gallery_reorder_url }}{% else %}{% url 'classes:admin_class_image_reorder' pk=offering.pk %}{% endif %}"
-     data-image-url-base="{{ gallery_image_url_base|default:'/classes/admin/images/' }}"
+     data-upload-url="{% if gallery_upload_url %}{{ gallery_upload_url }}{% else %}{% url 'classes:teach_class_image_upload' pk=offering.pk %}{% endif %}"
+     data-reorder-url="{% if gallery_reorder_url %}{{ gallery_reorder_url }}{% else %}{% url 'classes:teach_class_image_reorder' pk=offering.pk %}{% endif %}"
+     {# TODO(#399 unit C): the merged class view must supply `gallery_image_url_base` on the admin path too — the teach path already does, via _teach_gallery_context(). #}
+     data-image-url-base="{{ gallery_image_url_base }}"
      data-csrf="{{ csrf_token }}">
 
     <div id="gallery-grid" class="cls-image-grid">

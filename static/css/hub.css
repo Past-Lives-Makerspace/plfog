@@ -17,8 +17,28 @@ img {
 [x-cloak] { display: none !important; }
 
 /* Shared tab strip — one row, horizontally scrollable on phones instead of
-   wrapping to a second line. Used by guild pages, settings, and voting. */
+   wrapping to a second line. Used by guild pages, settings, and voting.
+
+   Ruling 24: the strip scrolls, and now it says so. The merged per-class strip is seven
+   tabs (eight with the instructor discount-codes flag on), and at 390px the last three sit
+   off-screen — with the scrollbar hidden, nothing on the page suggested they were there.
+   The right-edge fade appears only when there IS more to the right, with no script and no
+   extra markup: two background layers, a "fade" pinned to the element
+   (background-attachment: scroll) and an opaque "cover" the same size pinned to the
+   *content* (background-attachment: local). The cover sits at the content's right edge, so
+   while there is more to scroll it is off-screen, and the moment you reach the end it
+   slides over the fade and hides it. A strip that does not overflow has its content edge at
+   its element edge, so the cover covers the fade from the start and nothing is ever drawn.
+
+   The cover has to paint whatever the strip sits on — the page ground on most pages, a card
+   on voting and wiki review — so it reads --pl-tabs-bg rather than a colour, and both
+   values are theme tokens, so it works in Obsidian and Slate alike (FRONTEND.md rule 7).
+   Give --pl-tabs-bg a new value on any future container with its own background.
+
+   This is a SHARED component — guilds, settings, voting, the wiki, equipment manage and now
+   the per-class screen all render it — so this has site-wide reach. */
 .pl-tabs {
+    --pl-tabs-bg: var(--hub-bg);
     display: flex;
     gap: 0;
     border-bottom: 1px solid var(--hub-border);
@@ -26,7 +46,15 @@ img {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
+    background-image:
+        linear-gradient(to left, var(--pl-tabs-bg), var(--pl-tabs-bg)),
+        linear-gradient(to left, var(--pl-tabs-bg), transparent);
+    background-position: right center, right center;
+    background-repeat: no-repeat;
+    background-size: 2.5rem 100%, 2.5rem 100%;
+    background-attachment: local, scroll;
 }
+.hub-card .pl-tabs { --pl-tabs-bg: var(--hub-card-bg); }
 .pl-tabs::-webkit-scrollbar { display: none; }
 .pl-tabs .vote-tab { flex: 0 0 auto; white-space: nowrap; }
 
@@ -1321,13 +1349,33 @@ a:hover { color: var(--hub-link-hover); }
     font-weight: 700;
     line-height: 1.2;
     letter-spacing: 0.02em;
-    /* Transparent 1px border on the base so bordered variants (success/danger/
-       ghost) and borderless ones (primary) share identical box math and render
-       the exact same height. box-sizing: border-box keeps the border inside. */
-    border: 1px solid transparent;
+    /* The base paints itself as a ghost button. It used to set a transparent 1px border
+       and no background at all, so a .hub-btn with no colour modifier fell through to the
+       browser's own chrome: the document sets no color-scheme, so a bare <button> came
+       back light-grey — louder than the green Approve beside it — and a bare <a> rendered
+       as naked text. There are ~80 bare usages across templates/, so THIS EDIT HAS
+       SITE-WIDE REACH: every one of them becomes a quiet outline button. Degrading to
+       ghost rather than to a neutral fill is deliberate — --hub-elevated and --hub-card-bg
+       are both #ffffff in Slate, so a filled base went white-on-white — and it adds no
+       fourth button style to the design system: these are .hub-btn--ghost's own values.
+       The border is still 1px, so bordered variants (success/danger/ghost) and borderless
+       ones (primary) keep identical box math and render the exact same height;
+       box-sizing: border-box keeps the border inside. The modifiers below win on source
+       order. */
+    background: transparent;
+    color: var(--hub-text-muted);
+    border: 1px solid var(--hub-border-strong);
     border-radius: 6px;
+    text-decoration: none;
     cursor: pointer;
     transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+/* Neutral grey hover, so it reads the same over both themes' grounds. Each colour
+   modifier re-declares its own :hover below and wins on source order. */
+.hub-btn:hover {
+    background: rgba(127, 127, 127, 0.1);
+    color: var(--hub-text);
 }
 
 .hub-btn:active { transform: translateY(1px); }
@@ -1342,6 +1390,9 @@ a:hover { color: var(--hub-link-hover); }
 .hub-btn--primary {
     background-color: var(--color-tuscan-yellow);
     color: var(--color-navy);
+    /* The only modifier that paints no border of its own: it relied on inheriting the
+       base's transparent border colour, which the ghost degrade above took away. */
+    border-color: transparent;
 }
 
 .hub-btn--primary:hover {
@@ -3564,10 +3615,17 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
    One card carries several review queues as labeled groups. A group with no rows renders
    nothing at all (no heading, no "nothing waiting" line), and when every group is empty the
    whole card collapses to .pl-attention-clear: one quiet strip the height of the Waitlists
-   strip, instead of three tall empty cards. */
-.pl-attention-group + .pl-attention-group {
-    margin-top: 1.25rem;
-    padding-top: 1.1rem;
+   strip, instead of three tall empty cards.
+
+   The adjacency selector this rule used to carry (.pl-attention-group + .pl-attention-group)
+   gave the FIRST group no rule of its own, so the card title ran straight into the first
+   group's heading with nothing between them — "Needs Attention (3)" butting up against
+   "Waiting on Your Review". Dropped, so every group is separated from whatever is above it
+   (ruling 20). Scoped to .cms-overview, which is where every .pl-attention-group in the app
+   already lives: both Overview pages wrap theirs in one. */
+.cms-overview .pl-attention-group {
+    margin-top: 0.9rem;
+    padding-top: 0.9rem;
     border-top: 1px solid var(--hub-border);
 }
 
@@ -10277,3 +10335,54 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     line-height: 1.5;
     color: var(--hub-text-muted);
 }
+
+/* ========================================
+   One Class Screen (issue #399)
+   ========================================
+   The per-class management screen — one page per class, one tab strip, whichever of the
+   four viewer roles is looking at it. Header, the meta line under the title, the "why you
+   are seeing this" note a guild lead gets, and the action row under the page. Every rule
+   here is new markup this feature introduces; nothing above it changes. */
+.pl-class-header { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:0.75rem; }
+.pl-class-header__main { min-width: 0; }
+.pl-class-header__title { margin: 0 0 0.35rem; }
+.pl-class-header__badges { display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center; }
+.pl-class-header__actions { display:flex; gap:0.5rem; flex-wrap:wrap; }
+.pl-class-header--center { align-items: center; }
+/* The one-line "what this page is for" beside a portal <h1>, where a page_header block used
+   to sit one line underneath it and make two headings for one page. */
+.pl-class-header__lead { margin: 0.25rem 0 0; max-width: 65ch; color: var(--hub-text-muted); font-size: 0.9rem; }
+.pl-class-header--tight { margin-bottom: 0.5rem; }
+
+.pl-class-meta { display:flex; flex-wrap:wrap; gap:0.25rem 0.9rem; margin:0.5rem 0 0; color:var(--hub-text-muted); font-size:0.85rem; }
+.pl-class-meta__item { white-space: nowrap; }
+.pl-class-meta__item:not(:last-child)::after { content:" ·"; opacity:0.55; }
+
+.pl-class-context { display:flex; gap:0.6rem; align-items:flex-start; background:var(--hub-surface); border-left:3px solid var(--hub-blue); border-radius:6px; padding:0.7rem 0.9rem; margin:0 0 1.25rem; color:var(--hub-text-muted); font-size:0.875rem; line-height:1.5; }
+.pl-class-context__icon { flex:0 0 auto; color:var(--hub-blue); margin-top:1px; }
+.pl-class-context strong { color:var(--hub-text); font-weight:600; }
+
+.pl-class-actions { display:flex; gap:0.375rem; flex-wrap:wrap; align-items:center; margin-top:1.5rem; }
+.pl-class-actions__break { flex-basis:100%; height:0; margin:0.4rem 0 0.15rem; border-top:1px solid var(--hub-border); }
+@media (max-width: 600px) {
+    .pl-class-actions { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; }
+    .pl-class-actions .hub-btn { width:100%; text-align:center; justify-content:center; }
+    .pl-class-actions__break { grid-column:1 / -1; margin:0.25rem 0; }
+    .pl-class-header__actions { width:100%; }
+    .pl-class-header__actions .hub-btn { flex:1 1 auto; text-align:center; }
+}
+
+/* One row of a Needs Attention group: what needs doing on the left, the buttons that do
+   it on the right, stacking to full-width buttons on a phone. */
+.pl-attention-row { display:flex; justify-content:space-between; align-items:center; gap:0.5rem; padding:0.5rem 0; border-bottom:1px solid var(--hub-border); flex-wrap:wrap; }
+.pl-attention-row:last-child { border-bottom: none; }
+.pl-attention-row__main { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.pl-attention-row__sub { color:var(--hub-text-muted); font-size:0.85rem; }
+.pl-attention-row__actions { display:flex; gap:6px; flex-wrap:wrap; }
+.pl-attention-group__hint { color:var(--hub-text-muted); margin:0 0 0.6rem; font-size:0.9rem; }
+@media (max-width: 600px) {
+    .pl-attention-row { flex-direction:column; align-items:stretch; }
+    .pl-attention-row__actions .hub-btn { flex:1 1 auto; text-align:center; }
+}
+
+.pl-guild-attention { margin: 0 0 1.25rem; }

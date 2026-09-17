@@ -152,6 +152,18 @@ class ViewAs:
         return ROLE_GUEST in self.effective
 
     @property
+    def is_previewing(self) -> bool:
+        """True when this request is looking through a role other than the user's own.
+
+        ``__init__`` sets ``effective = actual`` when nothing is picked *and* when the
+        pick is the user's own highest role, so the inequality is exactly "the viewer
+        chose to see something other than everything they hold". Gates that should be
+        invisible during a preview — a capability grant the previewed role would not
+        have — read this rather than comparing role names themselves.
+        """
+        return self.effective != self.actual
+
+    @property
     def has_member_role(self) -> bool:
         return ROLE_MEMBER in self.actual
 
