@@ -235,15 +235,42 @@ def describe_admin_approves_and_holds():
 
 
 def describe_guild_lead_approves_with_no_admin_row_at_all():
-    def it_creates_nothing_and_publishes_nothing(guilded_offering, guild_lead_user):
-        """A cycle from before both lanes opened together. Nothing is minted behind anyone's back."""
+    """Every guilded class left PENDING by the sequential code has this shape.
+
+    That code minted the ADMIN row at escalation, so a cycle already in flight when the
+    two-lane deploy lands carries a GUILD_LEAD row and nothing else. Treating "no admin row"
+    as "nothing to do" strands those classes: PENDING forever, in no queue, nobody emailed.
+    The lead's approval opens the lane the old code would have opened here.
+    """
+
+    def it_opens_the_admin_lane_rather_than_stranding_the_class(guilded_offering, guild_lead_user):
         guilded_offering.submit_for_review()
         guilded_offering.approvals.filter(role=Role.ADMIN).delete()
         gl_row = guilded_offering.approvals.get(role=Role.GUILD_LEAD)
         gl_row.decide(Decision.APPROVED, user=guild_lead_user)
         guilded_offering.refresh_from_db()
         assert guilded_offering.status == ClassOffering.Status.PENDING
-        assert not guilded_offering.approvals.filter(role=Role.ADMIN).exists()
+        assert guilded_offering.approvals.get(role=Role.ADMIN).decision == ""
+        assert guilded_offering.published_at is None
+
+    def it_lands_in_the_admin_queue(guilded_offering, guild_lead_user):
+        """The stranding symptom: in zero queues, so nobody could ever act on it."""
+        guilded_offering.submit_for_review()
+        guilded_offering.approvals.filter(role=Role.ADMIN).delete()
+        guilded_offering.approvals.get(role=Role.GUILD_LEAD).decide(Decision.APPROVED, user=guild_lead_user)
+        assert guilded_offering in ClassOffering.objects.awaiting_admin()
+
+    def it_tells_the_admins_they_are_the_last_gate(guilded_offering, guild_lead_user, monkeypatch):
+        """The escalation is sent after the row lock is released, not from inside the hook."""
+        sent: list[str] = []
+        monkeypatch.setattr(
+            "classes.emails.send_admin_validation_request",
+            lambda offering, admin_row: sent.append(admin_row.role),
+        )
+        guilded_offering.submit_for_review()
+        guilded_offering.approvals.filter(role=Role.ADMIN).delete()
+        guilded_offering.approvals.get(role=Role.GUILD_LEAD).decide(Decision.APPROVED, user=guild_lead_user)
+        assert sent == [Role.ADMIN]
 
     def it_publishes_nothing_when_the_lead_approval_is_itself_held(guilded_offering, admin_user, guild_lead_user):
         """``publish_now=False`` publishes nothing whichever lane passes it."""

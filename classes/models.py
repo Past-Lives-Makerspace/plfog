@@ -322,9 +322,9 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         row's badge with no per-row queries.
 
         ``last_session_at`` (the latest session end), ``open_guild_gate`` / ``open_admin_gate``
-        (an undecided row exists for that reviewer), ``has_approval_rows`` (this class has any
-        review row at all) and ``bounced`` (a CHANGES_REQUESTED / DENIED row exists) are the
-        only facts the property reads beyond the row itself; ``lifecycle_order`` is the same
+        (an undecided row exists for that reviewer), ``has_admin_row`` (an ADMIN row exists at
+        all, whatever it decided) and ``bounced`` (a CHANGES_REQUESTED / DENIED row exists) are
+        the only facts the property reads beyond the row itself; ``lifecycle_order`` is the same
         resolution folded into one integer so a list can sort on it. Calling this twice is
         safe: an already-annotated queryset is returned unchanged.
 
@@ -342,13 +342,13 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         open_admin = ClassApproval.objects.filter(
             class_offering=OuterRef("pk"), role=ClassApproval.Role.ADMIN, decision=""
         )
-        any_row = ClassApproval.objects.filter(class_offering=OuterRef("pk"))
+        any_admin = ClassApproval.objects.filter(class_offering=OuterRef("pk"), role=ClassApproval.Role.ADMIN)
         bounced = ClassApproval.objects.filter(class_offering=OuterRef("pk"), decision__in=_BOUNCE_DECISIONS)
         return self.annotate(
             last_session_at=Max("sessions__ends_at"),
             open_guild_gate=Exists(open_guild),
             open_admin_gate=Exists(open_admin),
-            has_approval_rows=Exists(any_row),
+            has_admin_row=Exists(any_admin),
             bounced=Exists(bounced),
         ).annotate(
             lifecycle_order=Case(
@@ -396,13 +396,21 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         guild lead is the admin's business too: this queue and :meth:`awaiting_guild_lead_any`
         deliberately overlap.
 
-        A PENDING class with zero approval rows still lands here, so nothing waits on
-        nobody — documented behaviour the ``open_admin_gate`` annotation alone would drop.
+        The predicate is "the admin lane is open, or there is no admin lane", and the second
+        half is what catches a PENDING class carrying **no ADMIN row at all**. Two shapes have
+        that: a class with zero approval rows, and — the one that matters — a guilded class
+        submitted by the sequential code that minted the admin row only once the lead
+        approved. Every such cycle in flight when the two-lane deploy landed has a
+        ``GUILD_LEAD`` row and nothing else, and an earlier "has any row at all" reading of
+        this filter dropped all of them into no admin queue whatsoever.
+
+        An admin who has already answered stays out, held or not: their row exists and is
+        decided, so both halves are false.
         """
         return (
             self.with_lifecycle_inputs()
             .filter(status=ClassOffering.Status.PENDING)
-            .filter(Q(open_admin_gate=True) | Q(has_approval_rows=False))
+            .filter(Q(open_admin_gate=True) | Q(has_admin_row=False))
         )
 
     def awaiting_admin_held(self) -> "ClassOfferingQuerySet":
@@ -748,6 +756,20 @@ class ClassNotReadyError(ValidationError):
     def __init__(self, items: list[ReadinessItem], verb: str) -> None:
         super().__init__(readiness_error_text(items, verb))
         self.items = items
+
+
+class ClassNotPendingError(ValueError):
+    """A review decision landed on a class that is no longer PENDING.
+
+    Two ordinary things raise it: a stale review page whose class was decided while it sat
+    open, and the real race the two-lane review made reachable — two reviewers clicking at
+    the same moment, where the loser wakes from the row lock to find the class already live.
+    Neither is a server error, so a caller is expected to catch it and say so.
+
+    It subclasses ``ValueError`` deliberately: it *is* the "wrong status" error this code has
+    always raised, so every existing ``except ValueError`` keeps working, and a caller that
+    wants to tell this apart from a genuine programming mistake now can.
+    """
 
 
 @dataclass(frozen=True)
@@ -1392,27 +1414,61 @@ class ClassOffering(HeroCropMixin, models.Model):
         as overridden. False is "Approve, hold for the room check": the approval is recorded,
         nothing is published, and the guild lead's later approval is what takes it live.
 
-        Reuses this cycle's ADMIN row whatever it already decided, and mints one only when
-        the cycle has none. A held class already carries a decided ADMIN row, and a second
-        one would report the admin lane open again in every queue that reads it. Returns the
-        decided row so callers can email the instructor the outcome.
+        Reuses this cycle's ADMIN row, and mints one only when the cycle has none — a second
+        row would report the admin lane open again in every queue that reads it. But an
+        already-decided row is *read*, never re-decided: "Approve and publish" landing on a
+        class an admin held is a publish, not a second verdict, so it goes through
+        :meth:`_publish_over_admin_hold` and the held row keeps the decision, notes, decider
+        and timestamp the holding reviewer wrote. Re-deciding it silently rewrote one
+        reviewer's entry in the audit table with another's, and — because the row's pk is the
+        dedup key the instructor's notice is filed under — swallowed the "Your class is live!"
+        email entirely.
+
+        Returns the decided row so callers can email the instructor the outcome. On the hold
+        path that row already carries the hold's verdict and the class is PUBLISHED, which is
+        what :func:`classes.emails.send_class_review_decision` reads to send the live notice.
         """
         if self.status != self.Status.PENDING:
-            raise ValueError(f"Only pending classes can be approved; got {self.status}.")
+            raise ClassNotPendingError(f"Only pending classes can be approved; got {self.status}.")
         if publish_now and not self.is_ready:
             # Refuse BEFORE touching the admin row: the reviewer sees the failing readiness
             # items as a form error rather than an approval stranded on a class that then
             # stays PENDING. Holding needs no such guard — holding publishes nothing.
             raise ValidationError(self.readiness_error("publish"))
-        row = self.approvals.filter(role=ClassApproval.Role.ADMIN).first() or ClassApproval.objects.create(
-            class_offering=self, role=ClassApproval.Role.ADMIN
-        )
+        row = self.approvals.filter(role=ClassApproval.Role.ADMIN).first()
+        if row is not None and row.decision:
+            if publish_now:
+                self._publish_over_admin_hold(row, admin_user)
+            return row
+        if row is None:
+            row = ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
         # Pin the offering instance so the lifecycle hook (which may publish)
         # mutates *this* object's status. The filter path would otherwise load
         # a separate ClassOffering instance, leaving self.status stale.
         row.class_offering = self
         row.decide(ClassApproval.Decision.APPROVED, user=admin_user, publish_now=publish_now)
         return row
+
+    def _publish_over_admin_hold(self, held: "ClassApproval", actor: "User | None") -> None:
+        """Take a held class live without touching the row that held it.
+
+        Locks and re-reads the offering exactly as :meth:`ClassApproval.decide` does, because
+        the guild lead this class is being held *for* may be approving it in the same moment
+        and only one of the two may publish.
+
+        The publish is attributed to ``actor`` — whoever pressed the button now — rather than
+        to the holding reviewer, because this is a second, later act by a second admin as
+        often as not. (The guild lead's own approval of a held class publishes under the
+        holding admin instead: a lead is not an approver, so there is no one else to credit.)
+
+        Raises:
+            ClassNotPendingError: If another reviewer decided the class first.
+        """
+        with transaction.atomic():
+            locked = ClassOffering.objects.select_for_update().get(pk=self.pk)
+            if locked.status != self.Status.PENDING:
+                raise ClassNotPendingError(f"Only pending classes can be approved; got {locked.status}.")
+            self._close_open_lanes_and_publish(held, actor)
 
     def publish(self, actor: "User | None") -> None:
         """The single place a class goes live: stamps the row and logs it.
@@ -1817,7 +1873,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             return True
         return self.approvals.filter(role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED).exists()
 
-    def on_review_decision_recorded(self, row: "ClassApproval", *, publish_now: bool = True) -> None:
+    def on_review_decision_recorded(self, row: "ClassApproval", *, publish_now: bool = True) -> "ClassApproval | None":
         """Lifecycle hook: called by ClassApproval.decide.
 
         Both review lanes are open from submit, so either can be the one that publishes:
@@ -1832,11 +1888,22 @@ class ClassOffering(HeroCropMixin, models.Model):
           signed off and they are the last gate. Nothing is created — submit opened that row.
         * APPROVED by a guild lead on a class whose admin already approved and held: publish,
           attributed to the admin who approved it.
+        * APPROVED by a guild lead on a class with no admin row at all: open one and tell the
+          admins, which is what the sequential code did at this exact point. Only a cycle
+          submitted before the two-lane deploy looks like this, and it is the shape that was
+          otherwise stranded — see :meth:`_on_guild_lead_approved`.
 
         CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor can edit and
         resubmit. Per the locked decision in PLAN.md §14, a guild-lead denial is recoverable
         (returns to DRAFT) rather than archival; admin-level archival is a separate explicit
         action.
+
+        Returns the ADMIN row that still owes an "Executive validation needed" notice, or
+        ``None`` when this decision owes no outbound message. **Nothing here sends anything.**
+        This runs under the offering's row lock, and a mail provider, Web Push, FCM and two
+        Discord calls per opted-in member are not work to do while holding a lock against the
+        other reviewer — ``ClassApproval.decide`` fans out once the transaction has closed,
+        the way ``membership.orientations.request_orientation`` does with the equipment lock.
         """
         from classes import activity
 
@@ -1848,9 +1915,8 @@ class ClassOffering(HeroCropMixin, models.Model):
                 payload={"role": row.role},
             )
             if row.role == ClassApproval.Role.GUILD_LEAD:
-                self._on_guild_lead_approved(row, publish_now=publish_now)
-            else:
-                self._on_admin_approved(row, publish_now=publish_now)
+                return self._on_guild_lead_approved(row, publish_now=publish_now)
+            self._on_admin_approved(row, publish_now=publish_now)
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -1873,50 +1939,82 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
+        # Every branch but a guild lead's approval owes no outbound message.
+        return None
 
-    def _on_guild_lead_approved(self, row: "ClassApproval", *, publish_now: bool) -> None:
-        """A guild lead approved: nudge an open admin lane, or publish a held one.
+    def _on_guild_lead_approved(self, row: "ClassApproval", *, publish_now: bool) -> "ClassApproval | None":
+        """A guild lead approved: nudge an open admin lane, publish a held one, or open one.
 
-        The guard is the admin row being *open*, not absent. Submit opens both lanes, so
-        "no admin row at all" is a shape a current cycle never has, and guarding on absence
-        would mean this escalation never fired again.
+        Returns the admin row owed the escalation notice; the caller sends it once the row
+        lock is gone. Three shapes, in the order they are checked:
+
+        * an **open** admin row — the ordinary two-lane cycle. Escalate to it.
+        * a **decided** (held) admin row — the admin said yes and waited for exactly this
+          answer, so the lead's yes publishes, under the admin who signed it off.
+        * **no admin row at all**, so open one and escalate to that. This branch is not
+          theory: until the two-lane deploy, the admin row was minted *here*, at escalation,
+          and every guilded class left PENDING by that code carries a ``GUILD_LEAD`` row and
+          nothing else. An earlier reading of this method guarded on the admin row being
+          *open* rather than absent, reasoning that "no admin row at all" is a shape a
+          current cycle never has — true of a cycle this code opened, false of every cycle
+          already in flight when it shipped, which it silently turned into a dead end. The
+          repair is in code rather than a data migration on purpose: Render runs ``migrate``
+          in ``buildCommand`` while the old code is still serving, and an admin row inserted
+          in that window would disable the old escalation for good.
         """
         open_admin = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first()
         if open_admin is not None:
-            self._escalate_to_admin(open_admin, guild_lead=row.decided_by)
-            return
+            return open_admin
         held = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED).first()
-        if held is not None and publish_now:
-            # The admin approved and held for this very answer, so the lead's yes is what
-            # publishes — but the class goes live under the admin who approved it, because
-            # they are the one who signed it off for the calendar.
-            self.publish(held.decided_by)
+        if held is not None:
+            if publish_now:
+                # The admin approved and held for this very answer, so the lead's yes is what
+                # publishes — but the class goes live under the admin who approved it, because
+                # they are the one who signed it off for the calendar.
+                self.publish(held.decided_by)
+            return None
+        return ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
 
     def _on_admin_approved(self, row: "ClassApproval", *, publish_now: bool) -> None:
         """An admin approved: publish now, or hold the approval for the room check."""
         if not publish_now:
             return
-        # Publishing is final: close any lane still open as overridden so the class drops
-        # out of every reviewer queue. The rows are kept as history — ``decided_by`` stays
-        # NULL because no human decided them, and the decision says overridden rather than
-        # approved so no surface can render a yes the guild never gave.
-        self.approvals.filter(decision="").exclude(pk=row.pk).update(
+        # ``ClassApproval.decide`` already refused an unready class before saving the row,
+        # so this publish cannot raise on readiness in practice; the guard inside
+        # ``publish`` is defense in depth for any other caller.
+        self._close_open_lanes_and_publish(row, row.decided_by)
+
+    def _close_open_lanes_and_publish(self, admin_row: "ClassApproval", actor: "User | None") -> None:
+        """Take the class live on an admin's say-so, shutting every lane still waiting.
+
+        Publishing is final: close any lane still open as overridden so the class drops out
+        of every reviewer queue. The rows are kept as history — ``decided_by`` stays NULL
+        because no human decided them, and the decision says overridden rather than approved
+        so no surface can render a yes the guild never gave.
+
+        Shared by the admin's approving decision and by a publish over an existing hold, so
+        the two cannot drift: the difference between them is only which row is spared and who
+        the publish is credited to.
+        """
+        self.approvals.filter(decision="").exclude(pk=admin_row.pk).update(
             decision=ClassApproval.Decision.OVERRIDDEN_BY_ADMIN,
             notes=ADMIN_OVERRIDE_NOTE,
             decided_at=timezone.now(),
         )
-        # ``ClassApproval.decide`` already refused an unready class before saving the row,
-        # so this publish cannot raise on readiness in practice; the guard inside
-        # ``publish`` is defense in depth for any other caller.
-        self.publish(row.decided_by)
+        self.publish(actor)
 
-    def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
+    def notify_admins_of_guild_lead_approval(self, admin_row: "ClassApproval") -> None:
         """Tell the admins the guild lead has signed off and they are the last gate.
 
         Emits the executive-validation request as one ``class_validation_requested``
         event (admin email + FOG_ADMINS in-app) via
-        :func:`classes.emails.send_admin_validation_request`, against the admin row submit
-        already opened. The Guild Lead is named in the copy so admins know who vouched.
+        :func:`classes.emails.send_admin_validation_request`, against the admin row this
+        cycle carries. The Guild Lead is named in the copy, which the sender reads off the
+        offering's own approval rows.
+
+        Called by :meth:`ClassApproval.decide` **after** its transaction closes, never from
+        inside the lifecycle hook: this reaches a mail provider, Web Push, FCM and Discord,
+        and none of that belongs under the offering's row lock.
         """
         from classes import emails
 
@@ -2827,7 +2925,11 @@ class ClassApproval(models.Model):
             self.notes = notes
             self.decided_at = timezone.now()
             self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
-            self.class_offering.on_review_decision_recorded(self, publish_now=publish_now)
+            owed_escalation = self.class_offering.on_review_decision_recorded(self, publish_now=publish_now)
+        # Sent outside the lock on purpose: this reaches a mail provider, Web Push, FCM and
+        # Discord, and none of that belongs under the offering's row lock.
+        if owed_escalation is not None:
+            self.class_offering.notify_admins_of_guild_lead_approval(owed_escalation)
 
 
 class ClassImage(models.Model):

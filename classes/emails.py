@@ -562,7 +562,7 @@ def send_review_requests(offering: "ClassOffering", rows: list["ClassApproval"])
 def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
     """Tell the admins the guild lead has signed off and theirs is the last gate left.
 
-    Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves while the
+    Fired from ``ClassOffering.notify_admins_of_guild_lead_approval`` when a Guild Lead approves while the
     admin's lane is still open. That lane has been open since submit and was already emailed
     once (:func:`send_admin_review_request`), so this is news about the OTHER lane, not the
     opening of this one.
