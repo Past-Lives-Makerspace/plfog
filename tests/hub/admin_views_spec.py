@@ -926,24 +926,30 @@ def describe_admin_site_settings_features():
         assert response.status_code == 200
         panel = _features_panel(response)
         assert b"Show Help in the sidebar" in panel
-        assert b"Member wiki" in panel
-        assert b"Show old wiki link" in panel
 
-    def it_renders_the_host_a_workshop_toggle_in_the_features_panel(client):
-        # A sidebar-visibility switch belongs beside the other sidebar switches, as a real
-        # toggle in Features — not as a bare checkbox falling through the General catch-all.
+    def it_renders_a_card_for_every_registry_feature(client):
+        # The seven three-state features are a registry list now, not seven booleans (#405).
+        # Each card carries the feature's name and the registry's "what off does" line, so
+        # adding the eighth feature needs no change to this template or this spec.
+        from core.features import FEATURES
+
         _create_superuser(client)
         response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
         panel = _features_panel(response)
-        assert b'id="id_host_a_workshop_enabled"' in panel
-        assert b"Show Host a Workshop in the sidebar" in panel
+        for feature in FEATURES:
+            assert feature.name.encode() in panel, feature.key
+            assert feature.off_description[:40].encode() in panel, feature.key
 
-    def it_renders_the_member_wiki_toggle_in_the_features_panel(client):
-        # The flag the whole wiki round is gated on has to be a real toggle in Features,
-        # not a bare checkbox in General (spec A section 4.7, FRONTEND.md rule 3).
+    def it_offers_all_three_states_and_a_message_box_per_feature(client):
+        from core.features import FEATURES
+
         _create_superuser(client)
-        response = client.get(reverse("hub_admin_site_settings") + "?tab=features")
-        assert b'id="id_wiki_enabled"' in _features_panel(response)
+        panel = _features_panel(client.get(reverse("hub_admin_site_settings") + "?tab=features"))
+        for index in range(len(FEATURES)):
+            assert f'name="features-{index}-state"'.encode() in panel
+            assert f'name="features-{index}-message"'.encode() in panel
+        assert panel.count(b'value="soon"') == len(FEATURES)
+        assert panel.count(b'value="hidden"') == len(FEATURES)
 
     def it_renders_the_feature_fields_only_once(client):
         # Excluded from the General loop — each control renders only in the Features panel.
@@ -953,11 +959,8 @@ def describe_admin_site_settings_features():
         assert response.content.count(b'id="id_class_registration_enabled"') == 1
         assert response.content.count(b'id="id_class_registration_disabled_note"') == 1
         assert response.content.count(b'id="id_help_page_enabled"') == 1
-        assert response.content.count(b'id="id_wiki_link_enabled"') == 1
-        assert response.content.count(b'id="id_wiki_enabled"') == 1
         assert response.content.count(b'id="id_instructor_discount_codes_enabled"') == 1
         assert response.content.count(b'id="id_guild_welcome_email_enabled"') == 1
-        assert response.content.count(b'id="id_host_a_workshop_enabled"') == 1
 
     def it_saves_the_feature_switches(client):
         _create_superuser(client)

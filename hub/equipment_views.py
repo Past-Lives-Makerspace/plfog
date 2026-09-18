@@ -48,27 +48,6 @@ from membership.models import (
 from membership.permissions import can_create_equipment, can_manage_equipment
 
 
-def equipment_feature_required(view_func: Any) -> Any:
-    """404 every equipment view while the Site Settings toggle is off.
-
-    A disabled feature is fully dark — member pages, booking POSTs, and manage
-    surfaces alike; Site Settings is where it comes back. Mirrors the
-    ``help_page_enabled`` gate's early-check mechanism, answering 404 instead of a
-    redirect so crafted requests learn nothing.
-    """
-    from functools import wraps
-
-    @wraps(view_func)
-    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        from core.models import SiteConfiguration
-
-        if not SiteConfiguration.load().equipment_page_enabled:
-            raise Http404("The Equipment page is turned off.")
-        return view_func(request, *args, **kwargs)
-
-    return wrapper
-
-
 def _equipment_queryset() -> EquipmentQuerySet:
     """The base queryset every equipment view reads — FKs prefetched, no per-row queries."""
     return Equipment.objects.select_related(
@@ -332,7 +311,6 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_index(request: HttpRequest) -> HttpResponse:
     """The Equipment directory — card grid with guild/kind/search filters and access badges."""
     member = _get_member(request)
@@ -390,7 +368,6 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_add(request: HttpRequest) -> HttpResponse:
     """Admin-gated create form — full admins and EQUIPMENT capability holders only."""
     if not can_create_equipment(request):
@@ -448,7 +425,6 @@ def _equipment_orientation_sections(equipment: Equipment, member: Member | None)
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """The equipment mini-page — hero, requirements banner, Orientation section, schedule, About."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -537,7 +513,6 @@ def _require_visible(request: HttpRequest, equipment: Equipment) -> None:
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
     """GET — the schedule partial (week strip + day timeline + booking form), HTMX-swapped."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -551,7 +526,6 @@ def hub_equipment_schedule(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — make an instant reservation; re-render the schedule partial with a toast.
@@ -591,7 +565,6 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST — cancel a reservation: the member's own (no reason), or a manager's (reason required).
@@ -636,7 +609,6 @@ def hub_equipment_reservation_cancel(request: HttpRequest, slug: str, pk: int) -
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — save the whole Hours & Limits tab: the hours formset plus closure + limits.
@@ -817,7 +789,6 @@ def _render_manage(
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
     """The manage panel — Details, Staff, Hours & Limits, and Reservations tabs."""
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
@@ -831,7 +802,6 @@ def hub_equipment_manage(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — save the manage panel's Details tab (the same form as the add page)."""
@@ -848,7 +818,6 @@ def hub_equipment_details_save(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_photo_delete(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — clear the equipment photo (the ``image_field`` component's delete endpoint)."""
@@ -863,7 +832,6 @@ def hub_equipment_photo_delete(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
     """POST-only — grant a member a manager role on this equipment."""
@@ -884,7 +852,6 @@ def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST-only — remove a member's manager role from this equipment."""
@@ -915,7 +882,6 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — save the Orientation Types formset (create/edit/retire/delete).
@@ -954,7 +920,6 @@ def _hours_scope_queryset(equipment: Equipment, target: Member | None) -> Any:
 
 
 @login_required
-@equipment_feature_required
 def hub_equipment_orientation_hours_form(request: HttpRequest, slug: str) -> HttpResponse:
     """Return the Edit Hours modal's formset partial for one manager, or the shared rows (HTMX GET).
 
@@ -991,7 +956,6 @@ _EQUIPMENT_SHARED_FAREWELL = (
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
     """Save one scope of recurring orientation hours from the Edit Hours modal (HTMX POST).
@@ -1047,7 +1011,6 @@ def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> Htt
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_slot_add(request: HttpRequest, slug: str) -> HttpResponse:
     """POST — add a one time MANUAL orientation slot (guild None; Runs with a manager or any manager)."""
@@ -1075,7 +1038,6 @@ def hub_equipment_orientation_slot_add(request: HttpRequest, slug: str) -> HttpR
 
 
 @login_required
-@equipment_feature_required
 @require_POST
 def hub_equipment_orientation_slot_cancel(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """POST — cancel an orientation slot: full per-booking cancel fan-out + hold release."""

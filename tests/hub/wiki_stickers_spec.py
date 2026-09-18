@@ -10,12 +10,14 @@ machine works at all.
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from core.models import SiteConfiguration
+from tests.features import hide, turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import (
     EquipmentFactory,
@@ -31,10 +33,7 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
     """Every spec here runs with the wiki turned on; the flag-off case is explicit."""
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
-    return config
+    return turn_on("wiki")
 
 
 def _member_user(username: str, *, fog_role: str = Member.FogRole.MEMBER, status: str = Member.Status.ACTIVE) -> User:
@@ -111,19 +110,38 @@ def describe_the_sticker_scan_route():
             response = client.get(reverse("hub_wiki_qr", args=["ZZZZZZ"]))
             assert reverse("hub_wiki_search").encode() in response.content
 
-    def describe_the_feature_flag():
-        def it_404s_a_known_code_while_the_wiki_is_off(client, db, _wiki_on):
+    def describe_the_feature_switch():
+        def it_still_sends_a_signed_in_scan_to_the_page_while_the_wiki_is_hidden(client, db, _wiki_on):
+            """The sticker on the machine keeps working when the Wiki leaves the sidebar (#405).
+
+            Asserting the redirect TARGET, not just that a 3xx happened: a bare status check
+            would pass if a gate were reintroduced tomorrow and bounced the scan to login or
+            the home page, which is precisely the regression this spec exists to catch.
+            """
             _login(client, "scanner@example.com")
             page = WikiPageFactory(title="Table Saw")
-            _wiki_on.wiki_enabled = False
-            _wiki_on.save()
-            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code == 404
+            hide("wiki")
+            response = client.get(reverse("hub_wiki_qr", args=[page.qr_code]))
+            assert response.status_code == 302
+            assert response["Location"] == page.get_absolute_url()
 
-        def it_404s_for_a_signed_out_scan_too(client, db, _wiki_on):
+        def it_sends_a_signed_out_scan_to_login_whatever_the_wiki_state(client, db, _wiki_on):
+            """Deliberately the same answer in both states, which is the point.
+
+            hub_wiki_qr is the one wiki view with no @login_required: a signed-out scan always
+            redirects to login carrying the page as ``next``. So this case can never evidence
+            anything about the switch — it is here to say so out loud, and to pin that hiding
+            the wiki does not change it.
+            """
             page = WikiPageFactory(title="Table Saw")
-            _wiki_on.wiki_enabled = False
-            _wiki_on.save()
-            assert client.get(reverse("hub_wiki_qr", args=[page.qr_code])).status_code == 404
+            target = page.get_absolute_url()
+            signed_out_while_on = client.get(reverse("hub_wiki_qr", args=[page.qr_code]))
+            hide("wiki")
+            signed_out_while_hidden = client.get(reverse("hub_wiki_qr", args=[page.qr_code]))
+            for response in (signed_out_while_on, signed_out_while_hidden):
+                assert response.status_code == 302
+                assert "/login" in response["Location"] or "/accounts/" in response["Location"]
+                assert quote(target) in response["Location"]
 
     def describe_the_public_book_surface():
         def it_does_not_resolve_there(client, db, settings):
@@ -177,11 +195,10 @@ def describe_the_page_qr_download():
         _login(client, "lapsed@example.com", status=Member.Status.FORMER)
         assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 403
 
-    def it_404s_while_the_wiki_is_off(client, db, page, _wiki_on):
+    def it_still_downloads_while_the_wiki_is_hidden(client, db, page, _wiki_on):
         _login(client, "editor@example.com")
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
-        assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 404
+        hide("wiki")
+        assert client.get(reverse("hub_wiki_qr_download", args=[page.slug])).status_code == 200
 
 
 def describe_the_share_this_page_card():
@@ -340,11 +357,10 @@ def describe_the_sticker_sheet():
             _login(client, "officer@example.com", fog_role=Member.FogRole.GUILD_OFFICER)
             assert client.get(reverse("hub_wiki_stickers")).status_code == 200
 
-        def it_404s_while_the_wiki_is_off(client, db, machine_page, _wiki_on):
+        def it_still_renders_while_the_wiki_is_hidden(client, db, machine_page, _wiki_on):
             _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
-            _wiki_on.wiki_enabled = False
-            _wiki_on.save()
-            assert client.get(reverse("hub_wiki_stickers")).status_code == 404
+            hide("wiki")
+            assert client.get(reverse("hub_wiki_stickers")).status_code == 200
 
 
 def describe_the_wiki_homes_link_to_the_sheet():

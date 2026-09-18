@@ -408,7 +408,7 @@ def describe_org_info_nav_and_folded_footer_links():
         assert b'href="/info/"' not in resp.content
 
     def it_no_longer_puts_the_external_wiki_in_the_member_nav(client: Client, settings):
-        """The sidebar Wiki slot now belongs to the in-app wiki, gated on wiki_enabled.
+        """The sidebar Wiki slot now belongs to the in-app wiki, gated on the wiki feature switch.
 
         The external MediaWiki is demoted to a card on the wiki home for the length of the
         migration and retired with the existing wiki_link_enabled toggle; while wiki_enabled

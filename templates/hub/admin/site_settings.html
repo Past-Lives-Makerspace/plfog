@@ -175,7 +175,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'wiki_link_enabled' and field.name != 'wiki_enabled' and field.name != 'equipment_page_enabled' and field.name != 'host_a_workshop_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -445,18 +445,52 @@
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature Switches</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
-          Soft-launch toggles. Leave these on for normal operation; turn one off to hide a feature that isn't ready yet.
+          What shows up in the sidebar. Every feature below is On for normal operation.
+          <strong>Coming soon</strong> leaves the entry visible but not clickable, showing your message when someone
+          hovers or tabs onto it; <strong>Hidden</strong> removes the entry altogether.
+          <strong>These switches are cosmetic.</strong> They change the sidebar and nothing else — every page stays
+          reachable by its own link, for everyone, in all three states. Use them to tidy the sidebar or to say a feature
+          is on its way, not to keep anyone out of something.
         </p>
       </div>
 
+      {# ── The seven three-state member features (#405) ──────────────────────────────── #}
+      {% comment %}
+        One card per core.features registry entry, in the shape of the Automations tab below:
+        the registry supplies the name and the "what off does" line, the row supplies the state
+        and the message. Adding an eighth feature is a registry entry and no migration, so
+        nothing in this template names a feature.
+      {% endcomment %}
+      {{ feature_formset.management_form }}
+
+      <div class="pl-automation-list">
+        {% for row in feature_rows %}
+        <div class="pl-automation-card pl-automation-card--feature{% if not row.is_on %} pl-automation-card--paused{% endif %}">
+          <div class="pl-automation-main">
+            <div class="pl-automation-name">{{ row.feature.name }}</div>
+            <div class="pl-automation-desc">{{ row.feature.off_description }}</div>
+          </div>
+
+          <div class="pl-automation-cell">
+            <span class="pl-automation-cell-label">State</span>
+            <div style="display:none;">{{ row.form.id }}</div>
+            <div class="pl-feature-states">{{ row.form.state }}</div>
+          </div>
+
+          <div class="pl-automation-cell pl-feature-message">
+            <span class="pl-automation-cell-label">Coming soon message</span>
+            {{ row.form.message }}
+            {% if row.form.message.errors %}<div class="pl-field-error">{{ row.form.message.errors }}</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {# The switches that stay flat booleans by design — they gate a page or a behaviour, not a whole feature family. #}
       {% include "components/form_field.html" with field=form.my_tab_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_enabled %}
       {% include "components/form_field.html" with field=form.class_registration_disabled_note %}
       {% include "components/form_field.html" with field=form.help_page_enabled %}
-      {% include "components/form_field.html" with field=form.wiki_enabled %}
-      {% include "components/form_field.html" with field=form.wiki_link_enabled %}
-      {% include "components/form_field.html" with field=form.equipment_page_enabled %}
-      {% include "components/form_field.html" with field=form.host_a_workshop_enabled %}
       {% include "components/form_field.html" with field=form.guild_welcome_email_enabled %}
       {% include "components/form_field.html" with field=form.display_demo_classes %}
       {% include "components/form_field.html" with field=form.display_demo_guild %}

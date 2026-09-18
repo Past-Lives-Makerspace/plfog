@@ -10,6 +10,7 @@ from django.test import Client
 from django.urls import reverse
 
 from core.models import SiteConfiguration
+from tests.features import turn_on
 from membership.models import Member, WikiSearchMiss, WikiWantedPage
 from tests.membership.factories import (
     GuildFactory,
@@ -25,10 +26,9 @@ _HTMX = {"HTTP_HX_REQUEST": "true"}
 
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
-    return config
+    """Wiki on, and the SiteConfiguration singleton back — specs below set Discord ids on it."""
+    turn_on("wiki")
+    return SiteConfiguration.load()
 
 
 def _login(client: Client, username: str) -> User:

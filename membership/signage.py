@@ -45,6 +45,8 @@ from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.text import Truncator
 
+from core.features import is_on
+
 if TYPE_CHECKING:
     from core.models import SiteConfiguration
     from membership.models import CommunityEvent, Guild, SlideshowSlide, SlideshowZone
@@ -106,8 +108,8 @@ def build_deck(zone: SlideshowZone) -> list[SignageSlideVM]:
     for slide in SlideshowSlide.objects.for_zone(zone).visible().select_related("zone", "announcement"):
         deck.append(_slide_vm(slide, default))
 
-    for flag, generator in _GENERATED_BLOCKS:
-        if getattr(config, flag):
+    for flag, generator, feature_key in _GENERATED_BLOCKS:
+        if getattr(config, flag) and (feature_key is None or is_on(feature_key)):
             deck.extend(generator(config, default))
 
     if not deck:
@@ -498,15 +500,24 @@ def _tour_slide(config: SiteConfiguration, default: int) -> list[SignageSlideVM]
 # The self-building blocks, in the fixed order they append after the admin's own slides.
 # Each pairs its SiteConfiguration switch with its generator; the uniform
 # ``(config, default) -> list`` signature is what lets build_deck drive them in one loop.
-_GENERATED_BLOCKS: tuple[tuple[str, Callable[[SiteConfiguration, int], list[SignageSlideVM]]], ...] = (
-    ("signage_show_classes", _class_slides),
-    ("signage_show_events", _event_slides),
-    ("signage_show_guilds", _guild_slides),
-    ("signage_show_calendar", _calendar_slide),
-    ("signage_show_voting", _voting_slide),
-    ("signage_show_directory", _directory_slide),
-    ("signage_show_teach", _teach_slide),
-    ("signage_show_tour", _tour_slide),
+#
+# The third element is the core.features key the slide depends on, or None for a slide that
+# depends on no switchable feature. A feature that is not On beats its ``signage_show_*`` switch
+# (#405, AC 5).
+#
+# The reason is consistency, not access: nothing 404s under the cosmetic switch, and a member
+# who scans the QR still reaches the page. What must not happen is the lobby wall advertising a
+# feature the sidebar has just hidden — a "Coming soon" Voting section in the hub with a Voting
+# slide on the wall beside it is the makerspace contradicting itself in public.
+_GENERATED_BLOCKS: tuple[tuple[str, Callable[[SiteConfiguration, int], list[SignageSlideVM]], str | None], ...] = (
+    ("signage_show_classes", _class_slides, None),
+    ("signage_show_events", _event_slides, None),
+    ("signage_show_guilds", _guild_slides, "guilds"),
+    ("signage_show_calendar", _calendar_slide, None),
+    ("signage_show_voting", _voting_slide, "voting"),
+    ("signage_show_directory", _directory_slide, "directory"),
+    ("signage_show_teach", _teach_slide, "teach"),
+    ("signage_show_tour", _tour_slide, None),
 )
 
 

@@ -63,6 +63,10 @@ class FeaturePage:
     label: str
     url_name: str
     query: str = ""
+    # The core.features key this page belongs to, or None for a page no feature switch can
+    # turn off. A page whose feature is not On is dropped from the registry at read time —
+    # see :func:`available_feature_pages`.
+    feature_key: str | None = None
 
     @property
     def path(self) -> str:
@@ -76,13 +80,32 @@ class FeaturePage:
 FEATURE_PAGES: list[FeaturePage] = [
     FeaturePage(slug="home", label="Member home dashboard", url_name="hub_home"),
     FeaturePage(slug="my-guilds", label="My Guilds settings", url_name="hub_user_settings", query="?tab=guilds"),
-    FeaturePage(slug="spaces", label="Spaces page", url_name="hub_spaces"),
+    FeaturePage(slug="spaces", label="Spaces page", url_name="hub_spaces", feature_key="spaces"),
     FeaturePage(slug="help", label="Help & guides", url_name="hub_help"),
-    FeaturePage(slug="member-directory", label="Member directory", url_name="hub_member_directory"),
+    FeaturePage(
+        slug="member-directory",
+        label="Member directory",
+        url_name="hub_member_directory",
+        feature_key="directory",
+    ),
     FeaturePage(slug="guild-directory", label="Guilds directory", url_name="hub_guild_directory"),
     FeaturePage(slug="notifications", label="Notifications page", url_name="notification_list"),
     FeaturePage(slug="community-calendar", label="Calendar", url_name="hub_community_calendar"),
 ]
+
+
+def available_feature_pages() -> list[FeaturePage]:
+    """:data:`FEATURE_PAGES` minus any page whose feature is not On (#405, AC 5b).
+
+    Two of the curated pages are switchable features. Left unfiltered, hiding Spaces would
+    have the screenshot job dutifully capture and publish a picture of its own 404 — the same
+    bug class as the lobby kiosk still advertising a switched-off feature, and the same fix.
+    Filtered at read time rather than at import, because the state is a database row an admin
+    changes while the process is running.
+    """
+    from core.features import is_on
+
+    return [page for page in FEATURE_PAGES if page.feature_key is None or is_on(page.feature_key)]
 
 
 def _index_pages(pages: list[FeaturePage]) -> dict[str, FeaturePage]:
@@ -177,7 +200,7 @@ def feature_shot_choices() -> list[tuple[str, str]]:
     captured = set(captured_feature_slugs())
     choices: list[tuple[str, str]] = [("", "No screenshot")]
     seen: set[str] = set()
-    for page in FEATURE_PAGES:  # curated first, registry order + labels
+    for page in available_feature_pages():  # curated first, registry order + labels; off features drop out
         if page.slug in captured:
             choices.append((page.slug, page.label))
             seen.add(page.slug)

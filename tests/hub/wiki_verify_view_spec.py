@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from django.test import Client
 from django.urls import reverse
 
-from core.models import SiteConfiguration
+from tests.features import hide, turn_on
 from membership.models import Member, WikiPage
 from tests.membership.factories import (
     GuildFactory,
@@ -25,10 +25,7 @@ _HTMX = {"HTTP_HX_REQUEST": "true"}
 
 @pytest.fixture(autouse=True)
 def _wiki_on(db):
-    config = SiteConfiguration.load()
-    config.wiki_enabled = True
-    config.save()
-    return config
+    return turn_on("wiki")
 
 
 def _member_user(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> User:
@@ -172,13 +169,14 @@ def describe_the_permission_gate():
         _login(client, "verify_view_404")
         assert client.post(reverse("hub_wiki_verify", args=["nope"]), **_HTMX).status_code == 404
 
-    def it_404s_while_the_wiki_is_off(db, client, _wiki_on):
-        _wiki_on.wiki_enabled = False
-        _wiki_on.save()
+    def it_still_works_while_the_wiki_is_hidden(db, client, _wiki_on):
+        # #405: the switch is cosmetic. Hiding the wiki takes it out of the sidebar and leaves
+        # the pages reachable, so a lead who kept the link can still verify a page.
+        hide("wiki")
         user = _login(client, "verify_view_flagoff")
         guild = GuildFactory(guild_lead=user.member)
         page = WikiPageFactory(guild=guild)
-        assert client.post(reverse("hub_wiki_verify", args=[page.slug]), **_HTMX).status_code == 404
+        assert client.post(reverse("hub_wiki_verify", args=[page.slug]), **_HTMX).status_code == 200
 
 
 def describe_the_control_on_the_reading_page():

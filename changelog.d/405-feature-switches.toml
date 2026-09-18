@@ -1,0 +1,19 @@
+# Admin capability only, and deliberately announced to nobody. All eight features deploy in
+# exactly the state they are in today, by two separate routes:
+#
+#   - wiki, equipment and teach inherit the three booleans they replace. The data migration
+#     (core/migrations/0087) copies wiki_enabled, equipment_page_enabled and
+#     host_a_workshop_enabled onto the new rows, and all three are True on production.
+#   - meetings, directory, spaces and voting are seeded On by that same migration; guilds, added
+#     last and carrying no migration at all, reads On because an absent row means On.
+#
+# So merge day changes nothing a member can see, and there is nothing honest to announce. The
+# switches also stop at the sidebar — every page stays reachable by its own link — so even the
+# two behaviour changes in here (the wiki and equipment route 404s going away) are invisible
+# while both features are on, which they are.
+#
+# The member-visible moment is the first time an admin sets something to Coming soon or Hidden.
+# That is a config change, it adds no fragment, and it announces nothing — which is why this
+# release is internal rather than a member entry written months before members meet it.
+bump = "minor"
+audience = "internal"

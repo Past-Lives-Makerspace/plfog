@@ -74,7 +74,7 @@ Context:
         <a href="?tab=guilds" @click.prevent="go('guilds')">Manage which guilds send you updates →</a>
       </p>
     {% endif %}
-    {% if category == 'Meetings' and matrix_self and not prefs_token %}
+    {% if category == 'Meetings' and matrix_self and not prefs_token and features.meetings.is_on %}
       <p class="hub-text-muted pl-notif-section-note">
         <a href="{% url 'hub_meetings' %}">View upcoming meetings →</a>
       </p>

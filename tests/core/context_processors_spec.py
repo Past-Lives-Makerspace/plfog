@@ -81,9 +81,9 @@ def describe_feature_flags():
         assert result["my_tab_enabled"] is True
         assert result["class_registration_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
-        assert result["equipment_page_enabled"] is True
-        # Ships in today's behaviour: the Host a Workshop entry is on until an admin turns it off.
-        assert result["host_a_workshop_enabled"] is True
+        # Ships in today's behaviour: the six features that were live stay live, and the wiki
+        # keeps the off state it has always shipped with (see core/migrations/0087).
+        assert [key for key, view in result["features"].items() if not view.is_on] == ["wiki"]
         assert (
             result["class_registration_disabled_note"]
             == SiteConfiguration._meta.get_field("class_registration_disabled_note").default
@@ -95,29 +95,33 @@ def describe_feature_flags():
         config.class_registration_enabled = False
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
-        config.wiki_link_enabled = False
-        config.wiki_enabled = True
         config.instructor_discount_codes_enabled = True
         config.guild_welcome_email_enabled = False
-        config.equipment_page_enabled = False
-        config.host_a_workshop_enabled = False
         config.save()
 
         rf = RequestFactory()
         request = rf.get("/")
         result = feature_flags(request)
+        features = result.pop("features")
         assert result == {
             "my_tab_enabled": False,
             "class_registration_enabled": False,
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
-            "wiki_link_enabled": False,
-            "wiki_enabled": True,
             "instructor_discount_codes_enabled": True,
             "guild_welcome_email_enabled": False,
-            "equipment_page_enabled": False,
-            "host_a_workshop_enabled": False,
         }
+        # The eight three-state features travel in their own key, all present and On.
+        assert sorted(features) == [
+            "directory",
+            "equipment",
+            "guilds",
+            "meetings",
+            "spaces",
+            "teach",
+            "voting",
+            "wiki",
+        ]
 
 
 def describe_brand():

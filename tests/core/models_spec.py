@@ -65,19 +65,28 @@ def describe_SiteConfiguration():
             config = SiteConfiguration.load()
             assert config.help_page_enabled is True
 
-        def it_defaults_wiki_link_enabled_to_true():
-            config = SiteConfiguration.load()
-            assert config.wiki_link_enabled is True
-
         def it_defaults_guild_welcome_email_enabled_to_true():
             config = SiteConfiguration.load()
             assert config.guild_welcome_email_enabled is True
 
-        def it_defaults_host_a_workshop_enabled_to_true():
-            # On by default so the switch ships in today's behaviour: every active member
-            # keeps the Host a Workshop invitation until an admin decides otherwise.
-            config = SiteConfiguration.load()
-            assert config.host_a_workshop_enabled is True
+        def it_carries_every_feature_into_the_state_it_already_had():
+            # The #405 deploy is a no-op by construction: the six features that were on stay on,
+            # and the wiki keeps the OFF it has always shipped with (wiki_enabled defaulted to
+            # False). Preserving that off state is the point of the data migration — seeding
+            # everything ON would have silently launched the wiki on deploy.
+            from core.features import FEATURES, is_on
+
+            assert [f.key for f in FEATURES if not is_on(f.key)] == ["wiki"]
+
+        def it_treats_a_missing_row_as_on():
+            # Absence means ON, so a database that has never been seeded behaves exactly like
+            # the app did before this table existed.
+            from core.features import is_on
+            from core.models import FeatureSwitch
+
+            FeatureSwitch.objects.all().delete()
+            assert is_on("wiki") is True
+            assert is_on("voting") is True
 
 
 def describe_Invite():

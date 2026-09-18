@@ -154,15 +154,15 @@
                 Class Catalog
             </a>
 
-            {% if teach_nav %}{% if teach_nav.teaches or host_a_workshop_enabled %}
-            {# Teaching: every active member who teaches; the Host a Workshop invitation follows the flag. #}
+            {% if teach_nav %}{% if teach_nav.teaches %}
+            {# An instructor keeps Teaching and the whole portal in ALL three states (#405): this switch is the recruiting invitation, not the door to somebody's own classes. #}
             <a href="{{ teach_nav.url }}" class="hub-sidebar__link{% if teach_nav.is_active %} active{% endif %}" data-nav="teach">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-                    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-                </svg>
+                {% include "hub/partials/nav_icons/_teach.html" %}
                 {{ teach_nav.label }}
             </a>
+            {% else %}
+            {# Everyone else sees the Host a Workshop invitation, which the switch governs. #}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.teach url=teach_nav.url label=teach_nav.label icon="hub/partials/nav_icons/_teach.html" active=teach_nav.active_class nav_key="teach" %}
             {% endif %}{% endif %}
 
             <a href="{% url 'hub_community_calendar' %}" class="hub-sidebar__link {% active_nav 'hub_community_calendar' %}" data-help-key="nav.calendar">
@@ -176,26 +176,13 @@
             </a>
 
             {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Class Catalog idiom). #}
-            <a href="{% url 'hub_meetings' %}" class="hub-sidebar__link {% if request.path|slice:':10' == '/meetings/' %}active{% endif %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                    <line x1="16" y1="2" x2="16" y2="6"/>
-                    <line x1="8" y1="2" x2="8" y2="6"/>
-                    <line x1="3" y1="10" x2="21" y2="10"/>
-                    <path d="M9 16l2 2 4-4"/>
-                </svg>
-                Meetings
-            </a>
+            {% active_path '/meetings/' as meetings_active %}
+            {% url 'hub_meetings' as meetings_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active %}
 
-            <a href="{% url 'hub_member_directory' %}" class="hub-sidebar__link {% active_nav 'hub_member_directory' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-                Member Directory
-            </a>
+            {% active_nav 'hub_member_directory' as directory_active %}
+            {% url 'hub_member_directory' as directory_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.directory url=directory_url label="Member Directory" icon="hub/partials/nav_icons/_directory.html" active=directory_active %}
 
             {% if request.view_as.is_member and my_tab_enabled %}
             <a href="{% url 'hub_tab_detail' %}" class="hub-sidebar__link {% active_nav 'hub_tab_detail' 'hub_tab_history' %}">
@@ -210,31 +197,18 @@
             </a>
             {% endif %}
 
-            <a href="{% url 'hub_spaces' %}" class="hub-sidebar__link {% active_nav 'hub_spaces' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
-                    <line x1="8" y1="2" x2="8" y2="18"/>
-                    <line x1="16" y1="6" x2="16" y2="22"/>
-                </svg>
-                Spaces
-            </a>
+            {% active_nav 'hub_spaces' as spaces_active %}
+            {% url 'hub_spaces' as spaces_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.spaces url=spaces_url label="Spaces" icon="hub/partials/nav_icons/_spaces.html" active=spaces_active %}
 
-            {% if equipment_page_enabled %}
-            <a href="{% url 'hub_equipment_index' %}" class="hub-sidebar__link {% active_nav 'hub_equipment_index' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                </svg>
-                Equipment
-            </a>
-            {% endif %}
+            {% active_nav 'hub_equipment_index' as equipment_active %}
+            {% url 'hub_equipment_index' as equipment_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Equipment" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
 
-            <a href="{% url 'hub_admin_voting_overview' %}" class="hub-sidebar__link {% active_nav 'hub_admin_voting_overview' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 11l3 3L22 4"/>
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                </svg>
-                Voting
-            </a>
+            {# The admin destination. The member block below points the same switch at hub_guild_voting. #}
+            {% active_nav 'hub_admin_voting_overview' as voting_active %}
+            {% url 'hub_admin_voting_overview' as voting_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active %}
 
             <hr class="hub-sidebar__divider" />
 
@@ -248,16 +222,9 @@
             </a>
             {% endif %}
 
-            {% if wiki_enabled %}
-            <a href="{% url 'hub_wiki_home' %}" class="hub-sidebar__link {% active_nav 'hub_wiki_home' %}" data-help-key="nav.wiki">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M2 12h20"/>
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                </svg>
-                Wiki
-            </a>
-            {% endif %}
+            {% active_nav 'hub_wiki_home' as wiki_active %}
+            {% url 'hub_wiki_home' as wiki_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
             {% else %}
             <a href="{% url 'hub_home' %}" class="hub-sidebar__link {% active_nav 'hub_home' %}">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -294,15 +261,15 @@
                 Class Catalog
             </a>
 
-            {% if teach_nav %}{% if teach_nav.teaches or host_a_workshop_enabled %}
-            {# Teaching: every active member who teaches; the Host a Workshop invitation follows the flag. #}
+            {% if teach_nav %}{% if teach_nav.teaches %}
+            {# An instructor keeps Teaching and the whole portal in ALL three states (#405): this switch is the recruiting invitation, not the door to somebody's own classes. #}
             <a href="{{ teach_nav.url }}" class="hub-sidebar__link{% if teach_nav.is_active %} active{% endif %}" data-nav="teach">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-                    <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-                </svg>
+                {% include "hub/partials/nav_icons/_teach.html" %}
                 {{ teach_nav.label }}
             </a>
+            {% else %}
+            {# Everyone else sees the Host a Workshop invitation, which the switch governs. #}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.teach url=teach_nav.url label=teach_nav.label icon="hub/partials/nav_icons/_teach.html" active=teach_nav.active_class nav_key="teach" %}
             {% endif %}{% endif %}
 
             <a href="{% url 'hub_community_calendar' %}" class="hub-sidebar__link {% active_nav 'hub_community_calendar' %}" data-help-key="nav.calendar">
@@ -316,36 +283,19 @@
             </a>
 
             {% if request.view_as.is_member %}
-            <a href="{% url 'hub_guild_voting' %}" class="hub-sidebar__link {% active_nav 'hub_guild_voting' %}" data-help-key="voting.rank-guilds">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 11l3 3L22 4"/>
-                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                </svg>
-                Guild Voting
-            </a>
+            {% active_nav 'hub_guild_voting' as voting_active %}
+            {% url 'hub_guild_voting' as voting_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active help_key="voting.rank-guilds" %}
             {% endif %}
 
             {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Class Catalog idiom). #}
-            <a href="{% url 'hub_meetings' %}" class="hub-sidebar__link {% if request.path|slice:':10' == '/meetings/' %}active{% endif %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                    <line x1="16" y1="2" x2="16" y2="6"/>
-                    <line x1="8" y1="2" x2="8" y2="6"/>
-                    <line x1="3" y1="10" x2="21" y2="10"/>
-                    <path d="M9 16l2 2 4-4"/>
-                </svg>
-                Meetings
-            </a>
+            {% active_path '/meetings/' as meetings_active %}
+            {% url 'hub_meetings' as meetings_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active %}
 
-            <a href="{% url 'hub_member_directory' %}" class="hub-sidebar__link {% active_nav 'hub_member_directory' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-                Member Directory
-            </a>
+            {% active_nav 'hub_member_directory' as directory_active %}
+            {% url 'hub_member_directory' as directory_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.directory url=directory_url label="Member Directory" icon="hub/partials/nav_icons/_directory.html" active=directory_active %}
 
             {% if request.view_as.is_member and my_tab_enabled %}
             <a href="{% url 'hub_tab_detail' %}" class="hub-sidebar__link {% active_nav 'hub_tab_detail' 'hub_tab_history' %}">
@@ -360,23 +310,13 @@
             </a>
             {% endif %}
 
-            <a href="{% url 'hub_spaces' %}" class="hub-sidebar__link {% active_nav 'hub_spaces' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
-                    <line x1="8" y1="2" x2="8" y2="18"/>
-                    <line x1="16" y1="6" x2="16" y2="22"/>
-                </svg>
-                Spaces
-            </a>
+            {% active_nav 'hub_spaces' as spaces_active %}
+            {% url 'hub_spaces' as spaces_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.spaces url=spaces_url label="Spaces" icon="hub/partials/nav_icons/_spaces.html" active=spaces_active %}
 
-            {% if equipment_page_enabled %}
-            <a href="{% url 'hub_equipment_index' %}" class="hub-sidebar__link {% active_nav 'hub_equipment_index' %}">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                </svg>
-                Equipment
-            </a>
-            {% endif %}
+            {% active_nav 'hub_equipment_index' as equipment_active %}
+            {% url 'hub_equipment_index' as equipment_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Equipment" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
 
             <hr class="hub-sidebar__divider" />
 
@@ -390,18 +330,20 @@
             </a>
             {% endif %}
 
-            {% if wiki_enabled %}
-            <a href="{% url 'hub_wiki_home' %}" class="hub-sidebar__link {% active_nav 'hub_wiki_home' %}" data-help-key="nav.wiki">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M2 12h20"/>
-                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                </svg>
-                Wiki
-            </a>
-            {% endif %}
+            {% active_nav 'hub_wiki_home' as wiki_active %}
+            {% url 'hub_wiki_home' as wiki_url %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.wiki url=wiki_url label="Wiki" icon="hub/partials/nav_icons/_wiki.html" active=wiki_active help_key="nav.wiki" %}
             {% endif %}
 
+            {% comment %}
+            The Guilds section follows the guilds feature switch (#405). It sits AFTER the
+            admin/member branch closes, so unlike every other entry it is written once and this
+            single gate covers both sidebar variants.
+            Hidden drops the whole block. Coming soon renders the heading inert with its bubble
+            and nothing beneath it — no chevron, no collapsible, no guild links — because a
+            disclosure control that discloses nothing is worse than no control.
+            {% endcomment %}
+            {% if features.guilds.is_on %}
             <div x-data="{ open: localStorage.getItem('hubGuildsOpen') === null ? true : localStorage.getItem('hubGuildsOpen') === '1' }"
                  x-init="$watch('open', v => localStorage.setItem('hubGuildsOpen', v ? '1' : '0'))">
                 <button class="hub-sidebar__section-toggle" data-help-key="nav.guilds" @click="open = !open" :aria-expanded="open">
@@ -427,6 +369,13 @@
                     </div>
                 </div>
             </div>
+            {% elif features.guilds.is_soon %}
+            {# A span, never a disabled <button>: it must stay in the tab order for the bubble to be keyboard reachable. #}
+            <span class="hub-sidebar__section-toggle hub-sidebar__section-toggle--soon pl-help" tabindex="0" aria-disabled="true" data-help-key="nav.guilds">
+                <span>Guilds</span>
+                <span class="pl-help__bubble" role="tooltip">{{ features.guilds.message }}</span>
+            </span>
+            {% endif %}
 
         </nav>
 

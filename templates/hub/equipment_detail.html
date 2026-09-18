@@ -94,8 +94,8 @@
   {% endif %}
   {% if equipment.space %}
   <p class="hub-text-muted" style="margin:0;">
-    Room: {{ equipment.space }}{% if equipment.space.size_sqft %} · {{ equipment.space.size_sqft|floatformat:"0" }} sq ft{% endif %}
-    · <a href="{% url 'hub_spaces' %}">See it on the space map</a>
+    Room: {{ equipment.space }}{% if equipment.space.size_sqft %} · {{ equipment.space.size_sqft|floatformat:"0" }} sq ft{% endif %}{% if features.spaces.is_on %}
+    · <a href="{% url 'hub_spaces' %}">See it on the space map</a>{% endif %}
   </p>
   {% endif %}
 </div>

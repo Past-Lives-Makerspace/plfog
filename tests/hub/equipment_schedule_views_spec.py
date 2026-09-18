@@ -71,19 +71,17 @@ def _toast(response) -> str:
 
 
 def describe_equipment_feature_gate():
-    """Site Settings → equipment_page_enabled: off means fully dark (sidebar + 404s)."""
+    """Site Settings → Features → Equipment: not On takes it out of the sidebar, nothing more."""
 
     def _disable() -> None:
-        from core.models import SiteConfiguration
+        from tests.features import hide
 
-        config = SiteConfiguration.load()
-        config.equipment_page_enabled = False
-        config.save()
+        hide("equipment")
 
     def it_defaults_on_so_live_behavior_is_preserved(client: Client):
-        from core.models import SiteConfiguration
+        from core.features import is_on
 
-        assert SiteConfiguration.load().equipment_page_enabled is True
+        assert is_on("equipment") is True
         _login(client, "gate_default")
         assert client.get(reverse("hub_equipment_index")).status_code == 200
 
@@ -94,47 +92,35 @@ def describe_equipment_feature_gate():
         assert response.status_code == 200
         assert b'href="/equipment/"' not in response.content
 
-    def it_404s_every_equipment_view_when_disabled(client: Client):
-        user = _login(client, "gate_dark", fog_role=Member.FogRole.ADMIN)
-        equipment = _open_tool()
-        reservation = EquipmentReservationFactory(
-            equipment=equipment, member=user.member, starts_at=_at(_day(), 10), ends_at=_at(_day(), 11)
-        )
+    def it_keeps_every_equipment_view_reachable_when_hidden(client: Client):
+        """#405 made the switch cosmetic: it owns the sidebar, not the routes.
+
+        This used to assert 404 on every equipment view via ``equipment_feature_required``,
+        which is gone. A saved link keeps working in every state — intended, and explicitly not
+        a security boundary.
+        """
         _disable()
-        assert client.get(reverse("hub_equipment_index")).status_code == 404
-        assert client.get(reverse("hub_equipment_detail", args=[equipment.slug])).status_code == 404
-        assert client.get(reverse("hub_equipment_schedule", args=[equipment.slug])).status_code == 404
-        # Even the admin's manage surface is dark — Site Settings is where it comes back.
-        assert client.get(reverse("hub_equipment_manage", args=[equipment.slug])).status_code == 404
-        response = client.post(
-            reverse("hub_equipment_reserve", args=[equipment.slug]),
-            {"starts_at": _at(_day(), 12).isoformat(), "duration_minutes": 60, "purpose": "", "day": ""},
-        )
-        assert response.status_code == 404
-        assert equipment.reservations.confirmed().count() == 1  # nothing new booked
-        assert (
-            client.post(reverse("hub_equipment_reservation_cancel", args=[equipment.slug, reservation.pk])).status_code
-            == 404
-        )
+        _login(client, "gate_reachable")
+        assert client.get(reverse("hub_equipment_index")).status_code == 200
 
-    def it_round_trips_through_the_site_settings_form(client: Client):
-        from django.forms.models import model_to_dict
+    def it_round_trips_through_the_feature_switch_form(client: Client):
+        """The state now round-trips through the Features formset, not SiteSettingsForm."""
+        from core.features import is_on
+        from core.models import FeatureSwitch
+        from hub.forms import FeatureSwitchForm
 
-        from core.models import SiteConfiguration
-        from hub.forms import SiteSettingsForm
-
-        config = SiteConfiguration.load()
-        data = model_to_dict(config)
-        data["equipment_page_enabled"] = False
-        form = SiteSettingsForm(data, instance=config)
+        FeatureSwitch.objects.sync_registry()
+        row = FeatureSwitch.objects.get(feature_key="equipment")
+        form = FeatureSwitchForm({"state": "hidden", "message": ""}, instance=row)
         assert form.is_valid(), form.errors
         form.save()
-        assert SiteConfiguration.load().equipment_page_enabled is False
-        data["equipment_page_enabled"] = True
-        form = SiteSettingsForm(data, instance=SiteConfiguration.load())
+        assert is_on("equipment") is False
+        form = FeatureSwitchForm(
+            {"state": "on", "message": ""}, instance=FeatureSwitch.objects.get(feature_key="equipment")
+        )
         assert form.is_valid(), form.errors
         form.save()
-        assert SiteConfiguration.load().equipment_page_enabled is True
+        assert is_on("equipment") is True
 
 
 def describe_equipment_schedule():
