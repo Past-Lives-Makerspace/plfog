@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-17"
+title = "The announcement composer explains when it turns you away"
+changes = [
+  "Opening the announcement composer without the rights to send one used to drop you on the propose page with no explanation at all. It now tells you why you were moved.",
+  "If you are an admin who is previewing the site as a lower role, it tells you that sending is an admin action and how to get back to it.",
+]

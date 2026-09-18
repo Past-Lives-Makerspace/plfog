@@ -86,3 +86,59 @@ one: a viewer who cannot enter the composer should be told so.
 
 Touching anything outside this list is a question for the orchestrator, not a
 decision to make alone.
+
+---
+
+# Correction: half of this spec was already fixed by #403
+
+Recorded during the build, after writing the specs and running them against untouched
+main. Result: **18 passed, 6 failed**, and the split fell exactly along the seam.
+
+## Criteria 1 and 2 already held
+
+The matrix at the top of this document describes the app before #403. It no longer
+describes the app.
+
+`class_access` (`classes/access.py:298`) now resolves the whole per-class screen and is
+view-as dependent:
+
+- leg 0 returns `None` for an effective guest (`access.py:341`)
+- leg 1 is `view_as.is_admin`, which an admin previewing a lower role fails
+  (`access.py:342`)
+- no later leg matches an admin who is not the instructor and cannot edit the class
+- `class_screen_required` turns `None` into `Http404` (`access.py:400`)
+
+So an admin previewing as member or as guest now gets a **404 on every tab**, not a
+200 with a lying button on it. There is no longer a surface on which the button can be
+shown to someone the composer will refuse.
+
+Both templates already gate the link on `{% if access.can_send_email %}`
+(`class_screen_base.html:45`, `teach/class_registrations.html:12`), and
+`can_send_email` is true only in `_admin_access()` (`access.py:139`) and
+`_instructor_access()` (`access.py:191`). Those two carry exactly the predicates
+`_can_compose` and `_can_announce_to_class` test. `_guild_access()` and
+`_reviewer_access()` both set it false.
+
+**The affordance therefore implies composer admission by construction, not by
+coincidence.** No template change was made. Adding a second gate in the template would
+duplicate a per-object predicate that `classes/access.py` exists to centralise, and it
+would not catch `class_access` drifting. A parametrized test pins the implication
+instead, and the 404 is pinned as its own test so the zero-link assertions cannot later
+pass for the wrong reason.
+
+## What this PR actually ships
+
+Criterion 3: **the composer stops refusing silently.** That half was genuinely broken
+and is now fixed for every refused viewer, not only the previewing admin:
+
+- `hub_compose` adds `messages.error(...)` before its redirect, so the boosted
+  navigation explains itself rather than teleporting the user to an unrelated form.
+- The three HTMX POST paths (`hub_compose_preview`, `hub_compose_test`,
+  `hub_compose_push_test`) returned a bare `HttpResponse("Forbidden", status=403)`,
+  which is invisible under `hx-swap="none"`. They now carry the reason in the
+  `HX-Trigger` header the toast script already listens on.
+- The reason itself branches: an admin previewing a lower role is not short of rights
+  and is pointed at the role switcher; everyone else is told they cannot send and that
+  the propose flow is their route.
+
+Still no permission is widened, which was the decision this spec opened with.

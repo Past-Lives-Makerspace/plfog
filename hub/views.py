@@ -3469,6 +3469,43 @@ def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience
     return offering is not None and _can_announce_to_class(request, offering)
 
 
+def _compose_refusal_message(request: HttpRequest) -> str:
+    """Why the composer turned this request away, in the refused viewer's own terms.
+
+    Two sentences for two populations, because one sentence would have to lie to one of them.
+    An admin previewing a lower role is not short of rights: the role they are looking through
+    is, and the way back is the "Viewing as" switcher, so the message points at it. Telling
+    them they lacked permission would be the same untruth about this surface that #371 exists
+    to remove. Everyone else genuinely cannot compose, and the propose flow the page entry
+    lands them on is their answer.
+
+    Args:
+        request: The refused request, carrying ``view_as`` from the middleware.
+
+    Returns:
+        A member-friendly sentence naming the actual obstacle and the way past it.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.actual_is_admin and view_as.is_previewing:
+        return (
+            "Sending an announcement is an admin action, and your Viewing as switcher is set to "
+            f"{view_as.current_label}. Switch it back to Admin to send this."
+        )
+    return "Your account cannot send announcements. You can propose one here for a lead to review."
+
+
+def _compose_refused(request: HttpRequest) -> HttpResponse:
+    """The composer's HTMX refusal: 403 carrying the reason as an error toast.
+
+    The ``_skills_no_member_response`` idiom. A bare 403 on an ``hx-post`` with ``hx-swap="none"``
+    is invisible — nothing swaps and nothing is said — so the refusal has to travel in the
+    ``HX-Trigger`` header the toast script already listens on.
+    """
+    response = HttpResponse("Forbidden", status=403)
+    trigger_toast(response, _compose_refusal_message(request), "error")
+    return response
+
+
 def _can_use_admin_tools(request: HttpRequest, member: Member | None) -> bool:
     """True when the Admin Tools hub (sidebar entry + page) is available to this request.
 
@@ -3737,7 +3774,8 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     ``?audience=guild:<pk>`` pre-scopes a fresh compose, and ``?recipients=<token>`` (repeatable,
     with ``?include_waitlist=1``) narrows the checklist to a roster hand-off — see
     :func:`_compose_preselection`. A member who can compose nothing (not an admin, leads no
-    guild) is redirected to the separate propose flow.
+    guild) is redirected to the separate propose flow, carrying
+    :func:`_compose_refusal_message` so the landing is explained rather than silent.
     """
     from hub.forms import AnnouncementComposeForm
     from membership.models import AnnouncementDraft
@@ -3760,6 +3798,10 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
             initial["audience"] = requested
         locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
     if not _can_enter_compose(request, member, requested):
+        # The redirect alone is silent: hub/base.html boosts the hub body, so the refused page
+        # just becomes an unrelated propose form. The message is what makes it a refusal rather
+        # than a teleport, and ToastFlashMiddleware carries it across the boosted redirect.
+        messages.error(request, _compose_refusal_message(request))
         return redirect("hub_guild_announcement_propose")
     if draft_pk is None:
         # After the gate on purpose: building the pre-selection reads a class roster, and an
@@ -3794,7 +3836,7 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     from membership.orientations import _absolute_url
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
-        return HttpResponse("Forbidden", status=403)
+        return _compose_refused(request)
     audience, guild, offering = split_audience(request.POST.get("audience") or "")
     draft = AnnouncementDraft(
         author=cast(User, request.user),
@@ -3850,7 +3892,7 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
     from membership.orientations import _absolute_url
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
-        return HttpResponse("Forbidden", status=403)
+        return _compose_refused(request)
     to = (cast(User, request.user).email or "").strip()
     if not to:
         response = HttpResponse(status=204)
@@ -3893,7 +3935,7 @@ def hub_compose_push_test(request: HttpRequest) -> HttpResponse:
     from core.push_admin import send_test_push
 
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
-        return HttpResponse("Forbidden", status=403)
+        return _compose_refused(request)
     result = send_test_push(cast(User, request.user), url=request.build_absolute_uri("/"))
     response = HttpResponse(status=204)
     if result.attempted == 0:
