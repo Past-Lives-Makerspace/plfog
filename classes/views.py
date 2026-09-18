@@ -2811,11 +2811,12 @@ def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     """Send a manual email to selected registrants of one class.
 
     Bounces back to the Registrations tab with a flash message on both success and validation
-    error. ``can_send_email`` is the same capability the Send Email button reads, so the
-    affordance and the endpoint cannot disagree.
+    error. It gates on ``can_send_email``, the capability the Send Email button reads, **and on
+    ``can_view_registrations`` besides** — so it is deliberately narrower than that button
+    rather than equal to it, and this docstring used to claim the two could not disagree.
 
-    **It takes the roster as well**, which ``can_send_email`` alone stopped implying in #371
-    item 1. This form emails *selected registrants*: its checkboxes live at the foot of the
+    The extra conjunct is what #371 item 1 made necessary. This form emails *selected
+    registrants*: its checkboxes live at the foot of the
     Registrations tab, and its payload is a list of registration ids. A guild lead now holds
     ``can_send_email`` on a class in their guild and still, by ruling 12, holds no roster — so
     on the capability alone this endpoint would start admitting a viewer who can never see the

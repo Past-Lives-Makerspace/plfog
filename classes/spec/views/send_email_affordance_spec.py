@@ -337,15 +337,25 @@ SEND_LOGIN_REDIRECT = (302, 0)
 #: lesson twice in one round — one ``capacity=4`` fixture hid a blocker on the last-seat path, and
 #: one shared email address hid an unauthenticated account takeover. This feature is *about*
 #: roles, so the role axis is varied on purpose and the refusals are carried in the same table as
-#: the admissions, at the same weight. Four of these rows send and eight do not, and each of the
+#: the admissions, at the same weight. Five of these rows send and eight do not, and each of the
 #: eight is refused for a different reason: a preview that closes the screen, a guild that is not
 #: theirs, a grant whose contract is approve-and-nothing-else, a name on a class without the
 #: teaching access behind it, no claim at all, and no session at all.
+#:
+#: ``guild_officer_with_grant`` is the row this table was missing on its first pass, and it is
+#: the one with the widest reach of the five: a site-wide guild officer holding the teaching
+#: grant is judged on a class they neither teach nor hold the guild of, and is admitted anyway,
+#: because ``can_edit_class`` short-circuits on ``is_effective_staff`` and lands them on the
+#: guild row for the whole catalog. It is deliberate (see ``classes.access._guild_access``) and
+#: it is here so that it is deliberate *visibly* — a relaxation nobody can read off the table is
+#: one that was arrived at quietly, which is the thing this ticket's plan file exists to prevent.
+#: The second entry in its tuple is the point: the reach is catalog-wide, not guild-wide.
 ROLE_MATRIX = {
     "admin": (True, SEND_ACCEPTED),
     "instructor": (True, SEND_ACCEPTED),
     "guild_lead": (True, SEND_ACCEPTED),
     "guild_staffer": (True, SEND_ACCEPTED),
+    "guild_officer_with_grant": (True, SEND_ACCEPTED),
     "admin_previewing_guild_officer": (False, SEND_REFUSED),
     "admin_previewing_member": (False, SEND_REFUSED),
     "admin_previewing_guest": (False, SEND_REFUSED),
@@ -369,7 +379,12 @@ def _link_is_offered(client, offering: ClassOffering) -> bool:
 
 
 def _send_outcome(client, offering: ClassOffering) -> tuple[int, int]:
-    """Post a real Send at this class: ``(status code, drafts actually stamped sent)``."""
+    """Post a real Send at this class: ``(status code, drafts actually stamped sent for it)``.
+
+    Counted against ``class_offering=offering`` rather than the whole table. Table-wide happens
+    to be right while every test sends at most once, which is a property of today's callers and
+    not of the helper.
+    """
     response = client.post(
         reverse("hub_compose_send"),
         {
@@ -381,7 +396,8 @@ def _send_outcome(client, offering: ClassOffering) -> tuple[int, int]:
             "draft_pk": "",
         },
     )
-    return response.status_code, AnnouncementDraft.objects.filter(sent_at__isnull=False).count()
+    sent = AnnouncementDraft.objects.filter(class_offering=offering, sent_at__isnull=False).count()
+    return response.status_code, sent
 
 
 @pytest.fixture
@@ -427,6 +443,19 @@ def sign_in(db, admin_user, member_user, instructor, guild_lead, roster_class, c
             staffer = _fresh_member("affordance-staffer@example.com", "Jules Behn")
             GuildStaffMembershipFactory(guild=roster_class.category.guild, member=staffer)
             client.force_login(staffer.user)
+            return roster_class
+        if role == "guild_officer_with_grant":
+            # No guild relationship to this class at all, and they do not teach it. They are
+            # admitted by can_edit_class's is_effective_staff short-circuit, which puts them on
+            # the guild row for every class in the catalog. The teaching grant is load-bearing:
+            # it_denies_a_fog_guild_officer_without_teaching_access in access_spec pins that the
+            # same officer WITHOUT it is refused, so this row must carry it to be the real shape.
+            officer = _fresh_member("affordance-officer@example.com", "Marta Quill")
+            officer.fog_role = Member.FogRole.GUILD_OFFICER
+            officer.instructor_oriented_at = timezone.now()
+            officer.save(update_fields=["fog_role", "instructor_oriented_at"])
+            officer.sync_user_permissions()
+            client.force_login(officer.user)
             return roster_class
         if role == "other_guild_lead":
             # Leading *a* guild is not leading *this* one. Without this row, "guild lead" and
@@ -589,3 +618,112 @@ def describe_the_populations_that_are_still_refused():
         offering = sign_in(role)
         assert _screen_probe(client, offering) == SCREEN_CLOSED
         assert _send_outcome(client, offering) == SEND_REFUSED
+
+
+def describe_the_audience_list_offers_only_what_the_send_accepts():
+    """The composer's own affordance, held to the standard the class screen's button now meets.
+
+    ``hub.views._compose_editable_classes`` builds the audience dropdown from ``for_instructor``,
+    a bare FK filter. The moment the send gate started requiring the teaching grant, that filter
+    stopped being the gate: a member put through :meth:`membership.models.Member.revoke_teaching`
+    still matches the FK on every class they were named on, so the dropdown went on offering a
+    class whose Send answered 403 — and answered it where it had succeeded before. Rebuilding the
+    surface-shown, action-refused shape on the composer, inside the change whose whole argument is
+    that the shape is no longer expressible, is the one regression this ticket cannot ship.
+
+    :data:`ROLE_MATRIX` is structurally blind to it. ``_link_is_offered`` probes the class screen,
+    and this affordance lives on another page entirely, so the matrix would have stayed twelve for
+    twelve while the defect shipped. That is worth stating plainly next to the matrix rather than
+    trusting the matrix to be exhaustive because it is large.
+    """
+
+    @pytest.fixture
+    def revoked_instructor(db) -> tuple[Member, ClassOffering]:
+        """A member who taught a published class and then had teaching access taken away.
+
+        Built through ``revoke_teaching`` rather than by never granting it, because that is the
+        production path into this population and it leaves the class FK pointing at them.
+
+        They keep the public instructor page on purpose. ``_can_compose`` admits them on
+        ``is_instructor``, so the composer still renders and the dropdown is observable at all;
+        without the slug they are bounced to the propose flow and there is no list to inspect.
+        """
+        MembershipPlanFactory()
+        user = UserFactory(username="affordance-revoked@example.com")
+        member = InstructorFactory(user=user, full_legal_name="Dag Silva", instructor_slug="dag-silva")
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["instructor_oriented_at"])
+        offering = ClassOfferingFactory(
+            title="Saddle Stitch Basics",
+            slug="affordance-revoked-class",
+            instructor=member,
+            category=CategoryFactory(name="Leatherwork", guild=None),
+            status=Status.PUBLISHED,
+            price_cents=6000,
+        )
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        member.revoke_teaching(revoked_by=None)
+        member.refresh_from_db()
+        assert member.can_create_classes is False
+        return member, offering
+
+    def it_drops_a_class_the_send_would_refuse(revoked_instructor, client):
+        member, offering = revoked_instructor
+        client.force_login(member.user)
+        response = client.get(reverse("hub_compose"))
+        # 200, not a redirect: they can still compose, which is what makes the absence below a
+        # statement about the audience list rather than about the page being shut.
+        assert response.status_code == 200
+        assert f'value="class:{offering.pk}"' not in response.content.decode()
+
+    def it_refuses_the_send_for_that_same_class(revoked_instructor, client):
+        # The half that was always true. Together with the spec above it says the dropdown and
+        # the Send now agree; before the fix they disagreed, and this one was the 403.
+        member, offering = revoked_instructor
+        client.force_login(member.user)
+        assert _send_outcome(client, offering) == SEND_REFUSED
+
+    def it_still_offers_a_class_the_grant_covers(instructor, roster_class, client):
+        # The control. Without it, emptying the audience list altogether would satisfy both specs
+        # above, and the narrowing is supposed to remove only what the gate refuses.
+        client.force_login(instructor.user)
+        content = client.get(reverse("hub_compose")).content.decode()
+        assert f'value="class:{roster_class.pk}"' in content
+
+    def it_offers_no_class_to_an_admin_previewing_guest(db):
+        """The case that separates asking the gate once from assuming the grant is a yes.
+
+        ``_compose_editable_classes`` asks :func:`hub.views._can_announce_to_class` once when the
+        viewer holds the teaching grant, because every row it could ask about shares
+        ``instructor_id == member.pk`` and so resolves on the same leg. The saving is real and so
+        is the trap: an implementation that read the grant as the answer, instead of asking the
+        gate for it, would hand this viewer their own class while ``class_access`` refuses them on
+        the guest leg above it. Asserted on the helper rather than through the page, because the
+        page never renders for a previewing guest and would hide the difference behind a redirect.
+        """
+        from django.test import RequestFactory
+
+        from hub.view_as import ROLE_GUEST, ViewAs, compute_actual_roles
+        from hub.views import _compose_editable_classes
+
+        MembershipPlanFactory()
+        user = UserFactory(username="affordance-preview-guest@example.com")
+        member = Member.objects.get(user=user)
+        member.fog_role = Member.FogRole.ADMIN
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["fog_role", "instructor_oriented_at"])
+        member.sync_user_permissions()
+        offering = ClassOfferingFactory(
+            title="Anvil Care",
+            slug="affordance-preview-guest-class",
+            instructor=member,
+            category=CategoryFactory(name="Blacksmithing", guild=None),
+            status=Status.PUBLISHED,
+        )
+        request = RequestFactory().get("/")
+        request.user = user
+        request.view_as = ViewAs(actual=compute_actual_roles(user), picked=ROLE_GUEST)
+        assert member.can_create_classes is True
+        # The class is theirs and published, so the FK filter alone would list it.
+        assert list(ClassOffering.objects.for_instructor(member)) == [offering]
+        assert list(_compose_editable_classes(request, member)) == []

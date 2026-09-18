@@ -209,6 +209,18 @@ def _guild_access() -> ClassAccess:
     may address a class can see who is in it. Jo was shown that consequence and chose it. Do
     not read the surviving False on ``can_view_registrations`` as a claim that names are hidden
     from this population; it only means the Registrations TAB is not theirs.
+
+    **Read "this population" wider than the docstring's first line.** This row is not reached
+    only by the lead or staffer of the class's own guild. ``class_access``'s guild leg asks
+    ``can_edit_class``, which short-circuits on ``is_effective_staff``, so a **site-wide guild
+    officer holding the teaching grant lands here on every class in the catalog** — the long
+    comment above ``class_access`` spells that out, and it has been true since #399. Flipping
+    ``can_send_email`` therefore hands that member the composer, and every registrant's name and
+    email, on classes they neither teach nor have any guild claim on. That is accepted for the
+    same reason as the lead's case and one more: the same short-circuit in ``_can_edit_guild``
+    already lets them address every guild's full membership through the same composer, so
+    withholding one class roster would be inconsistency, not protection. Anyone narrowing this
+    row later should narrow the leg, not the flag.
     """
     return ClassAccess(
         role=ROLE_GUILD,

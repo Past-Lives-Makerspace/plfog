@@ -3419,10 +3419,39 @@ def _compose_editable_classes(request: HttpRequest, member: Member | None) -> Qu
     Scoped to ``for_instructor`` (not ``editable_by``) on purpose — announcing to a class's
     roster is the instructor's own duty, distinct from edit rights; an admin who does not
     teach sees no class options (they reach members via the site/guild audiences instead).
+
+    **Then narrowed to what the send gate will actually accept.** ``for_instructor`` is a bare
+    ``instructor=member`` comparison and is not that gate: :func:`_can_announce_to_class` asks
+    ``classes.access.class_access``, whose instructor leg also requires the teaching grant. A
+    member put through :meth:`membership.models.Member.revoke_teaching` still matches the FK on
+    every class they were ever named on, so without this narrowing the dropdown would offer an
+    audience whose Send answers 403 — the surface-shown, action-refused shape #371 exists to
+    remove, rebuilt on the composer's own affordance by the change that closed it on the class
+    screen. The gate is asked; it is never re-derived here.
+
+    It is asked **once** where one answer provably covers the set, which is what keeps this off
+    the N+1 path that ``_can_compose`` and ``_can_use_admin_tools`` walk on ordinary renders.
+    Every row here shares ``instructor_id == member.pk``, so the only leg of ``class_access``
+    that can answer differently between two rows is the guild leg — and that leg is reached only
+    when the instructor leg has already failed, which with the grant in hand it never does. So
+    with the grant, one row's answer is every row's answer, including the answers that come from
+    the guest and preview legs above it; ``it_offers_no_class_to_an_admin_previewing_guest``
+    pins the case that separates asking the gate once from assuming the grant is a yes. Without
+    the grant the guild leg is live and each row is asked for itself, which is a small population
+    over a short list.
     """
     if member is None:
         return ClassOffering.objects.none()
-    return ClassOffering.objects.for_instructor(member).filter(status=ClassOffering.Status.PUBLISHED).order_by("title")
+    taught = (
+        ClassOffering.objects.for_instructor(member)
+        .filter(status=ClassOffering.Status.PUBLISHED)
+        .select_related("category__guild")
+        .order_by("title")
+    )
+    if member.can_create_classes:
+        first = taught.first()
+        return taught if first is None or _can_announce_to_class(request, first) else ClassOffering.objects.none()
+    return taught.filter(pk__in=[offering.pk for offering in taught if _can_announce_to_class(request, offering)])
 
 
 def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> bool:
@@ -3436,11 +3465,24 @@ def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> boo
     was the stricter of the two, and called that agreement "not by construction". It is by
     construction now: the "button that lies" shape #371 was opened about stops being expressible.
 
-    Two populations move, and both moves are the point rather than side effects:
+    Three populations move. Two are the ticket, and the third is a consequence of delegating to
+    a resolver whose guild leg is wider than "the lead of this class's guild":
 
     * A **guild lead or staffer** on a class in their own guild is admitted (#371 item 1). They
       were already shown the composer — ``_can_compose`` admits them on their staffed guild — and
       then refused on Send with a 403. Now the Send succeeds, and the link is offered.
+    * A **site-wide guild officer who holds the teaching grant** is admitted on **every class in
+      the catalog**, including classes they neither teach nor hold any guild relationship to.
+      ``class_access``'s guild leg asks ``membership.permissions.can_edit_class``, which
+      short-circuits on ``is_effective_staff``, so that member has reached ``_guild_access()``
+      catalog-wide since #399 (``classes/access.py`` says so outright above ``class_access``).
+      Until now that bought them the Emails tab without the Send; now it also buys them the Send
+      and, through the composer's picker, every registrant's name and email on any class.
+      Allowed deliberately rather than by oversight: that same member can already address every
+      guild's full membership through this same composer, because ``_can_edit_guild``
+      short-circuits on ``is_effective_staff`` too, so refusing them one class roster while
+      handing them every guild roster would be an inconsistency rather than a protection.
+      ``ROLE_MATRIX`` carries them as ``guild_officer_with_grant``.
     * A member merely **named as a class's instructor who was never granted teaching access** is
       refused, where the old two-clause expression admitted them on ``instructor_id`` alone.
       ``class_access``'s instructor leg has always required ``member.can_create_classes`` as well
