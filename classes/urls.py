@@ -302,6 +302,11 @@ urlpatterns = [
         name="registration_send_payment_link",
     ),
     path("registrations/<int:pk>/mark-paid/", views.registration_mark_paid, name="registration_mark_paid"),
+    path(
+        "registrations/<int:pk>/confirm-pending/",
+        views.registration_confirm_pending,
+        name="registration_confirm_pending",
+    ),
     path("admin/discount-codes/", views.admin_discount_codes, name="admin_discount_codes"),
     path("admin/discount-codes/new/", views.admin_discount_code_create, name="admin_discount_code_create"),
     path("admin/discount-codes/<int:pk>/edit/", views.admin_discount_code_edit, name="admin_discount_code_edit"),

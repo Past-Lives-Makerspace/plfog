@@ -33,12 +33,26 @@ _CHECKOUT_COMPLETED_HANDLERS = [
     membership_webhook_handlers.handle_checkout_session_completed,
 ]
 _CHECKOUT_EXPIRED_HANDLERS = [
+    classes_webhook_handlers.handle_checkout_session_expired,
     membership_webhook_handlers.handle_checkout_session_expired,
+]
+# ``checkout.session.async_payment_failed`` fires for delayed-notification methods (bank
+# debits) whose money never arrives. Classes only: an orientation hold's release is written
+# against a session that was never completed, and an async failure is not that shape.
+_CHECKOUT_ASYNC_FAILED_HANDLERS = [
+    classes_webhook_handlers.handle_checkout_session_async_payment_failed,
 ]
 
 
 def _dispatch_checkout_completed(event: dict[str, Any]) -> None:
-    """Deliver ``checkout.session.completed`` to each registered kind-filtered handler."""
+    """Deliver ``checkout.session.completed`` to each registered kind-filtered handler.
+
+    Also the listener for ``checkout.session.async_payment_succeeded``: a delayed-notification
+    payment completes its session with ``payment_status`` of ``unpaid`` and settles later, so
+    the completed handler's own ``paid`` gate drops the first event and this is the one that
+    carries the money. The handlers are idempotent and gate on ``paid`` either way, so the
+    same fan-in serves both without either being able to confirm a seat twice.
+    """
     for handler in _CHECKOUT_COMPLETED_HANDLERS:
         handler(event)
 
@@ -46,6 +60,12 @@ def _dispatch_checkout_completed(event: dict[str, Any]) -> None:
 def _dispatch_checkout_expired(event: dict[str, Any]) -> None:
     """Deliver ``checkout.session.expired`` to each registered kind-filtered handler."""
     for handler in _CHECKOUT_EXPIRED_HANDLERS:
+        handler(event)
+
+
+def _dispatch_checkout_async_failed(event: dict[str, Any]) -> None:
+    """Deliver ``checkout.session.async_payment_failed`` to each registered handler."""
+    for handler in _CHECKOUT_ASYNC_FAILED_HANDLERS:
         handler(event)
 
 
@@ -58,6 +78,8 @@ _WEBHOOK_HANDLERS = {
     "payment_method.updated": webhook_handlers.handle_payment_method_updated,
     "charge.dispute.created": webhook_handlers.handle_charge_dispute_created,
     "checkout.session.completed": _dispatch_checkout_completed,
+    "checkout.session.async_payment_succeeded": _dispatch_checkout_completed,
+    "checkout.session.async_payment_failed": _dispatch_checkout_async_failed,
     "checkout.session.expired": _dispatch_checkout_expired,
     "charge.refunded": classes_webhook_handlers.handle_charge_refunded,
     "refund.updated": classes_webhook_handlers.handle_refund_updated,

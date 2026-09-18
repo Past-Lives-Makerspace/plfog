@@ -182,6 +182,13 @@
 {% if request.view_as.actual_is_admin %}
 <div style="margin-top:1.5rem; padding:1rem; border:1px solid var(--hub-border); border-radius:8px; display:grid; gap:1rem;">
     <h3 style="margin:0; font-size:0.95rem;">Admin Actions</h3>
+    {% if registration.status == 'pending' %}
+    <form method="post" action="{% url 'classes:registration_confirm_pending' pk=registration.pk %}" style="display:grid; gap:0.5rem;">
+        {% csrf_token %}
+        <p style="margin:0; font-size:0.85rem; color:var(--hub-text-muted);">Their online checkout never finished. Confirming puts them in the class with the balance still owed, so you can send a payment link or record a cash payment.</p>
+        <div><button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Confirm Signup</button></div>
+    </form>
+    {% endif %}
     {% if registration.is_unpaid %}
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
         <form method="post" action="{% url 'classes:registration_send_payment_link' pk=registration.pk %}">
