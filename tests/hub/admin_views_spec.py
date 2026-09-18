@@ -928,9 +928,9 @@ def describe_admin_site_settings_features():
         assert b"Show Help in the sidebar" in panel
 
     def it_renders_a_card_for_every_registry_feature(client):
-        # The seven three-state features are a registry list now, not seven booleans (#405).
+        # The three-state features are a registry list now, not one boolean each (#405).
         # Each card carries the feature's name and the registry's "what off does" line, so
-        # adding the eighth feature needs no change to this template or this spec.
+        # adding a feature needs no change to this template or this spec.
         from core.features import FEATURES
 
         _create_superuser(client)

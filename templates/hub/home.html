@@ -22,12 +22,14 @@
         </span>
         <span class="pl-quicklink__label">Calendar</span>
     </a>
+    {% if features.catalog.is_on %}
     <a href="{% url 'classes:public_list' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
         </span>
         <span class="pl-quicklink__label">Class Catalog</span>
     </a>
+    {% endif %}
     {% if request.view_as.is_member and features.voting.is_on %}
     <a href="{% url 'hub_guild_voting' %}" class="pl-quicklink">
         <span class="pl-quicklink__icon" aria-hidden="true">
@@ -181,9 +183,17 @@
         Your account isn't linked to a membership yet. Once a membership is on file you'll see your
         upcoming events, guilds, and profile here. In the meantime, take a look around:
     </p>
+    {% comment %}
+    This card is for a signed-in user with no Member row, and the Class Catalog button follows
+    the switch here too. The switch decides what we ADVERTISE, and an unlinked visitor is the
+    person most likely to take an advertisement at face value. Calendar is not switchable, so
+    the card always has something to offer.
+    {% endcomment %}
     <div class="pl-nudge__actions">
         <a href="{% url 'hub_community_calendar' %}" class="hub-btn hub-btn--primary hub-btn--sm">Calendar</a>
+        {% if features.catalog.is_on %}
         <a href="{% url 'classes:public_list' %}" class="hub-btn hub-btn--ghost hub-btn--sm">Class Catalog</a>
+        {% endif %}
     </div>
 </div>
 {% endif %}

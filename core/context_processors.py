@@ -50,8 +50,8 @@ def feature_flags(request: HttpRequest) -> dict[str, Any]:
 
     ``features`` is every three-state member feature (``core.features``), keyed by feature
     key: templates read ``features.voting.is_on`` / ``.is_soon`` / ``.is_hidden`` / ``.message``.
-    It costs ONE query for the whole registry, which is why ``as_context`` exists rather than one
-    lookups — a sidebar renders every key on every page in the app.
+    It costs ONE query for the whole registry, which is why ``as_context`` exists rather than a
+    lookup per key — a sidebar renders every key on every page in the app.
 
     The switch is cosmetic and applies to everyone, with no viewer-role branch: hiding a feature
     hides it from the sidebar for whoever is looking, and its pages stay reachable by URL. That

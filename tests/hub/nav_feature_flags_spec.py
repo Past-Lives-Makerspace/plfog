@@ -231,7 +231,7 @@ def describe_both_sidebar_blocks():
 
 
 def describe_the_guilds_section():
-    """The eighth feature, and the only one whose sidebar presence is a heading plus a list.
+    """The one feature whose sidebar presence is a heading plus a list rather than an entry.
 
     It also sits AFTER the admin/member branch closes in base.html, so it is written once and
     one gate covers both sidebar variants — unlike every other entry, which is written twice.

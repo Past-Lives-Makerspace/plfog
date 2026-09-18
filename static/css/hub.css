@@ -5620,8 +5620,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wizard-actions .hub-btn { flex: 1 1 auto; }
 }
 
-/* Brand admin tab (Site Settings). Layout lives in a class, never inline on an
-   x-show element (Rule 12). */
 /* ── Site Settings tab panels ────────────────────────────────────────────────
    The stacked layout of one x-show tab panel. This MUST be a class and never an
    inline style="display:flex". Alpine's x-show reveals an element with
@@ -5640,12 +5638,6 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 
 /* The General tab's fields are single rows rather than sections, so they sit closer. */
 .pl-settings-tab--tight { gap: 1.25rem; }
-
-.pl-brand-tab {
-    display: flex;
-    flex-direction: column;
-    gap: 1.5rem;
-}
 
 /* ── Slideshow admin page (/manage/slideshow/) ───────────────────────────────
    Editor UI for the signage slideshow. Renders under hub/base.html (hub.css +

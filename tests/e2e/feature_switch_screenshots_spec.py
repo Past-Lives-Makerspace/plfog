@@ -138,12 +138,15 @@ def describe_feature_switch_screenshots():
         saved = _save(admin_page, "08-class-catalog-soon", clip=SIDEBAR_CLIP)
         print(f"\nSaved {saved}")
 
-    @pytest.mark.parametrize("tab", ["general", "calendar", "automations", "discord"])
+    @pytest.mark.parametrize("tab", ["brand", "general", "calendar", "automations", "discord"])
     def it_captures_the_other_tabs_the_layout_fix_touches(admin_page, live_server, tab):
         """Shot 7 — the remaining panels amendment 5 moved off the inline display:flex.
 
-        Every one of them had the same dead `gap`, so every one of them changes. These exist so
-        the change can be seen rather than asserted: a stacked panel is a thing you look at.
+        Every one of them had the same dead `gap`, so every one of them changes. Brand is the
+        exception and is here as a control: it was already correct, on a `.pl-brand-tab` rule
+        byte identical to the new shared one, and it should look untouched now that it shares
+        the rule instead of owning a twin. These exist so the change can be seen rather than
+        asserted: a stacked panel is a thing you look at.
         """
         admin_page.goto(
             f"{live_server.url}{reverse('hub_admin_site_settings')}?tab={tab}",

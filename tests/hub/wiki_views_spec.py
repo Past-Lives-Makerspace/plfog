@@ -72,7 +72,7 @@ def _preview_as(client: Client, role: str) -> None:
 # are waiting" comes off ONE scope lookup (_review_link) rather than two.
 # Still 33 after #405, which is worth stating because it looks like it should have moved. The
 # feature_flags context processor added one read (FeatureSwitch.objects.as_context(), ONE query
-# for all eight states, not one per nav entry) and the removal of the wiki route gate took one
+# for every state at once, not one per nav entry) and the removal of the wiki route gate took one
 # away. If this ever climbs by eight instead of one, something started asking per feature.
 _HOME_QUERY_BUDGET = 33
 
