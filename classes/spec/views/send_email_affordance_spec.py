@@ -210,9 +210,13 @@ def describe_the_send_email_link():
             assert client.get(_compose_url(roster_class)).status_code == 200
 
         def it_offers_nothing_to_a_guild_lead_who_does_not_teach_the_class(guild_lead, roster_class, client):
-            # The safe direction, and the one case where the converse genuinely fails: leading a
-            # guild admits them to the composer, yet ruling 12 gives them no roster, so the link
-            # is withheld from someone the composer would have taken. Withholding never lies.
+            # The safe direction. Leading a guild opens the composer PAGE for them, because
+            # _can_enter_compose asks only whether they may compose something. It does not follow
+            # that they may address this roster: that is _can_announce_to_class, which refuses, so
+            # Send returns 403. can_send_email tracks the second predicate, not the first, which
+            # is why withholding the link here is correct rather than over-cautious. Showing it
+            # would rebuild the #371 defect exactly: a button opening a composer locked to a class
+            # that then refuses on Send.
             client.force_login(guild_lead.user)
             assert _screen_probe(client, roster_class) == GUILD_SCREEN
             assert client.get(_compose_url(roster_class)).status_code == 200
