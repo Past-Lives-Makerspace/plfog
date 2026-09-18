@@ -20,7 +20,7 @@ from django.core import mail
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, InstructorFactory
-from classes.models import ClassApproval, ClassOffering
+from classes.models import ClassApproval, ClassOffering, CmsActivity
 from core.models import Notification
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
@@ -28,6 +28,28 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 LEAD_EMAIL = "guild.lead@example.com"
+OTHER_LEAD_EMAIL = "other.guild.lead@example.com"
+
+
+def _make_lead_user(email: str) -> "User":
+    """A User whose auto-created Member can lead a guild, reachable at ``email``."""
+    from membership.models import Member
+
+    MembershipPlanFactory()
+    user = get_user_model().objects.create_user(username=email, email=email)
+    member = Member.objects.get(user=user)
+    member.full_legal_name = f"Lead {email.split('@')[0]}"
+    member.save(update_fields=["full_legal_name"])
+    return user
+
+
+def _second_guild_with_lead() -> tuple[Any, "User"]:
+    """A second guild, led by a second person, for the "moved to another guild" specs."""
+    from membership.models import Member
+
+    lead_user = _make_lead_user(OTHER_LEAD_EMAIL)
+    guild = GuildFactory(guild_lead=Member.objects.get(user=lead_user))
+    return guild, lead_user
 
 
 def _guilded_draft(settings: Any, *, lead_email: str = LEAD_EMAIL) -> tuple[ClassOffering, "User"]:
@@ -39,12 +61,8 @@ def _guilded_draft(settings: Any, *, lead_email: str = LEAD_EMAIL) -> tuple[Clas
     from membership.models import Member
 
     settings.CLASS_ADMIN_NOTIFY_EMAILS = "admin@example.com"
-    MembershipPlanFactory()
-    lead_user = get_user_model().objects.create_user(username=lead_email, email=lead_email)
-    lead = Member.objects.get(user=lead_user)
-    lead.full_legal_name = "Lead Person"
-    lead.save(update_fields=["full_legal_name"])
-    guild = GuildFactory(guild_lead=lead)
+    lead_user = _make_lead_user(lead_email)
+    guild = GuildFactory(guild_lead=Member.objects.get(user=lead_user))
     instructor = InstructorFactory(full_legal_name="Iris Smith", instructor_slug="iris")
     offering = ClassOfferingFactory(
         ready=True,
@@ -129,7 +147,13 @@ def describe_schedule_fingerprint():
         assert offering.schedule_fingerprint != before
 
     def it_ignores_sort_order(db):
-        """Dragging the dates into a different display order is not a schedule change."""
+        """Dragging the dates into a different display order is not a schedule change.
+
+        This is the member-facing statement, not the guard on ``sorted()``:
+        ``ClassSession.Meta.ordering`` already fixes iteration order, so this passes either
+        way. What it does kill is a fingerprint that digested ``sort_order``. The spec below
+        is the one that makes the sort itself load bearing.
+        """
         offering = ClassOfferingFactory(ready=True)
         start = timezone.now() + timedelta(days=9)
         ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2), sort_order=1)
@@ -178,6 +202,13 @@ def describe_decide():
             lead_row.refresh_from_db()
             assert lead_row.approved_schedule_fingerprint == offering.schedule_fingerprint
 
+        def it_stamps_the_guild_they_approved_for(db, settings):
+            offering, lead_user = _guilded_draft(settings)
+            (lead_row,) = offering.submit_for_review()
+            lead_row.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+            lead_row.refresh_from_db()
+            assert lead_row.approved_for_guild_id == offering.category.guild_id
+
     def describe_when_a_guild_lead_asks_for_changes():
         def it_stamps_nothing(db, settings):
             offering, lead_user = _guilded_draft(settings)
@@ -185,6 +216,7 @@ def describe_decide():
             lead_row.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=lead_user, notes="Add prerequisites.")
             lead_row.refresh_from_db()
             assert lead_row.approved_schedule_fingerprint == ""
+            assert lead_row.approved_for_guild_id is None
 
     def describe_when_an_admin_approves():
         def it_stamps_nothing(db, settings, admin_user):
@@ -198,6 +230,7 @@ def describe_decide():
             admin_row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
             admin_row.refresh_from_db()
             assert admin_row.approved_schedule_fingerprint == ""
+            assert admin_row.approved_for_guild_id is None
 
 
 def describe_resubmitting_after_a_lead_approved():
@@ -245,6 +278,22 @@ def describe_resubmitting_after_a_lead_approved():
 
             offering.refresh_from_db()
             assert offering.status == ClassOffering.Status.PUBLISHED
+
+        def it_leaves_the_skip_auditable_in_the_activity_feed(db, settings, admin_user):
+            """A skip is a gate that nobody walked through, so it has to be findable after
+            the fact. ``CLASS_SUBMITTED`` records both halves: guild_lead was a required
+            role, and the first stage opened at admin anyway. That pair is only reachable
+            through the skip, which is what makes an audit query over the feed exact.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+
+            offering.submit_for_review()
+
+            event = offering.activity.filter(kind=CmsActivity.Kind.CLASS_SUBMITTED).order_by("-created_at").first()
+            assert event is not None
+            assert event.payload["first_stage"] == ClassApproval.Role.ADMIN
+            assert ClassApproval.Role.GUILD_LEAD in event.payload["required_roles"]
 
     def describe_when_a_session_time_moved():
         def it_reopens_the_lead_gate_notifies_them_and_leaves_no_bounce_behind(db, settings, admin_user):
@@ -383,6 +432,93 @@ def describe_resubmitting_after_a_lead_approved():
             (row,) = offering.submit_for_review()
 
             assert row.role == ClassApproval.Role.GUILD_LEAD
+
+        def it_asks_the_lead_again_when_only_the_guild_stamp_is_missing(db, settings, admin_user):
+            """A row from before ``approved_for_guild`` existed carries a null guild. Null is
+            not "any guild", it is "unknown", and unknown re-asks.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            lead_row = _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            ClassApproval.objects.filter(pk=lead_row.pk).update(approved_for_guild=None)
+
+            (row,) = offering.submit_for_review()
+
+            assert row.role == ClassApproval.Role.GUILD_LEAD
+
+    def describe_when_the_class_moved_to_another_guild():
+        def it_asks_the_new_guild_and_never_credits_the_old_one(db, settings, admin_user):
+            """The instructor can change "Guild Type" on their own composer while a bounced
+            class is a draft, so guild 1's approval must not stand in for guild 2's.
+            """
+            from membership.models import Member
+
+            offering, lead_user = _guilded_draft(settings)
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            other_guild, other_lead_user = _second_guild_with_lead()
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+            mail.outbox.clear()
+
+            (row,) = offering.submit_for_review()
+
+            assert row.role == ClassApproval.Role.GUILD_LEAD
+            assert _addressed(OTHER_LEAD_EMAIL)
+            assert not _addressed(LEAD_EMAIL)
+            new_lead = Member.objects.get(user=other_lead_user)
+            assert list(ClassOffering.objects.awaiting_guild_lead(new_lead)) == [offering]
+
+        def it_shows_the_new_guild_an_unapproved_pipeline_and_no_validation_queue(db, settings, admin_user):
+            """The two surfaces that would otherwise tell guild 2 they had signed off."""
+            from membership.models import Member
+
+            offering, lead_user = _guilded_draft(settings)
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            other_guild, other_lead_user = _second_guild_with_lead()
+            offering.category = CategoryFactory(guild=other_guild)
+            offering.save(update_fields=["category"])
+
+            offering.submit_for_review()
+
+            new_lead = Member.objects.get(user=other_lead_user)
+            assert list(ClassOffering.objects.awaiting_admin_validation(new_lead)) == []
+            guild_step = next(step for step in offering.review_pipeline().steps if step.key == "guild_lead")
+            assert guild_step.state == "current"
+            assert "Approved" not in guild_step.detail
+
+    def describe_when_the_category_changes_inside_the_same_guild():
+        def it_still_skips_the_lead(db, settings, admin_user):
+            """The guild is what approved, not the category. Re-filing a class from Forge
+            Basics to Forge Advanced is not a new guild's decision.
+            """
+            offering, lead_user = _guilded_draft(settings)
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            same_guild = offering.category.guild
+            offering.category = CategoryFactory(guild=same_guild)
+            offering.save(update_fields=["category"])
+
+            (row,) = offering.submit_for_review()
+
+            assert row.role == ClassApproval.Role.ADMIN
+
+    def describe_when_the_guild_has_a_different_lead_now():
+        def it_still_skips_because_the_guild_approved_not_the_person(db, settings, admin_user):
+            """A deliberate choice, pinned here: the row records that the GUILD signed off on
+            these dates, and replacing the officer does not retract it.
+            """
+            from membership.models import Member
+
+            offering, lead_user = _guilded_draft(settings)
+            _lead_approves_then_admin_bounces(offering, lead_user, admin_user)
+            successor_user = _make_lead_user("successor.lead@example.com")
+            guild = offering.category.guild
+            guild.guild_lead = Member.objects.get(user=successor_user)
+            guild.save(update_fields=["guild_lead"])
+            mail.outbox.clear()
+
+            (row,) = offering.submit_for_review()
+
+            assert row.role == ClassApproval.Role.ADMIN
+            assert not _addressed("successor.lead@example.com")
 
 
 def describe_a_resubmitted_class():

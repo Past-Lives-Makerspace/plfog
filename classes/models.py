@@ -1215,7 +1215,7 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         A class with no sessions still gets a real digest (the hash of the empty set), never
         the empty string. That distinction is load bearing:
-        :attr:`_guild_lead_already_approved_this_schedule` compares against a stored
+        :attr:`_guild_already_approved_this_schedule` compares against a stored
         fingerprint, and the empty string there means "this row predates the field" — it must
         never be able to match a real schedule.
         """
@@ -1229,20 +1229,39 @@ class ClassOffering(HeroCropMixin, models.Model):
         return digest.hexdigest()
 
     @property
-    def _guild_lead_already_approved_this_schedule(self) -> bool:
-        """Has a guild lead already approved the dates this class currently holds?
+    def _guild_already_approved_this_schedule(self) -> bool:
+        """Has **this class's current guild** already approved the dates it currently holds?
 
-        True only when an APPROVED ``GUILD_LEAD`` row carries an
-        ``approved_schedule_fingerprint`` equal to the current
-        :attr:`schedule_fingerprint`. A row stamped before that field existed carries the
-        empty string, and :attr:`schedule_fingerprint` is never empty, so such a row can
-        never match and the lead is asked again — the safe direction.
+        Both halves are required, and each guards a different way the class can change
+        between rounds:
+
+        * the dates, via ``approved_schedule_fingerprint``; and
+        * the guild, via ``approved_for_guild``. ``category`` is an instructor-editable
+          field on the composer (labelled "Guild Type") and a draft is editable, so "wrong
+          guild, re-file this under Woodshop" is an ordinary reason to bounce a class. A
+          row approved by guild 1 says nothing about guild 2, whose lead has never seen the
+          class.
+
+        The unit is the **guild, not the person**. A guild whose lead has since been
+        replaced has still approved these dates, so the new lead is not re-asked; that is
+        deliberate. The statement the row carries is "this guild signed off on this
+        schedule", and a change of officer does not retract it.
+
+        A row stamped before either field existed carries the empty string and a null
+        guild, and neither can match (:attr:`schedule_fingerprint` is never empty, and a
+        class with no guild never reaches this question with a guild to match), so such a
+        row re-asks — the safe direction.
         """
-        return self.approvals.filter(
-            role=ClassApproval.Role.GUILD_LEAD,
-            decision=ClassApproval.Decision.APPROVED,
-            approved_schedule_fingerprint=self.schedule_fingerprint,
-        ).exists()
+        guild_id = self.category.guild_id if self.category_id else None
+        return (
+            guild_id is not None
+            and self.approvals.filter(
+                role=ClassApproval.Role.GUILD_LEAD,
+                decision=ClassApproval.Decision.APPROVED,
+                approved_schedule_fingerprint=self.schedule_fingerprint,
+                approved_for_guild_id=guild_id,
+            ).exists()
+        )
 
     def submit_for_review(self) -> list["ClassApproval"]:
         """Move from DRAFT to PENDING and open only the first-stage review gate.
@@ -1288,17 +1307,21 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _create_first_stage_approval(self) -> "ClassApproval":
         """Create the single approval row that opens stage one of review.
 
-        Guild Lead when the category's guild has a lead; Admin otherwise — except when the
-        lead already approved the dates this class currently holds, on an earlier round of
-        the same review. Their job is the schedule, so an edit that left the schedule alone
-        is not theirs to re-approve and review resumes at the Admin gate. Change a session
-        time and the fingerprints stop matching, so they are asked again.
+        Guild Lead when the category's guild has a lead; Admin otherwise — except when that
+        guild already approved the dates this class currently holds, on an earlier round of
+        the same review. A guild lead's job is the schedule and the space, so an edit that
+        left both the dates and the guild alone is not theirs to re-approve and review
+        resumes at the Admin gate. Change a session time or move the class to another
+        guild and they are asked again.
+
+        Both facts are read every time rather than short-circuited, so a class with no
+        guild still exercises the "nobody has approved this" answer.
         """
-        roles = self.required_review_roles
-        needs_guild_lead = (
-            ClassApproval.Role.GUILD_LEAD in roles and not self._guild_lead_already_approved_this_schedule
+        guild_lead_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles
+        already_satisfied = self._guild_already_approved_this_schedule
+        first_role = (
+            ClassApproval.Role.GUILD_LEAD if guild_lead_required and not already_satisfied else ClassApproval.Role.ADMIN
         )
-        first_role = ClassApproval.Role.GUILD_LEAD if needs_guild_lead else ClassApproval.Role.ADMIN
         return ClassApproval.objects.create(class_offering=self, role=first_role)
 
     def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
@@ -2642,6 +2665,17 @@ class ClassApproval(models.Model):
             "the dates changed since. Stamped only when a guild lead approves; empty means never stamped."
         ),
     )
+    approved_for_guild = models.ForeignKey(
+        "membership.Guild",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "The guild this row approved the class for; lets a later submission tell whether the class "
+            "moved to another guild since. Stamped only when a guild lead approves; empty means never stamped."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
     decided_at = models.DateTimeField(null=True, blank=True, help_text="When the reviewer acted.")
 
@@ -2673,11 +2707,12 @@ class ClassApproval(models.Model):
         quick-approve); the review view renders a friendly not-awaiting-review
         state before a user can ever reach this error.
 
-        A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` with the
-        schedule they just signed off on. That stamp is what lets the instructor's next
-        submission tell a copy edit (the lead is not asked again) from a date change (they
-        are). No other role or decision stamps it: only the lead's approval is a statement
-        about the dates.
+        A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` and
+        ``approved_for_guild`` with the schedule and the guild they just signed off on.
+        Those two stamps are what let the instructor's next submission tell a copy edit
+        (the lead is not asked again) from a date change or a move to another guild (they
+        are). No other role or decision stamps them: only a guild lead's approval is a
+        statement about the dates and the space.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -2700,8 +2735,10 @@ class ClassApproval(models.Model):
         self.decided_at = timezone.now()
         update_fields = ["decision", "decided_by", "notes", "decided_at"]
         if decision == self.Decision.APPROVED and self.role == self.Role.GUILD_LEAD:
-            self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
-            update_fields.append("approved_schedule_fingerprint")
+            offering = self.class_offering
+            self.approved_schedule_fingerprint = offering.schedule_fingerprint
+            self.approved_for_guild = offering.category.guild if offering.category_id else None
+            update_fields += ["approved_schedule_fingerprint", "approved_for_guild"]
         self.save(update_fields=update_fields)
         self.class_offering.on_review_decision_recorded(self)
 
