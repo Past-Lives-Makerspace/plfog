@@ -16,6 +16,7 @@ import pytest
 from django.core import mail
 from django.utils import timezone
 
+from billing import stripe_utils
 from classes.exceptions import RegistrationStateError
 from classes.factories import ClassOfferingFactory, RegistrationFactory, UserFactory
 from classes.models import (
@@ -323,6 +324,47 @@ def describe_release_abandoned_holds():
             unknown.refresh_from_db()
             assert unknown.status == Registration.Status.CANCELLED
             assert offering.spots_remaining == 3
+
+    def describe_when_stripe_has_no_such_session():
+        """The gap that made this sweep inert in production.
+
+        ``resource_missing`` is Stripe answering, not Stripe failing to answer, and the
+        sweep first shipped treating it as the latter. Every candidate in production was an
+        id minted before the keys moved to live, so the sweep re-asked about eleven seats
+        every tick, forever, and released none of them.
+        """
+
+        def it_releases_the_seat_rather_than_asking_again_forever():
+            offering = _offering(2)
+            stale = _hold(offering, age=timedelta(hours=9), stripe_session_id="cs_test_fromtheoldkeys")
+
+            with patch(RETRIEVE, side_effect=stripe_utils.CheckoutSessionNotFound("cs_test_fromtheoldkeys")):
+                assert Registration.objects.release_abandoned_holds() == (1, 0)
+
+            stale.refresh_from_db()
+            assert stale.status == Registration.Status.CANCELLED
+            assert stale.cancellation_reason == EXPIRED_HOLD_CANCEL_REASON
+            assert offering.spots_remaining == 2
+
+        def it_does_not_release_the_others_it_could_not_reach():
+            # The two answers must stay apart under the same sweep: one seat comes back,
+            # the other is left held for the next tick.
+            offering = _offering(4)
+            missing = _hold(offering, age=timedelta(hours=9), stripe_session_id="cs_test_gone", email="a@example.com")
+            unreachable = _hold(offering, age=timedelta(hours=9), stripe_session_id="cs_live", email="b@example.com")
+
+            def _answer(*, session_id):
+                if session_id == "cs_test_gone":
+                    raise stripe_utils.CheckoutSessionNotFound(session_id)
+                raise RuntimeError("stripe down")
+
+            with patch(RETRIEVE, side_effect=_answer):
+                assert Registration.objects.release_abandoned_holds() == (1, 0)
+
+            missing.refresh_from_db()
+            unreachable.refresh_from_db()
+            assert missing.status == Registration.Status.CANCELLED
+            assert unreachable.status == Registration.Status.PENDING
 
     def describe_with_the_whole_matrix_in_one_class():
         def it_releases_only_the_dead_ones_and_counts_them():
