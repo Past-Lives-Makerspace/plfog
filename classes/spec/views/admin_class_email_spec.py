@@ -122,4 +122,9 @@ def describe_admin_class_registrations_students():
         client.force_login(admin_user)
         response = client.get(reverse("classes:teach_class_registrations", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
-        assert b"No registrations yet" in response.content
+        # Scoped to the empty-state element for the same reason as the compose-link assertion
+        # above: CHANGELOG renders into every hub page, and an entry quoting this copy would
+        # keep a page-wide substring assertion passing with the empty state gone entirely.
+        body = response.content.decode()
+        at = body.index("data-roster-empty")
+        assert "No registrations yet" in body[body.index(">", at) + 1 : body.index("</div>", at)]

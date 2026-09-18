@@ -25,6 +25,12 @@ pytestmark = pytest.mark.django_db
 
 HTMX = {"HX-Request": "true"}
 
+# What one extra class on the cross-class Registrations page is allowed to cost. Measured:
+# 1.25 queries per class as written, 3.25 when the header read offering.seats_taken and
+# offering.waitlisted_count in the loop instead. 2 sits between the two, so this fails if
+# either per-class COUNT comes back without tracking an unrelated prefetch to the decimal.
+PER_CLASS_QUERY_BUDGET = 2
+
 
 def _login_instructor(client, username: str, slug: str):
     """Log in a teaching member and return them, so their own classes are reachable."""
@@ -48,6 +54,25 @@ def _row_markup(html: str, pk: int) -> str:
     """One roster row's ``<tr>``, for assertions about how it is marked."""
     start = html.index(f'id="reg-row-{pk}"')
     return html[start : html.index("</tr>", start)]
+
+
+def _roster_empty_state(html: str) -> str:
+    """The roster table's empty-state line only.
+
+    Scoped rather than asserted against the whole page on purpose: the in-app changelog
+    renders into every hub page's context, so an entry that quotes this copy back ("a class
+    ... said No registrations yet") satisfies a page-wide substring assertion and the spec
+    passes on the wrong element.
+    """
+    at = html.index("data-roster-empty")
+    start = html.index(">", at) + 1
+    return html[start : html.index("</div>", start)].strip()
+
+
+def _group_header(html: str, title: str) -> str:
+    """The cross-class page's header row for one class, so count assertions stay scoped."""
+    start = html.index(f"<strong>{title}</strong>")
+    return html[start : html.index("</div>", start)]
 
 
 def describe_roster_row_response():
@@ -169,7 +194,7 @@ def describe_the_registrations_tab():
         offering = ClassOfferingFactory(instructor=member, capacity=4)
         _seats(offering, Registration.Status.CONFIRMED, 4)
         response = client.get(reverse("classes:teach_class_registrations", args=[offering.pk]))
-        assert "cancelled" not in response.content.decode().lower().split("<table")[0]
+        assert "pl-roster-filter" not in response.content.decode()
 
     def it_still_offers_the_toggle_when_every_row_is_cancelled(client):
         """The empty-looking roster is the one that most needs to say who is missing."""
@@ -181,7 +206,7 @@ def describe_the_registrations_tab():
         body = client.get(url).content.decode()
         assert _row_ids(body) == []
         assert "Show 3 cancelled" in body
-        assert "No registrations yet." not in body
+        assert _roster_empty_state(body) == "Nobody is holding a seat right now."
         opened = _row_ids(client.get(url, {"show_cancelled": "1"}).content.decode())
         assert sorted(opened) == sorted(reg.pk for reg in cancelled + refunded)
 
@@ -314,33 +339,155 @@ def describe_the_class_lists():
 
 
 def describe_the_instructor_registrations_page():
-    def it_counts_the_rows_it_lists(client):
+    """The cross-class page lists waitlisted people on purpose: its checkboxes reach them.
+
+    So its header cannot be one number. Every spec here carries a waitlisted row, because
+    that is the only arrangement in which a header that rolls seats and the queue into one
+    total can be told apart from one that names them separately.
+    """
+
+    def it_names_the_seats_and_the_queue_separately(client):
         member = _login_instructor(client, "page-count@example.com", "page-count")
-        offering = ClassOfferingFactory(instructor=member, capacity=9, title="Blade Smithing")
+        offering = ClassOfferingFactory(instructor=member, capacity=12, title="Blade Smithing")
+        _seats(offering, Registration.Status.CONFIRMED, 10)
+        _seats(offering, Registration.Status.CANCELLED, 2)
+        _seats(offering, Registration.Status.WAITLISTED, 3)
+        response = client.get(reverse("classes:teach_registrations"))
+        group = next(g for g in response.context["class_groups"] if g["offering"].pk == offering.pk)
+        assert group["seats_taken"] == 10
+        assert group["waitlist_count"] == 3
+        header = _group_header(response.content.decode(), "Blade Smithing")
+        assert "10 registered, 3 waitlisted" in header
+        # The rolled-up total every other surface disagrees with.
+        assert "13" not in header
+
+    def it_agrees_with_the_per_class_surfaces_on_the_same_class(client):
+        """Acceptance criterion 1's class, read on this page instead of the per-class tab."""
+        member = _login_instructor(client, "page-agree@example.com", "page-agree")
+        offering = ClassOfferingFactory(instructor=member, capacity=12)
+        _seats(offering, Registration.Status.CONFIRMED, 10)
+        _seats(offering, Registration.Status.CANCELLED, 2)
+        _seats(offering, Registration.Status.WAITLISTED, 3)
+        page = client.get(reverse("classes:teach_registrations"))
+        group = next(g for g in page.context["class_groups"] if g["offering"].pk == offering.pk)
+        tab = client.get(reverse("classes:teach_class_registrations", args=[offering.pk]))
+        assert group["seats_taken"] == tab.context["seat_taken_count"] == offering.seats_taken == 10
+        assert group["waitlist_count"] == tab.context["waitlist_count"] == 3
+
+    def it_does_not_spend_a_count_query_per_class(client, django_assert_max_num_queries):
+        """The header's two numbers come off rows already fetched, not two COUNTs per class.
+
+        This page loops over every class the member has ever taught, so reading
+        ``offering.seats_taken`` and ``offering.waitlisted_count`` in the loop body is 2N
+        round trips for numbers already in memory. The growth per class is what is asserted,
+        not an absolute total: the loop legitimately spends queries on each class's own rows,
+        and pinning the total would break every time an unrelated prefetch moved.
+        """
+        member = _login_instructor(client, "page-nplus1@example.com", "page-nplus1")
+        url = reverse("classes:teach_registrations")
+
+        def _add_class() -> None:
+            offering = ClassOfferingFactory(instructor=member, capacity=12)
+            _seats(offering, Registration.Status.CONFIRMED, 2)
+            _seats(offering, Registration.Status.WAITLISTED, 1)
+            _seats(offering, Registration.Status.CANCELLED, 1)
+
+        def _cost() -> int:
+            with django_assert_max_num_queries(500) as captured:
+                client.get(url)
+            return len(captured.captured_queries)
+
+        # Built up rather than torn down: Registration.class_offering is PROTECT, so the
+        # classes measured first cannot be deleted to measure a smaller set afterwards.
+        _add_class()
+        one_class = _cost()
+        for _ in range(4):
+            _add_class()
+        per_class = (_cost() - one_class) / 4
+        assert per_class <= PER_CLASS_QUERY_BUDGET, f"per class query cost is {per_class}"
+
+    def it_keeps_listing_the_waitlisted_people_it_can_email(client):
+        """Ruling: they stay on this page. The header stops implying they hold seats."""
+        member = _login_instructor(client, "page-rows@example.com", "page-rows")
+        offering = ClassOfferingFactory(instructor=member, capacity=4)
+        confirmed = _seats(offering, Registration.Status.CONFIRMED, 1)
+        waitlisted = _seats(offering, Registration.Status.WAITLISTED, 2)
+        response = client.get(reverse("classes:teach_registrations"))
+        group = next(g for g in response.context["class_groups"] if g["offering"].pk == offering.pk)
+        listed = {reg.pk for reg in group["registrations"]}
+        assert listed == {reg.pk for reg in confirmed + waitlisted}
+        assert group["can_email_any"] is True
+
+    def it_drops_the_waitlist_half_when_nobody_is_queued(client):
+        member = _login_instructor(client, "page-noqueue@example.com", "page-noqueue")
+        offering = ClassOfferingFactory(instructor=member, capacity=9, title="Cold Forging")
         _seats(offering, Registration.Status.CONFIRMED, 5)
         _seats(offering, Registration.Status.CANCELLED, 4)
         response = client.get(reverse("classes:teach_registrations"))
         group = next(g for g in response.context["class_groups"] if g["offering"].pk == offering.pk)
-        assert group["registration_count"] == 5
-        assert len(group["registrations"]) == 5
-        assert "5 registrations" in response.content.decode()
+        assert group["seats_taken"] == 5
+        assert group["waitlist_count"] == 0
+        header = _group_header(response.content.decode(), "Cold Forging")
+        assert "5 registered" in header
+        assert "waitlisted" not in header
 
-    def it_lists_the_cancelled_rows_when_asked(client):
+    def it_leaves_the_header_alone_when_the_cancelled_rows_are_shown(client):
+        """Opening the toggle lists more rows. It does not give anyone a seat."""
         member = _login_instructor(client, "page-toggle@example.com", "page-toggle")
         offering = ClassOfferingFactory(instructor=member, capacity=3)
         _seats(offering, Registration.Status.CONFIRMED, 1)
         _seats(offering, Registration.Status.CANCELLED, 2)
+        _seats(offering, Registration.Status.WAITLISTED, 1)
         response = client.get(reverse("classes:teach_registrations"), {"show_cancelled": "1"})
         group = next(g for g in response.context["class_groups"] if g["offering"].pk == offering.pk)
-        assert group["registration_count"] == 3
-        assert "Hide 2 cancelled" in response.content.decode()
+        assert group["seats_taken"] == 1
+        assert group["waitlist_count"] == 1
+        assert len(group["registrations"]) == 4
+        body = response.content.decode()
+        assert "1 registered, 1 waitlisted" in _group_header(body, offering.title)
+        assert "Hide 2 cancelled" in body
 
     def it_names_the_hidden_rows_across_every_class(client):
         member = _login_instructor(client, "page-total@example.com", "page-total")
         first = ClassOfferingFactory(instructor=member, capacity=2)
         second = ClassOfferingFactory(instructor=member, capacity=7)
         _seats(first, Registration.Status.CANCELLED, 1)
+        _seats(first, Registration.Status.WAITLISTED, 2)
         _seats(second, Registration.Status.REFUNDED, 3)
         _seats(second, Registration.Status.CONFIRMED, 2)
         response = client.get(reverse("classes:teach_registrations"))
         assert "Show 4 cancelled" in response.content.decode()
+
+
+def describe_the_empty_roster():
+    """A tab with no seat-holders still has to say what is actually there."""
+
+    def it_says_how_many_are_waiting_rather_than_nothing(client):
+        member = _login_instructor(client, "empty-waitlist@example.com", "empty-waitlist")
+        offering = ClassOfferingFactory(instructor=member, capacity=8)
+        _seats(offering, Registration.Status.WAITLISTED, 6)
+        body = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
+        assert _roster_empty_state(body) == "Nobody has a seat yet. 6 on the waitlist."
+
+    def it_says_the_same_on_the_standalone_table(client):
+        """The refund refresh serves this partial on its own, so it needs the count too."""
+        member = _login_instructor(client, "empty-table@example.com", "empty-table")
+        offering = ClassOfferingFactory(instructor=member, capacity=5)
+        _seats(offering, Registration.Status.WAITLISTED, 1)
+        url = reverse("classes:teach_class_registrations_table", args=[offering.pk])
+        body = client.get(url).content.decode()
+        assert _roster_empty_state(body) == "Nobody has a seat yet. 1 on the waitlist."
+
+    def it_still_points_at_the_cancelled_rows_when_there_is_no_waitlist(client):
+        member = _login_instructor(client, "empty-cancelled@example.com", "empty-cancelled")
+        offering = ClassOfferingFactory(instructor=member, capacity=6)
+        _seats(offering, Registration.Status.CANCELLED, 2)
+        body = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
+        assert _roster_empty_state(body) == "Nobody is holding a seat right now."
+        assert "Show 2 cancelled" in body
+
+    def it_says_nothing_yet_on_a_class_nobody_has_touched(client):
+        member = _login_instructor(client, "empty-fresh@example.com", "empty-fresh")
+        offering = ClassOfferingFactory(instructor=member, capacity=10)
+        body = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
+        assert _roster_empty_state(body) == "No registrations yet."

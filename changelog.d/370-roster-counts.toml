@@ -4,5 +4,5 @@ title = "A class roster shows the people who are actually coming"
 changes = [
   "The Registrations tab used to list everyone who ever signed up, including people who cancelled, so instructors read a dropped student as a current one. It now lists the people holding a seat, with a Show cancelled button when there is anyone to show.",
   "Waitlisted people appear on the Waitlist tab only. They used to be on both tabs at once.",
-  "Class lists, the tab count and the sign-up emails all used to count cancelled sign-ups toward a class being full, so a class could read 15 of 12 while it still had room. Every one of those numbers now counts the same people, and they agree with the number of spots the sign-up page offers.",
+  "Class lists and the sign-up emails used to count cancelled sign-ups toward a class being full, so a class could read 15 of 12 while it still had room. Every one of those numbers now counts the same people, and they agree with the number of spots the sign-up page offers.",
 ]

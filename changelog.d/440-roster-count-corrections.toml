@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-18"
+title = "Two counts of the same class stop disagreeing"
+changes = [
+  "On the page listing sign-ups across all your classes, the heading counted people on the waitlist as registered, so it could say 13 on a class every other screen called 10. It now gives the two numbers separately.",
+  "A class with nobody seated but people on the waitlist read as having nobody signed up at all. It now says how many are waiting.",
+]

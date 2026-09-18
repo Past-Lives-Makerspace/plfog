@@ -1607,7 +1607,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def paid_registration_count(self) -> int:
         """Active registrations that have paid something, so a cancel can name the refund work."""
         return self.registrations.filter(
-            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING],
+            status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES,
             amount_paid_cents__gt=0,
         ).count()
 
@@ -1804,6 +1804,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         class with room read as full.
         """
         return self.registrations.filter(status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES).count()
+
+    @property
+    def waitlisted_count(self) -> int:
+        """How many people are queued for a seat they do not yet hold.
+
+        The twin of :attr:`seats_taken`, and never added to it. Two numbers that each say
+        what they count can be rendered side by side ("10 registered, 3 waitlisted")
+        without either one claiming to be the other. A single total of the two is the
+        number that made the cross-class header disagree with every per-class surface.
+        """
+        return self.registrations.filter(status=RegistrationStatus.WAITLISTED).count()
 
     @property
     def spots_remaining(self) -> int:

@@ -154,7 +154,7 @@ an admin reading a queue wants the glance.{% endcomment %}
     {% if access.can_administer and lifecycle == 'upcoming' %}
         {% url 'classes:admin_class_unpublish' pk=offering.pk as unpublish_url %}
         {% if offering.active_registration_count %}
-            {% concat "It comes out of the catalog straight away. The " offering.active_registration_count " people already registered keep their spots and are not emailed, but their class page and the links in their emails stop working until it is live again. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
+            {% concat "It comes out of the catalog straight away. The " offering.active_registration_count " people already signed up keep their places and are not emailed, but their class page and the links in their emails stop working until it is live again. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
         {% else %}
             {% concat "It comes out of the catalog straight away. Nobody is emailed. You will need to submit it for review again before it can go live, and publishing it again announces it to members again." as unpublish_message %}
         {% endif %}

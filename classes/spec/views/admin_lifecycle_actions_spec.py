@@ -515,7 +515,7 @@ def describe_admin_class_unpublish():
         RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
         client.force_login(admin_user)
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
-        assert "The 1 people already registered keep their spots" in html
+        assert "The 1 people already signed up keep their places" in html
 
 
 def describe_readiness_guard_on_approve():

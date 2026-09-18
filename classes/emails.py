@@ -277,7 +277,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
         f'registered for "{offering.title}" (instructor: {offering.instructor.display_name if offering.instructor else "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
-        f"Capacity: {offering.registrations.count()}/{offering.capacity}\n\n"
+        f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
         f"View the class: {class_url}"
     )
     # No trigger_kind → emit labels the audit row with the event key (one vocabulary).
