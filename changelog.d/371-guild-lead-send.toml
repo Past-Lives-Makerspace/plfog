@@ -1,0 +1,7 @@
+bump = "minor"
+date = "2026-09-18"
+title = "Guild leads can email a class in their guild"
+changes = [
+  "If you lead or staff a guild, the Emails tab on one of its classes now has a working Send Email button. Before, the tab was the one place you landed and the one thing you could not use.",
+  "You get the full composer, locked to that class, and you can pick exactly who to send to.",
+]
