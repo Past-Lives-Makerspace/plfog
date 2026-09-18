@@ -2404,6 +2404,14 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
         )
         rows = list(regs)
         cancelled_registration_count += sum(1 for row in rows if row.status in hidden_statuses)
+        # Counted off the rows already fetched, not off ``offering.seats_taken`` and
+        # ``offering.waitlisted_count``. Those properties are a COUNT each, and this loop runs
+        # once per class the member has ever taught, so asking them here is 2N round trips for
+        # numbers already sitting in memory. ``rows`` is still every status at this point, so
+        # the Python count is the same number the properties return, and
+        # ``it_agrees_with_the_per_class_surfaces_on_the_same_class`` is what holds it to that.
+        seats_taken = sum(1 for row in rows if row.status in CAPACITY_CONSUMING_REGISTRATION_STATUSES)
+        waitlist_count = sum(1 for row in rows if row.status == Registration.Status.WAITLISTED)
         if not show_cancelled:
             rows = [row for row in rows if row.status not in hidden_statuses]
         class_groups.append(
@@ -2411,8 +2419,8 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
                 "offering": offering,
                 "registrations": rows,
                 # Two counts that each say what they count, never a total of the two.
-                "seats_taken": offering.seats_taken,
-                "waitlist_count": offering.waitlisted_count,
+                "seats_taken": seats_taken,
+                "waitlist_count": waitlist_count,
                 # No emailable row means no tick boxes, so the email footer would be a button
                 # that can only ever answer "tick someone first" with nobody to tick.
                 "can_email_any": any(row.can_receive_class_announcement for row in rows),
@@ -2938,6 +2946,8 @@ def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) 
         "cancelled_registration_count": _roster_cancelled_count(offering),
         # The table partial's empty state reads this, and teach_class_registrations_table
         # serves that partial on its own, so it cannot come from the page context alone.
+        # On the full roster page this repeats the number _class_workspace_counts already put
+        # in the context; it is the same property read twice, so the two cannot disagree.
         "waitlist_count": offering.waitlisted_count,
         "viewer_has_refund_authority": has_refund_authority(request),
         "can_manage": True,

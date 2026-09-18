@@ -25,6 +25,12 @@ pytestmark = pytest.mark.django_db
 
 HTMX = {"HX-Request": "true"}
 
+# What one extra class on the cross-class Registrations page is allowed to cost. Measured:
+# 1.25 queries per class as written, 3.25 when the header read offering.seats_taken and
+# offering.waitlisted_count in the loop instead. 2 sits between the two, so this fails if
+# either per-class COUNT comes back without tracking an unrelated prefetch to the decimal.
+PER_CLASS_QUERY_BUDGET = 2
+
 
 def _login_instructor(client, username: str, slug: str):
     """Log in a teaching member and return them, so their own classes are reachable."""
@@ -367,6 +373,38 @@ def describe_the_instructor_registrations_page():
         tab = client.get(reverse("classes:teach_class_registrations", args=[offering.pk]))
         assert group["seats_taken"] == tab.context["seat_taken_count"] == offering.seats_taken == 10
         assert group["waitlist_count"] == tab.context["waitlist_count"] == 3
+
+    def it_does_not_spend_a_count_query_per_class(client, django_assert_max_num_queries):
+        """The header's two numbers come off rows already fetched, not two COUNTs per class.
+
+        This page loops over every class the member has ever taught, so reading
+        ``offering.seats_taken`` and ``offering.waitlisted_count`` in the loop body is 2N
+        round trips for numbers already in memory. The growth per class is what is asserted,
+        not an absolute total: the loop legitimately spends queries on each class's own rows,
+        and pinning the total would break every time an unrelated prefetch moved.
+        """
+        member = _login_instructor(client, "page-nplus1@example.com", "page-nplus1")
+        url = reverse("classes:teach_registrations")
+
+        def _add_class() -> None:
+            offering = ClassOfferingFactory(instructor=member, capacity=12)
+            _seats(offering, Registration.Status.CONFIRMED, 2)
+            _seats(offering, Registration.Status.WAITLISTED, 1)
+            _seats(offering, Registration.Status.CANCELLED, 1)
+
+        def _cost() -> int:
+            with django_assert_max_num_queries(500) as captured:
+                client.get(url)
+            return len(captured.captured_queries)
+
+        # Built up rather than torn down: Registration.class_offering is PROTECT, so the
+        # classes measured first cannot be deleted to measure a smaller set afterwards.
+        _add_class()
+        one_class = _cost()
+        for _ in range(4):
+            _add_class()
+        per_class = (_cost() - one_class) / 4
+        assert per_class <= PER_CLASS_QUERY_BUDGET, f"per class query cost is {per_class}"
 
     def it_keeps_listing_the_waitlisted_people_it_can_email(client):
         """Ruling: they stay on this page. The header stops implying they hold seats."""
