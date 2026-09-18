@@ -10,6 +10,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 from django.utils import timezone
 
+from core.features import FeatureState, FeatureView
 from core.models import Invite, SiteActivity, SiteConfiguration, TransactionalEmailLog
 from membership.models import Member
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
@@ -87,6 +88,37 @@ def describe_SiteConfiguration():
             FeatureSwitch.objects.all().delete()
             assert is_on("wiki") is True
             assert is_on("voting") is True
+
+
+def describe_FeatureView():
+    """The three-state read templates and the kiosk use.
+
+    ``is_hidden`` had no reader at all when #410 shipped — templates branch on ``is_on`` and
+    ``is_soon``, and the third case is the implicit else. It stays because the triple is the
+    public shape this dataclass promises (``core/context_processors.py`` advertises all three
+    to template authors), and a property nothing exercises is a property nothing protects.
+    """
+
+    def _view(state: str) -> FeatureView:
+        return FeatureView(key="k", name="K", state=state, message="m")
+
+    def it_reads_exactly_one_state_as_true():
+        for state, expected in (
+            (FeatureState.ON, "is_on"),
+            (FeatureState.SOON, "is_soon"),
+            (FeatureState.HIDDEN, "is_hidden"),
+        ):
+            view = _view(state)
+            answers = {name: getattr(view, name) for name in ("is_on", "is_soon", "is_hidden")}
+            assert answers[expected] is True, state
+            assert sum(answers.values()) == 1, (state, answers)
+
+    def it_reads_an_unknown_state_as_none_of_the_three():
+        # Not reachable through the form, whose field is a TextChoices, but reachable through a
+        # hand-edited row. Every branch answering False is what makes the sidebar drop the entry
+        # rather than render something undefined.
+        view = _view("bogus")
+        assert (view.is_on, view.is_soon, view.is_hidden) == (False, False, False)
 
 
 def describe_Invite():
