@@ -267,6 +267,20 @@ def expire_checkout_session(*, session_id: str) -> None:
     client.v1.checkout.sessions.expire(session_id)
 
 
+class CheckoutSessionNotFound(Exception):
+    """Stripe has no Checkout Session with this id, and never will.
+
+    Separated from every other Stripe failure because the two mean opposite things to a
+    caller deciding whether to act. A timeout, a 500 or a rate limit is Stripe declining to
+    answer: ask again later. ``resource_missing`` is Stripe answering — this account has no
+    such session — and no amount of retrying changes it.
+
+    In practice it means the stored id belongs to somewhere else: a test-mode id left behind
+    after the keys moved to live, or a row from a different Stripe account. Either way the
+    id can never be verified and can never turn out to have been paid.
+    """
+
+
 def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
     """Retrieve a Checkout Session — the Stripe-verified hold-release check.
 
@@ -274,9 +288,21 @@ def retrieve_checkout_session(*, session_id: str) -> dict[str, Any]:
     'payment_status' (``paid`` / ``unpaid`` / ``no_payment_required``),
     'payment_intent', and 'amount_total'. Stripe errors propagate — callers
     treat an unreachable Stripe as "unknown" and keep the hold.
+
+    Raises:
+        CheckoutSessionNotFound: Stripe knows no such session. A definitive answer, not a
+            failure to answer, so a caller may act on it rather than retrying forever.
     """
     client = _get_stripe_client()
-    session = client.v1.checkout.sessions.retrieve(session_id)
+    try:
+        session = client.v1.checkout.sessions.retrieve(session_id)
+    except stripe.InvalidRequestError as exc:
+        # resource_missing is the only InvalidRequestError that means "no such object".
+        # The rest (a malformed parameter, a bad API version) are our bug and must keep
+        # propagating loudly rather than being read as an answer about the session.
+        if exc.code == "resource_missing":
+            raise CheckoutSessionNotFound(session_id) from exc
+        raise
     return {
         "id": session.id,
         "url": session.url or "",

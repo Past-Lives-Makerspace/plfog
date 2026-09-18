@@ -3182,11 +3182,17 @@ class RegistrationQuerySet(models.QuerySet["Registration"]):
         * **complete but unpaid** → a delayed-notification payment (ACH and friends) that
           Stripe has not settled yet. Left alone; ``async_payment_succeeded`` /
           ``async_payment_failed`` own that row's ending.
-        * **expired**, or no session id ever stored → the seat is released by cancelling
-          the row. Never deleted: it carries the signed waiver, the custom answers and its
-          audit trail.
+        * **expired**, no session id ever stored, or an id Stripe does not recognise → the
+          seat is released by cancelling the row. Never deleted: it carries the signed
+          waiver, the custom answers and its audit trail.
         * **Stripe unreachable** → skipped and logged. The next tick retries; an
           unanswerable question is not permission to take somebody's seat.
+
+        That last rule is about Stripe declining to answer, and it is worth keeping apart
+        from Stripe answering "no such session", which is what ``resource_missing`` is.
+        Treating the two the same is how this sweep first shipped, and in production every
+        one of its candidates was an id from before the keys moved to live: eleven seats it
+        re-asked about every tick, forever, and released none of.
 
         Known and deliberately not closed here: ``registered_at`` is the wrong clock for a row
         whose hold started later than its creation. ``_claim_waitlist_spot`` flips a waitlister
@@ -3210,22 +3216,35 @@ class RegistrationQuerySet(models.QuerySet["Registration"]):
             # No stored session means none was ever attached (a crash between minting and
             # saving): nothing to verify, and nothing that could still be paid.
             if registration.stripe_session_id:
+                session = None
                 try:
                     session = stripe_utils.retrieve_checkout_session(session_id=registration.stripe_session_id)
+                except stripe_utils.CheckoutSessionNotFound:
+                    # Stripe answered: there is no such session. Falls through to the
+                    # release below, the same ending as a row that never stored an id at
+                    # all, because that is what this row now is — an id nothing can verify
+                    # and nothing can ever report as paid. Retrying it forever is what kept
+                    # these seats held.
+                    logger.warning(
+                        "Class hold sweep: Stripe has no session %s for registration %s; releasing the seat.",
+                        registration.stripe_session_id,
+                        registration.pk,
+                    )
                 except Exception:
                     logger.exception(
                         "Class hold sweep: could not verify session for registration %s; retrying next tick.",
                         registration.pk,
                     )
                     continue
-                if session["payment_status"] == "paid":
-                    from classes.webhook_handlers import apply_paid_class_session
+                if session is not None:
+                    if session["payment_status"] == "paid":
+                        from classes.webhook_handlers import apply_paid_class_session
 
-                    if apply_paid_class_session(registration.pk, session) == "confirmed":
-                        recovered += 1
-                    continue
-                if session["status"] in ("open", "complete"):
-                    continue
+                        if apply_paid_class_session(registration.pk, session) == "confirmed":
+                            recovered += 1
+                        continue
+                    if session["status"] in ("open", "complete"):
+                        continue
             if registration.release_hold(reason=EXPIRED_HOLD_CANCEL_REASON):
                 released += 1
         return released, recovered

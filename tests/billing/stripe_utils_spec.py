@@ -322,3 +322,56 @@ def describe_list_refunds_for_payment_intent():
         mock_get_client.return_value = client
 
         assert stripe_utils.list_refunds_for_payment_intent(payment_intent_id="pi_list_2") == []
+
+
+def describe_retrieve_checkout_session():
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_returns_the_session_fields_a_caller_needs(mock_get):
+        client = _mock_client()
+        session = MagicMock()
+        session.id = "cs_live_1"
+        session.url = "https://checkout.stripe.test/c/pay/cs_live_1"
+        session.status = "expired"
+        session.payment_status = "unpaid"
+        session.payment_intent = None
+        session.amount_total = 9000
+        client.v1.checkout.sessions.retrieve.return_value = session
+        mock_get.return_value = client
+
+        result = stripe_utils.retrieve_checkout_session(session_id="cs_live_1")
+
+        assert result["id"] == "cs_live_1"
+        assert result["status"] == "expired"
+        assert result["payment_status"] == "unpaid"
+        assert result["payment_intent"] == ""
+        assert result["amount_total"] == 9000
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_raises_checkout_session_not_found_when_stripe_says_resource_missing(mock_get):
+        """The distinction the abandoned-hold sweep acts on.
+
+        Stripe saying "no such session" is an answer, not a failure to answer, so it is
+        raised as its own exception rather than arriving as one more unreachable-Stripe
+        error that a caller can only retry.
+        """
+        client = _mock_client()
+        client.v1.checkout.sessions.retrieve.side_effect = stripe.InvalidRequestError(
+            "No such checkout.session: cs_test_gone", param="id", code="resource_missing"
+        )
+        mock_get.return_value = client
+
+        with pytest.raises(stripe_utils.CheckoutSessionNotFound):
+            stripe_utils.retrieve_checkout_session(session_id="cs_test_gone")
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_lets_every_other_invalid_request_propagate(mock_get):
+        # A malformed parameter is our bug, not an answer about the session, and must stay
+        # loud rather than being read as "this hold can be released".
+        client = _mock_client()
+        client.v1.checkout.sessions.retrieve.side_effect = stripe.InvalidRequestError(
+            "Received unknown parameter: nope", param="nope", code="parameter_unknown"
+        )
+        mock_get.return_value = client
+
+        with pytest.raises(stripe.InvalidRequestError):
+            stripe_utils.retrieve_checkout_session(session_id="cs_live_1")

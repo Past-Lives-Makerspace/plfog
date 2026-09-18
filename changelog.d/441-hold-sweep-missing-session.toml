@@ -1,0 +1,6 @@
+bump = "patch"
+date = "2026-09-18"
+title = "Classes stop holding seats for signups that were never finished"
+changes = [
+  "Some classes were showing fewer open seats than they really had, because signups abandoned partway through checkout kept holding a seat and never let go. Those seats are released now.",
+]
