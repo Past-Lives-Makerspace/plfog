@@ -2222,10 +2222,10 @@ class FeatureSwitchManager(models.Manager["FeatureSwitch"]):
     def as_context(self) -> dict[str, FeatureView]:
         """Every feature's state, keyed by feature key, in ONE query.
 
-        This is what the site-wide context processor delivers, so a page that renders all eight
-        nav entries costs one read rather than eight. Registry order is preserved and a feature
-        with no row still appears, ON — a template never has to test for a missing key, and an
-        a new feature needs no migration because its absent row simply reads ON.
+        This is what the site-wide context processor delivers, so a page that renders every nav
+        entry costs one read rather than one per feature. Registry order is preserved and a
+        feature with no row still appears, ON — a template never has to test for a missing key,
+        and a new feature needs no migration because its absent row simply reads ON.
         """
         rows = {row.feature_key: row for row in self.all()}
         views: dict[str, FeatureView] = {}
