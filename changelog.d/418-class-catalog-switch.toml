@@ -1,0 +1,13 @@
+# Admin capability and admin screens only, so there is nothing to announce.
+#
+# Class Catalog becomes the ninth feature switch. Like every other one it seeds On, and an
+# absent row reads On, so nobody's sidebar changes on merge day. The member-visible moment is
+# the first time an admin sets it to Coming soon or Hidden, and that is a config change which
+# adds no fragment and announces nothing.
+#
+# The rest is the Site Settings screen itself: six tab panels had their layout deleted by
+# Alpine (FRONTEND.md rule 12) so their sections sat flush together, and two configuration
+# fields rendered an input on two tabs at once. One of those was a real save bug, but it lived
+# on a page only admins can open, and the admins are the people reading this comment.
+bump = "minor"
+audience = "internal"
