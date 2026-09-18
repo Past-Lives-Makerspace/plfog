@@ -32,12 +32,20 @@
     'use strict';
 
     /* Claim a node for one binding. False when this node was already wired, which is what
-     * makes the per-arrival inits safe to run twice against the same markup. A boosted swap
-     * brings fresh nodes carrying no key, so they wire up normally.
+     * makes the per-arrival inits safe to run twice against the same markup. A swap brings
+     * fresh nodes carrying no key, so they wire up normally.
+     *
+     * The key is a property on the element, deliberately NOT a data- attribute. htmx caches
+     * a history snapshot by serializing the body's innerHTML, and an attribute would be
+     * captured in it: on Back the restored markup would arrive pre-stamped, boot() would
+     * find every node already claimed, and the editor would come back dead. That is the
+     * exact bug this file is fixing, reintroduced one navigation later. A property lives on
+     * the element object rather than in its markup, so it never serializes and dies with the
+     * node it belongs to.
      */
     function readyOnce(element, key) {
-        if (element.hasAttribute(key)) return false;
-        element.setAttribute(key, '');
+        if (element[key]) return false;
+        element[key] = true;
         return true;
     }
 
@@ -130,7 +138,7 @@
     function initStage(root) {
         var stage = root.querySelector('[data-editor-stage]');
         if (!stage) return;
-        if (!readyOnce(stage, 'data-editor-stage-ready')) return;
+        if (!readyOnce(stage, 'plStageReady')) return;
         var active = null;
         var mode = '';
         var startX = 0;
@@ -219,7 +227,7 @@
         // .pl-map-editor roots on a page the second pass would otherwise bind each button
         // again.
         document.querySelectorAll('[data-add-marker]').forEach(function (button) {
-            if (!readyOnce(button, 'data-add-marker-ready')) return;
+            if (!readyOnce(button, 'plAddMarkerReady')) return;
             button.addEventListener('click', function () {
                 var url = root.getAttribute('data-create-url');
                 var floorId = root.getAttribute('data-floor-id');
@@ -234,7 +242,7 @@
 
     function initAddButtons() {
         document.querySelectorAll('[data-add-row]').forEach(function (button) {
-            if (!readyOnce(button, 'data-add-row-ready')) return;
+            if (!readyOnce(button, 'plAddRowReady')) return;
             button.addEventListener('click', function () {
                 var which = button.getAttribute('data-add-row');
                 var prefix = which === 'floor' ? 'floors' : 'markers';

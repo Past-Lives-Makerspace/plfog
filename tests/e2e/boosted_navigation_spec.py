@@ -252,6 +252,51 @@ def describe_boosted_arrival_at_the_org_map_editor():
         assert (hotspot.x, hotspot.y) != MARKER_ORIGIN
         assert errors == [], "\n".join(errors)
 
+    def it_survives_the_browser_back_button(live_server, page, login_via_code):
+        """Back is an htmx history restore, and the per-node ready keys must not survive it.
+
+        htmx caches a snapshot by serializing the body's innerHTML and re-executes the
+        scripts it restores, so ``boot()`` genuinely runs again here. If the ready key were a
+        ``data-`` attribute it would be captured in that snapshot, the restored nodes would
+        arrive already claimed, and the editor would come back dead: this file's own bug,
+        reintroduced one navigation later. A property on the element is not markup, so it
+        never serializes.
+
+        The database is the only witness worth trusting. The restored snapshot still carries
+        the *first* drag's "Position saved." in the status line, so asserting on that text
+        passes whether or not anything is wired.
+        """
+        hotspot = _seed_admin_with_a_marked_floor()
+        errors = _watch_for_errors(page)
+        login_via_code(ADMIN_EMAIL)
+
+        edit_path = reverse("hub_org_map_edit")
+        spaces_path = reverse("hub_spaces")
+        page.goto(f"{live_server.url}{spaces_path}")
+        _boosted_click(page, edit_path)
+        _drag(page, page.locator(EDITOR_MARKER).first, 60, 40)
+        expect(page.locator(EDITOR_STATUS)).to_have_text("Position saved.")
+        hotspot.refresh_from_db()
+        before = (hotspot.x, hotspot.y)
+
+        _boosted_click(page, spaces_path, selector=DONE_LINK)
+        page.go_back()
+        page.wait_for_url(re.compile(re.escape(edit_path) + "$"))
+        expect(page.locator(MAP_EDITOR)).to_be_visible()
+
+        # setAttribute lowercases, so compare case insensitively or a revert to attributes
+        # would slip straight past this.
+        restored = page.content().lower()
+        leaked = [k for k in ("plstageready", "pladdmarkerready", "pladdrowready") if k in restored]
+        assert not leaked, f"ready keys reached the history snapshot as markup: {leaked}"
+
+        _drag(page, page.locator(EDITOR_MARKER).first, 50, 35)
+        expect(page.locator(EDITOR_MARKER).first).not_to_have_attribute("style", re.compile("left: 10%"))
+        page.wait_for_timeout(2000)
+        hotspot.refresh_from_db()
+        assert (hotspot.x, hotspot.y) != before, "the marker did not move after Back, so the restored editor is inert"
+        assert errors == [], "\n".join(errors)
+
     def it_binds_the_modal_close_listener_once_across_repeat_arrivals(live_server, page, login_via_code):
         """Criterion 3: arriving twice must not stack the ``close-marker-edit`` handler.
 
