@@ -64,11 +64,31 @@ Split the two concerns:
   double-wire a node. `rich-editor-init.js` keys off a `data-rte-ready` attribute; a `data-*`
   ready key is the same idea and the house pattern.
 - **Once per document:** the `close-marker-edit` listener on `document.body`, **and
-  `initDropZones`**. A module-scope boolean, or a top-level block that runs a single time.
+  `initDropZones`**. See the guard note below: the obvious mechanism does not work here.
+
+### The once-per-document guard cannot be a module-scope boolean
+
+`static/js/space_map_editor.js` is an IIFE, opening `(function () {` at line 18 and closing
+`})();` at line 263. Under `hx-boost` the body script re-executes on every boosted arrival, so the
+whole IIFE body runs again in a **fresh scope**. A `var bound = false;` inside it is reconstructed
+as `false` on each arrival and guards nothing; the listener stacks exactly as if there were no
+guard at all. A test that visits the page only once cannot tell the two implementations apart,
+which is how this would ship.
+
+The flag has to live somewhere that outlives a script re-execution:
+
+- **A property on `window`.** This is already the house pattern: `rich-editor-init.js` assigns
+  `window.plRteInitAll` precisely so the reference survives re-execution.
+- **A `data-*` key on a persistent element** — `document.documentElement` or `document.body`.
+  `hx-boost` replaces the body's contents, not the `<body>` element itself.
+
+The per-arrival bucket is unaffected. `initStage`, `initAddMarker` and `initAddButtons` bind to
+elements the swap replaces, so a `data-*` ready key **on those elements** is correct and does not
+need to survive anything. That is the `data-rte-ready` pattern and it still stands.
 
 `initDropZones` is the one to look at twice. Its name reads like the others, but it binds nothing
 to the swapped markup: it is three delegated listeners on `document`
-(`static/js/space_map_editor.js:227-237`) that resolve `.cls-image-upload-zone` from
+(`static/js/space_map_editor.js:227-248`) that resolve `.cls-image-upload-zone` from
 `event.target` at drop time. `document` outlives a boosted swap exactly as `document.body` does.
 Re-running it stacks three more listeners per arrival, and because the `drop` handler assigns
 `input.files` and then dispatches a `change` event, one dropped file fires that `change` once per
