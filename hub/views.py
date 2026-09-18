@@ -32,6 +32,7 @@ from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabL
 from billing.models import BillingSettings, Tab, TabCharge
 from classes.access import class_access
 from classes.models import Category, ClassOffering
+from core.htmx import wants_fragment
 from core.features import is_on
 from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
@@ -1935,7 +1936,11 @@ def orientation_checkout_return(request: HttpRequest, token: str) -> HttpRespons
     from membership import orientations
     from membership.models import OrientationBooking
 
-    is_fragment = request.headers.get("HX-Request") == "true"
+    # The polling card is a fragment; a navigation that lands here is not. Both a Back
+    # (the hub keeps no history cache, so Back refetches) and the boosted redirect from
+    # "Resume payment" arrive carrying HX-Request, which is why this cannot be decided on
+    # that header alone. See core.htmx for the full rule.
+    is_fragment = wants_fragment(request)
     try:
         poll_count = int(request.GET.get("n", "0"))
     except ValueError:

@@ -289,6 +289,15 @@ head-support keys head tags by their exact `outerHTML`, and the static storage h
 
 Never `document.body.addEventListener(...)` from a head script at parse time (there is no body yet); listen on `document`, htmx events bubble there. `tests/hub/base_scripts_spec.py` pins the head order, fails if htmx or Alpine ever lands back inside `<body>`, and fails if a `static/js` file that calls `Alpine.data(` is missing from the head; `tests/e2e/boosted_navigation_spec.py` drives the real boosted arrival at the composer.
 
+**Two rules for a body script's own bookkeeping**, both learned from bugs that looked correct on a single visit (issues #382, #383):
+
+- **A "has this run already" flag for something bound to `document` goes on `window`, never in the IIFE.** The whole file is re-executed in a fresh scope on every boosted arrival, so a `var bound = false` is rebuilt as `false` each time and guards nothing. `window.plRteSettleBound`, `window.plMapEditorDocumentBound`.
+- **A "have I claimed this node" key is a property on the element, not a `data-` attribute.** `element.plThingReady = true`, not `element.dataset.thingReady = "1"`. See `readyOnce` in `rich-editor-init.js` and `space_map_editor.js`. An attribute is markup, and markup gets serialized, so a node can come back from somewhere already claimed and the init silently does nothing. A property lives on the element object and dies with the node. (`pl_tour.js:770`, `:781` still key on `data-pl-init` and `data-pl-tour-init`. They are safe **only** because the rule below removed the one thing that serialized them; if a snapshot ever returns, they break the same way.)
+
+**A view that answers some requests with a fragment and can be reached by a GET must use `core.htmx.wants_fragment`**, not a hand-written header check. `HX-Request` alone is not enough (a boosted navigation carries it too), and excluding `HX-Boosted` is only half the answer: since Back is a refetch, a history restore is *precisely* a non-boosted `HX-Request`, so a check that only excludes boosted requests hands the member a bare fragment where their page used to be. That shipped once on the public class catalog: 341,276 bytes with a document, 339 without. A restore is a GET, so `@require_POST` views cannot be reached this way; the six that still hand-roll the check (`classes/views.py:4980`, `:5006`, `:5041`, `hub/equipment_views.py:978`, `hub/views.py:1291`, `hub/wiki_views.py:1798`) are correct for that reason, not because the check is fine. Drop the decorator and they are wrong.
+
+The hub keeps **no htmx history cache** (`hub_boot.js` sets `htmx.config.historyCacheSize = 0`), because a snapshot of this body is a snapshot of Alpine's and Quill's output rather than of the markup the server sent: restoring it duplicated every `x-for` expansion in the class composer and brought back a rich-text editor that looked mounted and swallowed everything typed into it. Back is a refetch, so what a member returns to is server markup that Alpine initialises once. Do not add an `hx-history-elt` or otherwise reintroduce the snapshot.
+
 ### Updating another element after a form submit (OOB swap)
 
 ```python

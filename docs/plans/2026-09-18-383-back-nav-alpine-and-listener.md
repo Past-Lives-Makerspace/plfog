@@ -169,3 +169,65 @@ listener fix.
 - Moving anything into `<head>`, or any edit to `HEAD_ORDER`.
 - The sidebar's mobile close behaviour itself. Item 1 removes an error; it does not change what
   the `@click` does.
+
+---
+
+## Measured: item 1's mechanism is not the sidebar, and it is not cosmetic
+
+Written after the repro, per the instruction above to fix the real cause rather than make this
+document true.
+
+**The sidebar click contributes nothing.** The scenario was driven with the error collector
+armed from before the first navigation and a tally taken at each step. Back onto the class
+composer produced 180 uncaught errors before the sidebar was touched at all; the sidebar click
+that followed added zero. The naive shape the hypothesis describes — a boosted hop, Back,
+then a sidebar link, on a page whose sidebar is the only Alpine on it — produces no error of
+any kind. `@click` on a nav that Alpine never re-initialised is not a handler that throws; it
+is not a handler.
+
+**What actually happens.** htmx builds its history snapshot by serializing the body's
+innerHTML, and the hub's body is not the markup the server sent — Alpine renders into it. The
+composer's session scheduler is four `x-for` templates (start times, durations, the hidden
+formset rows, the booked-session list), and the snapshot captures that expansion as ordinary
+elements sitting beside the templates that made them. On the restore Alpine does two things to
+that tree: it initialises the orphaned clones, whose bindings reference a loop variable that no
+longer exists, and it renders each template again from data on top of them. Measured on one
+Back: the start-time menu went from 32 options to 64, the duration menu from 8 to 16, the one
+scheduled session was listed twice, and the errors were `i is not defined`, `s is not defined`
+and `opt is not defined` — the `x-for` variables from `_components/session_calendar.html`,
+never `_x_dataStack`.
+
+So the issue's "cosmetic today" is wrong twice over. A member who presses Back onto a class
+they were scheduling sees every session listed twice and every menu doubled.
+
+**Why neither candidate direction was taken.** Re-initialising Alpine on `htmx:historyRestore`
+does not help: the tree is not un-initialised, it is initialised over markup that should never
+have been there. Cleaning Alpine's internals at `htmx:beforeHistorySave` cannot be done from a
+handler either — htmx clones the history element *after* firing that event, so the only tree a
+handler can reach is the live one the member is still looking at.
+
+The snapshot itself is what has to go, so `hub_boot.js` sets `htmx.config.historyCacheSize = 0`.
+htmx then drops any stored cache on its next save (it saves on the way into every restore, so
+a member carrying snapshots from an earlier visit is cleaned out rather than served one more
+broken Back), the restore misses, and htmx refetches the page — the same request a boosted
+click makes. The cost is one request per Back, which is what every forward navigation here
+already costs.
+
+## Measured: the inferred third defect is real, and worse than "dead"
+
+Driven on `/wiki/p/<slug>/edit/` before any fix: arrive through the boosted Edit link, leave
+through the boosted breadcrumb, press Back. The restored page carried `data-rte-ready="1"`, one
+`.ql-toolbar`, one `.ql-container` and one contenteditable `.ql-editor`. Nothing looked wrong.
+Typing into it changed nothing in the hidden field the form posts, and there was no error
+anywhere. A member editing a wiki page after Back types into markup nothing is listening to and
+loses every word at save.
+
+Fixed as #382's shape: the ready key is now a property (`readyOnce(mount, "plRteReady")`), not
+`mount.dataset.rteReady`.
+
+Worth knowing that the two fixes are not redundant. With the history cache disabled but the
+attribute key restored, the editor is alive after Back — Back is a server fetch now, so nothing
+arrives pre-claimed. With the property key but the history cache left on, the editor is alive
+but the restored page carries **two** Quill toolbars, because the snapshot brings the first
+mount's toolbar back as markup and the fresh mount adds its own. That is the class composer's
+cropper stacking one file over, and only removing the snapshot removes it.
