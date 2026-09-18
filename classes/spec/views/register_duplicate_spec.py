@@ -113,6 +113,19 @@ def _register_url(offering: ClassOffering) -> str:
     return reverse("classes:register", kwargs={"slug": offering.slug})
 
 
+def _owned_by(client, registration: Registration) -> Registration:
+    """Tell the test client's session it created this row.
+
+    Resuming a signup requires proof of ownership, and a factory-built row has no
+    browser behind it. Real flows record this when the row is created; a spec that
+    starts from a factory row says so here instead.
+    """
+    session = client.session
+    session["classes_registration_pks"] = [registration.pk]
+    session.save()
+    return registration
+
+
 def describe_duplicate_registration():
     def describe_the_paid_branch():
         @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session())
@@ -269,10 +282,13 @@ def describe_duplicate_registration():
             assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1
 
         def it_sends_an_already_confirmed_registrant_back_to_their_registration(paid_offering, client):
-            existing = RegistrationFactory(
-                class_offering=paid_offering,
-                email="sam@example.com",
-                status=Registration.Status.CONFIRMED,
+            existing = _owned_by(
+                client,
+                RegistrationFactory(
+                    class_offering=paid_offering,
+                    email="sam@example.com",
+                    status=Registration.Status.CONFIRMED,
+                ),
             )
 
             response = client.post(_register_url(paid_offering), data=_post_data())
@@ -339,11 +355,14 @@ def describe_duplicate_registration():
             race hits.
             """
             mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
-            winner = RegistrationFactory(
-                class_offering=paid_offering,
-                email="sam@example.com",
-                status=Registration.Status.PENDING,
-                stripe_session_id="cs_test_first",
+            winner = _owned_by(
+                client,
+                RegistrationFactory(
+                    class_offering=paid_offering,
+                    email="sam@example.com",
+                    status=Registration.Status.PENDING,
+                    stripe_session_id="cs_test_first",
+                ),
             )
 
             # Patching a model method, deliberately and narrowly: the standing rule is
@@ -697,4 +716,139 @@ def describe_a_waitlist_claim_that_stripe_refuses():
 
         waiting.refresh_from_db()
         assert waiting.status == Registration.Status.WAITLISTED
+        assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1
+
+
+def describe_a_stranger_who_knows_the_address():
+    """The register form authenticates nobody: the email is typed, not proved.
+
+    So resuming had to stop trusting it. A stranger who POSTs a known address must get
+    no token, cause no Stripe call, and leave the row exactly as they found it.
+    """
+
+    @pytest.fixture
+    def victim(paid_offering, client):
+        """A real signup made by a DIFFERENT browser, with a discount on it."""
+        DiscountCodeFactory(code="HALF", discount_pct=50)
+        with patch("billing.stripe_utils.create_class_checkout_session") as mock_create:
+            mock_create.return_value = {"id": "cs_ONE", "url": CHECKOUT_URL}
+            client.post(_register_url(paid_offering), data=_post_data(discount_code="HALF"))
+        client.logout()
+        client.cookies.clear()  # the attacker is a different browser entirely
+        return Registration.objects.get(class_offering=paid_offering, email="sam@example.com")
+
+    @patch("billing.stripe_utils.expire_checkout_session")
+    @patch("billing.stripe_utils.retrieve_checkout_session")
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_never_hands_over_the_self_serve_token(
+        mock_create, mock_retrieve, mock_expire, paid_offering, victim, client
+    ):
+        response = client.post(_register_url(paid_offering), data=_post_data())
+
+        assert response.status_code == 302
+        assert victim.self_serve_token not in response["Location"]
+        assert response["Location"] == reverse("classes:public_class_detail", kwargs={"slug": paid_offering.slug})
+        assert mock_retrieve.call_count == 0
+        assert mock_expire.call_count == 0
+        assert mock_create.call_count == 0
+
+    @patch("billing.stripe_utils.expire_checkout_session")
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session(amount_total=5000))
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_leaves_the_row_untouched(mock_create, _mock_retrieve, mock_expire, paid_offering, victim, client):
+        """Status, amount, code and session all exactly as the victim left them."""
+        before = (victim.status, victim.amount_paid_cents, victim.discount_code_id, victim.stripe_session_id)
+
+        client.post(_register_url(paid_offering), data=_post_data())
+        client.post(_register_url(paid_offering), data=_post_data(discount_code=""))
+
+        victim.refresh_from_db()
+        assert (victim.status, victim.amount_paid_cents, victim.discount_code_id, victim.stripe_session_id) == before
+        assert mock_expire.call_count == 0  # the victim's checkout is not killed mid-payment
+        assert mock_create.call_count == 0  # and not repriced against them
+        assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1
+
+    def it_emails_the_link_to_the_address_on_file_instead(paid_offering, victim, client, mailoutbox):
+        from django.core.cache import cache
+
+        cache.clear()
+        mailoutbox.clear()
+
+        client.post(_register_url(paid_offering), data=_post_data())
+
+        assert len(mailoutbox) == 1
+        sent = mailoutbox[0]
+        assert sent.to == ["sam@example.com"]  # never the submitter's screen
+        assert victim.self_serve_token in sent.body
+
+    def it_does_not_mail_bomb_the_address(paid_offering, victim, client, mailoutbox):
+        from django.core.cache import cache
+
+        cache.clear()
+        mailoutbox.clear()
+
+        for _ in range(5):
+            client.post(_register_url(paid_offering), data=_post_data())
+
+        assert len(mailoutbox) == 1
+
+    def it_says_the_same_thing_whether_or_not_the_address_is_registered(paid_offering, victim, client):
+        """No confirmation that the address is signed up: the password-reset shape."""
+        from django.core.cache import cache
+
+        cache.clear()
+        known = client.post(_register_url(paid_offering), data=_post_data())
+        said = [m.message for m in get_messages(known.wsgi_request)]
+
+        assert said == [
+            "If you have already started signing up for this class, we just emailed that address "
+            "a link to pick up where you left off."
+        ]
+        assert "sam@example.com" not in said[0]
+        assert "already registered" not in said[0].lower()
+
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session(amount_total=5000))
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_still_refuses_the_strangers_insert(mock_create, _mock_retrieve, paid_offering, victim, client):
+        """The constraint stays the backstop, and refusing is not a 500 or a disclosure."""
+        with patch.object(ClassOffering, "live_registration_for_email", side_effect=[None, victim]):
+            response = client.post(_register_url(paid_offering), data=_post_data())
+
+        assert response.status_code == 302
+        assert victim.self_serve_token not in response["Location"]
+        assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1
+
+    def it_lets_the_signed_in_owner_through(paid_offering, client, member_user):
+        """Being logged in as the member the row is linked to is the other proof."""
+        member = member_user.member
+        registration = RegistrationFactory(
+            class_offering=paid_offering,
+            email=member.primary_email,
+            member=member,
+            status=Registration.Status.CONFIRMED,
+        )
+        client.force_login(member_user)
+
+        response = client.post(
+            _register_url(paid_offering), data=_post_data(email=member.primary_email, first_name="Robin")
+        )
+
+        assert response["Location"] == reverse(
+            "classes:my_registration", kwargs={"token": registration.self_serve_token}
+        )
+
+
+def describe_the_double_click_that_started_all_this():
+    @patch("billing.stripe_utils.retrieve_checkout_session", return_value=_session())
+    @patch("billing.stripe_utils.create_class_checkout_session")
+    def it_still_resumes_with_no_friction_in_the_same_browser(mock_create, _mock_retrieve, paid_offering, client):
+        """The browser that made the row owns it, so the second click goes straight to Stripe."""
+        mock_create.return_value = {"id": "cs_test_first", "url": CHECKOUT_URL}
+
+        first = client.post(_register_url(paid_offering), data=_post_data())
+        second = client.post(_register_url(paid_offering), data=_post_data())
+
+        assert first.url == CHECKOUT_URL
+        assert second.url == CHECKOUT_URL  # no email, no deflection, no extra step
+        assert get_messages(second.wsgi_request)._queued_messages == []
         assert Registration.objects.filter(class_offering=paid_offering, email="sam@example.com").count() == 1

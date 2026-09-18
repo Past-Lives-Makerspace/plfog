@@ -441,6 +441,32 @@ def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def registration_resume_link_context(data: SampleData) -> dict[str, Any]:
+    """Reproduces ``classes.emails.send_registration_resume_link`` exactly."""
+    from classes.emails import _absolute_url
+
+    registration = data.registration
+    offering = data.offering
+    self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
+    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    name = registration.first_name.strip()
+    greeting = f"Hi {name}," if name else "Hi,"
+    return {
+        "subject": f"Your signup for {offering.title}",
+        "text_body": (
+            f"{greeting}\n\n"
+            f'Somebody just started signing up for "{offering.title}" with this email address. '
+            f"You already have a signup for that class, so here is the link to it:\n\n"
+            f"{self_serve_url}\n\n"
+            f"That link opens your registration, where you can finish paying if you still owe "
+            f"anything, or cancel it.\n\n"
+            f"Class details: {class_url}\n\n"
+            f"If this wasn't you, nothing has changed and you can ignore this email. Your "
+            f"registration is only reachable through the link above."
+        ),
+    }
+
+
 def orphaned_class_payment_alert_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``classes.emails.send_orphaned_payment_alert`` exactly."""
     from classes.emails import _absolute_url

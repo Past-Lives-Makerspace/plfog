@@ -629,6 +629,74 @@ def _already_signed_up_message(registration: Registration) -> str:
     return f"You already started signing up for {title}. Here's where you left off."
 
 
+_SESSION_REGISTRATION_KEY = "classes_registration_pks"
+# Enough for anyone signing up for a season of classes from one browser, and a ceiling
+# so a bot cannot grow one session row without bound.
+_SESSION_REGISTRATION_LIMIT = 50
+# One resume link per registration per window, however many times the form is POSTed.
+# Without it, anyone who knows an address could use this to mail-bomb its owner.
+_RESUME_LINK_THROTTLE_SECONDS = 15 * 60
+
+
+def _remember_registration(request: HttpRequest, registration: Registration) -> None:
+    """Record that THIS browser created this registration.
+
+    The register form authenticates nobody — the email address is typed, not proved —
+    so the session is what separates the impatient second click from a stranger who
+    happens to know someone's address. Stored server side (the default database session
+    backend), so the browser holds an opaque session id and never the row ids.
+    """
+    remembered = [pk for pk in request.session.get(_SESSION_REGISTRATION_KEY, []) if pk != registration.pk]
+    remembered.append(registration.pk)
+    request.session[_SESSION_REGISTRATION_KEY] = remembered[-_SESSION_REGISTRATION_LIMIT:]
+
+
+def _owns_registration(request: HttpRequest, registration: Registration) -> bool:
+    """Whether this requester has proved the registration is theirs.
+
+    Two proofs count. The browser created it, which is the double-click case and the
+    reason that path stays frictionless. Or the requester is signed in as the member the
+    row is linked to, which was proved by the login, not by typing an address.
+
+    A typed email address is not a proof and never becomes one here. The claim-link flow
+    is authenticated separately, by an unguessable token that only reaches the inbox.
+    """
+    if registration.pk in request.session.get(_SESSION_REGISTRATION_KEY, []):
+        return True
+    if not request.user.is_authenticated:
+        return False
+    member = getattr(request.user, "member", None)
+    return member is not None and registration.member_id == member.pk
+
+
+def _deflect_to_emailed_link(request: HttpRequest, registration: Registration) -> HttpResponse:
+    """Answer an unproved resume request without confirming anything or touching the row.
+
+    Nothing about the registration changes and no Stripe call is made: an unproved
+    submitter must not be able to expire somebody's checkout, re-mint it at a different
+    price, or rewrite the discount code on it. The self-serve token stays out of the
+    response — handing it over would let anyone who knows an address open, and cancel,
+    that person's booking.
+
+    The link goes to the address on file instead, throttled so this cannot be turned
+    into a mail bomb, and the reply says only what is true for any address at all. The
+    password-reset shape: a stranger learns nothing, and a registrant who came back on a
+    new device is one email away from their signup.
+    """
+    from django.core.cache import cache
+
+    if cache.add(f"classes:resume-link:{registration.pk}", True, _RESUME_LINK_THROTTLE_SECONDS):
+        from classes.emails import send_registration_resume_link
+
+        send_registration_resume_link(registration)
+    messages.info(
+        request,
+        "If you have already started signing up for this class, we just emailed that address "
+        "a link to pick up where you left off.",
+    )
+    return redirect("classes:public_class_detail", slug=registration.class_offering.slug)
+
+
 def _self_serve_redirect(request: HttpRequest, registration: Registration) -> HttpResponse:
     """The self-serve page plus a note saying where this signup stands.
 
@@ -646,10 +714,17 @@ def _resume_existing_registration(
 ) -> HttpResponse:
     """Send a repeat registrant back into the signup they already have, never into a second one.
 
+    Ownership is checked here rather than at the call sites, because every route into a
+    resume has to pass it: the pre-save lookup, and the loser of a race that only learns
+    another row exists when the constraint rejects its insert. An unproved requester is
+    deflected before anything is read from Stripe or written anywhere.
+
     A PENDING row is unfinished business and goes to :func:`_resume_pending_checkout`.
     A CONFIRMED or WAITLISTED row has nothing to pay this minute, so it goes to the
     self-serve page with a note.
     """
+    if not _owns_registration(request, registration):
+        return _deflect_to_emailed_link(request, registration)
     if registration.status == Registration.Status.PENDING:
         return _resume_pending_checkout(request, registration, form)
     return _self_serve_redirect(request, registration)
@@ -768,6 +843,9 @@ def _convert_waitlist_claim(request: HttpRequest, form: RegistrationForm, regist
     no stray "you joined the waitlist" mail. If Stripe refuses, the row goes back to
     WAITLISTED and the error propagates: the claim is exactly where it started.
     """
+    # The claim link's token came from the registrant's inbox, which is proof enough to
+    # hand this browser the row for the rest of its session.
+    _remember_registration(request, registration)
     registration.status = Registration.Status.PENDING
     registration.save(update_fields=["status"])
     try:
@@ -975,6 +1053,10 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
         registration, created = _save_registration(form, offering, form.cleaned_data["email"])
         if not created:
             return _resume_existing_registration(request, registration, form)
+        # This browser made it, so this browser may resume it. Written before any Stripe
+        # round trip, so a registrant who abandons checkout and clicks again still owns
+        # the row they are coming back to.
+        _remember_registration(request, registration)
         _cache_registration_to_profile(request, registration)
         if is_waitlist:
             # The form set status=WAITLISTED on save (see RegistrationForm.save), so the

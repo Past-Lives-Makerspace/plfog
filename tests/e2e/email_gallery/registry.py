@@ -277,6 +277,21 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="duplicate_payment_alert_context",
     ),
     GalleryEmail(
+        key="registration_resume_link",
+        name="Your signup for this class (resume link)",
+        section="Classes",
+        renderer=Renderer.INLINE_STRING,
+        trigger_note=(
+            "Sent when somebody POSTs the register form with an email address that already has a "
+            "signup for that class, from a browser that cannot be tied to it. The link goes to the "
+            "address on file and the page that asked is told nothing, so knowing a person's email is "
+            "not enough to reach their booking. Throttled to one per registration per 15 minutes."
+        ),
+        edit_pointer="Text authored in code (classes/emails.py::send_registration_resume_link)",
+        audience="The registrant, at the address on their registration.",
+        context_builder="registration_resume_link_context",
+    ),
+    GalleryEmail(
         key="orphaned_class_payment_alert",
         name="Class payment needs a decision (admin)",
         section="Classes",
@@ -934,6 +949,7 @@ _REGISTERED_INLINE_KINDS: dict[str, str] = {
     "classes.welcome_email": "the welcome WELCOME card (this is the real send)",
     "classes.duplicate_payment_alert": "the duplicate_payment_alert INLINE_STRING card",
     "classes.orphaned_payment_alert": "the orphaned_class_payment_alert INLINE_STRING card",
+    "classes.registration_resume_link": "the registration_resume_link INLINE_STRING card",
     "membership.orientation_orphan_payment": "the orientation_orphan_payment_alert INLINE_STRING card",
     "wiki.page_archived": "the wiki_page_archived card",
     "wiki.proposal_declined": "the wiki_proposal_declined card",
