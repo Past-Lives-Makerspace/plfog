@@ -3473,11 +3473,18 @@ def _compose_refusal_message(request: HttpRequest) -> str:
     """Why the composer turned this request away, in the refused viewer's own terms.
 
     Two sentences for two populations, because one sentence would have to lie to one of them.
-    An admin previewing a lower role is not short of rights: the role they are looking through
-    is, and the way back is the "Viewing as" switcher, so the message points at it. Telling
-    them they lacked permission would be the same untruth about this surface that #371 exists
-    to remove. Everyone else genuinely cannot compose, and the propose flow the page entry
-    lands them on is their answer.
+    A previewing admin is not short of rights: the role they are looking through is, and the way
+    back is the "Viewing as" switcher, so the message points at it. Telling them they lacked
+    permission would be the same untruth about this surface that #371 exists to remove. Everyone
+    else genuinely cannot compose, and the propose flow the page entry lands them on is their
+    answer.
+
+    **Only ever called on a refusal**, and that precondition is what lets the branch test
+    ``actual_is_admin`` alone. :func:`_can_enter_compose` admits everyone :func:`_can_compose`
+    admits, and that short-circuits on :func:`_viewing_as_admin`, which reads the EFFECTIVE role.
+    So no request reaching here has admin as its effective role, and one that holds admin
+    *actually* is previewing something lower by construction. Testing ``is_previewing`` as well
+    would read as load-bearing while never being able to change an answer.
 
     Args:
         request: The refused request, carrying ``view_as`` from the middleware.
@@ -3486,7 +3493,7 @@ def _compose_refusal_message(request: HttpRequest) -> str:
         A member-friendly sentence naming the actual obstacle and the way past it.
     """
     view_as = getattr(request, "view_as", None)
-    if view_as is not None and view_as.actual_is_admin and view_as.is_previewing:
+    if view_as is not None and view_as.actual_is_admin:
         return (
             "Sending an announcement is an admin action, and your Viewing as switcher is set to "
             f"{view_as.current_label}. Switch it back to Admin to send this."
@@ -3497,9 +3504,12 @@ def _compose_refusal_message(request: HttpRequest) -> str:
 def _compose_refused(request: HttpRequest) -> HttpResponse:
     """The composer's HTMX refusal: 403 carrying the reason as an error toast.
 
-    The ``_skills_no_member_response`` idiom. A bare 403 on an ``hx-post`` with ``hx-swap="none"``
-    is invisible — nothing swaps and nothing is said — so the refusal has to travel in the
-    ``HX-Trigger`` header the toast script already listens on.
+    The ``_skills_no_member_response`` idiom. htmx swaps no 4xx response, so a bare 403 on any of
+    these three buttons is invisible whatever it targets: "Send a test to me" and the push test
+    are ``hx-swap="none"`` and say nothing by design, and Refresh preview's ``#compose-preview``
+    target is simply left holding whatever it held before. The reason therefore has to travel in
+    the ``HX-Trigger`` header, which htmx reads off an error response before it decides not to
+    swap, and which the toast script already listens on.
     """
     response = HttpResponse("Forbidden", status=403)
     trigger_toast(response, _compose_refusal_message(request), "error")

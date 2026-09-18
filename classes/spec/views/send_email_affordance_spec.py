@@ -2,9 +2,13 @@
 
 Issue #371 item 1. Two separate things are pinned here.
 
-**The link never lies.** Wherever Send Email renders, the composer it points at admits that
-same request for that same class. Asserted as an implication over every view-as role an admin
-can pick, so it holds for the whole matrix rather than for the rows somebody remembered.
+**The link never lies.** Wherever Send Email renders, the composer it points at admits that same
+request for that same class. Covered in two halves rather than as one implication over all five
+roles, because an implication has nothing to say about a role that is offered no link: the roles
+that ARE offered it assert that the composer takes them, and the roles that are not assert both
+that the composer would have refused and which status each tab answered to reach its zero. A
+single `offered implies admitted` test would have passed on three of five rows without ever
+asking the composer anything.
 
 **A refusal is never silent.** ``hub_compose`` answered a viewer it would not admit with a bare
 ``redirect`` to the propose flow, and ``templates/hub/base.html`` puts ``hx-boost="true"`` on the
@@ -45,9 +49,6 @@ from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
 Status = ClassOffering.Status
 
-#: Every role an admin can pick in the topbar, plus ``None`` for "not previewing at all".
-PREVIEW_ROLES = (None, "admin", "guild_officer", "member", "guest")
-
 #: Every tab of the per-class screen. The header link is judged on all of them, not only on the
 #: one tab that also carries the roster-foot link.
 CLASS_SCREEN_TABS = (
@@ -58,18 +59,33 @@ CLASS_SCREEN_TABS = (
     "classes:teach_class_emails",
 )
 
-#: What a viewer who is offered the link everywhere sees: one header link per tab, plus the
-#: roster-foot link on Registrations.
+#: Every tab open, and the link on all of them: one in the header, plus the roster-foot link on
+#: Registrations. Each entry is ``(status, links)`` — see :func:`_screen_probe` for why the status
+#: travels with the count.
 FULLY_OFFERED = {
-    "classes:teach_class_detail": 1,
-    "classes:teach_class_registrations": 2,
-    "classes:teach_class_waitlist": 1,
-    "classes:teach_class_discount_codes": 1,
-    "classes:teach_class_emails": 1,
+    "classes:teach_class_detail": (200, 1),
+    "classes:teach_class_registrations": (200, 2),
+    "classes:teach_class_waitlist": (200, 1),
+    "classes:teach_class_discount_codes": (200, 1),
+    "classes:teach_class_emails": (200, 1),
 }
 
-#: What a viewer who is offered it nowhere sees.
-NEVER_OFFERED = dict.fromkeys(CLASS_SCREEN_TABS, 0)
+#: ``class_access`` is view-as aware, so a previewing admin gets no per-class screen at all. This
+#: is WHY those rows count zero links, and a bare zero could not tell it from a 500.
+SCREEN_CLOSED = dict.fromkeys(CLASS_SCREEN_TABS, (404, 0))
+
+#: The guild set: ruling 12 gives a lead or staffer Emails and nothing else on a class they do
+#: not teach, and that one open tab carries no link.
+GUILD_SCREEN = {
+    "classes:teach_class_detail": (404, 0),
+    "classes:teach_class_registrations": (404, 0),
+    "classes:teach_class_waitlist": (404, 0),
+    "classes:teach_class_discount_codes": (404, 0),
+    "classes:teach_class_emails": (200, 0),
+}
+
+#: The exact sentence every viewer who simply cannot compose is given.
+GENERIC_REFUSAL = "Your account cannot send announcements. You can propose one here for a lead to review."
 
 
 @pytest.fixture
@@ -126,17 +142,25 @@ def _compose_url(offering: ClassOffering) -> str:
     return f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1"
 
 
-def _links_offered(client, offering: ClassOffering) -> dict[str, int]:
-    """How many Send Email links this viewer is offered, per tab.
+def _screen_probe(client, offering: ClassOffering) -> dict[str, tuple[int, int]]:
+    """Per tab: the status it answered, and how many Send Email links it rendered.
 
-    A tab that refuses the viewer outright offers zero, which is the answer the implication
-    needs — a 404'd tab shows nobody a link.
+    The status travels with the count deliberately. A count on its own cannot tell "this tab
+    correctly withheld the link" from "this tab 500'd", and a spec that reads a crash as a
+    successful hide is worse than no spec at all.
     """
-    counts = {}
+    probe = {}
     for tab in CLASS_SCREEN_TABS:
         response = client.get(reverse(tab, kwargs={"pk": offering.pk}))
-        counts[tab] = response.content.decode().count(_compose_href(offering)) if response.status_code == 200 else 0
-    return counts
+        html = response.content.decode() if response.status_code == 200 else ""
+        probe[tab] = (response.status_code, html.count(_compose_href(offering)))
+    return probe
+
+
+def _refusal_said(client, offering: ClassOffering) -> str:
+    """Everything the destination page was handed to say about the refusal, as one string."""
+    response = client.get(_compose_url(offering), follow=True)
+    return " ".join(str(m) for m in response.context["messages"])
 
 
 def _preview_as(client, role: str | None) -> None:
@@ -150,60 +174,48 @@ def _preview_as(client, role: str | None) -> None:
 
 
 def describe_the_send_email_link():
-    def describe_wherever_it_renders_the_composer_admits_the_same_request():
-        @pytest.mark.parametrize("preview", PREVIEW_ROLES)
-        def it_holds_for_an_admin_in_every_view_as_role(preview, admin_user, roster_class, client):
-            # The implication itself, which is the acceptance criterion. Asserting it rather
-            # than a remembered matrix is what makes it survive a future role being added.
+    def describe_it_is_offered_only_where_the_composer_admits():
+        # Deliberately two tests rather than one implication over all five roles. An implication
+        # has no content on a role that is offered nothing: `offered or not admitted` short
+        # circuits true before it ever asks the composer anything. So the offering roles assert
+        # the implication where it bites, and the withholding roles assert the two facts that
+        # make it hold trivially, each row saying honestly which of the two it is doing.
+
+        @pytest.mark.parametrize("preview", [None, "admin"])
+        def it_admits_every_request_it_offers_the_link_to(preview, admin_user, roster_class, client):
             client.force_login(admin_user)
             _preview_as(client, preview)
-            offered = _links_offered(client, roster_class)
-            admitted = client.get(_compose_url(roster_class)).status_code == 200
-            assert admitted or not any(offered.values()), (
-                f"view_as={preview} offered {offered} but the composer refused"
-            )
-
-        @pytest.mark.parametrize(
-            ("preview", "expected_links", "expected_compose"),
-            [
-                (None, FULLY_OFFERED, 200),
-                ("admin", FULLY_OFFERED, 200),
-                ("guild_officer", NEVER_OFFERED, 302),
-                ("member", NEVER_OFFERED, 302),
-                ("guest", NEVER_OFFERED, 302),
-            ],
-        )
-        def it_pins_the_matrix_behind_that_implication(
-            preview, expected_links, expected_compose, admin_user, roster_class, client
-        ):
-            # The implication above passes vacuously if nothing ever renders. This is the other
-            # half: the counts are what they should be, tab by tab and template by template.
-            client.force_login(admin_user)
-            _preview_as(client, preview)
-            assert _links_offered(client, roster_class) == expected_links
-            assert client.get(_compose_url(roster_class)).status_code == expected_compose
-
-        def it_holds_for_the_classs_own_instructor(instructor, roster_class, client):
-            client.force_login(instructor.user)
-            assert _links_offered(client, roster_class) == FULLY_OFFERED
+            # Both halves carry content: the links really are rendered, so this cannot go vacuous
+            # by the affordance quietly disappearing, and the composer really takes that request.
+            assert _screen_probe(client, roster_class) == FULLY_OFFERED
             assert client.get(_compose_url(roster_class)).status_code == 200
 
-        def it_holds_for_a_guild_lead_who_does_not_teach_the_class(guild_lead, roster_class, client):
-            # The safe direction: the guild set carries Emails but not the roster, so the link is
-            # withheld whatever the composer would have said.
-            client.force_login(guild_lead.user)
-            assert _links_offered(client, roster_class) == NEVER_OFFERED
-
-        @pytest.mark.parametrize("preview", ["member", "guest"])
-        def it_is_the_whole_screen_that_closes_not_only_the_link(preview, admin_user, roster_class, client):
-            # WHY the counts above are zero, pinned separately. `class_access` is view-as aware,
-            # so a previewing admin gets no per-class screen at all. Without this, a change that
-            # reopened the screen while leaving `can_send_email` alone would keep the counts at
-            # zero for a different reason and the next regression would be invisible.
+        @pytest.mark.parametrize(
+            "preview",
+            ["guild_officer", "member", "guest"],
+        )
+        def it_offers_nothing_where_the_composer_refuses(preview, admin_user, roster_class, client):
             client.force_login(admin_user)
             _preview_as(client, preview)
-            for tab in CLASS_SCREEN_TABS:
-                assert client.get(reverse(tab, kwargs={"pk": roster_class.pk})).status_code == 404, tab
+            assert client.get(_compose_url(roster_class)).status_code == 302
+            # Every zero is pinned to the status that explains it, so a tab that started
+            # answering 500 could never be mistaken for a tab that correctly hid the link.
+            # All three previews close the screen outright, Guild Officer included: an admin
+            # previewing it neither leads nor staffs this class's guild, so no leg matches.
+            assert _screen_probe(client, roster_class) == SCREEN_CLOSED
+
+        def it_admits_the_classs_own_instructor_it_offers_the_link_to(instructor, roster_class, client):
+            client.force_login(instructor.user)
+            assert _screen_probe(client, roster_class) == FULLY_OFFERED
+            assert client.get(_compose_url(roster_class)).status_code == 200
+
+        def it_offers_nothing_to_a_guild_lead_who_does_not_teach_the_class(guild_lead, roster_class, client):
+            # The safe direction, and the one case where the converse genuinely fails: leading a
+            # guild admits them to the composer, yet ruling 12 gives them no roster, so the link
+            # is withheld from someone the composer would have taken. Withholding never lies.
+            client.force_login(guild_lead.user)
+            assert _screen_probe(client, roster_class) == GUILD_SCREEN
+            assert client.get(_compose_url(roster_class)).status_code == 200
 
     def describe_both_templates_carry_it():
         def it_renders_the_header_link_from_the_shared_screen_base(admin_user, roster_class, client):
@@ -234,11 +246,6 @@ def describe_a_refused_composer_says_why():
             assert response.status_code == 302
             assert response.url == reverse("hub_guild_announcement_propose")
 
-        def it_carries_a_reason_the_destination_page_can_show(member_user, roster_class, client):
-            client.force_login(member_user)
-            response = client.get(_compose_url(roster_class), follow=True)
-            assert [str(m) for m in response.context["messages"]] != []
-
         def it_hands_that_reason_across_a_boosted_redirect(member_user, roster_class, client):
             # hx-boost swaps the destination's body, and the message-bearing render is not
             # reliably the one swapped in. ToastFlashMiddleware moves it to a cookie for
@@ -247,17 +254,25 @@ def describe_a_refused_composer_says_why():
             response = client.get(_compose_url(roster_class), HTTP_HX_REQUEST="true")
             assert response.cookies.get("pl_toast") is not None
 
-        def it_tells_a_previewing_admin_to_switch_back_rather_than_claiming_they_lack_rights(
-            admin_user, roster_class, client
-        ):
-            # A previewing admin is not short of permission; the role they are looking through
-            # is. Saying otherwise would be the same lie this ticket exists to remove.
+        def it_points_a_previewing_admin_at_the_switcher(admin_user, roster_class, client):
+            # A previewing admin is not short of rights; the role they are looking through is.
+            # Saying otherwise would be the same lie this ticket exists to remove. Each of these
+            # three assertions fails if the OTHER branch's sentence came back, which is what
+            # makes this a test of the branch rather than of the string.
             client.force_login(admin_user)
             _preview_as(client, "member")
-            response = client.get(_compose_url(roster_class), follow=True)
-            said = " ".join(str(m) for m in response.context["messages"])
-            assert "Viewing as" in said
-            assert "permission" not in said
+            said = _refusal_said(client, roster_class)
+            assert "Viewing as switcher is set to Member" in said
+            assert "Switch it back to Admin" in said
+            assert GENERIC_REFUSAL not in said
+
+        def it_points_everyone_else_at_the_propose_flow(member_user, roster_class, client):
+            # The other branch, pinned against the same pair: a plain member is never told to go
+            # and change a switcher they do not have.
+            client.force_login(member_user)
+            said = _refusal_said(client, roster_class)
+            assert said == GENERIC_REFUSAL
+            assert "Viewing as" not in said
 
     def describe_the_htmx_post_paths():
         @pytest.mark.parametrize("route", ["hub_compose_preview", "hub_compose_test", "hub_compose_push_test"])
