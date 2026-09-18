@@ -42,6 +42,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.urls import reverse
 from playwright.sync_api import ConsoleMessage, Error, expect
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
@@ -239,6 +240,81 @@ def _wait_for_move(page, hotspot, before, timeout_ms: int = 8000) -> bool:
             return True
         page.wait_for_timeout(100)
     return False
+
+
+def describe_the_history_restore_guards():
+    """Back is a refetch now, so the two hub_boot guards finally have to cover it.
+
+    Both listen on ``htmx:beforeSwap``, which htmx's cache-miss loader never fires: it
+    swaps directly and fires only its own ``historyCacheMiss*`` events. Before the hub
+    stopped keeping a history cache these cases could not arise, because Back made no
+    request at all. Issue #383.
+    """
+
+    def it_loads_the_login_page_for_real_when_the_session_expired(live_server, page, login_via_code):
+        """Without the guard, htmx pastes the login page into the hub document.
+
+        The refetch is redirected to login, XHR follows it silently, and htmx sees a 200.
+        The tell is the address bar: a swap leaves it on the page that was asked for, a
+        real load moves it to the login page.
+        """
+        _seed_admin_with_a_marked_floor()
+        login_via_code(ADMIN_EMAIL)
+
+        # Back has to land on a login-required page for the session to matter, so the
+        # editor is where we start and /spaces/ (which is public) is where we leave to.
+        edit_path = reverse("hub_org_map_edit")
+        page.goto(f"{live_server.url}{edit_path}")
+        _boosted_click(page, reverse("hub_spaces"), selector=DONE_LINK)
+
+        # Expire the session the way time would, leaving the tab open.
+        page.context.clear_cookies()
+
+        page.go_back()
+        page.wait_for_url(re.compile(r"/accounts/login/"), timeout=10000)
+        assert "/accounts/login/" in page.url, (
+            f"Back landed on {page.url} rather than the login page; the login response was "
+            "swapped into the hub document instead of being loaded"
+        )
+        # A real load, so the login page owns the document rather than sitting inside the hub.
+        assert page.locator("input[name='email']").count() == 1
+
+    def it_loads_the_real_error_page_when_the_target_is_gone(live_server, page, login_via_code):
+        """Without the guard, htmx swaps nothing and Back is simply dead.
+
+        The popstate has already moved the address bar, so the member is left looking at
+        the previous screen under the gone page's URL, with nothing to say what happened
+        and no branded 404 to navigate out of.
+        """
+        offering = _seed_draft()
+        login_via_code(EMAIL)
+
+        detail_path = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        dashboard_path = reverse("classes:teach_dashboard")
+        page.goto(f"{live_server.url}{detail_path}")
+        expect(page).to_have_url(re.compile(re.escape(detail_path) + "$"))
+        marker = page.evaluate("() => { window.__plGoneMarker = true; return true; }")
+        assert marker
+
+        _boosted_click(page, dashboard_path)
+        offering.delete()
+
+        page.go_back()
+
+        # A real load replaces the document, so the marker stamped before it goes with it;
+        # a dead Back leaves the same document in place and the marker survives. This has
+        # to be waited on rather than read: go_back triggers an htmx restore, which is not
+        # a document load, so every load-state wait returns immediately and would sample
+        # the old document before the guard's navigation lands.
+        try:
+            page.wait_for_function("() => !window.__plGoneMarker", timeout=10000)
+        except PlaywrightTimeoutError:  # pragma: no cover - only on a real regression
+            raise AssertionError(
+                "Back left the previous document in place under the deleted class's URL, "
+                "which is the dead Back this guard exists to prevent"
+            ) from None
+
+        expect(page).to_have_url(re.compile(re.escape(detail_path) + "$"))
 
 
 def describe_boosted_arrival_at_the_org_map_editor():

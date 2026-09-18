@@ -91,6 +91,40 @@
         window.location.href = url;
     });
 
+    /* The two rules above listen on htmx:beforeSwap, and the history restore path never
+     * fires it. htmx's cache-miss loader (Gt) swaps directly and fires only
+     * htmx:historyCacheMiss, htmx:historyCacheMissLoad and htmx:historyCacheMissLoadError,
+     * so before this hub stopped keeping a history cache both guards were simply absent
+     * from Back. Now that every Back is a refetch, Back is exactly where they are needed.
+     * Issue #383.
+     *
+     * Neither event is cancelable — htmx ignores the return of both — so these navigate
+     * rather than suppress the swap. The swap still runs for an instant first; a full load
+     * to the right page immediately replaces it. */
+
+    /* Back onto a page whose session has since expired. The refetch is redirected to the
+     * login page, XHR follows that silently, and htmx sees a perfectly good 200 and swaps
+     * the login page's body into the hub document: wrong layout, no matching CSS (head
+     * support merges the login page's head and drops the hub's), the address bar still
+     * reading the page the member asked for, and ?next= lost. Do a real load instead. */
+    document.addEventListener("htmx:historyCacheMissLoad", function (event) {
+        var xhr = event.detail && event.detail.xhr;
+        var url = xhr && xhr.responseURL;
+        if (!isLoginUrl(url)) return;
+        window.location.href = url;
+    });
+
+    /* Back onto something that is gone. htmx swaps nothing on a non-2xx here, so the
+     * popstate has already moved the address bar while the screen still shows the page
+     * the member was on: Back looks broken. Load the path for real so the branded 404
+     * renders with the hub chrome around it, which is the same reasoning as the 4xx rule
+     * above. */
+    document.addEventListener("htmx:historyCacheMissLoadError", function (event) {
+        var path = event.detail && event.detail.path;
+        if (!path) return;
+        window.location.href = path;
+    });
+
     document.addEventListener("alpine:init", function () {
         window.Alpine.store("theme", { light: window.__plTheme === "light" });
     });
