@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-18"
+title = "Guild leads stop being asked to approve the same dates twice"
+changes = [
+  "When a guild lead had already signed off on a class and staff then asked the instructor to reword something, resubmitting sent the lead a whole new request for dates they had approved days earlier. The daily nudge started over with it. Resubmitting now picks up where review left off.",
+  "Move a session to a different time and the guild lead is asked again, because the dates are the part they check.",
+]
