@@ -14,9 +14,32 @@
  *     modal. A saved/created/deleted tile swaps itself on the map out-of-band.
  *  3. Keep drag-and-drop image upload alive on cloned floor rows (cloned innerHTML never runs
  *     its own <script>, so the drop zones are driven from one delegated listener here).
+ *
+ * Boot contract (issue #382). This file is loaded from <body>, and hx-boost swaps the body's
+ * *contents*, so htmx re-runs this whole IIFE on every boosted arrival with a fresh scope.
+ * That splits the wiring in two, and the split is the design:
+ *
+ *  - Bound to markup the swap replaced (initStage, initAddMarker, initAddButtons): must
+ *    re-run each arrival, and must not double-wire a node if it runs twice against the same
+ *    markup. The guard is a ready key on the node itself — rich-editor-init.js's
+ *    data-rte-ready, same idea.
+ *  - Bound to document or document.body (initDropZones, the close-marker-edit listener):
+ *    those nodes outlive a boosted swap, so re-running stacks a duplicate listener every
+ *    visit. They run exactly once per document, flagged on window — a flag in this IIFE's
+ *    scope cannot express "once", because the scope is rebuilt on every arrival.
  */
 (function () {
     'use strict';
+
+    /* Claim a node for one binding. False when this node was already wired, which is what
+     * makes the per-arrival inits safe to run twice against the same markup. A boosted swap
+     * brings fresh nodes carrying no key, so they wire up normally.
+     */
+    function readyOnce(element, key) {
+        if (element.hasAttribute(key)) return false;
+        element.setAttribute(key, '');
+        return true;
+    }
 
     function percent(value) {
         return Math.round(Math.min(100, Math.max(0, value)) * 100) / 100;
@@ -107,6 +130,7 @@
     function initStage(root) {
         var stage = root.querySelector('[data-editor-stage]');
         if (!stage) return;
+        if (!readyOnce(stage, 'data-editor-stage-ready')) return;
         var active = null;
         var mode = '';
         var startX = 0;
@@ -191,7 +215,11 @@
 
     // "+ Add a marker" creates a centred tile on the current floor and opens its editor.
     function initAddMarker(root) {
+        // Keyed on the button, not the root: this queries the whole document, so with two
+        // .pl-map-editor roots on a page the second pass would otherwise bind each button
+        // again.
         document.querySelectorAll('[data-add-marker]').forEach(function (button) {
+            if (!readyOnce(button, 'data-add-marker-ready')) return;
             button.addEventListener('click', function () {
                 var url = root.getAttribute('data-create-url');
                 var floorId = root.getAttribute('data-floor-id');
@@ -206,6 +234,7 @@
 
     function initAddButtons() {
         document.querySelectorAll('[data-add-row]').forEach(function (button) {
+            if (!readyOnce(button, 'data-add-row-ready')) return;
             button.addEventListener('click', function () {
                 var which = button.getAttribute('data-add-row');
                 var prefix = which === 'floor' ? 'floors' : 'markers';
@@ -248,16 +277,39 @@
         });
     }
 
-    document.addEventListener('DOMContentLoaded', function () {
-        document.querySelectorAll('.pl-map-editor').forEach(function (root) {
-            initStage(root);
-            initAddMarker(root);
-        });
-        initAddButtons();
+    /* The once-per-document half. document and document.body both survive a boosted swap, so
+     * everything here binds exactly once for the life of the document. The flag has to live
+     * somewhere that outlives a re-execution of this file, and window is where
+     * rich-editor-init.js keeps plRteInitAll for the same reason.
+     */
+    function initDocumentOnce() {
+        if (window.plMapEditorDocumentBound) return;
+        window.plMapEditorDocumentBound = true;
         initDropZones();
         // A saved or deleted marker answers with an HX-Trigger that closes the modal.
         document.body.addEventListener('close-marker-edit', function () {
             window.dispatchEvent(new CustomEvent('close-modal', { detail: 'marker-edit' }));
         });
-    });
+    }
+
+    function boot() {
+        document.querySelectorAll('.pl-map-editor').forEach(function (root) {
+            initStage(root);
+            initAddMarker(root);
+        });
+        initAddButtons();
+        initDocumentOnce();
+    }
+
+    /* DOMContentLoaded fired once, on the first document, and never fires again under
+     * hx-boost, so waiting on it alone left the editor inert on every boosted arrival
+     * (issue #382). Run straight away when the document is already parsed — true both for
+     * this file's own defer on a hard load and for htmx re-running it after a swap — and
+     * wait only when it genuinely has not fired yet. Mirrors rich-editor-init.js.
+     */
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot);
+    } else {
+        boot();
+    }
 })();
