@@ -4,7 +4,11 @@ and served standalone by classes:teach_class_registrations_table as the
 refund-done refresh target on the teach tab. Rows render via the shared
 classes/partials/registration_row.html so the roster action endpoints can swap a
 single row in place.
+
+Seat-holders only (see _roster_registrations): the waitlist has its own tab, and
+cancelled/refunded rows arrive only when the Show cancelled toggle asks for them.
 {% endcomment %}
+{% include "classes/partials/roster_cancelled_toggle.html" %}
 {% if registrations %}
 <div class="admin-table-wrap">
 <table>
@@ -32,5 +36,5 @@ single row in place.
 </table>
 </div>
 {% else %}
-<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">No registrations yet.</div>
+<div style="padding:1.5rem 0; text-align:center; color:var(--hub-text-muted);">{% if cancelled_registration_count and not show_cancelled %}Nobody is holding a seat right now.{% else %}No registrations yet.{% endif %}</div>
 {% endif %}

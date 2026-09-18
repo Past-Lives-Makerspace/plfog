@@ -7,6 +7,7 @@
     {% endfor %}
 </ul>
 {% endif %}
+{% include "classes/partials/roster_cancelled_toggle.html" %}
 {% if class_groups %}
 {% for group in class_groups %}
 <div x-data="{ open: true, allChecked: false, toggleAll(ev) { this.$refs.section.querySelectorAll('input[name=registration_ids]').forEach(cb => cb.checked = ev.target.checked); this.allChecked = ev.target.checked; } }" style="margin-bottom:1.5rem;border:1px solid var(--hub-border);border-radius:8px;overflow:hidden;">
@@ -15,7 +16,7 @@
         <div style="display:flex;align-items:center;gap:0.5rem;">
             <span x-text="open ? '▾' : '▸'" style="font-size:0.8rem;width:1rem;text-align:center;"></span>
             <strong>{{ group.offering.title }}</strong>
-            <span style="color:var(--hub-text-muted);font-size:0.85rem;">— {{ group.offering.registration_count }} registration{{ group.offering.registration_count|pluralize }}</span>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">— {{ group.registration_count }} registration{{ group.registration_count|pluralize }}</span>
         </div>
         <span style="color:var(--hub-text-muted);font-size:0.8rem;">{{ group.offering.get_status_display }}</span>
     </div>

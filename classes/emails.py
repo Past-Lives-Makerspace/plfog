@@ -227,7 +227,7 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
         "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
         "manage_url": manage_url,
         "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
-        "spots_filled": offering.registrations.count(),
+        "spots_filled": offering.seats_taken,
         "capacity": offering.capacity,
     }
     # No trigger_kind → emit labels the audit row with the event key

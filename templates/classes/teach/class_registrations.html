@@ -2,8 +2,10 @@
 {% load classes_tags %}
 {% block detail_content %}
 <div>
+    {% comment %}The refund refresh has to ask for the same roster the page is showing, or a
+    refund would silently collapse an opened Show cancelled view back to seat-holders.{% endcomment %}
     <div data-help-key="teach.roster-table"
-         hx-get="{% url 'classes:teach_class_registrations_table' offering.pk %}"
+         hx-get="{% url 'classes:teach_class_registrations_table' offering.pk %}{% if show_cancelled %}?show_cancelled=1{% endif %}"
          hx-trigger="refund-done from:body"
          hx-swap="innerHTML">
         {% include "classes/teach/partials/class_registrations_table.html" %}

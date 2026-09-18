@@ -1,0 +1,22 @@
+{% comment %}
+The roster's Show cancelled toggle — used by the per-class Registrations tab and by the
+instructor's cross-class Registrations page. Both hide cancelled and refunded rows by
+default, so both owe the reader a control that says how many are being held back.
+
+Context:
+  show_cancelled               — whether ?show_cancelled=1 is on for this request
+  cancelled_registration_count — how many cancelled/refunded rows exist here
+
+Renders nothing when there is nothing to hide. The href is relative on purpose: it
+resolves against the page's own URL, including when this markup arrives inside an htmx
+table refresh served from a different endpoint.
+{% endcomment %}
+{% if cancelled_registration_count %}
+<div class="pl-roster-filter">
+  {% if show_cancelled %}
+  <a class="hub-btn hub-btn--sm hub-btn--primary" href="?show_cancelled=0" data-roster-toggle="hide">Hide {{ cancelled_registration_count }} cancelled</a>
+  {% else %}
+  <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?show_cancelled=1" data-roster-toggle="show">Show {{ cancelled_registration_count }} cancelled</a>
+  {% endif %}
+</div>
+{% endif %}

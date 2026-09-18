@@ -33,7 +33,7 @@ count get it here, off `tab.key`.{% endcomment %}
             {% if offering.instructor %}<span class="pl-class-meta__item">{{ offering.instructor.display_name }}</span>{% endif %}
             <span class="pl-class-meta__item">{{ offering.category.name }}</span>
             <span class="pl-class-meta__item">{{ offering.price_cents|cents_as_price }}</span>
-            <span class="pl-class-meta__item">{{ confirmed_registration_count }} / {{ offering.capacity }} registered</span>
+            <span class="pl-class-meta__item">{{ seat_taken_count }} / {{ offering.capacity }} registered</span>
             {% with first_session=offering.sessions.all|first %}{% if first_session %}<span class="pl-class-meta__item">Starts {{ first_session.starts_at|date:"M j" }}</span>{% endif %}{% endwith %}
         </div>
     </div>
@@ -57,7 +57,7 @@ count get it here, off `tab.key`.{% endcomment %}
         {% if tab.key == 'waitlist' %}{% url 'classes:teach_class_waitlist' pk=offering.pk as tab_url %}{% endif %}
         {% if tab.key == 'discount_codes' %}{% url 'classes:teach_class_discount_codes' pk=offering.pk as tab_url %}{% endif %}
         {% if tab.key == 'emails' %}{% url 'classes:teach_class_emails' pk=offering.pk as tab_url %}{% endif %}
-        <a href="{{ tab_url }}" class="vote-tab{% if active_subtab == tab.key %} vote-tab--active{% endif %}"{% if active_subtab == tab.key %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.key == 'registrations' %} ({{ confirmed_registration_count }}){% endif %}{% if tab.key == 'waitlist' %} ({{ waitlist_count }}){% endif %}</a>
+        <a href="{{ tab_url }}" class="vote-tab{% if active_subtab == tab.key %} vote-tab--active{% endif %}"{% if active_subtab == tab.key %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.key == 'registrations' %} ({{ seat_taken_count }}){% endif %}{% if tab.key == 'waitlist' %} ({{ waitlist_count }}){% endif %}</a>
     {% endfor %}
 </nav>
 {% endif %}

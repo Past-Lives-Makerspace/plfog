@@ -42,8 +42,10 @@ def _confirm_url(registration) -> str:
     return reverse("classes:registration_confirm_pending", args=[registration.pk])
 
 
-def _roster_url(offering) -> str:
-    return reverse("classes:teach_class_registrations", args=[offering.pk])
+def _roster_url(offering, *, show_cancelled: bool = False) -> str:
+    """The Registrations tab. Cancelled and refunded rows arrive only when asked for."""
+    url = reverse("classes:teach_class_registrations", args=[offering.pk])
+    return f"{url}?show_cancelled=1" if show_cancelled else url
 
 
 def describe_registration_confirm_pending():
@@ -328,7 +330,7 @@ def describe_the_roster_affordance():
             email="gone@example.com",
         )
 
-        content = client.get(_roster_url(offering)).content.decode()
+        content = client.get(_roster_url(offering, show_cancelled=True)).content.decode()
 
         assert ">Confirm Signup</button>" not in menu_region(content, f"reg-row-{confirmed.pk}")
         assert ">Confirm Signup</button>" not in menu_region(content, f"reg-row-{cancelled.pk}")

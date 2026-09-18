@@ -102,6 +102,7 @@ from classes.forms import (
     build_class_faq_formset,
 )
 from classes.models import (
+    CAPACITY_CONSUMING_REGISTRATION_STATUSES,
     MAX_GALLERY_IMAGES,
     Category,
     ClassApproval,
@@ -1703,8 +1704,17 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
         .select_related("category__guild")
         # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
         .prefetch_related("approvals")
+        # Seat-holders only: this renders as ``N/capacity``, and capacity is spent by exactly
+        # these statuses (``ClassOffering.spots_remaining``), so a wider count would have the
+        # list and the register page disagree about whether the class is full.
         # distinct=True so the sessions join behind the lifecycle inputs never inflates the tally.
-        .annotate(registration_count=Count("registrations", distinct=True))
+        .annotate(
+            registration_count=Count(
+                "registrations",
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
+                distinct=True,
+            )
+        )
     )
     facet = resolve_facet(INSTRUCTOR_FACETS, request.GET.get("facet", "").strip())
     classes = facet.apply(base).order_by("-created_at")  # type: ignore[arg-type]  # annotated queryset keeps its aliases
@@ -2258,13 +2268,19 @@ def _already_submitted_message(offering: ClassOffering) -> str:
 
 @teaching_member_required
 def teach_registrations(request: HttpRequest) -> HttpResponse:
+    """Every sign-up across the classes this member teaches, grouped by class.
+
+    The group header used to carry a ``Count("registrations")`` annotation over every row
+    ever written, which counted the cancelled ones as sign-ups. The header now counts the
+    rows the group actually lists, so the two can never drift apart; the same Show
+    cancelled toggle as the per-class roster widens both at once.
+    """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    offerings = (
-        ClassOffering.objects.for_instructor(teaching_member)
-        .annotate(registration_count=Count("registrations"))
-        .order_by("-created_at")
-    )
+    show_cancelled = _roster_shows_cancelled(request)
+    hidden_statuses = [Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+    offerings = ClassOffering.objects.for_instructor(teaching_member).order_by("-created_at")
     class_groups = []
+    cancelled_registration_count = 0
     for offering in offerings:
         regs = (
             Registration.objects.filter(class_offering=offering)
@@ -2276,10 +2292,14 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
             .order_by("-registered_at")
         )
         rows = list(regs)
+        cancelled_registration_count += sum(1 for row in rows if row.status in hidden_statuses)
+        if not show_cancelled:
+            rows = [row for row in rows if row.status not in hidden_statuses]
         class_groups.append(
             {
                 "offering": offering,
                 "registrations": rows,
+                "registration_count": len(rows),
                 # No emailable row means no tick boxes, so the email footer would be a button
                 # that can only ever answer "tick someone first" with nobody to tick.
                 "can_email_any": any(row.can_receive_class_announcement for row in rows),
@@ -2292,6 +2312,8 @@ def teach_registrations(request: HttpRequest) -> HttpResponse:
             "active_tab": "registrations",
             "instructor": teaching_member,
             "class_groups": class_groups,
+            "show_cancelled": show_cancelled,
+            "cancelled_registration_count": cancelled_registration_count,
         },
     )
 
@@ -2681,12 +2703,19 @@ def _refunds_prefetch() -> Prefetch:
     return Prefetch("refunds", queryset=PaymentRefund.objects.select_related("initiated_by"))
 
 
-def _roster_registrations(offering: ClassOffering) -> QuerySet[Registration]:
-    """The roster queryset for one class, annotated for the shared row partial.
+def _annotated_registrations(offering: ClassOffering) -> QuerySet[Registration]:
+    """Every registration on one class, annotated and joined for the shared row partial.
 
     ``promoted_email_sent`` is one ``Exists()`` subquery on the event spine's
     delivery ledger (the ``reg:{pk}:promoted`` period) so the "No email sent yet"
     chip costs no per-row query.
+
+    **Deliberately unfiltered.** This is the base anything fetching one *known* row
+    renders through — above all :func:`_registration_row_response`, which re-fetches
+    the row an htmx action has just changed. A cancel or a refund moves that row out
+    of the roster's status filter, so filtering here would make ``.get(pk=...)`` raise
+    ``Registration.DoesNotExist`` and turn the roster's most-used action into a 500.
+    The filtering belongs in :func:`_roster_registrations`, where the toggle lives.
     """
     from django.db.models import CharField, Exists, Value
     from django.db.models.functions import Cast, Concat
@@ -2705,6 +2734,48 @@ def _roster_registrations(offering: ClassOffering) -> QuerySet[Registration]:
     )
 
 
+def _roster_registrations(offering: ClassOffering, *, include_cancelled: bool) -> QuerySet[Registration]:
+    """The rows the Registrations tab lists: the people holding a seat, newest first.
+
+    Seat-holders only, so the tab and the ``N/capacity`` counts read the same set.
+    WAITLISTED rows are left out because the Waitlist tab is theirs, with its own
+    ordering and its own actions; before this they appeared on both tabs at once.
+    CANCELLED and REFUNDED rows join them when ``include_cancelled`` is set, which is
+    what the tab's Show cancelled toggle asks for.
+
+    Args:
+        offering: The class whose roster is being listed.
+        include_cancelled: Widen the roster to cancelled and refunded rows too.
+
+    Returns:
+        The annotated roster queryset, filtered to the statuses that should be listed.
+    """
+    statuses = list(CAPACITY_CONSUMING_REGISTRATION_STATUSES)
+    if include_cancelled:
+        statuses += [Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+    return _annotated_registrations(offering).filter(status__in=statuses)
+
+
+def _roster_cancelled_count(offering: ClassOffering) -> int:
+    """How many rows the roster is holding back — the number the toggle has to state.
+
+    A roster that quietly omits people is its own support ticket, so the toggle reads
+    "Show 3 cancelled" rather than offering an unlabelled switch.
+    """
+    return offering.registrations.filter(
+        status__in=[Registration.Status.CANCELLED, Registration.Status.REFUNDED]
+    ).count()
+
+
+def _roster_shows_cancelled(request: HttpRequest) -> bool:
+    """Whether this request asked for the cancelled rows (``?show_cancelled=1``).
+
+    Same boolean-parameter shape as the admin class list's ``?mine=1``; anything other
+    than ``1`` is off, so junk is never echoed back as a filter.
+    """
+    return request.GET.get("show_cancelled", "") == "1"
+
+
 def _claim_email_will_fire(offering: ClassOffering) -> bool:
     """Whether removing a seat-holder right now would fire an auto claim-link email.
 
@@ -2713,9 +2784,7 @@ def _claim_email_will_fire(offering: ClassOffering) -> bool:
     un-notified WAITLISTED row exists. Computed once per page for the remove
     modals' conditional copy.
     """
-    held = offering.registrations.filter(
-        status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
-    ).count()
+    held = offering.seats_taken
     if held - 1 >= offering.capacity:
         return False
     return offering.registrations.filter(
@@ -2748,9 +2817,12 @@ def _teach_registrations_context(request: HttpRequest, offering: ClassOffering) 
     from hub.view_as import has_refund_authority
 
     move_form = _registration_move_form(request, offering)
+    show_cancelled = _roster_shows_cancelled(request)
     return {
         "offering": offering,
-        "registrations": _roster_registrations(offering),
+        "registrations": _roster_registrations(offering, include_cancelled=show_cancelled),
+        "show_cancelled": show_cancelled,
+        "cancelled_registration_count": _roster_cancelled_count(offering),
         "viewer_has_refund_authority": has_refund_authority(request),
         "can_manage": True,
         "can_move": move_form is not None,
@@ -3352,8 +3424,13 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         # The badge note reads the latest bouncing row; prefetching keeps that off the per-row path.
         .prefetch_related("approvals")
         .annotate(
+            # Seat-holders only, matching the capacity this renders against (see teach_dashboard).
             # distinct=True so the sessions join below doesn't inflate the registration tally.
-            registration_count=Count("registrations", distinct=True),
+            registration_count=Count(
+                "registrations",
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
+                distinct=True,
+            ),
             first_session=Min("sessions__starts_at"),
             last_session=Max("sessions__starts_at"),
             _group_rep_pk=Subquery(_group_rep_pk),
@@ -3665,13 +3742,17 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
 
 
 def _class_workspace_counts(offering: ClassOffering) -> dict[str, int]:
-    """Sub-tab badge counts shared by every per-class Workspace tab."""
-    regs = offering.registrations
+    """Sub-tab badge counts shared by every per-class Workspace tab.
+
+    ``seat_taken_count`` is the people holding a seat: confirmed, plus the ones part-way
+    through paying. It used to be called ``confirmed_registration_count``, which named
+    only half of what it counted, off a fourth hand-written copy of the status list. It
+    reads the one constant now, so the badge, the ``N/capacity`` header, the class lists
+    and ``spots_remaining`` all count the same people.
+    """
     return {
-        "confirmed_registration_count": regs.filter(
-            status__in=[Registration.Status.CONFIRMED, Registration.Status.PENDING]
-        ).count(),
-        "waitlist_count": regs.filter(status=Registration.Status.WAITLISTED).count(),
+        "seat_taken_count": offering.seats_taken,
+        "waitlist_count": offering.registrations.filter(status=Registration.Status.WAITLISTED).count(),
     }
 
 
@@ -3682,9 +3763,17 @@ def _class_screen_offering(pk: int) -> ClassOffering:
     lines are three more. The screen's other tabs fetch what they need for themselves.
     """
     return get_object_or_404(
+        # Seat-holders only, like the two class lists. No distinct=True: nothing here joins a
+        # multi-valued relation (``prefetch_related`` is a second query, not a join), so the
+        # count cannot be inflated.
         ClassOffering.objects.select_related("instructor", "category__guild")
         .prefetch_related("sessions")
-        .annotate(registration_count=Count("registrations")),
+        .annotate(
+            registration_count=Count(
+                "registrations",
+                filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
+            )
+        ),
         pk=pk,
     )
 
@@ -4647,7 +4736,10 @@ def _registration_row_response(request: HttpRequest, registration: Registration)
     from hub.view_as import has_refund_authority
 
     offering = registration.class_offering
-    reg = _roster_registrations(offering).get(pk=registration.pk)
+    # The unfiltered base on purpose: the action that got here has usually just moved this
+    # row out of the roster's own filter (a cancel, a refund), and this response is what
+    # redraws it in place.
+    reg = _annotated_registrations(offering).get(pk=registration.pk)
     return render(
         request,
         "classes/partials/registration_row.html",
