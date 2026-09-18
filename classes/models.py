@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import secrets
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date as date_type, datetime, timedelta
+from datetime import UTC, date as date_type, datetime, timedelta
 from html import unescape
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
@@ -1203,6 +1204,46 @@ class ClassOffering(HeroCropMixin, models.Model):
             roles.append(ClassApproval.Role.GUILD_LEAD)
         return roles
 
+    @property
+    def schedule_fingerprint(self) -> str:
+        """A digest of this class's session schedule: the thing a guild lead signs off on.
+
+        ``sha256`` over every session's start and end, normalised to UTC and sorted, so the
+        same set of dates always hashes the same whatever order the rows come back in.
+        Reordering ``sort_order`` alone is therefore not a schedule change; adding, removing
+        or retiming a session is.
+
+        A class with no sessions still gets a real digest (the hash of the empty set), never
+        the empty string. That distinction is load bearing:
+        :attr:`_guild_lead_already_approved_this_schedule` compares against a stored
+        fingerprint, and the empty string there means "this row predates the field" — it must
+        never be able to match a real schedule.
+        """
+        digest = hashlib.sha256()
+        stamps = sorted(
+            (session.starts_at.astimezone(UTC).isoformat(), session.ends_at.astimezone(UTC).isoformat())
+            for session in self.sessions.all()
+        )
+        for starts_at, ends_at in stamps:
+            digest.update(f"{starts_at}|{ends_at}\n".encode())
+        return digest.hexdigest()
+
+    @property
+    def _guild_lead_already_approved_this_schedule(self) -> bool:
+        """Has a guild lead already approved the dates this class currently holds?
+
+        True only when an APPROVED ``GUILD_LEAD`` row carries an
+        ``approved_schedule_fingerprint`` equal to the current
+        :attr:`schedule_fingerprint`. A row stamped before that field existed carries the
+        empty string, and :attr:`schedule_fingerprint` is never empty, so such a row can
+        never match and the lead is asked again — the safe direction.
+        """
+        return self.approvals.filter(
+            role=ClassApproval.Role.GUILD_LEAD,
+            decision=ClassApproval.Decision.APPROVED,
+            approved_schedule_fingerprint=self.schedule_fingerprint,
+        ).exists()
+
     def submit_for_review(self) -> list["ClassApproval"]:
         """Move from DRAFT to PENDING and open only the first-stage review gate.
 
@@ -1225,9 +1266,14 @@ class ClassOffering(HeroCropMixin, models.Model):
             raise ClassNotReadyError(items, "submit")
         self.status = self.Status.PENDING
         self.save(update_fields=["status", "updated_at"])
-        # Clear out any stale approval rows from a prior submission cycle, then
-        # open only the first-stage gate for this fresh round.
-        self.approvals.all().delete()
+        # A resubmission is the same class coming back, not a new one. Two kinds of row
+        # must not survive it: an undecided gate from the last round (nobody is waiting on
+        # that any more) and the bounce that sent the class back — ``_is_bounced``, the
+        # ``bounced`` annotation, ``lifecycle`` and ``latest_bounce_row`` all read a bounce
+        # row as "changes requested", so a spent one would leave a class that is plainly in
+        # review reading as bounced everywhere. APPROVED rows stay: a reviewer who already
+        # signed off should not be asked twice (see ``_create_first_stage_approval``).
+        self.approvals.filter(Q(decision="") | Q(decision__in=_BOUNCE_DECISIONS)).delete()
         row = self._create_first_stage_approval()
         from classes import activity
 
@@ -1242,12 +1288,17 @@ class ClassOffering(HeroCropMixin, models.Model):
     def _create_first_stage_approval(self) -> "ClassApproval":
         """Create the single approval row that opens stage one of review.
 
-        Guild Lead when the category's guild has a lead; Admin otherwise.
+        Guild Lead when the category's guild has a lead; Admin otherwise — except when the
+        lead already approved the dates this class currently holds, on an earlier round of
+        the same review. Their job is the schedule, so an edit that left the schedule alone
+        is not theirs to re-approve and review resumes at the Admin gate. Change a session
+        time and the fingerprints stop matching, so they are asked again.
         """
         roles = self.required_review_roles
-        first_role = (
-            ClassApproval.Role.GUILD_LEAD if ClassApproval.Role.GUILD_LEAD in roles else ClassApproval.Role.ADMIN
+        needs_guild_lead = (
+            ClassApproval.Role.GUILD_LEAD in roles and not self._guild_lead_already_approved_this_schedule
         )
+        first_role = ClassApproval.Role.GUILD_LEAD if needs_guild_lead else ClassApproval.Role.ADMIN
         return ClassApproval.objects.create(class_offering=self, role=first_role)
 
     def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
@@ -2255,10 +2306,11 @@ class ClassOffering(HeroCropMixin, models.Model):
     def review_pipeline(self) -> ReviewPipeline:
         """The review pipeline strip: Submitted, Guild lead (when required), Admin, Live.
 
-        Reads only this cycle's approval rows (``submit_for_review`` clears rows on
-        resubmit) and never errors on any status: cancelled and archived classes render
-        their last known strip under a muted headline, and legacy rows from an old
-        cycle are read as they are.
+        Reads the rows a resubmission left standing: ``submit_for_review`` drops the
+        undecided and bounced ones and keeps the APPROVED ones, so a second round shows
+        the guild lead's earlier sign-off as done rather than resetting the strip. Never
+        errors on any status: cancelled and archived classes render their last known strip
+        under a muted headline, and legacy rows from an old cycle are read as they are.
         """
         status = self.status
         is_pending = status == self.Status.PENDING
@@ -2581,6 +2633,15 @@ class ClassApproval(models.Model):
         db_index=True,
         help_text="Random token used in the emailed /classes/review/<token>/ link.",
     )
+    approved_schedule_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "Hash of the session schedule this row approved; lets a later submission tell whether "
+            "the dates changed since. Stamped only when a guild lead approves; empty means never stamped."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
     decided_at = models.DateTimeField(null=True, blank=True, help_text="When the reviewer acted.")
 
@@ -2611,6 +2672,12 @@ class ClassApproval(models.Model):
         choke point for every decision path (tokenized page, admin review page,
         quick-approve); the review view renders a friendly not-awaiting-review
         state before a user can ever reach this error.
+
+        A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` with the
+        schedule they just signed off on. That stamp is what lets the instructor's next
+        submission tell a copy edit (the lead is not asked again) from a date change (they
+        are). No other role or decision stamps it: only the lead's approval is a statement
+        about the dates.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -2631,7 +2698,11 @@ class ClassApproval(models.Model):
         self.decided_by = user
         self.notes = notes
         self.decided_at = timezone.now()
-        self.save(update_fields=["decision", "decided_by", "notes", "decided_at"])
+        update_fields = ["decision", "decided_by", "notes", "decided_at"]
+        if decision == self.Decision.APPROVED and self.role == self.Role.GUILD_LEAD:
+            self.approved_schedule_fingerprint = self.class_offering.schedule_fingerprint
+            update_fields.append("approved_schedule_fingerprint")
+        self.save(update_fields=update_fields)
         self.class_offering.on_review_decision_recorded(self)
 
 
