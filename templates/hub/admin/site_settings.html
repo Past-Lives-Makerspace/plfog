@@ -173,9 +173,9 @@
     </div>
 
     {# -------- General tab -------- #}
-    <div x-show="tab === 'general'" x-cloak style="display:flex;flex-direction:column;gap:1.25rem;">
+    <div x-show="tab === 'general'" x-cloak class="pl-settings-tab pl-settings-tab--tight">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'legacy_cms_sync_enabled' and field.name != 'instructor_discount_codes_enabled' and field.name != 'member_directory_public' and field.name != 'my_tab_enabled' and field.name != 'class_registration_enabled' and field.name != 'class_registration_disabled_note' and field.name != 'help_page_enabled' and field.name != 'guild_welcome_email_enabled' and field.name != 'display_demo_classes' and field.name != 'display_demo_guild' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -193,7 +193,7 @@
 
     {# -------- Calendar tab -------- #}
     <div x-show="tab === 'calendar'" x-cloak
-         style="display:flex;flex-direction:column;gap:1.5rem;"
+         class="pl-settings-tab"
          x-data="{ count: {{ feed_formset.total_form_count }} }">
 
       <div>
@@ -348,26 +348,36 @@
     </div>
 
     {# -------- CMS tab -------- #}
-    <div x-show="tab === 'legacy-cms'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+    <div x-show="tab === 'legacy-cms'" x-cloak class="pl-settings-tab">
 
       <p class="pl-automation-callout">
-        "Sync offerings from legacy CMS" is the nightly automatic pull. Unchecked = it's OFF.
-        Manage it alongside every scheduled job on the <a href="?tab=automations">Automations tab</a>.
+        The nightly pull from the legacy CMS is a scheduled job, so its on/off switch lives with
+        every other one on the <a href="?tab=automations">Automations tab</a>. This tab shows its
+        status, runs it on demand, and holds the settings that are only about the CMS.
       </p>
 
-      {# Toggle #}
+      {% comment %}
+      Status here, control on the Automations tab — which is exactly what the callout above
+      already promises, and it is now true. This used to be a second editable checkbox for
+      legacy_cms_sync_enabled. The whole page is ONE form, so that put two inputs on the page
+      under one name: clearing this box and saving still submitted the other one's "on", and
+      the switch an admin had just turned off came back on. tests/hub/site_settings_features_spec
+      guards the whole class of that bug by name now.
+      {% endcomment %}
       <div>
         <h2 style="margin:0 0 0.5rem;font-size:1rem;color:var(--hub-text);">CMS Sync</h2>
         <p style="margin:0 0 1rem;color:var(--hub-text-muted);font-size:0.875rem;">
-          When enabled, classes from <code>classes.pastlives.space</code> sync into plfog automatically each morning.
-          Use <strong>Sync Now</strong> for an immediate pull. Disable after the DNS flip to manage classes exclusively in plfog.
+          When on, classes from <code>classes.pastlives.space</code> sync into plfog automatically each morning.
+          Use <strong>Sync Now</strong> below for an immediate pull. Turn the nightly pull itself on or off on the
+          <a href="?tab=automations">Automations tab</a>, where it sits with every other scheduled job.
         </p>
-        <div class="field-row field-checkbox">
-          {{ legacy_cms_sync_field }}
-          <label for="{{ legacy_cms_sync_field.id_for_label }}" style="font-weight:600;color:var(--hub-text);cursor:pointer;">
-            {{ legacy_cms_sync_field.label }}
-          </label>
-        </div>
+        <p style="margin:0 0 0.5rem;">
+          {% if legacy_cms_sync_field.value %}
+            <span class="hub-pill hub-pill--ok">Nightly pull is on</span>
+          {% else %}
+            <span class="hub-pill hub-pill--danger">Nightly pull is off</span>
+          {% endif %}
+        </p>
         {% if config.legacy_cms_last_synced_at %}
           <small style="color:var(--hub-text-muted);">Last synced: {{ config.legacy_cms_last_synced_at|date:"N j, Y g:i A" }}</small>
         {% else %}
@@ -441,7 +451,7 @@
     </div>
 
     {# -------- Features tab -------- #}
-    <div x-show="tab === 'features'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+    <div x-show="tab === 'features'" x-cloak class="pl-settings-tab">
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Feature Switches</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
@@ -454,12 +464,12 @@
         </p>
       </div>
 
-      {# ── The seven three-state member features (#405) ──────────────────────────────── #}
+      {# ── The three-state member features (#405) ────────────────────────────────────── #}
       {% comment %}
         One card per core.features registry entry, in the shape of the Automations tab below:
         the registry supplies the name and the "what off does" line, the row supplies the state
-        and the message. Adding an eighth feature is a registry entry and no migration, so
-        nothing in this template names a feature.
+        and the message. Adding a feature is a registry entry and no migration, so nothing in
+        this template names a feature, or counts them.
       {% endcomment %}
       {{ feature_formset.management_form }}
 
@@ -502,9 +512,9 @@
       One card per scheduled job, all INSIDE #site-settings-form: the On toggles save with the
       page's Save button, and the generic Run-now buttons are named submitters of this form. The
       bill_tabs Run-now is the one exception — a teleported confirm modal (its own form), which
-      carries run_job=bill_tabs as a hidden field. No inline display on this x-show wrapper.
+      carries run_job=bill_tabs as a hidden field.
     {% endcomment %}
-    <div x-show="tab === 'automations'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+    <div x-show="tab === 'automations'" x-cloak class="pl-settings-tab">
       <div>
         <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Automations</h2>
         <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
@@ -609,8 +619,7 @@
     </div>
 
     {# -------- Discord tab -------- #}
-    {# No inline display on this x-show wrapper (FRONTEND Rule 12); the sections flow in normal block layout. #}
-    <div x-show="tab === 'discord'" x-cloak style="display:flex;flex-direction:column;gap:1.5rem;">
+    <div x-show="tab === 'discord'" x-cloak class="pl-settings-tab">
 
       {# ---- Shared channels (existing) ---- #}
       <div class="hub-card" style="padding:1.5rem;">

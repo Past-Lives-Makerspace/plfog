@@ -101,7 +101,7 @@ def describe_hub_nav_help_and_wiki_flags():
         assert b'href="/wiki/" class="hub-sidebar__link' not in body
 
 
-# ── The seven three-state feature switches (#405) ────────────────────────────────────────
+# ── The three-state feature switches (#405) ──────────────────────────────────────────────
 #
 # One nav assertion per feature per state. The sidebar is written TWICE in base.html (an
 # admin block and a member block) and these run as an admin, so a gate added to only the
@@ -110,6 +110,7 @@ def describe_hub_nav_help_and_wiki_flags():
 
 # feature key → (a substring unique to its live nav entry, its visible label)
 _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
+    "catalog": (b'href="/classes/" class="hub-sidebar__link', b"Class Catalog"),
     "meetings": (b'href="/meetings/" class="hub-sidebar__link', b"Meetings"),
     "directory": (b'href="/members/" class="hub-sidebar__link', b"Member Directory"),
     "spaces": (b'href="/spaces/" class="hub-sidebar__link', b"Spaces"),

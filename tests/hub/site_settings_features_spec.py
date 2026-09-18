@@ -209,3 +209,58 @@ def describe_when_the_formset_is_not_posted():
             },
         )
         assert _state_of("voting") == FeatureState.SOON
+
+
+def describe_the_settings_form_renders_each_field_once():
+    """Every SiteConfiguration field belongs to exactly one tab.
+
+    The page renders the whole form inside ONE ``<form>``, and each tab's markup names the
+    fields it owns. The leftover fields fall through a generic loop on the General tab guarded
+    by a long ``field.name != '...'`` chain, so putting a field on a tab without ALSO adding it
+    to that chain renders the same input twice in the same form. That is how
+    ``member_directory_public`` came to render as a styled toggle on Features and a raw,
+    cramped checkbox on General at the same time.
+
+    A duplicate is not merely ugly. Two inputs, one name: the browser submits the state of
+    whichever the admin did not touch alongside the one they did, and for a checkbox the value
+    that survives depends on DOM order rather than on intent.
+
+    Checked by name rather than by eye, because the chain is a wall of text nobody re-reads.
+    """
+
+    def _rendered_names(client: Client) -> list[str]:
+        import re
+
+        body = client.get(URL).content.decode()
+        # Inputs only, and not the radio groups: a radio group is several inputs sharing one
+        # name BY DESIGN (the Features state selector is three of them), which is the one
+        # legitimate repeat on this page.
+        tags = re.findall(r"<(?:input|select|textarea)\b[^>]*>", body)
+        names = []
+        for tag in tags:
+            if 'type="radio"' in tag:
+                continue
+            match = re.search(r'name="([^"]+)"', tag)
+            if match:
+                names.append(match.group(1))
+        return names
+
+    def it_names_no_configuration_field_twice(client: Client):
+        from collections import Counter
+
+        from hub.forms import SiteSettingsForm
+
+        _superuser(client, "dupeadmin")
+        counts = Counter(_rendered_names(client))
+        duplicated = sorted(name for name in SiteSettingsForm().fields if counts[name] > 1)
+        assert duplicated == [], f"rendered more than once inside #site-settings-form: {duplicated}"
+
+    def it_still_renders_the_public_directory_switch_somewhere(client: Client):
+        """The fix for the duplicate is to drop ONE of the two, never both.
+
+        Deleting the wrong line would leave the real access switch for the member directory
+        unreachable in the admin UI, which is a worse bug than the one being fixed and would
+        not fail the assertion above.
+        """
+        _superuser(client, "dirswitchadmin")
+        assert "member_directory_public" in _rendered_names(client)

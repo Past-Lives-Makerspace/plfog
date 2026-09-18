@@ -18,8 +18,10 @@ a feature the sidebar has just hidden.
 
 Features are declared **here**; the database holds one :class:`core.models.FeatureSwitch` row
 per key carrying its state and message. That is exactly the shape ``core/scheduled_jobs.py``
-and ``ScheduledJobState`` already use for Automations, and it is why adding the eighth feature
-is one entry in :data:`FEATURES` and no migration at all.
+and ``ScheduledJobState`` already use for Automations, and it is why adding a feature is one
+entry in :data:`FEATURES` and no migration at all. Deliberately no count is written down
+anywhere: the registry is the census, and a docstring that names a number goes stale the
+first time the list grows.
 
 This module deliberately imports ``core.models`` only inside functions. The model reads
 :class:`FeatureState` and :data:`FEATURES` at class-definition time, so a module-level import
@@ -59,6 +61,14 @@ class Feature:
 
 
 FEATURES: list[Feature] = [
+    Feature(
+        key="catalog",
+        name="Class Catalog",
+        off_description=(
+            "Takes Class Catalog out of the sidebar, and stops the lobby kiosk advertising classes. "
+            "Every class page stays reachable by its own link, and the public booking site is untouched."
+        ),
+    ),
     Feature(
         key="teach",
         name="Host a Workshop",
@@ -141,9 +151,9 @@ class FeatureView:
 def is_on(key: str) -> bool:
     """Whether ``key``'s feature is fully on.
 
-    With no state row the answer is ON, which is what makes the deploy a no-op and what makes an
-    eighth feature need no migration: a database that has never seen the key behaves exactly as
-    it did before the key existed.
+    With no state row the answer is ON, which is what makes the deploy a no-op and what makes a
+    new feature need no migration: a database that has never seen the key behaves exactly as it
+    did before the key existed.
     """
     from core.models import FeatureSwitch
 

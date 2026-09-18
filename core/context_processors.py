@@ -48,9 +48,9 @@ def theme(request: HttpRequest) -> dict[str, str]:
 def feature_flags(request: HttpRequest) -> dict[str, Any]:
     """Expose the Site Settings → Features toggles site-wide (members + public).
 
-    ``features`` is the seven three-state member features (``core.features``), keyed by feature
+    ``features`` is every three-state member feature (``core.features``), keyed by feature
     key: templates read ``features.voting.is_on`` / ``.is_soon`` / ``.is_hidden`` / ``.message``.
-    It costs ONE query for all seven, which is why ``as_context`` exists rather than seven
+    It costs ONE query for the whole registry, which is why ``as_context`` exists rather than one
     lookups — a sidebar renders every key on every page in the app.
 
     The switch is cosmetic and applies to everyone, with no viewer-role branch: hiding a feature
