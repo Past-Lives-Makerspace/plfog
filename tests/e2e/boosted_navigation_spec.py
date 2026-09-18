@@ -12,21 +12,37 @@ The scenario collects every uncaught page error and every Alpine console warning
 before the first navigation, arrives the way a host does, opens the Photos step, and then
 proves the widgets on it are alive: a slider move runs ``update()`` and the cropper frame
 mounts. Needs the network for Cropper.js. Run with ``pytest -m e2e``.
+
+The org map editor (issue #382) is the same class of defect one file over, so it is covered
+here too. ``space_map_editor.js`` did all of its wiring inside a ``DOMContentLoaded``
+listener; that event fired once on the original document and never again, so every boosted
+arrival left the editor inert — no drag, no add marker — while a hard load looked perfect.
+Its second scenario guards the other side of the fix: the listeners bound to ``document``
+and ``document.body`` survive a boosted swap, so re-running the boot block would stack one
+more of each per visit.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import time
+from decimal import Decimal
 from typing import cast
 
+from django.contrib.auth.models import User
 from django.urls import reverse
 from playwright.sync_api import ConsoleMessage, Error, expect
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
-from membership.models import Member
-from tests.membership.factories import MembershipPlanFactory
+from membership.models import MapHotspot, Member
+from tests.membership.factories import (
+    FloorplanFactory,
+    MapHotspotFactory,
+    MembershipPlanFactory,
+    SpaceFactory,
+)
 
 EMAIL = "boosted-teacher@example.com"
 FRAME = ".cropper-container"
@@ -35,6 +51,13 @@ FOCUS_INPUT = "[data-card-focus-input]"
 # The first slider on the Photos step is "Up and down" (posY).
 FOCUS_RANGE = '[data-composer-step="2"] input.pl-card-focus__range'
 CSRF_META = 'meta[name="csrf-token"]'
+
+ADMIN_EMAIL = "boosted-admin@example.com"
+MAP_EDITOR = ".pl-map-editor"
+EDITOR_MARKER = "[data-editor-marker]"
+EDITOR_STATUS = "[data-editor-status]"
+MARKER_ORIGIN = (Decimal("10.00"), Decimal("10.00"))  # MapHotspotFactory's x and y
+DONE_LINK = "a.pl-map-edit__done"  # the editor's own way back, inside the boosted content
 
 
 def _seed_draft() -> ClassOffering:
@@ -136,3 +159,206 @@ def describe_boosted_arrival_at_the_composer():
         # Control: the same POST with no token is what Django refuses.
         bare_status = page.evaluate("url => fetch(url, { method: 'POST' }).then(r => r.status)", dismiss_url)
         assert bare_status == 403
+
+
+def _seed_admin_with_a_marked_floor() -> MapHotspot:
+    """An admin who may edit the map, plus one floor carrying one draggable marker.
+
+    The floor deliberately has no underlay image: the editor drags against the drawn canvas,
+    so an image-less floor is the normal case and the scenario needs no media route.
+    """
+    MembershipPlanFactory()  # so the user signal can provision the member this then promotes
+    user = User.objects.create_user(username=ADMIN_EMAIL, email=ADMIN_EMAIL)
+    member = user.member
+    member.fog_role = Member.FogRole.ADMIN
+    member.status = Member.Status.ACTIVE
+    member.save(update_fields=["fog_role", "status"])
+    member.sync_user_permissions()
+    floor = FloorplanFactory(name="Ground Floor", image="")
+    return cast(MapHotspot, MapHotspotFactory(floorplan=floor, space=SpaceFactory(space_id="A9")))
+
+
+def _boosted_click(page, path: str, *, selector: str | None = None) -> None:
+    """Follow an in-content link the way a member does — an hx-boost body swap, not a load.
+
+    ``page.goto()`` would be a full document load, which re-fires ``DOMContentLoaded`` and so
+    cannot see this bug at all. Neither can a click that turns out to be a full load, and one
+    is easy to pick by accident: the sidebar nav carries ``hx-boost="false"``, so its copy of
+    a link reloads the document while the in-content copy of the same href swaps. That is why
+    the click is verified rather than assumed — a stamp on ``window`` before the click is
+    still there afterwards only if the document survived.
+
+    The trailing anchor matters too: ``/spaces/`` is a prefix of ``/spaces/map/edit/``, so an
+    unanchored pattern would match the page already open and wait for nothing.
+    """
+    page.evaluate("() => { window.__plBoostStamp = true; }")
+    page.locator(selector or f'a[href="{path}"]').first.click()
+    page.wait_for_url(re.compile(re.escape(path) + "$"))
+    assert page.evaluate("() => Boolean(window.__plBoostStamp)"), (
+        f"the click to {path} replaced the document instead of boosting it; "
+        "a full load re-fires DOMContentLoaded and cannot see this bug"
+    )
+
+
+def _drag(page, locator, dx: float, dy: float) -> None:
+    """Press on an element's centre, move by (dx, dy), release — a real pointer drag."""
+    box = locator.bounding_box()
+    assert box, "the marker is not laid out, so there is nothing to drag"
+    start_x = box["x"] + box["width"] / 2
+    start_y = box["y"] + box["height"] / 2
+    page.mouse.move(start_x, start_y)
+    page.mouse.down()
+    page.mouse.move(start_x + dx, start_y + dy, steps=8)
+    page.mouse.up()
+
+
+def _wait_for_move(page, hotspot, before, timeout_ms: int = 8000) -> bool:
+    """Poll the row until the editor's position POST lands, or give up.
+
+    A fixed sleep here is a flake vector under CI load. The database is the witness on
+    purpose: the restored history snapshot still carries the previous drag's "Position saved."
+    and its already-moved coordinate, so every assertion available in the page passes whether
+    or not anything is actually wired.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        hotspot.refresh_from_db()
+        if (hotspot.x, hotspot.y) != before:
+            return True
+        page.wait_for_timeout(100)
+    return False
+
+
+def describe_boosted_arrival_at_the_org_map_editor():
+    def it_leaves_the_map_editor_draggable_with_no_alpine_errors(live_server, page, login_via_code):
+        hotspot = _seed_admin_with_a_marked_floor()
+        errors = _watch_for_errors(page)
+        login_via_code(ADMIN_EMAIL)
+
+        # Arrive the way an admin does: Spaces, then the boosted "Edit the map" link.
+        page.goto(f"{live_server.url}{reverse('hub_spaces')}")
+        _boosted_click(page, reverse("hub_org_map_edit"))
+        expect(page.locator(MAP_EDITOR)).to_be_visible()
+
+        # Interactive, not merely rendered. Dragging the tile runs the stage's pointer
+        # handlers and POSTs the new box, which is the whole editor in one gesture.
+        marker = page.locator(EDITOR_MARKER).first
+        expect(marker).to_be_visible()
+        _drag(page, marker, 60, 40)
+        expect(page.locator(EDITOR_STATUS)).to_have_text("Position saved.")
+
+        hotspot.refresh_from_db()
+        assert (hotspot.x, hotspot.y) != MARKER_ORIGIN
+        assert errors == [], "\n".join(errors)
+
+    def it_still_boots_the_editor_on_a_hard_load(live_server, page, login_via_code):
+        # Criterion 2. The boot no longer waits for DOMContentLoaded, and a hard load is the
+        # one path where that event does still fire — so it is the path a later
+        # "simplification" back to a single listener would break without the boosted
+        # scenarios noticing.
+        hotspot = _seed_admin_with_a_marked_floor()
+        errors = _watch_for_errors(page)
+        login_via_code(ADMIN_EMAIL)
+
+        page.goto(f"{live_server.url}{reverse('hub_org_map_edit')}")
+        marker = page.locator(EDITOR_MARKER).first
+        expect(marker).to_be_visible()
+        _drag(page, marker, 60, 40)
+        expect(page.locator(EDITOR_STATUS)).to_have_text("Position saved.")
+
+        hotspot.refresh_from_db()
+        assert (hotspot.x, hotspot.y) != MARKER_ORIGIN
+        assert errors == [], "\n".join(errors)
+
+    def it_survives_the_browser_back_button(live_server, page, login_via_code):
+        """Back is an htmx history restore, and the per-node ready keys must not survive it.
+
+        htmx caches a snapshot by serializing the body's innerHTML and re-executes the
+        scripts it restores, so ``boot()`` genuinely runs again here. If the ready key were a
+        ``data-`` attribute it would be captured in that snapshot, the restored nodes would
+        arrive already claimed, and the editor would come back dead: this file's own bug,
+        reintroduced one navigation later. A property on the element is not markup, so it
+        never serializes.
+
+        The database is the only witness worth trusting. The restored snapshot still carries
+        the *first* drag's "Position saved." in the status line, so asserting on that text
+        passes whether or not anything is wired.
+        """
+        hotspot = _seed_admin_with_a_marked_floor()
+        errors = _watch_for_errors(page)
+        login_via_code(ADMIN_EMAIL)
+
+        edit_path = reverse("hub_org_map_edit")
+        spaces_path = reverse("hub_spaces")
+        page.goto(f"{live_server.url}{spaces_path}")
+        _boosted_click(page, edit_path)
+        _drag(page, page.locator(EDITOR_MARKER).first, 60, 40)
+        expect(page.locator(EDITOR_STATUS)).to_have_text("Position saved.")
+        hotspot.refresh_from_db()
+        before = (hotspot.x, hotspot.y)
+
+        _boosted_click(page, spaces_path, selector=DONE_LINK)
+        page.go_back()
+        page.wait_for_url(re.compile(re.escape(edit_path) + "$"))
+        expect(page.locator(MAP_EDITOR)).to_be_visible()
+
+        # setAttribute lowercases, so compare case insensitively or a revert to attributes
+        # would slip straight past this.
+        restored = page.content().lower()
+        leaked = [k for k in ("plstageready", "pladdmarkerready", "pladdrowready") if k in restored]
+        assert not leaked, f"ready keys reached the history snapshot as markup: {leaked}"
+
+        _drag(page, page.locator(EDITOR_MARKER).first, 50, 35)
+        assert _wait_for_move(page, hotspot, before), (
+            "the marker did not move after Back, so the restored editor is inert"
+        )
+        assert errors == [], "\n".join(errors)
+
+    def it_binds_the_modal_close_listener_once_across_repeat_arrivals(live_server, page, login_via_code):
+        """Criterion 3: arriving twice must not stack the ``close-marker-edit`` handler.
+
+        That listener sits on ``document.body``, which a boosted swap keeps — only the body's
+        contents are replaced — so a boot block that re-runs unguarded leaves one more
+        handler behind per visit, and one saved marker then fires ``close-modal`` once per
+        accumulated handler. Two arrivals is the smallest case that can tell a real guard
+        from a scope-local boolean, which hx-boost rebuilds as ``false`` every time it
+        re-runs the file — and both arrivals have to land in the *same* document, or the
+        scope-local version looks correct too.
+
+        Counted by dispatching the trigger and tallying what comes back rather than by
+        enumerating bindings: page JavaScript cannot list an element's listeners, and the
+        dispatch count is the thing the defect actually corrupts.
+        """
+        _seed_admin_with_a_marked_floor()
+        errors = _watch_for_errors(page)
+        login_via_code(ADMIN_EMAIL)
+
+        edit_path = reverse("hub_org_map_edit")
+        spaces_path = reverse("hub_spaces")
+        page.goto(f"{live_server.url}{spaces_path}")
+        _boosted_click(page, edit_path)
+        expect(page.locator(MAP_EDITOR)).to_be_visible()
+        # "Done — view the map" on the editor itself. The sidebar's Spaces link is
+        # hx-boost="false", and a full load there would hand arrival two a fresh document,
+        # where even a broken guard looks correct.
+        _boosted_click(page, spaces_path, selector=DONE_LINK)
+        _boosted_click(page, edit_path)
+        expect(page.locator(MAP_EDITOR)).to_be_visible()
+
+        fired = page.evaluate(
+            """() => {
+                let fired = 0;
+                const tally = () => { fired += 1; };
+                window.addEventListener('close-modal', tally);
+                document.body.dispatchEvent(new CustomEvent('close-marker-edit'));
+                window.removeEventListener('close-modal', tally);
+                return fired;
+            }"""
+        )
+        assert fired == 1, f"one close-marker-edit fired close-modal {fired} times after two boosted arrivals"
+
+        # Still interactive on the second arrival, not just un-stacked.
+        marker = page.locator(EDITOR_MARKER).first
+        _drag(page, marker, 40, 30)
+        expect(page.locator(EDITOR_STATUS)).to_have_text("Position saved.")
+        assert errors == [], "\n".join(errors)

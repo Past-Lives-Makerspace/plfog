@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-18"
+title = "The space map editor opens ready to use"
+changes = [
+  "If you help run the space map, opening the editor now gives you an editor you can actually use: markers drag, the add button works, and photos can be dropped onto a floor. That holds whether you arrive from the sidebar or come back to it with your browser's Back button.",
+  "Before, the editor looked perfectly normal but nothing on it responded, and the only way to get it working was to reload the page.",
+]
