@@ -3,16 +3,44 @@
  * hub/base.html loads htmx, Alpine and this file once, deferred, from <head>. hx-boost
  * swaps <body>, and the head-support extension keeps every <head> tag the next page
  * also carries, so a boosted navigation never runs any of them again: one htmx (one
- * window.onpopstate, one history cache), one Alpine (one registry of components), and
- * the listeners below bound once on document. Issue #378.
+ * window.onpopstate), one Alpine (one registry of components), and the listeners below
+ * bound once on document. Issue #378.
  *
- * Nothing here needs htmx or Alpine at parse time, and nothing touches document.body:
- * a head script runs before there is one, and htmx events bubble to document anyway.
+ * Nothing here touches document.body: a head script runs before there is one, and htmx
+ * events bubble to document anyway. The one thing that does need htmx already loaded is
+ * the history-cache setting below; base.html loads htmx.min.js immediately above this
+ * file and both are deferred, so htmx has run by the time this does. That order is
+ * pinned by HEAD_ORDER in tests/hub/base_scripts_spec.py.
  */
 (function () {
     "use strict";
 
     var LOGIN_PATH = "/accounts/login/";
+
+    /* The hub keeps no htmx history cache, because its DOM is not the markup the server
+     * sent. Issue #383.
+     *
+     * htmx snapshots a page by serializing the body's innerHTML and replays that string on
+     * Back. Alpine renders into the same body, so the snapshot captures its OUTPUT as
+     * ordinary elements. On the restore, Alpine finds those orphaned clones, initialises
+     * them outside the x-for that made them, and re-renders the template from data on top
+     * of them. Measured on the class composer: one Back doubled every entry in the start
+     * time and duration menus (32 options to 64, 8 to 16), listed the single scheduled
+     * session twice, and threw 180 uncaught "i / s / opt is not defined" errors. The same
+     * snapshot round-trips attributes, which is how a restored rich-text mount came back
+     * carrying its own ready key and swallowed everything typed into it.
+     *
+     * Setting the size to zero is more than a refusal to write. htmx also drops the stored
+     * cache the next time it would have saved, and it saves on the way into every restore,
+     * so a member still carrying snapshots from an earlier visit is cleaned out rather
+     * than served one more broken Back. The restore then misses and htmx refetches the
+     * page: the same request a boosted click makes, so the body is server markup again and
+     * Alpine initialises it exactly once.
+     *
+     * The cost is one request per Back, which is what every forward navigation here
+     * already costs. Per-file guards cannot reach this — an x-for expansion belongs to no
+     * file's boot — so the snapshot itself is what has to go. */
+    window.htmx.config.historyCacheSize = 0;
 
     /* Django masks the CSRF token per render, so head-support replaces the meta tag on
      * every boosted arrival; read it per request and the header is always current. */

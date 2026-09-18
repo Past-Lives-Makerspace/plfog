@@ -21,8 +21,8 @@
  *
  *  - Bound to markup the swap replaced (initStage, initAddMarker, initAddButtons): must
  *    re-run each arrival, and must not double-wire a node if it runs twice against the same
- *    markup. The guard is a ready key on the node itself — rich-editor-init.js's
- *    data-rte-ready, same idea.
+ *    markup. The guard is a ready key on the node itself — rich-editor-init.js's readyOnce,
+ *    same idea and, since #383, the same property-not-attribute reason.
  *  - Bound to document or document.body (initDropZones, the close-marker-edit listener):
  *    those nodes outlive a boosted swap, so re-running stacks a duplicate listener every
  *    visit. They run exactly once per document, flagged on window — a flag in this IIFE's

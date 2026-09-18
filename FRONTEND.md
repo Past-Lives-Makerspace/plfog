@@ -289,6 +289,13 @@ head-support keys head tags by their exact `outerHTML`, and the static storage h
 
 Never `document.body.addEventListener(...)` from a head script at parse time (there is no body yet); listen on `document`, htmx events bubble there. `tests/hub/base_scripts_spec.py` pins the head order, fails if htmx or Alpine ever lands back inside `<body>`, and fails if a `static/js` file that calls `Alpine.data(` is missing from the head; `tests/e2e/boosted_navigation_spec.py` drives the real boosted arrival at the composer.
 
+**Two rules for a body script's own bookkeeping**, both learned from bugs that looked correct on a single visit (issues #382, #383):
+
+- **A "has this run already" flag for something bound to `document` goes on `window`, never in the IIFE.** The whole file is re-executed in a fresh scope on every boosted arrival, so a `var bound = false` is rebuilt as `false` each time and guards nothing. `window.plRteSettleBound`, `window.plMapEditorDocumentBound`.
+- **A "have I claimed this node" key is a property on the element, never a `data-` attribute.** `element.plThingReady = true`, not `element.dataset.thingReady = "1"`. See `readyOnce` in `rich-editor-init.js` and `space_map_editor.js`. An attribute is markup, and markup gets serialized (htmx's history snapshot is the body's `innerHTML`), so a node can come back from somewhere already claimed and the init silently does nothing. A property lives on the element object and dies with the node.
+
+The hub keeps **no htmx history cache** (`hub_boot.js` sets `htmx.config.historyCacheSize = 0`), because a snapshot of this body is a snapshot of Alpine's and Quill's output rather than of the markup the server sent: restoring it duplicated every `x-for` expansion in the class composer and brought back a rich-text editor that looked mounted and swallowed everything typed into it. Back is a refetch, so what a member returns to is server markup that Alpine initialises once. Do not add an `hx-history-elt` or otherwise reintroduce the snapshot.
+
 ### Updating another element after a form submit (OOB swap)
 
 ```python
