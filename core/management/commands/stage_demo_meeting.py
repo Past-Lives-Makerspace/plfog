@@ -488,7 +488,12 @@ class Command(BaseCommand):
         amount_paid_cents: int,
     ) -> Registration:
         email = f"counciltreasurer+{local}@pastlives.space"
-        registration = Registration.objects.filter(class_offering=offering, email__iexact=email).first()
+        # The live row wins the lookup. Default ordering is newest-first, so a class
+        # carrying a duplicate that migration 0065 cancelled would otherwise hand back
+        # the cancelled row and confirming it would collide with the row that kept the
+        # seat. This command runs against production, so it must not crash mid-run.
+        rows = Registration.objects.filter(class_offering=offering, email__iexact=email)
+        registration = rows.seat_holding().first() or rows.first()
         if registration is None:
             registration = Registration(
                 class_offering=offering,

@@ -949,6 +949,7 @@ class RegistrationForm(forms.ModelForm):
         member: "Member | None" = None,
         client_ip: str = "",
         is_waitlist: bool = False,
+        holds_seat: bool = False,
         user: "AbstractBaseUser | AnonymousUser | None" = None,
         custom_answers_initial: dict[int, str] | None = None,
         **kwargs,
@@ -959,6 +960,10 @@ class RegistrationForm(forms.ModelForm):
         self.member = member
         self.client_ip = client_ip
         self.is_waitlist = is_waitlist
+        # This email already holds a seat in this class, so the class is not sold out
+        # to THEM: the row making it full is their own. Set by the register view, which
+        # resolves the existing signup before it builds the form.
+        self.holds_seat = holds_seat
         self._validated_discount: DiscountCode | None = None
         self.auto_applied_discount: DiscountCode | None = None
         if not offering.requires_model_release:
@@ -1061,7 +1066,7 @@ class RegistrationForm(forms.ModelForm):
 
     def clean(self) -> dict:
         data = super().clean() or {}
-        if not self.is_waitlist and self.offering.spots_remaining <= 0:
+        if not self.is_waitlist and not self.holds_seat and self.offering.spots_remaining <= 0:
             raise forms.ValidationError("This class is sold out.")
         if self.offering.requires_model_release and not data.get("accepts_model_release"):
             self.add_error("accepts_model_release", "Photo release acceptance is required for this class.")
@@ -1074,6 +1079,15 @@ class RegistrationForm(forms.ModelForm):
                     "Please remove any discount code, or contact the studio if this looks wrong."
                 )
         return data
+
+    @property
+    def validated_discount(self) -> DiscountCode | None:
+        """The code this submission validated, if any.
+
+        Public because the row is not always written by :meth:`save`: a signup resumed
+        onto an existing registration re-stamps the code whose price it is charging.
+        """
+        return self._validated_discount
 
     @property
     def member_discount_pct(self) -> int:
@@ -1094,7 +1108,7 @@ class RegistrationForm(forms.ModelForm):
     def save(self, commit: bool = True) -> Registration:
         registration: Registration = super().save(commit=False)
         registration.class_offering = self.offering
-        registration.discount_code = self._validated_discount
+        registration.discount_code = self.validated_discount
         if self._newsletter_opt_in_suppressed:
             # We hid the checkbox because this person already opted in, so the
             # unbound field left the flag False. Record the opt-in they actually

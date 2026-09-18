@@ -136,13 +136,19 @@ def describe_class_recipient_choices():
         assert "(waitlist)" in labels["custom:wl@example.com"]
 
     def it_dedupes_a_repeated_guest_email():
+        """Two spellings of one address, which ``uq_registration_seat_email`` still allows.
+
+        The constraint compares the stored email exactly, so it stops the same
+        person signing up twice and leaves a differently-capitalized retype alone.
+        That is the duplicate this checklist has to collapse.
+        """
         from classes.factories import ClassOfferingFactory, RegistrationFactory
         from classes.models import Registration
 
         offering = ClassOfferingFactory()
-        for _ in range(2):
+        for spelling in ("dup@example.com", "Dup@Example.com"):
             RegistrationFactory(
-                class_offering=offering, member=None, email="dup@example.com", status=Registration.Status.CONFIRMED
+                class_offering=offering, member=None, email=spelling, status=Registration.Status.CONFIRMED
             )
         values = [v for v, _l in announcement_recipient_choices("class", None, offering)]
         assert values.count("custom:dup@example.com") == 1

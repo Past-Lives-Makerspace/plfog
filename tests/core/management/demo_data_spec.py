@@ -447,3 +447,44 @@ def describe_demo_data_class_images():
         pending = ClassOffering.objects.get(slug=f"{DEMO_SLUG_PREFIX}pending-review")
         assert pending.image
         assert pending.gallery_images.count() == 2
+
+
+def describe_upserting_a_seeded_registration():
+    """``_upsert_registration`` keyed on the order number alone can no longer be right.
+
+    ``uq_registration_seat_email`` allows one live row per (class, email), so a seeded
+    row whose order number changed between runs has to be updated in place. Keying only
+    on the order number would try to add a second live row for the same person and the
+    seeding run would die on the constraint.
+    """
+
+    def _command():
+        from core.management.commands.demo_data import Command
+
+        return Command()
+
+    def it_reuses_the_live_row_when_the_order_number_changed(db):
+        from classes.factories import ClassOfferingFactory, RegistrationFactory
+
+        offering = ClassOfferingFactory(slug="demo-upsert")
+        email = f"seeded@{DEMO_EMAIL_DOMAIN}"
+        first_run = RegistrationFactory(
+            class_offering=offering,
+            email=email,
+            status=Registration.Status.CONFIRMED,
+            order_number="PL-OLD1-26",
+        )
+
+        row = _command()._upsert_registration(
+            offering=offering,
+            order_number="PL-NEW1-26",
+            email=email,
+            first_name="Seeded",
+            last_name="Student",
+            status=Registration.Status.CONFIRMED,
+        )
+
+        assert row.pk == first_run.pk
+        first_run.refresh_from_db()
+        assert first_run.order_number == "PL-NEW1-26"
+        assert Registration.objects.filter(class_offering=offering, email=email).count() == 1
