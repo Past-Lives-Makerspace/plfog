@@ -2811,8 +2811,21 @@ def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     """Send a manual email to selected registrants of one class.
 
     Bounces back to the Registrations tab with a flash message on both success and validation
-    error. ``can_send_email`` is the same capability the Send Email button reads, so the
-    affordance and the endpoint cannot disagree.
+    error. It gates on ``can_send_email``, the capability the Send Email button reads, **and on
+    ``can_view_registrations`` besides** — so it is deliberately narrower than that button
+    rather than equal to it, and this docstring used to claim the two could not disagree.
+
+    The extra conjunct is what #371 item 1 made necessary. This form emails *selected
+    registrants*: its checkboxes live at the foot of the
+    Registrations tab, and its payload is a list of registration ids. A guild lead now holds
+    ``can_send_email`` on a class in their guild and still, by ruling 12, holds no roster — so
+    on the capability alone this endpoint would start admitting a viewer who can never see the
+    form, never see a checkbox, and whose every POST would fail
+    :class:`~classes.forms.TeachEmailForm` validation for want of a registration they are
+    allowed to name. Admitting them would be the surface-shown-action-refused shape #371 exists
+    to remove, rebuilt on the endpoint that models it best. The composer
+    (``hub_compose?audience=class:<pk>&lock=1``) is that population's surface, and it has its
+    own per-person picker.
 
     Two forms, as before the merge and for the same reason: an admin's send is anchored to the
     class and signed by them (:class:`AdminClassEmailForm`), while an instructor's is bounded
@@ -2822,7 +2835,7 @@ def teach_class_email(request: HttpRequest, pk: int) -> HttpResponse:
     from classes.forms import AdminClassEmailForm, TeachEmailForm
 
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
-    if not access.can_send_email:
+    if not (access.can_send_email and access.can_view_registrations):
         raise Http404("This class's registrants are not this viewer's to email.")
     offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     sender: Member | None = getattr(request.user, "member", None)

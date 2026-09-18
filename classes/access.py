@@ -196,6 +196,31 @@ def _guild_access() -> ClassAccess:
     """A guild lead or staffer on a class they do not teach: Edit and Emails, nothing else.
 
     Ruling 12: no Overview on someone else's class, so Emails is where they land.
+
+    **And Emails now works.** ``can_send_email`` was False here until #371 item 1, which made
+    the one tab this population lands on the one thing they could not use: the Send Email link
+    was withheld, and a guild lead who reached the composer another way got 200 from the
+    preview and 403 from Send. Jo's call is to let them send, with the composer's per-person
+    recipient picker.
+
+    That is a deliberate relaxation of ruling 12 in practice, and it is recorded here rather
+    than arrived at quietly. ``can_view_registrations`` stays False, so the roster tab is still
+    closed to them — but the composer's picker lists registrants by name, so a guild lead who
+    may address a class can see who is in it. Jo was shown that consequence and chose it. Do
+    not read the surviving False on ``can_view_registrations`` as a claim that names are hidden
+    from this population; it only means the Registrations TAB is not theirs.
+
+    **Read "this population" wider than the docstring's first line.** This row is not reached
+    only by the lead or staffer of the class's own guild. ``class_access``'s guild leg asks
+    ``can_edit_class``, which short-circuits on ``is_effective_staff``, so a **site-wide guild
+    officer holding the teaching grant lands here on every class in the catalog** — the long
+    comment above ``class_access`` spells that out, and it has been true since #399. Flipping
+    ``can_send_email`` therefore hands that member the composer, and every registrant's name and
+    email, on classes they neither teach nor have any guild claim on. That is accepted for the
+    same reason as the lead's case and one more: the same short-circuit in ``_can_edit_guild``
+    already lets them address every guild's full membership through the same composer, so
+    withholding one class roster would be inconsistency, not protection. Anyone narrowing this
+    row later should narrow the leg, not the flag.
     """
     return ClassAccess(
         role=ROLE_GUILD,
@@ -211,7 +236,7 @@ def _guild_access() -> ClassAccess:
         can_submit=False,
         can_cancel=False,
         can_sale=False,
-        can_send_email=False,
+        can_send_email=True,
     )
 
 

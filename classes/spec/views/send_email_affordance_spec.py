@@ -1,6 +1,7 @@
 """BDD specs for the Send Email link on the per-class screen, and the composer behind it.
 
-Issue #371 item 1. Two separate things are pinned here.
+Issue #371 item 1, in both of its halves: #414 stopped the composer refusing in silence, and this
+one made the Emails tab a guild lead lands on actually send. Three things are pinned here.
 
 **The link never lies.** Wherever Send Email renders, the composer it points at admits that same
 request for that same class. Covered in two halves rather than as one implication over all five
@@ -9,6 +10,14 @@ that ARE offered it assert that the composer takes them, and the roles that are 
 that the composer would have refused and which status each tab answered to reach its zero. A
 single `offered implies admitted` test would have passed on three of five rows without ever
 asking the composer anything.
+
+**The link and the Send are one predicate, not two that agree.** ``_can_announce_to_class``
+delegates to ``classes.access.class_access`` and reads the same ``can_send_email`` the template
+reads, so :data:`ROLE_MATRIX` judges twelve roles on both halves at once and
+``describe_the_send_gate_reads_the_capability_rather_than_re_deriving_it`` pins that the gate
+reads the capability rather than reproducing its answers. Before this, the two expressions agreed
+only because ``classes/access.py`` was the stricter of them, which #414's review called "not by
+construction".
 
 **A refusal is never silent.** ``hub_compose`` answered a viewer it would not admit with a bare
 ``redirect`` to the propose flow, and ``templates/hub/base.html`` puts ``hx-boost="true"`` on the
@@ -30,11 +39,13 @@ is the class's own instructor, who is a different VIEWER, and gets their own blo
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 from django.urls import reverse
 from django.utils import timezone
 
+from classes import access as access_module
 from classes.factories import (
     CategoryFactory,
     ClassOfferingFactory,
@@ -44,8 +55,8 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassOffering, Registration
-from membership.models import Member
-from tests.membership.factories import GuildFactory, MembershipPlanFactory
+from membership.models import AdminCapability, AnnouncementDraft, Member
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
 
 Status = ClassOffering.Status
 
@@ -75,13 +86,26 @@ FULLY_OFFERED = {
 SCREEN_CLOSED = dict.fromkeys(CLASS_SCREEN_TABS, (404, 0))
 
 #: The guild set: ruling 12 gives a lead or staffer Emails and nothing else on a class they do
-#: not teach, and that one open tab carries no link.
+#: not teach, and since #371 item 1 that one open tab carries the link. It was ``(200, 0)`` until
+#: then, which is the defect the issue was opened about — the only tab this population lands on
+#: was the only thing they could not use.
 GUILD_SCREEN = {
     "classes:teach_class_detail": (404, 0),
     "classes:teach_class_registrations": (404, 0),
     "classes:teach_class_waitlist": (404, 0),
     "classes:teach_class_discount_codes": (404, 0),
-    "classes:teach_class_emails": (200, 0),
+    "classes:teach_class_emails": (200, 1),
+}
+
+#: A ``CLASS_APPROVER`` holder with no other claim on this class: the Overview and nothing else.
+#: The grant's contract is approve/validate, so it opens no mailbox and no composer, and
+#: :func:`classes.access._with_reviewer_grant` must never be a way to acquire one.
+REVIEWER_SCREEN = {
+    "classes:teach_class_detail": (200, 0),
+    "classes:teach_class_registrations": (404, 0),
+    "classes:teach_class_waitlist": (404, 0),
+    "classes:teach_class_discount_codes": (404, 0),
+    "classes:teach_class_emails": (404, 0),
 }
 
 #: The exact sentence every viewer who simply cannot compose is given.
@@ -209,14 +233,18 @@ def describe_the_send_email_link():
             assert _screen_probe(client, roster_class) == FULLY_OFFERED
             assert client.get(_compose_url(roster_class)).status_code == 200
 
-        def it_offers_nothing_to_a_guild_lead_who_does_not_teach_the_class(guild_lead, roster_class, client):
-            # The safe direction. Leading a guild opens the composer PAGE for them, because
-            # _can_enter_compose asks only whether they may compose something. It does not follow
-            # that they may address this roster: that is _can_announce_to_class, which refuses, so
-            # Send returns 403. can_send_email tracks the second predicate, not the first, which
-            # is why withholding the link here is correct rather than over-cautious. Showing it
-            # would rebuild the #371 defect exactly: a button opening a composer locked to a class
-            # that then refuses on Send.
+        def it_admits_a_guild_lead_who_does_not_teach_the_class(guild_lead, roster_class, client):
+            # #371 item 1 reversed this row, and the comment that used to stand here with it.
+            # The old reading was that withholding the link was correct because
+            # _can_announce_to_class refused the Send, so offering it would have rebuilt the
+            # #371 defect. The premise was true and the conclusion was backwards: the composer
+            # PAGE already opened for this population (_can_enter_compose admits them on their
+            # staffed guild) and only the Send refused, so the surface was shown and the action
+            # refused either way. Ruling 12 leaves a lead no Overview on a class they do not
+            # teach, which makes Emails the tab they land on, and it was the one thing they
+            # could not use. Jo's call is to let them send, with the composer's per-person
+            # picker. The two halves are now one predicate rather than two that agree, so the
+            # link is offered here because the Send is accepted here.
             client.force_login(guild_lead.user)
             assert _screen_probe(client, roster_class) == GUILD_SCREEN
             assert client.get(_compose_url(roster_class)).status_code == 200
@@ -285,3 +313,417 @@ def describe_a_refused_composer_says_why():
             response = client.post(reverse(route), {"audience": f"class:{roster_class.pk}"})
             assert response.status_code == 403
             assert "showToast" in json.loads(response["HX-Trigger"])
+
+
+# --- The role matrix, and the one predicate behind both halves --------------------------------
+
+#: A Send that actually went out: the full-page POST redirects back to the composer, and the
+#: draft it wrote is stamped ``sent_at``. The stamp is what tells a real send from the other 302s.
+SEND_ACCEPTED = (302, 1)
+
+#: The audience gate's refusal. ``_compose_audience_forbidden`` answers a bare 403 and writes
+#: nothing, so no draft is stamped.
+SEND_REFUSED = (403, 0)
+
+#: ``hub_compose_send`` is ``@login_required``, so a logged-out POST redirects too — to the login
+#: page, having sent nothing. Counting stamped drafts alongside the status is what keeps this
+#: distinguishable from :data:`SEND_ACCEPTED`, and is why the outcome is a pair and not a status.
+SEND_LOGIN_REDIRECT = (302, 0)
+
+#: Every role this feature touches, against the two halves that have to stay in step: whether the
+#: class screen offers the Send Email link on any tab, and what a real Send then does.
+#:
+#: **The roles are deliberately not one fixture wearing different hats.** PR #419 paid for that
+#: lesson twice in one round — one ``capacity=4`` fixture hid a blocker on the last-seat path, and
+#: one shared email address hid an unauthenticated account takeover. This feature is *about*
+#: roles, so the role axis is varied on purpose and the refusals are carried in the same table as
+#: the admissions, at the same weight. Five of these rows send and eight do not, and each of the
+#: eight is refused for a different reason: a preview that closes the screen, a guild that is not
+#: theirs, a grant whose contract is approve-and-nothing-else, a name on a class without the
+#: teaching access behind it, no claim at all, and no session at all.
+#:
+#: ``guild_officer_with_grant`` is the row this table was missing on its first pass, and it is
+#: the one with the widest reach of the five: a site-wide guild officer holding the teaching
+#: grant is judged on a class they neither teach nor hold the guild of, and is admitted anyway,
+#: because ``can_edit_class`` short-circuits on ``is_effective_staff`` and lands them on the
+#: guild row for the whole catalog. It is deliberate (see ``classes.access._guild_access``) and
+#: it is here so that it is deliberate *visibly* — a relaxation nobody can read off the table is
+#: one that was arrived at quietly, which is the thing this ticket's plan file exists to prevent.
+#: The second entry in its tuple is the point: the reach is catalog-wide, not guild-wide.
+ROLE_MATRIX = {
+    "admin": (True, SEND_ACCEPTED),
+    "instructor": (True, SEND_ACCEPTED),
+    "guild_lead": (True, SEND_ACCEPTED),
+    "guild_staffer": (True, SEND_ACCEPTED),
+    "guild_officer_with_grant": (True, SEND_ACCEPTED),
+    "admin_previewing_guild_officer": (False, SEND_REFUSED),
+    "admin_previewing_member": (False, SEND_REFUSED),
+    "admin_previewing_guest": (False, SEND_REFUSED),
+    "other_guild_lead": (False, SEND_REFUSED),
+    "reviewer": (False, SEND_REFUSED),
+    "named_only_instructor": (False, SEND_REFUSED),
+    "plain_member": (False, SEND_REFUSED),
+    "logged_out": (False, SEND_LOGIN_REDIRECT),
+}
+
+
+def _link_is_offered(client, offering: ClassOffering) -> bool:
+    """Whether the class screen renders Send Email on ANY tab this viewer can open.
+
+    Asked across the whole strip rather than on one tab, because the roles hold different tabs:
+    a guild lead lands on Emails, a reviewer holds only the Overview, and a previewing admin
+    holds none. Probing a single tab would read "this role's tab is closed" as "the link was
+    correctly withheld" on at least one row.
+    """
+    return any(count for _status, count in _screen_probe(client, offering).values())
+
+
+def _send_outcome(client, offering: ClassOffering) -> tuple[int, int]:
+    """Post a real Send at this class: ``(status code, drafts actually stamped sent for it)``.
+
+    Counted against ``class_offering=offering`` rather than the whole table. Table-wide happens
+    to be right while every test sends at most once, which is a property of today's callers and
+    not of the helper.
+    """
+    response = client.post(
+        reverse("hub_compose_send"),
+        {
+            "audience": f"class:{offering.pk}",
+            "title": "Bring an apron",
+            "body": "<p>Bring an apron on Saturday.</p>",
+            "discord_channel": "",
+            "mention": "none",
+            "draft_pk": "",
+        },
+    )
+    sent = AnnouncementDraft.objects.filter(class_offering=offering, sent_at__isnull=False).count()
+    return response.status_code, sent
+
+
+@pytest.fixture
+def sign_in(db, admin_user, member_user, instructor, guild_lead, roster_class, client):
+    """Log ``client`` in as one row of :data:`ROLE_MATRIX`; returns the class that row is judged on.
+
+    Every role gets its own member. ``named_only_instructor`` gets its own class too, because a
+    class carries exactly one instructor and that row's whole point is a member named on one
+    without the teaching access behind it.
+    """
+
+    def _fresh_member(username: str, name: str) -> Member:
+        MembershipPlanFactory()
+        member = Member.objects.get(user=UserFactory(username=username))
+        member.full_legal_name = name
+        member.save(update_fields=["full_legal_name"])
+        return member
+
+    def _sign_in(role: str) -> ClassOffering:
+        if role == "logged_out":
+            return roster_class
+        if role == "admin":
+            client.force_login(admin_user)
+            return roster_class
+        if role.startswith("admin_previewing_"):
+            client.force_login(admin_user)
+            _preview_as(client, role.removeprefix("admin_previewing_"))
+            return roster_class
+        if role == "instructor":
+            client.force_login(instructor.user)
+            return roster_class
+        if role == "guild_lead":
+            client.force_login(guild_lead.user)
+            return roster_class
+        if role == "plain_member":
+            # Carries the teaching-orientation unlock and teaches nothing, so this row also
+            # pins that the unlock on its own admits no one to anybody else's roster.
+            client.force_login(member_user)
+            return roster_class
+        if role == "guild_staffer":
+            # Ruling 23 gives a staffer the lead's reach, so this row must match guild_lead.
+            # A lead-only fixture would leave the staff half of the population untested.
+            staffer = _fresh_member("affordance-staffer@example.com", "Jules Behn")
+            GuildStaffMembershipFactory(guild=roster_class.category.guild, member=staffer)
+            client.force_login(staffer.user)
+            return roster_class
+        if role == "guild_officer_with_grant":
+            # No guild relationship to this class at all, and they do not teach it. They are
+            # admitted by can_edit_class's is_effective_staff short-circuit, which puts them on
+            # the guild row for every class in the catalog. The teaching grant is load-bearing:
+            # it_denies_a_fog_guild_officer_without_teaching_access in access_spec pins that the
+            # same officer WITHOUT it is refused, so this row must carry it to be the real shape.
+            officer = _fresh_member("affordance-officer@example.com", "Marta Quill")
+            officer.fog_role = Member.FogRole.GUILD_OFFICER
+            officer.instructor_oriented_at = timezone.now()
+            officer.save(update_fields=["fog_role", "instructor_oriented_at"])
+            officer.sync_user_permissions()
+            client.force_login(officer.user)
+            return roster_class
+        if role == "other_guild_lead":
+            # Leading *a* guild is not leading *this* one. Without this row, "guild lead" and
+            # "guild lead of this class's guild" would be indistinguishable in this file.
+            other_lead = _fresh_member("affordance-other-lead@example.com", "Robin Vasquez")
+            GuildFactory(name="Woodshop", guild_lead=other_lead)
+            client.force_login(other_lead.user)
+            return roster_class
+        if role == "reviewer":
+            reviewer = _fresh_member("affordance-reviewer@example.com", "Tam Reyes")
+            reviewer.admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
+            client.force_login(reviewer.user)
+            return roster_class
+        assert role == "named_only_instructor", f"unknown role {role!r}"
+        named_only = _fresh_member("affordance-named-only@example.com", "Sam Okafor")
+        assert named_only.can_create_classes is False
+        their_class = ClassOfferingFactory(
+            title="Named Only",
+            slug="affordance-named-only",
+            instructor=named_only,
+            category=CategoryFactory(name="Bookbinding", guild=None),
+            status=Status.PUBLISHED,
+            price_cents=4000,
+        )
+        RegistrationFactory(class_offering=their_class, status=Registration.Status.CONFIRMED)
+        client.force_login(named_only.user)
+        return their_class
+
+    return _sign_in
+
+
+def describe_the_link_and_the_send_are_one_predicate():
+    """Criterion 6, in two parts: that the halves agree on every role, and that they agree *because*.
+
+    The matrix is the first part. It is not the whole criterion on its own — a second expression
+    that happens to agree passes a matrix exactly as well as a delegation does, which is the state
+    #414's review found and named "not by construction". The block below it pins the mechanism.
+    """
+
+    @pytest.mark.parametrize("role", sorted(ROLE_MATRIX))
+    def it_offers_the_link_exactly_where_the_send_goes_through(role, sign_in, client):
+        offering = sign_in(role)
+        offered = _link_is_offered(client, offering)
+        outcome = _send_outcome(client, offering)
+        # Each half against the table, so no row can drift without being named.
+        assert (offered, outcome) == ROLE_MATRIX[role]
+        # And the two measured halves against each other, which is the criterion itself, stated
+        # about what the running system did rather than about what the table says.
+        assert offered is (outcome == SEND_ACCEPTED)
+
+
+def describe_the_send_gate_reads_the_capability_rather_than_re_deriving_it():
+    """Criterion 6's teeth: move the capability, and BOTH halves have to move with it.
+
+    ``classes/access.py`` is edited here and ``hub/views.py`` is not touched at all. Take
+    ``can_send_email`` off the guild row and the link must vanish AND the Send must start
+    refusing, because ``_can_announce_to_class`` delegates to ``class_access`` and reads that
+    same attribute.
+
+    **This is the half the role matrix structurally cannot reach**, and the distinction is worth
+    being exact about rather than hand-waving. The matrix catches a gate that disagrees with the
+    affordance on some role — reverting ``_can_announce_to_class`` to its pre-#371 "an effective
+    admin, or the class's own instructor" turns three of its rows red. What the matrix cannot
+    catch is a gate that agrees with the affordance today for a different reason: a gate reading
+    ``access.role in {admin, instructor, guild}`` reproduces every row of the matrix exactly,
+    including the refusals, and the matrix passes it whole. It fails only here, because the role
+    survives the patch and the capability does not. That mutant was run against this file; the
+    matrix scored twelve for twelve on it and
+    :func:`it_withdraws_the_send_with_the_same_capability` was the only spec that went red.
+
+    Which is the whole point of the criterion: the two halves have to be one predicate, not two
+    that happen to agree, and only a test that moves the predicate can tell those apart.
+    """
+
+    @pytest.fixture
+    def guild_row_without_the_composer(monkeypatch):
+        original = access_module._guild_access
+        monkeypatch.setattr(access_module, "_guild_access", lambda: replace(original(), can_send_email=False))
+
+    def it_withdraws_the_link_with_the_capability(guild_row_without_the_composer, guild_lead, roster_class, client):
+        client.force_login(guild_lead.user)
+        assert _link_is_offered(client, roster_class) is False
+
+    def it_withdraws_the_send_with_the_same_capability(
+        guild_row_without_the_composer, guild_lead, roster_class, client
+    ):
+        client.force_login(guild_lead.user)
+        assert _send_outcome(client, roster_class) == SEND_REFUSED
+
+    def it_still_sends_without_the_patch(guild_lead, roster_class, client):
+        # The control. Without it the two tests above would keep passing if the guild row lost
+        # can_send_email for real, and this whole block would be asserting nothing.
+        client.force_login(guild_lead.user)
+        assert _send_outcome(client, roster_class) == SEND_ACCEPTED
+
+
+def describe_a_guild_lead_gets_the_whole_composer():
+    """Criterion 1's middle, which the matrix's booleans skip over."""
+
+    def it_locks_the_composer_to_that_class(guild_lead, roster_class, client):
+        client.force_login(guild_lead.user)
+        content = client.get(_compose_url(roster_class)).content.decode()
+        assert f"Email the registrants of {roster_class.title}" in content
+
+    def it_lists_the_registrants_by_name_in_the_per_person_picker(guild_lead, roster_class, client):
+        # The accepted consequence of the decision, asserted rather than left implicit. Ruling 12
+        # still closes the Registrations tab to this population (can_view_registrations stays
+        # False), but the composer's picker names them, so a guild lead who may address a class
+        # can see who is in it. Jo was shown this and chose it. If that is ever revisited, this
+        # spec is where the reversal has to argue with something concrete.
+        client.force_login(guild_lead.user)
+        content = client.get(_compose_url(roster_class)).content.decode()
+        registration = roster_class.registrations.get()
+        assert 'name="recipients"' in content
+        assert f"{registration.first_name} {registration.last_name}" in content
+        assert registration.email in content
+
+    def it_keeps_the_roster_tab_shut(guild_lead, roster_class, client):
+        # The other half of the same sentence: the picker is the ONLY place the names appear.
+        client.force_login(guild_lead.user)
+        url = reverse("classes:teach_class_registrations", kwargs={"pk": roster_class.pk})
+        assert client.get(url).status_code == 404
+
+
+def describe_the_populations_that_are_still_refused():
+    """The refusals that the matrix reports as a pair, restated where each one's reason lives."""
+
+    def it_refuses_a_lead_of_another_guild(sign_in, client):
+        # Criterion 2. The screen closes outright, so there is no tab to hide a link on.
+        offering = sign_in("other_guild_lead")
+        assert _screen_probe(client, offering) == SCREEN_CLOSED
+        assert _send_outcome(client, offering) == SEND_REFUSED
+
+    def it_refuses_a_reviewer_grant_holder(sign_in, client):
+        # Criterion 5. The grant unions the reviewer row into whatever set the holder already
+        # had (ruling 25), and that row has never carried can_send_email. Holding CLASS_APPROVER
+        # must not become a way to acquire the composer, which is the widening the union could
+        # have introduced by accident once the guild row gained the capability.
+        offering = sign_in("reviewer")
+        assert _screen_probe(client, offering) == REVIEWER_SCREEN
+        assert _send_outcome(client, offering) == SEND_REFUSED
+
+    def it_refuses_a_member_merely_named_as_the_instructor(sign_in, client):
+        # This one MOVED with #371 item 1, in the opposite direction to the guild lead, and it
+        # is the delegation's stricter half. The old gate compared instructor_id alone, so a
+        # member named on a class who was never granted teaching access could email its roster.
+        # class_access's instructor leg has always also required can_create_classes
+        # (classes/spec/access_spec.py, it_denies_a_named_instructor_who_was_never_granted_teaching),
+        # so they already had no class screen at all and the composer was the last door open to
+        # them. Reachable in production through Member.revoke_teaching, which clears the unlock
+        # and leaves the class rows pointing at them.
+        offering = sign_in("named_only_instructor")
+        assert _screen_probe(client, offering) == SCREEN_CLOSED
+        assert _send_outcome(client, offering) == SEND_REFUSED
+
+    @pytest.mark.parametrize("role", ["admin_previewing_guild_officer", "admin_previewing_member"])
+    def it_refuses_an_admin_previewing_a_lower_role(role, sign_in, client):
+        # Criterion 4, unchanged: class_access is view-as aware, so the whole screen 404s and the
+        # send is refused on the role being looked through, not on the account holding it.
+        offering = sign_in(role)
+        assert _screen_probe(client, offering) == SCREEN_CLOSED
+        assert _send_outcome(client, offering) == SEND_REFUSED
+
+
+def describe_the_audience_list_offers_only_what_the_send_accepts():
+    """The composer's own affordance, held to the standard the class screen's button now meets.
+
+    ``hub.views._compose_editable_classes`` builds the audience dropdown from ``for_instructor``,
+    a bare FK filter. The moment the send gate started requiring the teaching grant, that filter
+    stopped being the gate: a member put through :meth:`membership.models.Member.revoke_teaching`
+    still matches the FK on every class they were named on, so the dropdown went on offering a
+    class whose Send answered 403 — and answered it where it had succeeded before. Rebuilding the
+    surface-shown, action-refused shape on the composer, inside the change whose whole argument is
+    that the shape is no longer expressible, is the one regression this ticket cannot ship.
+
+    :data:`ROLE_MATRIX` is structurally blind to it. ``_link_is_offered`` probes the class screen,
+    and this affordance lives on another page entirely, so the matrix would have stayed twelve for
+    twelve while the defect shipped. That is worth stating plainly next to the matrix rather than
+    trusting the matrix to be exhaustive because it is large.
+    """
+
+    @pytest.fixture
+    def revoked_instructor(db) -> tuple[Member, ClassOffering]:
+        """A member who taught a published class and then had teaching access taken away.
+
+        Built through ``revoke_teaching`` rather than by never granting it, because that is the
+        production path into this population and it leaves the class FK pointing at them.
+
+        They keep the public instructor page on purpose. ``_can_compose`` admits them on
+        ``is_instructor``, so the composer still renders and the dropdown is observable at all;
+        without the slug they are bounced to the propose flow and there is no list to inspect.
+        """
+        MembershipPlanFactory()
+        user = UserFactory(username="affordance-revoked@example.com")
+        member = InstructorFactory(user=user, full_legal_name="Dag Silva", instructor_slug="dag-silva")
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["instructor_oriented_at"])
+        offering = ClassOfferingFactory(
+            title="Saddle Stitch Basics",
+            slug="affordance-revoked-class",
+            instructor=member,
+            category=CategoryFactory(name="Leatherwork", guild=None),
+            status=Status.PUBLISHED,
+            price_cents=6000,
+        )
+        RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
+        member.revoke_teaching(revoked_by=None)
+        member.refresh_from_db()
+        assert member.can_create_classes is False
+        return member, offering
+
+    def it_drops_a_class_the_send_would_refuse(revoked_instructor, client):
+        member, offering = revoked_instructor
+        client.force_login(member.user)
+        response = client.get(reverse("hub_compose"))
+        # 200, not a redirect: they can still compose, which is what makes the absence below a
+        # statement about the audience list rather than about the page being shut.
+        assert response.status_code == 200
+        assert f'value="class:{offering.pk}"' not in response.content.decode()
+
+    def it_refuses_the_send_for_that_same_class(revoked_instructor, client):
+        # The half that was always true. Together with the spec above it says the dropdown and
+        # the Send now agree; before the fix they disagreed, and this one was the 403.
+        member, offering = revoked_instructor
+        client.force_login(member.user)
+        assert _send_outcome(client, offering) == SEND_REFUSED
+
+    def it_still_offers_a_class_the_grant_covers(instructor, roster_class, client):
+        # The control. Without it, emptying the audience list altogether would satisfy both specs
+        # above, and the narrowing is supposed to remove only what the gate refuses.
+        client.force_login(instructor.user)
+        content = client.get(reverse("hub_compose")).content.decode()
+        assert f'value="class:{roster_class.pk}"' in content
+
+    def it_offers_no_class_to_an_admin_previewing_guest(db):
+        """The case that separates asking the gate once from assuming the grant is a yes.
+
+        ``_compose_editable_classes`` asks :func:`hub.views._can_announce_to_class` once when the
+        viewer holds the teaching grant, because every row it could ask about shares
+        ``instructor_id == member.pk`` and so resolves on the same leg. The saving is real and so
+        is the trap: an implementation that read the grant as the answer, instead of asking the
+        gate for it, would hand this viewer their own class while ``class_access`` refuses them on
+        the guest leg above it. Asserted on the helper rather than through the page, because the
+        page never renders for a previewing guest and would hide the difference behind a redirect.
+        """
+        from django.test import RequestFactory
+
+        from hub.view_as import ROLE_GUEST, ViewAs, compute_actual_roles
+        from hub.views import _compose_editable_classes
+
+        MembershipPlanFactory()
+        user = UserFactory(username="affordance-preview-guest@example.com")
+        member = Member.objects.get(user=user)
+        member.fog_role = Member.FogRole.ADMIN
+        member.instructor_oriented_at = timezone.now()
+        member.save(update_fields=["fog_role", "instructor_oriented_at"])
+        member.sync_user_permissions()
+        offering = ClassOfferingFactory(
+            title="Anvil Care",
+            slug="affordance-preview-guest-class",
+            instructor=member,
+            category=CategoryFactory(name="Blacksmithing", guild=None),
+            status=Status.PUBLISHED,
+        )
+        request = RequestFactory().get("/")
+        request.user = user
+        request.view_as = ViewAs(actual=compute_actual_roles(user), picked=ROLE_GUEST)
+        assert member.can_create_classes is True
+        # The class is theirs and published, so the FK filter alone would list it.
+        assert list(ClassOffering.objects.for_instructor(member)) == [offering]
+        assert list(_compose_editable_classes(request, member)) == []
