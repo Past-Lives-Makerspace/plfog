@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-18"
+title = "Your typed class edits survive the class going live"
+changes = [
+  "If your class is published while you have its edit page open, pressing Save now brings the page back with everything you typed still in the form, and explains what changed.",
+  "Before, it reported a successful save and quietly dropped the title, dates and price you had changed.",
+]
