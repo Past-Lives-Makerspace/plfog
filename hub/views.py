@@ -1935,7 +1935,15 @@ def orientation_checkout_return(request: HttpRequest, token: str) -> HttpRespons
     from membership import orientations
     from membership.models import OrientationBooking
 
-    is_fragment = request.headers.get("HX-Request") == "true"
+    # HX-Request alone is not the discriminator. The hub keeps no htmx history cache
+    # (static/js/hub_boot.js, issue #383), so a Back onto this URL misses and htmx refetches
+    # it, carrying HX-Request but no HX-Boosted. Answering that with the bare card would
+    # swap a fragment into the body in place of the whole page. Every other HX-Request
+    # branch in the codebase is @require_POST and so cannot be reached by a restore, which
+    # is a GET; this one is reachable because it is where Stripe lands the member.
+    is_fragment = (
+        request.headers.get("HX-Request") == "true" and request.headers.get("HX-History-Restore-Request") != "true"
+    )
     try:
         poll_count = int(request.GET.get("n", "0"))
     except ValueError:
