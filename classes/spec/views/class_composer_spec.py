@@ -27,6 +27,7 @@ from classes.factories import (
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
 from classes.models import ClassApproval, ClassOffering, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 Status = ClassOffering.Status
 
@@ -1500,6 +1501,245 @@ def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
         assert "This class was archived after you opened this page, so nothing here was saved." in resp.content.decode()
         offering.refresh_from_db()
         assert offering.title == "Before"
+
+
+_PUBLISHED_NOTICE = (
+    "This class was published after you opened this page, so nothing here was saved. "
+    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
+    "To change the title, dates, price, or capacity, ask an admin. "
+    "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
+)
+
+
+def _light_payload(**extra) -> dict:
+    """What ``classes/teach/class_form_published.html`` actually posts: light fields, no hidden inputs.
+
+    The absence of ``step`` is the point of this helper, so it carries no ``action`` and no
+    ``step``; it is what the published branch must keep saving.
+    """
+    payload = {
+        "description": READY_DESCRIPTION,
+        "prerequisites": "Bring patience.",
+        "materials_included": "All the wood.",
+        "materials_to_bring": "Gloves.",
+        "safety_requirements": "Eye protection.",
+        "age_guardian_note": "Guardians welcome.",
+        "flexible_note": "",
+        "video_url": "",
+        "faq-TOTAL_FORMS": "0",
+        "faq-INITIAL_FORMS": "0",
+        "faq-MIN_NUM_FORMS": "0",
+        "faq-MAX_NUM_FORMS": "1000",
+    }
+    payload.update(extra)
+    return payload
+
+
+def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
+    """Issue #386: the cancelled race again, landing on the branch that serves the live class.
+
+    That branch takes two kinds of POST and the hidden ``step`` is what tells them apart, so
+    both rows are pinned here: the composer's POST saves nothing and comes back on screen, and
+    the published light-edit form's own POST saves and redirects exactly as it always has.
+    """
+
+    def _publish(offering) -> None:
+        offering.status = Status.PUBLISHED
+        offering.published_at = timezone.now()
+        offering.save(update_fields=["status", "published_at"])
+
+    def it_keeps_the_typed_work_on_screen_and_saves_nothing(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        description_before = offering.description
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", action="submit", step="5"),
+        )
+        assert resp.status_code == 200
+        html = resp.content.decode()
+        assert 'value="Typed after the render"' in html
+        assert "Bring patience." in html
+        assert _PUBLISHED_NOTICE in html
+        assert "Edit Class: Before" in html
+        assert "phase: 5," in html
+        assert "Some Things Need Fixing" not in html
+        assert "Class updated." not in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+        # The description is on BOTH forms, so it is the field that proves the light form did
+        # not quietly save a composer POST behind the notice.
+        assert offering.description == description_before
+        assert offering.status == Status.PUBLISHED
+
+    def it_treats_a_step_that_never_got_its_value_as_a_composer_post(instructor_fixture, client):
+        # The hidden step is Alpine bound, so a page whose script never ran posts it empty.
+        # An empty step is still the composer, and still must not fall through to the light form.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step=""),
+        )
+        assert resp.status_code == 200
+        assert _PUBLISHED_NOTICE in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.title == "Before"
+
+    def it_still_saves_the_published_light_edit_form(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _light_payload(materials_to_bring="An apron"),
+        )
+        assert resp.status_code == 302
+        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert "Class updated." in _messages(resp)
+        offering.refresh_from_db()
+        assert offering.materials_to_bring == "An apron"
+        assert offering.description == READY_DESCRIPTION
+        assert offering.title == "Before"
+
+    def it_still_renders_the_light_form_on_a_get(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert "This class is live." in html
+        assert _PUBLISHED_NOTICE not in html
+        assert 'name="step"' not in html
+
+    def it_sends_the_member_to_an_exit_that_is_not_another_post(instructor_fixture, client):
+        """The notice names Cancel, so Cancel has to reach the shorter form. Proved, not assumed.
+
+        The page is a POST response: reloading it re-sends the POST, which still carries ``step``
+        and lands right back on the notice. This walks the route the copy actually promises.
+        """
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        payload = _full_payload(offering.category, title="Typed after the render", step="5")
+
+        first = client.post(url, payload)
+        assert _PUBLISHED_NOTICE in first.content.decode()
+        # Re-sending the same body is what a reload does, and it loops. This is why the copy
+        # cannot say "reload this page".
+        again = client.post(url, payload)
+        assert again.status_code == 200
+        assert _PUBLISHED_NOTICE in again.content.decode()
+        assert "This class is live." not in again.content.decode()
+
+        cancel_url = first.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        landed = client.get(cancel_url)
+        assert landed.status_code == 200
+        # The class screen offers Edit under that exact label (classes/_components/class_screen_base.html),
+        # which is the word the notice uses.
+        assert landed.context["can_edit_now"] is True
+        assert f'href="{url}">Edit</a>' in landed.content.decode()
+        # And that Edit is a GET, which is the shorter form.
+        assert "This class is live." in client.get(url).content.decode()
+
+    def it_withholds_the_hero_uploader_that_would_still_write_to_the_live_class(instructor_fixture, client):
+        # The hero uploader posts to its own endpoint the instant a file is picked, and
+        # _edit_photos_or_404 closes only cancelled and archived classes, so on a published one
+        # it would change the public banner from a page headed "nothing here was saved".
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT, title="Before")
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        html = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="2"),
+        ).content.decode()
+        hero_upload = reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk})
+        assert hero_upload not in html
+        assert "hero-upload-area" not in html
+        assert "The photo cannot be changed from this page." in html
+        # The gallery is untouched: the live-edit form offers it too, so it is not this page's to take.
+        assert reverse("classes:teach_class_image_upload", kwargs={"pk": offering.pk}) in html
+
+    def it_gives_guild_staff_a_cancel_that_is_not_a_dead_end(instructor_fixture, client):
+        # Guild staff are the other population that lands here, and the notice tells them to
+        # press Cancel, so Cancel has to resolve for them too. It did not: `_guild_access`
+        # withholds the Overview on someone else's class, and teach_class_detail 404s without it.
+        guild = GuildFactory(name="Race Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = ClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="not-the-staffer"),
+            category=CategoryFactory(guild=guild),
+            status=Status.DRAFT,
+            title="Before",
+        )
+        client.force_login(instructor_fixture.user)
+        _publish(offering)
+        resp = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="5"),
+        )
+        assert _PUBLISHED_NOTICE in resp.content.decode()
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_dashboard")
+        assert client.get(cancel_url).status_code == 200
+
+    def it_leaves_the_cancelled_render_its_hero_uploader(instructor_fixture, client):
+        # The sibling path from #385 is deliberately unchanged; only the published caller withholds.
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.CANCELLED, title="Before")
+        client.force_login(instructor_fixture.user)
+        html = client.post(
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+            _full_payload(offering.category, title="Typed after the render", step="2"),
+        ).content.decode()
+        assert reverse("classes:teach_class_hero_upload", kwargs={"pk": offering.pk}) in html
+        assert "hero-upload-area" in html
+        assert "The photo cannot be changed from this page." not in html
+
+
+def describe_the_composers_cancel_link():
+    """Cancel has to resolve for every population the composer admits, not just the instructor.
+
+    It is one line in ``_composer_context``, but two different screens behind it: the class
+    screen for anyone who has an Overview, the dashboard for guild staff on someone else's
+    class, who under Ruling 12 do not. Pinned on the ordinary draft composer, because that is
+    where the route has always been reachable, not only on the published race page.
+    """
+
+    def it_sends_the_instructor_to_the_class_screen(instructor_fixture, client):
+        offering = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert client.get(cancel_url).status_code == 200
+
+    def it_sends_guild_staff_to_the_dashboard_instead_of_an_overview_they_cannot_open(instructor_fixture, client):
+        guild = GuildFactory(name="Cancel Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = ClassOfferingFactory(
+            instructor=InstructorFactory(instructor_slug="someone-else"),
+            category=CategoryFactory(guild=guild),
+            status=Status.DRAFT,
+        )
+        client.force_login(instructor_fixture.user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        assert resp.status_code == 200
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_dashboard")
+        assert client.get(cancel_url).status_code == 200
+        # The screen it used to point at is genuinely closed to them; this is not a preference.
+        assert client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).status_code == 404
+
+    def it_sends_the_admin_to_the_class_screen(admin_user, client, db):
+        offering = ClassOfferingFactory(status=Status.DRAFT)
+        client.force_login(admin_user)
+        resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
+        cancel_url = resp.context["cancel_url"]
+        assert cancel_url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+        assert client.get(cancel_url).status_code == 200
 
 
 def describe_the_missing_flag_on_a_class_that_is_no_longer_a_draft():

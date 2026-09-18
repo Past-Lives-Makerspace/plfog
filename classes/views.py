@@ -1754,6 +1754,23 @@ def _composer_step(request: HttpRequest) -> int:
     return clamp_step(source.get("step"))
 
 
+def _is_composer_post(request: HttpRequest) -> bool:
+    """Whether this POST came from the composer rather than one of the smaller class forms.
+
+    ``classes/_components/class_composer.html`` posts a hidden ``step``, the phase the page was
+    on. The published light-edit form (``classes/teach/class_form_published.html``) posts hidden
+    fields of its own, the CSRF token and the FAQ formset's management form, so the test is not
+    that it has none: it is that none of them is named ``step``, and no other form in the
+    project posts that name either.
+
+    Presence is the test, not the value: the input's value is Alpine bound, so a page whose
+    script never ran still posts ``step`` empty, and that is still the composer.
+
+    A GET needs no guard of its own: ``request.POST`` is empty on one, so this is already False.
+    """
+    return "step" in request.POST
+
+
 # A successful composer save leaves the class it saved on this session list. The next composer
 # GET for that class takes it back off and stamps data-composer-draft-saved on the page, which is
 # how static/js/composer_draft.js learns the browser held copy of what was typed is now redundant
@@ -1908,6 +1925,25 @@ def _saved_row(form: Any, offering: ClassOffering | None) -> ClassOffering | Non
     return ClassOffering.objects.prefetch_related("gallery_images").get(pk=offering.pk)
 
 
+def _leave_class_url(request: HttpRequest, offering: ClassOffering) -> str:
+    """Where a class editing screen sends someone who is leaving it: Cancel, and a finished save.
+
+    The class screen for anyone who has an Overview. The dashboard for guild staff on a class
+    they do not teach, who under Ruling 12 have none (``_guild_access``, ``classes/access.py``)
+    and whose ``teach_class_detail`` raises ``Http404``. Sending them there was a dead control on
+    the way out and, after a save, a 404 on top of a write that had already landed.
+
+    One helper for all three exits (the composer's Cancel, the live-class form's Cancel, and the
+    redirect after a live-class save) so they cannot drift apart on a capability question.
+
+    Requires ``request.class_access``, so it is for views behind ``@class_screen_required``.
+    """
+    access: ClassAccess = request.class_access  # type: ignore[attr-defined]
+    if access.can_view_overview:
+        return reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
+    return reverse("classes:teach_dashboard")
+
+
 def _composer_context(
     request: HttpRequest,
     *,
@@ -1937,8 +1973,7 @@ def _composer_context(
     is_draft = saved is not None and saved.status == ClassOffering.Status.DRAFT
     missing = readiness if is_draft and readiness is not None and request.GET.get("missing") else []
     if saved is not None:
-        # One screen now, so Cancel goes to the same place for every role.
-        cancel_url = reverse("classes:teach_class_detail", kwargs={"pk": saved.pk})
+        cancel_url = _leave_class_url(request, saved)
     else:
         cancel_url = reverse("classes:admin_classes" if is_admin else "classes:teach_dashboard")
     from membership.permissions import can_print_class_marketing
@@ -1995,8 +2030,14 @@ def _render_teach_class_form(
     offering: ClassOffering | None = None,
     faq_formset: Any = None,
     notice: str | None = None,
+    with_hero: bool = True,
 ) -> HttpResponse:
-    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error."""
+    """Render the instructor composer. ``notice`` is a page level refusal that is not a form error.
+
+    ``with_hero=False`` withholds the hero uploader. It is for a render that saves nothing: the
+    uploader writes the instant a file is picked, through its own endpoint, so on a page headed
+    "nothing here was saved" it is the one control that would still change the live class.
+    """
     offering = _saved_row(form, offering)
     saved = offering if offering is not None and offering.pk else None
     return render(
@@ -2013,6 +2054,9 @@ def _render_teach_class_form(
             "mode": mode,
             "faq_formset": faq_formset,
             "composer_notice": notice,
+            # Inverted on purpose: the template guards on the withheld flag, so every caller
+            # that never heard of it (the admin composer among them) keeps its hero uploader.
+            "hero_field_withheld": not with_hero,
             **_composer_context(
                 request,
                 form=form,
@@ -2020,7 +2064,7 @@ def _render_teach_class_form(
                 offering=offering,
                 is_admin=False,
             ),
-            **(_teach_gallery_context(saved) if saved is not None else {}),
+            **(_teach_gallery_context(saved, with_hero=with_hero) if saved is not None else {}),
         },
     )
 
@@ -2096,6 +2140,13 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, "Cancelled and archived classes can only be edited by an admin.")
         return redirect("classes:teach_dashboard")
     if offering.status == ClassOffering.Status.PUBLISHED:
+        # Two kinds of POST arrive here. The light form below is one of them and saves as it
+        # always has; a composer POST is a class published while its composer was open, and the
+        # light form holds none of the fields it carries, so it comes back unsaved instead.
+        if _is_composer_post(request):
+            return _render_unsaved_composer_post(
+                request, offering, teaching_member, notice=_PUBLISHED_WHILE_EDITING, with_hero=False
+            )
         # A live class gets the light-edit form on the same URL: content only, no re-review.
         return _teach_published_class_edit(request, offering, teaching_member)
     form = TeachClassOfferingForm(
@@ -2141,12 +2192,43 @@ _CLOSED_WHILE_EDITING = (
     "Copy anything you want to keep before you leave."
 )
 
+# The published race is the same loss with a different ending: the class is still the
+# instructor's to edit, just through the shorter live-class form, so the notice points there
+# rather than at an admin. The fields that form does not carry are the admin's, as ever.
+#
+# The last sentence names Cancel deliberately, and must not be softened back to "reload this
+# page". This page is the body of a POST, so a reload re-sends that POST, which still carries
+# ``step``, which lands right back here. Every control on the page loops the same way: Save
+# posts ``step`` again under a label that looks like it should work. Cancel is the only exit,
+# because it is a link to the class page, where Edit is a GET.
+_PUBLISHED_WHILE_EDITING = (
+    "This class was published after you opened this page, so nothing here was saved. "
+    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
+    "To change the title, dates, price, or capacity, ask an admin. "
+    "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
+)
 
-def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
-    """A composer POST to a class cancelled or archived since the page was rendered.
+
+def _render_unsaved_composer_post(
+    request: HttpRequest,
+    offering: ClassOffering,
+    teaching_member: Member,
+    *,
+    notice: str,
+    with_hero: bool,
+) -> HttpResponse:
+    """A composer POST to a class whose status moved on since the page was rendered.
 
     Nothing is saved. The page comes back with every typed value still in its field and a
     notice at the top, so the work can be copied out instead of vanishing on a redirect.
+
+    Args:
+        request: The POST that lost the race; its data is rebound, never saved.
+        offering: The class as the database now holds it.
+        teaching_member: The instructor or guild staffer the composer renders for.
+        notice: The page level explanation of what changed and what to do about it.
+        with_hero: Whether to keep the hero uploader. Spelled at both call sites rather than
+            defaulted, because it is the one control here that still writes to the class.
     """
     form = TeachClassOfferingForm(request.POST, request.FILES, instance=offering, teaching_member=teaching_member)
     formset = ClassSessionFormSet(request.POST, instance=offering, prefix="sessions")
@@ -2159,7 +2241,24 @@ def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, tea
         mode="edit",
         offering=offering,
         faq_formset=faq_formset,
+        notice=notice,
+        with_hero=with_hero,
+    )
+
+
+def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
+    """A composer POST to a class cancelled or archived since the page was rendered.
+
+    Keeps the hero uploader: a cancelled or archived class is off the catalog, its photo endpoint
+    is closed to this member anyway (``_edit_photos_or_404``), and this render is unchanged from
+    the one issue #385 shipped.
+    """
+    return _render_unsaved_composer_post(
+        request,
+        offering,
+        teaching_member,
         notice=_CLOSED_WHILE_EDITING.format(status=offering.get_status_display().lower()),
+        with_hero=True,
     )
 
 
@@ -2173,11 +2272,14 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
 
     form = TeachPublishedClassForm(request.POST or None, instance=offering)
     faq_formset = build_class_faq_formset(request.POST or None, offering)
+    # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
+    # landed must not return the saver to a 404 that reads as the save having failed.
+    leave_url = _leave_class_url(request, offering)
     if request.method == "POST" and form.is_valid() and faq_formset.is_valid():
         form.save()
         faq_formset.save()
         messages.success(request, "Class updated.")
-        return redirect("classes:teach_class_detail", pk=offering.pk)
+        return redirect(leave_url)
     return render(
         request,
         "classes/teach/class_form_published.html",
@@ -2187,6 +2289,9 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "form": form,
             "faq_formset": faq_formset,
             "offering": offering,
+            # Named as the composer names it, because it is the same control answering the
+            # same question on the sibling screen.
+            "cancel_url": leave_url,
             # A live class is where the flyer and QR unlock, and this is the only teach
             # page a live class lands on, so the Share & Print card renders here.
             "can_print_marketing": can_print_class_marketing(request, offering),
