@@ -324,8 +324,12 @@ def describe_the_guild_capability_set():
     def it_cannot_put_the_class_on_sale(guild_access):
         assert guild_access.can_sale is False
 
-    def it_cannot_send_email(guild_access):
-        assert guild_access.can_send_email is False
+    def it_can_send_email(guild_access):
+        # #371 item 1 flipped this. Emails is the only tab ruling 12 leaves this population,
+        # and until now it was also the only thing they could not use: the link was withheld
+        # and the composer's Send answered 403. Jo's call is that a lead may address a class in
+        # their own guild, with the composer's per-person picker.
+        assert guild_access.can_send_email is True
 
     def it_shows_only_the_emails_tab(guild_access):
         assert [tab.key for tab in guild_access.tabs] == ["emails"]
@@ -516,6 +520,13 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
         def it_keeps_the_emails_tab(approving_lead):
             assert "emails" in [tab.key for tab in approving_lead.tabs]
 
+        def it_keeps_the_composer_the_guild_row_gave_them(approving_lead):
+            # Since #371 item 1 the GUILD row carries can_send_email, so the composed set
+            # carries it too. It is a "keeps", not a "gains": the reviewer row has never
+            # carried it and still does not, which the reviewer-set specs above pin. Holding
+            # CLASS_APPROVER must not be a way to acquire the composer.
+            assert approving_lead.can_send_email is True
+
         def it_gains_approve(approving_lead):
             assert approving_lead.can_approve is True
 
@@ -541,7 +552,6 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             assert approving_lead.can_submit is False
             assert approving_lead.can_cancel is False
             assert approving_lead.can_sale is False
-            assert approving_lead.can_send_email is False
 
     def describe_and_staffs_the_classes_guild():
         """Ruling 23: staff get the same reach as the lead, here too."""

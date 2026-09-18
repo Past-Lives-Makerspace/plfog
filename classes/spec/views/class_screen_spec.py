@@ -153,12 +153,18 @@ def describe_the_class_header():
             html = _html(client, name, guild_class)
             assert "View public profile" in html, name
 
-    def it_offers_send_email_only_to_a_viewer_who_may_use_it(instructor, guild_lead, guild_class, client):
+    def it_offers_send_email_to_every_viewer_who_may_use_it(instructor, guild_lead, guild_class, client):
+        # The guild lead's half flipped in #371 item 1: they may address a class in their own
+        # guild now, so the link is offered on the one tab ruling 12 leaves them. The pair is
+        # kept rather than reduced to the instructor, because the point of the assertion is that
+        # the link tracks a capability and not a role — it is now offered to two populations
+        # that hold can_send_email for two different reasons. Who is REFUSED it is pinned, with
+        # the matching Send outcome for each, in send_email_affordance_spec's ROLE_MATRIX.
         compose = f"{reverse('hub_compose')}?audience=class:{guild_class.pk}&amp;lock=1"
         client.force_login(instructor.user)
         assert compose in _html(client, "classes:teach_class_detail", guild_class)
         client.force_login(guild_lead.user)
-        assert compose not in _html(client, "classes:teach_class_emails", guild_class)
+        assert compose in _html(client, "classes:teach_class_emails", guild_class)
 
 
 def describe_the_guild_leads_screen():

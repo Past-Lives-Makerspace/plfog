@@ -539,13 +539,30 @@ def _instructor(
 
     ``slug=False`` makes a *teaching-only* instructor — no public instructor profile
     (``instructor_slug`` unset), which is the shape that used to bounce off the composer gate.
+
+    ``instructor_oriented_at`` is what this helper's own docstring has always claimed and never
+    set. It is the single source of truth for ``Member.can_create_classes``, so without it this
+    fixture built a member merely *named* on a class rather than one who teaches it, and the nine
+    specs below passed only because ``hub.views._can_announce_to_class`` compared
+    ``instructor_id`` on its own. Since #371 item 1 that gate delegates to
+    ``classes.access.class_access``, whose instructor leg has always required the grant as well,
+    so the two now agree and the fixture has to mean what it says.
+
+    Setting it changes none of these specs' subjects. ``slug=False`` is still slugless, which is
+    the shape they were written for — ``_can_compose`` reads ``instructor_slug`` and the taught
+    published classes, never this field — and the DRAFT-class specs still reach the gate through
+    the lock alone, because the instructor leg is status-independent. The population this
+    removes from the file, a named instructor who was never granted teaching, is pinned
+    explicitly instead in ``classes/spec/views/send_email_affordance_spec.py`` so the coverage is
+    moved rather than deleted.
     """
     MembershipPlanFactory()
     user = User.objects.create_user(username=username, email=f"{username}@x.com", password="p")
     member = user.member
+    member.instructor_oriented_at = timezone.now()
     if slug:
         member.instructor_slug = username
-        member.save(update_fields=["instructor_slug"])
+    member.save(update_fields=["instructor_oriented_at", "instructor_slug"])
     offering = ClassOfferingFactory(instructor=member, status=status)
     client.login(username=username, password="p")
     return user, member, offering
@@ -788,9 +805,11 @@ def describe_teaching_instructor_gate():
 
 def describe_send_announcement_entry_points():
     def it_shows_a_send_email_button_on_the_teach_class_page(client: Client):
-        _user, member, offering = _instructor(client, username="teachbtn")
-        member.instructor_oriented_at = timezone.now()  # the teach portal's own gate
-        member.save(update_fields=["instructor_oriented_at"])
+        # The teach portal's own gate (instructor_oriented_at) used to be set by hand right here,
+        # and nowhere else in this file. _instructor now sets it for everyone, which is what its
+        # docstring always claimed; this spec needed it first because teach_class_detail reaches
+        # class_access, which the composer gate now reaches too.
+        _user, _member, offering = _instructor(client, username="teachbtn")
         content = client.get(reverse("classes:teach_class_detail", args=[offering.pk])).content.decode()
         assert "</svg>Send Email</a>" in content
         assert "Send Announcement" not in content

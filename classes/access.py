@@ -196,6 +196,19 @@ def _guild_access() -> ClassAccess:
     """A guild lead or staffer on a class they do not teach: Edit and Emails, nothing else.
 
     Ruling 12: no Overview on someone else's class, so Emails is where they land.
+
+    **And Emails now works.** ``can_send_email`` was False here until #371 item 1, which made
+    the one tab this population lands on the one thing they could not use: the Send Email link
+    was withheld, and a guild lead who reached the composer another way got 200 from the
+    preview and 403 from Send. Jo's call is to let them send, with the composer's per-person
+    recipient picker.
+
+    That is a deliberate relaxation of ruling 12 in practice, and it is recorded here rather
+    than arrived at quietly. ``can_view_registrations`` stays False, so the roster tab is still
+    closed to them — but the composer's picker lists registrants by name, so a guild lead who
+    may address a class can see who is in it. Jo was shown that consequence and chose it. Do
+    not read the surviving False on ``can_view_registrations`` as a claim that names are hidden
+    from this population; it only means the Registrations TAB is not theirs.
     """
     return ClassAccess(
         role=ROLE_GUILD,
@@ -211,7 +224,7 @@ def _guild_access() -> ClassAccess:
         can_submit=False,
         can_cancel=False,
         can_sale=False,
-        can_send_email=False,
+        can_send_email=True,
     )
 
 

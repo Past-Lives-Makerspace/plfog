@@ -30,6 +30,7 @@ from django.views.decorators.http import require_POST, require_http_methods
 
 from billing.exceptions import NoPaymentMethodError, TabLimitExceededError, TabLockedError
 from billing.models import BillingSettings, Tab, TabCharge
+from classes.access import class_access
 from classes.models import Category, ClassOffering
 from core.features import is_on
 from core.models import BiometricCredential, HeroCropMixin, SiteConfiguration
@@ -3425,11 +3426,41 @@ def _compose_editable_classes(request: HttpRequest, member: Member | None) -> Qu
 
 
 def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> bool:
-    """True when the user may announce to a class's roster — the class's instructor, or an admin."""
-    if _viewing_as_admin(request):
-        return True
-    member = _get_member(request)
-    return member is not None and offering.instructor_id == member.pk
+    """True when the user may announce to a class's roster: :attr:`ClassAccess.can_send_email`, delegated.
+
+    **This is the same object the Send Email link reads**, not a second expression that agrees
+    with it. ``templates/classes/_components/class_screen_base.html`` renders the link behind
+    ``{% if access.can_send_email %}`` and ``classes.views.teach_class_email`` gates on the same
+    attribute, so delegating here makes the affordance and the endpoint one predicate rather than
+    two that happen to match. #414's review found they matched only because ``classes/access.py``
+    was the stricter of the two, and called that agreement "not by construction". It is by
+    construction now: the "button that lies" shape #371 was opened about stops being expressible.
+
+    Two populations move, and both moves are the point rather than side effects:
+
+    * A **guild lead or staffer** on a class in their own guild is admitted (#371 item 1). They
+      were already shown the composer — ``_can_compose`` admits them on their staffed guild — and
+      then refused on Send with a 403. Now the Send succeeds, and the link is offered.
+    * A member merely **named as a class's instructor who was never granted teaching access** is
+      refused, where the old two-clause expression admitted them on ``instructor_id`` alone.
+      ``class_access``'s instructor leg has always required ``member.can_create_classes`` as well
+      (``classes.access`` ``describe_and_nobody_else_ruling_6``), so this is the stricter half of
+      the same delegation. They reach the class screen nowhere else either — that leg returns
+      ``None`` for them — so admitting them here was the two expressions disagreeing, not a
+      capability anyone designed.
+
+    ``class_access`` is view-as aware and reads ``request.view_as``, which is what keeps the
+    previewing admin, the guest and the unauthenticated request refused without a clause here.
+
+    Args:
+        request: The incoming request, carrying ``view_as`` from the middleware.
+        offering: The class whose roster is being addressed.
+
+    Returns:
+        True when this request holds ``can_send_email`` on this class.
+    """
+    access = class_access(request, offering)
+    return access is not None and access.can_send_email
 
 
 def _can_compose(request: HttpRequest, member: Member | None) -> bool:
@@ -3454,10 +3485,14 @@ def _can_compose(request: HttpRequest, member: Member | None) -> bool:
 def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience: str | None) -> bool:
     """Gate for the composer surfaces: general compose rights, or rights over a pre-scoped class.
 
-    The class pages link here with ``?audience=class:<pk>&lock=1``; the class's own instructor may
-    always address that roster (:func:`_can_announce_to_class`) even when the class is not yet
-    published, so a pre-scoped class target they may announce to admits them on its own. The send
-    and save paths re-check the audience server-side regardless (:func:`_compose_audience_forbidden`).
+    The class pages link here with ``?audience=class:<pk>&lock=1``, so a pre-scoped class target
+    the viewer may announce to admits them on its own (:func:`_can_announce_to_class`) even when
+    the class is not yet published — a pending class's instructor legitimately emails its early
+    registrants before publish, and a guild lead reaches their own guild's classes this way,
+    since :func:`_compose_editable_classes` lists only the classes the viewer personally teaches.
+    "May announce to" is the capability, not the FK: a member named as a class's instructor who
+    holds no teaching access is not admitted here. The send and save paths re-check the audience
+    server-side regardless (:func:`_compose_audience_forbidden`).
     """
     if _can_compose(request, member):
         return True
