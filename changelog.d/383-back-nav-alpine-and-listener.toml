@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-09-18"
+title = "The Back button stops breaking the page you return to"
+changes = [
+  "If you press Back to return to a wiki page you were editing, what you type now saves. Before, the editor came back looking perfectly normal and quietly threw away every word you wrote.",
+  "Pressing Back into a class you were scheduling no longer shows everything twice. The start times, the lengths, and the sessions you had already added were all being doubled.",
+]
