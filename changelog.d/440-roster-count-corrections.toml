@@ -2,7 +2,6 @@ bump = "patch"
 date = "2026-09-18"
 title = "Two counts of the same class stop disagreeing"
 changes = [
-  "On the page listing sign-ups across all your classes, the heading counted people on the waitlist as registered, so it could say 13 on a class every other screen called 10. It now says how many are registered and how many are waiting, separately.",
-  "A class with nobody seated but people on the waitlist said No registrations yet. It now says how many are waiting.",
-  "The staff email about a new sign-up counted cancelled sign-ups toward the class being full, so it disagreed with the instructor email about the same sign-up.",
+  "On the page listing sign-ups across all your classes, the heading counted people on the waitlist as registered, so it could say 13 on a class every other screen called 10. It now gives the two numbers separately.",
+  "A class with nobody seated but people on the waitlist read as having nobody signed up at all. It now says how many are waiting.",
 ]

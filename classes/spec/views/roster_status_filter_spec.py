@@ -50,6 +50,19 @@ def _row_markup(html: str, pk: int) -> str:
     return html[start : html.index("</tr>", start)]
 
 
+def _roster_empty_state(html: str) -> str:
+    """The roster table's empty-state line only.
+
+    Scoped rather than asserted against the whole page on purpose: the in-app changelog
+    renders into every hub page's context, so an entry that quotes this copy back ("a class
+    ... said No registrations yet") satisfies a page-wide substring assertion and the spec
+    passes on the wrong element.
+    """
+    at = html.index("data-roster-empty")
+    start = html.index(">", at) + 1
+    return html[start : html.index("</div>", start)].strip()
+
+
 def _group_header(html: str, title: str) -> str:
     """The cross-class page's header row for one class, so count assertions stay scoped."""
     start = html.index(f"<strong>{title}</strong>")
@@ -175,7 +188,7 @@ def describe_the_registrations_tab():
         offering = ClassOfferingFactory(instructor=member, capacity=4)
         _seats(offering, Registration.Status.CONFIRMED, 4)
         response = client.get(reverse("classes:teach_class_registrations", args=[offering.pk]))
-        assert "cancelled" not in response.content.decode().lower().split("<table")[0]
+        assert "pl-roster-filter" not in response.content.decode()
 
     def it_still_offers_the_toggle_when_every_row_is_cancelled(client):
         """The empty-looking roster is the one that most needs to say who is missing."""
@@ -187,7 +200,7 @@ def describe_the_registrations_tab():
         body = client.get(url).content.decode()
         assert _row_ids(body) == []
         assert "Show 3 cancelled" in body
-        assert "No registrations yet." not in body
+        assert _roster_empty_state(body) == "Nobody is holding a seat right now."
         opened = _row_ids(client.get(url, {"show_cancelled": "1"}).content.decode())
         assert sorted(opened) == sorted(reg.pk for reg in cancelled + refunded)
 
@@ -416,8 +429,7 @@ def describe_the_empty_roster():
         offering = ClassOfferingFactory(instructor=member, capacity=8)
         _seats(offering, Registration.Status.WAITLISTED, 6)
         body = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
-        assert "No registrations yet." not in body
-        assert "6 on the waitlist" in body
+        assert _roster_empty_state(body) == "Nobody has a seat yet. 6 on the waitlist."
 
     def it_says_the_same_on_the_standalone_table(client):
         """The refund refresh serves this partial on its own, so it needs the count too."""
@@ -426,19 +438,18 @@ def describe_the_empty_roster():
         _seats(offering, Registration.Status.WAITLISTED, 1)
         url = reverse("classes:teach_class_registrations_table", args=[offering.pk])
         body = client.get(url).content.decode()
-        assert "No registrations yet." not in body
-        assert "1 on the waitlist" in body
+        assert _roster_empty_state(body) == "Nobody has a seat yet. 1 on the waitlist."
 
     def it_still_points_at_the_cancelled_rows_when_there_is_no_waitlist(client):
         member = _login_instructor(client, "empty-cancelled@example.com", "empty-cancelled")
         offering = ClassOfferingFactory(instructor=member, capacity=6)
         _seats(offering, Registration.Status.CANCELLED, 2)
         body = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
-        assert "Nobody is holding a seat right now." in body
+        assert _roster_empty_state(body) == "Nobody is holding a seat right now."
         assert "Show 2 cancelled" in body
 
     def it_says_nothing_yet_on_a_class_nobody_has_touched(client):
         member = _login_instructor(client, "empty-fresh@example.com", "empty-fresh")
         offering = ClassOfferingFactory(instructor=member, capacity=10)
         body = client.get(reverse("classes:teach_class_registrations", args=[offering.pk])).content.decode()
-        assert "No registrations yet." in body
+        assert _roster_empty_state(body) == "No registrations yet."
