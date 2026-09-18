@@ -690,10 +690,10 @@ class SiteConfiguration(models.Model):
         help_text=(
             "When on, the member directory at /members/ is viewable without signing in (the original "
             "public-directory behavior). When off, visitors must sign in before the directory shows anything. "
-            "This is NOT the on/off switch for the directory itself — that is Member Directory in the feature "
-            "list above, and a directory set to Hidden or Coming soon there is gone for everyone regardless of "
-            "this setting. Two switches, two jobs: that one decides whether the feature exists, this one "
-            "decides whether signed-out visitors can see it."
+            "This is the real access switch for the directory. Member Directory in the feature list above is "
+            "cosmetic: it only decides whether the entry shows in the sidebar, and the page stays reachable by "
+            "its own link either way. Two switches, two jobs — that one tidies the sidebar, this one decides "
+            "whether signed-out visitors can read the directory."
         ),
     )
     member_event_policy = models.CharField(
